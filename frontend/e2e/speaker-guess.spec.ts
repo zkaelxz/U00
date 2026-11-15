@@ -99,7 +99,7 @@ test('a flagged card with no speaker stays open after its speaker is picked, and
 
   await guesses(page, 3).getByRole('button', { name: /^Anvil/ }).click()
   await expect(card(page, 3).locator('.review-speaker')).toHaveText('Anvil')
-  await expect(card(page, 3).getByTestId('speaker-note')).toHaveText('Speaker set to Anvil. This line is still listed: fast to read, 25 characters a second.')
+  await expect(card(page, 3).getByTestId('speaker-note')).toHaveText('Speaker set to Anvil. This line is still listed: too fast to read, 25 characters a second.')
   await expect(page.getByText('Need a look 3', { exact: true })).toBeVisible()
 
   // The note goes with the Undo, and the buttons come back.

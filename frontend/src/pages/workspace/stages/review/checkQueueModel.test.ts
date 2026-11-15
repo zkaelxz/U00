@@ -4,8 +4,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import {
-  alsoUnsureText, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, nextAfterCheck, nextText, NO_SPEAKER_FIRST, NO_SPEAKER_REASON, onlyNeedsSpeaker, otherFineText,
-  positionText, queueAction, queueCounts, queueReason, QUEUE_FLAG_KINDS, restUnchecked, stillListedNote, UNSURE_FIRST, untranslatedText, WHOLE_LIST_FIRST,
+  alsoUnsureText, askedReason, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, markRestView, nextAfterCheck, nextText, NO_SPEAKER_FIRST,
+  NO_SPEAKER_REASON, onlyNeedsSpeaker, otherFineText, placeText, queueAction, queueCounts, queuePlace, queueReason, QUEUE_FLAG_KINDS, restUnchecked, stillListedNote, UNSURE_FIRST,
+  untranslatedText, WHOLE_LIST_FIRST,
 } from './checkQueueModel'
 
 const line = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
@@ -63,70 +64,71 @@ describe('reasons', () => {
 })
 
 // Each kind with a note written the way the server writes it (the module named beside it), and the words the card shows.
-const REASONS: [string, string, string, string][] = [
+// The chip and the Next line's words are written out per row, not derived, so a change to either shows here.
+const REASONS: [string, string, string, string, string, string][] = [
   ['uncertain_translation', 'check: may be merged or shifted', // translation_guard.py FLAG_NOTE
     'The English may also hold the next line’s words, or belong to a different line. Compare it with the source and the lines around it.',
-    'Translation may be off'],
+    'Translation may be off', 'Translation may be off', 'translation may be off'],
   ['ambiguous_reference', 'Who "he" is here is unclear.',
     'It isn’t clear who or what a word like “she” or “that place” means here. Check the English points to the right person or thing. Note: Who "he" is here is unclear.',
-    'Unclear who or what'],
+    'Unclear who or what', 'Unclear who or what', 'unclear who or what'],
   ['name_uncertain', 'Wei Ying or Wei Yin?',
     'A name or term here may be misspelled, or written differently than in other lines. Check it against the glossary. Note: Wei Ying or Wei Yin?',
-    'Name may be misspelled'],
+    'Name may be misspelled', 'Name may be misspelled', 'name may be misspelled'],
   ['slang_idiom', '',
     'This line has slang or a saying that may not have come across well in English. Check the English sounds natural and means the same.',
-    'Slang or a saying'],
+    'Slang or a saying', 'Slang or a saying', 'slang or a saying'],
   ['timing_uncertain', 'Split evenly by length (no sentence punctuation or word timings to cut at); the times are approximate.', // resegment.py
     'This line was split by length, with no punctuation or word timings to cut at, so its times are rough. Play it and check it starts and ends with the speech.',
-    'Times are a guess'],
+    'Times are a guess', 'Times are a guess', 'times are a guess'],
   ['language_uncertain', "The spoken language of this line couldn't be confirmed: the text doesn't match the language detected, and a retry in the title's language didn't match either -- check the text and the language.", // mixed_language.py
     'The text doesn’t seem to be in the language heard for this line, even after a second try. Check the text, and the line’s spoken language under Edit details.',
-    'Language unclear'],
+    'Language unclear', 'Language unclear', 'language unclear'],
   ['timing_overlap', 'Overlapped the next line by 0.35s; exports trim its end to 12.40s. Adjust the timing to fix it for good.', // subtitle_formats.overlap_note
     'This line runs 0.35 s into the next one, so exports end it early, at 0:12.40. Change its end time to fix it for good.',
-    'Runs into the next line'],
+    'Runs into the next line', 'Runs into the next line', 'runs into the next line'],
   ['timing_drift', 'Starts 0.6 s before speech; ends 1.2 s after speech. Speech detection can mistake music for speech; check by ear.', // timing_drift.py
     'The times of this line don’t match the speech in the audio: it starts 0.6 s before the speech and ends 1.2 s after the speech. Play it and move its start or end to the speech. Music can be taken for speech in this audio, so check by ear.',
-    'Times off the speech'],
+    'Times off the speech', 'Times off the speech', 'times off the speech'],
   ['reading_speed', '25.2 characters/second -- more than ~17/s is hard to read in time. The speech is this fast: shorten the text.', // subtitle_formats._dense_note
     'This subtitle is too fast to read: 25.2 characters a second, and more than about 17 is hard to read in time. Shorten the text.',
-    'Fast to read, 25 characters a second'],
+    'Too fast to read, 25 characters a second', 'Too fast to read: 25 characters a second', 'too fast to read'],
   ['factual_detail', 'In the source but not the translation: 300 (number). Uses a translation flagged as prohibited: Wei Yin. Check the translation says the same thing.', // auto_qc.issue_note
     'The source and the English don’t agree on a number, date, name, amount or unit. In the source but not the English: 300 (number). The English uses a translation the glossary says not to use: Wei Yin. Make the English say the same thing as the source.',
-    'A number or name differs'],
+    'A number or name differs', 'A number or name differs', 'a number or name differs'],
   ['engines_disagree', 'Heard differently (62% alike). Saved: 三百人 / Qwen3 ASR: 三白人', // compare_transcription_service._disagreement_note
     'Two speech engines heard this line differently. The saved text is “三百人”; Qwen3 ASR heard “三白人”. Play it and keep the one that’s right, or transcribe the line again.',
-    'Heard two ways'],
+    'Heard two ways', 'Heard two ways', 'heard two ways'],
   ['gap_untranscribed', 'Added for a stretch with no subtitle line; check the text', // transcribe_gap_service.GAP_FLAG_NOTE
     'This line was added for a stretch of audio that had no subtitle. Play it and check the text matches what is said.',
-    'Added for a gap'],
+    'Added for a gap', 'Added for a gap', 'added for a gap'],
   ['bulk_source_changed', 'Bulk result not applied: Three hundred people', // bulk_apply.py
     'The source text changed while a batch translation was waiting, so its English was not used. Translate this line again. The unused English was “Three hundred people”.',
-    'Source changed during a batch'],
+    'Source changed during a batch', 'Source changed during a batch', 'source changed during a batch'],
   ['source_changed', '',
     'The source text was changed after this line was translated, so the English may no longer match. Keep the English if it still fits, or improve it.',
-    'Source changed'],
+    'Source changed', 'Source changed', 'source changed'],
   ['pronoun_check', 'Says he/him but no he/him character is set for this speaker; check the pronoun', // translate_pipeline.py
     'The English says “he” or “him”, but this line’s speaker has no character set as he/him. Check the pronoun is right.',
-    'Check he or him'],
+    'Check he or him', 'Check he or him', 'check he or him'],
   ['glossary_missing', 'Glossary: 夷陵老祖 -> Yiling Patriarch missing', // glossary_check.flag_note
     'The glossary writes 夷陵老祖 as “Yiling Patriarch”, but the English doesn’t use that name. Put it in the English, or change the glossary if the name is wrong.',
-    'Glossary name not used: 夷陵老祖'],
+    'Glossary name not used: 夷陵老祖', 'The English does not use the glossary name for 夷陵老祖', 'glossary name not used'],
   ['source_mismatch', 'Source match: the English reads unlike its source line (similarity 0.42)', // alignment_check.flag_note
     'The English reads unlike its source line. It may belong to the line before or after, leave something out, or answer a different line. Compare it with the lines around it.',
-    'May not match the source'],
+    'May not match the source', 'May not match the source', 'may not match the source'],
   ['source_suspect', '“哈” repeats 4+ times in a row; ends mid-phrase; the next line is only “吗”', // source_suspect.py
     'The source text looks off: “哈” repeats 4 or more times in a row and it stops mid-sentence, and the next line is only “吗”. The transcription may be wrong or split badly, which can make the English odd. Play it and fix the source text, or transcribe the line again.',
-    'Source text looks off'],
+    'Source text looks off', 'Source text looks off', 'source text looks off'],
   ['content_blocked', 'gemini: SAFETY', // translate_pipeline.py
     'The translation engine’s content filter refused this line, so it was not translated. Gemini gave this reason: “SAFETY”. Retry the line with another engine.',
-    'Blocked by the engine'],
+    'Blocked by the engine', 'Blocked by the engine', 'blocked by the engine'],
   ['text_uncertain', 'More text than this stretch of audio can hold; check against the audio', // whisper_hallucination.py IMPLAUSIBLE_RATE_NOTE
     'There is more text here than this stretch of audio can hold. Play the line, then fix it or delete it.',
-    'May not be real speech'],
+    'May not be real speech', 'May not be real speech', 'may not be real speech'],
   ['talk_over', 'Another speaker talks here; type what they say or delete the line', // speaker_overlap_service.py TALK_OVER_NOTE
     'Another speaker talks over this line. Type what they say, or delete the line.',
-    'Another speaker talks here'],
+    'Another speaker talks here', 'Another speaker talks here', 'another speaker talks here'],
 ]
 
 // The flags set outside flag_reasons.py, read from the modules that set them.
@@ -150,9 +152,9 @@ describe('queue reasons', () => {
     expect(REASONS.map(([kind]) => kind).sort()).toEqual([...kinds].sort())
   })
 
-  for (const [flag, note, text, short] of REASONS) {
+  for (const [flag, note, text, short, chip, next] of REASONS) {
     it(`writes ${flag} as a plain sentence`, () => {
-      expect(queueReason({ flag, flag_note: note, confidence: null })).toEqual({ text, short })
+      expect(queueReason({ flag, flag_note: note, confidence: null })).toEqual({ text, short, chip, next })
       expect(text).not.toMatch(/--|->/)
     })
   }
@@ -164,6 +166,8 @@ describe('queue reasons', () => {
       text: 'The glossary writes 夷陵老祖 as “Yiling Patriarch”, 魏婴 as “Wei Ying”, 蓝湛 as “Lan Zhan” and 2 more names, but the English doesn’t use those names. ' +
         'Put them in the English, or change the glossary if a name is wrong.',
       short: 'Glossary name not used: 夷陵老祖, 魏婴, 蓝湛 and 2 more',
+      chip: 'The English does not use the glossary names for 夷陵老祖, 魏婴, 蓝湛 and 2 more',
+      next: 'glossary name not used',
     })
     expect(say('reading_speed', '21.0 characters/second -- more than ~17/s is hard to read in time. The next line leaves room: it could be shown 0.8 s longer, or shorten the text.')?.text)
       .toBe('This subtitle is too fast to read: 21.0 characters a second, and more than about 17 is hard to read in time. Shorten the text, or show the line 0.8 s longer: the next line leaves room.')
@@ -206,7 +210,9 @@ describe('queue reasons', () => {
       ['Cut into slivers of audio, often unclear speech; check against the audio', 'This line is cut into slivers of audio, which is often unclear speech.'],
       ['Text in a split second of audio; check against the audio', 'This text sits in a split second of audio, too short to hold it.'],
     ]
-    for (const [note, text] of notes) expect(say('text_uncertain', note)).toEqual({ text: `${text} Play the line, then fix it or delete it.`, short: 'May not be real speech' })
+    for (const [note, text] of notes) {
+      expect(say('text_uncertain', note)).toEqual({ text: `${text} Play the line, then fix it or delete it.`, short: 'May not be real speech', chip: 'May not be real speech', next: 'may not be real speech' })
+    }
     expect(say('text_uncertain', '')?.text).toBe('Whisper may have written something that was not said here. Play the line, then fix it or delete it.')
   })
 
@@ -215,6 +221,8 @@ describe('queue reasons', () => {
     expect(glossary).toEqual({
       text: 'The English doesn’t use a name the glossary sets for this line. Put the glossary’s name in the English, or change the glossary if it is wrong. Note: Glossary: a -> b -> c missing',
       short: 'Glossary name not used',
+      chip: 'The English does not use a glossary name',
+      next: 'glossary name not used',
     })
     expect(queueReason({ flag: 'timing_drift', flag_note: 'Starts 0.6 s before speech; wobbles.', confidence: null })?.text).toMatch(/speech\. Note: Starts 0\.6 s before speech; wobbles\.$/)
     expect(queueReason({ flag: 'source_suspect', flag_note: 'has Runic characters', confidence: null })?.text).toMatch(/Note: Has Runic characters$/)
@@ -222,8 +230,10 @@ describe('queue reasons', () => {
   })
 
   it('keeps the line list’s own text for a kind it does not know, and the Whisper reason for an unflagged line', () => {
-    expect(queueReason({ flag: 'brand_new_check', flag_note: 'look here', confidence: null })).toEqual({ text: 'Brand new check · Look here', short: 'Brand new check' })
-    expect(queueReason({ flag: null, flag_note: null, confidence: 0.5 })).toEqual({ text: 'Whisper was unsure of this line (50% sure)', short: 'Whisper was unsure (50% sure)' })
+    expect(queueReason({ flag: 'brand_new_check', flag_note: 'look here', confidence: null }))
+      .toEqual({ text: 'Brand new check · Look here', short: 'Brand new check', chip: 'Brand new check', next: 'brand new check' })
+    expect(queueReason({ flag: null, flag_note: null, confidence: 0.5 }))
+      .toEqual({ text: 'Whisper was unsure of this line (50% sure)', short: 'Whisper was unsure (50% sure)', chip: 'Whisper was unsure of this line (50% sure)', next: 'Whisper was unsure' })
     expect(queueReason({ flag: null, flag_note: null, confidence: 0.9 })).toBeNull()
   })
 
@@ -234,13 +244,13 @@ describe('queue reasons', () => {
     expect(queueReason({ ...blank, speaker_manual: true })).toBeNull()
     expect(queueReason({ ...blank, sfx: true })).toBeNull()
     expect(queueReason({ ...blank, confidence: 0.5 })?.short).toBe('Whisper was unsure (50% sure)')
-    expect(queueReason({ ...blank, flag: 'reading_speed' })?.short).toBe('Fast to read')
+    expect(queueReason({ ...blank, flag: 'reading_speed' })?.short).toBe('Too fast to read')
     expect(queueAction(blank)).toBeNull()
   })
 
   it('says what still lists a card once its speaker is set, and nothing when nothing does', () => {
     expect(stillListedNote(line(3, { flag: 'reading_speed', flag_note: '25.2 characters/second -- more than ~17/s is hard to read in time. The speech is this fast: shorten the text.' }), 'Cray'))
-      .toBe('Speaker set to Cray. This line is still listed: fast to read, 25 characters a second.')
+      .toBe('Speaker set to Cray. This line is still listed: too fast to read, 25 characters a second.')
     expect(stillListedNote(line(3, { confidence: 0.58 }), 'Cray')).toBe('Speaker set to Cray. This line is still listed: Whisper was unsure (58% sure).')
     expect(stillListedNote(line(3), 'Cray')).toBeNull()
   })
@@ -250,6 +260,39 @@ describe('queue reasons', () => {
     expect(onlyNeedsSpeaker(line(1, { flag: 'reading_speed' }))).toBe(false)
     expect(onlyNeedsSpeaker(line(1, { confidence: 0.5 }))).toBe(false)
     expect(onlyNeedsSpeaker(line(1, { speaker: 'Anvil' }))).toBe(false)
+  })
+})
+
+describe('the chip and the Next line', () => {
+  const words = (flag: string | null, flag_note: string | null, confidence: number | null = null) => {
+    const r = queueReason({ flag, flag_note, confidence })
+    return r && { chip: r.chip, next: r.next }
+  }
+  const speedNote = '25.2 characters/second -- more than ~17/s is hard to read in time. The speech is this fast: shorten the text.'
+
+  it('give the three drawn kinds as drawn, the Next line with no specifics from the note', () => {
+    expect(words('glossary_missing', 'Glossary: 夷陵老祖 -> Yiling Patriarch missing'))
+      .toEqual({ chip: 'The English does not use the glossary name for 夷陵老祖', next: 'glossary name not used' })
+    expect(words('reading_speed', speedNote)).toEqual({ chip: 'Too fast to read: 25 characters a second', next: 'too fast to read' })
+    expect(words(null, null, 0.58)).toEqual({ chip: 'Whisper was unsure of this line (58% sure)', next: 'Whisper was unsure' })
+  })
+
+  it('say only the kind when the note cannot be read', () => {
+    expect(words('glossary_missing', '')).toEqual({ chip: 'The English does not use a glossary name', next: 'glossary name not used' })
+    expect(words('reading_speed', 'too dense')).toEqual({ chip: 'Too fast to read', next: 'too fast to read' })
+    expect(words('reading_speed', null)).toEqual({ chip: 'Too fast to read', next: 'too fast to read' })
+  })
+
+  it('name several glossary names, and how many more the note counts', () => {
+    expect(words('glossary_missing', 'Glossary: 夷陵老祖 -> Yiling Patriarch; 魏婴 -> Wei Ying missing')?.chip)
+      .toBe('The English does not use the glossary names for 夷陵老祖, 魏婴')
+    expect(words('glossary_missing', 'Glossary: 夷陵老祖 -> Yiling Patriarch missing (+2 more)')?.chip)
+      .toBe('The English does not use the glossary names for 夷陵老祖 and 2 more')
+  })
+
+  it('fall back to the few words for every other kind, the Next line lowering their first letter', () => {
+    expect(words('timing_drift', 'Starts 0.6 s before speech.')).toEqual({ chip: 'Times off the speech', next: 'times off the speech' })
+    expect(words('engines_disagree', 'Heard differently (62% alike). Saved: 三百人 / Qwen3 ASR: 三白人')).toEqual({ chip: 'Heard two ways', next: 'heard two ways' })
   })
 })
 
@@ -279,13 +322,15 @@ describe('the phone card', () => {
   const shown = [line(24, { flag: 'glossary_missing' }), line(12, { flag: 'reading_speed' }), line(7, { confidence: 0.5 }), line(9, { flag: 'timing_drift' })]
 
   it('says where the open card is in the whole queue', () => {
-    expect(positionText(shown, 24, 1, 40, 4)).toBe('1 of 4 to look at')
-    expect(positionText(shown, 12, 2, 40, 44)).toBe('42 of 44 to look at')
-    expect(positionText(shown, 99, 1, 40, 4)).toBeNull()
+    expect(queuePlace(shown, 24, 1, 40, 4)).toEqual({ at: 1, total: 4 })
+    expect(queuePlace(shown, 12, 2, 40, 44)).toEqual({ at: 42, total: 44 })
+    expect(queuePlace(shown, 99, 1, 40, 4)).toBeNull()
+    expect(placeText({ at: 1, total: 4 })).toBe('1 of 4 to look at')
+    expect(placeText({ at: 42, total: 44 })).toBe('42 of 44 to look at')
   })
 
   it('names the next two cards with their reason, and nothing after the last', () => {
-    expect(nextText(shown, 24)).toBe('Next: line 12, fast to read · line 7, Whisper was unsure (50% sure)')
+    expect(nextText(shown, 24)).toBe('Next: line 12, too fast to read · line 7, Whisper was unsure')
     expect(nextText(shown, 7)).toBe('Next: line 9, times off the speech')
     expect(nextText(shown, 9)).toBeNull()
     expect(nextText([line(1, { flag: 'reading_speed' }), line(2)], 1)).toBe('Next: line 2, no speaker yet')
@@ -353,5 +398,34 @@ describe('markRestBlocker', () => {
 
   it('waits for a running job', () => {
     expect(markRestBlocker(page([]), true)).toBe(JOB_RUNNING_TEXT)
+  })
+})
+
+describe('askedReason', () => {
+  it('keeps the reason that was asked for while it still blocks', () => {
+    expect(askedReason(UNSURE_FIRST, UNSURE_FIRST)).toBe(UNSURE_FIRST)
+  })
+
+  it('does not show a different blocker, or the same one after it lifted, before its own press', () => {
+    expect(askedReason(UNSURE_FIRST, JOB_RUNNING_TEXT)).toBeNull()
+    expect(askedReason(UNSURE_FIRST, null)).toBeNull()
+    expect(askedReason(null, JOB_RUNNING_TEXT)).toBeNull()
+  })
+})
+
+describe('markRestView', () => {
+  it('stays a link that says nothing until it is pressed while a reason blocks it, then gives that reason and no confirm step', () => {
+    expect(markRestView(UNSURE_FIRST, false, true)).toEqual({ control: 'say-why', disabled: false, reason: null })
+    expect(markRestView(UNSURE_FIRST, true, true)).toEqual({ control: 'say-why', disabled: false, reason: UNSURE_FIRST })
+  })
+
+  it('is the two-step button with no reason once nothing blocks it, even if it was pressed while blocked', () => {
+    expect(markRestView(null, false, true)).toEqual({ control: 'confirm', disabled: false, reason: null })
+    expect(markRestView(null, true, true)).toEqual({ control: 'confirm', disabled: false, reason: null })
+  })
+
+  it('is disabled while the list is still loading, blocked or not', () => {
+    expect(markRestView(null, false, false).disabled).toBe(true)
+    expect(markRestView(JOB_RUNNING_TEXT, true, false).disabled).toBe(true)
   })
 })

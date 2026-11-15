@@ -12,12 +12,12 @@ const LINE: ReviewLine = {
 }
 
 function row(simple: boolean, line: ReviewLine = LINE, { queue = false, isPhone = false, active = true, retranscribe = null as RetranscribeState | null,
-  timingSnap = null as TimingSuggestion | null, actions = {} as RowActions, linePanel = false } = {}) {
+  timingSnap = null as TimingSuggestion | null, actions = {} as RowActions, linePanel = false, queueNext = null as string | null } = {}) {
   return renderToStaticMarkup(
     <LineRow
       dramaId={1} line={line} sourceLanguage="zh" active={active} selected={false} isPhone={isPhone} hasMedia jobRunning={false}
       limited={false} edit={null} ai={null} tm={null} issue={null} actions={actions} simple={simple} queue={queue}
-      retranscribe={retranscribe} timingSnap={timingSnap} linePanel={linePanel}
+      retranscribe={retranscribe} timingSnap={timingSnap} linePanel={linePanel} queueNext={queueNext}
     />,
   )
 }
@@ -59,6 +59,14 @@ describe('Simple view line row', () => {
 describe('check queue card', () => {
   const glossary: ReviewLine = { ...LINE, flag: 'glossary_missing', flag_note: 'Glossary: 夷陵老祖 -> Yiling Patriarch missing' }
 
+  it('writes a queue row\'s time to the tenth, cut not rounded, open or closed, on a wide screen or a phone; other rows keep the hundredths', () => {
+    const timed: ReviewLine = { ...LINE, start: 62.57, end: 64 }
+    expect(row(true, timed, { queue: true })).toContain('<span class="review-time">1:02.5</span>')
+    expect(row(true, timed, { queue: true, active: false })).toContain('<span class="review-time">1:02.5</span>')
+    expect(row(true, timed, { queue: true, isPhone: true })).toContain('<span class="review-time">1:02.5</span>')
+    expect(row(true, timed)).toContain('<span class="review-time">1:02.57</span>')
+  })
+
   it('turns Mark checked into Looks right, next and keeps Improve and its tip; Edit details is left to More and D', () => {
     const html = row(true, LINE, { queue: true })
     expect(html).toContain('Looks right, next')
@@ -88,26 +96,46 @@ describe('check queue card', () => {
     const unsure = { ...LINE, confidence: 0.72 }
     expect(row(true, unsure, { queue: true })).toContain('Whisper was unsure of this line (72% sure)')
     const closed = row(true, unsure, { queue: true, active: false })
-    // The closed card's few words keep the score: on a wide screen it leaves out the Shaky badge that also says it.
-    expect(closed).toContain('data-testid="queue-reason">Whisper was unsure (72% sure)</span>')
-    expect(closed).not.toContain('of this line')
+    // The closed card's chip keeps the score: on a wide screen it leaves out the Shaky badge that also says it.
+    expect(closed).toContain('data-testid="queue-reason">Whisper was unsure of this line (72% sure)</span>')
     expect(row(true, unsure)).not.toContain('Whisper was unsure')
     // A closed card drops the full-width flag bar for its chip.
     const closedGlossary = row(true, glossary, { queue: true, active: false })
-    expect(closedGlossary).toContain('Glossary name not used: 夷陵老祖')
+    expect(closedGlossary).toContain('data-testid="queue-reason">The English does not use the glossary name for 夷陵老祖</span>')
     expect(closedGlossary).not.toContain('data-testid="line-flag"')
     expect(closedGlossary).not.toContain(GLOSSARY_SENTENCE)
   })
 
-  it('on a phone says Why in a wrapped sentence instead of a cut-off chip, with the way to the lines around it under the English', () => {
+  it('on a phone says Why in a wrapped sentence instead of a cut-off chip, with the way to the lines around it in the card\'s first line', () => {
     const html = row(true, glossary, { queue: true, isPhone: true })
     expect(html).toContain(`class="review-queue-why" data-testid="queue-reason">Why: ${GLOSSARY_SENTENCE}`)
     expect(html).not.toContain('review-flag-toggle')
     expect(html).toContain('See the lines around it')
     expect(html).toContain('Open glossary')
     expect(html).toContain('title="Improve translation (I)"')
-    expect(html.indexOf('data-testid="line-en"')).toBeLessThan(html.indexOf('See the lines around it'))
+    expect(html.indexOf('See the lines around it')).toBeLessThan(html.indexOf('data-testid="line-en"'))
     expect(row(true, glossary, { isPhone: true })).toContain('review-flag-toggle')
+  })
+
+  it('on a phone starts the card with "Line 7 · 0:01.0" and the speaker, then the link, and ends it with the Next line', () => {
+    const html = row(true, { ...glossary, speaker: 'Wei' }, { queue: true, isPhone: true, queueNext: 'Next: line 12, too fast to read' })
+    expect(html).toContain('<span class="review-line-ref"><span class="review-idx">Line 7</span><span class="review-card-dot" aria-hidden="true">·</span><span class="review-time">0:01.0</span></span><span class="review-card-dot" aria-hidden="true">·</span><span class="review-speaker-pick"><button type="button" class="review-speaker" aria-expanded="false" aria-label="Speaker of line 7: Wei. Change it" title="Change the speaker">Wei</button></span>')
+    expect(html.indexOf('review-speaker')).toBeLessThan(html.indexOf('review-card-around'))
+    expect(html).toContain('<p class="muted check-queue-next">Next: line 12, too fast to read</p>')
+    expect(html.indexOf('check-queue-next')).toBeGreaterThan(html.indexOf('Improve translation'))
+    // A closed row and a wide card keep "#7", and the Next line is the phone card's own.
+    expect(row(true, glossary, { queue: true })).toContain('<span class="review-idx">#7</span>')
+    expect(row(true, glossary, { queue: true, queueNext: 'Next: line 12' })).not.toContain('check-queue-next')
+  })
+
+  it('on a phone puts Play line first among the buttons and the card\'s ⋯ last, after Improve translation, not in the first line', () => {
+    const html = row(true, glossary, { queue: true, isPhone: true })
+    const actions = html.slice(html.indexOf('review-queue-actions'))
+    const at = ['Play line', 'Open glossary', 'Improve translation', 'review-card-more'].map((t) => actions.indexOf(t))
+    expect(at.every((n) => n > 0)).toBe(true)
+    expect([...at].sort((a, b) => a - b)).toEqual(at)
+    expect(html.match(/More actions for line 7/g)).toHaveLength(1)
+    expect(html.slice(0, html.indexOf('review-queue-actions'))).not.toContain('More actions for line 7')
   })
 
   it('labels the English and draws it as a box on the open card only, still the button that opens the editor', () => {
@@ -119,9 +147,26 @@ describe('check queue card', () => {
     expect(row(false, glossary)).not.toContain('review-queue-label')
   })
 
+  it('gives the open card a quiet ⋯ for its menu and a wide closed row none, since the row opens on a click', () => {
+    const more = '<button type="button" class="btn btn-ghost btn-sm review-more" aria-label="More actions for line 7" aria-haspopup="dialog">⋯</button>'
+    expect(row(true, glossary, { queue: true })).toContain(more)
+    expect(row(true, glossary, { queue: true })).not.toContain('>More<')
+    const closed = row(true, glossary, { queue: true, active: false })
+    expect(closed).not.toContain('More actions for line 7')
+    expect(closed).not.toContain('⋯')
+    // Outside the queue the row keeps its menu button, and the open row's says More.
+    expect(row(true, glossary, { active: false })).toContain('⋯')
+    expect(row(true, glossary)).toContain('>More<')
+    expect(row(true, glossary, { queue: true, isPhone: true })).toContain('⋯')
+  })
+
+  it('keeps the number and the time in one cell, so a closed row can give them a column', () => {
+    expect(row(true, glossary, { queue: true, active: false })).toContain('<span class="review-line-ref"><span class="review-idx">#7</span><span class="review-time">0:01.0</span></span>')
+  })
+
   it('orders the open card\'s buttons as drawn: Play, the fitting action, Improve, then a green Looks right, next', () => {
     const html = row(true, glossary, { queue: true, linePanel: true })
-    const at = ['▶ Play', 'Open glossary', 'Improve translation', 'Looks right, next'].map((t) => html.indexOf(t))
+    const at = ['Play line', 'Open glossary', 'Improve translation', 'Looks right, next'].map((t) => html.indexOf(t))
     expect(at.every((n) => n > 0)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)
     expect(html).toMatch(/class="btn btn-ok btn-sm review-queue-done"[^>]*>Looks right, next/)
@@ -135,7 +180,7 @@ describe('check queue card', () => {
 
   it('with the This line panel beside it, the open card says its reason in a few words; without it, in full with See the lines around it', () => {
     const beside = row(true, glossary, { queue: true, linePanel: true })
-    expect(beside).toContain('data-testid="queue-reason">Glossary name not used: 夷陵老祖</span>')
+    expect(beside).toContain('data-testid="queue-reason">The English does not use the glossary name for 夷陵老祖</span>')
     expect(beside).not.toContain(GLOSSARY_SENTENCE)
     const alone = row(true, glossary, { queue: true })
     expect(alone).toContain(GLOSSARY_SENTENCE)
@@ -197,7 +242,7 @@ describe('a flagged line outside the check queue', () => {
     expect(closed).toContain(`<span class="sr-only"> Flagged: ${SPEED_SENTENCE}</span>`)
     expect(closed).not.toContain('review-flag-toggle')
     const html = row(false, speed, { isPhone: true })
-    expect(html).toContain(`title="Flagged: ${SPEED_SENTENCE}" aria-expanded="false">Flagged: Fast to read, 25 characters a second</button>`)
+    expect(html).toContain(`title="Flagged: ${SPEED_SENTENCE}" aria-expanded="false">Flagged: Too fast to read, 25 characters a second</button>`)
     expect(row(true, free, { isPhone: true })).toContain('>Flagged: Translation may be off</button>')
     expect(row(true, unknown, { isPhone: true })).toContain('>Flagged: Uncertain</button>')
   })

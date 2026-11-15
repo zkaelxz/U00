@@ -29,7 +29,7 @@ export function confidenceReason(line: Pick<ReviewLine, 'flag' | 'confidence'>):
 type SpeakerFields = Pick<ReviewLine, 'speaker' | 'speaker_manual' | 'sfx' | 'zh' | 'en'>
 
 /** Why an unflagged, confidently heard line is in the queue: it is the lowest-ranked reason, a speaker still to pick. */
-export const NO_SPEAKER_REASON: QueueReason = { text: 'This line has no speaker yet.', short: 'No speaker yet' }
+export const NO_SPEAKER_REASON: QueueReason = { text: 'This line has no speaker yet.', short: 'No speaker yet', chip: 'No speaker yet', next: 'no speaker yet' }
 
 /** Listed for no speaker alone: taking one is what takes it out of the queue. */
 export const onlyNeedsSpeaker = (line: Pick<ReviewLine, 'flag' | 'confidence'> & SpeakerFields) =>
@@ -46,19 +46,26 @@ function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
   return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${capFirst(line.flag_note)}` : ''}`
 }
 
-/** A queue card's reason: the sentence the open card shows, and the few words of a closed card and the phone's Next line. */
+/**
+ * A queue card's reason: the sentence the open card shows, the few words of a flag outside the queue, the chip of a
+ * card in the queue's list, and the kind alone for the phone's Next line, which names two cards on one line.
+ */
 export interface QueueReason {
   text: string
   short: string
+  chip: string
+  next: string
 }
 
 // A note the server writes in a known shape becomes its own sentence (none: the kind's own sentence already says it all);
 // null means "not that shape", never a part of it.
-type ReadNote = (note: string) => { text?: string; short?: string } | null
+type ReadNote = (note: string) => { text?: string; short?: string; chip?: string } | null
 
 interface FlagKind {
   text: string
   short: string
+  // The chip where it says more than `short`, for a note that could not be read.
+  chip?: string
   read?: ReadNote
 }
 
@@ -81,12 +88,14 @@ const readGlossary: ReadNote = (note) => {
   if (pairs.some((p) => p.length !== 2 || !p[0].trim() || !p[1].trim())) return null
   const more = Number(m[2] ?? 0)
   const names = pairs.map(([src]) => src).join(', ') + (more ? ` and ${more} more` : '')
+  const several = pairs.length > 1 || more > 0
   const writes = joinAnd([...pairs.map(([src, en]) => `${src} as “${en}”`), ...(more ? [`${more} more ${more === 1 ? 'name' : 'names'}`] : [])])
   const one = pairs.length === 1 && !more
   return {
     text: `The glossary writes ${writes}, but the English doesn’t use ${one ? 'that name' : 'those names'}. ` +
       `Put ${one ? 'it' : 'them'} in the English, or change the glossary if ${one ? 'the' : 'a'} name is wrong.`,
     short: `Glossary name not used: ${names}`,
+    chip: `The English does not use the glossary ${several ? 'names' : 'name'} for ${names}`,
   }
 }
 
@@ -101,7 +110,8 @@ const readSpeed: ReadNote = (note) => {
   if (!fix) return null
   return {
     text: `This subtitle is too fast to read: ${m[1]} characters a second, and more than about ${m[2]} is hard to read in time. ${fix}`,
-    short: `Fast to read, ${Math.round(Number(m[1]))} characters a second`,
+    short: `Too fast to read, ${Math.round(Number(m[1]))} characters a second`,
+    chip: `Too fast to read: ${Math.round(Number(m[1]))} characters a second`,
   }
 }
 
@@ -324,7 +334,7 @@ const FLAG_KINDS: Record<string, FlagKind> = {
   },
   reading_speed: {
     text: 'This subtitle is too fast to read: too many characters for the time it is shown. Shorten the text.',
-    short: 'Fast to read',
+    short: 'Too fast to read',
     read: readSpeed,
   },
   factual_detail: {
@@ -359,6 +369,7 @@ const FLAG_KINDS: Record<string, FlagKind> = {
   glossary_missing: {
     text: 'The English doesn’t use a name the glossary sets for this line. Put the glossary’s name in the English, or change the glossary if it is wrong.',
     short: 'Glossary name not used',
+    chip: 'The English does not use a glossary name',
     read: readGlossary,
   },
   source_mismatch: {
@@ -400,16 +411,25 @@ export const QUEUE_FLAG_KINDS = Object.keys(FLAG_KINDS)
 export function queueReason(line: Pick<ReviewLine, 'flag' | 'flag_note' | 'confidence'> & Partial<SpeakerFields>): QueueReason | null {
   if (!line.flag) {
     const unsure = confidenceReason(line)
-    // The score goes in the few words too: a closed card on a wide screen leaves out the Shaky badge that also says it.
-    if (unsure) return { text: unsure, short: `Whisper was unsure (${Math.round((line.confidence ?? 0) * 100)}% sure)` }
+    // The chip keeps the score: a closed card on a wide screen leaves out the Shaky badge that also says it. Whisper is a
+    // name, so the Next line keeps its capital.
+    if (unsure) return { text: unsure, short: `Whisper was unsure (${Math.round((line.confidence ?? 0) * 100)}% sure)`, chip: unsure, next: 'Whisper was unsure' }
     return line.zh !== undefined && line.en !== undefined && needsSpeaker(line as SpeakerFields) ? NO_SPEAKER_REASON : null
   }
   const kind = FLAG_KINDS[line.flag]
-  if (!kind) return { text: flagText(line), short: humanizeValue(line.flag) }
+  if (!kind) {
+    const short = humanizeValue(line.flag)
+    return { text: flagText(line), short, chip: short, next: lowerFirst(short) }
+  }
+  // The Next line runs on after a comma, so the kind's words drop their capital.
+  const next = lowerFirst(kind.short)
   const note = (line.flag_note ?? '').trim()
   const read = note && kind.read ? kind.read(note) : null
-  if (read) return { text: read.text ?? kind.text, short: read.short ?? kind.short }
-  return { text: note ? `${kind.text} Note: ${capFirst(note)}` : kind.text, short: kind.short }
+  if (read) {
+    const short = read.short ?? kind.short
+    return { text: read.text ?? kind.text, short, chip: read.chip ?? kind.chip ?? short, next }
+  }
+  return { text: note ? `${kind.text} Note: ${capFirst(note)}` : kind.text, short: kind.short, chip: kind.chip ?? kind.short, next }
 }
 
 /** The one existing line action that fits a card's reason, shown beside Play. */
@@ -433,16 +453,12 @@ export function queueAction(line: Pick<ReviewLine, 'flag' | 'confidence'>): Queu
   return confidenceReason(line) ? 'retranscribe' : null
 }
 
-// The Next line runs on after a comma, so a reason's first word drops its capital; Whisper is a name and keeps it.
-const nextReason = (line: ReviewLine) => {
-  const short = queueReason(line)?.short ?? 'Whisper was unsure'
-  return short.startsWith('Whisper ') ? short : lowerFirst(short)
-}
-
 /** What a card says once its speaker is set but another reason still lists it; null when nothing else does. */
 export function stillListedNote(line: ReviewLine, speaker: string): string | null {
-  const now = { ...line, speaker }
-  return queueReason(now) ? `Speaker set to ${speaker}. This line is still listed: ${nextReason(now)}.` : null
+  const short = queueReason({ ...line, speaker })?.short
+  if (!short) return null
+  // The reason runs on after a colon, so its first word drops its capital; Whisper is a name and keeps it.
+  return `Speaker set to ${speaker}. This line is still listed: ${short.startsWith('Whisper ') ? short : lowerFirst(short)}.`
 }
 
 /** The next two cards after the one open, for the phone's one-card view; null at the end of the list. */
@@ -450,7 +466,7 @@ export function nextText(shown: ReviewLine[], activeId: number | null): string |
   const at = shown.findIndex((l) => l.id === activeId)
   const next = shown.slice(at + 1, at + 3)
   if (at === -1 || next.length === 0) return null
-  return `Next: ${next.map((l) => `line ${lineNumber(l.idx)}, ${nextReason(l)}`).join(' · ')}`
+  return `Next: ${next.map((l) => `line ${lineNumber(l.idx)}, ${queueReason(l)?.next ?? 'Whisper was unsure'}`).join(' · ')}`
 }
 
 /**
@@ -463,11 +479,19 @@ export function nextAfterCheck(shown: ReviewLine[], id: number, morePages: boole
   return shown[at + 1]?.id ?? (morePages ? 'last' : shown[at - 1]?.id)
 }
 
-/** "2 of 5 to look at": the open card's place in the whole queue, across pages. */
-export function positionText(shown: ReviewLine[], activeId: number | null, page: number, pageSize: number, total: number): string | null {
-  const at = shown.findIndex((l) => l.id === activeId)
-  return at === -1 ? null : `${(page - 1) * pageSize + at + 1} of ${total} to look at`
+/** The open card's place in the whole queue, across pages: its 1-based number and how many cards there are. */
+export interface QueuePlace {
+  at: number
+  total: number
 }
+
+export function queuePlace(shown: ReviewLine[], activeId: number | null, page: number, pageSize: number, total: number): QueuePlace | null {
+  const at = shown.findIndex((l) => l.id === activeId)
+  return at === -1 ? null : { at: (page - 1) * pageSize + at + 1, total }
+}
+
+/** "2 of 5 to look at". */
+export const placeText = (p: QueuePlace): string => `${p.at} of ${p.total} to look at`
 
 export interface QueueCounts {
   all: number | null
@@ -522,6 +546,18 @@ export function markRestBlocker(queuePage: ReviewLinesPage, jobRunning: boolean)
   if (unflagged.some((l) => !onlyNeedsSpeaker(l))) return UNSURE_FIRST
   if (unflagged.length > 0) return NO_SPEAKER_FIRST
   return null
+}
+
+/** The reason a press asked for, kept only while it is still the one that blocks: another reason, or none, waits for its own press. */
+export const askedReason = (askedFor: string | null, blocker: string | null): string | null => (blocker !== null && askedFor === blocker ? askedFor : null)
+
+/**
+ * What the footer's Mark the rest as checked… draws. While `blocker` holds it stays a link that does nothing but say why,
+ * once pressed (`asked`); a reason nobody asked for is not shown. Unblocked, it is the two-step button. Still loading
+ * (`!settled`) it is disabled either way: the page shown may miss a line that now needs a look.
+ */
+export function markRestView(blocker: string | null, asked: boolean, settled: boolean): { control: 'say-why' | 'confirm'; disabled: boolean; reason: string | null } {
+  return { control: blocker ? 'say-why' : 'confirm', disabled: !settled, reason: blocker && asked ? blocker : null }
 }
 
 export const checkedText = (line: Pick<ReviewLine, 'idx'>) => `Line #${lineNumber(line.idx)} marked checked.`
