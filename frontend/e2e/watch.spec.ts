@@ -59,7 +59,12 @@ const ready = async (page: Page) => {
   await expect(page.getByRole('group', { name: 'Player' })).toBeVisible()
   await twoFrames(page)
 }
-const isLinesList = (r: Request) => r.method() === 'GET' && /\/api\/review\/dramas\/3\/lines$/.test(new URL(r.url()).pathname)
+// Only the page's own whole-list read: the Library, which this test passes through, asks the same route for its
+// Need a look count (page_size=1), at a moment that varies with how fast the page behind it settles.
+const isLinesList = (r: Request) => {
+  const url = new URL(r.url())
+  return r.method() === 'GET' && /\/api\/review\/dramas\/3\/lines$/.test(url.pathname) && url.searchParams.get('only') === 'all'
+}
 const SAVE_URL = /\/api\/lines\/dramas\/3\/lines\/\d+$/
 const PARKED = 'baihe.watch.draft.3'
 const parked = (page: Page) => page.evaluate((key) => sessionStorage.getItem(key), PARKED)
