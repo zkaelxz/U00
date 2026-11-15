@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { NotificationItem } from '../types/notifications'
+import type { NotificationItem, NotificationTarget } from '../types/notifications'
 import {
   LAST_SEEN_KEY,
   NOTHING_SEEN,
@@ -12,6 +12,7 @@ import {
   seenAfter,
   shortAgo,
   startsAtText,
+  targetLink,
   unreadCount,
   writeSeen,
 } from './notificationBellState'
@@ -24,6 +25,7 @@ const item = (id: number, at: number, kind: NotificationItem['kind'] = 'job_done
   action: null,
   follow_id: null,
   starts_at: null,
+  target: null,
 })
 
 function memoryStorage(): Storage {
@@ -106,6 +108,22 @@ describe('labels', () => {
     expect(kindBadge('chapters')).toEqual({ tone: 'info', label: 'New chapters' })
     expect(kindBadge('something_else')).toEqual({ tone: 'neutral', label: 'Update' })
     expect(kindBadge('live')).toEqual({ tone: 'accent', label: 'Live' })
+    expect(kindBadge('waiting')).toEqual({ tone: 'warn', label: 'Waiting' })
+  })
+
+  it('builds a waiting entry\'s Open link from its target, and none for a target it does not know', () => {
+    expect(targetLink({ page: 'glossary', drama_id: 4, series_id: null })?.href).toBe('#/drama/4/translate?tab=glossary')
+    expect(targetLink({ page: 'review', drama_id: 4, series_id: null })?.href).toBe('#/drama/4/review')
+    expect(targetLink({ page: 'series', drama_id: null, series_id: 2 })?.href).toBe('#/series/2')
+    expect(targetLink({ page: 'jobs', drama_id: null, series_id: null })?.href).toBe('#/jobs')
+    expect(targetLink(null)).toBeNull()
+    expect(targetLink(undefined)).toBeNull()
+    expect(targetLink({ page: 'glossary', drama_id: null, series_id: 2 })).toBeNull()
+    expect(targetLink({ page: 'series', drama_id: 2, series_id: null })).toBeNull()
+    expect(targetLink({ page: 'review', drama_id: 0, series_id: null })).toBeNull()
+    expect(targetLink({ page: 'review', drama_id: 1.5, series_id: null })).toBeNull()
+    expect(targetLink({ page: 'settings', drama_id: 1 } as unknown as NotificationTarget)).toBeNull()
+    expect(targetLink({ page: 'jobs', href: 'https://example.com' } as unknown as NotificationTarget)?.href).toBe('#/jobs')
   })
 
   it('shows a scheduled start in this browser\'s time, and nothing without one', () => {

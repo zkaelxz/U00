@@ -22945,9 +22945,10 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "job_done" | "job_failed" | "chapters" | "remote" | "live";
+            kind: "job_done" | "job_failed" | "chapters" | "remote" | "live" | "waiting";
             /** Starts At */
             starts_at: number | null;
+            target: components["schemas"]["NotificationTarget"] | null;
             /** Text */
             text: string;
         };
@@ -22973,6 +22974,23 @@ export interface components {
             send_jobs: boolean;
             /** Send Remote */
             send_remote: boolean;
+        };
+        /**
+         * NotificationTarget
+         * @description Where a "waiting" bell entry's Open goes: a page and the one id it needs
+         *     (notification_service.clean_target). Never a URL or path; the app builds
+         *     the link.
+         */
+        NotificationTarget: {
+            /** Drama Id */
+            drama_id: number | null;
+            /**
+             * Page
+             * @enum {string}
+             */
+            page: "glossary" | "review" | "series" | "jobs";
+            /** Series Id */
+            series_id: number | null;
         };
         /** NotificationTestResult */
         NotificationTestResult: {
