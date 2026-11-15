@@ -116,6 +116,20 @@ class TestJob:
         assert after[0].en == "He said: hello." and after[0].reviewed
         assert after[-1].zh == "新的一章。" and after[-1].en == ""
 
+    def test_added_chapter_keeps_a_marked_lines_mark(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        self._run(isolated_db, did, monkeypatch, lambda ch: {})
+        first = isolated_db.load_line_objects(did)
+        first[0].en, first[0].mark = "He said: hello.", "mixed"
+        isolated_db.save_lines(did, first)
+        from engine_backends import llm_tasks, engine_registry
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", lambda chunks, engine, known, **k: {})
+        narration_service._run_narration_job(f"narration_{did}", did, NOVEL + "\n\n新的一章。", "claude", "k", None)
+        after = isolated_db.load_line_objects(did)
+        assert (after[0].id, after[0].en, after[0].mark) == (first[0].id, "He said: hello.", "mixed")
+        assert after[-1].mark is None
+
     def test_a_line_edited_while_the_replace_run_saves_is_a_conflict_and_the_edit_is_kept(
             self, isolated_db, monkeypatch):
         did = _drama(isolated_db)

@@ -468,11 +468,11 @@ class TestRestoreSavedLines:
 _SAVED = {"idx": 0, "start": 1.0, "end": 2.0, "zh": "saved zh", "en": "saved en",
           "speaker": "Saved", "dub_filename": "saved.wav", "flag": "idiom",
           "flag_note": "saved note", "speaker_manual": True, "sfx": True, "lang": "ko",
-          "reviewed": True, "ass_event": '{"style": "Saved"}', "confidence": 0.3}
+          "reviewed": True, "ass_event": '{"style": "Saved"}', "confidence": 0.3, "mark": None}
 _SINCE = {"idx": 0, "start": 3.0, "end": 4.0, "zh": "later zh", "en": "later en",
           "speaker": "Later", "dub_filename": "later.wav", "flag": "name",
           "flag_note": "later note", "speaker_manual": False, "sfx": False, "lang": "en",
-          "reviewed": False, "ass_event": '{"style": "Later"}', "confidence": 0.9}
+          "reviewed": False, "ass_event": '{"style": "Later"}', "confidence": 0.9, "mark": "mixed"}
 # A version is a pick of translation; the dub clip from when it was saved may
 # have been regenerated or deleted since, so it isn't stored and the line
 # keeps its current clip.
@@ -528,3 +528,75 @@ class TestEveryLineFieldRoundTrips:
                         sfx=_SINCE["sfx"], lang=_SINCE["lang"], reviewed=_SINCE["reviewed"],
                         ass_event=None, confidence=None)
         assert {f: getattr(got, f) for f in LINE_FIELDS} == expected
+
+
+class TestRestoreMarks:
+    """A restore brings a mark back with its English: where the English comes back
+    as it is now, today's mark (or no mark) wins; where it differs, the snapshot's
+    own mark comes with it, and none when the snapshot recorded none."""
+
+    def _drama(self, db_):
+        did = db_.create_drama(title_en="D")
+        db_.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=z, en=e)
+                             for i, (z, e) in enumerate([("a", "A"), ("b", "B"), ("c", "C")])])
+        return did, db_.load_line_objects(did)
+
+    def _set(self, db_, did, values):
+        """values: {idx: {column: value}} written as a person would."""
+        for ln in db_.load_line_objects(did):
+            if ln.idx in values:
+                assert db_.update_line_fields_if(did, ln.id, values[ln.idx], {})
+
+    def _restore(self, db_, did, rows, **kw):
+        db_.save_lines(did, restore_saved_lines(rows, db_.load_line_objects(did), **kw))
+        return [(r["en"], r["reviewed"], r["mark"]) for r in db_.load_lines(did)]
+
+    def _snapshot(self, db_, did):
+        db_.save_line_history_snapshot(did, db_.load_line_objects(did), "s")
+        return db_.get_line_history_snapshot(db_.list_line_history(did)[0]["id"])
+
+    def test_the_english_unchanged_keeps_todays_state(self, isolated_db):
+        did, _ = self._drama(isolated_db)
+        self._set(isolated_db, did, {0: {"mark": "wrong"}, 1: {"reviewed": 1}})
+        rows = self._snapshot(isolated_db, did)
+        assert [r["mark"] for r in rows] == ["wrong", None, None]
+        # Since then: line 0 cleared, line 1 marked (which unchecked it), line 2 marked.
+        self._set(isolated_db, did, {0: {"mark": None}, 1: {"mark": "mixed"}, 2: {"mark": "wrong"}})
+        assert self._restore(isolated_db, did, rows) == [
+            ("A", 0, None), ("B", 0, "mixed"), ("C", 0, "wrong")]
+
+    def test_the_english_different_brings_the_snapshots_mark_back(self, isolated_db):
+        did, _ = self._drama(isolated_db)
+        self._set(isolated_db, did, {0: {"mark": "wrong"}, 1: {"mark": "mixed"}})
+        rows = self._snapshot(isolated_db, did)
+        # New English everywhere (clearing the marks), then line 1 marked again as it was and
+        # line 2 marked for the first time.
+        self._set(isolated_db, did, {0: {"en": "A2"}, 1: {"en": "B2"}, 2: {"en": "C2"}})
+        self._set(isolated_db, did, {1: {"mark": "mixed"}, 2: {"mark": "wrong"}})
+        assert self._restore(isolated_db, did, rows) == [
+            ("A", 0, "wrong"), ("B", 0, "mixed"), ("C", 0, None)]
+
+    def test_a_snapshot_from_before_marks(self, isolated_db):
+        did, _ = self._drama(isolated_db)
+        rows = [{k: v for k, v in r.items() if k != "mark"} for r in self._snapshot(isolated_db, did)]
+        self._set(isolated_db, did, {0: {"mark": "wrong"}, 1: {"en": "B2"}})
+        self._set(isolated_db, did, {1: {"mark": "mixed"}})
+        assert self._restore(isolated_db, did, rows) == [
+            ("A", 0, "wrong"), ("B", 0, None), ("C", 0, None)]
+
+    def test_a_restored_line_is_never_both_checked_and_marked(self, isolated_db):
+        did, _ = self._drama(isolated_db)
+        self._set(isolated_db, did, {0: {"reviewed": 1}})
+        rows = self._snapshot(isolated_db, did)
+        self._set(isolated_db, did, {0: {"mark": "wrong"}})
+        assert self._restore(isolated_db, did, rows)[0] == ("A", 0, "wrong")
+
+    def test_activating_a_version_clears_the_marks_of_lines_whose_english_changes(self, isolated_db):
+        did, lines = self._drama(isolated_db)
+        vid = isolated_db.save_translation_version(did, lines, "v")
+        rows = isolated_db.get_translation_version(vid)["lines"]
+        assert [r["mark"] for r in rows] == [None, None, None]
+        self._set(isolated_db, did, {1: {"en": "B2"}})
+        self._set(isolated_db, did, {0: {"mark": "wrong"}, 1: {"mark": "mixed"}})
+        assert self._restore(isolated_db, did, rows, translation_only=True) == [
+            ("A", 0, "wrong"), ("B", 0, None), ("C", 0, None)]

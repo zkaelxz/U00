@@ -19,6 +19,7 @@ import { SimpleStepNav } from './SimpleStepNav'
 import { EpisodesList } from './EpisodesList'
 import { linesOpenOnAll, type StepKey } from './stepModel'
 import { TitlePanel } from './TitlePanel'
+import { AddSourceLink } from './AddSourceLink'
 import { TITLE_TOP_PHONE, TitleMainAction, TitleTop } from './TitleTop'
 import { useTitleProgress } from './useTitleProgress'
 import { TitleViewSwitch } from './TitleViewSwitch'
@@ -149,7 +150,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
             <OpenFolderButton open={() => openDramaFolder(id)} size="sm" className="ws-folder" title="Show this title's files on the PC" />
             <SourceLink href={drama.source_url} dramaId={id} className={buttonClass('secondary', 'sm', 'ws-source')} />
             {!safeHref(drama.source_url) && (
-              <a className="ws-source-add muted" href={routeHref({ name: 'drama', id, stage: 'source', tab: 'details' })}>Add a source link</a>
+              <AddSourceLink id={id} />
             )}
           </header>
           <SimpleStepNav id={id} stages={STAGE_IDS.filter((s) => s !== 'review')} active={stage} kind={titleKind(drama.media_type, drama.content_mode)} />

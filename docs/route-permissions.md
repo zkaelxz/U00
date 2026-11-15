@@ -373,6 +373,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/accept-tm` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/dismiss-flag` | lines.edit |
+| `POST /api/lines/dramas/{drama_id}/lines/{line_id}/mark` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/retry-blocked` | jobs.start + lines.read + lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/reviewed` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/mark-reviewed` | lines.edit |
@@ -547,6 +548,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/review/dramas/{drama_id}/pacing-flags` | lines.read |
 | `GET /api/review/dramas/{drama_id}/search` | lines.read |
 | `GET /api/review/dramas/{drama_id}/source-changed` | lines.read |
+| `GET /api/review/dramas/{drama_id}/speaker-suggestions` | lines.read |
 | `GET /api/review/dramas/{drama_id}/tendencies` | review.use |
 | `GET /api/review/dramas/{drama_id}/tm-suggestions` | review.use + lines.read |
 | `GET /api/review/dramas/{drama_id}/versions` | review.use |

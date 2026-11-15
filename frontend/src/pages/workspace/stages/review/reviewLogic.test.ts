@@ -10,7 +10,7 @@ import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmen
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id, start: id, end: id + 1, zh: `句${id}`, en: `Line ${id}`, speaker: null,
-  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, ...over,
+  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
 })
 
 describe('spoken language', () => {
@@ -479,7 +479,7 @@ describe('parseJump', () => {
 
 describe('inFilter', () => {
   const base = { id: 1, idx: 0, start: 0, end: 1, zh: '你好', en: '', speaker: null, speaker_manual: false,
-    sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null }
+    sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null }
   it('follows the server filters', () => {
     expect(inFilter({ ...base, flag: 'check' }, 'flagged')).toBe(true)
     expect(inFilter(base, 'flagged')).toBe(false)
