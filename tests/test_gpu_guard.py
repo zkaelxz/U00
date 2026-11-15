@@ -497,11 +497,22 @@ class TestStopAndRestart:
 
 
 class TestWaitForRoom:
-    """A registered job whose model memory_headroom refused waits for room
-    and starts again, instead of staying failed."""
+    """A registered job whose model memory_headroom refused goes back to
+    queued, waits for room and starts again, instead of ending Failed."""
 
     @pytest.fixture
-    def refused(self):
+    def notified(self, monkeypatch):
+        from jobs import job_settings
+        sent = []
+
+        def note(description, status, **kw):
+            sent.append((status, kw.get("job_id")))
+        monkeypatch.setattr(job_runner, "_notify_job_finished", note)
+        monkeypatch.setattr(job_settings, "_notify_job_finished", note)
+        return sent
+
+    @pytest.fixture
+    def refused(self, notified):
         import memory_headroom
         calls = []
 
@@ -510,59 +521,91 @@ class TestWaitForRoom:
 
         def again():
             calls.append(1)
+            assert job_launch.start_job("room_a", lambda: None, gpu_touching=True)
+        gpu_guard.tick(now=time.time(), reading=(2048.0, COOL))
         assert job_launch.start_job("room_a", refuse, gpu_touching=True)
         gpu_guard.allow_restart("room_a", again)
-        assert _wait_for(lambda: _status("room_a") == "error")
+        assert _wait_for(lambda: _status("room_a") != "running")
         return calls
 
-    def test_the_need_is_kept_on_the_failed_run(self, refused):
-        from jobs.job_table import _jobs
-        assert _jobs["room_a"]["vram_need_mb"] == 3072.0
-
-    def test_waits_until_free_covers_the_reserve_and_the_model(self, refused):
-        t = time.time()
-        gpu_guard.tick(now=t, reading=(2048.0, COOL))
-        gpu_guard.tick(now=t + 20, reading=(2048.0, COOL))
-        assert refused == []
+    def test_it_waits_queued_without_a_failure_notice(self, refused, notified):
+        assert _status("room_a") == "queued"
         assert _message("room_a") == (
             "Waiting for GPU memory: its model needs about 3.0 GB on top of the 1.0 GB kept "
             "free, and 2.0 GB is free. Starts by itself when there is room.")
+        assert notified == [] and gpu_guard.status()["pending_restarts"] == 1
+
+    def test_starts_again_once_free_covers_the_reserve_and_the_model(self, refused, notified):
+        t = time.time()
+        gpu_guard.tick(now=t + 20, reading=(3000.0, COOL))
+        assert refused == [] and _status("room_a") == "queued"
         gpu_guard.tick(now=t + 40, reading=(4200.0, COOL))
         assert refused == [1] and gpu_guard.status()["pending_restarts"] == 0
+        # The notice goes out just after the status is recorded.
+        assert _wait_for(lambda: notified == [("done", "room_a")])
+        assert _status("room_a") == "done"
 
-    def test_gives_up_after_the_wait(self, refused):
+    def test_gives_up_after_the_wait_as_failed_with_the_notice(self, refused, notified):
         t = time.time()
-        gpu_guard.tick(now=t, reading=(2048.0, COOL))
-        gpu_guard.tick(now=t + gpu_guard.ROOM_WAIT_SECONDS, reading=(2048.0, COOL))
-        assert refused == [] and gpu_guard.status()["pending_restarts"] == 0
+        gpu_guard.tick(now=t + gpu_guard.ROOM_WAIT_SECONDS + 1, reading=(2048.0, COOL))
+        assert refused == [] and _status("room_a") == "error"
+        assert "Not loading Whisper." in bg.get_status("room_a")["error"]
         assert "within an hour" in _message("room_a")
+        assert notified == [("error", "room_a")]
+
+    def test_cancel_while_waiting_ends_it(self, refused, notified):
+        bg.request_cancel("room_a")
+        assert _status("room_a") == "cancelled"
+        gpu_guard.tick(now=time.time() + 20, reading=(FREE, COOL))
+        assert refused == [] and gpu_guard.status()["pending_restarts"] == 0
 
     def test_a_run_cleared_while_waiting_is_not_started(self, refused):
-        t = time.time()
-        gpu_guard.tick(now=t, reading=(2048.0, COOL))
         bg.clear_job("room_a")
-        gpu_guard.tick(now=t + 20, reading=(FREE, COOL))
+        gpu_guard.tick(now=time.time() + 20, reading=(FREE, COOL))
         assert refused == [] and gpu_guard.status()["pending_restarts"] == 0
 
-    def test_a_process_job_reports_the_need_in_its_result(self):
-        refused = {"status": "error", "result": {"failed_reason": "headroom", "vram_need_mb": 4800.0}}
-        assert gpu_guard._refused_need_mb(refused) == 4800.0
-        assert gpu_guard._refused_need_mb({**refused, "status": "done"}) is None
-        assert gpu_guard._refused_need_mb({"status": "error", "result": {"failed_reason": "headroom",
-                                                                         "vram_need_mb": None}}) is None
+    def test_turning_the_guard_off_ends_it_as_failed(self, refused, notified):
+        settings_service.set_settings({"gpu_guard": False})
+        gpu_guard.tick(now=time.time() + 20, reading=(FREE, COOL))
+        assert _status("room_a") == "error" and notified == [("error", "room_a")]
 
-    def test_other_failures_are_left_as_they_ended(self):
-        calls = []
+    def test_without_a_fresh_card_reading_it_fails_as_before(self, notified):
+        import memory_headroom
+
+        def refuse():
+            raise memory_headroom.HeadroomError("Not loading Whisper.", vram_need_mb=3072.0)
+        assert job_launch.start_job("room_b", refuse, gpu_touching=True)
+        gpu_guard.allow_restart("room_b", lambda: None)
+        assert _wait_for(lambda: notified == [("error", "room_b")])
+        assert _status("room_b") == "error"
+
+    def test_a_process_job_waits_from_its_result(self, notified):
+        import logging
+        from jobs.job_table import _jobs, _lock
+        run = {"status": "running", "kind": "process", "gpu_touching": True,
+               "cancel_requested": False, "message": ""}
+        with _lock:
+            _jobs["proc_r"] = run
+        gpu_guard.allow_restart("proc_r", lambda: None)
+        gpu_guard.tick(now=time.time(), reading=(2048.0, COOL))
+        result = {"failed_reason": "headroom", "detail": "Not loading Whisper.", "vram_need_mb": 3072.0}
+        assert job_runner._record_final_status("proc_r", run, None, ("ok", result), result, None,
+                                               logging.getLogger("t")) is None
+        assert run["status"] == "queued" and "result" not in run
+        with _lock:
+            _jobs.pop("proc_r")
+
+    def test_a_ram_refusal_or_other_failure_ends_as_before(self, notified):
+        assert job_runner._refused_need_mb({"failed_reason": "headroom", "vram_need_mb": None}) is None
+        assert job_runner._refused_need_mb({"failed_reason": "no_lines"}) is None
+        gpu_guard.tick(now=time.time(), reading=(2048.0, COOL))
 
         def fail():
             raise RuntimeError("broken")
         assert job_launch.start_job("fail_a", fail, gpu_touching=True)
-        gpu_guard.allow_restart("fail_a", lambda: calls.append(1))
+        gpu_guard.allow_restart("fail_a", lambda: None)
         assert _wait_for(lambda: _status("fail_a") == "error")
-        t = time.time()
-        gpu_guard.tick(now=t, reading=(FREE, COOL))
-        gpu_guard.tick(now=t + 20, reading=(FREE, COOL))
-        assert calls == [] and gpu_guard.status()["pending_restarts"] == 0
+        assert gpu_guard.status()["pending_restarts"] == 0
 
 
 class TestServicesRegister:

@@ -296,11 +296,14 @@ While held:
   translation's last Ollama request still running) is retried for 15 min. After
   `MAX_RESTARTS` (3) restarts in a row a further stop is final, and the job says so.
 - A registered job whose model `memory_headroom` refused (`HeadroomError.vram_need_mb`,
-  carried in a process job's result or on a thread job's dict) waits instead of staying
-  failed: it starts again once free memory covers the reserve plus that need and the card
-  is neither short nor hot, saying "Waiting for GPU memory: …" meanwhile. It gives up after
-  an hour (`ROOM_WAIT_SECONDS`), and stops waiting if the user clears it or starts it again.
-  The run has already ended Failed, so its failure notification has gone out.
+  carried in a process job's result) doesn't end Failed: as the run ends, `job_runner`
+  asks `gpu_guard.wait_for_room_locked`, which puts it back to "queued" (no notification)
+  saying "Waiting for GPU memory: …". It starts again once free memory covers the reserve
+  plus that need and the card is neither short nor hot. Only then, or if it can't wait, does
+  it end Failed with its own sentence and the usual failure notification: after an hour
+  (`ROOM_WAIT_SECONDS`), when the guard is turned off, or when the guard has no fresh
+  reading or the job used its restarts (it fails at once, as before). Cancel ends it as any
+  queued job.
 
 Which jobs register (checked per type, 2026-11-15):
 

@@ -224,37 +224,49 @@ def allow_restart(job_id: str, restart) -> None:
                                 "principal": ownership_service.acting_principal()}
 
 
-def _forget_ended_locked(now: float) -> None:
+def _forget_ended_locked() -> None:
     """Caller holds both locks. Drops registrations of runs that ended or were
-    replaced, moving one refused for lack of GPU memory to the restarts. A
-    queued process job gets a new job dict when it is promoted
+    replaced. A queued process job gets a new job dict when it is promoted
     (job_runner._register_process_job), which is the same run: the
     registration follows it. The queued dict is left behind as it was, so it
     still says "queued"; a run cancelled or cleared while queued doesn't."""
     for job_id, entry in list(_restartable.items()):
         run = _jobs.get(job_id)
-        if run is not None and run is not entry["run"] and entry["run"].get("status") == "queued" \
-                and run.get("kind") == "process" and run.get("status") == "running":
+        if _follows_promotion(entry, run):
             entry["run"] = run
-        need = _refused_need_mb(run) if run is entry["run"] else None
-        if need and job_id not in _pending:
-            # Refused before it loaded anything: it waits for room instead of staying failed.
-            _pending[job_id] = {**entry, "why": "not enough free GPU memory for its model",
-                                "room_mb": need, "stopped_at": now}
         if run is None or run is not entry["run"] or run.get("status") not in ("queued", "running"):
             del _restartable[job_id]
 
 
-def _refused_need_mb(run):
-    """The GPU memory (MB) a run's model needed when memory_headroom refused
-    to load it, else None. A process job reports it in its result, a thread
-    job's runner records it from the exception."""
-    if run is None or run.get("status") != "error":
-        return None
-    result = run.get("result")
-    if isinstance(result, dict) and result.get("failed_reason") == "headroom":
-        return result.get("vram_need_mb")
-    return run.get("vram_need_mb")
+def _follows_promotion(entry, run) -> bool:
+    return (run is not None and run is not entry["run"] and entry["run"].get("status") == "queued"
+            and run.get("kind") == "process" and run.get("status") == "running")
+
+
+def wait_for_room_locked(job_id: str, run: dict, need_mb, error: str) -> bool:
+    """Caller holds job_table._lock, as `run` ends refused by memory_headroom
+    for `need_mb` MB of GPU memory. A registered run then goes back to
+    "queued", saying it waits for room, instead of ending Failed: True, and
+    the caller records nothing more and sends no notification. False (it
+    ends as usual) when the guard isn't reading the card, the run didn't
+    register or it already used its restarts."""
+    if not need_mb:
+        return False
+    now = time.time()
+    with _guard_lock:
+        entry = _restartable.get(job_id)
+        if entry is None or not (entry["run"] is run or _follows_promotion(entry, run)) \
+                or entry["restarts"] >= MAX_RESTARTS or job_id in _pending \
+                or _state["at"] is None or now - _state["at"] > STALE_SECONDS:
+            return False
+        del _restartable[job_id]
+        _pending[job_id] = {**entry, "run": run, "why": "not enough free GPU memory for its model",
+                            "room_mb": float(need_mb), "error": error, "stopped_at": now}
+        floor, free = _state["min_free_mb"], _state["free_mb"]
+    run.pop("result", None)
+    run.update(status="queued", error=None, message=_room_text(need_mb, floor, free))
+    _mirror_locked(job_id)
+    return True
 
 
 def _call_as(principal, fn):
@@ -319,6 +331,7 @@ def _stop_running(state: dict, now: float, stop_minutes: int) -> None:
         return
     stop = []
     with _lock, _guard_lock:
+        _forget_ended_locked()
         for job_id, entry in list(_restartable.items()):
             run = entry["run"]
             if run.get("status") != "running" or not run.get("gpu_touching") \
@@ -350,6 +363,71 @@ def _set_message(run, text) -> None:
                 return
 
 
+def _waiting_locked(job_id, run) -> bool:
+    """Caller holds _lock. Still the run waiting for room: not cancelled,
+    cleared or started again by hand meanwhile."""
+    return _jobs.get(job_id) is run and run.get("status") == "queued"
+
+
+def _end_waiting(job_id: str, entry: dict, note: str) -> None:
+    """Ends a run that waited for room the way it would have ended without
+    the wait: Failed with its own sentence, and the failure notification."""
+    from jobs.job_settings import _notify_job_finished
+    run = entry["run"]
+    with _guard_lock:
+        _pending.pop(job_id, None)
+    with _lock:
+        if not _waiting_locked(job_id, run):
+            return
+        run.update(status="error", error=entry["error"], message=note, finished_at=time.time())
+        _mirror_locked(job_id)
+    _notify_job_finished(run.get("description"), "error", job_id=job_id,
+                         owner_user_id=run.get("owner_user_id"), reason=entry["error"])
+
+
+def _room_step(job_id: str, entry: dict, state: dict, now: float) -> None:
+    """A run refused for GPU memory (wait_for_room_locked) starts again once
+    free memory covers the reserve plus its model, for up to an hour."""
+    from jobs import job_launch
+    run, room = entry["run"], entry["room_mb"]
+    with _lock:
+        waiting = _waiting_locked(job_id, run)
+    if not waiting or job_launch.is_stopping():
+        with _guard_lock:
+            _pending.pop(job_id, None)
+        return
+    free, floor = state["free_mb"], state["min_free_mb"]
+    if free is None or state["short"] or state["hot"] or free < floor + room:
+        if now - entry["stopped_at"] >= ROOM_WAIT_SECONDS:
+            _end_waiting(job_id, entry, "The GPU did not have room for its model within an hour.")
+        else:
+            _set_message(run, _room_text(room, floor, free))
+        return
+    with _lock:
+        if not _waiting_locked(job_id, run):
+            return
+        # The start refuses a job id that is still queued; the new run replaces this record.
+        run.update(status="error", error=entry["error"], message="", finished_at=now)
+        _mirror_locked(job_id)
+    with _guard_lock:
+        _pending.pop(job_id, None)
+    try:
+        _call_as(entry["principal"], entry["restart"])
+    except Exception as exc:
+        from engine_backends.redaction import redact_secrets
+        from jobs.job_settings import _notify_job_finished
+        _warn(f"GPU guard: job {job_id} could not be started again", exc)
+        _set_message(run, "It did not start again: " + redact_secrets(str(exc))[:200])
+        _notify_job_finished(run.get("description"), "error", job_id=job_id,
+                             owner_user_id=run.get("owner_user_id"), reason=entry["error"])
+        return
+    with _guard_lock:
+        again = _restartable.get(job_id)
+        if again is not None:
+            again["restarts"] = entry["restarts"] + 1
+    _log(f"GPU guard: job {job_id} started again once the GPU had room")
+
+
 def _restart_pending(state: dict, now: float) -> None:
     from jobs import job_launch
     from jobs.job_settings import get_gpu_limit_enabled
@@ -358,10 +436,12 @@ def _restart_pending(state: dict, now: float) -> None:
         pending = list(_pending.items())
     for job_id, entry in pending:
         run = entry["run"]
+        if entry.get("room_mb"):
+            _room_step(job_id, entry, state, now)
+            continue
         if run.get("status") in ("queued", "running") or entry["stopped_at"] == now:
             continue   # still stopping; a run stopped this tick starts again on the next
-        room = entry.get("room_mb")
-        if run.get("status") != "cancelled" and not room:
+        if run.get("status") != "cancelled":
             # It finished (or failed) before the stop took: nothing to start again.
             with _guard_lock:
                 _pending.pop(job_id, None)
@@ -376,24 +456,6 @@ def _restart_pending(state: dict, now: float) -> None:
             _set_message(run, f"Stopped: {entry['why']}. Stopped {entry['restarts'] + 1} times, "
                               "so it was not started again.")
             continue
-        if room:
-            with _lock:
-                replaced = _jobs.get(job_id) is not run
-            if replaced:
-                # Cleared, or started again by hand: that run is the one to follow.
-                with _guard_lock:
-                    _pending.pop(job_id, None)
-                continue
-            free, floor = state["free_mb"], state["min_free_mb"]
-            if free is None or state["short"] or state["hot"] or free < floor + room:
-                if now - entry["stopped_at"] >= ROOM_WAIT_SECONDS:
-                    with _guard_lock:
-                        _pending.pop(job_id, None)
-                    _set_message(run, "Not started again: the GPU did not have room for its model "
-                                      "within an hour. Start it again.")
-                else:
-                    _set_message(run, _room_text(room, floor, free))
-                continue
         # With the GPU limit off a start is never queued, so it would load at
         # once on a card that is still short: wait for the card to clear.
         if (state["short"] or state["hot"]) and not get_gpu_limit_enabled():
@@ -435,13 +497,14 @@ def tick(now: float | None = None, reading=...) -> dict:
             with _guard_lock:
                 _state.clear()
                 _state.update(_fresh_state())
+                waiting = [(jid, e) for jid, e in _pending.items() if e.get("room_mb")]
                 _pending.clear()
+            for job_id, entry in waiting:
+                _end_waiting(job_id, entry, "")
             return status()
         reading = read_card() if reading is ... else reading
         with _guard_lock:
             state = _step(_state, reading, conf, now)
-        with _lock, _guard_lock:
-            _forget_ended_locked(now)
         if state["short"]:
             _free_idle_models(state, now)
         _stop_running(state, now, conf["stop_minutes"])
