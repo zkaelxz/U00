@@ -3,6 +3,8 @@ import path from 'node:path'
 
 import { expect, test } from '@playwright/test'
 
+import { phoneBarAction } from './compareSelectedHelpers'
+
 // Phone: the tick box is a 44px target, sits in the row's own gutter and does
 // not take over taps on the row.
 
@@ -64,4 +66,61 @@ test('phone: keyboard reaches the active row box and then the selection bar', as
     if (await page.evaluate(() => !!document.activeElement?.closest('[data-testid=selection-bar]'))) break
   }
   await expect(page.getByTestId('selection-bar').locator(':focus')).toHaveCount(1)
+})
+
+test('phone: the selection bar stays one row and lists its actions in a sheet', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 })
+  await page.goto('/#/drama/3/review')
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
+  for (const n of [1, 2, 3]) await box(page, n).tap()
+  const bar = page.getByTestId('selection-bar')
+  await expect(bar).toContainText('3 selected')
+  // One row of 44px buttons plus the bar's padding: the ticked lines keep the screen.
+  expect((await bar.boundingBox())!.height).toBeLessThanOrEqual(64)
+
+  await bar.getByRole('button', { name: 'Actions…' }).tap()
+  const sheet = page.getByRole('dialog', { name: '3 selected' })
+  await expect(sheet.getByRole('list', { name: 'Actions for the selected lines' }).getByRole('button')).toHaveText(['Copy line numbers', 'Compare transcription…', 'Re-time with Qwen3 aligner…', 'Set speaker…', 'Re-transcribe selected'])
+  await sheet.getByRole('button', { name: 'Set speaker…' }).tap()
+  await expect(sheet).toBeHidden()
+  await expect(page.getByLabel('Speaker for 3 lines')).toBeInViewport()
+  const panel = page.getByTestId('set-speaker')
+  for (const name of ['Set speaker', 'Close']) expect((await panel.getByRole('button', { name, exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+})
+
+test("phone: Copy line numbers from the sheet copies, also through the page's fallback copy", async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  // Some phone browsers refuse the clipboard API, and the fallback selects text in the page behind the sheet.
+  await page.addInitScript(() => {
+    navigator.clipboard.writeText = () => Promise.reject(new Error('refused'))
+  })
+  await page.setViewportSize({ width: 360, height: 780 })
+  await page.goto('/#/drama/3/review')
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
+  for (const n of [1, 2, 3]) await box(page, n).tap()
+  await (await phoneBarAction(page, 'Copy line numbers')).tap()
+  await expect(page.getByText('Copied 3 line numbers.')).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('#1-#3')
+})
+
+test("phone, Simple view: the selection bar sits above the check queue's taller line bar", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+  await page.setViewportSize({ width: 360, height: 780 })
+  // With audio the player sits above the queue's card, so the card and its selection bar reach the bottom of the screen.
+  const code = `import db, os, wave
+db.configure_library_dir(${JSON.stringify(libraryDir)})
+from core import Line
+with wave.open(os.path.join(db.drama_dir(3), 'e2e.wav'), 'wb') as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000); w.writeframes(b'\\0\\0' * 8000 * 6)
+db.update_drama(3, audio_filename='e2e.wav')
+db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句', en=f'Line {i}', flag='uncertain' if i % 3 == 0 else '') for i in range(40)])
+`
+  execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot })
+  await page.goto('/#/drama/3/review')
+  await page.locator('.review-line input[type=checkbox]').first().tap()
+  const bar = page.getByTestId('selection-bar')
+  await expect(bar).toContainText('1 selected')
+  const sel = (await bar.boundingBox())!
+  const lineBar = (await page.getByRole('toolbar', { name: 'Line actions' }).boundingBox())!
+  expect(sel.y + sel.height).toBeLessThanOrEqual(lineBar.y + 0.5)
 })
