@@ -83,9 +83,9 @@ test('phone: the selection bar stays one row and lists its actions in a sheet', 
   await expect(sheet.getByRole('list', { name: 'Actions for the selected lines' }).getByRole('button')).toHaveText(['Copy line numbers', 'Compare transcription…', 'Re-time with Qwen3 aligner…', 'Set speaker…', 'Re-transcribe selected'])
   await sheet.getByRole('button', { name: 'Set speaker…' }).tap()
   await expect(sheet).toBeHidden()
-  await expect(page.getByLabel('Speaker for 3 lines')).toBeInViewport()
   const panel = page.getByTestId('set-speaker')
-  for (const name of ['Set speaker', 'Close']) expect((await panel.getByRole('button', { name, exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  await expect(panel).toBeInViewport()
+  for (const name of ['Set new speaker', 'Close']) expect((await panel.getByRole('button', { name, exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
 })
 
 test("phone: Copy line numbers from the sheet copies, also through the page's fallback copy", async ({ page, context }) => {
@@ -105,9 +105,7 @@ test("phone: Copy line numbers from the sheet copies, also through the page's fa
 
 test("phone, Simple view: the selection bar sits above the check queue's taller line bar", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
-  // A small phone: the queue bar's Looks right, next takes two lines, and the page is longer than the screen, so the selection bar sticks.
-  await page.setViewportSize({ width: 320, height: 568 })
-  // With audio the queue's bar has its Play button too.
+  // A small phone: the queue's bar is taller than the plain line bar (48px buttons), and the page is longer than the screen, so the selection bar sticks.
   const code = `import db, os, wave
 db.configure_library_dir(${JSON.stringify(libraryDir)})
 from core import Line
@@ -117,19 +115,53 @@ db.update_drama(3, audio_filename='e2e.wav')
 db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句', en=f'Line {i}', flag='uncertain' if i % 3 == 0 else '') for i in range(40)])
 `
   execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot })
-  await page.goto('/#/drama/3/review')
-  // The queue's cards have no tick box: a line ticked under All stays ticked when the queue is shown again.
-  await page.locator('label').filter({ hasText: /^All 40$/ }).tap()
-  await page.locator('.review-line input[type=checkbox]').first().tap()
-  await page.locator('label').filter({ hasText: /^Need a look 14$/ }).tap()
-  await expect(page.getByTestId('queue-position')).toHaveText('1 of 14 to look at')
-  const bar = page.getByTestId('selection-bar')
-  await expect(bar).toContainText('1 selected')
-  const sel = (await bar.boundingBox())!
-  const lineBar = (await page.getByRole('toolbar', { name: 'Line actions' }).boundingBox())!
-  // Taller than the plain line bar's 56px, which is what the selection bar would clear without the queue bar's own height.
-  expect(lineBar.height).toBeGreaterThan(56)
-  expect(sel.y + sel.height).toBeLessThanOrEqual(lineBar.y + 0.5)
-  // Stuck right above it, not further up the page where any bar would clear it.
-  expect(sel.y + sel.height).toBeGreaterThan(lineBar.y - 2)
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 568 })
+    await page.goto('about:blank')
+    await page.goto('/#/drama/3/review')
+    // The queue's cards have no tick box: a line ticked under All stays ticked when the queue is shown again.
+    await page.getByRole('button', { name: 'See the lines around it' }).tap()
+    await page.locator('.review-line input[type=checkbox]').first().tap()
+    await page.locator('.review-queue-row').getByRole('button', { name: 'Check the 14 lines', exact: true }).tap()
+    await expect(page.getByTestId('queue-position')).toHaveText('1 of 14 to look at')
+    const bar = page.getByTestId('selection-bar')
+    await expect(bar).toContainText('1 selected')
+    // From the page's top the bar's own place is below the screen at both widths, so it has to stick; where the page
+    // comes to rest after the change of view varies, and at 390px it can rest with the bar's own place on screen.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    const sel = (await bar.boundingBox())!
+    const lineBar = (await page.getByRole('toolbar', { name: 'Line actions' }).boundingBox())!
+    // Taller than the plain line bar's 56px, which is what the selection bar would clear without the queue bar's own height.
+    expect(lineBar.height, `the queue's bar is taller than the plain one at ${width}px`).toBeGreaterThan(56)
+    expect(sel.y + sel.height, `the selection bar is above the line bar at ${width}px`).toBeLessThanOrEqual(lineBar.y + 0.5)
+    // Stuck right above it, not further up the page where any bar would clear it.
+    expect(sel.y + sel.height, `the selection bar is right above the line bar at ${width}px`).toBeGreaterThan(lineBar.y - 2)
+  }
+})
+
+test('phone: the speaker name is a 44px button whose list stays on screen, and picking a speaker saves it', async ({ page }) => {
+  const code = `import db
+db.configure_library_dir(${JSON.stringify(libraryDir)})
+from core import Line
+db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句', en=f'Line {i}', speaker='Anok' if i % 2 else 'Yamizuki Fuyu') for i in range(6)])
+`
+  execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot })
+  for (const width of [390, 320] as const) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto('/#/drama/3/review')
+    await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(6)
+    const name = page.getByRole('button', { name: /Speaker of line 2: Anok/ })
+    expect((await name.boundingBox())!.height, `the name button at ${width}px`).toBeGreaterThanOrEqual(44)
+    await name.tap()
+    const list = page.getByRole('group', { name: 'Choose a speaker' })
+    const at = (await list.boundingBox())!
+    expect(at.x, `the list's left edge at ${width}px`).toBeGreaterThanOrEqual(0)
+    expect(at.x + at.width, `the list's right edge at ${width}px`).toBeLessThanOrEqual(width)
+    for (const b of await list.getByRole('button').all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `sideways scroll at ${width}px`).toBeLessThanOrEqual(0)
+    await page.keyboard.press('Escape')
+  }
+  await page.getByRole('button', { name: /Speaker of line 2: Anok/ }).tap()
+  await page.getByRole('group', { name: 'Choose a speaker' }).getByRole('button', { name: 'Yamizuki Fuyu' }).tap()
+  await expect(page.getByRole('button', { name: /Speaker of line 2: Yamizuki Fuyu/ })).toBeVisible()
 })

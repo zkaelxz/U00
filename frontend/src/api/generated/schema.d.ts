@@ -18616,6 +18616,11 @@ export interface components {
             key: string;
             /** Label */
             label: string;
+            /**
+             * Speakers Without Voice
+             * @default []
+             */
+            speakers_without_voice: string[];
             /** Unavailable Reason */
             unavailable_reason: string | null;
         };

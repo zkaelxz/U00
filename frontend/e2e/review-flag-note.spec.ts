@@ -35,7 +35,7 @@ test('desktop: the whole note is visible and wraps without shifting the row', as
   const note = row.getByTestId('line-flag')
   await expect(note).toContainText(SENTENCE)
   await expect(note).toHaveAttribute('title', SENTENCE)
-  await expect(row.getByRole('button', { name: 'Flagged: Fast to read' })).toHaveCount(0)
+  await expect(row.getByRole('button', { name: 'Flagged: Too fast to read' })).toHaveCount(0)
   const clipped = await note.evaluate((el) => ({
     ellipsis: getComputedStyle(el).textOverflow === 'ellipsis',
     whole: el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight,
@@ -62,7 +62,7 @@ test('phone: the active row’s flag line expands, wraps inside the screen, numb
   await open(page)
   const row = page.locator('.review-line[data-line-id="2"]')
   await row.locator('.review-zh').click()
-  await row.getByRole('button', { name: 'Flagged: Fast to read', exact: true }).click()
+  await row.getByRole('button', { name: 'Flagged: Too fast to read', exact: true }).click()
   const note = row.getByRole('note')
   await expect(note).toBeVisible()
   await expect(note).toHaveText(SENTENCE)

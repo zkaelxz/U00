@@ -230,6 +230,30 @@ describe('typing in Search with an unsaved draft', () => {
   })
 })
 
+describe('switching the view under an unsaved draft', () => {
+  const navigation = (leaveEdit: () => Promise<boolean>) => {
+    const setFilter = vi.fn()
+    const nav = buildLinesNavigation({
+      dramaId: 7, ctl: { leaveEdit } as never, st: { current: {} as LinesState },
+      pending: { current: null }, listRef: { current: null }, searching: false, filter: 'risk', page: 1, place: { pageFor: () => 1, abandon: () => {} },
+      setFilter, setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
+    })
+    return { nav, setFilter }
+  }
+
+  it('says the view did not change when the draft cannot be saved, so Search does not ask for the focus', async () => {
+    const { nav, setFilter } = navigation(async () => false)
+    expect(await nav.changeFilter('all')).toBe(false)
+    expect(setFilter).not.toHaveBeenCalled()
+  })
+
+  it('says the view changed once the draft is saved', async () => {
+    const { nav, setFilter } = navigation(async () => true)
+    expect(await nav.changeFilter('all')).toBe(true)
+    expect(setFilter).toHaveBeenCalledWith('all')
+  })
+})
+
 describe('a gap line filled under an open draft', () => {
   it('keeps what was typed over the filled text once the line reloads', async () => {
     const blank = line(1, { zh: '' })

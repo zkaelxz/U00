@@ -17,7 +17,7 @@ interface Props {
   onMove: (delta: 1 | -1) => void
   onEdit: () => void
   // Simple's check queue: Skip for now and Looks right, next take the place of Prev, Next and Edit; the card's
-  // English box opens the editor on a tap, as Edit did.
+  // English box opens the editor on a tap, as Edit did, and Play line is on the card.
   queue?: { onSkip: () => void; onLooksRight: () => void }
 }
 
@@ -35,7 +35,7 @@ export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCanc
         </>
       ) : (
         <>
-          {hasMedia && (
+          {hasMedia && !queue && (
             <button type="button" aria-label={`Play line ${lineNumber(active.idx)}`} onClick={onPlay}>
               ▶ #{lineNumber(active.idx)}
             </button>
