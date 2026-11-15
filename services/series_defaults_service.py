@@ -196,6 +196,50 @@ def set_defaults(principal, series_id, settings) -> dict:
     return {"series_id": series_id, "settings": clean, "fields": _fields()}
 
 
+def _run_default(key):
+    """What a run uses for a setting the title leaves empty."""
+    if key == "translation_engine":
+        # Imported here: engine_routing_service reaches this module through profile_service.
+        from services import engine_routing_service
+        return engine_routing_service.resolve_capability("translation.cheap")
+    return _BUILTIN.get(key)
+
+
+def title_sources(principal, drama_id) -> dict:
+    """Where each default-able setting of a title gets its value today. A
+    series default or a profile is copied onto the title when applied and
+    never read at run time, so only two things decide a run: the value on the
+    title, else the Settings default. The series default is shown beside it
+    for comparison; a profile leaves no trace, so its values read as the
+    title's own."""
+    ownership_service.require_visible(principal, "drama", drama_id)
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError("Title not found.")
+    series_id = drama.get("series_id")
+    series = (_series_row(series_id) if series_id
+              and ownership_service.can_see(principal, "series", series_id) else None)
+    defaults = _stored(series) if series else {}
+    rows = []
+    for key, spec in SETTINGS.items():
+        own = _as_value(key, drama.get(key))
+        in_series = key in defaults
+        # A value equal to the app default is what a new title's column holds, so
+        # without a series default to compare it reads as not set (see _unset).
+        if own is None or (not in_series and _unset(key, drama.get(key))):
+            source, value = "settings_default", _run_default(key)
+        elif in_series and own == defaults[key]:
+            source, value = "series", own
+        else:
+            source, value = "title", own
+        rows.append({"key": key, "label": spec["label"], "group": spec["group"],
+                     "value": value, "source": source,
+                     "series_value": defaults.get(key) if in_series else None,
+                     "differs_from_series": source == "title" and in_series})
+    return {"drama_id": drama_id, "series_id": series_id,
+            "series_name": series.get("name") if series else None, "settings": rows}
+
+
 # --- planning ----------------------------------------------------------------
 
 def _as_column(key, value):
