@@ -494,7 +494,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               edit={edit?.lineId === l.id ? edit : null}
               ai={ai?.lineId === l.id ? ai.mode : null}
               tm={tmByLine.get(l.id) ?? null}
-              stronger={strongerByLine.get(l.id) ?? null} guesses={fill.guessesByLine.get(l.id) ?? null}
+              stronger={strongerByLine.get(l.id) ?? null} guesses={fill.guessesByLine.get(l.id) ?? null} speakerNote={fill.noteFor(l.id)}
               timingSnap={timingByLine.get(l.id) ?? null}
               issue={issue?.lineId === l.id ? issue : null}
               actions={actions}

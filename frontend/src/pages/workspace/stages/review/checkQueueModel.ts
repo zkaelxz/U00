@@ -439,6 +439,12 @@ const nextReason = (line: ReviewLine) => {
   return short.startsWith('Whisper ') ? short : lowerFirst(short)
 }
 
+/** What a card says once its speaker is set but another reason still lists it; null when nothing else does. */
+export function stillListedNote(line: ReviewLine, speaker: string): string | null {
+  const now = { ...line, speaker }
+  return queueReason(now) ? `Speaker set to ${speaker}. This line is still listed: ${nextReason(now)}.` : null
+}
+
 /** The next two cards after the one open, for the phone's one-card view; null at the end of the list. */
 export function nextText(shown: ReviewLine[], activeId: number | null): string | null {
   const at = shown.findIndex((l) => l.id === activeId)
