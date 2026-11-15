@@ -16,7 +16,7 @@ import './phoneBar.css'
 const BAR_LABELS = ['Library', 'Add', 'Jobs']
 const MORE_ICON = 'M5 12h.01M12 12h.01M19 12h.01'
 
-export function PhoneBar({ route, context, moreOpen, onMore }: { route: Route; context: NavContext; moreOpen: boolean; onMore: () => void }) {
+export function PhoneBar({ route, context, moreOpen, onMore, words = false }: { route: Route; context: NavContext; moreOpen: boolean; onMore: () => void; words?: boolean }) {
   const running = activeCount(useJobs().jobs ?? [])
   // A page with its own bottom bar leaves this much room under it.
   const barRef = usePublishedHeight('--phone-bar-h')
@@ -25,7 +25,7 @@ export function PhoneBar({ route, context, moreOpen, onMore }: { route: Route; c
     .filter(({ item }) => BAR_LABELS.includes(item.label))
     .sort((a, b) => BAR_LABELS.indexOf(a.item.label) - BAR_LABELS.indexOf(b.item.label))
   return (
-    <nav ref={barRef} className="phone-bar" aria-label="Quick">
+    <nav ref={barRef} className={words ? 'phone-bar is-words' : 'phone-bar'} aria-label="Quick">
       {items.map(({ item, active }) => (
         <a key={item.label} href={routeHref(item.target)} aria-current={active.includes(route.name) ? 'page' : undefined}>
           <Icon d={navIconPath(item.label)} />

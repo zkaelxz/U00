@@ -431,7 +431,7 @@ export default function App() {
         </div>
         {!wide && !popOut && <NavDrawer route={route} context={navContext} open={menuOpen} onOpenChange={setMenuOpen} viewMode={viewMode} onViewMode={storeMode} />}
         <GlobalShortcuts route={route} />
-        {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} />}
+        {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} words={BOUNDED_ROUTES.has(route.name)} />}
       </div>
     </JobsProvider>
   )

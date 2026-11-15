@@ -194,6 +194,13 @@ const barTop = (page: Page) => page.evaluate(() => Math.min(window.innerHeight, 
   return css.position === 'fixed' && css.visibility !== 'hidden' && r.height > 0 && r.top > window.innerHeight / 2
 }).map((el) => el.getBoundingClientRect().top)))
 
+// A box taller than the room above the bars: at the page's end its bottom is above them.
+async function expectEndReachable(page: Page, box: Locator, what: string) {
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  const bottom = await box.evaluate((el) => el.getBoundingClientRect().bottom)
+  expect(bottom, `${what} ends above the bottom bar once scrolled to the end`).toBeLessThanOrEqual(await barTop(page) + 0.5)
+}
+
 // The fixed bars at the bottom must leave the end of the page reachable above them.
 async function expectEndClearOfBars(page: Page, last: Locator, what: string) {
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
@@ -389,8 +396,9 @@ test.describe(() => {
       await expect(page.getByTestId('queue-position')).toBeVisible()
       await expect(page.locator('.title-top-progress')).toBeVisible()
       const gap = await barTop(page) - (await cards.evaluate((el) => el.getBoundingClientRect().bottom))
-      expect(gap, `the card ends above the bottom bar at ${width}px`).toBeGreaterThanOrEqual(-0.5)
-      expect(gap, `the card ends within 16px of the bottom bar at ${width}px`).toBeLessThanOrEqual(16)
+      // A card with more in it than the room above the bars scrolls; its end is then reached at the page's end.
+      if (gap < -0.5) await expectEndReachable(page, cards, `the card at ${width}px`)
+      else expect(gap, `the card ends within 16px of the bottom bar at ${width}px`).toBeLessThanOrEqual(16)
       await expectNoSidewaysScroll(page)
     }
     await page.setViewportSize({ width: 390, height: 844 })
@@ -425,8 +433,11 @@ test.describe(() => {
     seedCheckLines()
     await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
     for (const width of [390, 360, 320] as const) {
+      // Tapping Looks right changes the title, so each width starts from the seeded lines again.
+      seedCheckLines()
       await page.setViewportSize({ width, height: 844 })
       await page.goto('/#/drama/3/review')
+      await page.reload()
       const bar = page.getByRole('toolbar', { name: 'Line actions' })
       const menu = page.getByRole('navigation', { name: 'Quick' })
       await expect(menu.getByRole('link')).toHaveText(['Library', 'Add', 'Jobs'])
@@ -486,8 +497,8 @@ test.describe(() => {
     expect(await headerHeight(), 'the running job makes the header taller').toBeGreaterThan(before)
     await page.evaluate(() => window.scrollTo(0, 0))
     const gap = await barTop(page) - (await card.evaluate((el) => el.getBoundingClientRect().bottom))
-    expect(gap, 'the card ends above the bottom bar').toBeGreaterThanOrEqual(-0.5)
-    expect(gap, 'the card ends within 16px of the bottom bar').toBeLessThanOrEqual(16)
+    if (gap < -0.5) await expectEndReachable(page, card, 'the card')
+    else expect(gap, 'the card ends within 16px of the bottom bar').toBeLessThanOrEqual(16)
   })
 
   test('Search in More\'s panel shows All and opens the lines\' search box with the cursor in it', async ({ page }) => {
