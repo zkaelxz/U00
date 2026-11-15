@@ -215,6 +215,8 @@ class TranslateRunConfig(BaseModel):
     doubtful_flagged_count: int = 0
     # What redoing the doubtful lines with the stronger engine would cost; None when free or unknown.
     doubtful_redo_estimate_usd: Optional[float] = None
+    # True when the title's thinking is on for the redo: hidden reasoning is billed on top of the estimate.
+    doubtful_redo_estimate_is_lower_bound: bool = False
 
 
 class TranslateRunEstimate(BaseModel):

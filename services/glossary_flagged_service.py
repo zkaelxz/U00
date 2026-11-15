@@ -17,7 +17,7 @@ import db
 from engine_backends.alignment_check import ALIGNMENT_FLAG
 from engine_backends.flag_reasons import FLAG_REASONS
 from engine_backends.glossary_check import GLOSSARY_FLAG, missing_terms
-from services import ownership_service, profile_service, settings_service, stronger_engine_service, translate_run_service
+from services import ownership_service, profile_service, settings_service, stronger_engine_service, translate_run_service, translate_thinking_service
 from lib.errors import InvalidInputError, ServiceError, UnsupportedOperationError
 
 log = logging.getLogger(__name__)
@@ -53,18 +53,22 @@ def doubtful_config_fields(drama_id: int) -> dict:
     """Count of doubtful lines and what redoing them would cost, so the click is an
     informed one. The estimate is None for a free engine or when it can't be made."""
     rows = _doubtful_rows(drama_id)
-    estimate = None
+    estimate, lower_bound = None, False
     engine = stronger_engine_service.stronger_engine_or_none(drama_id) if rows else None
     if engine:
         try:
-            estimate = translate_run_service.estimate_translate_cost(
-                drama_id, engine_name=engine, force_retranslate=True,
-                line_ids={r["id"] for r in rows})
-            estimate = None if estimate["free"] else estimate["estimated_usd"]
+            made = translate_thinking_service.annotate_estimate(
+                translate_run_service.estimate_translate_cost(
+                    drama_id, engine_name=engine, force_retranslate=True,
+                    line_ids={r["id"] for r in rows}), drama_id, None)
+            estimate = None if made["free"] else made["estimated_usd"]
+            # The redo runs with the title's thinking choice, whose hidden output the estimate can't see.
+            lower_bound = bool(estimate is not None and made["estimate_is_lower_bound"])
         except ServiceError:
             # A missing key or an offline engine is reported when the redo starts.
             log.info("No cost estimate for the doubtful-lines redo of title %s", drama_id, exc_info=True)
-    return {"doubtful_flagged_count": len(rows), "doubtful_redo_estimate_usd": estimate}
+    return {"doubtful_flagged_count": len(rows), "doubtful_redo_estimate_usd": estimate,
+            "doubtful_redo_estimate_is_lower_bound": lower_bound}
 
 
 def config_fields(drama_id: int) -> dict:

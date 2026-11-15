@@ -112,6 +112,7 @@ export function DoubtfulLinesNotice({ config, busy, onStarted }: Omit<RunProps, 
   if (count === 0) return null
   const engine = config.glossary_redo_engine
   const estimate = config.doubtful_redo_estimate_usd
+  const lowerBound = config.doubtful_redo_estimate_is_lower_bound ?? false
   const redo = () => {
     setPending(true)
     setError(null)
@@ -128,9 +129,12 @@ export function DoubtfulLinesNotice({ config, busy, onStarted }: Omit<RunProps, 
         <>
           <button type="button" onClick={redo} disabled={pending || busy}>
             Redo {count === 1 ? 'this line' : 'these lines'} with {humanize('engine', engine)}
-            {estimate != null ? `: about $${estimate.toFixed(2)}` : ''}
+            {estimate != null ? `: ${lowerBound ? 'at least' : 'about'} $${estimate.toFixed(2)}` : ''}
           </button>
-          <p className="muted">The old English is kept in History, and the monthly cap applies.</p>
+          <p className="muted">
+            {lowerBound && 'Thinking is on for this title, so hidden reasoning adds to the cost. '}
+            The old English is kept in History, and the monthly cap applies.
+          </p>
         </>
       )}
     </section>
