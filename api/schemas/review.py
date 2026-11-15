@@ -11,6 +11,9 @@ from api.schemas.common import ConfirmRequest
 __all__ = [
     "ReviewLinesLine",
     "ReviewLinesPage",
+    "ReviewSpeakerGuess",
+    "ReviewLineSpeakerGuesses",
+    "ReviewSpeakerSuggestions",
     "ReviewLinesFindReplaceRequest",
     "ReviewLinesMatch",
     "ReviewLinesCoverageEntry",
@@ -36,6 +39,7 @@ __all__ = [
     "ReviewRecordsTmSuggestion",
     "LinesPatchRequest",
     "LinesReviewedRequest",
+    "LinesMarkRequest",
     "LinesMatchIn",
     "LinesFindReplaceApplyRequest",
     "LinesFindReplaceApplyResult",
@@ -131,6 +135,9 @@ class ReviewLinesLine(BaseModel):
     confidence: Optional[float] = Field(default=None, description=(
         "0-1 estimate of how sure Whisper was of the transcribed text; null for lines from "
         "another source and for older rows. Editing the source text clears it."))
+    mark: Optional[Literal["wrong", "mixed"]] = Field(default=None, description=(
+        "A person's mark on the English: wrong, mixed, or null for none. Editing `en` "
+        "clears it; a marked line is never `reviewed`."))
 
 
 class ReviewLinesPage(BaseModel):
@@ -145,7 +152,30 @@ class ReviewLinesPage(BaseModel):
     shaky_count: int = Field(default=0, description=(
         "Unchecked lines Whisper was unsure of (the `shaky` filter), in the whole drama."))
     risk_count: int = Field(default=0, description=(
-        "Unchecked translated lines with a flag or low confidence (the `risk` filter), in the whole drama."))
+        "Unchecked translated lines with a mark, a flag or low confidence (the `risk` filter), "
+        "in the whole drama."))
+    marked_count: int = Field(default=0, description=(
+        "Lines marked wrong or mixed (the `marked` filter), in the whole drama."))
+    no_speaker_count: int = Field(default=0, description=(
+        "Lines with words but no speaker that nobody cleared by hand, in the whole drama; "
+        "0 when no line has a speaker."))
+
+
+class ReviewSpeakerGuess(BaseModel):
+    speaker: str
+    reasons: List[Literal["above", "below", "voice"]] = Field(description=(
+        "Why it is offered: the nearest line above or below with a speaker has it, or the "
+        "voice the saved speaker detection heard most in this line is now named it."))
+
+
+class ReviewLineSpeakerGuesses(BaseModel):
+    line_id: int
+    speakers: List[ReviewSpeakerGuess] = Field(description="Most-supported first, at most three.")
+
+
+class ReviewSpeakerSuggestions(BaseModel):
+    lines: List[ReviewLineSpeakerGuesses] = Field(description=(
+        "Only lines that still need a speaker and have at least one guess, in line order."))
 
 
 class ReviewLinesFindReplaceRequest(BaseModel):
@@ -402,6 +432,14 @@ class LinesReviewedRequest(BaseModel):
     expected_en: Optional[str] = Field(default=None, max_length=2000)
 
 
+class LinesMarkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Required, so clearing is an explicit null rather than a forgotten field.
+    mark: Optional[Literal["wrong", "mixed"]]
+    # As for LinesReviewedRequest: a mark is about the English the person read.
+    expected_en: Optional[str] = Field(default=None, max_length=2000)
+
+
 class LinesMatchIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: int
@@ -441,6 +479,9 @@ class LinesEpisodeReviewedResult(BaseModel):
     remembered: int = Field(description="Of those, pairs newly added to the series' translation memory.")
     kept_existing: int = Field(description="Of those, lines whose source the memory already held (that entry is kept).")
     skipped_flagged: int = Field(description="Unchecked lines left alone because they carry a flag.")
+    skipped_marked: int = Field(description=(
+        "Unchecked lines left alone because they are marked wrong or mixed (a line both "
+        "flagged and marked counts here too)."))
     already_reviewed: int = Field(description="Translated lines that were already marked reviewed.")
 
 

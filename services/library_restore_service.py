@@ -192,6 +192,7 @@ def _rebuild_from_upload(fresh_path: str, upload_path: str, skip_tables=(),
                         library_restore_sql.copy_rows(conn, "cur", t)
                 elif t not in skip_tables and t in up_tables:
                     library_restore_sql.copy_rows(conn, "up", t)
+            db.settle_copied_marks(conn)
             conn.execute("COMMIT")
         finally:
             conn.close()

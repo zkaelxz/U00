@@ -19,3 +19,11 @@ describe('UndoNotice', () => {
     expect(busy).toMatch(/<button[^>]*disabled[^>]*>Undo/)
   })
 })
+
+describe('UndoNotice without a line-history copy', () => {
+  it('leaves out the Records fallback', () => {
+    const html = renderToStaticMarkup(<UndoNotice message="Line #3 is now Anok." busy={false} historyNote={false} onUndo={() => {}} onDismiss={() => {}} />)
+    expect(html).toContain('Line #3 is now Anok.')
+    expect(html).not.toContain('Records → Line history')
+  })
+})

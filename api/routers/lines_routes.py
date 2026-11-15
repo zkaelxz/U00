@@ -1,7 +1,7 @@
 """
 api/routers/lines_routes.py -- the Review stage's per-line WRITES for one
 drama: partial line edit (with compare-and-set on the
-client's old values), set lines' spoken language, mark checked, dismiss flag, keep English
+client's old values), set lines' spoken language, mark checked, mark wrong or mixed, dismiss flag, keep English
 on source-changed lines, find-and-replace apply, translation-memory
 accept, and translation-note add/delete.
 
@@ -22,7 +22,8 @@ from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
 from api.schemas import (LinesAcceptTmRequest, LinesFindReplaceApplyRequest,
                          LinesFindReplaceApplyResult, LinesKeepEnglishRequest,
-                         LinesEpisodeReviewedResult, LinesKeepEnglishResult, LinesNote, LinesNoteCreate,
+                         LinesEpisodeReviewedResult, LinesKeepEnglishResult, LinesMarkRequest,
+                         LinesNote, LinesNoteCreate,
                          LinesNoteDeleteResult, LinesPatchRequest, LinesReviewedRequest, LinesSetLangRequest,
                          LinesSetLangResult, LinesShortenRequest, LinesShortenResult,
                          ReviewLinesLine, error_responses)
@@ -46,6 +47,13 @@ def post_patch_line(body: LinesPatchRequest, drama_id: int = Path(ge=1), line_id
              responses=_404_409_422)
 def post_set_reviewed(body: LinesReviewedRequest, drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     return lines_service.set_reviewed(drama_id, line_id, body.reviewed, body.expected_en)
+
+
+@router.post("/dramas/{drama_id}/lines/{line_id}/mark", dependencies=[require_permission("lines.edit")], response_model=ReviewLinesLine,
+             summary="Mark one line's translation wrong or mixed, or clear its mark (409 if `expected_en` differs)",
+             responses=_404_409_422)
+def post_set_mark(body: LinesMarkRequest, drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
+    return lines_service.set_mark(drama_id, line_id, body.mark, body.expected_en)
 
 
 @router.post("/dramas/{drama_id}/mark-reviewed", dependencies=[require_permission("lines.edit")],
