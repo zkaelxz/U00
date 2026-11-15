@@ -492,7 +492,7 @@ Voices are in `dub.py` and narration in `dub_narration.py`; this page only maps 
   nothing is rewritten or deleted.
 - **Narration:** `dub_narration.build_narration_track` (in `dub_narration.py`)
   synthesizes the lines in order and concatenates the clips into
-  `narration_track.wav`; there is no fitting to subtitle timing. The run is
+  `narration_track.flac` (an older title's `narration_track.wav` is still read); there is no fitting to subtitle timing. The run is
   `services/listen_service.py`. `export_narration_m4b` builds the audiobook.
 - `pydub` (joining clips) is in `diagnostics.OPTIONAL_DEPENDENCIES`; the voice engines'
   packages are not, because they live in their own folders.

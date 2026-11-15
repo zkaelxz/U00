@@ -26,9 +26,12 @@ LOCAL_MEDIA_FORMATS = "mov,matroska,mp3,wav,flac,ogg,aac,mpegts,flv,avi,asf,mpeg
 
 
 def extract_audio_cmd(video_path: str, out_path: str) -> list:
-    """ffmpeg command for the 16 kHz mono PCM wav the transcribers read."""
+    """ffmpeg command for the 16 kHz mono audio the transcribers read: lossless
+    FLAC for a .flac out_path, otherwise PCM wav (the codec follows the name
+    because ffmpeg rejects PCM in a FLAC container)."""
+    codec = "flac" if out_path.lower().endswith(".flac") else "pcm_s16le"
     return ["ffmpeg", "-y", *local_input(), "-i", video_path, "-vn",
-            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", out_path]
+            "-acodec", codec, "-ar", "16000", "-ac", "1", out_path]
 
 
 def local_input(formats: str = LOCAL_MEDIA_FORMATS) -> list:

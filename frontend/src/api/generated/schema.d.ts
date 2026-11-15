@@ -5890,7 +5890,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Download the finished narration track (WAV) */
+        /** Download the finished narration track (FLAC, or WAV for an older title) */
         get: operations["download_listen_track_api_listen_dramas__drama_id__track_get"];
         put?: never;
         post?: never;
