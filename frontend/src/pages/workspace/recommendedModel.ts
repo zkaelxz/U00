@@ -12,7 +12,7 @@ const NOTES: Record<TitleKind, string> = {
   subtitle:
     "Recommended for streams and subtitles: gemma4:31b-cloud, Ollama's hosted model (it sends the text off this PC). translategemma:27b is the local choice.",
   novel:
-    'Recommended for novels: GPT-6 Luna with "GPT-6 Luna reasoning" set to Less (Settings > Translation and keys), and the series glossary filled in. On a test chunk Less was faster and cheaper with about the same quality.',
+    'Recommended for novels: GPT-6 Luna with "GPT-6 Luna reasoning" set to Less (Settings > Engines and keys), and the series glossary filled in. On a test chunk Less was faster and cheaper with about the same quality.',
 }
 
 export function recommendedModelNote(kind: TitleKind): string {

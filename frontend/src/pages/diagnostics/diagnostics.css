@@ -8,6 +8,9 @@
 .diag-panel, .diag-folds { display: grid; gap: var(--page-gap); min-width: 0; }
 /* Two classes so it out-ranks details.section's own bottom margin. */
 .diag-page .diag-folds > * { margin: 0; }
+/* People and access wraps each card so a link can scroll to it; a card that renders nothing must leave no gap. */
+.admin-card-slot:empty { display: none; }
+.diag-page .diag-folds > .admin-card-slot > * { margin: 0; }
 .diag-panel[hidden], .diag-card:empty { display: none; }
 .diag-card { min-width: 0; scroll-margin-top: var(--space-4); }
 .diag-card > details.section, .diag-card > .card-fold > details.section { margin: 0; background: var(--surface); }
