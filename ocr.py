@@ -714,7 +714,7 @@ def _manga_ocr_on_gpu() -> bool:
 
 
 def release_models(empty_cuda: bool = True) -> None:
-    """Drops the cached Qwen3-VL, PaddleOCR-VL and Manga OCR models and hands
+    """Drops the cached Qwen3-VL, PaddleOCR-VL, Manga OCR, PaddleOCR and RapidOCR models and hands
     CUDA's memory back. They otherwise stay for the life of the process, with
     no other place that lists or frees them. They reload on next use.
     `empty_cuda=False` for a caller that empties CUDA's cache itself afterwards."""
@@ -724,6 +724,8 @@ def release_models(empty_cuda: bool = True) -> None:
         globals().get("_qwen3_vl_models", {}).clear()
         for name in ("_paddle_vl_manga_model", "_paddle_vl_manga_processor", "_manga_ocr_instance"):
             globals().pop(name, None)
+        for name in ("_paddle_instances", "_paddle_line_instances", "_rapidocr_instances"):
+            globals().get(name, {}).clear()
     gc.collect()
     torch = sys.modules.get("torch")
     if empty_cuda and torch is not None:

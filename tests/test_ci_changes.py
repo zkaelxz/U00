@@ -274,6 +274,20 @@ def test_the_repos_frontend_reading_tests_include_the_drift_checks():
     assert all(os.path.exists(f) for f in found)
 
 
+def test_docs_reading_tests_lists_files_that_read_docs(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_a.py").write_text("p = 'docs/route-permissions.md'\n")
+    (tmp_path / "tests" / "test_b.py").write_text("os.path.join(root, 'docs', 'x.md')\n")
+    (tmp_path / "tests" / "test_c.py").write_text("nothing\n")
+    (tmp_path / "tests" / "helper.py").write_text("docs/\n")
+    assert ci_changes.docs_reading_tests(str(tmp_path)) == ["tests/test_a.py", "tests/test_b.py"]
+
+
+def test_the_repos_docs_reading_tests_include_the_route_table_check():
+    found = ci_changes.docs_reading_tests(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    assert "tests/test_api_permissions.py" in found
+
+
 @pytest.mark.parametrize("files", [
     ["sources/adapters/bilibili.py", "tests/test_db.py"],
     ["sources/adapters/bilibili.py", "sources/fetch.py"],
