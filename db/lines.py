@@ -552,11 +552,12 @@ def _check_no_new_refs(conn, drama_id, removed, table, known_ids):
 
 # Every per-line table a full sync touches, and what it does to a removed
 # line's rows there: notes and emotions are deleted with the line; a reading
-# position only loses its line_id (its line_idx still shows where it was).
+# position only loses its line_id (its line_idx still shows where it was), and
+# so does a recorded edit, which learned style still reads.
 # _repoint_line_refs and _delete_line_refs both read this, so a new per-line
 # table is handled by both or neither.
 _LINE_REF_TABLES = {"translation_notes": "delete", "line_emotions": "delete",
-                    "reading_history": "unlink"}
+                    "reading_history": "unlink", "edit_samples": "unlink"}
 
 
 def _repoint_line_refs(conn, drama_id, from_id, to_id):

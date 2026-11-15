@@ -99,6 +99,30 @@ class TestPatch:
         assert [(e["source_text"], e["translation"]) for e in db.list_translation_memory(sid)] \
             == [("你好", "Hi there")]
 
+    def test_edit_sample_records_what_made_the_corrected_text(self, isolated_db):
+        from services import line_provenance_service
+        did, ids = _seed()
+        db.save_lines(did, [Line(idx=1, start=1.0, end=2.0, zh="再见", en="Bye", flag="uncertain",
+                                 flag_note="hmm", mark="wrong", id=ids[1])], fields=("mark",))
+        line_provenance_service.record(did, {ids[1]: ("再见", "Bye")}, "claude", "claude-x", "6", "")
+        svc.patch_line(did, ids[1], en="Goodbye")
+        [s] = db.list_edit_samples(did)
+        assert (s["line_id"], s["engine"], s["model"], s["prompt_version"], s["flag"],
+                s["mark"]) == (ids[1], "claude", "claude-x", "6", "uncertain", "wrong")
+        # The second correction is of a person's text: no engine to credit it to.
+        svc.patch_line(did, ids[1], en="See you")
+        newest = db.list_edit_samples(did)[0]
+        assert (newest["ai_version"], newest["line_id"], newest["engine"],
+                newest["prompt_version"], newest["flag"], newest["mark"]) == (
+            "Goodbye", ids[1], None, None, None, None)
+
+    def test_edit_sample_outlives_its_line(self, isolated_db):
+        did, ids = _seed()
+        svc.patch_line(did, ids[0], en="Hi there")
+        _real_save(did, [ln for ln in db.load_line_objects(did) if ln.id != ids[0]])
+        [s] = db.list_edit_samples(did)
+        assert (s["line_id"], s["user_version"]) == (None, "Hi there")
+
     def test_no_tm_without_series_and_no_sample_when_unchanged(self, isolated_db):
         did, ids = _seed()
         svc.patch_line(did, ids[0], en="Hi there")
