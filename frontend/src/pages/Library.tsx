@@ -252,7 +252,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
 
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    // "Create and fill details with AI" goes on to the Source stage's auto-fill.
+    // "Create + fill with AI" goes on to the Source stage's auto-fill.
     const autofill = (e.nativeEvent as SubmitEvent).submitter?.getAttribute('name') === 'autofill'
     const body = buildCreateRequest(form, { ...extras, preset: profile })
     const problem = validateCreate(body)
@@ -288,7 +288,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
       )}
       <ErrorBanner error={presets.error} />
       {!!presets.data?.items.length && (
-        <Field label="Profile" help="Your saved translation and transcription settings. The new title starts with them already filled in, so you can go straight on. The language stays your choice below, and nothing starts by itself. Manage profiles in Library tools.">
+        <Field label="Profile" help="Your saved settings fill the new title. Language is still your choice; nothing starts by itself. Manage in Library tools.">
           <select value={profile} onChange={setExtra('preset')}>
             <option value="">No profile</option>
             {presets.data.items.map((p) => <option key={p.id} value={String(p.id)}>{p.name}{p.is_default ? ' (default)' : ''}</option>)}
@@ -366,7 +366,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
       <ErrorBanner error={error} />
       <div className="actions sheet-actions">
         <button type="submit" className={buttonClass('primary')} disabled={busy}>Create title</button>
-        <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create and fill details with AI</button>
+        <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create + fill with AI</button>
         <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Discard draft</button>
       </div>
     </form>

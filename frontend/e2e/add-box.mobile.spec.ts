@@ -35,10 +35,10 @@ for (const width of [390, 320]) {
     await b.getByRole('textbox', { name: 'Paste a link' }).fill(VIDEO_LINK)
     await expect(b.getByTestId('add-found')).toContainText('a rather long stream title')
     await noSideways(page)
-    for (const name of ['Make English subtitles', "Only add it, don't start", 'Choose a file']) {
+    for (const name of ['Make English subtitles', "Add only", 'Choose a file']) {
       expect(await b.getByRole('button', { name }).evaluate((n) => window.hitHeight(n))).toBeGreaterThanOrEqual(44)
     }
-    await b.getByRole('button', { name: "Only add it, don't start" }).tap()
+    await b.getByRole('button', { name: "Add only" }).tap()
     await expect(page.getByRole('dialog', { name: 'New title' }).getByLabel(/^Link/)).toHaveValue(VIDEO_LINK)
   })
 }

@@ -41,7 +41,7 @@ test('ask on Ollama, escalate to Gemini with consent, answer labelled with its t
   // Gemini is the last tier: no further escalation, only the developer report.
   const lastActions = chat.getByTestId('assistant-turn-actions').nth(1)
   await expect(lastActions.getByRole('button', { name: /Ask a stronger model/ })).toHaveCount(0)
-  await lastActions.getByRole('button', { name: 'Prepare a report for a developer' }).click()
+  await lastActions.getByRole('button', { name: 'Prepare bug report' }).click()
   const report = page.getByRole('dialog', { name: 'Report for a developer' })
   await expect(report).toContainText('not sent anywhere')
   await expect(report).toContainText('You: Why does the Translate stage skip lines?')

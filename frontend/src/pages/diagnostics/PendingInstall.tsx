@@ -113,7 +113,7 @@ export function PendingInstallBanner({ status, onCancel, onDismiss }: {
           </p>
           <div className="actions">
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={onCancel}>
-              Cancel the queued install
+              Cancel install
             </button>
           </div>
         </div>

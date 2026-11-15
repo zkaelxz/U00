@@ -150,7 +150,7 @@ test('a rollback after the newer version changed the library points at the backu
   await openSettingsGroups(page, 'Updates')
   const line = card(page).getByTestId('update-app-rollback-backup')
   await expect(line).toContainText('The newest backup from before the update was taken')
-  const link = line.getByRole('link', { name: 'Open Backup to restore it' })
+  const link = line.getByRole('link', { name: 'Open Backup' })
   await expect(link).toHaveAttribute('href', '#/library-tools?tab=backup')
 })
 
