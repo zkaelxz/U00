@@ -383,6 +383,8 @@ class LightnovelFunSource(SourceAdapter):
 
     # -- chapters ----------------------------------------------------------------
     def get_chapters(self, series_id: str):
+        # Read by the caller after the call: the list alone can't say that it is short.
+        self.chapter_notice = ""
         detail = self._book(series_id)
         catalog = [v for v in _list(detail.get("catalog")) if isinstance(v, dict) and _id(v.get("id"))]
         if not catalog:
@@ -421,6 +423,11 @@ class LightnovelFunSource(SourceAdapter):
                                 _text(volumes[vid].get("title")), series_id)
                 progress = True
 
+        if failed:
+            names = ", ".join(_text(volumes[v].get("title")) or v for v in order if v in failed)
+            self.chapter_notice = (f"Some volumes could not be loaded, so their chapters are missing from this list: "
+                                   f"{names}. Try again in a few minutes.")
+
         chapters = []
         for vid in order:
             group = _text(volumes[vid].get("title"))
@@ -436,10 +443,8 @@ class LightnovelFunSource(SourceAdapter):
     def _walk(self, series_id: str, neighbour: dict, link: str) -> dict:
         """{volume id: chapters} for every volume loaded on the reader page
         that `neighbour`'s prev/next link leads to. {} if there is no link,
-        or a page in the chain is gone (a deleted chapter): that volume is then
-        left out rather than failing the whole list. Any other fetch failure
-        propagates: a dropped volume would otherwise come back as "new"
-        chapters on the next successful load."""
+        or a page in the chain can't be fetched (a deleted chapter): that
+        volume is then left out rather than failing the whole list."""
         action = f"Loading the chapter list of book {series_id}"
         try:
             boot = self._reader(series_id, _id(neighbour["id"]), action, use_cache=False)
@@ -448,8 +453,6 @@ class LightnovelFunSource(SourceAdapter):
                 return {}
             boot = self._reader(series_id, target, action, use_cache=False)
         except FetchFailed as e:
-            if e.reason is not FailureReason.NOT_FOUND:
-                raise
             log.warning("lightnovel_fun: volume walk for book %s stopped: %s", series_id, e)
             return {}
         out = {}
