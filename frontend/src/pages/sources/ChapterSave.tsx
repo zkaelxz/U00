@@ -73,7 +73,7 @@ export function ChapterSave({ source, seriesId, display, chapters, selected, bus
               <strong>{saveSummary(result)}</strong>
             </p>
             {!!result.handoff && (
-              <p className="warn">{display} showed a browser check, so the rest was not saved. Try again later.</p>
+              <p className="warn">{display} showed a browser check; the rest was not saved. Try later.</p>
             )}
             <ul className="sources-outcome-list">
               {result.chapters.map((c) => (

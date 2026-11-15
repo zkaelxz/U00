@@ -241,7 +241,7 @@ function OllamaNotice({ onRecheck }: { onRecheck: () => Promise<void> }) {
   }
   return (
     <div className="translate-ollama" data-testid="ollama-warning">
-      <span className="warn" role="status">Can't reach Ollama on this PC. Is it running? Start Ollama, then check again.</span>
+      <span className="warn" role="status">Can't reach Ollama. Start it, then check again.</span>
       <button type="button" className={buttonClass('ghost', 'sm')} disabled={pending} onClick={recheck}>Check again</button>
       {rechecked && !pending && <span className="muted">Still no answer.</span>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
