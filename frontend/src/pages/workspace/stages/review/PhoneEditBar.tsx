@@ -1,4 +1,4 @@
-import { usePublishedHeight } from './usePublishedHeight'
+import { usePublishedHeight } from '../../../../hooks/usePublishedHeight'
 
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'

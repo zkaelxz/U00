@@ -421,6 +421,36 @@ test.describe(() => {
     await expectNoSidewaysScroll(page)
   })
 
+  test('the phone menu sits under the check queue bar, and the bar is still fully tappable above it', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    for (const width of [390, 360, 320] as const) {
+      await page.setViewportSize({ width, height: 844 })
+      await page.goto('/#/drama/3/review')
+      const bar = page.getByRole('toolbar', { name: 'Line actions' })
+      const menu = page.getByRole('navigation', { name: 'Quick' })
+      await expect(menu.getByRole('link')).toHaveText(['Library', 'Add', 'Jobs'])
+      await expect(menu.getByRole('button', { name: 'More' })).toBeVisible()
+      const m = (await menu.boundingBox())!
+      const b = (await bar.getByRole('button', { name: 'Looks right, next' }).boundingBox())!
+      expect(m.y + m.height, `the menu reaches the bottom edge at ${width}px`).toBeGreaterThan(843)
+      expect(b.y + b.height, `Looks right, next is above the menu at ${width}px`).toBeLessThanOrEqual(m.y + 1)
+      for (const target of [...await menu.getByRole('link').all(), menu.getByRole('button', { name: 'More' })]) await expectTall(target, 'a menu item')
+      // The press lands on the button, not on the menu laid over it.
+      await bar.getByRole('button', { name: 'Looks right, next' }).tap()
+      await expect(page.getByTestId('queue-position')).toHaveText('1 of 2 to look at')
+      await expectNoSidewaysScroll(page)
+    }
+  })
+
+  test('the phone menu is not drawn on the other title screens', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/translate')
+    await expect(page.getByTestId('drama-title')).toBeVisible()
+    await expect(page.getByRole('navigation', { name: 'Quick' })).toHaveCount(0)
+  })
+
   test('on an audio title with the player folded, the Undo notice after Looks right, next can be seen and tapped', async ({ page }) => {
     seedCheckLines({ audio: true })
     await mockPeaks(page)
