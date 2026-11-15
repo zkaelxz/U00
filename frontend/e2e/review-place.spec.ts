@@ -218,6 +218,18 @@ test('a glance at a filter or a search does not move the place in All', async ({
   await expect(pageNumber(page)).toHaveValue('2')
 })
 
+test('the sentence goes when the view it was said in is left', async ({ page }) => {
+  seedPlaceLines()
+  await keepLine55(page)
+  await leave(page)
+  await page.goto('/#/drama/3/review')
+  await expect(status(page)).toHaveText('Back where you stopped, on line 55.')
+  await page.getByRole('radio', { name: /^Flagged/ }).check({ force: true })
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(2)
+  // Well inside the eight seconds a status line stays by itself.
+  await expect(status(page)).toHaveText('', { timeout: 2000 })
+})
+
 test('work in Need a look keeps the place in All, and each view reopens on its own line', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
   seedPlaceLines()

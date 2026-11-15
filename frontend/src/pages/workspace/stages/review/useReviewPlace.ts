@@ -36,6 +36,8 @@ interface Kept {
   holdId: number | null
   // The row being held, and what stops holding it.
   held: { id: number; release: () => void } | null
+  // The sentence put on the status line, and the view it speaks for.
+  said: { text: string; view: PlaceView } | null
   live: Live | null
 }
 
@@ -55,12 +57,17 @@ function keep(dramaId: number, view: PlaceView, spot: Spot | null) {
 
 // Landing on a kept line says so, unless it is the line the view would have opened on by itself: the status line, and
 // the row's brief highlight, which stays with the row when the status line scrolls away with the top of a long list.
-function sayBack(live: Live, line: ReviewLine, wouldOpen: number | null | undefined) {
-  const said = backStatus(line, wouldOpen)
-  if (!said) return
-  live.setStatus(said)
+function sayBack(kept: KeptRef, view: PlaceView, line: ReviewLine, wouldOpen: number | null | undefined) {
+  const live = kept.current.live
+  const text = backStatus(line, wouldOpen)
+  if (!live || !text) return
+  kept.current.said = { text, view }
+  live.setStatus(text)
   live.setJumpedId(line.id)
 }
+
+// The kept view on screen: the queue, All with no search, or neither (a filter or a search).
+const shownView = (live: Live): PlaceView | null => (live.queue ? 'queue' : live.filter === 'all' && !live.searching ? 'lines' : null)
 
 // The kept line is not on its page any more (lines were added, removed, merged or transcribed again before it).
 async function recover(kept: KeptRef, setPage: SetPage, spot: Spot, wouldOpen: number | null | undefined) {
@@ -85,7 +92,7 @@ async function recover(kept: KeptRef, setPage: SetPage, spot: Spot, wouldOpen: n
     kept.current.holdId = null
     return
   }
-  if (kept.current.live) sayBack(kept.current.live, line, wouldOpen)
+  sayBack(kept, 'lines', line, wouldOpen)
 }
 
 // Opens a view's kept line on the page it was on, focused as a go-to does. `cur` and `first` are what the load would
@@ -102,7 +109,7 @@ function reopen(kept: KeptRef, setPage: SetPage, view: PlaceView, spot: Spot, cu
       if (line) {
         // A queue card sits near the top and the focus brings it into view; a line further down All is held in view.
         if (!queue) kept.current.holdId = line.id
-        sayBack(live, line, wouldOpen)
+        sayBack(kept, view, line, wouldOpen)
       } else if (!queue) {
         void recover(kept, setPage, spot, wouldOpen)
       } else {
@@ -163,7 +170,7 @@ export function useReviewPlace(dramaId: number, simple: boolean, goToAsked: bool
     return spotToOpen(readKept(dramaId), filter, simple, link)
   })
   const [page, setPage] = useState(opening?.spot.page ?? 1)
-  const kept = useRef<Kept>({ holdId: null, held: null, live: null })
+  const kept = useRef<Kept>({ holdId: null, held: null, said: null, live: null })
   // Runs before the list's first load, which is an effect of a later hook: that load settles on the kept line.
   useEffect(() => {
     if (opening) pendingRef.current = reopen(kept, setPage, opening.view, opening.spot, null, true)
@@ -203,6 +210,18 @@ export function useKeepPlace(place: { kept: KeptRef }, live: Live) {
     // Only a change of active line is a move; the rest is read as it is then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live.activeId])
+
+  // The sentence is about the view it was said in. Leaving that view takes it down, unless something else has been
+  // said since: the status line is cleared only while it still reads that sentence.
+  const shown = shownView(live)
+  useEffect(() => {
+    const said = kept.current.said
+    if (!said || said.view === shown) return
+    kept.current.said = null
+    live.setStatus((now) => (now === said.text ? null : now))
+    // Only a change of view takes it down.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown])
 
   useEffect(() => {
     const id = kept.current.holdId
