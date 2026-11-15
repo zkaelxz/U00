@@ -490,6 +490,24 @@ class TestWholeLibraryRestore:
             return conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE name = 'bug_reports'").fetchone() is not None
 
+    def test_restored_lines_obey_the_mark_rules(self, isolated_db, tmp_path):
+        from core import Line
+        did = db.create_drama(title_en="A")
+        db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"z{i}", en=f"e{i}") for i in range(4)])
+        with contextlib.closing(db.get_conn()) as conn:
+            # Checked and marked, an unknown mark, a plain mark, a plain tick.
+            for i, (reviewed, mark) in enumerate(((1, "wrong"), (1, "Bogus"), (0, "mixed"), (1, None))):
+                conn.execute("UPDATE lines SET reviewed = ?, mark = ? WHERE drama_id = ? AND idx = ?",
+                             (reviewed, mark, did, i))
+            conn.commit()
+        lrs.restore_library_backup(_library_zip(tmp_path), db.LIBRARY_DIR)
+        assert [(r["reviewed"], r["mark"]) for r in db.load_lines(did)] == [
+            (0, "wrong"), (1, None), (0, "mixed"), (1, None)]
+        lines = db.load_line_objects(did)
+        for ln in lines:
+            ln.orig = None
+        db.save_lines(did, lines)
+
     def _legacy_library(self):
         did = db.create_drama(title_en="A")
         with contextlib.closing(db.get_conn()) as conn:

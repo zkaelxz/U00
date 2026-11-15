@@ -73,6 +73,27 @@ test('Esc cancels, details are lazy, Alt+Down jumps to flagged lines', async ({ 
   await expect(page.locator('.review-line[data-flagged="true"]')).toBeFocused()
 })
 
+test('K scrolls the active line to just under the sticky toolbar, not beneath it', async ({ page }) => {
+  python(`
+from core import Line
+db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句', en=f'Line {i}') for i in range(40)])
+`)
+  await page.goto('/#/drama/3/review')
+  await expect(rows(page)).toHaveCount(40)
+  await rows(page).nth(0).focus()
+  for (let i = 0; i < 15; i++) await page.keyboard.press('j')
+  const clearance = () =>
+    page.evaluate(() => {
+      const row = document.querySelector('.review-line[aria-current="true"]')!.getBoundingClientRect()
+      return row.top - document.querySelector('.review-toolbar')!.getBoundingClientRect().bottom
+    })
+  for (let i = 0; i < 15; i++) {
+    await page.keyboard.press('k')
+    // The row may still be scrolling into place, so wait for it to settle below the toolbar.
+    await expect.poll(clearance).toBeGreaterThanOrEqual(0)
+  }
+})
+
 test('starts on the flagged line; J/K and arrows move the active line; ? lists the keys', async ({ page }) => {
   await open(page)
   await expect(rows(page).nth(1)).toHaveAttribute('aria-current', 'true')
