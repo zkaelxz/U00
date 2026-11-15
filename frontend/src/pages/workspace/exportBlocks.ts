@@ -1,5 +1,6 @@
 // Pure model for the Export stage's blocks: which exports exist, the order each kind of title sees them in,
 // and why one cannot run yet. No React.
+import { stageLabel } from './stages'
 import type { TitleKind } from './titleKind'
 
 export type ExportBlockId = 'softsub_video' | 'burned_video' | 'dubbed_video' | 'audiobook' | 'epub' | 'subtitles'
@@ -33,9 +34,16 @@ export function exportBlockOrder(kind: TitleKind): ExportBlockId[] {
   return ORDER[kind]
 }
 
-/** The block that starts open when nothing is remembered. */
-export function firstExportBlock(kind: TitleKind): ExportBlockId {
-  return ORDER[kind][0]
+export function shownExportBlocks(kind: TitleKind, simple: boolean): ExportBlockId[] {
+  return ORDER[kind].filter((id) => !simple || SIMPLE_EXPORT_BLOCKS.includes(id))
+}
+
+/**
+ * The block that starts open when nothing is remembered: the first shown one that can run, so a title is
+ * never greeted by an export it cannot make; when none can, the first shown one.
+ */
+export function openingExportBlock(shown: ExportBlockId[], reason: (id: ExportBlockId) => string | null): ExportBlockId {
+  return shown.find((id) => reason(id) === null) ?? shown[0]
 }
 
 /** Remembered per title kind, so a viewer who works on videos keeps their choice across titles. */
@@ -45,6 +53,8 @@ export function exportBlockStorageKey(kind: TitleKind, id: ExportBlockId): strin
 
 /** What the page knows; null means not loaded or not readable, which never blocks (the server's reason shows). */
 export interface ExportInputs {
+  // Names the first stage in the reasons, which is called differently per kind.
+  kind: TitleKind
   hasSourceVideo: boolean | null
   hasDub: boolean | null
   hasNarration: boolean | null
@@ -52,7 +62,7 @@ export interface ExportInputs {
   novelNarration: boolean
 }
 
-export const NO_SOURCE_VIDEO = 'No source video yet. Add one in Media.'
+export const noSourceVideo = (kind: TitleKind) => `No source video yet. Add one in ${stageLabel('source', kind)}.`
 export const NO_FFMPEG = 'ffmpeg is not installed.'
 export const NO_NARRATION = 'There is no narration yet. Create it with Listen in the Reader first.'
 export const NO_DUB = 'There is no dub track for this title.'
@@ -65,9 +75,9 @@ export function exportBlockReason(id: ExportBlockId, i: ExportInputs): string | 
   switch (id) {
     case 'softsub_video':
     case 'burned_video':
-      return noVideo ? NO_SOURCE_VIDEO : noFfmpeg ? NO_FFMPEG : null
+      return noVideo ? noSourceVideo(i.kind) : noFfmpeg ? NO_FFMPEG : null
     case 'dubbed_video':
-      return noVideo ? NO_SOURCE_VIDEO : i.hasDub === false ? NO_DUB : noFfmpeg ? NO_FFMPEG : null
+      return noVideo ? noSourceVideo(i.kind) : i.hasDub === false ? NO_DUB : noFfmpeg ? NO_FFMPEG : null
     case 'audiobook':
       return i.hasNarration === false ? NO_NARRATION : noFfmpeg ? NO_FFMPEG : null
     case 'epub':
@@ -80,7 +90,7 @@ export function exportBlockReason(id: ExportBlockId, i: ExportInputs): string | 
 /** Why "Send to Jellyfin" cannot copy the chosen video along, or null. A dubbed video only exists once a dub does. */
 export function jellyfinMediaReason(media: 'none' | 'source' | 'dubbed', i: ExportInputs): string | null {
   if (media === 'none') return null
-  if (i.hasSourceVideo === false) return NO_SOURCE_VIDEO
+  if (i.hasSourceVideo === false) return noSourceVideo(i.kind)
   if (media === 'dubbed' && i.hasDub === false) return NO_DUB
   return null
 }

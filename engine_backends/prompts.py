@@ -3,7 +3,7 @@
 import re
 from core import LANGUAGE_NAMES
 from glossary_io import alias_note, confirmed_aliases
-from . import medium_prompts
+from . import medium_prompts, stream_recipe
 
 
 # How each of this app's own content_mode/media_type values reads in a
@@ -143,6 +143,13 @@ def build_llm_instructions(style_note: str, drama_meta: dict, locale: str = "en-
     source_language_name = LANGUAGE_NAMES.get(source_language, "the source language")
     medium = _MEDIUM_DESCRIPTIONS.get(
         drama_meta.get("content_mode") or drama_meta.get("media_type") or "", "content")
+
+    if stream_recipe.is_active(style_guidelines):
+        return stream_recipe.build_instructions(
+            source_language_name, locale_instruction, style_guidelines,
+            (f"- Additional style notes: {style_note}\n" if style_note else "")
+            + build_project_instructions_block(drama_meta),
+            (drama_meta.get("episode_brief") or "").strip())
 
     genre_framing = "baihe (GL/yuri) " if _wants_baihe_framing(drama_meta) else ""
     kind = medium_prompts.kind_for(drama_meta)
@@ -486,4 +493,8 @@ def build_batch_user_message(context: dict, numbered: str) -> str:
     # bulk request, which numbers the raw source before it gets here.
     numbered = pronoun_neutral_texts(context, [numbered])[0]
     from .glossary_check import required_note
+    if context.get("script_correction"):
+        note = ("CORRECTION: your earlier translation of the lines below left Chinese, Japanese or Korean "
+                "characters in the English. Write every word in English, translating or romanising any "
+                "term, even where the style notes say to keep it as written.\n\n") + note
     return required_note(context) + note + (batch_ctx + "\n" if batch_ctx else "") + "Translate these lines:\n\n" + numbered

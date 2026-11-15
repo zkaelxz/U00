@@ -63,7 +63,7 @@ test('a novel not yet in narration mode offers one button that sets it up for tr
   await page.goto('/#/drama/2/source')
   const flow = mediaPanel(page, 'add').getByRole('region', { name: 'Translate the novel' })
   await expect(flow.getByTestId('novel-steps')).toBeVisible()
-  await expect(flow.getByRole('button', { name: 'Set up this title for translating text' })).toBeVisible()
+  await expect(flow.getByRole('button', { name: 'Set up as novel' })).toBeVisible()
   await expect(flow.getByRole('link', { name: 'Translate the lines' })).toHaveAttribute('href', /#\/drama\/2\/translate$/)
 })
 
@@ -94,7 +94,7 @@ test('the transcript choice without audio does not dead-end: it offers to transl
   await expect(page.getByTestId('settings-summary')).toBeVisible()
   const run = mediaPanel(page, 'transcribe')
   // The seeded title has no audio, and a transcript is lined up with audio.
-  const asNovel = run.getByRole('button', { name: 'Translate this text as a novel' })
+  const asNovel = run.getByRole('button', { name: 'Set up as novel' })
   await expect(asNovel).toBeDisabled()
   await run.getByLabel('Transcript text').fill('第一章 开始')
   await expect(asNovel).toBeEnabled()

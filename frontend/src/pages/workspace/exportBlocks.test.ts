@@ -6,12 +6,13 @@ import {
   NO_DUB,
   NO_FFMPEG,
   NO_NARRATION,
-  NO_SOURCE_VIDEO,
   exportBlockOrder,
   exportBlockReason,
   exportBlockStorageKey,
   jellyfinMediaReason,
-  firstExportBlock,
+  noSourceVideo,
+  openingExportBlock,
+  shownExportBlocks,
   type ExportBlockId,
   type ExportInputs,
 } from './exportBlocks'
@@ -20,8 +21,8 @@ import type { TitleKind } from './titleKind'
 const KINDS: TitleKind[] = ['video', 'audio', 'novel', 'comic', 'subtitle']
 const ALL = Object.keys(EXPORT_BLOCK_TITLES).sort()
 
-const ready: ExportInputs = { hasSourceVideo: true, hasDub: true, hasNarration: true, ffmpegFound: true, novelNarration: true }
-const unknown: ExportInputs = { hasSourceVideo: null, hasDub: null, hasNarration: null, ffmpegFound: null, novelNarration: true }
+const ready: ExportInputs = { kind: 'video', hasSourceVideo: true, hasDub: true, hasNarration: true, ffmpegFound: true, novelNarration: true }
+const unknown: ExportInputs = { kind: 'video', hasSourceVideo: null, hasDub: null, hasNarration: null, ffmpegFound: null, novelNarration: true }
 
 describe('exportBlockOrder', () => {
   it.each(KINDS)('lists every export exactly once for a %s title', (kind) => {
@@ -35,7 +36,7 @@ describe('exportBlockOrder', () => {
     ['comic', 'subtitles'],
     ['subtitle', 'subtitles'],
   ] as const)('a %s title leads with %s', (kind, first) => {
-    expect(firstExportBlock(kind)).toBe(first)
+    expect(exportBlockOrder(kind)[0]).toBe(first)
   })
 
   it('puts the video exports, then the subtitle file, for a video title', () => {
@@ -66,7 +67,7 @@ describe('exportBlockReason', () => {
 
   it('names the missing source video for the three video exports', () => {
     const i = { ...ready, hasSourceVideo: false }
-    for (const id of ['softsub_video', 'burned_video', 'dubbed_video'] as const) expect(exportBlockReason(id, i)).toBe(NO_SOURCE_VIDEO)
+    for (const id of ['softsub_video', 'burned_video', 'dubbed_video'] as const) expect(exportBlockReason(id, i)).toBe(noSourceVideo('video'))
     expect(exportBlockReason('audiobook', i)).toBeNull()
   })
 
@@ -85,7 +86,7 @@ describe('exportBlockReason', () => {
 
   it('gives one reason, the first thing the viewer must fix', () => {
     const i = { ...ready, hasSourceVideo: false, hasDub: false, ffmpegFound: false }
-    expect(exportBlockReason('dubbed_video', i)).toBe(NO_SOURCE_VIDEO)
+    expect(exportBlockReason('dubbed_video', i)).toBe(noSourceVideo('video'))
   })
 
   it('only offers EPUB for novel-narration titles', () => {
@@ -93,10 +94,57 @@ describe('exportBlockReason', () => {
   })
 
   it('keeps every reason to one short line', () => {
-    for (const r of [NO_SOURCE_VIDEO, NO_FFMPEG, NO_NARRATION, NO_DUB, NOT_NOVEL_NARRATION]) {
+    for (const r of [...KINDS.map(noSourceVideo), NO_FFMPEG, NO_NARRATION, NO_DUB, NOT_NOVEL_NARRATION]) {
       expect(r.length).toBeLessThan(70)
       expect(r).not.toContain('\n')
     }
+  })
+})
+
+describe('noSourceVideo', () => {
+  it('names the first stage as the title kind calls it', () => {
+    expect(noSourceVideo('video')).toBe('No source video yet. Add one in Transcribe.')
+    expect(noSourceVideo('audio')).toBe('No source video yet. Add one in Transcribe.')
+    expect(noSourceVideo('novel')).toBe('No source video yet. Add one in Media.')
+    expect(exportBlockReason('softsub_video', { ...ready, kind: 'comic', hasSourceVideo: false })).toBe('No source video yet. Add one in Media.')
+  })
+})
+
+describe('openingExportBlock', () => {
+  const opens = (kind: TitleKind, simple: boolean, i: ExportInputs) =>
+    openingExportBlock(shownExportBlocks(kind, simple), (id) => exportBlockReason(id, { ...i, kind }))
+  const noVideo = { ...ready, hasSourceVideo: false }
+
+  it('shows every block in Full and the two most titles need in Simple, in the kind order', () => {
+    expect(shownExportBlocks('audio', false)).toEqual(exportBlockOrder('audio'))
+    expect(shownExportBlocks('audio', true)).toEqual(['softsub_video', 'subtitles'])
+    expect(shownExportBlocks('subtitle', true)).toEqual(['subtitles', 'softsub_video'])
+  })
+
+  it('opens the subtitle file in Simple on an audio title with no source video', () => {
+    expect(opens('audio', true, noVideo)).toBe('subtitles')
+  })
+
+  it('opens the same block as before when the audio title has a video, or nothing is known yet', () => {
+    expect(opens('audio', true, ready)).toBe('softsub_video')
+    expect(opens('audio', true, unknown)).toBe('softsub_video')
+  })
+
+  it.each(KINDS)('opens the first block in Full on a %s title when everything can run', (kind) => {
+    expect(opens(kind, false, ready)).toBe(exportBlockOrder(kind)[0])
+  })
+
+  it('skips blocks that cannot run in Full, keeping the order', () => {
+    // No narration and no dub: Audiobook and the dub video are skipped for the subtitle-track video.
+    expect(opens('audio', false, { ...ready, hasNarration: false, hasDub: false })).toBe('softsub_video')
+    // No video either: the next one that can run is the subtitle file.
+    expect(opens('audio', false, { ...noVideo, hasNarration: false })).toBe('subtitles')
+    expect(opens('video', false, noVideo)).toBe('audiobook')
+    expect(opens('novel', false, { ...ready, novelNarration: false })).toBe('audiobook')
+  })
+
+  it('falls back to the first shown block when none can run', () => {
+    expect(openingExportBlock(['softsub_video', 'burned_video'], () => 'blocked')).toBe('softsub_video')
   })
 })
 
@@ -107,7 +155,7 @@ describe('jellyfinMediaReason', () => {
     expect(jellyfinMediaReason('dubbed', unknown)).toBeNull()
   })
   it('names the missing video or dub', () => {
-    expect(jellyfinMediaReason('source', { ...ready, hasSourceVideo: false })).toBe(NO_SOURCE_VIDEO)
+    expect(jellyfinMediaReason('source', { ...ready, hasSourceVideo: false })).toBe(noSourceVideo('video'))
     expect(jellyfinMediaReason('dubbed', { ...ready, hasDub: false })).toBe(NO_DUB)
   })
 })

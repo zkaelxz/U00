@@ -79,9 +79,9 @@ export const usdSmall = (n: number) => (n > 0 && n < 0.01 ? `$${n.toFixed(4)}` :
 
 // What a lookup will cost, shown before it runs.
 export function costLine(b: ResearchBudget, mode: ResearchMode, model: string, allowPaid: boolean): string {
+  if (b.free_tier_key) return 'Needs a paid Gemini key: free-tier keys get no Google Search on these models.'
   const paidSearch = isPaidLookup(b, model)
   if (paidSearch && !allowPaid) return 'The free searches are used up for now.'
-  if (b.free_tier_key) return 'Free (free-tier Gemini key).'
   const tokens = b.estimates_usd?.[mode]?.[model] ?? 0
   if (!paidSearch) return `About ${usdSmall(tokens)} on your paid Gemini key.`
   // One lookup may run several searches, each billed once the free ones are used.

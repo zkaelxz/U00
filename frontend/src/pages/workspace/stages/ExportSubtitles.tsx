@@ -12,6 +12,8 @@ import { routeHref } from '../../../router'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
 import { buildAssRequest, exportFilename, fileNameHint, MAX_BASE_NAME, parseWrap, srtFileText, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
+import { stageLabel } from '../stages'
+import { titleKind } from '../titleKind'
 import { ExportTextResult } from './ExportTextResult'
 import { exportBlocked } from './stageBlockers'
 
@@ -143,7 +145,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
         <p className="stage-blocker" id="export-blocker" data-testid="export-blocker">
           <span>No lines to export yet.</span>
           <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-            Go to Media
+            Go to {stageLabel('source', titleKind(drama.media_type, drama.content_mode))}
           </ButtonLink>
         </p>
       )}
@@ -173,7 +175,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
           </Field>
           <Field
             label="Tidy cue timing for players"
-            help="SRT only. Lengthens very short cues into silence (by up to 1 s) and leaves 2 frames between cues that touch, so players don't flash or merge them. It never moves a start, never shortens a cue past 2 frames, and your saved times are not changed."
+            help="SRT only. Lengthens very short cues into silence (up to 1 s) and leaves 2 frames between cues that touch, so players don't flash or merge them. Starts never move and your saved times are not changed."
           >
             <Toggle checked={form.tidyTiming} onChange={(v) => set('tidyTiming', v)} />
           </Field>

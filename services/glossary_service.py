@@ -64,9 +64,12 @@ import csv
 
 import db
 import translation_guide as tguide
-from glossary_io import TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, parse_glossary_file
+from db.shared_glossary import term_key
+from glossary_io import TERM_CATEGORIES, TERM_POLICIES, glossary_to_csv, glossary_to_json, parse_glossary_file
 from engine_backends.engine_registry import WORKFLOW_TIERS, effective_tier
 from services.glossary_common import (
+    MAX_ITEM_LEN,
+    MAX_LIST_ITEMS,
     MAX_NOTES_LEN,
     MAX_TERM_LEN,
     _drama,
@@ -81,10 +84,9 @@ from lib.errors import (
 
 # Functions that call an LLM engine (and so may spend on a paid one, i.e.
 # any engine outside engine_backends.engine_registry.FREE_ENGINES).
-PAID_ENGINE_FUNCTIONS = ("start_novel_glossary_run", "start_lines_glossary_run")
+PAID_ENGINE_FUNCTIONS = ("start_novel_glossary_run", "start_lines_glossary_run", "start_chapters_glossary_run",
+                         "draft_project_instructions")
 
-MAX_LIST_ITEMS = 50
-MAX_ITEM_LEN = 200
 MAX_INSTRUCTIONS_LEN = 5000
 
 
@@ -145,14 +147,50 @@ def list_glossary_terms(drama_id: int) -> list:
 
 
 def effective_glossary_terms(drama_id: int) -> list:
-    """list_glossary_terms plus the terms the series inherits from its shared
-    group; each carries `origin`. Read-only: edits go through the own-term calls."""
+    """What a run of this title translates with: the series' own terms, the ones it
+    inherits from its shared group and the title's own (origin "title"); each carries
+    `origin`. Read-only: edits go through the own-term calls."""
+    drama = _drama(drama_id)
+    return [{**_serialize(r), "origin": r["origin"], "origin_name": r["origin_name"]}
+            for r in db.list_run_glossary_terms(drama)]
+
+
+def list_title_terms(drama_id: int) -> list:
+    """The title's own terms while it uses another series' glossary, each with
+    `clashes_with_series`: a term the series also has is used from the title but
+    can't be edited or removed here, because the series glossary shows only the
+    series' own row. Empty when the title uses its own private series."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=False)
-    if sid is None:
-        return []
-    return [{**_serialize(r), "origin": r["origin"], "origin_name": r["origin_name"]}
-            for r in db.list_effective_glossary_terms(sid)]
+    have = {term_key(t["term_original"]) for t in db.list_effective_glossary_terms(sid)} if sid else set()
+    return [{"term_original": t["term_original"] or "", "term_translation": t["term_translation"] or "",
+             "clashes_with_series": term_key(t["term_original"]) in have}
+            for t in db.title_only_terms(drama)]
+
+
+def copy_title_terms_to_series(drama_id: int) -> dict:
+    """Copies the title's own terms into the series it now belongs to, only on request.
+    A term the series already has (its own or its shared group's) is left as it is and
+    reported in "skipped"; the title keeps all of its own terms either way.
+    Returns {"copied", "skipped"} lists of source texts."""
+    drama = _drama(drama_id)
+    sid = _series_id(drama, required=False)
+    mine = db.title_only_terms(drama)
+    if sid is None or not mine:
+        raise InvalidInputError("This title has no terms of its own to copy into a series.")
+    have = {term_key(t["term_original"]) for t in db.list_effective_glossary_terms(sid)}
+    report = {"copied": [], "skipped": []}
+    for t in mine:
+        original = t["term_original"]
+        if term_key(original) in have or not db.insert_glossary_term_if_absent(
+                sid, original, t.get("term_translation") or "", notes=t.get("notes") or "",
+                category=t.get("category"), policy=t.get("policy"),
+                enforce_exact=bool(t.get("enforce_exact")), aliases=t.get("aliases"),
+                banned_translations=t.get("banned_translations")):
+            report["skipped"].append(original)
+        else:
+            report["copied"].append(original)
+    return report
 
 
 def clean_term_fields(term_fields: dict, base: dict) -> tuple:
@@ -328,13 +366,23 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
 
 
 def glossary_csv(drama_id: int) -> str:
-    """"Export glossary as CSV": the
-    series glossary as CSV text; just the header row when there is none.
-    A cell that a spreadsheet would run as a formula is prefixed with '."""
+    """"Export glossary as CSV": the series glossary as CSV text, with the
+    shared group's terms folded in (the series' own term wins on the same
+    original), so one file carries everything the series translates with;
+    just the header row when there is none. A cell that a spreadsheet would
+    run as a formula is prefixed with '."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=False)
-    terms = db.list_glossary_terms(sid) if sid else []
+    terms = db.list_effective_glossary_terms(sid) if sid else []
     return glossary_to_csv([{k: _csv_safe(v) for k, v in t.items()} for t in terms])
+
+
+def glossary_json(drama_id: int) -> str:
+    """glossary_csv's terms as JSON (the same series and shared-group fold); the importer reads
+    it back, so it can carry a glossary to another series."""
+    drama = _drama(drama_id)
+    sid = _series_id(drama, required=False)
+    return glossary_to_json(db.list_effective_glossary_terms(sid) if sid else [])
 
 
 def bulk_delete_glossary_terms(drama_id: int, term_ids: list, confirm: bool = False) -> dict:
@@ -429,4 +477,11 @@ from services.glossary_extract_service import (  # noqa: E402,F401
     start_lines_glossary_run,
     get_lines_glossary_status,
     apply_lines_glossary,
+    draft_project_instructions,
+)
+from services.glossary_chapters_service import (  # noqa: E402,F401
+    cancel_chapters_glossary_run,
+    chapters_glossary_job_id,
+    get_chapters_glossary_status,
+    start_chapters_glossary_run,
 )

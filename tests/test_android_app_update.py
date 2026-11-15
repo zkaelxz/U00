@@ -112,6 +112,14 @@ def test_fetch_puts_the_published_build_where_the_phone_finds_it(http, folder):
     assert not (folder / (svc.APK_NAME + ".new")).exists()
 
 
+def test_the_release_lookup_asks_for_json_because_github_answers_415_to_the_asset_accept(http, folder):
+    _serve(http)
+    svc.fetch_latest()
+    accepts = {url: kw["headers"]["Accept"] for url, kw in http.calls}
+    assert accepts[TAG_URL] == "application/vnd.github+json"
+    assert accepts[BASE + svc.APK_NAME] == "application/octet-stream"
+
+
 def test_fetch_changes_nothing_when_the_server_already_holds_that_build(http, folder):
     _publish(folder, "1042")
     _serve(http)

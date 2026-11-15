@@ -242,6 +242,26 @@ def set_reviewed(drama_id: int, line_id: int, reviewed: bool, expected_en=None) 
     return _reload_dict(drama_id, line_id)
 
 
+def set_mark(drama_id: int, line_id: int, mark, expected_en=None) -> dict:
+    """Marks a line's English wrong or mixed, or clears its mark (None), writing
+    only that column; setting a mark unchecks the line (db/lines.py). Idempotent.
+    Returns the line as stored afterwards. `expected_en` is the English the
+    reviewer judged: one compare-and-set on it, as in `set_reviewed`, so a mark
+    never lands on text nobody read."""
+    if mark is not None and mark not in core_module.LINE_MARKS:
+        raise InvalidInputError(f"mark must be one of {', '.join(core_module.LINE_MARKS)} or null.",
+                                details={"allowed": list(core_module.LINE_MARKS)})
+    if expected_en is not None and not isinstance(expected_en, str):
+        raise InvalidInputError("expected_en must be text.")
+    _, _, ln = load(drama_id, line_id)
+    seen = ln.en or "" if expected_en is None else expected_en
+    if mark is not None and not seen.strip():
+        raise InvalidInputError("This line has no translation to mark.")
+    if not db.update_line_fields_if(drama_id, line_id, {"mark": mark}, {"en": seen}):
+        raise ConflictError("This line changed since you loaded it.", details={"fields": ["en"]})
+    return _reload_dict(drama_id, line_id)
+
+
 def mark_episode_reviewed(drama_id: int) -> dict:
     """Marks every translated, unflagged, not-yet-checked line of the episode
     reviewed, and remembers each pair in the series' translation memory. This
@@ -251,19 +271,23 @@ def mark_episode_reviewed(drama_id: int) -> dict:
     adds nothing.
 
     Flagged lines are skipped because the flag is an open question about that
-    line. A source already in memory keeps its entry, because that one was
-    approved by hand and an unread bulk approval must not replace it. Each
+    line, and marked lines because a person already judged them not right. A
+    source already in memory keeps its entry, because that one was approved by
+    hand and an unread bulk approval must not replace it. Each
     line is marked by compare-and-set on the text read here, so English that
     changed since (a translate job, another tab) is skipped, not marked.
-    Returns {reviewed, remembered, kept_existing, skipped_flagged, already_reviewed}."""
+    Returns {reviewed, remembered, kept_existing, skipped_flagged, skipped_marked,
+    already_reviewed}; a line both flagged and marked counts in both skips."""
     drama = ownership_service.require_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     candidates = [ln for ln in lines if (ln.en or "").strip() and (ln.zh or "").strip()]
     already = sum(1 for ln in candidates if ln.reviewed)
     flagged = sum(1 for ln in candidates if not ln.reviewed and ln.flag)
-    todo = [ln for ln in candidates if not ln.reviewed and not ln.flag]
+    skipped_marked = sum(1 for ln in candidates if not ln.reviewed and ln.mark)
+    todo = [ln for ln in candidates if not ln.reviewed and not ln.flag and not ln.mark]
     stale = set(db.update_lines_fields_if_many(
-        drama_id, [(ln.id, {"reviewed": 1}, {"en": ln.en, "zh": ln.zh, "flag": ""}) for ln in todo]))
+        drama_id, [(ln.id, {"reviewed": 1}, {"en": ln.en, "zh": ln.zh, "flag": "", "mark": ""})
+                   for ln in todo]))
     marked = [ln for ln in todo if ln.id not in stale]
 
     remembered = kept_existing = 0
@@ -280,7 +304,7 @@ def mark_episode_reviewed(drama_id: int) -> dict:
             known.add(source)
             remembered += 1
     return {"reviewed": len(marked), "remembered": remembered, "kept_existing": kept_existing,
-            "skipped_flagged": flagged, "already_reviewed": already}
+            "skipped_flagged": flagged, "skipped_marked": skipped_marked, "already_reviewed": already}
 
 
 def dismiss_flag(drama_id: int, line_id: int) -> dict:

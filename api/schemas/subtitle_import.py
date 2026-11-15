@@ -35,6 +35,8 @@ class SubtitleImportPreview(BaseModel):
     mode: str
     existing_line_count: int
     replaces_lines: int
+    kept_lines: int
+    notes_removed: int
     matched_lines: int
     unmatched_cues: int
     overwrites: int
@@ -54,6 +56,7 @@ class SubtitleImportResult(BaseModel):
     lines_written: int
     line_ids: List[int]
     replaced_lines: int
+    kept_lines: int
     matched_lines: int
     unmatched_cues: int
     undo: Optional[SubtitleUndoHandle] = None

@@ -503,7 +503,7 @@ def test_ollama_cloud_model_is_not_local_and_needs_consent(isolated_db):
 
 
 def test_build_engine_refuses_a_saved_ollama_cloud_model_without_consent(isolated_db, monkeypatch):
-    settings_svc.set_settings({"engine": "ollama", "model": "gemma4:cloud"})
+    settings_svc.set_settings({"engine": "ollama", "model": "qwen3-coder:cloud"})
     assert settings_svc._is_local_engine("ollama") is False
     with pytest.raises(errors.ConflictError):
         svc.build_engine()
@@ -712,7 +712,7 @@ def test_a_failed_tier_offers_the_next_without_calling_it(dev_mode, real_build, 
     keys.add("gemini")
     engines = []
 
-    def boom(system_prompt, messages, engine, max_tokens=0):
+    def boom(system_prompt, messages, engine, max_tokens=0, usage_cb=None):
         engines.append(engine)
         raise raised
 
@@ -729,7 +729,7 @@ def test_an_ollama_that_is_not_running_reads_as_unreachable(dev_mode, real_build
     import qa
     from lib import http
 
-    def down(system_prompt, messages, engine, max_tokens=0):
+    def down(system_prompt, messages, engine, max_tokens=0, usage_cb=None):
         raise http.FetchError()
 
     monkeypatch.setattr(qa, "dispatch_chat", down)

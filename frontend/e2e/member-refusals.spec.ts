@@ -11,7 +11,7 @@ import { gotoTranslate } from './translateTabs'
 // Only /api/auth/me and /api/meta are mocked; reads go to the seeded API (auth off), and every write is
 // answered 403 here and recorded, so nothing reaches the shared library and each page is checked against
 // what the server really says to this member: the control is hidden or disabled, or the refusal is plain.
-// Library, Quick translate and Diagnostics are covered elsewhere.
+// Library, Text and Diagnostics are covered elsewhere.
 
 const REFUSAL = 'Not allowed from this device or account.'
 const DRAMA = 3
@@ -56,7 +56,7 @@ test('Review: AI review jobs are refused plainly and the page stays usable', asy
   expect(refused).toEqual([`POST /api/review-jobs/dramas/${DRAMA}/consistency`])
   await expect(consistency).toBeEnabled()
 
-  await openTab(page, 'Fix')
+  await openTab(page, 'Change many lines')
   await page.getByRole('button', { name: 'Fix flagged lines' }).click()
   await expect.poll(() => refused).toContain(`POST /api/review-jobs/dramas/${DRAMA}/fix-flagged`)
   await expect(refusal(page).first()).toBeVisible()
@@ -116,7 +116,7 @@ test('Settings: a member gets no keys, engines or system tabs and no sharing lis
   await expect(page.locator('input[type="password"]')).toHaveCount(0)
   // Menu items is the member's own; it starts closed beside the open Sharing card.
   await page.getByRole('button', { name: 'Expand all' }).click()
-  await expect(page.getByRole('switch', { name: 'Discover' })).toHaveCount(1)
+  await expect(page.getByRole('switch', { name: 'Find' })).toHaveCount(1)
   await expect(page.getByText('Stronger translation for hard lines')).toHaveCount(0)
   // The admin-only per-item sharing list is hidden, not just refused.
   await expect(sharing.getByRole('list', { name: 'Titles and series' })).toHaveCount(0)

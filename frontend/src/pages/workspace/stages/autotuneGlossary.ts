@@ -67,9 +67,10 @@ export interface Blocker {
 }
 
 // No series is needed: a title without one gets its own when the first term is saved.
-export function novelGlossaryBlocker(dramaId: number, hasNovel: boolean): Blocker | null {
+// sourceStage: the first stage's name as the title's kind shows it (stageLabel).
+export function novelGlossaryBlocker(dramaId: number, hasNovel: boolean, sourceStage: string): Blocker | null {
   const href = `#/drama/${dramaId}/source`
-  if (!hasNovel) return { text: 'Still needed: novel text', link: 'attach it on Media', href: `${href}?tab=add` }
+  if (!hasNovel) return { text: 'Still needed: novel text', link: `attach it on ${sourceStage}`, href: `${href}?tab=add` }
   return null
 }
 

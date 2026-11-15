@@ -374,7 +374,7 @@ class TestOllamaUnavailable:
     def _call(self, isolated_db, monkeypatch):
         monkeypatch.setattr(translate_service.settings_service, "resolve_key",
                             lambda name, *a, **k: self.URL if name == "ollama_url" else "local")
-        return translate_service.translate("你好", "ollama", "zh", "en", model="qwen3:8b")
+        return translate_service.translate("你好", "ollama", "zh", "en", model="translategemma:12b")
 
     @pytest.mark.parametrize("make, reason", [
         (lambda r: r.ConnectionError(f"HTTPConnectionPool(host='192.168.7.9', port=11434): refused {TestOllamaUnavailable.URL}"), "ollama_unreachable"),
@@ -401,7 +401,7 @@ class TestOllamaUnavailable:
         with pytest.raises(DependencyUnavailableError) as info:
             self._call(isolated_db, monkeypatch)
         assert info.value.details == {"reason": "ollama_model_missing"}
-        assert "qwen3:8b" in info.value.message and "192.168" not in info.value.message
+        assert "translategemma:12b" in info.value.message and "192.168" not in info.value.message
 
     def test_other_http_errors_are_left_alone(self, isolated_db, monkeypatch):
         import requests

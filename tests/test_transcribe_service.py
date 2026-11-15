@@ -103,7 +103,7 @@ class TestGetTranscribeConfig:
             "whisper_size": whisper_models.DEFAULT_WHISPER_SIZE,
             "whisper_size_notice": None,
             "whisper_exclusions": whisper_models.whisper_language_exclusions(),
-            "selectable_whisper_sizes": ["large-v3", "large-v3-turbo", "ja-1.5b", "kotoba-v2"],
+            "selectable_whisper_sizes": ["large-v3", "large-v3-turbo", "ja-1.5b", "kotoba-v2", "breeze-asr-25"],
             "whisper_model_cached": whisper_models.is_whisper_model_cached(whisper_models.DEFAULT_WHISPER_SIZE),
             "measured_speed": None,
             "measured_speed_runs": 0,
@@ -273,10 +273,11 @@ class TestUpdateTranscribeConfig:
             with pytest.raises(InvalidInputError):
                 transcribe_service.update_transcribe_config(did, hallucination_silence_sec=bad)
 
-    def test_unknown_separation_backend_raises(self, isolated_db):
+    @pytest.mark.parametrize("value", ["nonsense", "demucs"])
+    def test_unknown_separation_backend_raises(self, isolated_db, value):
         did = isolated_db.create_drama(title_en="D")
         with pytest.raises(InvalidInputError):
-            transcribe_service.update_transcribe_config(did, separation_backend="nonsense")
+            transcribe_service.update_transcribe_config(did, separation_backend=value)
 
     def test_bool_fields_persist_as_true_and_false(self, isolated_db):
         did = isolated_db.create_drama(title_en="D")
@@ -666,7 +667,7 @@ class TestStartTranscribeRun:
         did, ddir = _drama_with_audio(
             isolated_db, transcript_mode="whisper", whisper_size="small", beam_size=7,
             min_silence_ms=900, vad_threshold=0.4, separate_vocals_first=1,
-            separation_backend="demucs", realign_long_segments=1, whisper_fast_mode=1)
+            separation_backend="audio_separator", realign_long_segments=1, whisper_fast_mode=1)
         captured = _capture_worker_start(monkeypatch)
 
         transcribe_service.start_transcribe_run(did, initial_prompt="names")
@@ -678,7 +679,7 @@ class TestStartTranscribeRun:
         assert captured["hallucination_silence_sec"] == 0.0
         assert captured["min_pause_sec"] == 0.35
         assert captured["separate_vocals_first"] is True
-        assert captured["separation_backend"] == "demucs"
+        assert captured["separation_backend"] == "audio_separator"
         assert captured["realign_long_segments"] is True
         assert captured["whisper_fast_mode"] is True
         assert captured["use_groq"] is False
@@ -993,6 +994,27 @@ class TestRunTranscribeAndApplyJob:
         assert len(isolated_db.list_line_history(did)) == 1
         _clear(job_id)
 
+    def test_raw_transcript_keeps_what_the_hallucination_filters_dropped(self, isolated_db, monkeypatch):
+        import raw_transcript
+        from whisper_hallucination import filter_hallucinated_segments
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        loop = [{"start": 10.0 + i, "end": 10.8 + i, "text": "谢谢"} for i in range(5)]
+        # The real decode filters its own output, inside the run.
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", lambda *a, **k: filter_hallucinated_segments(
+            [{"start": 0.0, "end": 1.0, "text": "new"}, *loop]))
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None)
+
+        raw = raw_transcript.load_latest(ddir)
+        assert [s["text"] for s in raw["segments"]] == ["new", "谢谢"]
+        assert [(d["start"], d["text"], d["reason"]) for d in raw["dropped"]] == [
+            (11.0, "谢谢", "repeat"), (12.0, "谢谢", "repeat"), (13.0, "谢谢", "repeat"), (14.0, "谢谢", "repeat")]
+        _clear(job_id)
+
     def test_raw_transcript_saves_the_settings_the_run_started_with(self, isolated_db, monkeypatch):
         import raw_transcript
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
@@ -1050,7 +1072,7 @@ class TestRunTranscribeAndApplyJob:
         _seed_running_job(job_id)
 
         def boom(*a, **k):
-            raise audio_preprocess.VocalSeparationError("no demucs")
+            raise audio_preprocess.VocalSeparationError("no audio-separator")
         monkeypatch.setattr(audio_preprocess, "separate_vocals", boom)
 
         transcribe_service._run_transcribe_and_apply_job(
@@ -1116,7 +1138,7 @@ class TestRunTranscribeAndApplyJob:
 
         def fake_separate(in_path, out_path, backend="auto", progress_cb=None,
                           cancel_check_cb=None, use_gpu=None, event_cb=None):
-            event_cb("loading", "demucs")
+            event_cb("loading", "audio_separator")
             seen.append(background_jobs.get_status(job_id)["message"])
             event_cb("device", "cpu")
             seen.append(background_jobs.get_status(job_id)["message"])
@@ -1604,6 +1626,35 @@ class TestQwen3Backends:
         assert (raw["backend"], raw["model"]) == ("qwen3_asr", "Qwen3-ASR")
         assert any("Qwen3-ASR" in m for m in messages)
         assert background_jobs.get_status(job_id)["result"]["asr_backend"] == "qwen3_asr"
+        _clear(job_id)
+
+    def test_qwen3_text_gets_the_same_screens_as_whisper_text(self, isolated_db, monkeypatch):
+        """Whisper's text is screened inside transcribe_for_timing; Qwen's replaces it
+        later, so an isolated credit line is dropped and an over-fast line is flagged."""
+        import asr_backend
+        import whisper_hallucination as wh
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", lambda *a, **k: [
+            {"start": 0.0, "end": 1.5, "text": "一"}, {"start": 2.0, "end": 3.0, "text": "二"},
+            {"start": 30.0, "end": 31.5, "text": "四"}, {"start": 60.0, "end": 61.0, "text": "三"}])
+        qwen = {0.0: "你好啊。", 2.0: "这是一句一秒钟之内根本不可能说完的非常非常长的话。",
+                30.0: "はい、はい、はい、はい、はい、はい", 60.0: "谢谢观看"}
+
+        class FakeQwen3ASR:
+            def transcribe(self, audio_path, language, whisper_segments, use_gpu=False,
+                           batch_size=1, progress_cb=None, **_device_callbacks):
+                return [{"start": s["start"], "end": s["end"], "text": qwen[s["start"]]}
+                        for s in whisper_segments]
+        monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", FakeQwen3ASR)
+
+        job_id = self._run(did, ddir, "whisper", asr_backend_choice="qwen3_asr")
+
+        saved = isolated_db.load_lines(did)
+        assert [r["zh"] for r in saved] == ["你好啊。", qwen[2.0], qwen[30.0]]
+        assert saved[0]["flag"] is None
+        assert (saved[1]["flag"], saved[1]["flag_note"]) == (wh.IMPLAUSIBLE_FLAG, wh.IMPLAUSIBLE_RATE_NOTE)
+        # Qwen writes 、 between short replies at ordinary kana speed: flagged, never dropped.
+        assert (saved[2]["flag"], saved[2]["flag_note"]) == (wh.IMPLAUSIBLE_FLAG, wh.IMPLAUSIBLE_LIST_NOTE)
         _clear(job_id)
 
     def test_long_qwen3_segment_becomes_several_subtitle_lines(self, isolated_db, monkeypatch):
@@ -2679,3 +2730,37 @@ def test_a_threshold_changed_in_settings_wins_over_the_sensitive_preset():
     from services.transcribe_pipeline import _tuning_for_preset
     tuning = asr_backend.DEFAULT_TUNING._replace(vad_threshold=0.6)
     assert _tuning_for_preset(tuning, "qwen3_asr_vad", "sensitive").vad_threshold == 0.6
+
+
+def _bound_worker_args(args):
+    import inspect
+    return inspect.signature(transcribe_pipeline._transcribe_worker).bind(*args, None).arguments
+
+
+def test_worker_args_for_settings_use_the_settings_without_reading_the_library(isolated_db):
+    # isolated_db has no titles at all, so a lookup of the title would raise NotFoundError.
+    settings = {"source_language": "zh", "transcript_mode": "whisper", "min_silence_ms": 300, "beam_size": 7,
+                "sensitivity_preset": "sensitive", "separate_vocals_first": 1, "split_by_sentences": 1}
+    args = transcribe_service.worker_args_for_settings(settings, "a.wav", "scratch", False, "名字。")
+    bound = _bound_worker_args(args)
+    assert (bound["audio_path"], bound["transcript_mode"], bound["scratch_dir"]) == ("a.wav", "whisper", "scratch")
+    assert (bound["min_silence_ms"], bound["beam_size"], bound["sensitivity_preset"]) == (300, 7, "sensitive")
+    assert bound["separate_vocals_first"] is True and bound["split_by_sentences"] is True
+    assert bound["initial_prompt"] == "名字。" and bound["use_gpu"] is False and bound["checkpoint"] is None
+
+
+def test_worker_args_for_settings_prompt_falls_back_like_a_run(isolated_db):
+    plain = {"source_language": "zh", "transcript_mode": "whisper"}
+    assert _bound_worker_args(transcribe_service.worker_args_for_settings(
+        plain, "a.wav", "s", False))["initial_prompt"] == ""
+    assert _bound_worker_args(transcribe_service.worker_args_for_settings(
+        {**plain, "difficult_audio": 1}, "a.wav", "s", False))["initial_prompt"] == "以下是普通話的句子。"
+
+
+def test_worker_args_for_settings_refuses_a_supplied_transcript_or_groq(isolated_db):
+    with pytest.raises(InvalidInputError):
+        transcribe_service.worker_args_for_settings(
+            {"source_language": "zh", "transcript_mode": "hardsub_ocr"}, "a.wav", "s", False)
+    with pytest.raises((InvalidInputError, DependencyUnavailableError)):
+        transcribe_service.worker_args_for_settings(
+            {"source_language": "zh", "transcript_mode": "whisper", "use_groq": 1}, "a.wav", "s", False)

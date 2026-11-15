@@ -235,7 +235,7 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
         r.moved_count ? `started ${plural(r.moved_count, 'line')} earlier` : '',
         r.added_count ? `added ${plural(r.added_count, 'blank line')} to type into` : '',
       ].filter(Boolean)
-      setSummary(parts.length ? `Talk-over: ${parts.join(', ')}. Undo it from Line history in the History tab.` : 'No talk-over found in the saved detection.')
+      setSummary(parts.length ? `Talk-over: ${parts.join(', ')}. Undo it from Line history in Records.` : 'No talk-over found in the saved detection.')
       if (parts.length) onChanged()
     } catch (e) {
       if (hasStatus(e, 409) && !/job/i.test(e.message)) setSummary(e.message)
@@ -322,11 +322,11 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
             {busy || running ? 'Splitting…' : 'Re-split long lines'}
           </button>
           <button type="button" disabled={blocked} onClick={reassign}>
-            Re-assign speakers from saved detection
+            Reassign speakers
           </button>
           <button type="button" disabled={blocked} onClick={talkOver}
-            title="Where the saved detection heard a second speaker over another's line, starts that speaker's late line where their voice begins, or adds a blank flagged line for them.">
-            Add lines for talk-over
+            title="Gives a talk-over speaker their own line where their voice starts">
+            Add talk-over lines
           </button>
         </div>
         {speakers && (

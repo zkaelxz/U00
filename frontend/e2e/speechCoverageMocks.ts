@@ -3,11 +3,12 @@ import type { Page } from '@playwright/test'
 export const GAPS = [
   { start: 65, end: 71.5, seconds: 6.5, speech_seconds: 6.0, raw_status: 'lost_after', raw_text: '好的好的', after_line_id: 4, before_line_id: 5 },
   { start: 300, end: 304, seconds: 4, speech_seconds: 3.5, raw_status: 'none', raw_text: '', after_line_id: 9, before_line_id: 10 },
+  { start: 420, end: 428, seconds: 8, speech_seconds: 7.5, raw_status: 'filtered', raw_text: '谢谢 谢谢 谢谢', filter_reasons: ['repeat'], after_line_id: 12, before_line_id: 13 },
 ]
 
 const report = {
   audio_seconds: 600, speech_seconds: 200, covered_seconds: 150, covered_percent: 75, vad_threshold: 0.3,
-  min_gap_seconds: 2, raw_available: true, gaps_total: 2, gaps: GAPS, failed_reason: null, detail: null,
+  min_gap_seconds: 2, raw_available: true, gaps_total: GAPS.length, gaps: GAPS, failed_reason: null, detail: null,
 }
 
 // The drama has audio; the check starts on POST and is "done" on the next read.

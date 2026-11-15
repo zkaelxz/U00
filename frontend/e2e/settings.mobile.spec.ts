@@ -11,9 +11,9 @@ test.beforeEach(async ({ page }) => {
 // and the page has no sideways scroll.
 test('settings switches have 44px touch targets on a phone', async ({ page }) => {
   await page.goto('/#/settings')
-  for (const tab of ['Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'Performance and advanced'] as const) {
+  for (const tab of ['Engines and keys', 'Costs', 'Transcription and jobs', 'Connections', 'Updates', 'My account and look', 'Advanced'] as const) {
     await openSettingsGroups(page, tab)
-    if (tab === 'Integrations') await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible() // the seeded API leaves the bridge off or on; either way it is a switch
+    if (tab === 'Connections') await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible() // the seeded API leaves the bridge off or on; either way it is a switch
     const switches = page.locator('.settings-panel:not([hidden])').getByRole('switch')
     for (const sw of await switches.all()) {
       // elementFromPoint only sees the viewport; centre it so the +-21px probes stay on screen.
@@ -29,7 +29,7 @@ test('settings switches have 44px touch targets on a phone', async ({ page }) =>
       expect(hit).toEqual({ top: true, bottom: true, width: 44 })
     }
   }
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Engines and keys')
   // "Test" and "Set key" buttons in the engine rows are dense (.btn-sm) but still 44px on touch.
   for (const b of await page.getByRole('region', { name: 'Which engine does what' }).getByRole('button', { name: /^(Test|Set key|Replace|Close) / }).all())
     expect((await hitHeight(b))).toBeGreaterThanOrEqual(44)
@@ -37,7 +37,7 @@ test('settings switches have 44px touch targets on a phone', async ({ page }) =>
 })
 
 for (const width of [360, 390]) {
-  test(`phone ${width}: the six sections are one 48px picker, and search spans the width`, async ({ page }) => {
+  test(`phone ${width}: the seven sections are one 48px picker, and search spans the width`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 })
     await page.goto('/#/settings')
     await expect(page.getByRole('tablist')).toHaveCount(0)
@@ -49,10 +49,10 @@ for (const width of [360, 390]) {
     expect(Math.abs(search.width - button.width)).toBeLessThan(2)
     await picker.click()
     const options = page.locator('.ui-tab-picker-list').getByRole('option')
-    await expect(options).toHaveCount(6)
+    await expect(options).toHaveCount(7)
     for (const option of await options.all()) expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-    await pickTab(page, 'Performance and advanced', 'Settings')
-    await expectPickedTab(page, 'Settings', 'Performance and advanced')
+    await pickTab(page, 'Transcription and jobs', 'Settings')
+    await expectPickedTab(page, 'Settings', 'Transcription and jobs')
     await expect(page.locator('.ui-tab-picker-list')).toHaveCount(0) // choosing closes the list
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })

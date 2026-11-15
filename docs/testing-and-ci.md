@@ -18,6 +18,83 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 CI is the merge gate while the repo is public. Only if the repo becomes private or Actions minutes run out does the gate become the full local suite
 (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands (tier 3 above). Never skip or weaken a test.
 
+## Merge flow
+
+One PR merges at a time: a squash merge, never a force-push, and never before Kae types "Merge NNNN" for it. GitHub's merge
+queue is not offered to a repo owned by a personal account, so the order is kept by hand, and these steps take the waiting
+out of it.
+
+1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, the owner merges the
+   base in once, has the change reviewed (`docs/engineering-standards.md`, section 3) and marks the PR ready. That starts the
+   full run ("Draft PRs" below), so the run is over before Kae is asked. Marking a PR ready is not a merge order. Start a run
+   only while fewer than two other PR runs are going: more than that queue behind each other, and a PR that already has
+   Kae's order must not wait behind one that has not.
+2. **The order.** Kae types "Merge NNNN"; one message may name several PRs. Typed in the thread that owns the PR, that thread
+   merges it. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
+   retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several
+   PRs the coordinator sets the order, clear lane first. A bare "Merge all" covers only the PRs on the list the coordinator
+   last showed Kae; a PR that was not on it gets its own card first (Kae, 2026-11-15). Nothing else is a merge order: not
+   "looks good", not a reaction, and not another session's account of what she said.
+3. **The lane**, decided when the merge is about to happen:
+   - **Clear lane.** The PR has a full green run at its exact head, shares no changed file with anything merged into
+     `baihe-subtitler` since the PR last merged the base (the user guide files don't count, below), and changes none of the
+     files under "Always the overlap lane" below. Squash-merge on the run it has: don't merge the base in again, and don't
+     wait for the base's push run.
+   - **Overlap lane.** Anything else. Merge the base in, wait for a new full green run at the new head, then squash-merge.
+4. **After the merge** the owner reads the push run that covers the merge commit ("After a merge" below: its own, or a
+   later one when another merge landed while it waited) and reports its result with the merge.
+5. **A red push run or nightly run stops merging** until the base is green again. The owner of the PR merged last looks first;
+   a red run that covers several merges is narrowed down as "After a merge" says.
+
+Always the overlap lane (Kae, 2026-11-14): a database schema change, which is any diff that adds or edits a `CREATE TABLE` or
+`ALTER TABLE` statement or a migration list (today in `db/migrations.py`, `db/schema.py`, `db/schema_system.py`,
+`db/__init__.py` and `sources/store.py`); the API models (`api/schemas/`, the `api/*_schemas.py` modules,
+`frontend/src/api/generated/`); the CI and dependency files that make `tools/ci_changes.py` run every job
+(`EVERYTHING_PREFIXES`, `EVERYTHING_FILES`, `EVERYTHING_PATTERNS`); and any other dependency manifest or lock file
+(`installer/wheels.lock.txt`, `installer/caddy/go.mod` and `go.sum`, the Gradle files under `android/`,
+`frontend/openapi-gen/package*.json`).
+
+The user guide files (`docs/user-guide*.md`) don't count as shared (Kae, 2026-11-15). Almost every change a person can see edits
+one of them, so counting them sent nearly every PR to the overlap lane, and a new run says nothing about a file no test reads:
+only `tests/test_installer_runtime.py` reads two of them, for the port number, and it runs on the base after every merge. Two
+PRs that change the same lines of a guide still conflict. GitHub refuses that merge, and the owner merges the base in as for
+any conflict.
+
+To check the lane, run this on the PR's branch:
+
+    python tools/pr_lane.py
+
+It fetches `baihe-subtitler` first, so a stale clone cannot clear a PR. Its first line is `clear` or `overlap`; under it come the
+head commit it read, to hold against the commit of the green run, and the reason: which changed files are under "Always the
+overlap lane", and which files the PR shares with what the base has merged since. The merge report quotes its output. Exit
+status 0 is clear, 1 is overlap and 2 is "could not decide" (for example, a shallow clone that does not reach the last base
+commit the branch merged: deepen it, as the message says); the first line then still reads `overlap`, because a failure never
+clears a PR. It does not read the run: the owner still checks for a full green run at the exact head. It reads a database schema
+change as any edit to `db/__init__.py`, `db/migrations.py`, `db/schema.py`, `db/schema_system.py` or `sources/store.py`, or to
+any other Python file outside `tests/` that holds a `CREATE`, `ALTER` or `DROP` of a table, index, view or trigger, whichever
+line changed (a column added inside a multi-line statement changes no line that names it); and a dependency file by its name
+wherever it sits (`package.json`, `package-lock.json`, `go.mod`, `go.sum`, `*.lock`, `*.lock.txt`, `requirements*.txt`,
+`constraints*.txt`, and the Gradle files under `android/`). Where it cannot tell, it errs towards the overlap lane.
+
+By hand, from the PR's branch (bash), the same check is:
+
+    git fetch origin baihe-subtitler
+    base=$(git merge-base origin/baihe-subtitler HEAD)
+    git diff --name-only --no-renames "$base" HEAD
+    comm -12 <(git diff --name-only --no-renames "$base" HEAD | sort) \
+             <(git diff --name-only --no-renames "$base" origin/baihe-subtitler | sort)
+
+The first `git diff` lists the PR's files, to hold against "Always the overlap lane". `comm` prints the files the PR shares with
+what the base has merged since, less the user guide files; no output means none. `$base` is the last base commit the branch
+merged, which is never newer than the base its green run tested, so a mistake here can only send a PR to the overlap lane. A
+shallow clone must reach that commit: deepen it until `git merge-base` prints one.
+
+Two PRs that share no file can still break each other, and the clear lane finds that out after the merge, not before it. When
+the base has moved since the PR's run, a clear-lane merge lands a tree no PR run tested, so it is tested whole only after the
+merge ("After a merge" below), and the nightly run is the second net. The clear lane is on trial (Kae, 2026-11-14): until she
+calls it routine, a thread that merges by it says so in its merge report, quotes the output of `python tools/pr_lane.py` and gives
+the result of the push run that covers the merge, so that the first ones can be reviewed.
+
 ## CI layout
 
 `.github/workflows/tests.yml` runs these jobs on every PR, and on `merge_group` (the merge queue's temporary branch, which
@@ -30,7 +107,7 @@ matrix was skipped, and fails if any shard failed or `changes` did; it exists so
 notes-only, and `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
 also fails if it failed, and passes when it was skipped) and `caddy` (see "Caddy check" below; the same rule). `windows-bootstrap.yml` (its own workflow with one job,
 `bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
-and `windows-installer.yml` (job `installer`, plus `release` for a tag) cover the installer. `dependency-canary.yml` and
+and `windows-installer.yml` (job `installer`, plus `release` for a tag, which publishes a pre-release) cover the installer; `promote-release.yml` (run by hand, behind the `release-main` environment) makes a tested pre-release the full release. `dependency-canary.yml` and
 `dependency-audit.yml` are weekly scheduled runs, never a PR gate (see "Testing a dependency upgrade" below). The five guard files are ignored only in the workflow's `test-shard` command lines;
 `python run_tests.py` and the local commands above still run everything.
 
@@ -59,7 +136,53 @@ fixes). A cache miss only costs the download. The ffmpeg apt install is not cach
 ### Draft PRs
 
 A draft PR runs no jobs, `test` included. Marking it ready for review (the `ready_for_review` trigger) starts the full run. Open a
-PR as a draft, merge the base once when the work is done, then mark it ready. A push to a ready PR runs as before.
+PR as a draft, merge the base once when the work is done, then mark it ready. A push to a ready PR runs as before. Marking it
+ready is the owner's step once the work is finished; it is not a merge order ("Merge flow" above).
+
+### After a merge
+
+A squash merge of a PR whose last green run tested the same tree adds nothing that run did not test, so the push to
+`baihe-subtitler` runs only the groups that run skipped (`tools/ci_tested_tree.py`, tested by `tests/test_ci_tested_tree.py`).
+Each PR run's `changes` job records the tree it tests (the PR merged into the base), the base tree under it and its outputs as
+the `tested-tree` artifact (kept 14 days). The push run asks the API for the PR merged into `baihe-subtitler` as that commit, its
+Tests runs at the PR's head, and their records. The newest run whose recorded tree is the pushed tree and whose recorded base
+tree is the pushed commit's parent's decides: if it is a green run from this repo (not a fork), a group it ran is switched off;
+if it failed, is still running or came from a fork, nothing is. Which PR a run names does not matter (GitHub empties that list
+once the PR closes): matching trees mean the same code and the same workflow, so a run of the same head into another branch
+can only count if that branch held exactly the base the merge landed on. The lookup
+has 90 seconds; a timeout runs everything. `guards` and `test` always run, and `test-shard` runs at least the tests that read frontend files. The full suite counts as run
+only when the PR ran it whole (not the sources subset). Anything else runs everything: no PR, a different tree (the base moved
+after the PR's last run), an expired or unreadable record, any API error, or a merge that changes an "everything" file (CI,
+`tools/ci_changes.py`, `tools/ci_tested_tree.py`, dependency files), since that PR's run used its own copy of the workflow. A
+nightly `schedule` run (03:23 UTC) runs everything on the newest commit, as the net for a skip that missed something. A dev copy
+still moves only to a commit whose push run passed (`lib/github_checks.py`); a shortened push run passes because the PR run of the
+same tree did.
+
+Merges that land back to back share a push run (Kae, 2026-11-15: a full run for every merge had left the base's results 67 to
+123 minutes behind a burst of merges). Pushes to `baihe-subtitler` are one concurrency group that never cancels a run in
+progress, so one push run is going and at most one waits behind it. A merge that lands while a run already waits takes that
+run's place, and GitHub cancels the run it replaced before any of its jobs start. The run that waits therefore tests the
+newest tree, which holds every merge before it, and it is shortened only by a green PR run of that same tree on that same
+base, so the merges it stands in for lose no job. The push run that **covers** a merge is the first one, at its commit or a
+later one, that ran to the end, green or red: a cancelled push run at a merge commit means a later run covers it, not that
+something failed. `windows-bootstrap.yml` shares its pushes the same way, so a burst of merges costs it one run going and one
+waiting instead of one per merge (it only validates the launcher, and the `test` check does not depend on it).
+
+The newest commit is the exception, because nothing later can cover it. GitHub does not promise the order in which runs reach
+the group, so when two merges land seconds apart the newer one's run can be the one that is cancelled. A cancelled push run
+at the newest commit of the base is re-run by the owner of that merge.
+
+What sharing costs:
+
+- A red run names every merge it covers, not one: its own commit and the ones just before it whose runs were cancelled. Read
+  the failure against what each of them changed. If that does not settle it, run the failed test at those commits
+  (`git bisect` between the last green commit and the red one); only a job that cannot run off CI needs the cancelled runs
+  re-run.
+- A dev copy and a release tag still need a push run that passed at the exact commit, so a commit whose run was cancelled is
+  passed over by the dev copy and refused for a tag (`docs/runbook.md`, section 1, step 5).
+- Re-run an older commit's push run (a cancelled one, or the failed jobs of a red one) only when no push run is waiting.
+  GitHub's docs do not say that a re-run stays out of the group, and inside it a re-run would take the waiting run's place,
+  which leaves the newest merge with no run. Re-running the newest commit's own run is always safe.
 
 ### Which jobs a change runs
 
@@ -75,7 +198,7 @@ is `tools/windows_script_checks.py` or is the restore code (`services/library_re
 
 | Rule | `notes_only` | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test-shard`) |
 |---|---|---|---|
-| Push to `baihe-subtitler`, or any event that is not a pull request (a `merge_group` included) | false | true | true |
+| Push to `baihe-subtitler` (but see "After a merge" above), or any event that is not a pull request (a `merge_group` and the nightly `schedule` run included) | false | true | true |
 | PR labelled `full-ci` | false | true | true |
 | PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | false | true | true |
 | Every changed file is under `docs/archive/research/` | true (only `guards` runs, plus the word scan) | false | true, but `test-shard` is skipped by `notes_only` |
@@ -95,8 +218,9 @@ A sixth output, `run_app_checks` (the `smoke` and `frontend` jobs), is true unle
 A seventh output, `run_sources_subset`, is true when every changed file on a pull request is under `sources/adapters/` or is a
 `tests/test_sources_*.py` / `tests/test_api_sources_*.py` file. `test-shard` then runs one shard with only the adapter tests and the
 tests of rules every adapter must obey (`tools/ci_changes.py --sources-tests`; the lists are `SOURCES_TEST_GLOBS` and
-`SOURCES_TEST_FILES`) instead of four shards of the whole suite. `guards` still runs, and a push to the base branch runs the whole
-suite, so a break outside the subset shows there. Add a test to `SOURCES_TEST_FILES` when it checks a rule every adapter must obey.
+`SOURCES_TEST_FILES`) instead of four shards of the whole suite. `guards` still runs, and the whole suite runs after the merge,
+in the push run that covers it or in the green PR run of that same tree that shortened it (a sources subset does not count as
+having run it), so a break outside the subset shows there. Add a test to `SOURCES_TEST_FILES` when it checks a rule every adapter must obey.
 
 A fifth output, `run_caddy` (the `caddy` job), is true for every row that says "everything", and otherwise only when a changed
 file is under `deploy/caddy/` or `installer/caddy/`, or is `installer/service_config.py` or `tools/caddy_check.py`.
@@ -353,7 +477,7 @@ The real-model check in Diagnostics ships two samples in `assets/smoke/`: `clip.
 ## GitHub Actions minutes
 
 - Iterate locally; push once per PR for the merge-required checks, and batch related commits into one push.
-- Workflows cancel superseded runs (`concurrency:` with `cancel-in-progress: true`, grouped by workflow and ref; in `tests.yml` a push gets its own group keyed on the commit). Don't rely on that for a run something else depends on (a release).
+- Workflows cancel superseded runs (`concurrency:` with `cancel-in-progress: true`, grouped by workflow and ref). In `tests.yml` and `windows-bootstrap.yml` pushes to the base branch share one group that never cancels a run in progress; a newer merge only takes the place of a run that is still waiting ("After a merge" above). Don't rely on cancelling for a run something else depends on (a release).
 - Never weaken a check to save minutes.
 - Set each job's `timeout-minutes` from observed run durations (roughly 2-3x the slowest), not a guess.
 - Before changing triggers, matrices, concurrency or caching, check the billing usage page's per-job breakdown and state the trade-off.

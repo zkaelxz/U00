@@ -115,6 +115,15 @@ def import_text_offset(source: str, series_id: str, drama_id: int, chapter_id: s
     return None if row is None else row["text_offset"]
 
 
+def has_text_retry_marker(drama_id: int) -> bool:
+    """True while any text chapter of this drama has a retry offset recorded: the
+    offset is a byte position in the raw-novel file, so a rewrite of that file
+    that shifts bytes would leave it pointing into the wrong text."""
+    with connect() as conn:
+        return conn.execute("SELECT 1 FROM import_retry WHERE drama_id=? AND text_offset IS NOT NULL "
+                            "LIMIT 1", (int(drama_id),)).fetchone() is not None
+
+
 def import_retry_rows(source: str, series_id: str, drama_id: int) -> list:
     """The manifest's chapters still waiting for a retry, oldest first. A
     chapter imported since (by any path, e.g. the auto-import) is left out."""
@@ -138,6 +147,36 @@ def set_tracked_drama(source: str, series_id: str, drama_id,
                            "WHERE source=? AND series_id=?",
                            (drama_id, linked_by_user_id, drama_id, source, series_id))
         return cur.rowcount > 0
+
+
+def forget_drama_links(conn) -> None:
+    """Drops every link from a followed series to a title, and the records of
+    which chapters went into which title. Title ids are only meaningful
+    inside the library.db they came from; once that library is gone or
+    replaced, a new title can be handed the same id, and the next chapter
+    check would import into it."""
+    conn.execute("UPDATE tracked_series SET drama_id=NULL, linked_by_user_id=NULL")
+    conn.execute("DELETE FROM imported_chapters")
+    conn.execute("DELETE FROM import_retry")
+
+
+def unlink_all_dramas() -> None:
+    with connect() as conn:
+        forget_drama_links(conn)
+
+
+def begin_unlink_all_dramas():
+    """Clears the links inside a transaction that stays open and holds sources.db's
+    write lock until the caller commits or rolls back the returned connection, so
+    the unlink can follow a library reset: both happen or neither does."""
+    conn = connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        forget_drama_links(conn)
+    except BaseException:
+        conn.close()
+        raise
+    return conn
 
 
 def set_tracked_save(source: str, series_id: str, on: bool, by_user_id: int | None = None) -> bool:

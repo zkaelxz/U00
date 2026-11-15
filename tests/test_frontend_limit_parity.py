@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from api.schemas import TranslateRequest
+from api.schemas import AdminAddUserRequest, TranslateRequest
 from services import novel_attach_service
 
 SRC = Path(__file__).resolve().parent.parent / "frontend" / "src"
@@ -76,3 +76,12 @@ def test_asr_backend_choices_match_the_server():
     assert only, "LANGUAGE_ONLY_BACKENDS not found"
     assert dict(re.findall(r"(\w+): '(\w+)'", only.group(1))) == {
         backend: lang for backend, (lang, _msg) in asr_options_service.LANGUAGE_ONLY_ASR_BACKENDS.items()}
+
+
+def test_add_a_person_caps_match_the_schema():
+    def cap(field):
+        return next(m.max_length for m in AdminAddUserRequest.model_fields[field].metadata
+                    if hasattr(m, "max_length"))
+    ts = "pages/diagnostics/adminUsers.ts"
+    assert _ts_number(ts, "MAX_EMAIL_CHARS") == cap("email")
+    assert _ts_number(ts, "MAX_DISPLAY_NAME_CHARS") == cap("display_name")

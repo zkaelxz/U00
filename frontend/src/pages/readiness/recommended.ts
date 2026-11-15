@@ -34,7 +34,7 @@ export function recommendedRows(r: SetupReadiness): RecommendedRow[] {
   }
   rows.push(
     row('separation', 'Vocal separation', false, 'Removes background music before transcribing (audio-separator).',
-      'about 30 MB, plus a model on first use', [separationNeed(r, 'audio_separator')]),
+      'about 30 MB, plus a model on first use', [separationNeed(r)]),
     row('speakers', 'Speaker detection', false, 'Tells speakers apart (pyannote). Needs a Hugging Face token and accepted model terms.',
       r.torch ? 'about 20 MB, plus a model on first use' : `about 20 MB, plus PyTorch (${GPU_TORCH_SIZE})`, speakerNeeds(r)),
     row('asmr', 'ASMR voice detector', false, 'Finds soft and whispered speech in Japanese ASMR.',

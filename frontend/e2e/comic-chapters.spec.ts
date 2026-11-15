@@ -113,7 +113,7 @@ test('translate scope: this chapter or all chapters, with counts, hidden pages n
   await scope.selectOption({ index: 0 })
   await expect(panel.getByText(/2 of 3 pages have no text yet/)).toBeVisible()
   await panel.getByRole('button', { name: 'Translate this chapter' }).click()
-  await expect.poll(() => s.runs).toEqual([{ mode: 'missing', chapter_id: 'src:c1', engine: 'ollama', detect_backend: 'auto' }])
+  await expect.poll(() => s.runs).toEqual([{ mode: 'missing', chapter_id: 'src:c1', engine: 'ollama', detect_backend: 'auto', art_captions: false }])
   expect(s.unmocked).toEqual([])
 })
 
@@ -125,5 +125,8 @@ test('a title with no chapter data reads as one list and still offers Hide', asy
   await expect(page.getByTestId('comic-divider')).toHaveCount(0)
   await bar(page).getByRole('button', { name: 'Chapters and pages' }).click()
   await expect(page.getByRole('button', { name: 'Hide page 1' })).toBeVisible()
+  await page.getByRole('textbox', { name: /Name for the new chapter/ }).fill(' Chapter 2 ')
+  await page.getByRole('button', { name: 'Start a new chapter at page 1' }).click()
+  await expect.poll(() => s.startChapter).toEqual([{ page_id: 701, title: 'Chapter 2' }])
   expect(s.unmocked).toEqual([])
 })

@@ -5,10 +5,14 @@ plugins {
 // The Android Gradle Plugin pulls these onto the build classpath at older
 // versions with published advisories. They run only at build time (the app
 // ships none of them), and the plugin works with the patched releases.
+// The three bouncycastle jars must move together: bcpkix and bcutil 1.80 read a constant
+// that bcprov 1.86 no longer has, which fails release signing (validateSigningRelease).
 buildscript {
     dependencies {
         constraints {
             classpath("org.bouncycastle:bcprov-jdk18on:1.86")
+            classpath("org.bouncycastle:bcpkix-jdk18on:1.86")
+            classpath("org.bouncycastle:bcutil-jdk18on:1.86")
             classpath("org.jdom:jdom2:2.0.6.1")
             classpath("com.google.guava:guava:33.8.0-jre")
             classpath("org.bitbucket.b_c:jose4j:0.9.7")
@@ -23,6 +27,8 @@ buildscript {
 // reach. Build-time only; nothing here ships in the APK.
 val patchedBuildToolLibraries = mapOf(
     "org.bouncycastle:bcprov-jdk18on" to "1.86",
+    "org.bouncycastle:bcpkix-jdk18on" to "1.86",
+    "org.bouncycastle:bcutil-jdk18on" to "1.86",
     "org.jdom:jdom2" to "2.0.6.1",
     "com.google.guava:guava" to "33.8.0-jre",
     "org.bitbucket.b_c:jose4j" to "0.9.7",

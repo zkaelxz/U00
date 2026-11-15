@@ -99,7 +99,7 @@ def require_no_pending_bulk_overlap(drama_id, eligible) -> None:
 def require_bulk_ready(drama_id, engine_name, model, main_cap, reflect, force_retranslate,
                        gemini_free_tier, job_cost_cap_usd, estimate_cost) -> None:
     # A batch or an off-peak run is paid for with nobody watching.
-    paid_job_service.require_cap_for_unattended(engine_name, gemini_free_tier)
+    paid_job_service.require_cap_for_unattended(engine_name, gemini_free_tier, model)
     if db.list_bulk_jobs(drama_id, statuses=db.BULK_PENDING_STATUSES + ("running",)):
         raise ConflictError("A bulk translation is already pending for this title.")
     if engine_name != "deepseek" and main_cap is not None:

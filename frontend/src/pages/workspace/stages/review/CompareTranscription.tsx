@@ -101,7 +101,7 @@ export function CompareTranscription({
 }) {
   const textLang = useTitleTextLang()
   const { selectedIds } = useLineSelectionContext()
-  // "#/drama/3/review?tools=history&focus=compare" (a finished comparison's link) opens this section.
+  // "#/drama/3/review?tools=problems&focus=compare" (a finished comparison's link) opens this section.
   const focusSignal = useStageFocus('compare', 'review-compare')
   const panelRef = useRef<HTMLDivElement>(null)
   // Counted after mount so a section mounted by the very action that opens it still sees a change.
@@ -492,7 +492,7 @@ export function CompareTranscription({
           <div data-testid="compare-results">
             <div className="review-actions">
               <span className="muted" data-testid="compare-last-run">{compareRunText(result, finishedAt)}</span>
-              <button type="button" onClick={flagDifferences} disabled={applying}>Flag lines that differ</button>
+              <button type="button" onClick={flagDifferences} disabled={applying}>Flag differences</button>
               <button type="button" onClick={clearResult}>Clear</button>
             </div>
             {usedPrompt && (usedPrompt.hint || usedPrompt.names) && (

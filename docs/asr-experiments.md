@@ -14,10 +14,11 @@ table) is in `archive/asr-experiments-history.md`.
 | Option | Where | Default | Notes |
 |---|---|---|---|
 | Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `whisper_models.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
-| Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
+| Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace) and Live, Japanese only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
+| Chinese Whisper model `breeze-asr-25` | per title (Workspace), Chinese titles only | not offered | Default for Chinese titles with no saved model and for Chinese Live streams, once downloaded (otherwise large-v3 / small); not part of a preset. See "Breeze-ASR-25 in the app" below. |
 | Japanese Whisper model `kotoba-v2` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "kotoba-whisper v2.0 in the app" below. |
 | ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`, and the opt-in Japanese-only `anime_whisper` (see "anime-whisper in the app"). |
-| Qwen3-ASR batch size | Settings > Performance and advanced > Advanced transcription (PC only; shown only while Developer Mode is on) | 1 | Range 1-16. |
+| Qwen3-ASR batch size | Settings > Transcription and jobs > Advanced transcription (PC only; shown only while Developer Mode is on) | 1 | Range 1-16. |
 | Refine line timing with the forced aligner | same card | off | |
 | Mixed languages | same card | off | |
 | Voice detector | the Transcribe stage's voice detector field (no Settings card holds it) | `auto` | Choices come from `settings_service._voice_detector_choices`. Used by the speech-detection backends. |
@@ -108,7 +109,7 @@ one language per run).
 
 Qwen3-ASR without Whisper (`qwen3_asr_vad`, `qwen3_asr_long`) gives good text but
 line times that can sit in silence or run past the speech. The Review stage's
-**Check timing** (Review > Fix > Flag lines for review) compares each line's start and end with the
+**Check timing** (Review > Look for problems > Flag lines for review) compares each line's start and end with the
 speech Silero finds in the title's audio (the speech coverage check's chunked CPU scan:
 no Whisper, no Qwen, no GPU; cancel from Jobs) and sets the `timing_drift` flag when a
 line starts more than 0.7 s before speech, ends more than 0.7 s after it, is under 40%
@@ -152,9 +153,22 @@ English. Slower: one language detection per speech span.
 
 ### Separate vocals first
 
-Leave it off unless the background is music alone; the Transcribe stage says so.
-Backend `auto` tries Mel-Band RoFormer (`audio-separator`) first and falls back to
-Demucs. RoFormer was very slow on 4 CPU cores in one timing (see the snapshot).
+Leave it off unless the background is music alone or the speech is whispered; the
+Transcribe stage says so. The one engine is Mel-Band RoFormer (`audio-separator`);
+`auto` and `audio_separator` mean the same, and a saved `demucs` value runs it too.
+Demucs was removed after the 2026-11-11 test below (it gave different text on every
+run). RoFormer was very slow on 4 CPU cores in one timing (see the snapshot).
+
+Measured 2026-11-11 against hand-corrected lines (large-v3 fp16, temperature 0,
+Chinese, default VAD, each condition run twice, CER against Simplified-converted
+lines): title 59 (40 lines, whispered) original 0.358, RoFormer 0.205, Demucs
+0.176 and 0.188; title 60 (87 lines) original 0.399, RoFormer 0.365, Demucs 0.411
+and 0.406. Original and RoFormer repeated exactly; Demucs did not (title 59 moved
+0.12, title 60 0.16). On title 59 the original run stopped at 160.5 s of 166.5 s,
+which accounts for part of the gain. RoFormer lost or changed 4-5 short fillers
+(嗯, 有) per title and ran about twice as slowly. Two clips: not enough for a
+default (the margin rule needs a third). On a V100 with title 2 (no reference)
+separation also dropped 9 consecutive lines, so check line counts when using it.
 
 ## Do not combine
 
@@ -166,6 +180,7 @@ The notes the Transcribe form and a finished run's details show, from `services/
 | `whisper_missing` | blocked | Whisper is not installed, so this run cannot start. |
 | `anime_whisper_language` | blocked | Anime-whisper is for Japanese only. |
 | `ja_model_language` | blocked | This Whisper model is for Japanese only. |
+| `zh_model_language` | blocked | Breeze-ASR-25 is for Chinese only. |
 | `qwen_long_audio` | warn | Qwen3 ASR on long audio gives no word timings, fewer lines and "Timing uncertain · Split evenly" flags. Use Whisper. |
 | `forced_align_needs_transcript` | warn | Qwen3 forced alignment needs a transcript to line up; without one it is not used. |
 | `ja_15b_needs_gpu` | warn | Whisper ja-1.5B needs a GPU and is meant for anime and games. |
@@ -216,7 +231,7 @@ since Whisper then runs on the CPU), and turns off the Whisper-only options when
 A candidate such as a Japanese fine-tune can be tried in the Benchmark Lab without
 changing the model of any title:
 
-1. On the PC, set Settings > Performance and advanced > Offline, paths and limits > Offline Whisper model folder to the downloaded
+1. On the PC, set Settings > Advanced > Offline, paths and limits > Offline Whisper model folder to the downloaded
    faster-whisper (CTranslate2) model folder.
 2. In the Lab, pick the Transcription stage and add an arm with the model
    `local-folder`. It is listed in the Whisper sizes and shows as "offline model
@@ -242,6 +257,7 @@ document shows it worse; Live's own size list is separate and not gated. Today:
 | `medium` | Japanese | "medium about 1.9 points worse" than turbo, and slower (RTF 0.84 vs 0.56), in the model table above. Korean and Chinese showed no clear gap, so it stays there. |
 | `ja-1.5b` | Chinese, Korean | A Japanese fine-tune, only for Japanese titles. |
 | `kotoba-v2` | Chinese, Korean | Trained on Japanese speech only (ReazonSpeech), so only for Japanese titles. |
+| `breeze-asr-25` | Japanese, Korean | A Taiwanese Mandarin fine-tune of whisper-large-v2, so only for Chinese titles. |
 
 Adding a model is a `WHISPER_MODELS` label plus, if it is language-bound, one
 `LanguageRule`. `ja-1.5b` is never the default.
@@ -315,6 +331,30 @@ not in Live (its size list waits for a benchmark).
 | Timing | segment timestamps only: `whisper_models.WORD_TIMESTAMP_UNSUPPORTED` makes `core.transcribe_for_timing` and the mixed-language runner pass `word_timestamps=False`. The stock `config.json` carries large-v3's `alignment_heads` (decoder layers 7-19) on a 2-layer decoder, which is what crashes word timestamps. The pipeline then refines the segment times with the Qwen3 forced aligner (`forced_align.refine_whisper_segments`); if it is not installed, errors, or the run is mixed-language, the segment times are kept, no line is flagged, and the job reports "Line timing was not refined (reason)" as a partial result. |
 
 No benchmark of `kotoba-v2` in this app exists yet; the speed and accuracy claims above are the model card's.
+
+#### Breeze-ASR-25 in the app
+
+`breeze-asr-25` is MediaTek Research's Taiwanese Mandarin fine-tune of whisper-large-v2 (Apache-2.0). The default for
+Chinese titles with no saved model and for Chinese Live streams once it is downloaded
+(`whisper_models.default_whisper_size_for`, `live_service._language_whisper_defaults`); Chinese only
+(`WHISPER_LANGUAGE_RULES`).
+
+| | |
+|---|---|
+| Repository | `phate334/Breeze-ASR-25-ct2`, pinned in `whisper_models.PINNED_CT2_REPOS` at `ac4ec98cf46e00218e29e704b3181a2d7bd94f77` |
+| Size | `model.bin` 3.09 GB, float16 (`memory_headroom` estimate is large-v2's, not measured) |
+| Provenance | a community conversion, not MediaTek's. Its `model.bin` has the same sha256 (`32110e9b…ed38`) as a second public conversion and as one made on the owner's PC with `ct2-transformers-converter --quantization float16` from the official weights; `config.json`, `tokenizer.json`, `vocabulary.json` and `preprocessor_config.json` match that PC copy byte for byte. |
+| File-set rule | the same as `ja-1.5b` (`lib/ct2_repo.py`) |
+
+Measured 2026-11-09 on the owner's 3080 Ti PC with the title's own settings, against hand-corrected lines (one
+whispered title of 40 lines, one 4.6-minute window of 87 lines), so treat it as a lead, not a proven gain:
+- Title 59 (whispered, 172 s): CER 0.352 and identical on three runs, against 0.42 to 0.99 for large-v3
+  default; 11 of 40 lines missed (mostly short fillers such as 嗯); median start error 0.10 s. 12 to 15 s a run.
+- Title 56 window (a drunk call): CER 0.294 against 0.41 to 0.57 for large-v3. The reference started from
+  Breeze's draft, but every Chinese line was re-edited and cross-checked by the owner against her own
+  transcription, so any flattery is small, not removed.
+- Clear speech (titles 41 and 44): no difference from large-v3 or Qwen3-ASR.
+- It still writes a stock credit line or "Thank you." over some quiet stretches.
 
 #### Trying a Japanese fine-tune
 
@@ -642,6 +682,68 @@ configurations were mostly short interjections Whisper left out and reference OC
 mistakes, not wrong words. Not tested: GPU, the forced-aligner refine option,
 Whisper plus Qwen combined.
 
+
+## Measured results: November 2026 (RTX 3080 Ti)
+
+Measured 2026-11-10 to 14 on the owner's Windows PC (RTX 3080 Ti, the app's own venv, offline), against the repo state at `v0.1.1` to `v0.1.4` plus later base commits (about `777c5cc4`, `61f8ac70`, `cc407a75`, `2d266ed4`). The reference text is the owner's hand-corrected transcripts of private titles, so the audio, text and scripts are not in the repo; only the numbers are. Scores are `1 - CER` from the app's scorer unless noted. Run-to-run noise is stated where it was measured.
+
+### Vocal separation before transcription
+
+Whisper large-v3 fp16, temperature 0, Chinese, default speech detection (beam 5, silence 300 ms, threshold 0.5), two runs per cell. CER against hand-corrected lines (lower is better):
+
+| Clip | Original | Roformer | Demucs |
+|---|---|---|---|
+| 172 s, 40 lines | 0.358 | 0.205 | 0.176 to 0.188 |
+| 276 s, about 90 lines | 0.399 | 0.365 | 0.406 to 0.411 |
+
+Real-time factor rose from 0.13 to 0.20 (original) to 0.16 to 0.29 (separated). Both separators lose short lines the original gets right (for example single-syllable replies, 3 to 9 lines per clip). Demucs output differs run to run; roformer and the original repeat exactly. This is why separation is opt-in: the gain depends on the clip.
+
+### Korean and Japanese ASR backends
+
+One Korean clip (270 s, 91 lines) and one Japanese clip (36 s, 24 lines), three runs each:
+
+| System | Korean score | Korean start error (mean) | Japanese score | Japanese start error (mean) |
+|---|---|---|---|---|
+| large-v3, app path | 0.963 | 0.38 s | 0.933 | 0.00 s |
+| large-v3, default decode | 0.945 | 0.89 s | 0.933 | 0.13 s |
+| large-v3, temperature 0 | 0.956 | 0.77 s | 0.933 | 0.13 s |
+| Qwen3-ASR 1.7B with aligner, 8 s windows | 0.914 | 2.79 s | 0.853 | 3.53 s |
+| Qwen3-ASR 1.7B with aligner, 15 s windows | 0.911 | 5.94 s | 0.870 | 6.85 s |
+| Japanese-tuned 1.5B, default decode | not run | | 0.920 | 0.51 s |
+
+Qwen3-ASR scored lower and its start times were off by seconds on both languages, so it is not preferred for these.
+
+Qwen3 forced aligner, bf16 against float32 over 34 calls: identical text on every call, start times differ by at most 0.72 s. There was no reason found to change the dtype.
+
+### Speaker detection on a multi-speaker title
+
+One title, 467 lines, 11 hand-labelled voices. Right / wrong / blank, labels mapped one-to-one to the gold names (the best case for each system):
+
+| System | Right | Wrong | Blank | Time and VRAM |
+|---|---|---|---|---|
+| Nemotron, no cutoff | 60.2% | 26.6% | 13.3% | 10 s, about 0.5 GB |
+| Nemotron, 0.8 cutoff (the app) | 37.5% | 4.1% | 58.5% | same |
+| pyannote, automatic count | 63.4% | 35.5% | 1.1% | 61 s, about 9.5 GB |
+| pyannote, 8 speakers typed | 53.1% | 45.8% | 1.1% | 123 s, about 9.5 GB |
+
+Nemotron is fixed at 8 speakers by its model config, so at least three of the 11 voices must share a channel. The 0.8 cutoff keeps wrong labels near 4% by leaving lines blank. Matching each line to saved voice prints by cosine similarity did worse than Nemotron clusters unless the prints came from the same episode (best 327 of 467 right with an interleaved split, 162 with a time split, because the cast changes by scene). Adding a print from the long title to a short title's print made the short title worse (124 of 201 lines wrong against 63).
+
+### Translation engines on the same title
+
+The app's own translate job, all 471 lines re-translated, the owner's corrected Chinese and speaker names, chrF against the owner's English. One-run noise is about 1 chrF (one engine agreed with itself on only 180 of 471 lines on a repeat).
+
+| Engine | chrF | Time | Cost |
+|---|---|---|---|
+| gemma4:31b-cloud | 54.05 | 78 s | $0.014 |
+| claude-sonnet-5-5 | 52.89 | 162 s | $0.253 |
+| deepseek-v4-pro | 50.71 | 124 s | $0.084 |
+| gpt-6-luna | 50.15 | 141 s | $0.009 |
+
+Gemma's lead over deepseek and luna is larger than the noise; its gap to Sonnet is not. No engine made an error, leaked a speaker tag, or contradicted a gendered pronoun (deepseek omitted pronouns more often, 29 matches against 35). Supplying the speaker names fixed character names in the output; chrF did not change. Gemma 12B was not tested (not installed).
+
+### Limits
+
+Each figure is from one clip or one title and one run unless stated, with a human-corrected reference that is itself imperfect. The comic OCR comparison from the same period has no reference text and is not scored, so no OCR figures are given.
 
 ## Difficult audio
 

@@ -73,6 +73,8 @@ export interface TranslateRunStartBody {
   default_female_pronouns?: boolean // omitted: false
   include_genre_notes?: boolean // omitted: true
   memory_examples?: boolean // omitted: false
+  line_ids?: number[]
+  own_lines_only?: boolean // with line_ids: glossary substitution and flags stay inside those lines
 }
 
 export interface BulkResumeResult {
@@ -149,6 +151,7 @@ export interface GlossaryAffectedRunStarted extends TranslateRunStarted {
 }
 
 export type GlossaryTerm = Schemas['GlossaryTerm']
+export type WordReplacement = Schemas['WordReplacement']
 
 export type GlossaryTermUpsert = Partial<Omit<GlossaryTerm, 'id'>> & { id?: number }
 
@@ -165,7 +168,12 @@ export type GlossaryImportResult = Schemas['GlossaryImportResult']
 // POST /api/glossary/dramas/{id}/terms/bulk-delete.
 export type GlossaryBulkDeleteResult = Schemas['GlossaryBulkDeleteResult']
 
+// GET /api/glossary/dramas/{id}/title-terms and POST .../terms/copy-title-terms.
+export type GlossaryTitleTerm = Schemas['GlossaryTitleTerm']
+export type GlossaryCopyTitleTermsResult = Schemas['GlossaryCopyTitleTermsResult']
+
 export type GlossaryInstructions = Schemas['GlossaryInstructions']
+export type InstructionsDraft = Schemas['InstructionsDraft']
 
 export type GlossaryCatalogues = Schemas['GlossaryCatalogues']
 

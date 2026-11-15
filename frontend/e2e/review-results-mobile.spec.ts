@@ -39,7 +39,7 @@ test('Review results: no sideways scroll, 44px line links, a link opens its line
   await expectNoSidewaysScroll(page)
 
   const heights: (readonly [number, string])[] = []
-  for (const tab of ['Check', 'Fix']) {
+  for (const tab of ['Look for problems', 'Change many lines']) {
     await openTab(page, tab)
     heights.push(...(await page.locator('.review-jump, .review-fix button:not(.field-help-btn), .review-fix select, .review-fix input').evaluateAll((els) =>
       els.filter((e) => (e as HTMLElement).offsetParent !== null).map((e) => [e.getBoundingClientRect().height, e.outerHTML.slice(0, 80)] as const),

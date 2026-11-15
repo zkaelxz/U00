@@ -71,10 +71,10 @@ def _install(monkeypatch, fake):
 
 
 def test_loaded_models_are_unloaded_then_polled_until_empty(isolated_db, monkeypatch):
-    fake = _install(monkeypatch, FakeOllama(loaded=["gemma4:26b", "qwen3:8b"]))
+    fake = _install(monkeypatch, FakeOllama(loaded=["gemma4:26b", "translategemma:12b"]))
     ollama_unload.prepare_gpu_for_transcription(True)
     assert fake.posts == [(f"{LOCAL}/api/generate", {"model": "gemma4:26b", "keep_alive": 0}),
-                          (f"{LOCAL}/api/generate", {"model": "qwen3:8b", "keep_alive": 0})]
+                          (f"{LOCAL}/api/generate", {"model": "translategemma:12b", "keep_alive": 0})]
     assert len(fake.gets) >= 2  # the first listing, then at least one poll
     assert fake.loaded == []
     assert ollama_unload.take_notice_result() == {}

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { isSharedLink } from './shareTarget'
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
-import { isReviewToolsTab, type ReviewToolsTab } from './pages/workspace/stages/review/reviewToolsTabs'
+import { reviewToolsGroupForLink, type ReviewToolsGroup } from './pages/workspace/stages/review/reviewToolsTabs'
 import { isManageTab, isSourcesTab, manageHref, sourcesHref, type ManageTab, type SourcesTab } from './pages/sources/manageTabs'
 import { asMediaTab, type MediaTab } from './pages/workspace/mediaTabs'
 import { isTranslateTab, type TranslateTab } from './pages/workspace/translateTabs'
@@ -11,23 +11,28 @@ import { isBenchmarkTab, type BenchmarkTab } from './pages/benchmark/benchmarkTa
 import { isSeriesTab, type SeriesTab } from './pages/series/seriesModel'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
 
+export const ADMIN_CARDS = ['people', 'activity', 'address', 'uploads', 'pc-profiles'] as const
+export type AdminCard = (typeof ADMIN_CARDS)[number]
+const isAdminCard = (v: unknown): v is AdminCard => ADMIN_CARDS.includes(v as AdminCard)
+
 export type Route =
   | { name: 'library' }
   // tab: "#/library-tools?tab=storage" opens that tab (the last one used is remembered otherwise).
   | { name: 'library-tools'; tab?: LibraryToolsTab }
   // stage null: no stage in the URL; the Workspace opens the drama's current stage.
   // focus: "#/drama/3/translate?focus=glossary" opens that Translate panel and scrolls to it;
-  // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter.
-  // find: "#/drama/3/review?find=Li%20Wei" opens Review with that text already searched.
-  // tools: "#/drama/3/review?tools=coverage" opens that tab of the Review tools panel.
+  // "#/drama/3/review?focus=flagged" opens Review on its Flagged filter, "?focus=all" on All lines (Simple opens on its check queue).
+  // find: "#/drama/3/review?find=Li%20Wei" opens Review with that text already searched; so does the title page, which can show Review's lines.
+  // tools: "#/drama/3/review?tools=problems" opens that group of the Review tools panel.
   // tab: "#/drama/3/source?tab=transcribe" opens that sub-tab of the Media stage;
   // "#/drama/3/translate?tab=glossary" that of the Translate stage.
-  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; find?: string; tools?: ReviewToolsTab; tab?: MediaTab | TranslateTab }
+  | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; find?: string; tools?: ReviewToolsGroup; tab?: MediaTab | TranslateTab }
   | { name: 'jobs' }
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
   // card: "#/settings?card=display" does the same for any card id in the settings index; an unknown id is dropped.
   | { name: 'settings'; section?: 'developer-mode' | 'uploads'; card?: string }
-  | { name: 'admin' }
+  // card: "#/admin?card=uploads" opens that card of People and access and scrolls to it; an unknown id is dropped.
+  | { name: 'admin'; card?: AdminCard }
   // card: "#/diagnostics?card=ports" opens the tab that holds that card and scrolls to it;
   // tab alone opens that tab. install=transcription (Before-you-run) lands on the Packages card.
   // pkg: with card=packages, "&package=audio-separator" scrolls to that package and picks it.
@@ -52,6 +57,8 @@ export type Route =
   | { name: 'read'; id: number; page: number | null }
   // "#/follow/3": a title's lines on their own clock, for audio played in another app.
   | { name: 'follow'; id: number }
+  // "#/watch/3": the title's own sound or video with its lines following it.
+  | { name: 'watch'; id: number }
   | { name: 'comic'; id: number; page: number | null }
   // "#/comic/3/edit?page=2": the text-box editor for one page.
   | { name: 'comic-edit'; id: number; page: number | null }
@@ -63,7 +70,7 @@ export type Route =
 // A package key from diagnostics.OPTIONAL_DEPENDENCIES ("audio-separator", "pyannote.audio"): nothing else is read from a link.
 const PACKAGE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/
 
-export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare'
+export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare' | 'all' | 'estimate' | 'sourceLink' | 'voices'
 
 export const MAX_FIND_LENGTH = 200
 
@@ -89,7 +96,10 @@ export function parseRoute(hash: string): Route {
       ? { name: 'settings', section }
       : { name: 'settings' }
   }
-  if (head === 'admin' && parts.length === 1) return { name: 'admin' }
+  if (head === 'admin' && parts.length === 1) {
+    const card = new URLSearchParams(qs).get('card')
+    return isAdminCard(card) ? { name: 'admin', card } : { name: 'admin' }
+  }
   if (head === 'diagnostics' && parts.length === 1) {
     const q = new URLSearchParams(qs)
     const card = q.get('card') ?? (q.get('install') === 'transcription' ? 'packages' : null)
@@ -127,7 +137,7 @@ export function parseRoute(hash: string): Route {
     const tab = new URLSearchParams(qs).get('tab')
     return isSeriesTab(tab) ? { name: 'series', id: Number(a), tab } : { name: 'series', id: Number(a) }
   }
-  if (head === 'follow' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) return { name: 'follow', id: Number(a) }
+  if ((head === 'follow' || head === 'watch') && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) return { name: head, id: Number(a) }
   if ((head === 'read' || head === 'comic') && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
     // "#/read/3?page=2", "#/comic/3?page=2"; a missing or bad page means "resume where I left off".
     const p = new URLSearchParams(qs).get('page')
@@ -167,16 +177,16 @@ export function parseRoute(hash: string): Route {
     }
     const q = new URLSearchParams(qs)
     const focus = q.get('focus')
-    const tools = q.get('tools')
+    const tools = reviewToolsGroupForLink(q.get('tools'), focus)
     const tab = q.get('tab')
     const find = (q.get('find') ?? '').trim().slice(0, MAX_FIND_LENGTH)
     return {
       name: 'drama',
       id: Number(a),
       stage,
-      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' ? { focus } : {}),
-      ...(find && stage === 'review' ? { find } : {}),
-      ...(isReviewToolsTab(tools) ? { tools } : {}),
+      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' || focus === 'all' || focus === 'estimate' || focus === 'sourceLink' || focus === 'voices' ? { focus } : {}),
+      ...(find && (stage === 'review' || stage === null) ? { find } : {}),
+      ...(tools ? { tools } : {}),
       ...(stage === 'translate' ? (isTranslateTab(tab) ? { tab } : {}) : asMediaTab(tab) ? { tab: asMediaTab(tab) as MediaTab } : {}),
     }
   }
@@ -191,7 +201,7 @@ export function routeHref(r: Route): string {
   }
   if (r.name === 'series') return `#/series/${r.id}${r.tab ? `?tab=${r.tab}` : ''}`
   if (r.name === 'comic-edit') return `#/comic/${r.id}/edit${r.page ? `?page=${r.page}` : ''}`
-  if (r.name === 'follow') return `#/follow/${r.id}`
+  if (r.name === 'follow' || r.name === 'watch') return `#/${r.name}/${r.id}`
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'manga-series') return `#/manga/${encodeURIComponent(r.source)}/${encodeURIComponent(r.series)}`
   if (r.name === 'manga-read') {
@@ -205,6 +215,7 @@ export function routeHref(r: Route): string {
   }
   if (r.name === 'sources-manage') return manageHref(r.tab)
   if (r.name === 'sources' && r.tab) return sourcesHref(r.tab)
+  if (r.name === 'admin' && r.card) return `#/admin?card=${r.card}`
   if (r.name === 'settings' && r.card) return `#/settings?card=${encodeURIComponent(r.card)}`
   if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`
   if (r.name === 'benchmark') {

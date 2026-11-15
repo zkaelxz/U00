@@ -172,12 +172,12 @@ class TestSweep:
 
     def test_on_ollama_only_pulled_local_models_are_tried(self, monkeypatch):
         _cases()
-        monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda url: ["qwen3:8b", "local-a"])
+        monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda url: ["translategemma:12b", "local-a"])
         monkeypatch.setattr(translate_service, "list_engines", lambda **k: [
-            {"name": "ollama", "models": ["qwen3:8b", "local-a", "not-pulled:7b", "gemma4:31b-cloud"]}])
+            {"name": "ollama", "models": ["translategemma:12b", "local-a", "not-pulled:7b", "gemma4:31b-cloud"]}])
         monkeypatch.setattr(tsweep.lab, "check_config", lambda stage, cfg: {**cfg, "options": cfg["options"] or {}})
         monkeypatch.setattr(tsweep.lab, "run_context", lambda *a, **k: {"app_version": "1"})
-        plan = tsweep._Plan("s", "zh", "ollama", "qwen3:8b", None)
+        plan = tsweep._Plan("s", "zh", "ollama", "translategemma:12b", None)
         by_model = {m["model"]: m for m in plan.models}
         assert by_model["local-a"]["included"]
         assert not by_model["not-pulled:7b"]["included"] and "isn't pulled" in by_model["not-pulled:7b"]["reason"]

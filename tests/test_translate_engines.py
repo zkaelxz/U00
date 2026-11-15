@@ -1754,7 +1754,7 @@ class TestFreeEngineLabelling:
 
     def test_note_models_match_the_model_lists(self):
         assert "claude-sonnet-5-5" in engine_pricing.CLAUDE_MODELS and "claude-opus-5-5" in engine_pricing.CLAUDE_MODELS
-        assert all(m.startswith("gemma4") for m in engine_local.OLLAMA_MODELS)
+        assert all(m.startswith(("gemma4", "translategemma", "qwen3")) for m in engine_local.OLLAMA_MODELS)
 
     def test_gemini_label_is_plain_by_default(self):
         assert engine_registry.engine_picker_label("gemini") == engine_registry.ENGINE_NOTES["gemini"]
@@ -2152,6 +2152,21 @@ class TestGenerateEpisodeSummary:
         engine = FakeEngine()
         llm_tasks.generate_episode_summary(lines, engine)
         assert engine.call_count == 1
+
+    def test_a_short_episode_is_sent_whole_and_a_long_one_keeps_its_opening_and_ending(self):
+        from engine_backends import llm_feature_prompts as prompts
+        short = [Line(idx=i, start=i, end=i + 1, zh="x", en=f"Short line {i}.") for i in range(100)]
+        whole = prompts.build_episode_summary_prompt(short)
+        assert "Short line 0." in whole and "Short line 99." in whole
+        assert "left out" not in whole
+
+        long = [Line(idx=i, start=i, end=i + 1, zh="x", en=f"Long line number {i}. " + "w" * 40)
+                for i in range(2000)]
+        cut = prompts.build_episode_summary_prompt(long)
+        assert "Long line number 0." in cut and "Long line number 1999." in cut
+        assert "Long line number 1000." not in cut
+        assert "the middle of the episode is left out" in cut
+        assert len(cut) < prompts.EPISODE_SUMMARY_SOURCE_CHARS + 2000
 
     def test_non_dict_response_returns_empty_string(self):
         class FakeEngine:
@@ -2778,7 +2793,7 @@ class TestEstimateReflectModeCost:
         engine = engine_claude.ClaudeEngine.__new__(engine_claude.ClaudeEngine)
         engine.model = "claude-sonnet-5"
         lines = ["你好世界" * 10] * 5
-        expected_single = engine_pricing.estimate_cost_for_engine(engine, *engine_pricing.estimate_translation_tokens(lines))
+        expected_single = engine_pricing.estimate_translation_cost(engine, lines)
         assert engine_pricing.estimate_reflect_mode_cost(engine, lines) == pytest.approx(expected_single * 3)
 
     def test_every_batch_adds_the_instructions_again(self):

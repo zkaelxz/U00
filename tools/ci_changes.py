@@ -18,7 +18,7 @@ FULL_CI_LABEL = "full-ci"
 # Changes to CI itself, test plumbing or dependencies can break any job, so they run all of them.
 EVERYTHING_PREFIXES = (".github/",)
 EVERYTHING_FILES = frozenset({
-    "tools/ci_changes.py", "tests/conftest.py", "run_tests.py", "constraints.txt", "pytest.ini",
+    "tools/ci_changes.py", "tools/ci_tested_tree.py", "tests/conftest.py", "run_tests.py", "constraints.txt", "pytest.ini",
     "frontend/package.json", "frontend/package-lock.json",
     "frontend/playwright.config.ts", "frontend/vite.config.ts",
 })

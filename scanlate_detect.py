@@ -141,7 +141,8 @@ def detect_bubbles_cv(image_path: str, min_area_frac: float | None = None,
             continue
         outline = max(contours, key=cv2.contourArea)
         hull_len = cv2.arcLength(cv2.convexHull(outline), True)
-        if hull_len and cv2.arcLength(outline, True) / hull_len > tune.CV_MAX_RAGGEDNESS:
+        if (hull_len and cv2.arcLength(outline, True) / hull_len > tune.CV_MAX_RAGGEDNESS
+                and not _burst_rim(filled, outline)):
             rejected.append((x, y, bw, bh, "ragged outline"))
             continue
         problem = _not_lettered(gray, region, filled, contours, x, y)
@@ -156,6 +157,26 @@ def detect_bubbles_cv(image_path: str, min_area_frac: float | None = None,
     if debug:
         return boxes, rejected
     return boxes
+
+
+def _burst_rim(filled, outline) -> bool:
+    """True for a burst (starburst) balloon: its rim is a ring of hairline notches, so the outline
+    is ragged, yet there are many of them all round and with them filled in the shape is an oval.
+    A white panel that line art cuts has a few notches, or a shape that is not oval."""
+    import cv2
+    tune = scanlate_tuning
+    hull = cv2.convexHull(outline, returnPoints=False)
+    if len(outline) < 5 or hull is None or len(hull) < 4:
+        return False
+    defects = cv2.convexityDefects(outline, hull)
+    if defects is None:
+        return False
+    deep = [d for d in defects.reshape(-1, 4) if d[3] / 256.0 >= tune.CV_BURST_NOTCH_PX]
+    if len(deep) < tune.CV_BURST_MIN_NOTCHES:
+        return False
+    closed = np.zeros_like(filled)
+    cv2.drawContours(closed, [cv2.convexHull(outline)], -1, 1, thickness=-1)
+    return _oval(closed, [cv2.convexHull(outline)])
 
 
 def _not_lettered(gray, region, filled, contours, x, y):
@@ -329,8 +350,12 @@ def detect_bubbles_ml(image_path: str, confidence: float | None = None, hf_token
             "label": model.config.id2label.get(int(label), str(int(label))),
         })
 
-    boxes.sort(key=lambda b: (b["y"] // 50, -b["x"]))
+    boxes.sort(key=_reading_order)
     return boxes
+
+
+def _reading_order(box: dict) -> tuple:
+    return box["y"] // 50, -box["x"]
 
 
 def bubble_ml_weights_cached() -> bool:
@@ -383,6 +408,7 @@ def _contained_share(a: dict, b: dict) -> float:
 # whole balloon, which is the cleaner crop boundary to keep over a
 # "text_bubble"/"text_free" box describing the same physical object.
 _LABEL_MERGE_PRIORITY = {"bubble": 0, "text_bubble": 1, "text_free": 1}
+_TEXT_LABELS = ("text_bubble", "text_free")
 
 
 def dedupe_overlapping_boxes(boxes: list, iou_threshold: float | None = None) -> list:
@@ -446,45 +472,157 @@ def dedupe_overlapping_boxes(boxes: list, iou_threshold: float | None = None) ->
         current = winner_of.get(root)
         if current is None or rank(boxes[i]) < rank(boxes[current]):
             winner_of[root] = i
-    keep = set(winner_of.values())
-    return [b for i, b in enumerate(boxes) if i in keep]
+    lines_of = {}
+    for i in range(n):
+        if boxes[i].get("label") in _TEXT_LABELS:
+            lines_of.setdefault(find(i), []).append(
+                {k: boxes[i][k] for k in ("x", "y", "w", "h")})
+    kept = []
+    for root, i in sorted(winner_of.items(), key=lambda t: t[1]):
+        # The text boxes merged away are where the lettering lies, which
+        # split_separate_lettering() must not cut through.
+        kept.append(dict(boxes[i], text_boxes=lines_of[root]) if root in lines_of else boxes[i])
+    return kept
 
 
 _LOOSE_TEXT_LABEL = "text_free"
 
 
-def _fragments_of_one_region(a: dict, b: dict) -> bool:
+def _columns_of_one_balloon(gray, a: dict, b: dict) -> bool:
+    """Whether two boxes of one class, close side by side or one above the
+    other, are lettering inside the same balloon. The detector sometimes draws
+    one box per column of a vertical balloon, so the balloon would be read,
+    translated and lettered twice, the halves in the wrong order and over each
+    other. The test is the page itself: the balloon found around the pair is
+    the interior both boxes mostly lie inside (_balloon_interior), which two
+    separate balloons never give."""
+    gap_x = max(a["x"], b["x"]) - min(a["x"] + a["w"], b["x"] + b["w"])
+    gap_y = max(a["y"], b["y"]) - min(a["y"] + a["h"], b["y"] + b["h"])
+    if gap_x > 0 and gap_y > 0:
+        return False
+    gap, narrow = (gap_x, min(a["w"], b["w"])) if gap_x > 0 else (gap_y, min(a["h"], b["h"]))
+    if gap > scanlate_tuning.BALLOON_COLUMN_GAP * narrow:
+        return False
+    x0, y0 = max(0, min(a["x"], b["x"])), max(0, min(a["y"], b["y"]))
+    x1 = min(gray.shape[1], max(a["x"] + a["w"], b["x"] + b["w"]))
+    y1 = min(gray.shape[0], max(a["y"] + a["h"], b["y"] + b["h"]))
+    if x1 <= x0 or y1 <= y0:
+        return False
+    found = _balloon_interior(gray[y0:y1, x0:x1])
+    if found is None:
+        return False
+    inside = found[0]
+    for box in (a, b):
+        bx0, by0 = max(box["x"], x0) - x0, max(box["y"], y0) - y0
+        bx1, by1 = min(box["x"] + box["w"], x1) - x0, min(box["y"] + box["h"], y1) - y0
+        if bx1 <= bx0 or by1 <= by0:
+            return False
+        if inside[by0:by1, bx0:bx1].mean() < scanlate_tuning.BALLOON_COLUMN_INSIDE:
+            return False
+    return True
+
+
+def _fragments_of_one_region(a: dict, b: dict, gray=None) -> bool:
     if a.get("label") != b.get("label"):
         return False
     if _contained_share(a, b) >= scanlate_tuning.FRAGMENT_OVERLAP:
         return True
+    if gray is not None and a.get("label") != _LOOSE_TEXT_LABEL and _columns_of_one_balloon(gray, a, b):
+        return True
     # Lettering outside balloons has no outline between its pieces; balloons
     # side by side are separate however close.
-    if a.get("label") != _LOOSE_TEXT_LABEL:
+    if a.get("label") != _LOOSE_TEXT_LABEL or not _in_line(a, b):
         return False
+    # The labels in the cells of a form or table sit in line too, but a ruled line parts them.
+    return gray is None or not _ruled_line_between(gray, a, b)
+
+
+def _in_line(a: dict, b: dict) -> bool:
+    """Whether two boxes sit one above the other sharing columns, or side by side sharing rows,
+    close enough to be pieces of one line of lettering (FRAGMENT_ALIGNED, FRAGMENT_GAP)."""
     gap_limit = scanlate_tuning.FRAGMENT_GAP
     share_limit = scanlate_tuning.FRAGMENT_ALIGNED
-    # Stacked: they share columns and sit one above the other.
     shared_x = min(a["x"] + a["w"], b["x"] + b["w"]) - max(a["x"], b["x"])
     gap_y = max(a["y"], b["y"]) - min(a["y"] + a["h"], b["y"] + b["h"])
     narrow = min(a["w"], b["w"])
     if narrow > 0 and shared_x >= share_limit * narrow and gap_y <= gap_limit * narrow:
         return True
-    # Side by side: they share rows and sit one beside the other.
     shared_y = min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"])
     gap_x = max(a["x"], b["x"]) - min(a["x"] + a["w"], b["x"] + b["w"])
     short = min(a["h"], b["h"])
     return short > 0 and shared_y >= share_limit * short and gap_x <= gap_limit * short
 
 
-def merge_fragment_boxes(boxes: list) -> list:
+def _ruled_line_between(gray, a: dict, b: dict) -> bool:
+    """Whether a straight line darker than the paper runs right across the area the two boxes
+    cover, between their centres: the rule between two cells of a form. A letter's stroke is
+    shorter than the area is wide, so lettering cut into pieces has none."""
+    import cv2
+
+    x0, y0 = max(0, min(a["x"], b["x"])), max(0, min(a["y"], b["y"]))
+    x1 = min(gray.shape[1], max(a["x"] + a["w"], b["x"] + b["w"]))
+    y1 = min(gray.shape[0], max(a["y"] + a["h"], b["y"] + b["h"]))
+    if x1 - x0 < 8 or y1 - y0 < 8:
+        return False
+    crop = gray[y0:y1, x0:x1]
+    dark = (crop.astype(int) < np.median(crop) - scanlate_tuning.RULE_CONTRAST).astype(np.uint8) * 255
+    centres = [(box["x"] + box["w"] / 2 - x0, box["y"] + box["h"] / 2 - y0) for box in (a, b)]
+    stacked = abs(centres[1][1] - centres[0][1]) >= abs(centres[1][0] - centres[0][0])
+    across = (x1 - x0) if stacked else (y1 - y0)
+    length = int(scanlate_tuning.RULE_SPAN * across)
+    # Half-degree angles: at a whole degree a thin rule at a slant drifts across the bins and is
+    # found only in pieces.
+    segments = cv2.HoughLinesP(dark, 1, np.pi / 360, threshold=max(10, length // 2),
+                               minLineLength=length, maxLineGap=scanlate_tuning.RULE_MAX_GAP_PX)
+    # Both ends near the edges of the area: a rule crosses its cell, a stroke stops inside the box.
+    reach = (1 - scanlate_tuning.RULE_SPAN) / 2 * across
+    for px, py, qx, qy in ([] if segments is None else segments.reshape(-1, 4).tolist()):
+        lo, hi = sorted((px, qx) if stacked else (py, qy))
+        if lo > reach or hi < across - 1 - reach:
+            continue
+        if _segments_cross((px, py), (qx, qy), *centres):
+            return True
+    return False
+
+
+def _segments_cross(p, q, r, s) -> bool:
+    def side(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    return side(p, q, r) * side(p, q, s) < 0 and side(r, s, p) * side(r, s, q) < 0
+
+
+def _form_cells(weak: list, kept: list, gray) -> list:
+    """The `weak` lettering boxes (scored under the model's threshold) that are cells of a form
+    whose other cells were kept: in line with a kept or already-taken lettering box, parted from
+    it by a ruled line, and overlapping no box already kept or taken. The labels of one form score
+    alike, some just over the threshold and some just under, so the threshold alone keeps half a
+    form; the model's weak boxes that span several labels overlap the labels' own boxes."""
+    taken = []
+    left = sorted((b for b in weak if b.get("label") == _LOOSE_TEXT_LABEL),
+                  key=lambda b: -b.get("confidence", 0.0))
+    while True:
+        for w in left:
+            placed = kept + taken
+            if any(_contained_share(w, b) > 0 for b in placed):
+                continue
+            if any(b.get("label") == _LOOSE_TEXT_LABEL and _in_line(w, b)
+                   and _ruled_line_between(gray, w, b) for b in placed):
+                taken.append(w)
+                left = [b for b in left if b is not w]
+                break
+        else:
+            return taken
+
+
+def merge_fragment_boxes(boxes: list, gray=None) -> list:
     """One box per balloon or title: boxes of the same class that overlap
     heavily (stacked duplicates on one balloon) or sit in a tight line (a
     vertical title the detector cut into one box per character) become the
     box around them all. dedupe_overlapping_boxes() only joins different
     classes, so same-class fragments came through as separate regions, each
     OCR'd, translated and lettered over the others. The merged box keeps the
-    best-ranked fragment's other fields."""
+    best-ranked fragment's other fields. `gray`: the page in grayscale, which
+    lets the columns of one vertical balloon be joined (_columns_of_one_balloon)."""
     n = len(boxes)
     parent = list(range(n))
 
@@ -496,7 +634,7 @@ def merge_fragment_boxes(boxes: list) -> list:
 
     for i in range(n):
         for j in range(i + 1, n):
-            if _fragments_of_one_region(boxes[i], boxes[j]):
+            if _fragments_of_one_region(boxes[i], boxes[j], gray):
                 parent[find(i)] = find(j)
 
     clusters = {}
@@ -512,7 +650,11 @@ def merge_fragment_boxes(boxes: list) -> list:
                                          -(b.get("confidence") or 0.0)))
         x1, y1 = min(b["x"] for b in group), min(b["y"] for b in group)
         x2, y2 = max(b["x"] + b["w"] for b in group), max(b["y"] + b["h"] for b in group)
-        merged.append((members[0], dict(best, x=x1, y=y1, w=x2 - x1, h=y2 - y1)))
+        joined = dict(best, x=x1, y=y1, w=x2 - x1, h=y2 - y1)
+        text_boxes = [t for b in group for t in b.get("text_boxes", ())]
+        if text_boxes:
+            joined["text_boxes"] = text_boxes
+        merged.append((members[0], joined))
     return [b for _, b in sorted(merged, key=lambda t: t[0])]
 
 
@@ -573,7 +715,18 @@ def detect_bubbles(image_path: str, backend: str = "auto", image=None, **kwargs)
     if remembered and time.monotonic() - remembered[0] < _ML_FAILURE_MEMORY_SECONDS:
         raise BubbleModelUnavailable(remembered[1])
     try:
-        return dedupe_overlapping_boxes(detect_bubbles_ml(image_path, image=image, **kwargs))
+        threshold = kwargs.pop("confidence", None) or scanlate_tuning.ML_CONFIDENCE
+        found = detect_bubbles_ml(image_path, image=image,
+                                  confidence=min(threshold, scanlate_tuning.ML_FORM_CELL_CONFIDENCE),
+                                  **kwargs)
+        kept = [b for b in found if b.get("confidence", 1.0) >= threshold]
+        weak = [b for b in found if b.get("confidence", 1.0) < threshold]
+        gray = (page_gray(image_path, image)
+                if weak and any(b.get("label") == _LOOSE_TEXT_LABEL for b in kept) else None)
+        cells = _form_cells(weak, kept, gray) if gray is not None else []
+        if cells:
+            kept = sorted(kept + cells, key=_reading_order)
+        return dedupe_overlapping_boxes(kept)
     except ImportError as exc:
         message = ("The ML detector needs extra packages:\n"
                    "    pip install transformers huggingface_hub\n\n" + ML_FALLBACK_SENTENCE)
@@ -699,6 +852,7 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
         search_hi = min(y + int(target_height * 1.25), h - 1)
         window = empty_rows[search_lo:search_hi]
         cut = ideal_end
+        at_gutter = bool(window.any())
         if window.any():
             empty_idxs = np.flatnonzero(window)
             # prefer the empty row closest to the ideal cut point
@@ -709,7 +863,11 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
             slices.append({"y_start": y, "y_end": h, "index": idx})
             break
         slices.append({"y_start": y, "y_end": cut, "index": idx})
-        y = max(cut - overlap, cut) if overlap == 0 else max(cut - overlap, y + 1)
+        # No lettering crosses a gutter row, so nothing is split there; sharing a
+        # band would only show the bubble above the cut twice, the second time
+        # clipped, and OCR reads that clipped copy as junk. The band is kept for
+        # a cut that had to be made through artwork.
+        y = cut if (overlap == 0 or at_gutter) else max(cut - overlap, y + 1)
         idx += 1
         if idx >= _MAX_WEBTOON_SLICES:
             # Stopping here would silently drop the rest of the strip.
@@ -785,6 +943,11 @@ def classify_text_regions(image_path: str, boxes, image=None):
             edge_aligned = x < w * 0.05 or (x + bw) > w * 0.95
             kind = "narration" if (aspect > 3.0 and edge_aligned) else "bubble"
             conf = 0.75
+        elif _holds_balloon_interior(roi):
+            # A balloon shaded grey inside is no lighter than art, so the light
+            # share can't tell it from a sign; its outline can.
+            kind = "bubble"
+            conf = 0.6
         elif mean_val < 140 and fill_uniformity < 0.4:
             # Dark and busy -- lettering laid over artwork.
             kind = "sfx"
@@ -804,6 +967,12 @@ def classify_text_regions(image_path: str, boxes, image=None):
     return out
 
 
+def _holds_balloon_interior(roi) -> bool:
+    """True when an outlined balloon interior fills most of `roi` (gray)."""
+    found = _balloon_interior(roi)
+    return found is not None and float(found[0].mean()) >= scanlate_tuning.CLASSIFY_BALLOON_FILL
+
+
 def _balloon_interior(roi):
     """(filled interior, light-outside mask) of the balloon under the centre
     of `roi` (gray), or None. The interior is the light region, labelled with
@@ -813,12 +982,42 @@ def _balloon_interior(roi):
     ring that also "encloses" the centre, so a region touching the box edge
     loses to a nested one that doesn't, if that one is big enough to be the
     balloon. The outside mask is the light paper that touches the box
-    edge and isn't the interior."""
+    edge and isn't the interior.
+
+    A balloon shaded to grey (a gradient inside) has no pixel as light as
+    CV_LIGHT_FLOOR, so when that finds nothing the search repeats at the grey
+    level, accepting only a region ringed by dark pixels (its outline, or dark
+    art against it)."""
     import cv2
 
     otsu_val, _ = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    _, light = cv2.threshold(roi, max(otsu_val, scanlate_tuning.CV_LIGHT_FLOOR), 255,
-                             cv2.THRESH_BINARY)
+    found = _interior_above(roi, max(otsu_val, scanlate_tuning.CV_LIGHT_FLOOR))
+    if found is not None:
+        return found
+    found = _interior_above(roi, scanlate_tuning.CV_GREY_PAPER_FLOOR)
+    if found is not None and _ringed_by_dark(roi, found[0]):
+        return found
+    return None
+
+
+def _ringed_by_dark(roi, filled) -> bool:
+    """True when the dark pixels hug `filled` where it is not cut by the box edge:
+    an outline, as opposed to a mid-grey patch of art fading into its surroundings."""
+    import cv2
+
+    rim = cv2.dilate(filled, np.ones((2 * 3 + 1, 2 * 3 + 1), np.uint8)) & (1 - filled)
+    rim[0, :] = rim[-1, :] = 0
+    rim[:, 0] = rim[:, -1] = 0
+    if not rim.any():
+        return False
+    return float((roi[rim > 0] < scanlate_tuning.CV_GREY_RIM_LEVEL).mean()) >= scanlate_tuning.CV_GREY_RIM_DARK_SHARE
+
+
+def _interior_above(roi, level):
+    """_balloon_interior()'s search with the light paper being gray >= `level`."""
+    import cv2
+
+    _, light = cv2.threshold(roi, level - 1, 255, cv2.THRESH_BINARY)
     seal = int(scanlate_tuning.CV_SEAL_PX)
     kernel = np.ones((2 * seal + 1, 2 * seal + 1), np.uint8)
     if seal > 0:
@@ -863,6 +1062,44 @@ def _balloon_interior(roi):
         filled = cv2.dilate(filled, kernel)
         outside = cv2.dilate(outside, kernel)
     return filled, outside
+
+
+def _with_page_cut_lettering(filled, outside, area, page_shape):
+    """(filled, outside) of _balloon_interior() for a balloon the page's edge cuts. The balloon
+    runs on past that edge, so paper meeting the box's edge only there, between the places
+    where the balloon itself meets it, is its own, not outside it: the gaps in a line of
+    lettering the page cuts off, which as outside paper kept that line from being erased.
+    Paper reaching the page's edge beside the balloon stays out."""
+    import cv2
+
+    x0, y0, x1, y1 = area
+    ph, pw = page_shape[:2]
+    on_page_edge = (y0 == 0, y1 == ph, x0 == 0, x1 == pw)
+    if not any(on_page_edge):
+        return filled, outside
+
+    def sides(a):
+        return a[0], a[-1], a[:, 0], a[:, -1]
+
+    spans = []
+    for line in sides(filled):
+        cut = np.flatnonzero(line)
+        spans.append((cut[0], cut[-1]) if cut.size else (1, 0))
+
+    def held(labels: np.ndarray) -> np.ndarray:
+        out = np.zeros(labels.max() + 1, bool)
+        for side, page_edge, (lo, hi) in zip(sides(labels), on_page_edge, spans):
+            if page_edge:
+                beside = np.ones(side.size, bool)
+                beside[lo + 1:hi] = False
+                out[np.unique(side[beside])] = True
+            else:
+                out[np.unique(side)] = True
+        return out
+
+    paper = np.asarray(cv2.connectedComponents(np.asarray(outside, np.uint8), connectivity=8)[1], np.int32)
+    page_cut = (paper > 0) & ~held(paper)[paper]
+    return ((filled > 0) | page_cut).astype(np.uint8), ((np.asarray(outside) > 0) & ~page_cut).astype(np.uint8)
 
 
 def _roi(gray, box):
@@ -910,16 +1147,10 @@ def bubble_shape_mask(image_path: str, box: dict, margin: int = 4, image=None):
     return mask
 
 
-def bubble_erase_mask(image_path: str, box: dict, image=None):
-    """Where cleanup may erase inside `box`: the balloon's interior plus any
-    lettering joined to its outline (a stroke touching the outline bends the
-    light region's edge around it, so the interior alone would keep that
-    stroke). Those strokes are the marks inside the interior's convex hull
-    that sit deeper than the outline is thick, measured from the paper
-    outside; art beyond the outline is nearer that paper than this, or
-    outside the hull. None as bubble_shape_mask() returns it."""
-    import cv2
-
+def balloon_outside_mask(image_path: str, box: dict, image=None):
+    """Boolean (h, w) array of `box`: True on the light paper that reaches the box's edge
+    outside the balloon under its centre (see _balloon_interior()). None when no balloon
+    is found there."""
     gray = page_gray(image_path, image)
     if gray is None:
         return None
@@ -930,18 +1161,88 @@ def bubble_erase_mask(image_path: str, box: dict, image=None):
     found = _balloon_interior(gray[y0:y1, x0:x1])
     if found is None:
         return None
+    return _to_box_mask(box, area, found[1])
+
+
+def _tone_from_edge(roi, filled):
+    """uint8 mask of `roi`'s flat grey areas (lighter than an outline, darker than
+    paper, at least ERASE_FLAT_TONE_PX across) outside `filled` that connect to
+    the box edge."""
+    import cv2
+
+    t = scanlate_tuning
+    tone = ((roi >= t.CV_GREY_RIM_LEVEL) & (roi < t.CV_LIGHT_FLOOR) & (filled == 0)).astype(np.uint8)
+    tone = cv2.morphologyEx(tone, cv2.MORPH_OPEN, np.ones((t.ERASE_FLAT_TONE_PX,) * 2, np.uint8))
+    _, labels = cv2.connectedComponents(tone, connectivity=4)
+    on_edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    return np.isin(labels, on_edge[on_edge > 0]).astype(np.uint8)
+
+
+def _art_from_edge(roi, filled, outside):
+    """bool mask of `roi`'s solid areas of ink or tone (at least ERASE_SOLID_ART_PX
+    across) outside `filled` that connect to the box edge, with their one-pixel
+    rim. The outline and lettering are thinner, so they stay out."""
+    import cv2
+
+    t = scanlate_tuning
+    ink = ((filled == 0) & (outside == 0) & (roi < t.CV_LIGHT_FLOOR)).astype(np.uint8)
+    solid = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((t.ERASE_SOLID_ART_PX,) * 2, np.uint8))
+    _, labels = cv2.connectedComponents(solid, connectivity=4)
+    on_edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    solid = np.isin(labels, on_edge[on_edge > 0]).astype(np.uint8)
+    return (cv2.dilate(solid, np.ones((3, 3), np.uint8)) & ink) > 0
+
+
+def bubble_erase_mask(image_path: str, box: dict, image=None):
+    """Where cleanup may erase inside `box`: the balloon's interior plus any
+    lettering joined to its outline (a stroke touching the outline bends the
+    light region's edge around it, so the interior alone would keep that
+    stroke). Those strokes are the marks inside the interior's convex hull
+    that sit deeper than the outline is thick, measured from the paper or
+    tone outside; art beyond the outline is nearer that than this, or
+    outside the hull. None as bubble_shape_mask() returns it."""
+    import cv2
+
+    gray = page_gray(image_path, image)
+    if gray is None:
+        return None
+    area = _roi(gray, box)
+    if area is None:
+        return None
+    x0, y0, x1, y1 = area
+    roi = gray[y0:y1, x0:x1]
+    found = _balloon_interior(roi)
+    if found is None:
+        return None
     filled, outside = found
     if filled.sum() < 0.3 * box["w"] * box["h"]:
         return None
+    filled, outside = _with_page_cut_lettering(filled, outside, area, gray.shape)
     if outside.any():
         depth = cv2.distanceTransform((1 - outside).astype(np.uint8), cv2.DIST_L2, 3)
         edge = filled - cv2.erode(filled, np.ones((3, 3), np.uint8))
         thickness = float(np.median(depth[edge > 0])) if edge.any() else 0.0
+        # A mark must also be that deep from the non-ink tone outside: grey art
+        # beside the outline is as far from the paper as lettering, so where a
+        # tail makes the hull bridge a dent, that art and the outline along it
+        # were erased to a straight white edge. The thickness stays measured
+        # from the paper: measured from the tone it shrinks, and dark art
+        # against the outline (hair, burst spikes) would then pass as lettering.
+        clear = np.logical_or(np.asarray(outside) > 0, _tone_from_edge(roi, filled) > 0)
+        depth = cv2.distanceTransform((~clear).astype(np.uint8), cv2.DIST_L2, 3)
         contours, _ = cv2.findContours(filled, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         hull = np.zeros_like(filled)
         cv2.fillPoly(hull, [cv2.convexHull(np.vstack(contours))], 1)
-        filled = filled | ((hull > 0) & (depth > thickness + 1)).astype(np.uint8)
-    else:
+        # Dark art in a dent the hull bridges (a jacket or brick wall between the
+        # bumps of a burst) is as far from the paper as lettering, and was erased
+        # to a straight white edge; lettering joined to the outline is thinner.
+        joined = (hull > 0) & (depth > thickness + 1) & ~_art_from_edge(roi, filled, outside)
+        filled = filled | joined.astype(np.uint8)
+    elif filled.mean() >= scanlate_tuning.BALLOON_FILLS_BOX:
         # No paper outside the balloon in the box: the box lies within it.
         filled = np.ones_like(filled)
+    # Otherwise the balloon sits on dark art or tone, so no paper surrounds
+    # it, yet part of the box is not balloon: only its interior is cleared.
+    # Clearing the whole box wiped the outline and the art along it into a
+    # white block.
     return _to_box_mask(box, area, filled)

@@ -627,6 +627,14 @@ class TestSoloSeries:
         row = next(c for c in isolated_db.list_characters(did) if c["speaker_label"] == "SPEAKER_01")
         assert (row["character_name"], row["series_character_id"]) == ("Uririn", char)
 
+    @pytest.mark.parametrize("mode,expected", [("auto", [None, None]),
+                                               ("solo", ["SPEAKER_01", "SPEAKER_01"])])
+    def test_an_unsure_line_is_blank_except_in_a_solo_series(self, isolated_db, mode, expected):
+        turns = [{**t, "confidence": [0.55] * 40} for t in self.TURNS]
+        did, _ = self._title(isolated_db, mode)
+        diarization_service.apply_diarization_result(did, {"segments": turns, "model": "m"})
+        assert self._speakers(isolated_db, did) == expected
+
     def test_a_name_set_by_hand_is_kept(self, isolated_db):
         did, _ = self._title(isolated_db, "solo", [1.0, 0.0])
         isolated_db.upsert_character(did, "SPEAKER_01", character_name="Mine")

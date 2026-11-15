@@ -66,8 +66,8 @@ describe('the reading list', () => {
 describe('translate scopes', () => {
   it('never counts hidden pages and counts pages without text', () => {
     const s = scopeCounts(pages, chapters, 'a')
-    expect(s.all).toEqual({ pages: 4, todo: 1 })
-    expect(s.chapter).toEqual({ id: 'a', label: 'Chapter 12', pages: 2, todo: 0 })
+    expect(s.all).toEqual({ pages: 4, todo: 1, ids: [2, 3, 4, 5] })
+    expect(s.chapter).toEqual({ id: 'a', label: 'Chapter 12', pages: 2, todo: 0, ids: [2, 3] })
   })
   it('has no chapter scope for a single chapter or none selected', () => {
     expect(scopeCounts(pages, [chapters[0]], 'a').chapter).toBeNull()

@@ -127,7 +127,10 @@ class BilibiliMangaSource(SourceAdapter):
         try:
             result = generic_import.import_comic_page(
                 chapter.url, client=self.client, rendered_fetch=self._rendered_fetch,
-                remember=True)
+                remember=True,
+                # The signed-in profile is the owner's: a job not from this PC
+                # (allow_browser False) must read the page as an anonymous visitor.
+                allow_signed_in=self.allow_browser, allow_browser=self.allow_browser)
         except generic_import.NoContentFound as e:
             raise ContentHidden(
                 f"{self.display_name}'s chapter pages are protected by a signed/expiring "

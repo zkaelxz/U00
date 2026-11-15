@@ -15,6 +15,7 @@ import time
 
 import db
 from services import disk_usage_guard as guard
+from services import ownership_service
 from services import disk_usage_hold as hold
 from services import disk_usage_measure as measure
 from services import disk_usage_service as dus
@@ -111,7 +112,8 @@ def _unused_clip_index() -> tuple:
     offer. One pass over the library; the same code serves list and remove."""
     ctx = guard._Ctx()
     index, titles, in_use = {}, [], 0
-    for drama in db.list_dramas():
+    # None: the PC window, which on Guest lists no private title.
+    for drama in db.list_dramas(visible_to=ownership_service.visible_to_filter(None)):
         found = _unused_clips_of(drama["id"], ctx)
         if found is None:
             in_use += 1

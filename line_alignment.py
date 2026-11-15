@@ -135,11 +135,18 @@ def split_user_transcript(raw_text: str):
     return [p.strip() for p in parts if p.strip()]
 
 
+# A pasted line that matched nothing in the audio gets a share of the gap
+# between its matched neighbours; that time is a guess, so review must see it.
+GUESSED_TIMING_NOTE = ("No words heard in the audio matched this line, so its time is a guess "
+                       "between the lines around it; check it lines up with the audio")
+
+
 def lines_from_char_times(user_lines, per_line_times, total_audio_end):
     """Shared reconstruction step: given, for each line index, whichever
     character timestamps could be attributed to it, produce ordered,
     non-overlapping Line objects -- interpolating from neighboring known
-    lines wherever a line matched nothing.
+    lines wherever a line matched nothing, and flagging those lines
+    timing_uncertain.
 
     Factored out of align_transcript_to_timing() so forced_align.py's
     Qwen3-ForcedAligner path can reuse the same interpolation/ordering
@@ -179,7 +186,10 @@ def lines_from_char_times(user_lines, per_line_times, total_audio_end):
     lines_out = []
     for li in range(len(user_lines)):
         start, end = raw_bounds[li] if raw_bounds[li] is not None else spans[li]
-        lines_out.append(Line(idx=li, start=start, end=max(end, start + 0.5), zh=user_lines[li]))
+        ln = Line(idx=li, start=start, end=max(end, start + 0.5), zh=user_lines[li])
+        if raw_bounds[li] is None:
+            ln.flag, ln.flag_note = "timing_uncertain", GUESSED_TIMING_NOTE
+        lines_out.append(ln)
 
     for i in range(1, len(lines_out)):
         cur, prev = lines_out[i], lines_out[i - 1]

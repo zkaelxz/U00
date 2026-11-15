@@ -25,7 +25,7 @@ from tests.auto_backup_helpers import (
 
 
 # From the spec, deliberately not read from the module under test.
-SKIPPED = {"usage_log", "bulk_jobs", "metadata_research_results", "speaker_merge_undos"}
+SKIPPED = {"usage_log", "bulk_jobs", "metadata_research_results", "speaker_merge_undos", "capture_notes"}
 
 
 LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
@@ -126,7 +126,7 @@ def test_child_tables_cover_every_fk_to_dramas(isolated_db):
     assert fk_tables == set(drs.CHILD_TABLES) | set(drs._SKIPPED_TABLES)
     assert not set(drs.CHILD_TABLES) & set(drs._SKIPPED_TABLES)
     assert set(drs._SKIPPED_TABLES) == {"usage_log", "bulk_jobs", "metadata_research_results",
-                                            "speaker_merge_undos"}
+                                            "speaker_merge_undos", "capture_notes"}
 
 
 class TestRestoreBugReports:
@@ -156,6 +156,25 @@ class TestRestoreBugReports:
 
 
 class TestRestoreRoundTrip:
+    def test_word_replacements_restore_within_the_series_cap(self, isolated_db, monkeypatch):
+        w = _seed_world()
+        with contextlib.closing(_conn()) as c:
+            for word in ("one", "two"):
+                _insert(c, "word_replacements", series_id=w["series"], find_text=word, replace_text="x")
+            c.commit()
+        _snap()
+        _delete_drama(w["a"])
+        _delete_series(w["series"])
+        monkeypatch.setattr(drs.word_replacement_service, "MAX_REPLACEMENTS", 2)
+        res = _restore(w["a"])
+        assert res["counts"]["word_replacements"] == 2
+        with contextlib.closing(_conn()) as c:
+            sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (w["a"],)).fetchone()[0]
+            kept = [r[0] for r in c.execute("SELECT find_text FROM word_replacements WHERE series_id = ? "
+                                            "ORDER BY id", (sid,))]
+        # Three were saved (the seed's "thee" and these two); the oldest two come back.
+        assert kept == ["thee", "one"]
+
     def test_full_round_trip_series_gone(self, isolated_db):
         w = _seed_world()
         a, b = w["a"], w["b"]
@@ -173,7 +192,7 @@ class TestRestoreRoundTrip:
         assert res["drama_id"] == a and res["restored_as_new"] is False
         assert res["title"] == "Alpha" and res["media_restored"] is False
         assert res["snapshot_kind"] == "db-only"
-        assert res["skipped_tables"] == ["bulk_jobs", "metadata_research_results",
+        assert res["skipped_tables"] == ["bulk_jobs", "capture_notes", "metadata_research_results",
                                          "speaker_merge_undos", "usage_log"]
         # P2 is gone, so its profile rows are not restored
         for t in PROFILE_TABLES:

@@ -32,9 +32,11 @@ MAX_KEY_FILE_BYTES = 4096
 
 # A version as services/update_service.parse_version reads it.
 _VERSION = r"\d{1,6}\.\d{1,6}(?:\.\d{1,6})?(?:-[0-9A-Za-z.-]{1,40})?(?:\+[0-9A-Za-z.-]{1,40})?"
-# The full installer, or the app-only update zip (installer/build_app_zip.py).
-# The name is part of the signed text, so neither's signature verifies the other.
-_EXE_NAME_RE = re.compile(rf"BaiheStudio-(?:Setup-{_VERSION}\.exe|App-{_VERSION}\.zip)")
+# The full installer, the app-only update zip (installer/build_app_zip.py), or
+# that zip's manifest, whose schema hash the full installer's backup check trusts.
+# The name is part of the signed text, so no file's signature verifies another.
+_EXE_NAME_RE = re.compile(
+    rf"BaiheStudio-(?:Setup-{_VERSION}\.exe|App-{_VERSION}\.(?:zip|json))")
 _HEX64_RE = re.compile(r"[0-9a-f]{64}")
 
 

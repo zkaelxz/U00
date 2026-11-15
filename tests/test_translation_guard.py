@@ -246,7 +246,7 @@ class TestEngineAwareDefault:
             assert len(scripted.calls) == calls
 
     @pytest.mark.parametrize("model", [
-        "deepseek-chat", "gemini-flash-lite-latest", "gemini-flash-latest", "qwen3:8b",
+        "deepseek-chat", "gemini-flash-lite-latest", "gemini-flash-latest", "translategemma:12b",
         "some-unknown-model", ""])
     def test_other_engines_and_unknown_models_keep_the_reask(self, model):
         assert len(_merged_run(model).calls) == 2
@@ -480,3 +480,143 @@ class TestEchoedLabel:
         translate_pipeline.translate_lines_with_engine(
             lines, Echo(), NOVEL, batch_size=1, character_names={"c1": "Tong Chu"})
         assert lines[0].en == "He said fine."
+
+
+class TestFirstAlternative:
+    def test_a_list_of_alternatives_is_cut_to_the_first(self):
+        from engine_backends.shared import keep_first_alternative
+        assert keep_first_alternative("Strange. Or: Weird. Or: Odd. Or: Unusual.") == "Strange."
+        assert keep_first_alternative("That's odd! Alternatively: How strange.") == "That's odd!"
+
+    def test_ordinary_dialogue_with_or_is_kept(self):
+        from engine_backends.shared import keep_first_alternative
+        for text in ("Stay or go.", "Is it this? Or that?", "Or: so he said.", "Fine."):
+            assert keep_first_alternative(text) == text
+
+    def test_the_pipeline_saves_only_the_first_alternative(self):
+        lines = [Line(idx=0, start=0, end=1, zh="奇怪", id=301)]
+
+        class Listy(Scripted):
+            def translate_batch(self, zh_lines, context):
+                self.calls.append(list(context["line_ids"]))
+                return ["Strange. Or: Weird. Or: Odd. Or: Unusual."]
+        translate_pipeline.translate_lines_with_engine(lines, Listy(), NOVEL, batch_size=1)
+        assert lines[0].en == "Strange."
+
+
+class TestNovelImperialUnits:
+    def test_metric_source_turned_imperial_is_detected(self):
+        assert guard.converted_to_imperial("气温三十五度", "It was ninety-five degrees Fahrenheit")
+        assert guard.converted_to_imperial("他身高一米八", "He stood 6 feet tall")
+
+    def test_source_that_uses_imperial_or_plain_english_is_not(self):
+        assert not guard.converted_to_imperial("他身高六英尺", "He stood 6 feet tall")
+        assert not guard.converted_to_imperial("他身高一米八", "He stood 1.8 metres tall")
+
+    def test_novel_line_is_flagged_and_subtitle_is_not(self):
+        sources = ["他身高一米八，站在门口一动不动"]
+
+        class Eng(Scripted):
+            def translate_batch(self, zh_lines, context):
+                return ["He stood six feet tall in the doorway, not moving at all."]
+
+        for meta, flagged in ((NOVEL, True), ({}, False)):
+            lines = [Line(idx=0, start=0, end=1, zh=sources[0], id=300)]
+            translate_pipeline.translate_lines_with_engine(lines, Eng(), meta, batch_size=1)
+            assert (lines[0].flag == FLAG) is flagged
+
+
+class TestNovelInventedSpeakerTag:
+    def test_tag_the_source_does_not_have_is_removed(self):
+        assert guard.strip_invented_speaker_tag("“下来吧。”", '[Tong Chu] "Come down."') == '"Come down."'
+
+    def test_source_with_its_own_bracket_or_plain_reply_is_kept(self):
+        assert guard.strip_invented_speaker_tag("[旁白] 下来", "[Narrator] Come down") == "[Narrator] Come down"
+        assert guard.strip_invented_speaker_tag("下来吧", "Come down [now]") == "Come down [now]"
+
+    def test_novel_run_removes_the_tag_and_subtitle_run_keeps_it(self):
+        class Eng(Scripted):
+            def translate_batch(self, zh_lines, context):
+                return ['[Tong Chu] "Come down," she said gently, standing beneath the tree.']
+
+        source = "“下来吧，”她站在树下，温和地说。"
+        for meta, expected in ((NOVEL, '"Come down,'), ({}, "[Tong Chu]")):
+            lines = [Line(idx=0, start=0, end=1, zh=source, id=400)]
+            translate_pipeline.translate_lines_with_engine(lines, Eng(), meta, batch_size=1)
+            assert lines[0].en.startswith(expected)
+
+
+class TestNovelScriptLeak:
+    SRC = "他的脸凹了下去，一动不动地站在门口"
+
+    class Eng(Scripted):
+        def translate_batch(self, zh_lines, context):
+            ids = list(context["line_ids"])
+            self.calls.append(ids)
+            self.contexts = getattr(self, "contexts", []) + [context]
+            reply = self.script.pop(0) if self.script else {}
+            return [reply.get(i, "His face caved in and he stood perfectly still in the doorway.") for i in ids]
+
+    def _run(self, engine, check_replies=None):
+        lines = [Line(idx=0, start=0, end=1, zh=self.SRC, id=500)]
+        translate_pipeline.translate_lines_with_engine(
+            lines, engine, NOVEL, batch_size=1, check_replies=check_replies,
+            style_guidelines="Keep 凹 as written.")
+        return lines[0]
+
+    def test_a_kept_term_or_a_quote_is_still_a_leak_in_a_novel(self):
+        assert guard.line_problems(self.SRC, "His face was 凹 now", allowed_runs={"凹"}, novel=True) == ["leftover"]
+        assert guard.line_problems(self.SRC, 'He said "凹" and stood still in the doorway.', novel=True) == ["leftover"]
+        assert guard.line_problems(self.SRC, "His face was 凹 now", allowed_runs={"凹"}) == []
+
+    def test_leak_is_asked_again_once_with_a_correction_and_then_clean(self):
+        engine = self.Eng({500: "His face 凹 and he stood perfectly still in the doorway."})
+        ln = self._run(engine)
+        assert engine.calls == [[500], [500]]
+        assert engine.contexts[1].get("script_correction") and not engine.contexts[0].get("script_correction")
+        assert "凹" not in ln.en and not ln.flag
+
+    def test_second_leak_is_flagged_and_not_asked_a_third_time(self):
+        bad = {500: "His face 凹 and he stood perfectly still in the doorway."}
+        engine = self.Eng(bad, bad)
+        ln = self._run(engine)
+        assert len(engine.calls) == 2
+        assert ln.flag == FLAG and ln.flag_note == guard.SCRIPT_LEAK_NOTE
+
+    def test_the_check_runs_even_where_the_general_guard_is_off(self):
+        bad = {500: "His face 凹 and he stood perfectly still in the doorway."}
+        engine = self.Eng(bad, bad)
+        ln = self._run(engine, check_replies=False)
+        assert len(engine.calls) == 2 and ln.flag_note == guard.SCRIPT_LEAK_NOTE
+
+    def test_a_subtitle_title_is_left_alone(self):
+        engine = self.Eng({500: "His face 凹 and he stood perfectly still in the doorway."})
+        lines = [Line(idx=0, start=0, end=1, zh=self.SRC, id=500)]
+        translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=1,
+                                                       style_guidelines="Keep 凹 as written.")
+        assert len(engine.calls) == 1
+
+
+class TestNovelNumbersAndHeaders:
+    def test_a_changed_number_is_found(self):
+        assert guard.changed_number("气温三十五度，温度35度", "It was 95 degrees")
+        assert guard.changed_number("他花了1,200元", "He spent 120 yuan")
+
+    def test_same_spelled_out_or_single_digit_numbers_are_not(self):
+        assert not guard.changed_number("温度35度", "It was 35 degrees")
+        assert not guard.changed_number("花了1,200元", "He spent 1200 yuan")
+        assert not guard.changed_number("温度35度", "It was thirty-five degrees")
+        assert not guard.changed_number("他有3个苹果", "He had 4 apples")
+
+    def test_a_carried_over_heading_is_found_unless_the_source_has_one(self):
+        assert guard.added_chapter_header("他走进房间。", "Chapter 1 1: He walked into the room.")
+        assert not guard.added_chapter_header("第一章 开始", "Chapter 1: The Beginning")
+        assert not guard.added_chapter_header("他走进房间。", "He walked into the room.")
+
+    def test_novel_line_with_a_changed_number_is_flagged(self):
+        class Eng(Scripted):
+            def translate_batch(self, zh_lines, context):
+                return ["It was 95 degrees outside and nobody moved in the street."]
+        lines = [Line(idx=0, start=0, end=1, zh="外面气温35度，街上没有人动", id=501)]
+        translate_pipeline.translate_lines_with_engine(lines, Eng(), NOVEL, batch_size=1)
+        assert lines[0].flag == FLAG and lines[0].flag_note == guard.NUMBER_NOTE

@@ -105,7 +105,7 @@ function PrefsForm({ prefs, onChange, phone }: Omit<Props, 'children'>) {
         </Field>
         <Field
           label="Spoiler-free"
-          help="Who is, Explain, relationships and the wiki only use lines up to the end of this page. Recap covers the lines before it. Q&A always uses the whole title."
+          help="Who is, Explain, relationships and the wiki use lines up to this page. Q&A uses the whole title."
         >
           <Toggle checked={prefs.spoilerFree} onChange={(on) => set('spoilerFree', on)} />
         </Field>

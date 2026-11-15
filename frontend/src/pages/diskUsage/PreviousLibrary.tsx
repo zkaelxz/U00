@@ -66,7 +66,7 @@ export function PreviousLibraryCard({ onChanged }: { onChanged: (message: string
             onCancel={() => setConfirming(false)}
           >
             <p className="du-warn">
-              Permanently deletes the previous library ({formatDecimalBytes(kept.size_bytes)}). This can&apos;t be undone.
+              Delete the previous library ({formatDecimalBytes(kept.size_bytes)})? Can&apos;t be undone.
             </p>
           </TypedConfirm>
         ) : (

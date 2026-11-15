@@ -22,25 +22,37 @@ describe('parseRoute', () => {
     expect(parseRoute('#/settings?section=developer-mode')).toEqual({ name: 'settings', section: 'developer-mode' })
     expect(parseRoute('#/drama/3/translate?focus=glossary')).toEqual({ name: 'drama', id: 3, stage: 'translate', focus: 'glossary' })
     expect(parseRoute('#/drama/3/translate?focus=nope')).toEqual({ name: 'drama', id: 3, stage: 'translate' })
+    expect(parseRoute('#/drama/3/translate?focus=estimate')).toEqual({ name: 'drama', id: 3, stage: 'translate', focus: 'estimate' })
+    expect(parseRoute('#/drama/3/source?tab=details&focus=sourceLink')).toEqual({ name: 'drama', id: 3, stage: 'source', tab: 'details', focus: 'sourceLink' })
     expect(parseRoute('#/drama/3/review?focus=flagged')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'flagged' })
     expect(routeHref({ name: 'drama', id: 3, stage: 'review', focus: 'flagged' })).toBe('#/drama/3/review?focus=flagged')
+    expect(parseRoute('#/drama/3/review?focus=voices')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'voices', tools: 'change' })
+    expect(parseRoute('#/drama/3/review?focus=all')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'all' })
     expect(routeHref({ name: 'drama', id: 3, stage: 'translate', focus: 'characters' })).toBe('#/drama/3/translate?focus=characters')
     expect(parseRoute('#/drama/3/review?find=Li%20Wei')).toEqual({ name: 'drama', id: 3, stage: 'review', find: 'Li Wei' })
     expect(parseRoute('#/drama/3/review?find=%20%20')).toEqual({ name: 'drama', id: 3, stage: 'review' })
     expect(parseRoute('#/drama/3/translate?find=x')).toEqual({ name: 'drama', id: 3, stage: 'translate' })
+    expect(parseRoute('#/drama/3?find=Li%20Wei')).toEqual({ name: 'drama', id: 3, stage: null, find: 'Li Wei' })
     expect(parseRoute(`#/drama/3/review?find=${'a'.repeat(300)}`)).toMatchObject({ find: 'a'.repeat(200) })
     expect(routeHref({ name: 'drama', id: 3, stage: 'review', find: 'Li Wei&x' })).toBe('#/drama/3/review?find=Li%20Wei%26x')
-    expect(parseRoute('#/drama/3/review?tools=coverage')).toEqual({ name: 'drama', id: 3, stage: 'review', tools: 'coverage' })
+    expect(parseRoute('#/drama/3/review?tools=problems')).toEqual({ name: 'drama', id: 3, stage: 'review', tools: 'problems' })
     expect(parseRoute('#/drama/3/review?tools=nope')).toEqual({ name: 'drama', id: 3, stage: 'review' })
-    expect(parseRoute('#/drama/3/review?focus=flagged&tools=fix')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'flagged', tools: 'fix' })
-    expect(parseRoute('#/drama/3/review?tools=history&focus=compare')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'compare', tools: 'history' })
-    expect(routeHref({ name: 'drama', id: 3, stage: 'review', tools: 'history' })).toBe('#/drama/3/review?tools=history')
-    expect(routeHref({ name: 'drama', id: 3, stage: 'review', focus: 'flagged', tools: 'fix' })).toBe('#/drama/3/review?focus=flagged&tools=fix')
+    expect(parseRoute('#/drama/3/review?focus=flagged&tools=change')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'flagged', tools: 'change' })
+    expect(parseRoute('#/drama/3/review?tools=problems&focus=compare')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'compare', tools: 'problems' })
+    expect(routeHref({ name: 'drama', id: 3, stage: 'review', tools: 'records' })).toBe('#/drama/3/review?tools=records')
+    expect(routeHref({ name: 'drama', id: 3, stage: 'review', focus: 'flagged', tools: 'change' })).toBe('#/drama/3/review?focus=flagged&tools=change')
+    // Links from before the tools were grouped open the group that holds the old tab's first tool.
+    expect(parseRoute('#/drama/3/review?tools=coverage')).toEqual({ name: 'drama', id: 3, stage: 'review', tools: 'problems' })
+    expect(parseRoute('#/drama/3/review?focus=flagged&tools=fix')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'flagged', tools: 'change' })
+    expect(parseRoute('#/drama/3/review?tools=history')).toEqual({ name: 'drama', id: 3, stage: 'review', tools: 'records' })
+    expect(parseRoute('#/drama/3/review?tools=voices')).toEqual({ name: 'drama', id: 3, stage: 'review', tools: 'change' })
+    // A finished comparison's old link opens the group that now holds Compare transcription.
+    expect(parseRoute('#/drama/3/review?tools=history&focus=compare')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'compare', tools: 'problems' })
     expect(parseRoute('#/settings?section=uploads')).toEqual({ name: 'settings', section: 'uploads' })
     expect(parseRoute('#/settings?section=nope')).toEqual({ name: 'settings' })
     expect(parseRoute('#/settings?card=display')).toEqual({ name: 'settings', card: 'display' })
     expect(parseRoute('#/settings?card=nope')).toEqual({ name: 'settings' })
-    expect(routeHref({ name: 'settings', card: 'auto-backup' })).toBe('#/settings?card=auto-backup')
+    expect(routeHref({ name: 'settings', card: 'updates' })).toBe('#/settings?card=updates')
     expect(routeHref({ name: 'settings', section: 'developer-mode' })).toBe('#/settings?section=developer-mode')
     expect(parseRoute('#/jobs')).toEqual({ name: 'jobs' })
     expect(parseRoute('#/jobs/extra')).toEqual({ name: 'library' })
@@ -98,6 +110,11 @@ describe('parseRoute', () => {
     }
     expect(routeHref({ name: 'read', id: 3, page: 2 })).toBe('#/read/3?page=2')
     expect(routeHref({ name: 'read', id: 3, page: null })).toBe('#/read/3')
+  })
+
+  it('ignores the old watch flag on the reader route: Watch has its own page now', () => {
+    expect(parseRoute('#/read/3?watch=1')).toEqual({ name: 'read', id: 3, page: null })
+    expect(parseRoute('#/read/3?page=2&watch=1')).toEqual({ name: 'read', id: 3, page: 2 })
   })
 
   it('parses the saved manga routes, names %-encoded', () => {
@@ -162,6 +179,15 @@ describe('parseRoute', () => {
     for (const r of [{ name: 'library' }, { name: 'jobs' }, { name: 'settings' }, { name: 'diagnostics' }, { name: 'benchmark' }, { name: 'sources' }, { name: 'sources', tab: 'new' }, { name: 'sources', tab: 'manage' }, { name: 'sources-manage' }, { name: 'sources-manage', tab: 'activity' }, { name: 'discover' }, { name: 'assistant' }, { name: 'drama', id: 4, stage: 'export' }, { name: 'drama', id: 4, stage: null }] as const) {
       expect(parseRoute(routeHref(r))).toEqual(r)
     }
+  })
+})
+
+describe('watch route', () => {
+  it('round-trips a title id and rejects a bad one as follow does', () => {
+    expect(parseRoute('#/watch/7')).toEqual({ name: 'watch', id: 7 })
+    expect(routeHref({ name: 'watch', id: 7 })).toBe('#/watch/7')
+    expect(parseRoute(routeHref({ name: 'watch', id: 7 }))).toEqual({ name: 'watch', id: 7 })
+    for (const h of ['#/watch', '#/watch/0', '#/watch/x', '#/watch/-1', '#/watch/7/extra']) expect(parseRoute(h)).toEqual({ name: 'library' })
   })
 })
 

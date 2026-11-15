@@ -335,6 +335,7 @@ class TestSelection:
     @pytest.mark.parametrize("pack, source, must_mention", [
         ("zh-address", "老婆", ["my wife", "babe"]),
         ("zh-common", "阿姨", ["ma'am", "housekeeper"]),
+        ("zh-common", "姑姑", ["Aunt", "Auntie Wang"]),
         ("zh-common", "叔叔", ["sir", "mister"]),
         ("zh-address", "大小姐", ["Milady", "Young Miss"]),
         ("ja-common", "社長", ["president", "CEO"]),

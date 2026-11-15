@@ -16,10 +16,9 @@ import { visibleRailGroups, type NavContext } from './navItems'
 const ICONS: Record<string, string> = {
   Library: 'm16 6 4 14M12 6v14M8 8v12M4 4v16',
   'Library tools': 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z',
-  Sources: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18',
-  Discover: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36z',
-  'Make subtitles': 'M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM7 15h4M15 15h2M7 11h2M13 11h4',
-  'Quick translate': 'M4 5h8M8 3v2M5 9c1 3 4 6 7 7M11 5c0 5-3 9-7 11M13 21l4-10 4 10M14.5 18h5',
+  Find: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18',
+  Add: 'M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM7 15h4M15 15h2M7 11h2M13 11h4',
+  'Text': 'M4 5h8M8 3v2M5 9c1 3 4 6 7 7M11 5c0 5-3 9-7 11M13 21l4-10 4 10M14.5 18h5',
   Jobs: 'm3 17 2 2 4-4M3 7l2 2 4-4M13 6h8M13 12h8M13 18h8',
   Live: 'M2 10v3M6 6v11M10 3v18M14 8v7M18 5v13M22 10v3',
   Settings: 'M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0M16 4v4M8 10v4M18 16v4',
@@ -40,25 +39,27 @@ export function Icon({ d }: { d: string }) {
   )
 }
 
-// Only drama, reader and comic routes name a title; the viewers' own pages already show it, so this just labels the rail row.
+// Only drama, reader, Watch and comic routes name a title; the viewers' own pages already show it, so this just labels the rail row.
 function openTitleId(route: Route): number | null {
-  return route.name === 'drama' || route.name === 'read' || route.name === 'comic' ? route.id : null
+  return route.name === 'drama' || route.name === 'read' || route.name === 'watch' || route.name === 'comic' ? route.id : null
 }
 
+// The title row, not Library, is the current page while it shows: one row says where you are, in every mode.
 function TitleRow({ id, onNavigate }: { id: number; onNavigate?: () => void }) {
   // useLoad refetches whenever `load` changes, so the loader must be stable per id.
   const load = useMemo(() => () => api.getDrama(id), [id])
   const { data } = useLoad(load, 0)
   const title = data ? data.title_en || data.title_zh || `Title #${id}` : `Title #${id}`
   return (
-    <a className="rail-title" href={routeHref({ name: 'drama', id, stage: null })} title={title} data-testid="rail-title" onClick={onNavigate}>
+    <a className="rail-title" href={routeHref({ name: 'drama', id, stage: null })} title={title} data-testid="rail-title" aria-current="page" onClick={onNavigate}>
       <span className="rail-title-mark" aria-hidden="true">›</span>
       <span className="rail-label">{title}</span>
     </a>
   )
 }
 
-export function NavGroups({ route, context, collapsed = false, onNavigate }: { route: Route; context: NavContext; collapsed?: boolean; onNavigate?: () => void }) {
+/** `listed` is the docked open menu, which also shows 0 beside Jobs while nothing runs. */
+export function NavGroups({ route, context, collapsed = false, listed = false, onNavigate }: { route: Route; context: NavContext; collapsed?: boolean; listed?: boolean; onNavigate?: () => void }) {
   const titleId = openTitleId(route)
   const running = activeCount(useJobs().jobs ?? [])
   return (
@@ -71,13 +72,16 @@ export function NavGroups({ route, context, collapsed = false, onNavigate }: { r
               <a
                 href={routeHref(item.target)}
                 title={collapsed ? item.label : undefined}
-                aria-current={active.includes(route.name) ? 'page' : undefined}
+                aria-current={active.includes(route.name) && !(item.label === 'Library' && titleId !== null) ? 'page' : undefined}
                 onClick={onNavigate}
               >
                 <Icon d={ICONS[item.label] ?? ICONS.Library} />
                 <span className="rail-label">{item.label}</span>
                 {item.badge === 'running-jobs' && running > 0 && (
                   <span className="rail-badge" data-testid="rail-jobs-count">{badgeText(running)}</span>
+                )}
+                {listed && item.badge === 'running-jobs' && running === 0 && (
+                  <span className="rail-zero" data-testid="rail-jobs-zero" aria-hidden="true">0</span>
                 )}
               </a>
               {item.label === 'Library' && titleId !== null && <TitleRow key={titleId} id={titleId} onNavigate={onNavigate} />}

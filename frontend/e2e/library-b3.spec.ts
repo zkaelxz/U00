@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test'
 
 test('New title sends the Summary (P06)', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'New title' }).click()
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByLabel('English title').fill('E2E Summary Title')
   await sheet.getByText('Credits, summary and series').click()
@@ -118,13 +118,13 @@ test('Series fold is hidden when no series has 2+ titles (L05)', async ({ page }
   await expect(tools.locator('summary', { hasText: /^Series/ })).toHaveCount(0)
 })
 
-test('Create and fill details with AI lands on the Source stage with Auto-fill open (P03)', async ({ page, request }) => {
+test('Create + fill with AI lands on the Source stage with Auto-fill open (P03)', async ({ page, request }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'New title' }).click()
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByLabel('English title').fill('E2E Autofill Title')
   const created = page.waitForResponse((r) => r.url().endsWith('/api/dramas') && r.request().method() === 'POST')
-  await sheet.getByRole('button', { name: 'Create and fill details with AI' }).click()
+  await sheet.getByRole('button', { name: 'Create + fill with AI' }).click()
   const { id } = (await (await created).json()) as { id: number }
   try {
     // The flag is read, then dropped from the address.

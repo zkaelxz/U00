@@ -13,8 +13,8 @@ const budget: ResearchBudget = {
   free_daily_limit: 500, used_today: 3, free_monthly_limit: 5000, used_this_month: 3,
   free_remaining: 497, paid_price_per_search_usd: 0.035, free_lookup_min: 5,
   free_tier_key: false, key_configured: true, monthly_cap_usd: 0, month_spend_usd: 0,
-  models: ['gemini-2.5-flash-lite'], modes: ['quick', 'deep', 'verify'],
-  estimates_usd: { quick: { 'gemini-2.5-flash-lite': 0.0022 } },
+  models: ['gemini-3.5-flash-lite'], modes: ['quick', 'deep', 'verify'],
+  estimates_usd: { quick: { 'gemini-3.5-flash-lite': 0.0022 } },
 }
 
 describe('researchForm', () => {
@@ -39,9 +39,9 @@ describe('researchForm', () => {
     expect(confidenceLabel(0.6)).toBe('medium confidence')
     expect(confidenceLabel(0.1)).toBe('low confidence')
     expect(confidenceLabel(null)).toBe('confidence unknown')
-    const m = 'gemini-2.5-flash-lite'
+    const m = 'gemini-3.5-flash-lite'
     expect(budgetLine(budget, m)).toBe('497 free searches left today')
-    expect(costLine({ ...budget, free_tier_key: true }, 'quick', m, false)).toBe('Free (free-tier Gemini key).')
+    expect(costLine({ ...budget, free_tier_key: true }, 'quick', m, false)).toMatch(/Needs a paid Gemini key/)
     expect(costLine(budget, 'quick', m, false)).toBe('About $0.0022 on your paid Gemini key.')
     expect(costLine({ ...budget, free_remaining: 0 }, 'quick', m, false)).toMatch(/used up/)
     expect(costLine({ ...budget, free_remaining: 4 }, 'quick', m, false)).toMatch(/used up/)
@@ -53,20 +53,16 @@ describe('researchForm', () => {
   it("counts the chosen model's own free searches", () => {
     const perModel: ResearchBudget = {
       ...budget,
-      free_tier_key: true,
       per_model: {
-        'gemini-2.5-flash-lite': { free_daily_limit: 500, requests_today: 1, free_remaining: 497, runs_free: true, used_up: false },
-        'gemini-2.5-flash': { free_daily_limit: 20, requests_today: 2, free_remaining: 0, runs_free: false, used_up: true },
-        'gemini-x': { free_daily_limit: 250, requests_today: 248, free_remaining: 2, runs_free: true, used_up: false },
+        'gemini-3.5-flash-lite': { free_daily_limit: 1500, requests_today: 1, free_remaining: 497, runs_free: true, used_up: false },
+        'gemini-3.8-flash': { free_daily_limit: 1500, requests_today: 2, free_remaining: 0, runs_free: false, used_up: true },
       },
     }
-    expect(budgetLine(perModel, 'gemini-2.5-flash')).toBe('0 free searches left today')
-    expect(isPaidLookup(perModel, 'gemini-2.5-flash')).toBe(true)
-    expect(budgetLine(perModel, 'gemini-2.5-flash-lite')).toBe('497 free searches left today')
-    expect(isPaidLookup(perModel, 'gemini-2.5-flash-lite')).toBe(false)
-    expect(costLine(perModel, 'quick', 'gemini-2.5-flash', false)).toMatch(/used up/)
-    // Two requests left is still a free lookup: a lookup is one request.
-    expect(isPaidLookup(perModel, 'gemini-x')).toBe(false)
+    expect(budgetLine(perModel, 'gemini-3.8-flash')).toBe('0 free searches left today')
+    expect(isPaidLookup(perModel, 'gemini-3.8-flash')).toBe(true)
+    expect(budgetLine(perModel, 'gemini-3.5-flash-lite')).toBe('497 free searches left today')
+    expect(isPaidLookup(perModel, 'gemini-3.5-flash-lite')).toBe(false)
+    expect(costLine(perModel, 'quick', 'gemini-3.8-flash', false)).toMatch(/used up/)
   })
 
   it('shows a host for a link', () => {

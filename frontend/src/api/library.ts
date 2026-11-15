@@ -70,9 +70,13 @@ export const getSourceLink = (id: number, f?: Fetch) =>
 
 // PC only: opens the title's folder in the PC's file manager.
 export const openDramaFolder = (id: number, f?: Fetch) =>
-  postJson<{ opened: boolean }>(`/api/dramas/${id}/folder/open`, {}, pcOnlyFetch(f))
+  postJson<{ opened: boolean; folder?: string | null }>(`/api/dramas/${id}/folder/open`, {}, pcOnlyFetch(f))
 
 // The API refuses unless both confirmation params match; the typed-word
 // check in the UI is a second gate on top of that.
 export const deleteDrama = (id: number, f?: Fetch) =>
   deleteJson<DramaDeleteResult>(`/api/dramas/${id}?confirm=true&confirm_text=DELETE`, pcOnlyFetch(f))
+
+export type CaptureNote = { summary: string; created_at: string }
+export const getCaptureNotes = (id: number, f?: Fetch) =>
+  getJson<{ items: CaptureNote[] }>(`/api/library/dramas/${id}/capture-notes`, f)

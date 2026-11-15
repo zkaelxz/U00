@@ -35,7 +35,7 @@ describe('mediaTabsFor', () => {
   })
 
   it('labels the tabs as the owner named them', () => {
-    expect(mediaTabsFor('video').map((t) => t.label)).toEqual(['Add media', 'Transcribe', 'Details'])
+    expect(mediaTabsFor('video').map((t) => t.label)).toEqual(['Add media', 'Run', 'Details'])
   })
 })
 

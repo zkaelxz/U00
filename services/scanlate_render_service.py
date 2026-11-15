@@ -29,7 +29,7 @@ import comic_chapters
 import db
 import storage
 from lib import cancellable_lock
-from services import artifact_service, comic_view_service
+from services import artifact_service, comic_view_service, settings_service
 from services import scanlate_pages_service as pages_svc
 from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 
@@ -86,7 +86,9 @@ def render_page(drama_id: int, page_id: int, notes: list | None = None, cancel_c
     # A direct call outside a job has no cancel to honour, so the wait is unbounded as before.
     with cancellable_lock.hold(pages_svc.pipeline_lock(), cancel_check or (lambda: None)):
         _path, skipped_blank = scanlate_render.process_page(
-            src, bubbles, out, custom_fonts=_custom_fonts(drama_id), notes=render_notes)
+            src, bubbles, out, custom_fonts=_custom_fonts(drama_id), notes=render_notes,
+            match_color=bool(settings_service.get("scanlate_match_text_color")),
+            rect_layout=bool(settings_service.get("scanlate_rect_layout")))
     for n in render_notes:
         # The missing-weights note is a complete sentence already.
         notes.append((n[0], n[-1] if n[1] == "inpaint_unavailable"
@@ -99,8 +101,10 @@ def render_page(drama_id: int, page_id: int, notes: list | None = None, cancel_c
 
 def _placed_regions(bubbles: list) -> list:
     import scanlate_regions
-    return [b for b in bubbles if not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
-            and (b.get("translated_text") or "").strip()]
+    import scanlate_sfx
+    return [b for b in bubbles if scanlate_sfx.is_glossed(b) or (
+        not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
+        and (b.get("translated_text") or "").strip())]
 
 
 def _drop_stale_typeset(drama_id: int, page: dict):
@@ -168,11 +172,24 @@ def _render_job(jid: str, drama_id: int, page_ids: list):
     background_jobs.update_progress(jid, 1.0, msg + ".")
 
 
-def start_render(drama_id: int, page_id: int | None = None) -> dict:
-    """Re-renders one page, or every page that has regions. 409 while the
-    drama's Scanlate job or an import runs."""
+def start_render(drama_id: int, page_id: int | None = None,
+                 page_ids: list | None = None) -> dict:
+    """Re-renders one page, the pages in `page_ids` (those with regions), or every page that
+    has regions. 409 while the drama's Scanlate job or an import runs."""
     pages_svc.require_drama(drama_id)
-    if page_id is not None:
+    if page_id is not None and page_ids is not None:
+        raise InvalidInputError("Give page_id or page_ids, not both.")
+    if page_ids is not None:
+        owned = {p["id"] for p in db.list_pages(drama_id)}
+        if not page_ids or any(pid not in owned for pid in page_ids):
+            raise InvalidInputError("Pick pages that belong to this title.")
+        with_regions = {b["page_id"] for b in db.list_bubbles_for_drama(drama_id)}
+        ids = [p["id"] for p in db.list_pages(drama_id)
+               if p["id"] in set(page_ids) and p["id"] in with_regions]
+        if not ids:
+            raise UnsupportedOperationError("None of those pages has text regions yet. "
+                                            "Translate first.")
+    elif page_id is not None:
         pages_svc.require_page(drama_id, page_id)
         ids = [page_id]
     else:

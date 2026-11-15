@@ -256,8 +256,8 @@ class TestLiveServiceWiring:
                 "ollama_model_missing", f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first.")
         monkeypatch.setattr(engine_local, "check_ollama_model_installed", missing)
         out = live_service.check_ollama()
-        assert out["ok"] is False and out["model"] == "gemma4:12b"
-        assert "ollama pull gemma4:12b" in out["message"] and "localhost" not in out["message"]
+        assert out["ok"] is False and out["model"] == "translategemma:27b"
+        assert "ollama pull translategemma:27b" in out["message"] and "localhost" not in out["message"]
 
     def test_ollama_check_without_a_model_uses_the_model_start_would_use(self, monkeypatch):
         seen = []

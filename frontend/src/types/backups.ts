@@ -18,7 +18,7 @@ export type AutoBackupSettings = Schemas['AutoBackupSettings']
 export type AutoBackupSettingsUpdate = Partial<Pick<AutoBackupSettings, 'enabled' | 'frequency' | 'include_media' | 'folder'>>
 export type BackupJobStarted = Schemas['BackupJobStarted']
 
-// One of the rotating copies automatic backups keep (2 daily + 2 weekly).
+// One of the rotating copies automatic backups keep (7 daily + 4 weekly).
 // The fields an older server doesn't send stay optional: the page treats a copy with no
 // `managed` as managed, which the generated type (always present) would not let it say.
 export type SnapshotCopy = Omit<Schemas['SnapshotCopy'], 'managed' | 'sources_left_out'> &

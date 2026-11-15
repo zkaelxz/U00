@@ -91,6 +91,8 @@ INSTALLER_APP_ID = "973BDBB4-4ADC-4E54-973B-682E2A04362F"
 RUNTIME_INSTALLER_FILES = ("launcher.py", "postinstall.py", "release_public_key.txt", "app_swap.py",
                            "wheels.lock.txt", "setup_lock.py")
 
+STAGE_SERVICE_SCRIPT = "stage_service.ps1"
+
 # The Python files of the elevated service script, which imports its siblings
 # as installer.<name> from helper/lib; one missing here breaks it only on
 # the user's machine.
@@ -122,8 +124,8 @@ DOWNLOAD_DEADLINE_SECONDS = 600
 CADDY_SOURCE_DIR = INSTALLER_DIR / "caddy"
 CADDY_MODULE = "baihe.local/caddy"
 CADDY_VERSION = "2.11.9"
-CADDY_GO_VERSION = "go1.26.10"
-CADDY_SHA256 = "7f06f3cac8e973d2bbcad64919408d2940f589b4b2ff00fb6055d850c7795efd"
+CADDY_GO_VERSION = "go1.26.11"
+CADDY_SHA256 = "452b383dc953ff6a912e9d22f4468a23d7ab99c527759d1c8896593cb5a79f74"
 CADDY_TEMPLATE = REPO_ROOT / "deploy" / "caddy" / "Caddyfile.template"
 _LICENSE_FILE_RE = re.compile(r"(?i)(licen[cs]e|notice|copying|patents)([._-].*)?")
 
@@ -620,6 +622,18 @@ def build_caddy(out_dir, go="go", run=subprocess.run) -> tuple:
     return exe, licenses
 
 
+def service_tree_digest(directory) -> str:
+    """One SHA-256 over every file of the service payload, in the form
+    installer/stage_service.ps1 recomputes over its elevated copy: a line
+    "<path with />", a tab, the file's SHA-256, a line feed, sorted by
+    ordinal path (UTF-16 order, as .NET sorts)."""
+    directory = Path(directory)
+    entries = {p.relative_to(directory).as_posix(): sha256_of(p)
+               for p in directory.rglob("*") if p.is_file()}
+    text = "".join(f"{rel}\t{entries[rel]}\n" for rel in sorted(entries, key=lambda r: r.encode("utf-16-be")))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def stage_service(payload_dir, python_zip, winsw_exe, caddy_exe, caddy_licenses) -> None:
     """payload/service/: the files service.py copies into its admin-only
     folder. helper/python is the embeddable interpreter again with a ._pth
@@ -655,6 +669,11 @@ def stage_service(payload_dir, python_zip, winsw_exe, caddy_exe, caddy_licenses)
     _copy(caddy_exe, service / "caddy" / "caddy.exe")
     _copy(WINSW_LICENSE, service / "caddy" / "licenses" / "WinSW-LICENSE.txt")
     shutil.copytree(caddy_licenses, service / "caddy" / "licenses", dirs_exist_ok=True)
+    # Setup runs this elevated after checking its hash (baihe.iss, RunStagedServiceInstall),
+    # and it is part of the digest the elevated copy is checked against.
+    script = INSTALLER_DIR / STAGE_SERVICE_SCRIPT
+    script.read_bytes().decode("ascii")  # Setup converts it byte by byte
+    _copy(script, service / STAGE_SERVICE_SCRIPT)
 
 
 def write_manifest(payload_dir, version, python_version=PYTHON_VERSION,
@@ -706,8 +725,14 @@ def find_iscc(explicit=None):
     return None
 
 
-def iscc_command(iscc, payload_dir, output_dir, version, extra_disk_bytes) -> list:
-    return [iscc, "/Qp",
+def iscc_command(iscc, payload_dir, output_dir, version, extra_disk_bytes,
+                 service_digest=None, stage_script_sha256=None) -> list:
+    pinned = []
+    if service_digest:
+        pinned.append(f"/DServiceTreeDigest={service_digest}")
+    if stage_script_sha256:
+        pinned.append(f"/DStageScriptSha256={stage_script_sha256}")
+    return [iscc, "/Qp", *pinned,
             f"/DAppVersion={version}",
             f"/DAppVersionNumeric={numeric_version(version)}",
             f"/DPayloadDir={Path(payload_dir).resolve()}",
@@ -752,8 +777,11 @@ def build(version, out_dir=DEFAULT_OUT, skip_frontend_build=False, python_zip=No
         raise BuildError("Inno Setup's ISCC.exe wasn't found. Install Inno Setup 6 "
                          "(https://jrsoftware.org/isinfo.php), pass --iscc, or use --no-compile.")
     output_dir = out_dir / "output"
-    result = subprocess.run(iscc_command(iscc_path, payload, output_dir, version, extra),
-                            timeout=3600)
+    result = subprocess.run(
+        iscc_command(iscc_path, payload, output_dir, version, extra,
+                     service_digest=service_tree_digest(payload / "service"),
+                     stage_script_sha256=sha256_of(payload / "service" / STAGE_SERVICE_SCRIPT)),
+        timeout=3600)
     if result.returncode != 0:
         raise BuildError(f"ISCC failed (exit code {result.returncode}).")
     exe = output_dir / f"BaiheStudio-Setup-{version}.exe"

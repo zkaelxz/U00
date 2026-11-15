@@ -345,9 +345,10 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
       <div ref={(el) => { openRef(el); panelRef.current = el }} data-testid="dependency-panel" className="diag-stack">
         {local && (
           <p className="banner banner-prose" role="note" data-testid="services-off-notice">
-            <strong>Running Baihe as a Windows service?</strong> Turn off both services, "Baihe Studio" and
-            "Baihe Studio remote access (Caddy)", then start Baihe from the Start menu before you install
-            packages. Installs are refused while the services are on.
+            <strong>Running Baihe as a Windows service?</strong> Then its install folder is locked, and
+            packages can't be installed from this page. Turning the services off does not unlock it. To
+            install packages, unlock the folder (see "Locked install folder" in docs/runbook.md) or
+            reinstall Baihe without the service.
           </p>
         )}
         {pending && <p className="muted" data-testid="pc-pending">{pending}</p>}

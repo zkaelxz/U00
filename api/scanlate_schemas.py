@@ -4,7 +4,7 @@ Scanlate routes (api/routers/scanlate_routes.py). No path, filename or key
 field exists on any model.
 """
 
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,6 +39,7 @@ class ScanlateConfig(BaseModel):
     lama_weights_cached: bool
     ocr_backend: str
     ocr_backend_installed: bool
+    art_captions_available: bool
     page_count: int
     pages_with_regions: int
     pages_rendered: int
@@ -107,7 +108,7 @@ class ScanlateUploadResult(BaseModel):
 
 class ScanlateRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    mode: Literal["missing", "page", "all"] = "missing"
+    mode: Literal["missing", "page", "pages", "all"] = "missing"
     page_id: Optional[int] = Field(None, ge=1, le=2**31 - 1)
     confirm: bool = False
     chapter_id: Optional[str] = Field(None, min_length=1, max_length=200)
@@ -117,6 +118,11 @@ class ScanlateRunRequest(BaseModel):
     art_captions: bool = False
     # The page a reader is on: translate the few untranslated pages after it.
     read_ahead_from: Optional[int] = Field(None, ge=1, le=2**31 - 1)
+    # Mode "pages": the pages to redo.
+    page_ids: Optional[List[Annotated[int, Field(ge=1, le=2**31 - 1)]]] = Field(
+        None, max_length=5000)
+    # A redo that translates and typesets the text already read, without detecting or reading again.
+    keep_text: bool = False
 
 
 class ScanlateRegionRedoRequest(BaseModel):
@@ -129,6 +135,8 @@ class ScanlateRegionRedoRequest(BaseModel):
 class ScanlateRenderRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     page_id: Optional[int] = Field(None, ge=1, le=2**31 - 1)
+    page_ids: Optional[List[Annotated[int, Field(ge=1, le=2**31 - 1)]]] = Field(
+        None, max_length=5000)
 
 
 class ScanlateExportRequest(BaseModel):

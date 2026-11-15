@@ -19,7 +19,7 @@ MAX_SNAPSHOT_WORD_BYTES = 4_000_000
 PLAIN_SNAPSHOTS = 3
 
 
-def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int = 10):
+def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int = 20):
     """Saves a full snapshot of the current lines before a risky bulk
     operation. Keeps only the most recent `keep_last` snapshots per
     drama to avoid unbounded growth -- older ones are pruned. Returns the
@@ -38,7 +38,7 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
          "sfx": bool(getattr(ln, "sfx", False)), "lang": getattr(ln, "lang", None),
          "reviewed": bool(getattr(ln, "reviewed", False)),
          "ass_event": getattr(ln, "ass_event", None),
-         "confidence": getattr(ln, "confidence", None)}
+         "confidence": getattr(ln, "confidence", None), "mark": getattr(ln, "mark", None)}
         for ln in lines
     ]
     conn = db.get_conn()

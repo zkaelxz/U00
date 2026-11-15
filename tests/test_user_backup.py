@@ -163,7 +163,7 @@ def _build_library():
         conn.execute("PRAGMA foreign_keys = OFF")
         chars = {}
         for sid, marker in ((sa, MINE), (sb, OTHER)):
-            for t in ("series_characters", "glossary_terms", "translation_memory",
+            for t in ("series_characters", "glossary_terms", "translation_memory", "word_replacements",
                       "glossary_dismissals"):
                 _seed_row(conn, t, {"series_id": sid}, marker)
             chars[sid] = conn.execute("SELECT id FROM series_characters WHERE series_id = ?",
@@ -192,7 +192,7 @@ def _build_library():
             for t in ("progress", "personal_notes", "reading_history"):
                 _seed_row(conn, t, {"drama_id": did, "profile_id": other_profile}, OTHER)
         seeded = set(drama_tables) | {"series_characters", "glossary_terms", "bubbles",
-                                      "translation_memory", "glossary_dismissals", "translate_history",
+                                      "translation_memory", "glossary_dismissals", "word_replacements", "translate_history",
                                       "style_profile", "profiles", "dramas", "series", "users",
                                       "user_permissions", "auth_sessions", "audit_log"}
         for t in _tables(conn):
@@ -350,8 +350,11 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
             assert conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] == 0, t
         assert [r[0] for r in conn.execute("SELECT action FROM audit_log")] == ["library.restore"]
         for t, (rule, _why) in lub.USER_BACKUP_TABLES.items():
-            if rule == "empty" and t not in ("audit_log", "job_records"):
+            if rule == "empty" and t not in ("audit_log", "job_records", "app_settings"):
                 assert conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0] == 0, t
+        # Only the version stamp the restored library's first open writes.
+        assert [r[0] for r in conn.execute("SELECT key FROM app_settings")] == \
+            [db.APP_VERSION_SETTING]
     finally:
         conn.close()
     _assert_clean_db_file(db.DB_PATH)

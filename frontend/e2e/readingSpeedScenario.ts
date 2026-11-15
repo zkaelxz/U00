@@ -36,7 +36,7 @@ export async function runReadingSpeedScenario(page: Page) {
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(3)
   await expect(page.getByTestId('line-counts')).toContainText('2 flagged')
 
-  await openTab(page, 'Fix')
+  await openTab(page, 'Look for problems')
   const fold = page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: /^Flag lines for review$/ }) })
   if ((await fold.getAttribute('open')) === null) await fold.locator(':scope > summary').click()
   await expect(fold).toHaveAttribute('open', '')
@@ -52,7 +52,7 @@ export async function runReadingSpeedScenario(page: Page) {
 
   // A mode change alone keeps the old flag; Re-check clears it (19.6/s is fine when Relaxed).
   await expect(page.getByTestId('line-counts')).toContainText('2 flagged')
-  await fold.getByRole('button', { name: 'Re-check with the current setting' }).click()
+  await fold.getByRole('button', { name: 'Re-check' }).click()
   await fold.getByRole('button', { name: 'Confirm' }).click()
   await expect(fold.getByTestId('flag-result-clear')).toContainText('Cleared 1 reading-speed flag, flagged 0 lines again')
   await expect(page.getByTestId('line-counts')).toContainText('1 flagged')

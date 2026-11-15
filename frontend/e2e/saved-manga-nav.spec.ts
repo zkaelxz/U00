@@ -1,17 +1,17 @@
 import { expect, test } from './fixtures'
 import { mockSavedComics, newState } from './savedMangaMocks'
-import { navLink, openMenu, openSettingsGroups } from './settingsNav'
+import { navLink, openMenu } from './settingsNav'
 import { openFold } from './foldHelpers'
 
-// Saved manga has no left-menu item: the save folder card is in Settings and the
-// saved series are a Library tools section. Only /api/saved-comics/* is mocked;
+// Saved manga has no left-menu item: the saved series and the save folder card are
+// Library tools sections. Only /api/saved-comics/* is mocked;
 // the rest runs against the seeded API.
 
-test('Settings has the save folder card and Use this folder saves it', async ({ page }) => {
+test('Library tools has the save folder card and Use this folder saves it', async ({ page }) => {
   const s = newState()
   await mockSavedComics(page, s)
-  await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await page.goto('/#/library-tools')
+  await openFold(page, 'Save folder')
   const card = page.getByRole('region', { name: 'Save folder' })
   await expect(card.getByTestId('save-folder')).toHaveText('C:\\Baihe\\data\\saved_comics')
   await expect(card).toContainText('Default')
@@ -56,13 +56,13 @@ test('the menu has no Saved manga item', async ({ page }) => {
   await expect(navLink(page, 'Saved manga')).toHaveCount(0)
 })
 
-test('from another device Settings does not show the save folder card', async ({ page }) => {
+test('from another device Library tools does not show the save folder card', async ({ page }) => {
   const s = newState()
   await mockSavedComics(page, s, { local: false })
   await page.route(/\/api\/meta$/, (route) =>
     route.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: false } }))
-  await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await page.goto('/#/library-tools')
+  await expect(page.getByRole('region', { name: 'Saved manga' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Save folder' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Open folder' })).toHaveCount(0)
   expect(s.calls.filter((c) => c !== 'GET /api/saved-comics/folder')).toEqual([])

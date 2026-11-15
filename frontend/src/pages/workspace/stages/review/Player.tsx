@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
+import { useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type RefObject, type SyntheticEvent } from 'react'
 
 import { createPortal } from 'react-dom'
 
@@ -12,6 +12,9 @@ import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
 import { CAPTION_SIZE_OPTIONS, clampTime, FULLSCREEN_IDLE_MS, JUMP_ERROR, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, jumpPlaceholder, playerKeyAction, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
+import { StageContext } from '../../StageContext'
+import { stageLabel } from '../../stages'
+import { titleKind } from '../../titleKind'
 import { FloatingFrame } from './FloatingFrame'
 import { PopOutButton } from './PopOutButton'
 import { useFloatBox } from './useFloatBox'
@@ -32,6 +35,10 @@ export interface PlayerHandle {
   // The picture on screen as a PNG, after seeking to `at` when given; null when
   // there is no decoded picture (audio, not loaded yet, or a browser that blocks reading it).
   captureFrame: (at?: number) => Promise<Blob | null>
+  // For a playhead drawn elsewhere: whether the media plays, and a call each time it starts or stops, so a frame loop
+  // runs only while it plays. Returns the unsubscribe.
+  isPlaying: () => boolean
+  onPlayChange: (listener: () => void) => () => void
 }
 
 type Segment = Pick<ReviewLine, 'id' | 'idx' | 'start' | 'end'>
@@ -41,6 +48,10 @@ interface Props {
   dramaId: number
   kind: PlayerMediaKind
   ref?: Ref<PlayerHandle>
+  // The strip's id, for a button elsewhere that shows or hides it.
+  id?: string
+  // Told when playing fails, so a player folded out of sight can come out with its error.
+  onFailed?: () => void
   // The lines on screen (for "Line #N" under the playhead) and the active one.
   lines?: Timed[]
   selected?: Timed | null
@@ -53,6 +64,16 @@ interface Props {
   // Phones: where the video, seek bar and tools go instead (outside the sticky
   // toolbar, so they scroll away); null while that spot isn't mounted yet.
   panelHost?: HTMLElement | null
+  // Outside a title's workspace (the Watch page) there is no stage context to name the Media step from.
+  sourceStage?: string
+  // The Watch page is the player, so it is never folded away there.
+  alwaysOpen?: boolean
+  // The page shows the spoken line itself, larger, so a sound-only title's caption strip (and the choice that only
+  // changes it) would repeat it; the pop-out window and the floating box keep both, as the only text there.
+  lineShownByPage?: boolean
+  // A page that plays by seeking rather than line by line (the Watch page) names the line under the playhead, which
+  // Loop line then repeats. Stable, so the player does not redraw for it.
+  loopLineAt?: (time: number) => Segment | null
 }
 
 // The Fullscreen API is still webkit-prefixed in older Safari.
@@ -65,25 +86,53 @@ const fullscreenAvailable = () => document.fullscreenEnabled || !!(document as F
 
 const fullscreenElementOf = (doc: Document) => doc.fullscreenElement ?? (doc as FsDoc).webkitFullscreenElement ?? null
 
-const PLAY_ERROR = 'Couldn’t play the audio. Check the file on Media.'
+const playError = (sourceStage: string) => `Couldn’t play the audio. Check the file on ${sourceStage}.`
 const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
   English: 'No English subtitles yet: nothing is translated.',
   Source: 'No original subtitles yet: nothing is transcribed.',
   Bilingual: 'Both-language subtitles need an original and a translation.',
 }
 
+// Whether the media plays or has failed, and what the page around the player hears of it: each start and stop, and
+// every failed attempt, so a player folded out of sight comes out with its error. Every attempt, not only the first: a
+// player folded again after failing stays failed, and the next Play from outside it must bring it back.
+function usePlayState(onFailed?: () => void) {
+  const [playing, setPlaying] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const playingNow = useRef(false)
+  const listeners = useRef(new Set<() => void>())
+  useEffect(() => {
+    playingNow.current = playing
+    listeners.current.forEach((listener) => listener())
+  }, [playing])
+  const fail = useCallback(() => {
+    setFailed(true)
+    onFailed?.()
+  }, [onFailed])
+  const outside = useMemo<Pick<PlayerHandle, 'isPlaying' | 'onPlayChange'>>(() => ({
+    isPlaying: () => playingNow.current,
+    onPlayChange: (listener) => {
+      listeners.current.add(listener)
+      return () => {
+        listeners.current.delete(listener)
+      }
+    },
+  }), [])
+  return { playing, setPlaying, failed, setFailed, fail, outside }
+}
+
 // A player over the Range endpoint, with a seek bar, jump to time and
 // subtitles from the current lines (the Reader's caption route). Only rendered
 // when the drama has audio (or a source video); the element fetches the stream itself.
-export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost }: Props) {
+export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost, sourceStage, alwaysOpen = false, lineShownByPage = false, loopLineAt }: Props) {
+  const stage = useContext(StageContext)
   const media = useRef<HTMLMediaElement | null>(null)
   const trackEl = useRef<HTMLTrackElement | null>(null)
-  const [playing, setPlaying] = useState(false)
+  const { playing, setPlaying, failed, setFailed, fail, outside } = usePlayState(onFailed)
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(NaN)
   const [segment, setSegment] = useState<Segment | null>(null)
-  const [failed, setFailed] = useState(false)
-  const [loop, setLoop] = usePersistedState('review.loop', false)
+  const [loop, setLoop] = useLoopSwitch(loopLineAt !== undefined)
   const [open, setOpen] = usePersistedState('review.playerOpen', !(useMediaQuery('(max-width: 640px)') && kind === 'video')) // closed on a phone: an open video hides the lines
   const [ratePref, setRatePref] = usePersistedState('review.rate', 1)
   const rate = validRate(ratePref)
@@ -119,10 +168,6 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   const src = englishAbsent && subs === 'English' ? null : subtitleSrc(dramaId, subs, captionVersion)
   const cue = cueFor && cueFor.src === src ? cueFor.text : ''
   const subsMissing = src === null ? subs === 'English' && englishAbsent : missingSrc === src
-
-  useEffect(() => {
-    loopRef.current = loop
-  }, [loop])
 
   // Also on loadedmetadata: a new source can reset the element's speed.
   const applyRate = useCallback((el: HTMLMediaElement | null) => {
@@ -171,6 +216,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     segRef.current = s
     setSegment(s)
   }
+  useLoop({ loop, loopRef, playing, loopLineAt, media, segRef, setSeg })
 
   // While a line plays, stop (or loop) exactly at its end; timeupdate alone
   // fires only about four times a second.
@@ -214,9 +260,9 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     if (!el) return
     el.play().catch((e: unknown) => {
       // A pause or a new seek interrupts play(); that is not a failure.
-      if ((e as { name?: string } | null)?.name !== 'AbortError') setFailed(true)
+      if ((e as { name?: string } | null)?.name !== 'AbortError') fail()
     })
-  }, [])
+  }, [fail])
 
   const playLine = useCallback(
     (line: Segment) => {
@@ -338,6 +384,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   useImperativeHandle(
     ref,
     () => ({
+      ...outside,
       playLine,
       toggleLine: (line) => {
         const el = media.current
@@ -376,7 +423,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     }),
     // seekTo reads duration, which only changes with the loaded media.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [playLine, stop, togglePlay, setLoop, setRatePref, duration],
+    [playLine, stop, togglePlay, setLoop, setRatePref, duration, outside],
   )
 
   const track = src ? (
@@ -409,7 +456,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
       setDuration(e.currentTarget.duration)
       applyRate(e.currentTarget)
     },
-    onError: () => setFailed(true),
+    onError: fail,
   }
   // The played line only names the position while the playhead is still inside it: a seek made
   // outside the app's own controls (keys on the video, a scrub) must not leave its number on screen.
@@ -418,10 +465,11 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
 
   const overlay = kind === 'video' && !floating && subs !== 'off' ? overlayText(cue) : ''
   const canFullscreen = kind === 'video' && !floating && fullscreenAvailable()
+  const textSubs = !(lineShownByPage && kind !== 'video' && !floating && !boxed)
 
   // Kept mounted while folded away, so the sound and the strip above still work.
   const panel = (
-    <div className="review-player-panel" hidden={!open && !floating && !boxed}>
+    <div className="review-player-panel" hidden={!open && !alwaysOpen && !floating && !boxed}>
       <div
         ref={frameRef}
         data-testid="player-frame"
@@ -461,7 +509,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         )}
         </div>
       ) : null}
-      {(kind !== 'video' || floating) && subs !== 'off' && (
+      {(kind !== 'video' || floating) && textSubs && subs !== 'off' && (
         <p className={cue ? 'review-caption' : 'review-caption is-empty'} data-testid="player-caption">
           {cue || '\u00a0'}
         </p>
@@ -518,7 +566,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
               ))}
             </select>
           </label>
-          <label className="review-subs">
+          {textSubs && <label className="review-subs">
             Subtitles
             <select value={subs} onChange={(e) => setSubs(e.target.value)}>
               {SUBTITLE_OPTIONS.map((o) => (
@@ -527,7 +575,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
                 </option>
               ))}
             </select>
-          </label>
+          </label>}
           {canFullscreen && (
             <button
               type="button"
@@ -560,12 +608,12 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
           {jumpError}
         </p>
       )}
-      {subsMissing && subs !== 'off' && <p className="muted">{NO_SUBS[subs]}</p>}
+      {subsMissing && textSubs && subs !== 'off' && <p className="muted">{NO_SUBS[subs]}</p>}
     </div>
   )
 
   return (
-    <div className="review-player" role="group" aria-label="Player">
+    <div className="review-player" id={id} role="group" aria-label="Player">
       <div className="review-player-row">
         <button
           type="button"
@@ -583,22 +631,20 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
         </span>
         {here && <span className="muted" data-testid="player-line">Line #{lineNumber(here.idx)}</span>}
         <span className="review-loop">
-          <Toggle id={loopId} checked={loop} onChange={setLoop} aria-label="Loop line" title="Repeat the line being played (L)" />
+          <Toggle id={loopId} checked={loop} onChange={setLoop} aria-label="Loop line" title="Key: L" />
           <label htmlFor={loopId} aria-hidden="true">
             Loop<span className="review-loop-word"> line</span>
           </label>
         </span>
-        <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? 'Hide player' : 'Show player'}
-        </button>
+        {!alwaysOpen && (
+          <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? 'Hide player' : 'Show player'}
+          </button>
+        )}
         <PopOutButton supported={pop.supported} floating={floating} boxed={boxed} onPop={() => void pop.open()} onReturn={pop.close} onToggleBox={() => setBoxed(!boxed)} />
         {trailing}
       </div>
-      {failed && (
-        <p className="error" role="alert">
-          {PLAY_ERROR}
-        </p>
-      )}
+      {failed && <p className="error" role="alert">{playError(sourceStage ?? stageLabel('source', titleKind(stage?.drama.media_type, stage?.drama.content_mode)))}</p>}
       <div className="review-player-slot" ref={slotRef} />
       {createPortal(panel, panelBox)}
       {boxed && <FloatingFrame width={boxWidth} onWidth={setBoxWidth} onReturn={() => setBoxed(false)} hostRef={setBoxHost} />}
@@ -614,4 +660,52 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
       )}
     </div>
   )
+}
+
+/**
+ * The Loop line switch. A page that plays by seeking (loopLineAt) would hold the sound inside its first line for someone
+ * who left Loop line on in Review, so there it starts off each visit and neither reads nor writes Review's stored choice.
+ */
+function useLoopSwitch(byPage: boolean): [boolean, (on: boolean) => void] {
+  const [stored, setStored] = usePersistedState('review.loop', false)
+  const [visit, setVisit] = useState(false)
+  return byPage ? [visit, setVisit] : [stored, setStored]
+}
+
+/**
+ * Loop line's state, and on a page that plays by seeking (loopLineAt) the line it repeats: while the sound plays with
+ * Loop line on and no line was played, the page's line under the playhead is taken as the played line, so it repeats
+ * at its end like one. A seek clears it like any played line, and it is taken again where the sound lands. Turning
+ * Loop line off drops a line taken only for it, in the same step as the switch, so the sound runs on instead of
+ * stopping at that line's end.
+ */
+function useLoop({ loop, loopRef, playing, loopLineAt, media, segRef, setSeg }: {
+  loop: boolean
+  loopRef: RefObject<boolean>
+  playing: boolean
+  loopLineAt: ((time: number) => Segment | null) | undefined
+  media: RefObject<HTMLMediaElement | null>
+  segRef: RefObject<Segment | null>
+  setSeg: (s: Segment | null) => void
+}) {
+  const taken = useRef<Segment | null>(null)
+  useEffect(() => {
+    loopRef.current = loop
+    if (!loop && taken.current && segRef.current === taken.current) setSeg(null)
+    // The refs are the player's own, and setSeg, new each render, only writes them and the segment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loop])
+  useEffect(() => {
+    if (!loopLineAt || !loop || !playing) return
+    let raf = 0
+    const look = () => {
+      const el = media.current
+      const line = el && !segRef.current ? loopLineAt(el.currentTime) : null
+      if (line) setSeg((taken.current = line))
+      raf = requestAnimationFrame(look)
+    }
+    raf = requestAnimationFrame(look)
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loopLineAt, loop, playing])
 }

@@ -233,6 +233,24 @@ def _live_whisper_not_loaded():
 
 
 @pytest.fixture(autouse=True)
+def _bridge_models_not_warmed():
+    """Starting the extension bridge loads the comic models on a thread; no test may load a
+    real model, and a thread left running would log into the next test's library. The real
+    function stays on `warm_models_soon.real` for its own tests."""
+    import page_server
+    saved = page_server.warm_models_soon
+
+    def stub():
+        return False
+    stub.real = saved
+    page_server.warm_models_soon = stub
+    try:
+        yield
+    finally:
+        page_server.warm_models_soon = saved
+
+
+@pytest.fixture(autouse=True)
 def _live_tools_present():
     """Live's Start refuses when ffmpeg or yt-dlp is missing; the Live tests
     fake both. The real check stays on `missing_tool.real` for its own tests."""

@@ -439,6 +439,38 @@ def test_comic_auth_on_remote_is_static_only(env, comic):
     assert env["fetch"].calls[-1] == {"url": COMIC_URL, "signed_in": False, "browser": False}
 
 
+def _bilibili_adapter_fallback_calls(env, comic, local, monkeypatch):
+    """The fetch flags of every page read in one Bilibili Manga import whose
+    generic read finds no images, so the adapter's own read runs."""
+    from services import sources_import_service as imp
+    from sources.adapters.bilibili_manga import BilibiliMangaSource
+    monkeypatch.setattr(registry, "adapter_classes", lambda: {"bilibili_manga": BilibiliMangaSource})
+    url = "https://manga.bilibili.com/mc40738/2129714"
+    env["fetch"].pages[url] = ""
+    inner = env["fetch"]
+
+    def unreadable(*a, **kw):
+        inner(*a, **kw)  # records the flags
+        return LadderResult(url)  # not ok: both reads raise NoContentFound
+    monkeypatch.setattr(generic_import, "fetch_page", unreadable)
+    did = _comic_drama()
+    imp.start_comic_url_import(url, did, local=local)
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
+    return env["fetch"].calls
+
+
+def test_bilibili_adapter_read_on_remote_never_uses_the_signed_in_browser(env, comic, monkeypatch):
+    calls = _bilibili_adapter_fallback_calls(env, comic, False, monkeypatch)
+    assert len(calls) >= 2  # the generic read and the adapter's own
+    assert all(c["signed_in"] is False and c["browser"] is False for c in calls)
+
+
+def test_bilibili_adapter_read_on_this_pc_keeps_the_signed_in_browser(env, comic, monkeypatch):
+    calls = _bilibili_adapter_fallback_calls(env, comic, True, monkeypatch)
+    assert len(calls) >= 2
+    assert all(c["signed_in"] is True and c["browser"] is True for c in calls)
+
+
 # ---------------------------------------------------------------------------
 # SO10: Review extraction between the preview and the write
 # ---------------------------------------------------------------------------

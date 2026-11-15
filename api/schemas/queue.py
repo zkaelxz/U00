@@ -8,8 +8,10 @@ from typing import Annotated, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from api.schemas.common import QueueSettingRow
+
 __all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueAddBulk", "QueueBulkAdded", "QueueBulkSkip", "QueueMove",
-           "QueueScheduleSet", "QueuePolicy", "QueueSettingRow", "QueueSettingOption",
+           "QueueScheduleSet", "QueuePolicy", "QueueSettingOption",
            "QueueSettingField", "QueueStepSettings"]
 
 _QueueStep = Literal["transcribe", "translate", "export"]
@@ -94,13 +96,6 @@ class QueueScheduleSet(BaseModel):
 
 class QueuePolicy(BaseModel):
     stop_on_failure: bool
-
-
-class QueueSettingRow(BaseModel):
-    label: str
-    value: str
-    # Set on the engine row: its id, which the page words.
-    engine: Optional[str] = None
 
 
 class QueueSettingOption(BaseModel):

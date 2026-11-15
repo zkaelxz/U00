@@ -6,7 +6,7 @@ another process sees the same value; plus the completion notice itself.
 """
 
 from jobs.job_table import _warn
-from lib import settings_schema
+from lib import desktop_session, settings_schema
 
 
 def _setting(key):
@@ -82,8 +82,26 @@ def set_notify_on_completion(enabled: bool):
     db.set_app_setting("notify_on_completion", bool(enabled))
 
 
+# The Windows balloon's text field holds 256 UTF-16 units with its terminator; plyer fills it in
+# its own thread, so a longer text fails there and no pop-up shows.
+POPUP_MAX_UNITS = 255
+
+
+def _fit_popup(message: str) -> str:
+    """`message`, ending in "…" when it had to be cut. Counted as the field counts: a character
+    outside the basic plane (an emoji, a rare hanzi) takes two units."""
+    def units(text):
+        return len(text.encode("utf-16-le", "surrogatepass")) // 2
+    if units(message) <= POPUP_MAX_UNITS:
+        return message
+    cut = message
+    while cut and units(cut) > POPUP_MAX_UNITS - 1:
+        cut = cut[:-1]
+    return cut.rstrip() + "…"
+
+
 def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
-                         with_errors=False, reason=None):
+                         with_errors=False, reason=None, waiting=None):
     """Best-effort only -- never raises. A missing `plyer` install, or no
     notification daemon at all (common on a minimal Linux desktop), must
     never take down the job runner that calls this right after finishing
@@ -94,25 +112,34 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
     channel, independent of the desktop toggle). That call only queues --
     the send happens on a timer thread -- and never raises. It also keeps
     the event for the in-app list, shown by `job_id`/`owner_user_id`
-    visibility."""
+    visibility. `waiting`: the result's waiting note (jobs_service.waiting_note),
+    which turns the bell entry and the push into "Waiting for you"."""
     try:
         from services import notification_service
         notification_service.notify_job_finished(description, status, job_id=job_id,
                                                  owner_user_id=owner_user_id,
-                                                 with_errors=with_errors, reason=reason)
+                                                 with_errors=with_errors, reason=reason,
+                                                 waiting=waiting)
     except Exception:
         pass
-    if not get_notify_on_completion():
+    if not get_notify_on_completion() or not desktop_session.has_desktop():
         return
     try:
         from plyer import notification
-        notification.notify(
-            title="Baihe Studio",
-            message=(f"Finished with errors: {description}" if status == "done" and with_errors
-                     and description else
-                     f"Finished: {description}" if status == "done" and description else
-                     "Finished: background job" if status == "done" else
-                     f"Failed: {description}" if description else "Failed: background job"),
-            timeout=10)
+        waiting_message = None
+        if status == "done" and isinstance(waiting, dict):
+            # The pop-up is on the PC itself, so it says what the bell says.
+            try:
+                from services import notification_service
+                waiting_message = notification_service.waiting_job_message(description, waiting)
+            except Exception:
+                waiting_message = None   # the plain "Finished" pop-up still shows
+        message = (waiting_message if waiting_message else
+                   f"Finished with errors: {description}" if status == "done" and with_errors
+                   and description else
+                   f"Finished: {description}" if status == "done" and description else
+                   "Finished: background job" if status == "done" else
+                   f"Failed: {description}" if description else "Failed: background job")
+        notification.notify(title="Baihe Studio", message=_fit_popup(message), timeout=10)
     except Exception:
         pass

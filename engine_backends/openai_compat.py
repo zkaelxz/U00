@@ -1,10 +1,10 @@
 """DeepSeek and OpenAI engines (OpenAI-style chat APIs)."""
 
-from .pricing import OPENAI_CHAT_URL, OPENAI_MODELS, openai_listed_extra_models
+from .pricing import OPENAI_CHAT_URL, OPENAI_MODELS, openai_model_or_default, openai_listed_extra_models
 from .prompts import build_batch_user_message, build_stable_system_text
 from .local import strip_ollama_thinking
 from .temperature import temperature_of
-from .thinking import deepseek_extra_body
+from .thinking import deepseek_extra_body, openai_reasoning_params
 from .shared import (
     ContentModerationBlocked,
     SDK_REQUEST_TIMEOUT,
@@ -98,11 +98,12 @@ class OpenAIEngine:
     name = "openai"
     supports_reference = True
 
-    def __init__(self, api_key: str, model: str = "gpt-5-mini", url: str = OPENAI_CHAT_URL):
+    def __init__(self, api_key: str, model: str = "gpt-6-luna", url: str = OPENAI_CHAT_URL):
         # OpenAI accepts models (o-series, gpt-4) priced well above anything in
         # PRICING_PER_MILLION_TOKENS; a client-chosen name that reached here would
         # be costed too low (or at $0) and slip past the spending caps. Only the
-        # built-in list and GPT-5+ models OpenAI itself listed are taken.
+        # built-in list and GPT-6+ models OpenAI itself listed are taken.
+        model = openai_model_or_default(model)
         if model not in OPENAI_MODELS and model not in openai_listed_extra_models():
             from lib.errors import InvalidInputError
             raise InvalidInputError("That model isn't offered for this engine.")
@@ -154,7 +155,7 @@ class OpenAIEngine:
             return self.chat([
                 {"role": "system", "content": system_text},
                 {"role": "user", "content": build_batch_user_message(context, numbered)},
-            ])
+            ], extra=openai_reasoning_params(self.model, context))
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
                                                 line_ids=context.get("line_ids"), engine_name="openai",

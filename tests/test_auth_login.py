@@ -207,7 +207,7 @@ class TestHappyPath:
         r, q = _start(_client(app))
         assert r.headers["location"].startswith(FakeGoogle.authorize_endpoint + "?")
         assert q["response_type"] == "code" and q["client_id"] == CLIENT_ID
-        assert q["scope"] == "openid email profile" and q["prompt"] == "select_account"
+        assert q["scope"] == "openid email" and q["prompt"] == "select_account"
         assert q["code_challenge_method"] == "S256" and len(q["code_challenge"]) == 43
         assert q["redirect_uri"] == PUBLIC + "/api/auth/callback"
         assert len(q["state"]) >= 40 and len(q["nonce"]) >= 40 and q["state"] != q["nonce"]

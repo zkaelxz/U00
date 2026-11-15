@@ -29,7 +29,7 @@ describe('customize menu registry', () => {
     const c = ctx(['discover'])
     expect(ids(c)).not.toContain('discover')
     expect(railIds(c)).not.toContain('discover')
-    expect(railIds(c)).toContain('sources')
+    expect(railIds(c)).toContain('live')
   })
 
   it('keeps Library and Settings whatever is stored', () => {

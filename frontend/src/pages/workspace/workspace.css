@@ -15,7 +15,9 @@
 .workspace-header { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; }
 .workspace-header h1 {
   margin: 0;
+  font-family: var(--font-heading);
   font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -23,7 +25,7 @@
 .workspace-header .ws-badges { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .workspace-header .ws-lines { font-size: var(--text-sm); }
 /* The title's main way in (read or open the comic) plus its source page, pushed to the header's right edge. */
-.ws-actions { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+.ws-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--space-2); margin-left: auto; }
 .ws-actions a { white-space: nowrap; }
 .ws-actions .ws-source-add { font-size: var(--text-sm); display: inline-flex; align-items: center; }
 
@@ -91,6 +93,14 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
 .stage-tabs .stage-count { color: var(--muted); font-weight: normal; font-size: var(--text-sm); }
 /* Reserved room for "· 32 left" / "· 12 flagged" and for the state mark, so tabs keep their size while progress loads. */
 .stage-tabs .stage-count { display: inline-block; min-width: 12ch; }
+/* A narrow strip (a docked side menu beside a small window) has no room for the counts beside the labels: they sit on
+   their own reserved line under them instead of pushing Export off the edge. Measured on the strip, not the window,
+   because the docked menu takes 15rem of the window. */
+.stage-row { container-type: inline-size; }
+@container (max-width: 680px) {
+  .stage-tabs a { flex-wrap: wrap; }
+  .stage-tabs .stage-count { flex-basis: 100%; min-width: 0; min-height: 1lh; text-align: center; }
+}
 .stage-tabs .stage-mark-slot { visibility: hidden; font-size: var(--text-xs); }
 .stage-tabs .stage-mark, .stage-tabs .stage-mark-slot { display: inline-block; min-width: 1rem; text-align: center; }
 /* The label is laid out at its bold width, so the open or "next" tab turning bold doesn't resize the tabs. */
@@ -116,13 +126,15 @@ span.job-pill[data-state='failed'] { border-color: var(--bad); color: var(--bad)
   .ws-strip { margin-bottom: var(--space-3); }
   /* Kept to their own width: stretched full width, Read outranked each stage's own primary action. */
   .sheet-body .ws-actions a.btn, .sheet-body .ws-actions a.ws-source-add, .sheet-body .ws-actions .btn { justify-content: center; min-height: 44px; }
-  /* Two lines at most so the sticky strip stays short; the side menu shows the whole title. */
-  .workspace-header h1 { flex: 1 1 auto; font-size: var(--text-lg); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  /* Only the sticky strip clamps (two lines) to stay short; the Simple pages' own headers show the whole title. */
+  .workspace-header h1 { flex: 1 1 auto; font-size: var(--text-lg); }
+  .ws-strip .workspace-header h1 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
   .job-pill { padding-inline: var(--space-2); }
   .workspace-header .ws-badges { flex: 0 0 auto; flex-wrap: nowrap; }
   /* On the Simple page the switch takes its own row so the title keeps room; in Full it sits in the Title actions sheet to keep the sticky strip one row. */
   .novel-title .workspace-header:has(> .title-view-switch) { flex-wrap: wrap; }
-  .novel-title .workspace-header > .title-view-switch { order: 10; flex: 1 0 100%; margin-left: 0; }
+  .novel-title .workspace-header > .title-view-switch { order: 10; flex: 1 1 10rem; margin-left: 0; }
+  .novel-title .workspace-header > .ws-folder { order: 11; }
 
   /* Phone stepper: a 5-column grid, marker above the label, no sideways scroll; counts hidden. */
   .stage-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; margin: var(--space-2) 0; }

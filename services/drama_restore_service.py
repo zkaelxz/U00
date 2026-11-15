@@ -26,7 +26,7 @@ import sensitivity_preset
 import storage
 from db import fsync_dir as _fsync_dir
 from lib import gzip_text
-from services import delete_service
+from services import delete_service, word_replacement_service
 from services import library_admin_service as las
 from services import library_backup_restore_service as lbr
 from services import library_restore_service as lrs
@@ -59,6 +59,8 @@ _SKIPPED_TABLES = {
                            "describe lines and rows that no longer match",
     "bulk_jobs": "provider batch jobs: a restored in-flight batch could be polled again and "
                  "write stale results over the restored lines",
+    "capture_notes": "a log of past extension captures, not the title's content; a snapshot "
+                     "from before the table existed would also have no such table to read",
     "metadata_research_results": "a short-lived research cache pruned by age, keyed by a "
                                  "research id a restored copy would collide with; the applied "
                                  "values and their sources (metadata_field_provenance) are "
@@ -69,7 +71,7 @@ _FIRST_SEEN_TABLES = ("vocab_lookups", "wiki_entries")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 _MAX_LINES_JSON = 64 * 1024 ** 2    # older line_history values are gzip (db.PLAIN_SNAPSHOTS)
-SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory",
+SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory", "word_replacements",
                    "glossary_dismissals")
 # Columns naming a file in the drama folder, with the one subfolder the app
 # writes that file in (None: the folder itself). Readers join these onto the
@@ -97,6 +99,11 @@ def _storable_words(value) -> bool:
     """Word timings stay within a transcription's size (a file may be
     hand-made); their content is rechecked on use."""
     return isinstance(value, str) and len(value) <= segment_splitting.MAX_STORED_WORD_BYTES
+
+
+def _drop_unstorable_words(table: str, row: dict):
+    if table == "lines" and not _storable_words(row.get("word_timings")):
+        row.pop("word_timings", None)
 
 
 def _insert(dst, table: str, row: dict, live_cols) -> int:
@@ -204,8 +211,10 @@ def _resolve_series(src, dst, series_id, drama_owner, owners, counts, import_as=
     owner_unmatched says it is None only because the copy's owner has no
     live match: that title is someone's, not the PC owner's, so it never
     joins another person's private series.
-    import_as (see _copy_drama) skips all of that: the series is always
-    created new, owned by the importing user, once per source series."""
+    import_as (see _copy_drama) skips all of that: the series is created
+    new, owned by the importing user, once per source series, unless
+    import_as["join"] names a live series of the same name the importer may
+    use, which the snapshot series is merged into (_merge_into_series)."""
     if series_id is None:
         return None, {}, "none"
     srows = table_rows(src, "series", "id = ?", (series_id,))
@@ -213,6 +222,12 @@ def _resolve_series(src, dst, series_id, drama_owner, owners, counts, import_as=
         return None, {}, "none"
     series = srows[0]
     if import_as is not None:
+        join_id = import_as.get("join", {}).get(series.get("name"))
+        if (series_id not in import_as["series"] and join_id is not None
+                and _may_join(dst, join_id, import_as["owner_user_id"])):
+            import_as["series"][series_id] = (join_id, _merge_into_series(
+                src, dst, series_id, join_id, counts))
+            import_as.setdefault("joined", set()).add(series_id)
         if series_id not in import_as["series"]:
             row = {k: v for k, v in series.items() if k != "id"}
             row["owner_user_id"] = import_as["owner_user_id"]
@@ -240,6 +255,106 @@ def _resolve_series(src, dst, series_id, drama_owner, owners, counts, import_as=
     return live_id, char_map, "recreated"
 
 
+# The column that names a row within its series, per series child table
+# (each is UNIQUE with series_id): a row whose key the joined series already
+# has is left as it is there.
+_SERIES_CHILD_KEYS = {"glossary_terms": "term_original", "series_characters": "character_name",
+                      "translation_memory": "source_text", "word_replacements": "find_text",
+                      "glossary_dismissals": "term_original"}
+
+
+def _may_join(dst, live_series_id, owner_user_id) -> bool:
+    """Re-checked inside the import's transaction: the series may have gone
+    private since the caller's ownership check (db.assign_drama_series's rule)."""
+    row = dst.execute("SELECT owner_user_id, COALESCE(is_private, 0) FROM series WHERE id = ?",
+                      (live_series_id,)).fetchone()
+    if row is None:
+        return False
+    return not (row[1] and owner_user_id is not None and owner_user_id != row[0])
+
+
+def _fingerprint(value):
+    """A stored voice print as a list of numbers, or None for anything else."""
+    try:
+        vec = json.loads(value) if isinstance(value, str) else None
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(vec, list) or not vec or not all(
+            isinstance(x, (int, float)) and not isinstance(x, bool) for x in vec):
+        return None
+    return vec
+
+
+def _samples(value) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def _merge_character(dst, live: dict, incoming: dict):
+    """Blends the incoming voice print into the live one, weighted by sample
+    count (the same running mean db.speakers keeps), and fills blank aliases
+    and notes. Prints of different lengths come from different embedding
+    models, so the live one is kept rather than averaging them."""
+    updates = {}
+    for col in ("aliases", "notes"):
+        if not (live.get(col) or "").strip() and (incoming.get(col) or "").strip():
+            updates[col] = incoming[col]
+    new_fp = _fingerprint(incoming.get("voice_fingerprint"))
+    if new_fp is not None:
+        old_fp = _fingerprint(live.get("voice_fingerprint"))
+        n_new = _samples(incoming.get("voice_fingerprint_samples")) or 1
+        n_old = _samples(live.get("voice_fingerprint_samples"))
+        if old_fp is None:
+            updates["voice_fingerprint"], updates["voice_fingerprint_samples"] = (
+                json.dumps(new_fp), n_new)
+        elif len(old_fp) == len(new_fp):
+            n_old = n_old or 1
+            blended = [(a * n_old + b * n_new) / (n_old + n_new) for a, b in zip(old_fp, new_fp)]
+            updates["voice_fingerprint"], updates["voice_fingerprint_samples"] = (
+                json.dumps(blended), n_old + n_new)
+    if updates:
+        sets = ", ".join(f'"{c}" = ?' for c in updates)
+        dst.execute(f"UPDATE series_characters SET {sets} WHERE id = ?",
+                    [*updates.values(), live["id"]])
+
+
+def _merge_into_series(src, dst, series_id, live_id, counts) -> dict:
+    """Adds the snapshot series' glossary, characters, memory, replacements
+    and dismissals to an existing series; {old series_character id: live id}.
+    What the live series already has wins: a character with the same name is
+    the same character (its voice print blended), any other row with the
+    same key is skipped."""
+    counts["series_joined"] = 1
+    char_map = {}
+    for table in SERIES_CHILDREN:
+        if not has_table(dst, table):
+            continue
+        live_cols = columns(dst, table)
+        key = _SERIES_CHILD_KEYS[table]
+        cur = dst.execute(f'SELECT * FROM "{table}" WHERE series_id = ?', (live_id,))
+        names = [c[0] for c in cur.description]
+        live_rows = {r[key]: r for r in (dict(zip(names, x)) for x in cur.fetchall())}
+        n = 0
+        for child in table_rows(src, table, "series_id = ? ORDER BY id", (series_id,)):
+            old = child.pop("id", None)
+            existing = live_rows.get(child.get(key))
+            if existing is not None:
+                if table == "series_characters":
+                    _merge_character(dst, existing, child)
+                    char_map[old] = existing["id"]
+                continue
+            if (table == "word_replacements"
+                    and len(live_rows) >= word_replacement_service.MAX_REPLACEMENTS):
+                continue  # the editor refuses more, as for a new series
+            child["series_id"] = live_id
+            new = _insert(dst, table, child, live_cols)
+            live_rows[child.get(key)] = {**child, "id": new}
+            if table == "series_characters":
+                char_map[old] = new
+            n += 1
+        counts[table] = n
+    return char_map
+
+
 def _insert_series(src, dst, series_id, row, counts) -> tuple:
     """Inserts the series row and its glossary, characters and memory;
     (live series id, {old series_character id: live id})."""
@@ -250,7 +365,9 @@ def _insert_series(src, dst, series_id, row, counts) -> tuple:
     for table in SERIES_CHILDREN:
         live_cols = columns(dst, table)
         n = 0
-        for child in table_rows(src, table, "series_id = ?", (series_id,)):
+        for child in table_rows(src, table, "series_id = ? ORDER BY id", (series_id,)):
+            if table == "word_replacements" and n >= word_replacement_service.MAX_REPLACEMENTS:
+                break  # the editor refuses more, so a crafted file can't push a series past it
             old = child.pop("id", None)
             child["series_id"] = live_id
             new = _insert(dst, table, child, live_cols)
@@ -312,8 +429,8 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
     whoever has that id now.
     import_as (a backup from another library, see backup_import_service) =
     {"owner_user_id", "is_private", "series": {}, "media_dir"}: the owner
-    and privacy come from it and never from the file, the series is always
-    new, old `notion_page_id` is dropped, per-profile tables (profile ids
+    and privacy come from it and never from the file, the series is new
+    unless it joins one named in import_as["join"] (see _resolve_series), old `notion_page_id` is dropped, per-profile tables (profile ids
     mean something else here) are not copied, and each file
     reference (IMPORT_FILE_COLUMNS) is kept only when it names a file inside
     media_dir (None = no files imported, so all are cleared)."""
@@ -383,8 +500,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
             if table in _LINE_JSON:
                 col = _LINE_JSON[table]
                 child[col] = _remap_json_lines(child.get(col), line_map, import_as)
-            if table == "lines" and not _storable_words(child.get("word_timings")):
-                child.pop("word_timings", None)
+            _drop_unstorable_words(table, child)
             new = _insert(dst, table, child, live_cols)
             if table == "lines":
                 _note_copied_line(line_map, line_by_idx, child, old, new)
@@ -392,6 +508,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
                 page_map[old] = new
             n += 1
         counts[table] = n
+    db.settle_copied_marks(dst, live_id)
     if page_map and has_table(src, "bubbles"):
         live_cols = columns(dst, "bubbles")
         n = 0
