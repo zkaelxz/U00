@@ -87,7 +87,7 @@ export function FillFromLink({ dramaId, link, savedLink, current, onUse }: {
         <p className="muted">
           {probe.note}{' '}
           <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={readWithAi}>
-            Read the page with AI (may cost money)
+            Read with AI (paid)
           </button>
         </p>
       )}

@@ -113,7 +113,7 @@ export function GlossaryImport({ hasTerms, onImported, openSignal = 0 }: { hasTe
           <>
             <span role="alert">Existing terms with the same original text will be replaced.</span>
             <button type="button" className={buttonClass('danger')} disabled={pending} onClick={run}>
-              {pending ? 'Importing…' : 'Yes, import and replace'}
+              {pending ? 'Importing…' : 'Import and replace'}
             </button>
             <button type="button" className={buttonClass('secondary')} disabled={pending} onClick={() => setConfirming(false)}>Cancel</button>
           </>
@@ -124,8 +124,8 @@ export function GlossaryImport({ hasTerms, onImported, openSignal = 0 }: { hasTe
         )}
         {hasTerms && (
           <>
-            <a className={buttonClass('ghost')} href={glossaryCsvUrl(dramaId)} download>Download glossary as CSV</a>
-            <a className={buttonClass('ghost')} href={glossaryJsonUrl(dramaId)} download>Download glossary as JSON</a>
+            <a className={buttonClass('ghost')} href={glossaryCsvUrl(dramaId)} download>Download CSV</a>
+            <a className={buttonClass('ghost')} href={glossaryJsonUrl(dramaId)} download>Download JSON</a>
           </>
         )}
       </div>

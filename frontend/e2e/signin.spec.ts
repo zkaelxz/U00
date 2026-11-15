@@ -134,7 +134,7 @@ test('a 401 mid-visit shows a sign-in overlay above the still-mounted app', asyn
   await page.goto('/#/library')
   const overlay = page.getByRole('dialog', { name: "You've been signed out" })
   await expect(overlay).toBeVisible()
-  const link = overlay.getByRole('link', { name: 'Sign in with Google (new tab)' })
+  const link = overlay.getByRole('link', { name: 'Sign in with Google' })
   await expect(link).toHaveAttribute('target', '_blank')
   await expect(link).toHaveAttribute('href', '/api/auth/login?return_to=%2F%23%2Flibrary')
   await expect(page.locator('.app-shell')).toHaveCount(1)

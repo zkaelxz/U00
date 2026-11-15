@@ -43,7 +43,7 @@ export function NovelFlow({ busy, onJobStarted }: Props) {
       ) : (
         <div className="actions">
           <button type="button" className={buttonClass('secondary')} disabled={saving} onClick={setUp}>
-            Set up this title for translating text
+            Set up as novel
           </button>
           <span className="muted">Switches the content mode to novel narration so the text can become lines.</span>
         </div>

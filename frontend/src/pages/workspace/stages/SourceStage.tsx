@@ -94,7 +94,7 @@ export default function SourceStage() {
   }, [saveDraft, from])
   const fromUrl = from === 'url'
 
-  // The sub-tab: a link's ?tab= first, Library's "Create and fill details with AI" (Fill in details is on Details), then the
+  // The sub-tab: a link's ?tab= first, Library's "Create + fill with AI" (Fill in details is on Details), then the
   // one this title was last left on.
   const kindOfTitle = titleKind(drama.media_type, drama.content_mode)
   const linkedTab = () => {
