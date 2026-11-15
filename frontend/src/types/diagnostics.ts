@@ -100,6 +100,17 @@ export type PortsOverview = Schemas['PortsOverview']
 
 export type RemoteHealth = Schemas['RemoteHealth']
 
+export type RemoteSetup = Schemas['RemoteSetup']
+
+export type RemoteSetupStep = Schemas['RemoteSetupStep']
+
+/** The fields sent to save; one left out keeps what .env holds. */
+export type RemoteSignInDraft = {
+  public_url?: string
+  google_client_id?: string
+  google_client_secret?: string
+}
+
 // People and access > Public address check: the public-address check (PC only). The address
 // is write-only: the API answers `configured` and, for Test, a state and a
 // fixed message, never the address.

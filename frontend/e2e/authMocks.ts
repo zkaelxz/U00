@@ -53,6 +53,13 @@ export const REMOTE_HEALTH_OFF = {
   certificate: { ...OFF_CHECK, days_left: null }, ddns: { ...OFF_CHECK, configured: false }, listener: OFF_CHECK,
 }
 
+/** The app shell's backup banner (PC only) reads this; healthy here, so no banner. */
+export const BACKUP_SETTINGS_QUIET = {
+  enabled: true, frequency: 'daily', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'],
+  last_run_at: null, last_attempt_at: null, last_error: null, last_note: null, next_run_at: null, running: false,
+  same_drive_as_library: true, problem: null, copies: [],
+}
+
 /** What the app shell and the Library page GET, keyed by pathname. */
 export const GET_FIXTURES: Record<string, unknown> = {
   '/api/health': { status: 'ok' },
@@ -82,6 +89,7 @@ export const GET_FIXTURES: Record<string, unknown> = {
   '/api/diagnostics/remote-health': REMOTE_HEALTH_OFF,
   // Settings > Remote access (PC only, so not asked by these remote specs).
   '/api/diagnostics/remote-health/ip-check': { configured: false },
+  '/api/diagnostics/remote-setup': { steps: [], next: null, fields: { public_url: false, google_client_id: false, google_client_secret: false }, restart_needed: false },
   // The Library admin panel's per-person backup picker.
   '/api/admin/users': { users: [] },
   // Settings > App updates (PC only): a source checkout, never checked.

@@ -381,6 +381,8 @@ class LiveFormOptions(BaseModel):
     default_engine: str
     default_model: Optional[str] = None
     thinking_switch_engines: List[str]
+    # {language: model} the form starts on for that language, only for models already downloaded.
+    language_whisper_defaults: Dict[str, str] = {}
     defaults: LiveFormDefaults
 
 

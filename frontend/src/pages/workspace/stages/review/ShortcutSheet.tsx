@@ -12,7 +12,7 @@ export const REVIEW_KEYS: [string, string][] = [
   ['/', 'Search'],
   ['F', 'Dismiss flag'],
   ['R', 'Mark the line checked / unchecked'],
-  ['I / W', 'Improve translation / Why this? (AI)'],
+  ['I / W', 'Re-write / Why this? (AI)'],
   ['M', 'Merge with next line'],
   ['A', 'Add a line after'],
   ['Shift+Delete', 'Delete line (asks to confirm)'],

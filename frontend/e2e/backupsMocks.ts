@@ -99,7 +99,7 @@ function infoFor(copies: CopyBody[]): SnapshotBody {
 export function mockBackups(page: Page, opts: { snapshot?: SnapshotBody; jobPollsBeforeDone?: number } = {}) {
   const state = {
     settings: {
-      enabled: false, frequency: 'daily', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'],
+      enabled: false, frequency: 'daily', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'], same_drive_as_library: true, problem: null,
       last_run_at: null as string | null, last_attempt_at: null as string | null, last_error: null as string | null,
       next_run_at: null as string | null, running: false,
     },

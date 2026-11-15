@@ -21,7 +21,7 @@ import { useEffect, useId, useState } from 'react'
 import { api, hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP,
-  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
+  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, languageWhisperDefault, glossaryChoices, glossaryIds, glossaryValue,
   isActive, lagLine, pickEngine, resolveModel, startLive, statusLine, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
@@ -114,13 +114,13 @@ export default function LivePage() {
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
   // The delayed player records on the PC and the server refuses it from away, so a choice
   // remembered on this browser is set aside there (the PC keeps it).
-  const form: LiveForm = { ...formDefaults(opts), ...prefs, url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
+  const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
   // A Japanese-only model must not stay selected for another language: Start would refuse it.
   const changeLanguage = (language: string) => {
     const excluded = whisperExclusionReason(opts.whisper_exclusions, form.whisper_size, language)
-    setPrefs({ ...prefs, source_language: language, ...(excluded ? { whisper_size: opts.defaults.whisper_size } : {}) })
+    setPrefs({ ...prefs, source_language: language, ...(excluded ? { whisper_size: languageWhisperDefault(opts, language) } : {}) })
   }
 
   // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.

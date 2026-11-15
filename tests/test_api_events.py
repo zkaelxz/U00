@@ -37,7 +37,7 @@ def fast(monkeypatch):
     monkeypatch.setattr(ev, "MIN_BATCH_SECONDS", 0.01)
     monkeypatch.setattr(ev, "AUTH_RECHECK_SECONDS", 0.0)
     monkeypatch.setattr(ns, "_recent", ns.collections.deque(maxlen=ns.RECENT_KEEP))
-    monkeypatch.setattr(ns, "_schedule_flush", lambda: None)
+    monkeypatch.setattr(ns, "_schedule_flush", lambda *_: None)
     yield
     assert ev.open_count() == 0, "a stream kept its slot after it ended"
 

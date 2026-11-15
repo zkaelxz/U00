@@ -17,6 +17,7 @@ class NotificationSettingsStatus(NotificationStatus):
     send_jobs: bool
     send_chapters: bool
     send_remote: bool
+    show_private_titles: bool
 
 
 class NotificationCategoriesRequest(BaseModel):
@@ -25,12 +26,13 @@ class NotificationCategoriesRequest(BaseModel):
     jobs: Optional[StrictBool] = None
     chapters: Optional[StrictBool] = None
     remote: Optional[StrictBool] = None
+    private_titles: Optional[StrictBool] = None
 
 
 class NotificationEvent(BaseModel):
     id: int
     at: float
-    kind: Literal["job_done", "job_failed", "chapters", "remote", "live", "waiting"]
+    kind: Literal["job_done", "job_failed", "chapters", "remote", "resource", "live", "waiting"]
     text: str
     # A followed Live channel's entry: which follow, a "Start Live" action
     # (POST /api/live/follows/{follow_id}/start) and a scheduled start (Unix
