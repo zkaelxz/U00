@@ -105,12 +105,12 @@ def redact_text(text: str) -> str:
 
 
 def _error_item_text(item) -> str:
-    """A translate batch error ({"batch_index", "lines": [idx...], "error"})
-    as "lines 3-4: <message>" (1-based), instead of str(dict)."""
+    """A translate batch error ({"batch_index", "lines": [idx...], "error"}) or a narration
+    one ({"line_idx", "error"}) as "lines 3-4: <message>" (1-based), instead of str(dict)."""
     if not isinstance(item, dict):
         return str(item)
     message = item.get("error") or item.get("message") or "failed"
-    lines = [i for i in (item.get("lines") or []) if isinstance(i, int) and not isinstance(i, bool)]
+    lines = [i for i in (item.get("lines") or [item.get("line_idx")]) if isinstance(i, int) and not isinstance(i, bool)]
     if not lines:
         return str(message)
     lo, hi = min(lines) + 1, max(lines) + 1
