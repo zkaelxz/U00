@@ -1,4 +1,5 @@
 // Pure helpers for "From a backup file…" in Library tools (libraryAdmin/BackupFileImport.tsx).
+import type { ImportChoices } from '../api/backups'
 import type { BackupFileDrama, BackupFileDramaList, ImportDramasDone } from '../types/backups'
 import { isoDay } from './backupsFormat'
 import { pluralLocale } from '../labels'
@@ -12,12 +13,17 @@ export function toggleBackupDrama(list: readonly BackupFileDrama[], chosen: Read
 }
 
 /** The notes shown before the RESTORE confirm. */
-export function importNotes(list: BackupFileDramaList, chosen: readonly BackupFileDrama[], today: string = isoDay()): string[] {
+export function importNotes(list: BackupFileDramaList, chosen: readonly BackupFileDrama[], today: string = isoDay(), choices: ImportChoices = {}): string[] {
+  const { joinSeries = false, voiceBank = false, settings = false } = choices
   const notes = [
-    'Each title is added as a new title; nothing you have is replaced or merged.',
+    joinSeries
+      ? 'Each title is added as a new title; no title you have is replaced.'
+      : 'Each title is added as a new title; nothing you have is replaced or merged.',
     `If a title is already in your library, '(restored ${today})' is added to the new one.`,
     'They belong to you and follow your sharing setting (private unless you share new items).',
-    `A series comes back as a new series named '… (imported ${today})', with its glossary and characters.`,
+    joinSeries
+      ? `A series with the same name as one here is added to that series: new characters and glossary terms are added, a character with the same name keeps yours with the two voice prints combined, and a term you already have keeps yours. A title added to a series is shared the way that series is. Any other series comes back as a new series named '… (imported ${today})'.`
+      : `A series comes back as a new series named '… (imported ${today})', with its glossary and characters.`,
     'Reading progress and personal notes from the file are not imported.',
   ]
   if (list.kind === 'database' || !list.media_available) {
@@ -26,6 +32,12 @@ export function importNotes(list: BackupFileDramaList, chosen: readonly BackupFi
     notes.push('Files come in for the titles marked "with files".')
   } else {
     notes.push('None of the chosen titles has files in this file.')
+  }
+  if (voiceBank) {
+    notes.push("The file's voice bank entries are added; one you already have with the same name and clip is skipped.")
+  }
+  if (settings) {
+    notes.push("Your translation settings and preferences take the file's values. API keys, folders, app updates and the System page stay as they are here.")
   }
   if (list.schema_differs) {
     notes.push('The file is from a different version; anything this version does not know is left out.')
@@ -39,6 +51,9 @@ export function describeImport(r: ImportDramasDone): string {
   const lines = r.counts?.lines
   if (typeof lines === 'number') parts.push(`${pluralLocale(lines, 'line')}.`)
   if (r.series_created) parts.push(`${r.series_created} new series.`)
+  if (r.series_joined) parts.push(`Added to ${r.series_joined} existing series.`)
+  if (r.voice_bank_imported) parts.push(`${pluralLocale(r.voice_bank_imported, 'voice')} added to the voice bank.`)
+  if (r.settings_imported) parts.push(`${pluralLocale(r.settings_imported, 'setting')} taken from the file.`)
   parts.push(r.media_imported ? `Files for ${pluralLocale(r.media_imported, 'title')}.` : 'No files were imported.')
-  return parts.join(' ')
+  return [...parts, ...(r.notes ?? [])].join(' ')
 }

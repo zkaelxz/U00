@@ -36,7 +36,7 @@ test('warns when Ollama is unreachable, keeps Translate off until it answers, an
   const run = page.getByRole('region', { name: 'Translate run' })
 
   const warning = run.getByTestId('ollama-warning')
-  await expect(warning).toContainText("Can't reach Ollama on this PC. Is it running? Start Ollama, then check again.")
+  await expect(warning).toContainText("Can't reach Ollama. Start it, then check again.")
   // The server never sends a URL, and the page never builds one.
   await expect(warning).not.toContainText(/https?:|localhost|127\.0\.0\.1|11434/)
   // Translate is off while the engine it would call is down.

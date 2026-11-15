@@ -69,7 +69,7 @@ const SAVE_URL = /\/api\/lines\/dramas\/3\/lines\/\d+$/
 const PARKED = 'baihe.watch.draft.3'
 const parked = (page: Page) => page.evaluate((key) => sessionStorage.getItem(key), PARKED)
 const RESTORED = 'Your fix from before was not saved. It is back in the box.'
-const CONFLICT = 'This line was changed while you were fixing it. What it says now is shown below, and your text is still in the box. Save again if it still needs your fix.'
+const CONFLICT = 'This line changed. The new text is below; yours is still in the box. Save again if you still want it.'
 // The title's lines as the server has them now.
 const serverLines = async (page: Page) => (await (await page.request.get('/api/review/dramas/3/lines?page=1&page_size=200&only=all')).json()).lines as { id: number; idx: number; en: string }[]
 const serverEnglish = async (page: Page, n: number) => (await serverLines(page)).find((l) => l.idx === n - 1)!.en
@@ -160,7 +160,7 @@ test.describe('with sound', () => {
     await expect(page.getByRole('slider', { name: 'Seek' })).toBeVisible()
     // The player is the page here: it cannot be folded away.
     await expect(page.getByRole('button', { name: 'Hide player' })).toHaveCount(0)
-    await expect(now(page)).toHaveText(/Press play\. The line being spoken shows here\./)
+    await expect(now(page)).toHaveText(/Press play to see lines here\./)
     await expect(list(page).getByRole('listitem')).toHaveCount(24)
     await expect(row(page, 3)).toContainText('#3 · 0:04.0')
     await expect(row(page, 3)).toContainText('第3句')
@@ -521,7 +521,7 @@ test.describe('with sound', () => {
     const refused = page.waitForResponse((r) => r.request().method() === 'POST' && /\/api\/lines\/dramas\/3\/lines\/\d+$/.test(new URL(r.url()).pathname))
     await field.press('Control+Enter')
     expect((await refused).status()).toBe(409)
-    await expect(now(page).getByRole('alert')).toHaveText('This line was changed while you were fixing it. What it says now is shown below, and your text is still in the box. Save again if it still needs your fix.')
+    await expect(now(page).getByRole('alert')).toHaveText('This line changed. The new text is below; yours is still in the box. Save again if you still want it.')
     await expect(now(page).locator('.watch-now-theirs')).toHaveText('It now saysTheirs')
     await expect(now(page).getByText('Theirs', { exact: true })).toHaveAttribute('lang', 'en')
     await expect(field).toHaveValue('Mine')
@@ -547,7 +547,7 @@ test.describe('with sound', () => {
       : r.fallback())
     await page.route(/\/api\/review\/dramas\/3\/lines\?/, (r) => r.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'Busy.' } } }))
     await field.press('Control+Enter')
-    await expect(now(page).getByRole('alert')).toHaveText('This line was changed while you were fixing it, and its new text could not be loaded. Your text is still in the box. Try Save again in a moment.')
+    await expect(now(page).getByRole('alert')).toHaveText('This line changed and its new text could not load. Yours is still in the box. Try Save again soon.')
     await expect(now(page).getByText('It now says')).toHaveCount(0)
     await expect(field).toHaveValue('Mine')
     // Refused again from the button, which is disabled while saving: focus comes back to the box.

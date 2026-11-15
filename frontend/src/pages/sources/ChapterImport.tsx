@@ -114,7 +114,7 @@ export function ImportSetup({ imp, source, seriesId, display, comic, title, lang
             </p>
             {note && <p className="muted">{note}</p>}
             {!!shownResult.handoff && (
-              <p className="warn">{display} showed a browser check, so the rest was not imported. Try again later.</p>
+              <p className="warn">{display} showed a browser check; the rest was not imported. Try later.</p>
             )}
             <ul className="sources-outcome-list">
               {shownResult.chapters.map((c) => (
