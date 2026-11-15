@@ -36,6 +36,7 @@ from typing import Optional
 import background_jobs
 from jobs import job_launch
 import db
+import diagnostics_torch
 import live_chat
 import live_cue_feed
 import live_cue_translation
@@ -183,6 +184,23 @@ def check_ollama(model: Optional[str] = None) -> dict:
     return {"ok": True, "model": model, "message": None}
 
 
+def _language_whisper_defaults() -> dict:
+    """Models the form starts on instead of its default for a language, so a stream in that
+    language needs no change. Only models already on this PC: Live never starts a big download
+    on its own. Japanese gets whisper-ja only where an NVIDIA GPU is present, since it cannot
+    keep up with a stream on a CPU."""
+    out = {}
+    if whisper_models.is_whisper_model_cached(whisper_models.BREEZE_KEY):
+        out["zh"] = whisper_models.BREEZE_KEY
+    try:
+        has_gpu = diagnostics_torch.nvidia_driver_info() is not None
+    except Exception:
+        has_gpu = False
+    if has_gpu and whisper_models.is_whisper_model_cached("ja-1.5b"):
+        out["ja"] = "ja-1.5b"
+    return out
+
+
 def form_options() -> dict:
     """What the Live form offers and starts on, from the values Start checks
     against, so the form never keeps its own copy that can drift."""
@@ -200,6 +218,8 @@ def form_options() -> dict:
         # The model Start runs when none is chosen, which Settings can change.
         "default_model": engine_registry.effective_default_model(LIVE_DEFAULT_ENGINE),
         "thinking_switch_engines": list(thinking.NO_THINKING_ENGINES),
+        # Per language, only where a better-than-default model is already downloaded.
+        "language_whisper_defaults": _language_whisper_defaults(),
         "defaults": {k: defaults[k].default for k in (
             "source_language", "whisper_size", "segment_seconds", "overlap_seconds",
             "max_minutes", "player_height")},

@@ -32,6 +32,7 @@ WHISPER_MODELS = {
                       "large-v3 on the whispered clips we tested"),
 }
 DEFAULT_WHISPER_SIZE = "large-v3"
+BREEZE_KEY = "breeze-asr-25"
 
 # Sizes the Workspace pickers no longer offer (Live keeps them). The API and
 # titles that saved one still accept them. tiny and base exist only here and in Live's
@@ -150,10 +151,22 @@ def whisper_language_exclusions() -> dict:
 # Live's choices. small stays its default: Live has to keep up with the stream
 # on a CPU, and turbo takes about 1.5x small's time on the repo's CPU test.
 # large-v3 is for a GPU: it ran 0.4-1.4 s per 8-20 s chunk on an RTX 4080.
+# breeze-asr-25 is Chinese-only and large-v2 sized, so it needs a GPU too.
 # ja-1.5b is last and Japanese-only (WHISPER_LANGUAGE_RULES): it scored best on Japanese read
 # speech (docs/asr-experiments.md), but needs a GPU to keep up.
-LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3", "ja-1.5b")
+LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3", "breeze-asr-25", "ja-1.5b")
 
+
+
+def default_whisper_size_for(source_language: str) -> str:
+    """The model a title or Live stream in this language starts on when none was chosen.
+    Chinese prefers Breeze-ASR-25 (lower and steadier CER than large-v3 on the hand-checked
+    Chinese titles, docs/asr-experiments.md) but only once it is already downloaded: a default
+    must never start a 3 GB download or fail on a missing model. Other languages keep
+    DEFAULT_WHISPER_SIZE."""
+    if source_language == "zh" and is_whisper_model_cached(BREEZE_KEY):
+        return BREEZE_KEY
+    return DEFAULT_WHISPER_SIZE
 
 
 def selectable_whisper_sizes(context: str) -> list:
