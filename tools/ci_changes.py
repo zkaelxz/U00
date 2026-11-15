@@ -2,6 +2,7 @@
 
     python tools/ci_changes.py --event pull_request [--labels-json '["full-ci"]'] < changed-files
     python tools/ci_changes.py --frontend-tests
+    python tools/ci_changes.py --docs-tests
     python tools/ci_changes.py --sources-tests
 
 Prints `name=true|false` lines for $GITHUB_OUTPUT. The rules are tabled in docs/testing-and-ci.md.
@@ -109,6 +110,21 @@ def frontend_reading_tests(root):
     return found
 
 
+def docs_reading_tests(root):
+    """Tests that read files under docs/ (route and settings tables, the agent docs): a docs-only
+    change must still run them, since the table they check is what it edited."""
+    tests_dir = os.path.join(root, "tests")
+    found = []
+    for name in sorted(os.listdir(tests_dir)):
+        if not (name.startswith("test_") and name.endswith(".py")):
+            continue
+        with open(os.path.join(tests_dir, name), encoding="utf-8") as f:
+            text = f.read()
+        if "docs/" in text or '"docs"' in text or "'docs'" in text:
+            found.append(f"tests/{name}")
+    return found
+
+
 def sources_tests(root):
     tests_dir = os.path.join(root, "tests")
     found = {n for g in SOURCES_TEST_GLOBS for n in fnmatch.filter(os.listdir(tests_dir), g)}
@@ -126,11 +142,15 @@ def main(argv=None, stdin=None):
     parser.add_argument("--event", default="")
     parser.add_argument("--labels-json", default="[]")
     parser.add_argument("--frontend-tests", action="store_true")
+    parser.add_argument("--docs-tests", action="store_true")
     parser.add_argument("--sources-tests", action="store_true")
     args = parser.parse_args(argv)
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if args.frontend_tests:
         print(" ".join(frontend_reading_tests(root)))
+        return 0
+    if args.docs_tests:
+        print(" ".join(docs_reading_tests(root)))
         return 0
     if args.sources_tests:
         print(" ".join(sources_tests(root)))
