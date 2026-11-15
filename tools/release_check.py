@@ -4,6 +4,7 @@ Runs a private set of golden clips (kept outside the repo, which is public) thro
 transcription, speaker detection and translation code on this PC, and writes one markdown results
 table plus a JSON file. A transcription clip with "title_settings" runs the app's whole
 transcription pipeline with those stored title settings; one without runs plain Whisper.
+"fixed_decoding": true on such a clip pins Whisper's temperature at 0, so its score repeats exactly.
 --repeats runs each transcription clip several times and scores the median, because Whisper's
 default decoding differs from run to run. Scores: 1 - CER (1 - WER for spaced languages), diarization error rate,
 translation chrF against a reference, speed as a multiple of real time, and peak GPU memory.
@@ -44,7 +45,7 @@ from engine_backends import engine_registry, pricing
 from engine_backends import shared as engine_shared
 from lib.errors import ServiceError
 from services import benchmark_scoring_service, settings_service, transcribe_service, translate_service
-from tools import self_test
+from tools import release_check_worker, self_test
 from tools.asr_bench import Refusal, gpu_guard
 
 REPORT_TITLE = "# Baihe real-hardware release check"
@@ -106,6 +107,9 @@ def load_manifest(path: str) -> dict:
         settings = clip.get("title_settings")
         if settings is not None and (not isinstance(settings, dict) or set(settings) - TITLE_SETTING_KEYS):
             raise Refusal(f'Clip "{cid}": "title_settings" may only hold {", ".join(sorted(TITLE_SETTING_KEYS))}.')
+        if clip.get("fixed_decoding") is not None and (
+                not isinstance(clip["fixed_decoding"], bool) or not (clip["kind"] == "transcription" and settings is not None)):
+            raise Refusal(f'Clip "{cid}": "fixed_decoding" is true or false, and only a transcription clip with "title_settings" takes it.')
         if clip.get("backend") is not None and clip["backend"] not in diarize.SPEAKER_MODELS:
             raise Refusal(f'Clip "{cid}": "backend" must be one of {", ".join(diarize.SPEAKER_MODELS)}.')
     return data
@@ -263,14 +267,15 @@ def run_transcription(clip: dict, opts) -> dict:
             "vram_mb": vram, "detail": f"{len(segments)} lines, model {opts.whisper_model}"}
 
 
-def _transcribe_in_child(args: tuple) -> dict:
+def _transcribe_in_child(args: tuple, fixed_decoding: bool = False) -> dict:
     """The worker's outcome, run in a spawned process as the app runs it: a fresh process gets a
     clean GPU each time, which matters when one clip runs several times."""
     from services import transcribe_pipeline
 
+    target = release_check_worker.fixed_decoding_worker if fixed_decoding else transcribe_pipeline._transcribe_worker
     context = multiprocessing.get_context("spawn")
     results = context.Queue()
-    proc = context.Process(target=transcribe_pipeline._transcribe_worker, args=(*args, results), daemon=True)
+    proc = context.Process(target=target, args=(*args, results), daemon=True)
     proc.start()
     try:
         while True:
@@ -299,7 +304,7 @@ def run_app_transcription(clip: dict, opts) -> dict:
             {**clip["title_settings"], "source_language": language}, clip["audio"], scratch,
             opts.use_gpu, clip.get("initial_prompt") or "")
         started = time.monotonic()
-        outcome = _transcribe_in_child(args)
+        outcome = _transcribe_in_child(args, bool(clip.get("fixed_decoding")))
         wall = time.monotonic() - started
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
