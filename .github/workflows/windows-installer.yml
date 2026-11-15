@@ -560,7 +560,7 @@ jobs:
           # A run that waited and lost its place to a newer merge shows as cancelled; the generic
           # message below would tell a maintainer to wait for a run that never finishes.
           if [ "$conclusion" = "cancelled" ]; then
-            echo "::error::The Tests run on baihe-subtitler at $GITHUB_SHA was cancelled and never ran to the end. That is what happens to a run that was still waiting when a newer merge took its place, and it does not mean the commit failed. Tag the later commit once its Tests run passed, or re-run this commit's cancelled run while no other run is waiting and tag when it has passed (docs/runbook.md, section 1, step 5). Nothing was published."
+            echo "::error::The Tests run on baihe-subtitler at $GITHUB_SHA was cancelled and never ran to the end. That is usually a run that was still waiting when a newer merge took its place, so it says nothing about whether this commit passes. Tag the later commit once its Tests run passed, or re-run this commit's cancelled run while no other run is waiting and tag when it has passed (docs/runbook.md, section 1, step 5). Nothing was published."
             exit 1
           fi
           if [ "$conclusion" != "success" ]; then
