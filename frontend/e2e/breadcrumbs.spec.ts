@@ -8,7 +8,11 @@ test('a title has one way up, Back to Library, and no breadcrumb row', async ({ 
   await page.goto('/#/drama/1/review')
   await expect(page.getByTestId('drama-title')).not.toHaveText(/^Title #\d+$/)
   await expect(crumbs(page)).toHaveCount(0)
-  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Library', exact: true })).toHaveAttribute('aria-current', 'page')
+  // The menu marks the open title's own row, under Library, as the current one.
+  const menu = page.getByRole('navigation', { name: 'Main' })
+  await expect(menu.getByTestId('rail-title')).toHaveAttribute('href', '#/drama/1')
+  await expect(menu.getByTestId('rail-title')).toHaveAttribute('aria-current', 'page')
+  await expect(menu.getByRole('link', { name: 'Library', exact: true })).not.toHaveAttribute('aria-current', 'page')
 
   await page.getByRole('link', { name: 'Back to Library' }).click()
   await expect(page).toHaveURL(/#\/library$/)

@@ -13,6 +13,7 @@ interface FilterCounts {
   unreviewed: number
   shaky: number
   risk: number
+  marked: number
 }
 
 interface Props {
@@ -57,10 +58,10 @@ interface Props {
 }
 
 // The shaky and risk chips only appear for a title that has lines they would list, so other titles keep the four chips a phone's row fits.
-const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated', 'unreviewed', 'shaky', 'risk']
-const CONDITIONAL: LineFilter[] = ['shaky', 'risk']
+const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated', 'unreviewed', 'shaky', 'risk', 'marked']
+const CONDITIONAL: LineFilter[] = ['shaky', 'risk', 'marked']
 const FULL: Record<LineFilter, string> = {
-  all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated', unreviewed: 'Unreviewed', shaky: 'Least confident first', risk: 'Riskiest first',
+  all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated', unreviewed: 'Unreviewed', shaky: 'Least confident first', risk: 'Riskiest first', marked: 'Marked',
 }
 
 // A number you can type into: Enter or leaving the box jumps (clamped to 1..max), Escape puts the old value back.
@@ -149,7 +150,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
 
   const chips = (
     <div className="review-chips" role="radiogroup" aria-label="Show">
-      {FILTERS.filter((f) => !CONDITIONAL.includes(f) || p.filter === f || (p.counts?.[f as 'shaky' | 'risk'] ?? 0) > 0).map((f) => {
+      {FILTERS.filter((f) => !CONDITIONAL.includes(f) || p.filter === f || (p.counts?.[f as 'shaky' | 'risk' | 'marked'] ?? 0) > 0).map((f) => {
         const count = !p.counts ? null : f === 'all' ? p.counts.all : p.counts[f]
         return (
           <label key={f} className="review-chip">

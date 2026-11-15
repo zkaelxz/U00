@@ -20,7 +20,7 @@ test('phone: the bell sits on the title row and its panel fits the screen', asyn
     }),
   )
   await page.goto('/#/library')
-  const bell = page.getByRole('button', { name: 'Notifications (2 new)' })
+  const bell = page.getByRole('button', { name: 'Alerts (2 new)' })
   await expect(bell).toBeVisible()
   const box = (await bell.boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)
@@ -31,7 +31,7 @@ test('phone: the bell sits on the title row and its panel fits the screen', asyn
   await expectNoSidewaysScroll(page)
 
   await bell.tap()
-  const panel = page.getByRole('region', { name: 'Recent notifications' })
+  const panel = page.getByRole('region', { name: 'Recent alerts' })
   await expect(panel.getByRole('listitem')).toHaveCount(2)
   const p = (await panel.boundingBox())!
   const width = page.viewportSize()!.width
@@ -46,7 +46,7 @@ test('phone: the bell sits on the title row and its panel fits the screen', asyn
   // Tapping elsewhere closes it; the count stays cleared.
   await page.locator('.app-brand, .rail-brand').tap()
   await expect(panel).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Alerts', exact: true })).toBeVisible()
 })
 
 test('phone: the Open link of a waiting row is a 44px target and opens the Jobs page', async ({ page }) => {
@@ -63,8 +63,8 @@ test('phone: the Open link of a waiting row is a 44px target and opens the Jobs 
     }),
   )
   await page.goto('/#/library')
-  await page.getByRole('button', { name: /^Notifications/ }).tap()
-  const panel = page.getByRole('region', { name: 'Recent notifications' })
+  await page.getByRole('button', { name: /^Alerts/ }).tap()
+  const panel = page.getByRole('region', { name: 'Recent alerts' })
   const open = panel.getByRole('link', { name: 'Open' })
   await expect(open).toBeVisible()
   const box = (await open.boundingBox())!

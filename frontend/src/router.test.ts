@@ -111,19 +111,9 @@ describe('parseRoute', () => {
     expect(routeHref({ name: 'read', id: 3, page: null })).toBe('#/read/3')
   })
 
-  it('carries the reader route watch flag with or without a page, and ignores any other value', () => {
-    expect(parseRoute('#/read/3?watch=1')).toEqual({ name: 'read', id: 3, page: null, watch: true })
-    expect(parseRoute('#/read/3?page=2&watch=1')).toEqual({ name: 'read', id: 3, page: 2, watch: true })
-    expect(parseRoute('#/read/3?watch=1&page=2')).toEqual({ name: 'read', id: 3, page: 2, watch: true })
-    for (const bad of ['0', 'true', 'yes', '', '11']) {
-      expect(parseRoute(`#/read/3?page=2&watch=${bad}`)).toEqual({ name: 'read', id: 3, page: 2 })
-    }
-    // The comic reader has no Watch / listen fold.
-    expect(parseRoute('#/comic/3?watch=1')).toEqual({ name: 'comic', id: 3, page: null })
-    expect(routeHref({ name: 'read', id: 3, page: null, watch: true })).toBe('#/read/3?watch=1')
-    expect(routeHref({ name: 'read', id: 3, page: 2, watch: true })).toBe('#/read/3?page=2&watch=1')
-    const both = { name: 'read', id: 3, page: 2, watch: true } as const
-    expect(parseRoute(routeHref(both))).toEqual(both)
+  it('ignores the old watch flag on the reader route: Watch has its own page now', () => {
+    expect(parseRoute('#/read/3?watch=1')).toEqual({ name: 'read', id: 3, page: null })
+    expect(parseRoute('#/read/3?page=2&watch=1')).toEqual({ name: 'read', id: 3, page: 2 })
   })
 
   it('parses the saved manga routes, names %-encoded', () => {
@@ -188,6 +178,15 @@ describe('parseRoute', () => {
     for (const r of [{ name: 'library' }, { name: 'jobs' }, { name: 'settings' }, { name: 'diagnostics' }, { name: 'benchmark' }, { name: 'sources' }, { name: 'sources', tab: 'new' }, { name: 'sources', tab: 'manage' }, { name: 'sources-manage' }, { name: 'sources-manage', tab: 'activity' }, { name: 'discover' }, { name: 'assistant' }, { name: 'drama', id: 4, stage: 'export' }, { name: 'drama', id: 4, stage: null }] as const) {
       expect(parseRoute(routeHref(r))).toEqual(r)
     }
+  })
+})
+
+describe('watch route', () => {
+  it('round-trips a title id and rejects a bad one as follow does', () => {
+    expect(parseRoute('#/watch/7')).toEqual({ name: 'watch', id: 7 })
+    expect(routeHref({ name: 'watch', id: 7 })).toBe('#/watch/7')
+    expect(parseRoute(routeHref({ name: 'watch', id: 7 }))).toEqual({ name: 'watch', id: 7 })
+    for (const h of ['#/watch', '#/watch/0', '#/watch/x', '#/watch/-1', '#/watch/7/extra']) expect(parseRoute(h)).toEqual({ name: 'library' })
   })
 })
 

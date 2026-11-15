@@ -8,15 +8,13 @@ import type { ReaderMediaAvailability } from '../../types/reader'
 import { ListenSection } from './ListenSection'
 import { ReadAlong } from './ReadAlong'
 
-function WatchSection({ dramaId, media, sourceLanguage, trackVersion, openPlayer }: {
-  dramaId: number; media: ReaderMediaAvailability; sourceLanguage: string; trackVersion: number; openPlayer: boolean
-}) {
+function WatchSection({ dramaId, media, sourceLanguage, trackVersion }: { dramaId: number; media: ReaderMediaAvailability; sourceLanguage: string; trackVersion: number }) {
   const [failed, setFailed] = useState(false)
   const kinds = [media.original === 'video' ? 'video' : media.original === 'audio' ? 'audio' : null, media.narration ? 'narration' : null]
   const summary = kinds.filter(Boolean).join(' · ')
   const lang = (t: string) => (t === 'English' ? 'en' : t === 'Source' ? sourceLanguage : 'und')
   return (
-    <Section title="Watch / listen" storageKey="reader.media" summary={summary} openSignal={openPlayer ? 1 : undefined}>
+    <Section title="Watch / listen" storageKey="reader.media" summary={summary}>
       {media.original === 'video' && (
         <video className="reader-video" controls preload="metadata" src={mediaStreamUrl(dramaId, 'video')} onError={() => setFailed(true)}>
           {media.caption_tracks.map((t, i) => (
@@ -33,19 +31,14 @@ function WatchSection({ dramaId, media, sourceLanguage, trackVersion, openPlayer
   )
 }
 
-export function ListenWatch({ dramaId, media, setMedia, sourceLanguage, openPlayer = false }: {
+export function ListenWatch({ dramaId, media, setMedia, sourceLanguage }: {
   dramaId: number
   media: ReaderMediaAvailability | null
   setMedia: (m: ReaderMediaAvailability | null) => void
   sourceLanguage: string
-  /** Reached from a Watch or Listen link: the player starts open, and what the viewer last chose stays remembered. */
-  openPlayer?: boolean
 }) {
   // Bumped when Listen replaces the narration, so the player drops the old file it has cached.
   const [trackVersion, setTrackVersion] = useState(0)
-  // Kept from arrival: resuming at the saved page rewrites the URL without the flag, and the player fold only
-  // mounts once the media answer is in, which can be after that.
-  const [openOnArrival] = useState(openPlayer)
   const onReady = () => {
     void readerApi.media(dramaId).then(setMedia, () => setMedia(null))
     setTrackVersion((v) => v + 1)
@@ -54,7 +47,7 @@ export function ListenWatch({ dramaId, media, setMedia, sourceLanguage, openPlay
     <>
       <ListenSection dramaId={dramaId} onReady={onReady} />
       {media && (media.original !== null || media.narration) && (
-        <WatchSection dramaId={dramaId} media={media} sourceLanguage={sourceLanguage} trackVersion={trackVersion} openPlayer={openOnArrival} />
+        <WatchSection dramaId={dramaId} media={media} sourceLanguage={sourceLanguage} trackVersion={trackVersion} />
       )}
     </>
   )
