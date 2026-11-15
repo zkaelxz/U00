@@ -621,6 +621,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/settings/engine-routing` | admin.settings |
 | `POST /api/settings/engine-routing/capabilities/{capability}` | local_only() |
 | `POST /api/settings/engine-routing/engines/{engine}/test` | local_only() |
+| `GET /api/settings/keys-file` | local_only() |
 | `POST /api/settings/keys/{engine}` | local_only() |
 | `POST /api/settings/keys/{engine}/clear` | local_only() |
 | `GET /api/settings/loaded-models` | admin.settings |
