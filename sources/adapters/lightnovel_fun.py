@@ -436,8 +436,10 @@ class LightnovelFunSource(SourceAdapter):
     def _walk(self, series_id: str, neighbour: dict, link: str) -> dict:
         """{volume id: chapters} for every volume loaded on the reader page
         that `neighbour`'s prev/next link leads to. {} if there is no link,
-        or a page in the chain can't be fetched (a deleted chapter): that
-        volume is then left out rather than failing the whole list."""
+        or a page in the chain is gone (a deleted chapter): that volume is then
+        left out rather than failing the whole list. Any other fetch failure
+        propagates: a dropped volume would otherwise come back as "new"
+        chapters on the next successful load."""
         action = f"Loading the chapter list of book {series_id}"
         try:
             boot = self._reader(series_id, _id(neighbour["id"]), action, use_cache=False)
@@ -446,6 +448,8 @@ class LightnovelFunSource(SourceAdapter):
                 return {}
             boot = self._reader(series_id, target, action, use_cache=False)
         except FetchFailed as e:
+            if e.reason is not FailureReason.NOT_FOUND:
+                raise
             log.warning("lightnovel_fun: volume walk for book %s stopped: %s", series_id, e)
             return {}
         out = {}

@@ -74,6 +74,12 @@ class TestSearch:
         a.search("百合", page=2)
         assert t.urls() == [f"{BASE}/search?keyword=%E7%99%BE%E5%90%88&page=2"]
 
+    def test_a_server_error_in_the_walk_fails_the_list_instead_of_dropping_a_volume(self):
+        a, _ = _adapter({BOOK_URL: html(fx.BOOK_PAGE), _reader("323701"): html(fx.READER_323701),
+                         _reader("323778"): html("<html>oops</html>", status=500)})
+        with pytest.raises(lightnovel_fun.FetchFailed):
+            a.get_chapters("33139")
+
     def test_markup_change_is_reported(self):
         a, _ = _adapter({f"{BASE}/search?keyword=x&page=1": html("<html><body></body></html>")})
         with pytest.raises(lightnovel_fun.LayoutChanged):
