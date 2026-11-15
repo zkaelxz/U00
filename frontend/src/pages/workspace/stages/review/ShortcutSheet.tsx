@@ -4,6 +4,8 @@ import { Sheet } from '../../../../components/Sheet'
 export const REVIEW_KEYS: [string, string][] = [
   ['↓ or J / ↑ or K', 'Next / previous line (crosses pages)'],
   ['Alt+↓ / Alt+↑', 'Next / previous flagged line'],
+  ['N / Shift+N', 'Next / previous line with no speaker'],
+  ['1 / 2 / 3', 'Give a line with no speaker its 1st / 2nd / 3rd suggested speaker, then go to the next one'],
   ['] / [', 'Next / previous page'],
   ['Enter or E', 'Edit the translation'],
   ['D', 'Edit details (timing, speaker, source)'],
