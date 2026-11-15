@@ -76,6 +76,17 @@ export function initialActiveId(lines: ReviewLine[]): number | null {
   return pick ? pick.id : null
 }
 
+/**
+ * The line a load makes active when no move asked for one: the active line while it is still listed; on the list's
+ * first load its starting line (`queue`: the check queue lists the riskiest line first, flagged or not, so its first
+ * card); else the first line.
+ */
+export function ownActiveId(lines: ReviewLine[], cur: number | null, { first, queue }: { first: boolean; queue: boolean }): number | null {
+  if (cur !== null && lines.some((l) => l.id === cur)) return cur
+  if (first && !queue) return initialActiveId(lines)
+  return lines[0]?.id ?? null
+}
+
 type Step = { id: number } | { page: 'next' | 'prev' } | null
 
 /** The line `delta` rows away from `activeId`, or a page change at an edge. */
