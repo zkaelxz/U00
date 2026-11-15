@@ -170,7 +170,7 @@ about 9-10k tokens; at 16k to 32k context list only `CLAUDE.md` and this file.
 Branch and PR flow: one task per branch off the latest `baihe-subtitler`
 (`git fetch origin && git checkout -b <task-name> origin/baihe-subtitler`; roadmap steps use `step-<id>-<short-name>`).
 Run the area test, then the guard set, and the frontend commands if you touched `frontend/`. Push and open a
-draft PR into `baihe-subtitler` and don't merge it yourself: a dedicated merge thread merges it, after Kae types "Merge NNNN", on a full green Tests run at the exact head. Finish with a short summary: what
+draft PR into `baihe-subtitler` and don't merge it yourself: nothing merges before Kae types "Merge NNNN", and then only on a full green Tests run at the exact head (`docs/testing-and-ci.md`, "Merge flow"). Finish with a short summary: what
 changed, commands run with pass counts, what you're unsure about.
 
 Clone in a folder of its own. The repo root has `__init__.py`, so pytest puts the clone's parent folder on `sys.path`: a
