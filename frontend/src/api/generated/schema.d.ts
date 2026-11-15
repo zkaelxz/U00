@@ -2812,6 +2812,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/remote-setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** PC only: where the remote-access setup stands, one state per step */
+        get: operations["get_remote_setup_api_diagnostics_remote_setup_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/reset-library": {
         parameters: {
             query?: never;
@@ -24852,6 +24869,37 @@ export interface components {
              */
             state: "off" | "unknown" | "not_configured" | "ok" | "warn" | "critical";
         };
+        /**
+         * RemoteSetup
+         * @description GET /api/diagnostics/remote-setup (PC only): one state per setup step
+         *     and fixed sentences. Never the public name, the Google id or secret, an
+         *     address or a path.
+         */
+        RemoteSetup: {
+            /** Next */
+            next: string | null;
+            /** Steps */
+            steps: components["schemas"]["RemoteSetupStep"][];
+        };
+        /** RemoteSetupStep */
+        RemoteSetupStep: {
+            /** Id */
+            id: string;
+            /** Message */
+            message: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "done" | "todo" | "problem" | "manual";
+            /** Title */
+            title: string;
+            /**
+             * Who
+             * @enum {string}
+             */
+            who: "app" | "you" | "menu";
+        };
         /** ResearchApplied */
         ResearchApplied: {
             /** Confirmed */
@@ -39552,6 +39600,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_remote_setup_api_diagnostics_remote_setup_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteSetup"];
                 };
             };
         };

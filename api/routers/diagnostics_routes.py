@@ -22,8 +22,10 @@ from api.auth import local_only, require_permission
 from api.routers.settings_routes import read_body, require_confirm, require_local_admin
 from api.schemas import (DiagnosticsOverview, GpuReading, PortsOverview, RemoteHealth,
                          RemoteIpCheckClearRequest, RemoteIpCheckSetRequest,
-                         RemoteIpCheckStatus, RemoteIpCheckTestResult, error_responses)
-from services import diagnostics_service, remote_health_service, settings_service
+                         RemoteIpCheckStatus, RemoteIpCheckTestResult, RemoteSetup,
+                         error_responses)
+from services import (diagnostics_service, remote_health_service, remote_setup_service,
+                      settings_service)
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
@@ -51,6 +53,12 @@ def get_remote_health(request: Request):
         status = {**status, "message": "Remote sign-in is off because BAIHE_PUBLIC_URL "
                                        "in .env is not valid."}
     return status
+
+
+@router.get("/remote-setup", dependencies=[local_only()], response_model=RemoteSetup,
+            summary="PC only: where the remote-access setup stands, one state per step")
+def get_remote_setup(request: Request):
+    return remote_setup_service.get_setup_status(request.app.state.settings)
 
 
 @router.get("/ports", dependencies=[local_only()], response_model=PortsOverview,

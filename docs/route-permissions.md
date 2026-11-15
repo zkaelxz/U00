@@ -187,6 +187,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/remote-health/ip-check` | local_only() |
 | `POST /api/diagnostics/remote-health/ip-check/clear` | local_only() |
 | `POST /api/diagnostics/remote-health/ip-check/test` | local_only() |
+| `GET /api/diagnostics/remote-setup` | local_only() |
 | `POST /api/diagnostics/reset-library` | local_only() |
 | `GET /api/diagnostics/setup-checks` | admin.diagnostics |
 | `GET /api/diagnostics/support-report` | admin.diagnostics |

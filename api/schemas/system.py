@@ -29,6 +29,8 @@ __all__ = [
     "RemoteCertificateCheck",
     "RemoteDdnsCheck",
     "RemoteHealth",
+    "RemoteSetup",
+    "RemoteSetupStep",
     "RemoteIpCheckStatus",
     "RemoteIpCheckSetRequest",
     "RemoteIpCheckClearRequest",
@@ -186,6 +188,22 @@ class RemoteHealth(BaseModel):
     certificate: RemoteCertificateCheck
     ddns: RemoteDdnsCheck
     listener: RemoteHealthCheck
+
+
+class RemoteSetupStep(BaseModel):
+    id: str
+    title: str
+    state: Literal["done", "todo", "problem", "manual"]
+    message: str
+    who: Literal["app", "you", "menu"]
+
+
+class RemoteSetup(BaseModel):
+    """GET /api/diagnostics/remote-setup (PC only): one state per setup step
+    and fixed sentences. Never the public name, the Google id or secret, an
+    address or a path."""
+    steps: list[RemoteSetupStep]
+    next: Optional[str] = None
 
 
 class RemoteIpCheckStatus(BaseModel):
