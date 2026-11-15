@@ -30,7 +30,7 @@ test('opens with the header button, and Esc closes it and returns focus to the b
   await expect(searchButton(page)).toBeFocused()
 })
 
-test('Ctrl+K from the bare page then Esc returns focus to the Quick search button, not body', async ({ page }) => {
+test('Ctrl+K from the bare page then Esc returns focus to the search button, not body', async ({ page }) => {
   await page.goto('/#/library')
   await expect(searchButton(page)).toBeVisible()
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())

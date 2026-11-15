@@ -66,7 +66,7 @@ test('the button hides when the viewer may not list jobs', async ({ page }) => {
     route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'forbidden', message: 'No.' } }) }),
   )
   await page.goto('/#/library')
-  await expect(page.getByRole('button', { name: /^Notifications/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Alerts/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /^Jobs/ })).toHaveCount(0)
 })
 

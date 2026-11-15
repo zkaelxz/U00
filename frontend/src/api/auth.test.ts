@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { loginErrorMessage, loginHref, logout, me, readLoginError, safeReturnTo } from './auth'
+import { accountWords, loginErrorMessage, nameWidth, loginHref, logout, me, readLoginError, safeReturnTo } from './auth'
 
 interface Call {
   url: string
@@ -73,5 +73,44 @@ describe('login_error', () => {
     const generic = "Sign-in didn't work. Please try again."
     expect(loginErrorMessage('toString')).toBe(generic)
     expect(loginErrorMessage('<script>')).toBe(generic)
+  })
+})
+
+describe('accountWords', () => {
+  it('shows a name of up to 24 characters whole and anything longer, blank or missing as Account', () => {
+    const name24 = 'A'.repeat(24)
+    expect(accountWords(name24)).toBe(name24)
+    expect(accountWords('A'.repeat(25))).toBe('Account')
+    expect(accountWords('  Alex  ')).toBe('Alex')
+    expect(accountWords('   ')).toBe('Account')
+    expect(accountWords('')).toBe('Account')
+    expect(accountWords(null)).toBe('Account')
+    expect(accountWords(undefined)).toBe('Account')
+  })
+
+  it('counts wide characters as two: 12 kanji fit, 13 give Account', () => {
+    expect(accountWords('白'.repeat(12))).toBe('白'.repeat(12))
+    expect(accountWords('白'.repeat(13))).toBe('Account')
+    expect(accountWords('𠮷'.repeat(12))).toBe('𠮷'.repeat(12))
+    expect(accountWords('Ab' + 'あ'.repeat(11))).toBe('Ab' + 'あ'.repeat(11))
+    expect(accountWords('Abc' + 'あ'.repeat(11))).toBe('Account')
+    // The long mark and the middle dot are as wide as a kana.
+    expect(accountWords('ア'.repeat(12) + 'ー')).toBe('Account')
+    expect(accountWords('Abc' + 'あ'.repeat(10) + 'ー')).toBe('Account')
+    expect(accountWords('Ab' + 'あ'.repeat(10) + 'ー')).toBe('Ab' + 'あ'.repeat(10) + 'ー')
+  })
+})
+
+describe('nameWidth', () => {
+  it('is one for Latin letters, two for kanji, kana, Hangul, fullwidth forms and emoji, none for joiners', () => {
+    expect(nameWidth('Alex')).toBe(3)
+    expect(nameWidth('白'.repeat(12))).toBe(24)
+    expect(nameWidth('かな')).toBe(4)
+    expect(nameWidth('한글')).toBe(4)
+    expect(nameWidth('ＡＢ')).toBe(4)
+    expect(nameWidth('😀')).toBe(2)
+    expect(nameWidth('👩‍💻')).toBe(4)
+    expect(nameWidth('ジョージ・ワシントン')).toBe(20)
+    expect(nameWidth('')).toBe(0)
   })
 })

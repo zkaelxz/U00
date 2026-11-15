@@ -59,7 +59,7 @@ export const CATEGORIES: { field: CategoryField; body: keyof NotificationCategor
 ]
 
 export const CATEGORIES_NOTE =
-  'These choose what goes to Discord and ntfy. The bell at the top of the page always lists every event.'
+  'These choose what goes to Discord and ntfy. The Alerts button at the top of the page always lists every event.'
 
 /** The request body for one switch: only the field that changed. */
 export function categoryChange(field: CategoryField, next: boolean): NotificationCategories {
