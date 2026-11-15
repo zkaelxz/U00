@@ -92,6 +92,7 @@ def test_messages_state_value_limit_and_time():
 def test_defaults_match_what_was_agreed(isolated_db):
     rules = rms.get_rules()
     assert rules["ram"]["limit"] == 95 and rules["gpu_memory"]["limit"] == 100
+    assert rules["gpu_memory_warn"] == {"enabled": True, "limit": 85, "minutes": 15}
     assert rules["gpu_memory"]["enabled"] is False and rules["cpu"]["enabled"] is False
     assert rules["gpu_temp"] == {"enabled": True, "limit": 85, "minutes": 5}
 
@@ -241,3 +242,20 @@ def test_the_default_notify_logs_and_reaches_the_bell(notify_env):
         rms.run_cycle(now=T0 + i * 30, readings={"gpu_temp": 90})
     kinds = [(e["kind"], e["text"]) for e in ns.list_recent(None)]
     assert kinds == [("resource", "This PC: GPU temperature is 90 °C, at or above 85 °C for 5 min.")]
+
+
+def test_the_nearly_full_rule_alerts_at_85_while_the_full_rule_stays_quiet():
+    warn = {"enabled": True, "limit": 85, "minutes": 15}
+    events, _ = _feed("gpu_memory_warn", [88] * 40, warn)       # 20 min
+    assert events == [(30, "alert")]
+    full = {"enabled": False, "limit": 100, "minutes": 15}
+    assert _feed("gpu_memory", [88] * 40, full)[0] == []
+
+
+def test_both_gpu_memory_rules_read_the_same_sample(monkeypatch):
+    monkeypatch.setattr(rms, "_read_gpu", lambda: {"gpu_memory": 91})
+    monkeypatch.setattr(rms, "_read_ram_percent", lambda: 10)
+    monkeypatch.setattr(rms, "_disk_free_gb", lambda: 50.0)
+    monkeypatch.setattr(rms, "_cpu_times", lambda: None)
+    readings = rms.sample()
+    assert readings["gpu_memory"] == readings["gpu_memory_warn"] == 91

@@ -124,7 +124,8 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
         result_queue.put(("ok", lev.annotate(outcome)))
     except memory_headroom.HeadroomError as exc:
         # Its message is written for the user; the type name in front of it is not.
-        result_queue.put(("ok", {"failed_reason": "headroom", "detail": redact_secrets(str(exc))}))
+        result_queue.put(("ok", {"failed_reason": "headroom", "detail": redact_secrets(str(exc)),
+                                 "vram_need_mb": exc.vram_need_mb}))
     except ImportError as exc:
         # The user sees the fixed sentence; the server log keeps which import
         # failed, since a broken install (a DLL that won't load) reads the same.
@@ -586,6 +587,7 @@ class _PipelineRun:
         """Timing stays Whisper's VAD segments; only the text is replaced
         (asr_backend.py's module docstring explains why)."""
         o, rep = self.o, self.rep
+        whisper_models.release_whisper_models()
         qwen_ticker = rep.stage(
             "Re-transcribing with Qwen3-ASR (step 2 of 2; no percent until "
             "the first batch finishes)", frac=QWEN_SPLIT).start()
@@ -658,6 +660,7 @@ class _PipelineRun:
 
     def _force_align(self, user_lines):
         o, rep = self.o, self.rep
+        whisper_models.release_whisper_models()
         rep.progress(RUNNING_MAX,
                      "Aligning with Qwen3-ForcedAligner (true forced alignment)...")
 
