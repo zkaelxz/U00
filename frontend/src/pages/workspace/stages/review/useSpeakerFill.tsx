@@ -10,23 +10,25 @@ import { UndoNotice } from './UndoNotice'
 
 // Speaker guesses for the shown lines that still need one, by line id. Optional:
 // a failure (or no permission) just shows none.
+const EMPTY: LineSpeakerGuesses[] = []
+
 export function useSpeakerGuesses(dramaId: number, shown: ReviewLine[], reloads: number, enabled: boolean) {
-  const [list, setList] = useState<LineSpeakerGuesses[]>([])
+  const [got, setGot] = useState<{ dramaId: number; lines: LineSpeakerGuesses[] }>({ dramaId, lines: [] })
   const ids = enabled ? shown.filter(needsSpeaker).map((l) => l.id).slice(0, 200).join(',') : ''
   useEffect(() => {
+    if (!ids) return
     let cancelled = false
-    if (!ids) {
-      setList([])
-      return
-    }
     listSpeakerSuggestions(dramaId, ids.split(',').map(Number)).then(
-      (r) => !cancelled && setList(r.lines),
-      () => !cancelled && setList([]),
+      (r) => !cancelled && setGot({ dramaId, lines: r.lines }),
+      () => !cancelled && setGot({ dramaId, lines: [] }),
     )
     return () => {
       cancelled = true
     }
   }, [dramaId, ids, reloads])
+  // The last answer stays while the next one loads, so the other rows' buttons don't blink
+  // after each pick; a row that no longer needs a speaker hides its own.
+  const list = ids && got.dramaId === dramaId ? got.lines : EMPTY
   return useMemo(() => new Map<number, SpeakerGuess[]>(list.map((g) => [g.line_id, g.speakers])), [list])
 }
 
