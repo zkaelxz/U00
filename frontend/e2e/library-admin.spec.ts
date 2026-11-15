@@ -65,7 +65,7 @@ test.describe('selection bar (real API)', () => {
     await expect(bar).toContainText("Still needed: a selected title with status 'aligned'.")
 
     await bar.getByRole('button', { name: 'Delete…' }).click()
-    await expect(bar).toContainText('Permanently deletes 2 titles with their lines and files. No undo.')
+    await expect(bar).toContainText('Delete 2 titles with lines and files. Can’t be undone.')
     const confirm = bar.getByRole('button', { name: 'Delete 2' })
     await bar.getByLabel(/Type DELETE to confirm/).fill('delete')
     await expect(confirm).toBeDisabled()

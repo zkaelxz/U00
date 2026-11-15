@@ -434,10 +434,10 @@ function DeleteSnapshot({ copies, onDone, onCancel }: {
         )}
         <p>
           {chosen
-            ? `Deletes the copy from ${describeCopy(chosen)}. No undo.`
+            ? `Deletes the copy from ${describeCopy(chosen)}. Can’t be undone.`
             : which === ALL_INCLUDING
-              ? `Deletes all ${copies.length} copies. No undo.`
-              : `Deletes this library's ${managed.length} ${managed.length === 1 ? 'copy' : 'copies'}. No undo.`}{' '}
+              ? `Deletes all ${copies.length} copies. Can’t be undone.`
+              : `Deletes this library's ${managed.length} ${managed.length === 1 ? 'copy' : 'copies'}. Can’t be undone.`}{' '}
           If automatic backups are on, the next run makes a new one.
         </p>
       </TypedConfirm>
