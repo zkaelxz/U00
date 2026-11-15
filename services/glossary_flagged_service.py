@@ -41,10 +41,12 @@ def _flagged_rows(drama_id: int) -> list:
 
 
 def _doubtful_rows(drama_id: int) -> list:
-    """Flagged lines still holding the English the flag was about: editing the
-    English clears the flag, so a flag that is left is an open question."""
+    """Flagged lines nobody has settled: Save edits clears the flag, but find-and-replace
+    and memory Accept leave it, and Check marks the line reviewed, so reviewed lines
+    are left out rather than paid for again."""
     return [r._asdict() for r in db.load_line_texts(drama_id)
-            if r.flag in DOUBTFUL_FLAGS and (r.zh or "").strip() and (r.en or "").strip()]
+            if r.flag in DOUBTFUL_FLAGS and not r.reviewed
+            and (r.zh or "").strip() and (r.en or "").strip()]
 
 
 def doubtful_config_fields(drama_id: int) -> dict:
@@ -57,7 +59,8 @@ def doubtful_config_fields(drama_id: int) -> dict:
         try:
             estimate = translate_run_service.estimate_translate_cost(
                 drama_id, engine_name=engine, force_retranslate=True,
-                line_ids={r["id"] for r in rows})["estimated_usd"]
+                line_ids={r["id"] for r in rows})
+            estimate = None if estimate["free"] else estimate["estimated_usd"]
         except ServiceError:
             # A missing key or an offline engine is reported when the redo starts.
             log.info("No cost estimate for the doubtful-lines redo of title %s", drama_id, exc_info=True)

@@ -101,7 +101,7 @@ export const redoGlossaryFlagged = (id: number, lineIds?: number[], f?: Fetch) =
 /** Redoes the lines flagged as not matching their source or as uncertain by the AI, with the Settings stronger engine. */
 export const redoDoubtfulLines = (id: number, f?: Fetch) =>
   postJson<RetryFailedStarted>(`/api/translate-run/dramas/${id}/glossary-flagged/run`, { kind: 'doubtful' }, f)
-export const getEpisodeSummaryOptions =(id: number, f?: Fetch) =>
+export const getEpisodeSummaryOptions = (id: number, f?: Fetch) =>
   getJson<EpisodeSummaryOptions>(`/api/translate-run/dramas/${id}/episode-summary`, f)
 /** Spends on the chosen engine; returns the text without saving it. */
 export const generateEpisodeSummary = (id: number, engine: string, f?: Fetch) =>

@@ -222,6 +222,25 @@ def test_doubtful_redo_rewrites_those_lines_and_clears_their_old_flags(isolated_
     assert glossary_flagged_service.doubtful_config_fields(did)["doubtful_flagged_count"] == 0
 
 
+def test_doubtful_redo_keeps_the_flag_when_the_english_comes_back_unchanged(isolated_db, monkeypatch):
+    did = _title(en=("[TEST] 句0", "b", "c", "d"), errors=None)
+    _flag_as(did, {0: "slang_idiom", 1: "slang_idiom"})
+    _stronger(monkeypatch)
+    out = glossary_flagged_service.start_redo(did, "fake", kind="doubtful")
+    wait_for_job(out["job_id"], timeout=20.0)
+    assert _flags(did)[:2] == ["slang_idiom", ""]
+
+
+def test_doubtful_lines_a_person_checked_are_left_out(isolated_db, monkeypatch):
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    _flag_as(did, {0: "source_mismatch", 1: "source_mismatch"})
+    first = db.load_line_objects(did)[0]
+    first.reviewed = True
+    db.save_lines(did, [first], fields=("reviewed",))
+    _stronger(monkeypatch)
+    assert glossary_flagged_service.doubtful_config_fields(did)["doubtful_flagged_count"] == 1
+
+
 def test_a_plain_redo_keeps_other_flags(isolated_db, monkeypatch):
     did = _title(en=("a", "b", "c", "d"), errors=None)
     _flag_as(did, {1: "uncertain_translation"})
@@ -249,7 +268,7 @@ def test_doubtful_estimate_is_reported_when_the_engine_can_be_priced(isolated_db
 
     def fake_estimate(drama_id, **kw):
         seen.update(kw)
-        return {"estimated_usd": 0.12}
+        return {"estimated_usd": 0.12, "free": False}
     monkeypatch.setattr(translate_run_service, "estimate_translate_cost", fake_estimate)
     fields = glossary_flagged_service.doubtful_config_fields(did)
     assert fields == {"doubtful_flagged_count": 1, "doubtful_redo_estimate_usd": 0.12}
