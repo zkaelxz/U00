@@ -175,3 +175,61 @@ def test_cpu_percent_comes_from_the_change_between_samples(monkeypatch):
     monkeypatch.setattr(rms, "_disk_free_gb", lambda: 50.0)
     assert rms.sample()["cpu"] is None
     assert rms.sample()["cpu"] == 50
+
+
+# --- the bell and the push channels --------------------------------------------
+
+@pytest.fixture
+def notify_env(tmp_path, monkeypatch, isolated_db):
+    from services import notification_service as ns
+    from services import settings_service
+    path = tmp_path / ".env"
+    path.write_text("")
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
+    for name in (ns.DISABLED_ENV, *ns.ENV_VARS["discord"], *ns.ENV_VARS["ntfy"]):
+        monkeypatch.delenv(name, raising=False)
+
+    class _Timer:
+        def cancel(self):
+            pass
+    monkeypatch.setattr(ns, "_schedule_flush", lambda *_: _Timer())
+    ns.reset_for_tests()
+    yield ns, path
+    ns.reset_for_tests()
+
+
+_DISCORD = ("BAIHE_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/"
+            "123456789012345678/SECRETtokenABCDEFGHIJKLMNOPQRSTUVWXYZ_-0123\n")
+
+
+def test_a_resource_alert_reaches_the_bell_and_always_pushes(notify_env):
+    ns, env = notify_env
+    env.write_text(_DISCORD)
+    ns.set_categories(jobs=False, chapters=False, remote=False)   # no category can switch it off
+    ns.notify_resource_alert("GPU temperature is 88 °C, at or above 85 °C for 5 min.")
+    text = "This PC: GPU temperature is 88 °C, at or above 85 °C for 5 min."
+    assert ns._pending == [("resource", text, "resource")]
+    assert [(e["kind"], e["text"]) for e in ns.list_recent(None)] == [("resource", text)]
+    member = {"user_id": 7, "is_admin": False, "is_local_owner": False}
+    assert ns.list_recent(member) == []   # PC owner and admins only
+
+
+def test_a_resource_alert_without_a_channel_stays_in_the_bell(notify_env):
+    ns, _ = notify_env
+    ns.notify_resource_alert("RAM use is back to normal (60%).")
+    assert ns._pending == [] and len(ns.list_recent(None)) == 1
+
+
+def test_a_resource_alert_is_never_folded_into_a_job_count(notify_env):
+    ns, env = notify_env
+    env.write_text(_DISCORD)
+    ns.notify_resource_alert("Free disk space is 4.5 GB, under 10.0 GB for 5 min.")
+    assert not ns._folds_into_count(ns._pending[0])
+
+
+def test_the_default_notify_logs_and_reaches_the_bell(notify_env):
+    ns, _ = notify_env
+    for i in range(11):
+        rms.run_cycle(now=T0 + i * 30, readings={"gpu_temp": 90})
+    kinds = [(e["kind"], e["text"]) for e in ns.list_recent(None)]
+    assert kinds == [("resource", "This PC: GPU temperature is 90 °C, at or above 85 °C for 5 min.")]
