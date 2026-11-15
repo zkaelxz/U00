@@ -66,7 +66,8 @@ _SKIPPED_TABLES = {
                                  "values and their sources (metadata_field_provenance) are "
                                  "restored",
 }
-_LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
+_LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports",
+                    "edit_samples")
 _FIRST_SEEN_TABLES = ("vocab_lookups", "wiki_entries")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}

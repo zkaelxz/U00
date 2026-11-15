@@ -2523,6 +2523,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "vocab_lookups": ("export_rich", "first_seen_line_id"),
     "wiki_entries": ("first_seen_line_id", "known_through_line_id"),
     "style_profile": ("history_json",),
+    "edit_samples": ("line_id", "engine", "model", "prompt_version", "flag", "mark"),
     "users": ("share_by_default", "monthly_paid_cap_usd"),
     "progress": ("view_prefs",),
     "translate_history": ("user_id",),
