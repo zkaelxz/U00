@@ -14,7 +14,7 @@ test('settings preference sections fit a phone with 44px targets', async ({ page
   const unmocked = await guardWrites(page)
   await page.goto('/#/settings')
   for (const title of [...CARDS, ...SECTIONS]) {
-    await openSettingsGroups(page, title === 'Spending' ? 'Costs' : CARDS.includes(title) ? 'Translation and keys' : 'Performance and advanced')
+    await openSettingsGroups(page, title === 'Spending' ? 'Costs' : CARDS.includes(title) ? 'Engines and keys' : 'Advanced')
     let s = page.getByRole('region', { name: title, exact: true })
     if (SECTIONS.includes(title)) {
       s = page.locator(`details.section:has(> summary > .section-title:text-is("${title}"))`)
@@ -27,7 +27,7 @@ test('settings preference sections fit a phone with 44px targets', async ({ page
       expect(box && box.height).toBeGreaterThanOrEqual(44)
     }
   }
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Engines and keys')
   await expect(page.getByLabel('English variant', { exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.screenshot({ path: 'test-results/settings-preferences-phone.png', fullPage: true })

@@ -69,7 +69,7 @@ test.describe('Settings summary card (mocked)', () => {
   test('Manage backups lands on the Backup tab; the settings are not repeated', async ({ page }) => {
     await mockBackups(page)
     await page.goto('/#/settings')
-    await openSettingsGroups(page, 'Notifications and backups')
+    await openSettingsGroups(page, 'Advanced')
     const summary = page.getByRole('region', { name: 'Automatic backups', exact: true })
     await expect(summary.locator('.card-meta')).toHaveText('Off')
     await expect(summary.getByRole('switch')).toHaveCount(0)

@@ -144,7 +144,7 @@ describe('settingsEntries', () => {
     expect(settingsHits({ ...owner_, pcMode: 'remote' }, 'sharing')).toContain('#/settings?card=sharing')
   })
 
-  it('offers someone who cannot read settings only the Sharing tab\'s cards', () => {
+  it('offers someone who cannot read settings only the account tab\'s cards', () => {
     const cards = settingsEntries(member).map((e) => e.href.split('card=')[1])
     expect(new Set(cards)).toEqual(new Set(['sharing', 'display', 'customize-menu', 'devices', 'extension-devices']))
   })

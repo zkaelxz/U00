@@ -139,7 +139,7 @@ def _env(key, store_key, **kw):
 _ASSISTANT: dict[str, Any] = dict(scope="developer", dev_only=True, tab="system", section="Developer Mode")
 
 SETTINGS = (
-    # --- Translation and keys
+    # --- Engines and keys
     _pref("default_engine", "choice", "claude", choices="engines", label="Default engine",
           tab="translation", section="Defaults for new dramas"),
     _pref("default_locale", "choice", "en-US", choices="locales", label="English variant",

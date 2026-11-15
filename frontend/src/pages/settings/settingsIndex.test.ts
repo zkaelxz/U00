@@ -29,36 +29,43 @@ describe('settings tabs', () => {
     for (const id of placed) expect(tabOfCard(id)).toBeDefined()
   })
 
-  it('has the six tabs, and the card each page section shows on its tab', () => {
+  it('has the seven tabs, and the card each page section shows on its tab', () => {
     expect(SETTINGS_TABS.map((t) => t.label)).toEqual([
-      'Translation and keys',
+      'Engines and keys',
       'Costs',
-      'Notifications and backups',
-      'Account and display',
-      'Integrations',
-      'Performance and advanced',
+      'Transcription and jobs',
+      'Connections',
+      'Updates',
+      'My account and look',
+      'Advanced',
     ])
-    expect(tabOfCard('notifications')).toBe('notifications')
+    expect(tabOfCard('notifications')).toBe('connections')
+    expect(tabOfCard('app-updates')).toBe('updates')
+    expect(tabOfCard('source-update')).toBe('updates')
     expect(tabOfCard('spend-history')).toBe('costs')
     expect(tabOfCard('past-costs')).toBe('costs')
-    expect(tabOfCard('extension')).toBe('integrations')
-    expect(tabOfCard('performance')).toBe('system')
+    expect(tabOfCard('extension')).toBe('connections')
+    expect(tabOfCard('performance')).toBe('transcription')
+    expect(tabOfCard('developer-mode')).toBe('advanced')
     expect(tabOfCard('ports')).toBeUndefined()
     expect(tabOfCard('loaded-models')).toBeUndefined()
   })
 
   it('opens only the first card of every tab', () => {
     for (const tab of SETTINGS_TABS) {
-      expect(tab.cards.filter((c) => settingsCardStartsOpen(c.id)).map((c) => c.id)).toEqual([tab.cards[0].id])
+      // The Updates tab has two cards of which a copy shows only one, so both start open.
+      expect(tab.cards.filter((c) => settingsCardStartsOpen(c.id)).map((c) => c.id)).toEqual(tab.id === 'updates' ? ['app-updates', 'source-update'] : [tab.cards[0].id])
     }
     expect(settingsCardStartsOpen('notifications')).toBe(true)
-    expect(settingsCardStartsOpen('app-updates')).toBe(false)
+    expect(settingsCardStartsOpen('app-updates')).toBe(true)
+    expect(settingsCardStartsOpen('source-update')).toBe(true)
+    expect(settingsCardStartsOpen('display')).toBe(false)
     expect(settingsCardStartsOpen('not-a-card')).toBe(false)
   })
 
-  it('keeps the cards of the Account and display tab in order', () => {
-    // 'source-update' is the one admin-only card (system.update), pinned second; Settings and the palette hide it from a member.
-    expect(SETTINGS_TABS.find((t) => t.id === 'sharing')!.cards.map((c) => c.id)).toEqual(['sharing', 'source-update', 'display', 'customize-menu', 'devices', 'extension-devices', 'ollama-key', 'pc-profiles'])
+  it('keeps the cards of the My account and look tab in order', () => {
+    // The tab members see: every card here works for any signed-in person.
+    expect(SETTINGS_TABS.find((t) => t.id === 'account')!.cards.map((c) => c.id)).toEqual(['sharing', 'display', 'customize-menu', 'devices', 'extension-devices', 'ollama-key'])
   })
 })
 
@@ -78,13 +85,13 @@ describe('filterSettings', () => {
   it('counts hits on the tab that holds each card', () => {
     const m = filterSettings('spend', all)
     expect(m.counts.costs).toBeGreaterThan(0)
-    expect(m.counts.system).toBe(0)
+    expect(m.counts.advanced).toBe(0)
   })
 
-  it('finds the Advanced card by an Ollama field and counts it on System', () => {
+  it('finds the Advanced card by an Ollama field and counts it on the Advanced tab', () => {
     const m = filterSettings('ollama', all)
     expect(m.cardIds.has('advanced')).toBe(true)
-    expect(m.counts.system).toBeGreaterThan(0)
+    expect(m.counts.advanced).toBeGreaterThan(0)
     expect(m.total).toBe(m.cardIds.size)
   })
 

@@ -60,9 +60,9 @@ import { seedPageTabFolds } from '../components/sectionStorage'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import './settings/settings.css'
 
-// Members who get 403 on the settings call see only the cards of this tab.
-const MEMBER_TAB: SettingsTab = 'sharing'
-const MEMBER_CARDS = new Set(SETTINGS_TABS.find((t) => t.id === MEMBER_TAB)!.cards.map((c) => c.id))
+// Members who get 403 on the settings call see only these cards: their own account tab, plus Update Baihe
+// for an admin on the household address, whose update works from a phone.
+const MEMBER_CARDS = new Set([...SETTINGS_TABS.find((t) => t.id === 'account')!.cards.map((c) => c.id), 'source-update'])
 const ALL_CARDS = new Set(SETTINGS_INDEX.map((entry) => entry.cardId))
 
 const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
@@ -87,7 +87,7 @@ export default function SettingsPage() {
   const gpuNote = gpuSettingNote(readiness)
   const [schema, setSchema] = useState<SettingsSchemaRow[] | null>(null)
   const [error, setError] = useState<unknown>(null)
-  // A failed load leaves only the Sharing tab, so it gets a Retry rather than a dismissable banner.
+  // A failed load leaves only the My account and look tab, so it gets a Retry rather than a dismissable banner.
   const [loadError, setLoadError] = useState<unknown>(null)
   const [loadTry, setLoadTry] = useState(0)
   // The routing card reloads after any key, endpoint or preference save here
@@ -233,8 +233,11 @@ export default function SettingsPage() {
     () => filterElsewhere(query, (entry) => (entry.requires === 'admin.diagnostics' ? canDiagnostics : canLibrary) && (!entry.pcOnly || pcMode === 'local')),
     [query, canDiagnostics, canLibrary, pcMode],
   )
-  const visibleTabs = SETTINGS_TABS.filter((t) => (loaded || t.id === MEMBER_TAB) && t.cards.some((c) => shown(c.id)))
-  const stored = visibleTabs.some((t) => t.id === storedTab) ? storedTab : visibleTabs[0].id
+  const visibleTabs = SETTINGS_TABS.filter((t) => t.cards.some((c) => shown(c.id)))
+  // Before the settings load only the member cards exist: land on the account tab, not Updates, whose open
+  // card would repeat the Retry banner's complaint when the server is down.
+  const fallbackTab = (!loaded && visibleTabs.find((t) => t.id === 'account')) || visibleTabs[0]
+  const stored = visibleTabs.some((t) => t.id === storedTab) ? storedTab : fallbackTab.id
   // A search shows its hits even when they are on another tab; the saved tab is left alone.
   const active = searching && match.counts[stored] === 0
     ? (visibleTabs.find((t) => match.counts[t.id] > 0)?.id ?? stored)
@@ -331,41 +334,7 @@ export default function SettingsPage() {
             {shown('past-costs') && <SettingsCard id="past-costs"><PastCostsCard /></SettingsCard>}
           </>
         ))}
-        {settings && prefProps && panel('notifications', (
-          <>
-            {shown('notifications') && (
-              <SettingsCard id="notifications" summary={notifySummary}>
-                <NotificationsSection notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
-              </SettingsCard>
-            )}
-            {shown('auto-backup') && <SettingsCard id="auto-backup"><AutoBackupCard /></SettingsCard>}
-            {shown('save-folder') && <SettingsCard id="save-folder"><SaveFolderCard /></SettingsCard>}
-            {shown('app-updates') && <SettingsCard id="app-updates"><AppUpdatesCard /></SettingsCard>}
-          </>
-        ))}
-        {/* Outside the settings gate: every signed-in person has a share-new-items choice
-            and manages their own devices and extension tokens. */}
-        {panel('sharing', (
-          <>
-            <SettingsCard id="sharing"><SharingCard /></SettingsCard>
-            <SettingsCard id="source-update"><SourceUpdateCard /></SettingsCard>
-            <SettingsCard id="display"><DisplayCard /></SettingsCard>
-            <SettingsCard id="customize-menu"><CustomizeMenuCard /></SettingsCard>
-            <SettingsCard id="devices"><DevicesCard /></SettingsCard>
-            <SettingsCard id="extension-devices"><ExtensionDevicesCard /></SettingsCard>
-            <SettingsCard id="ollama-key"><OllamaKeyCard /></SettingsCard>
-            {shown('pc-profiles') && <SettingsCard id="pc-profiles"><PcProfileCard /></SettingsCard>}
-          </>
-        ))}
-        {settings && prefProps && panel('integrations', (
-          <>
-            {shown('jellyfin') && <SettingsCard id="jellyfin"><JellyfinSection /></SettingsCard>}
-            {shown('web-search') && <SettingsCard id="web-search"><WebSearchSection /></SettingsCard>}
-            {shown('inbox') && <SettingsCard id="inbox"><InboxCard /></SettingsCard>}
-            {shown('extension') && <SettingsCard id="extension"><ExtensionSection /></SettingsCard>}
-          </>
-        ))}
-        {settings && prefProps && panel('system', (
+        {settings && prefProps && panel('transcription', (
           <>
             {shown('performance') && (
               <SettingsCard id="performance" summary={jobsSummary}>
@@ -392,13 +361,51 @@ export default function SettingsPage() {
                 </Card>
               </SettingsCard>
             )}
+            {shown('timing-splitting') && <SettingsCard id="timing-splitting"><TimingSettingsCard {...prefProps} /></SettingsCard>}
+            {shown('transcription-experiments') && <SettingsCard id="transcription-experiments"><TranscriptionExperimentsCard /></SettingsCard>}
+          </>
+        ))}
+        {settings && prefProps && panel('connections', (
+          <>
+            {shown('notifications') && (
+              <SettingsCard id="notifications" summary={notifySummary}>
+                <NotificationsSection notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
+              </SettingsCard>
+            )}
+            {shown('jellyfin') && <SettingsCard id="jellyfin"><JellyfinSection /></SettingsCard>}
+            {shown('web-search') && <SettingsCard id="web-search"><WebSearchSection /></SettingsCard>}
+            {shown('inbox') && <SettingsCard id="inbox"><InboxCard /></SettingsCard>}
+            {shown('extension') && <SettingsCard id="extension"><ExtensionSection /></SettingsCard>}
+          </>
+        ))}
+        {/* Outside the settings gate: every signed-in person has a share-new-items choice and
+            manages their own devices and extension tokens, and Update Baihe needs only system.update. */}
+        {panel('updates', (
+          <>
+            {settings && shown('app-updates') && <SettingsCard id="app-updates"><AppUpdatesCard /></SettingsCard>}
+            <SettingsCard id="source-update"><SourceUpdateCard /></SettingsCard>
+          </>
+        ))}
+        {panel('account', (
+          <>
+            <SettingsCard id="sharing"><SharingCard /></SettingsCard>
+            <SettingsCard id="display"><DisplayCard /></SettingsCard>
+            <SettingsCard id="customize-menu"><CustomizeMenuCard /></SettingsCard>
+            <SettingsCard id="devices"><DevicesCard /></SettingsCard>
+            <SettingsCard id="extension-devices"><ExtensionDevicesCard /></SettingsCard>
+            <SettingsCard id="ollama-key"><OllamaKeyCard /></SettingsCard>
+          </>
+        ))}
+        {settings && prefProps && panel('advanced', (
+          <>
             {shown('advanced') && (
               <SettingsCard id="advanced">
                 <AdvancedCard {...prefProps} openSignal={advancedSignal} uploadsSignal={uploadsSignal} />
               </SettingsCard>
             )}
-            {shown('timing-splitting') && <SettingsCard id="timing-splitting"><TimingSettingsCard {...prefProps} /></SettingsCard>}
-            {shown('transcription-experiments') && <SettingsCard id="transcription-experiments"><TranscriptionExperimentsCard /></SettingsCard>}
+            {shown('auto-backup') && <SettingsCard id="auto-backup"><AutoBackupCard /></SettingsCard>}
+            {shown('save-folder') && <SettingsCard id="save-folder"><SaveFolderCard /></SettingsCard>}
+            {shown('pc-profiles') && <SettingsCard id="pc-profiles"><PcProfileCard /></SettingsCard>}
             <SettingsCard id="developer-mode"><DeveloperModeCard /></SettingsCard>
           </>
         ))}

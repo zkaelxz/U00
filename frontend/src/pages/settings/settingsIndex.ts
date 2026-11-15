@@ -5,7 +5,7 @@ import type { DiagnosticsCard } from '../diagnostics/diagnosticsTabs'
 import type { LibraryToolsTab } from '../libraryTools/libraryToolsTabs'
 import type { Route } from '../../router'
 
-export type SettingsTab = 'translation' | 'costs' | 'notifications' | 'sharing' | 'integrations' | 'system'
+export type SettingsTab = 'translation' | 'costs' | 'transcription' | 'connections' | 'updates' | 'account' | 'advanced'
 
 // Each tab starts with only its first card open until the person folds things their own way, so a tab
 // reads as a list of one-line summaries with one card to start from.
@@ -14,7 +14,7 @@ type SettingsCardSpec = { id: string }
 export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCardSpec[] }[] = [
   {
     id: 'translation',
-    label: 'Translation and keys',
+    label: 'Engines and keys',
     cards: [
       { id: 'engine-routing' },
       { id: 'defaults' },
@@ -32,33 +32,19 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     ],
   },
   {
-    id: 'notifications',
-    label: 'Notifications and backups',
+    id: 'transcription',
+    label: 'Transcription and jobs',
+    cards: [
+      { id: 'performance' },
+      { id: 'timing-splitting' },
+      { id: 'transcription-experiments' },
+    ],
+  },
+  {
+    id: 'connections',
+    label: 'Connections',
     cards: [
       { id: 'notifications' },
-      { id: 'auto-backup' },
-      { id: 'save-folder' },
-      { id: 'app-updates' },
-    ],
-  },
-  {
-    id: 'sharing',
-    label: 'Account and display',
-    cards: [
-      { id: 'sharing' },
-      { id: 'source-update' },
-      { id: 'display' },
-      { id: 'customize-menu' },
-      { id: 'devices' },
-      { id: 'extension-devices' },
-      { id: 'ollama-key' },
-      { id: 'pc-profiles' },
-    ],
-  },
-  {
-    id: 'integrations',
-    label: 'Integrations',
-    cards: [
       { id: 'jellyfin' },
       { id: 'web-search' },
       { id: 'inbox' },
@@ -66,13 +52,33 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     ],
   },
   {
-    id: 'system',
-    label: 'Performance and advanced',
+    id: 'updates',
+    label: 'Updates',
     cards: [
-      { id: 'performance' },
+      { id: 'app-updates' },
+      { id: 'source-update' },
+    ],
+  },
+  {
+    id: 'account',
+    label: 'My account and look',
+    cards: [
+      { id: 'sharing' },
+      { id: 'display' },
+      { id: 'customize-menu' },
+      { id: 'devices' },
+      { id: 'extension-devices' },
+      { id: 'ollama-key' },
+    ],
+  },
+  {
+    id: 'advanced',
+    label: 'Advanced',
+    cards: [
       { id: 'advanced' },
-      { id: 'timing-splitting' },
-      { id: 'transcription-experiments' },
+      { id: 'auto-backup' },
+      { id: 'save-folder' },
+      { id: 'pc-profiles' },
       { id: 'developer-mode' },
     ],
   },
@@ -88,7 +94,9 @@ export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
 ])
 
 const TAB_OF_CARD = new Map(SETTINGS_TABS.flatMap((t) => t.cards.map((c) => [c.id, t.id] as const)))
-const OPEN_BY_DEFAULT = new Set(SETTINGS_TABS.map((t) => t.cards[0].id))
+// A copy shows only one of the two update cards (installed app or checkout), so the second one must start
+// open too or the Updates tab would open with every card shut on a checkout.
+const OPEN_BY_DEFAULT = new Set([...SETTINGS_TABS.map((t) => t.cards[0].id), 'source-update'])
 
 export const tabOfCard = (cardId: string): SettingsTab | undefined => TAB_OF_CARD.get(cardId)
 export const settingsCardStartsOpen = (cardId: string): boolean => OPEN_BY_DEFAULT.has(cardId)

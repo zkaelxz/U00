@@ -46,10 +46,12 @@ const LINE_LABEL_LENGTH = 80
 // Two characters is the shortest word worth a search over every line of a title.
 export const MIN_LINE_QUERY = 2
 
-// A member (or anyone whose settings cannot be read) sees only the Sharing tab's cards, as on the page.
-const MEMBER_CARDS: ReadonlySet<string> = new Set(
-  SETTINGS_TABS.find((t) => t.id === 'sharing')!.cards.map((c) => c.id),
-)
+// A member (or anyone whose settings cannot be read) sees only the account tab's cards, plus Update Baihe
+// (filtered below to system.update), as on the page.
+const MEMBER_CARDS: ReadonlySet<string> = new Set([
+  ...SETTINGS_TABS.find((t) => t.id === 'account')!.cards.map((c) => c.id),
+  'source-update',
+])
 
 /** One entry per settings index line, for the cards the Settings page would show this person. */
 export function settingsEntries(ctx: NavContext): PaletteEntry[] {
