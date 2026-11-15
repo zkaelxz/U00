@@ -4,9 +4,12 @@ import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']
 
-export type LineFilter = 'all' | 'flagged' | 'untranslated' | 'unreviewed' | 'shaky' | 'risk'
+export type LineFilter = 'all' | 'flagged' | 'untranslated' | 'unreviewed' | 'shaky' | 'risk' | 'marked'
 
 export type ReviewLine = Schemas['ReviewLinesLine']
+
+// The person's own verdict on a line; "good" is Checked.
+export type LineMark = 'wrong' | 'mixed'
 
 export type ReviewLinesPage = Schemas['ReviewLinesPage']
 

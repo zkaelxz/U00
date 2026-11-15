@@ -1,7 +1,7 @@
 import { setLineSpeaker } from '../../../../api/characters'
 import { snapToSpeech, startTimingCheck } from '../../../../api/timingCheck'
 import { lineNumber } from '../../../../lineNumber'
-import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, patchLine, setReviewed } from '../../../../api/review'
+import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, patchLine, setMark, setReviewed } from '../../../../api/review'
 import type { NoteDraft, RowActions } from './LineRow'
 import type { LinesControllerDeps, LinesCore } from './linesController'
 import { nextAfterCheck, onlyNeedsSpeaker, QUEUE_FILTER } from './checkQueueModel'
@@ -121,6 +121,14 @@ export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): Row
       if (!(await leaveEdit())) return
       // The English the reviewer is looking at: the server refuses if it changed since.
       setReviewed(dramaId, id, reviewed, find(id)?.en).then((saved) => {
+        replaceLine(saved)
+        setIssue(null)
+        st.current.onChanged()
+      }, (e) => failLine(id, e))
+    },
+    setMark: async (id, mark) => {
+      if (!(await leaveEdit())) return
+      setMark(dramaId, id, mark, find(id)?.en).then((saved) => {
         replaceLine(saved)
         setIssue(null)
         st.current.onChanged()

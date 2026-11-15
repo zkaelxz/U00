@@ -43,19 +43,22 @@ test('the rail lists every page in groups and each item navigates and becomes cu
   }
 })
 
-test('Library stays current on a title, the reader and a comic, and the title shows under it', async ({ page }) => {
-  for (const hash of ['#/drama/2/review', '#/read/2', '#/comic/2']) {
+test('on a title, the reader, the Watch page and a comic the title row is current, not Library, and the title shows under it', async ({ page }) => {
+  for (const hash of ['#/drama/2/review', '#/read/2', '#/watch/2', '#/comic/2']) {
     await page.goto(`/${hash}`)
-    await expect(rail(page).getByRole('link', { name: 'Library', exact: true })).toHaveAttribute('aria-current', 'page')
-    await expect(rail(page).locator('a[aria-current="page"]')).toHaveCount(1)
     const row = page.getByTestId('rail-title')
     await expect(row).toBeVisible()
     await expect(row).toHaveAttribute('href', '#/drama/2')
+    await expect(row).toHaveAttribute('aria-current', 'page')
+    await expect(rail(page).getByRole('link', { name: 'Library', exact: true })).not.toHaveAttribute('aria-current', 'page')
+    await expect(rail(page).locator('a[aria-current="page"]')).toHaveCount(1)
     // One title row, and no stage links in the menu.
     await expect(rail(page).getByRole('link', { name: 'Review' })).toHaveCount(0)
   }
   await page.goto('/#/library')
   await expect(page.getByTestId('rail-title')).toHaveCount(0)
+  await expect(rail(page).getByRole('link', { name: 'Library', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(rail(page).locator('a[aria-current="page"]')).toHaveCount(1)
 })
 
 test('a very long title is cut off in the rail instead of scrolling it sideways', async ({ page }) => {

@@ -49,8 +49,8 @@ for (const width of [1280, 360]) {
     await expect(item).toContainText('Failed')
     await expect(item).not.toContainText('Done')
 
-    await page.getByRole('button', { name: /^Notifications/ }).click()
-    const note = page.getByRole('region', { name: 'Recent notifications' }).getByRole('listitem')
+    await page.getByRole('button', { name: /^Alerts/ }).click()
+    const note = page.getByRole('region', { name: 'Recent alerts' }).getByRole('listitem')
     await expect(note).toContainText('Failed')
     await expect(note).not.toContainText('Done')
   })
