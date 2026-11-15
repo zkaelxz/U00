@@ -172,6 +172,8 @@ var
   SetupOwnsKeyWrites: Boolean;
 
 const
+  // Inno Setup's Pascal Script rejects a const section inside a function, so this lives here.
+  Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
   CreatedFlagLine = '# created-by-setup';
   AppServiceName = 'BaiheStudio';
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{973BDBB4-4ADC-4E54-973B-682E2A04362F}_is1';
@@ -612,8 +614,6 @@ end;
 
 // Base64 of S as UTF-16LE, the form powershell.exe's -EncodedCommand takes.
 function Utf16Base64(const S: String): String;
-const
-  Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 var
   Bytes: array of Integer;
   I, N, Group: Integer;
