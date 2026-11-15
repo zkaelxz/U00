@@ -388,3 +388,13 @@ def test_a_failed_get_the_adapter_caught_blocks_validators(tracked):
     adapter = Tolerant(make_client("condtest", transport, max_retries=0))
     assert _check(adapter, tracked) == ["c1", "c2"]
     assert store.poll_validators("condtest", "s1") == {}
+
+
+def test_a_partial_chapter_list_records_nothing_and_says_why(tracked):
+    server = FakeServer(chapters=("c1", "c2"))
+    adapter = ListAdapter(make_client("condtest", server, max_retries=0))
+    adapter.chapter_notice = "Some volumes could not be loaded."
+    with pytest.raises(chapter_check.FetchFailed, match="Some volumes could not be loaded"):
+        chapter_check.check_series(adapter, tracked)
+    assert store.known_chapter_ids("condtest", "s1") == set()
+    assert store.poll_validators("condtest", "s1") == {}
