@@ -270,9 +270,7 @@ def _transcribe_in_child(args: tuple) -> dict:
 
     context = multiprocessing.get_context("spawn")
     results = context.Queue()
-    # Not a daemon: the pipeline starts processes of its own (vocal separation, ffmpeg), which a
-    # daemonic process may not.
-    proc = context.Process(target=transcribe_pipeline._transcribe_worker, args=(*args, results))
+    proc = context.Process(target=transcribe_pipeline._transcribe_worker, args=(*args, results), daemon=True)
     proc.start()
     try:
         while True:
@@ -319,6 +317,9 @@ def run_app_transcription(clip: dict, opts) -> dict:
 
 def run_diarization(clip: dict, opts) -> dict:
     backend = clip.get("backend") or settings_service.get("speaker_model")
+    if clip.get("num_speakers"):
+        # As in the app: Nemotron takes no speaker count, so a clip with one runs pyannote.
+        backend = "pyannote"
     token = "" if backend == "nemotron" else settings_service.resolve_key("hf_token")
     if token is None or (backend != "nemotron" and not token):
         raise RuntimeError("No Hugging Face token is set up, so speaker detection can't load.")
@@ -330,7 +331,6 @@ def run_diarization(clip: dict, opts) -> dict:
     started = time.monotonic()
     if backend == "nemotron":
         import diarize_nemotron
-        # No speaker-count hint here: Nemotron takes none, and the app falls back to pyannote when one is typed.
         turns, _ = diarize_nemotron.diarize(clip["audio"], use_gpu=opts.use_gpu)
         info["device"] = "cuda" if opts.use_gpu else "cpu"
     else:
@@ -420,16 +420,17 @@ def format_report(run: dict, previous: dict | None) -> str:
              "VRAM is peak torch memory in this process.", ""]
     if previous:
         lines += [f"Compared with the run of {_cell(previous.get('when', '?'))}; a score is flagged when it "
-                  f"is worse by more than {REGRESSION_MARGIN}.", ""]
+                  f"is worse than Previous by more than {REGRESSION_MARGIN}. For a clip that ran several times, "
+                  "Previous is the worst of the last run's scores.", ""]
     lines += ["| Clip | Kind | Metric | Score | Previous | Speed | VRAM MB | Result |",
               "|---|---|---|---|---|---|---|---|"]
     flagged = 0
     for r in run["results"]:
         prev = before.get(r["id"])
-        prev_score = prev.get("score") if prev else None
+        prev_score = _baseline(prev) if prev else None
         if r.get("error"):
             result = "FAILED: " + _cell(r["error"])
-        elif prev and worse(r["metric"], r["score"], _baseline(prev)):
+        elif prev and worse(r["metric"], r["score"], prev_score):
             result, flagged = "WORSE", flagged + 1
         else:
             result = "ok"

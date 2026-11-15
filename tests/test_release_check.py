@@ -213,6 +213,7 @@ def test_a_repeated_previous_run_is_compared_by_its_worst_score():
 
     assert "0 worse" in report(0.59, 0.31)
     assert "2 worse" in report(0.57, 0.33)
+    assert "| 0.600 |" in report(0.59, 0.31)  # Previous shows the value the flag compared with
 
 
 def test_nemotron_speakers_need_no_hugging_face_token(tmp_path, monkeypatch):
@@ -225,3 +226,21 @@ def test_nemotron_speakers_need_no_hugging_face_token(tmp_path, monkeypatch):
                         lambda audio, use_gpu=False: ([{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"}], {}))
     row = rc.run_diarization(clip, rc.argparse.Namespace(use_gpu=False))
     assert row["score"] == 0 and "nemotron" in row["detail"]
+
+
+def test_a_speaker_count_runs_pyannote_as_the_app_does(tmp_path, monkeypatch):
+    import diarize_nemotron
+    (tmp_path / "r.rttm").write_text("SPEAKER f 1 0.00 2.00 <NA> <NA> A <NA> <NA>\n", encoding="utf-8")
+    clip = rc.load_manifest(_write(tmp_path, [{"id": "d", "kind": "diarization", "audio": "a.wav", "num_speakers": 3,
+                                               "reference_rttm": "r.rttm", "backend": "nemotron"}]))["clips"][0]
+    monkeypatch.setattr(rc.settings_service, "resolve_key", lambda name: "hf-token")
+    monkeypatch.setattr(diarize_nemotron, "diarize", lambda *a, **k: pytest.fail("Nemotron takes no speaker count"))
+    hints = {}
+
+    def fake_pyannote(audio, token, num_speakers, use_gpu=False, run_info=None):
+        hints["num_speakers"] = num_speakers
+        return [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"}]
+
+    monkeypatch.setattr(rc.diarize, "diarize", fake_pyannote)
+    row = rc.run_diarization(clip, rc.argparse.Namespace(use_gpu=False))
+    assert hints == {"num_speakers": 3} and "pyannote" in row["detail"]
