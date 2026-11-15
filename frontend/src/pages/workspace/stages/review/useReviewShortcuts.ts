@@ -176,9 +176,10 @@ export function useReviewShortcuts(deps: ReviewShortcutsDeps) {
       case '3': {
         const guess = activeGuesses[Number(combo) - 1]
         if (!guess) return false
-        // Filling blanks is a run over many lines, so the key moves on like Enter does while editing.
+        // Filling blanks is a run over many lines, so the key moves on like Enter does while editing; a queue card
+        // that leaves on the reload already opens the next card.
         void actions.acceptSpeaker(active.id, guess.speaker).then((ok) => {
-          if (ok) void ctl.moveFlagged(1, 'no_speaker')
+          if (ok && !queue) void ctl.moveFlagged(1, 'no_speaker')
         })
         return true
       }
