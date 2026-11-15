@@ -251,6 +251,10 @@ def test_release_job_publishes_only_when_tests_passed_at_the_commit(tmp_path, co
             "&event=push&branch=baihe-subtitler") in asked
     if not ok:
         assert "Nothing was published" in proc.stdout
+    if conclusion == "cancelled":
+        # Not "wait for it to finish": a cancelled run never does.
+        assert "Tag the later commit" in proc.stdout
+        assert "wait for it to finish" not in proc.stdout
 
 
 def _run_of(conclusion, created="2026-11-12T10:00:00Z", sha="a" * 40, event="push",

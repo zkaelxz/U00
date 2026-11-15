@@ -39,14 +39,17 @@ on:
 permissions:
   contents: read
 
-# Cancel a still-running CI run for the same branch/PR once a newer push
-# supersedes it. This workflow only validates; the one that publishes a
-# release is windows-installer.yml, and the group is per workflow so a
-# cancel here never touches it. windows-latest runners bill at 2x, so a
-# superseded run is worth cancelling promptly.
+# Cancel a still-running CI run for the same PR once a newer push supersedes
+# it. Pushes to the base branch use the group rule of tests.yml (see the
+# comment there): the run in progress is never cancelled, one run waits, and
+# merges that land back to back share the waiting run instead of costing a
+# full run each. windows-latest runners bill at 2x, so the sharing counts most
+# here. This workflow only validates; the one that publishes a release is
+# windows-installer.yml, and the group is per workflow so a cancel here never
+# touches it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && 'push-' || '' }}${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   # Real observed duration (GitHub Actions run history, 2026-09-28, 6

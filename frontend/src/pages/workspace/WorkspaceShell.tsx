@@ -21,6 +21,7 @@ import { STAGE_COMPONENTS } from './stageRegistry'
 import { STAGE_IDS, STAGE_STATE_WORDS, stageLabel, type StageId, stageCount, nextAction, stageStates, startStage, isCastTab } from './stages'
 import { OpenInWindowButton } from '../../nav/OpenInWindowButton'
 import { isPopOutWindow } from '../../nav/popOut'
+import { AddSourceLink } from './AddSourceLink'
 import { JobPill } from './JobPill'
 import { NovelTitlePage } from './NovelTitlePage'
 import { SimpleStagePage } from './SimpleStagePage'
@@ -132,7 +133,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     <div className="ws-actions">
       <SourceLink href={drama?.source_url} dramaId={id} className={buttonClass('secondary', 'sm', 'ws-source')} />
       {drama && !safeHref(drama.source_url) && (
-        <a className="ws-source-add muted" href={routeHref({ name: 'drama', id, stage: 'source', tab: 'details' })}>Add a source link</a>
+        <AddSourceLink id={id} />
       )}
       {drama && (
         <ButtonLink
