@@ -31,7 +31,8 @@ SKIPPED = {"usage_log", "bulk_jobs", "metadata_research_results", "speaker_merge
 LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 
 
-LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
+LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports",
+                   "edit_samples")
 
 
 PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
