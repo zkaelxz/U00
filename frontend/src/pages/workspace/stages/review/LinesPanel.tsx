@@ -33,9 +33,9 @@ import { useLinesLoad } from './useLinesLoad'
 import { useLinkedFind } from './useLinkedFind'
 import { useClearAfter, useScrollCollapse, useToolbarHeight } from './useLinesChrome'
 import { useWaveformGaps } from './useWaveformGaps'
-import { mentionsLineHistory, pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
+import { pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
 import { useSetSpeakerPanel } from './useSetSpeakerPanel'
-import { LineHistoryButton, UndoNotice } from './UndoNotice'
+import { ReviewStatus, UndoNotice } from './UndoNotice'
 import { useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
@@ -438,10 +438,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         {setSpeaker.node}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
         {!simple && stepButtons}
-        <p className="review-status" role="status">
-          {status}
-          {onOpenHistory && mentionsLineHistory(status) && <> <LineHistoryButton onOpen={onOpenHistory} /></>}
-        </p>
+        <ReviewStatus text={status} onOpenHistory={onOpenHistory} />
         {undo && <UndoNotice message={undo.message} busy={busy} onUndo={() => void edits.doUndo()} onDismiss={() => setUndo(null)} onOpenHistory={onOpenHistory} />}
         {data === null && found === null ? (
           <RetryBanner error={error} what="the lines" onRetry={retry} />
