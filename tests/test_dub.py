@@ -889,3 +889,27 @@ class TestVenvEngineEdges:
         lines = [Line(idx=0, start=0, end=0, zh="", en="One.", speaker="A")]
         self._narrate(monkeypatch, tmp_path, [], {"A": dict(self.QWEN)}, lines)
         assert not (clips / "voice_spec_abc.json").exists()
+
+
+class TestSpeakSample:
+    def test_a_spoken_sample_lands_at_its_path_and_leaves_no_partial(self, monkeypatch, tmp_path):
+        def speak(engine, requests, workdir):
+            open(requests[0]["out"], "w").close()
+            yield 0, None
+        monkeypatch.setattr(dub_narration, "speak_in_venv", speak)
+        out = str(tmp_path / "s.wav")
+        assert dub_narration.speak_sample("Hi", {"engine": "omnivoice", "instruct": "calm"}, out, "en") is None
+        assert os.listdir(tmp_path) == ["s.wav"]
+
+    def test_a_failed_sample_returns_the_fixed_error_and_removes_the_partial(self, monkeypatch, tmp_path):
+        def speak(engine, requests, workdir):
+            open(requests[0]["out"], "w").close()
+            yield 0, dub.VENV_LINE_FAILED
+        monkeypatch.setattr(dub_narration, "speak_in_venv", speak)
+        out = str(tmp_path / "s.wav")
+        assert dub_narration.speak_sample("Hi", {"engine": "qwen3_tts"}, out, "en") == dub.VENV_LINE_FAILED
+        assert os.listdir(tmp_path) == []
+
+    def test_an_engine_that_was_removed_says_so(self, tmp_path):
+        out = dub_narration.speak_sample("Hi", {"engine": "tada"}, str(tmp_path / "s.wav"), "en")
+        assert "removed" in out

@@ -67,6 +67,7 @@ export interface SeriesCopyTermsPreview {
   source_series_id: number
   new_count: number
   skipped_count: number
+  replacements_new: number
   new_terms: string[]
   skipped_terms: string[]
 }
@@ -76,6 +77,7 @@ interface SeriesCopyTermsResult {
   source_series_id: number
   added: number
   skipped: number
+  replacements_added: number
 }
 
 export const listAllSeries = (f?: Fetch) => getJson<{ items: SeriesListItem[] }>('/api/series', f)

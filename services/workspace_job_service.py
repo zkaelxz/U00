@@ -21,6 +21,7 @@ from engine_backends import translate_pipeline, fallback, pricing, engine_regist
 from engine_backends import gemini as engine_gemini
 from engine_backends import shared as engine_shared
 from engine_backends import local as engine_local
+from engine_backends import medium_prompts, stream_recipe
 from engine_backends.llm_feature_prompts import glossary_term_forms
 import translation_guide as tguide
 import translation_memory
@@ -53,7 +54,7 @@ def resolve_style_toggles(drama, include_genre_notes=None, default_female_pronou
 
 def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True,
                             include_genre_notes=None, default_female_pronouns=None,
-                            principal=None, memory_examples=False):
+                            principal=None, memory_examples=False, engine_name=None, model=None):
     """(glossary_terms, style_guidelines, character_names) for one drama,
     shared by the app's runs: series glossary, style
     profile, emotion guidance, gender hints, speaker labels and
@@ -65,11 +66,13 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     has no acting principal, so its starter passes the one captured at
     start (ownership_service.acting_principal).
     memory_examples: add the series' approved translation-memory pairs closest
-    to these lines to the prompt (off unless the Translate form asks)."""
+    to these lines to the prompt (off unless the Translate form asks).
+    engine_name/model: the run's engine; only a Translate run and the Library batch pass
+    them, and the plain stream prompt applies only to a Gemma 4 run (see plain_stream_prompt)."""
     include_genre_notes, default_female_pronouns = resolve_style_toggles(
         drama, include_genre_notes, default_female_pronouns)
     series_id = (drama or {}).get("series_id")
-    glossary_terms = db.list_effective_glossary_terms(series_id) if series_id else None
+    glossary_terms = db.list_run_glossary_terms(drama or {}) or None
     if glossary_terms:
         # A big series glossary would otherwise ride in every batch's prompt.
         run_text = "\n".join(ln.zh or "" for ln in lines)
@@ -84,6 +87,16 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     examples = _memory_examples(series_id, lines) if memory_examples else None
     emap = db.load_emotions(drama_id) if with_emotions else None
     emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
+    if plain_stream_prompt(drama, engine_name, model):
+        # The learned style, emotion notes and preset rules are left out: tone words
+        # in them made a stream's captions worse (engine_backends/stream_recipe.py).
+        style_guidelines = stream_recipe.build_guidelines(
+            glossary_terms,
+            tguide.FEMALE_PRONOUN_DEFAULT_GUIDANCE if default_female_pronouns else "",
+            tguide.build_character_guidance(series_chars, drama_chars, default_female_pronouns))
+        style_guidelines += language_pack_service.block_for(drama, lines, glossary_terms)
+        style_guidelines += vdb_names_service.block_for(drama, lines, glossary_terms)
+        return glossary_terms, style_guidelines, tguide.build_speaker_labels(drama_chars, series_chars)
     style_guidelines = tguide.build_style_guidelines(
         style_preset, glossary_terms=glossary_terms,
         include_genre_notes=include_genre_notes,
@@ -96,6 +109,14 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     style_guidelines += language_pack_service.block_for(drama, lines, glossary_terms)
     style_guidelines += vdb_names_service.block_for(drama, lines, glossary_terms)
     return glossary_terms, style_guidelines, character_names
+
+
+def plain_stream_prompt(drama, engine_name, model=None) -> bool:
+    """Whether a run uses the plain stream prompt: the setting is on, the title is a
+    stream and the engine is Gemma 4, the only model it was tested on."""
+    return (bool(engine_name) and medium_prompts.kind_for(drama) == "stream"
+            and engine_registry.is_gemma4(engine_name, model)
+            and bool(settings_service.get("stream_plain_prompt")))
 
 
 def _memory_examples(series_id, lines) -> list:
@@ -122,13 +143,20 @@ def _month_cap_check(engine_choice, engine):
     # Imported here: translate_run_service imports this module.
     from services import translate_run_service
     if not translate_run_service.engine_cap_applies(
-            engine_choice, bool(getattr(engine, "free_tier", False))):
+            engine_choice, bool(getattr(engine, "free_tier", False)),
+            getattr(engine, "model", None)):
         return None
 
     def spent() -> bool:
         monthly = settings_service.get_monthly_cap_usd()
         return bool(monthly) and db.get_month_spend() >= monthly
     return spent
+
+
+def _saved_translate_options(engine_choice) -> dict:
+    """The saved Settings choices a translate run passes to the pipeline."""
+    return {"check_replies": settings_service.reply_guard_override(),
+            "reasoning": settings_service.reasoning_override(engine_choice)}
 
 
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
@@ -193,20 +221,19 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     # A run takes minutes, and the user may type English meanwhile.
     _save, _notes, kept_edits = translation_finish.own_lines_callbacks(drama_id, lines, provenance)
     job_timing_service.mark_stage(job_id, "Translate")
+    drama_meta, cost_cap_usd = _episode_context_and_cap(job_id, drama_id, lines, engine, engine_choice, drama_meta, character_names, target_ids, style_guidelines, cost_cap_usd)
     _, errors = translate_pipeline.translate_lines_with_engine(
-        lines, engine, drama_meta=_with_episode_context(
-            job_id, drama_id, lines, engine, engine_choice, drama_meta, character_names, target_ids), style_note=style_note,
-        novel_reference=novel_reference, force_retranslate=force_retranslate,
+        lines, engine, drama_meta=drama_meta, style_note=style_note, novel_reference=novel_reference, force_retranslate=force_retranslate,
         locale=locale, glossary_terms=glossary_terms, style_guidelines=style_guidelines,
         context_window=context_window, context_window_ahead=context_window_ahead,
         batch_size=batch_size, character_names=character_names,
         ollama_num_ctx_override=ollama_num_ctx_override,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
         **timing_settings_service.translate_limits(),
-        check_replies=settings_service.reply_guard_override(),
+        **_saved_translate_options(engine_choice),
         thinking=thinking, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
         cap_cb=lambda spent: cap_reached.update(spent=spent),
-        notes_cb=_notes,
+        notes_cb=_notes, sentence_groups_cb=(sentence_parts := []).extend,
         detail_cb=lambda frac, message: background_jobs.update_progress(
             job_id, frac, engine_gemini.progress_message_with_rate_status(
                 engine, frac, base=message)),
@@ -215,7 +242,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         usage_cb=_usage_logger(drama_id, engine, engine_choice),
     )
 
-    job_timing_service.mark_stage(job_id, "Finish (glossary checks, version, summary)")
+    job_timing_service.mark_stage(job_id, "Finish (glossary checks, version)")
     recheck = set()
     cancelled = background_jobs.is_cancel_requested(job_id)
     # Shared with the other translate paths: glossary enforcement,
@@ -229,7 +256,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             line_scoped=target_ids is not None,
             enforce_ids=(set(target_ids) if own_lines_only and target_ids is not None
                          else {ln.id for ln in lines if getattr(ln, "id", None) is not None}),
-            flags_needing_recheck=recheck, embed_texts=settings_service.alignment_embedder()):
+            flags_needing_recheck=recheck, embed_texts=settings_service.alignment_embedder(), sentence_parts=sentence_parts, stage_cb=lambda stage: job_timing_service.mark_stage(job_id, stage)):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})
@@ -252,8 +279,28 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         raise background_jobs.JobCancelled(job_id)
 
 
+def _episode_context_and_cap(job_id, drama_id, lines, engine, engine_choice, drama_meta,
+                             character_names, target_ids, style_guidelines, cost_cap_usd):
+    """(drama_meta with its episode context, the cost cap left for the batches). The
+    estimate shown before the run counts the pre-read, so the cap does too."""
+    spent = []
+    meta = _with_episode_context(job_id, drama_id, lines, engine, engine_choice, drama_meta,
+                                 character_names, target_ids, style_guidelines, spent_cb=spent.append)
+    return meta, (None if cost_cap_usd is None else max(0.0, cost_cap_usd - sum(spent)))
+
+
+def _logged_and_counted(log, engine, spent_cb):
+    """usage_cb that logs a call and reports its dollars to spent_cb, so the run's own
+    cost cap counts a call made outside the batch loop."""
+    def record(inp, out, *rest):
+        log(inp, out, *rest)
+        if spent_cb is not None:
+            spent_cb(pricing.estimate_cost_for_engine(engine, inp, out))
+    return record
+
+
 def _with_episode_context(job_id, drama_id, lines, engine, engine_choice, drama_meta,
-                          character_names, target_ids) -> dict:
+                          character_names, target_ids, style_guidelines="", spent_cb=None) -> dict:
     """drama_meta plus what the batches carry beyond the previous episode's summary:
     the series note (earlier episodes only) and the episode's brief. The brief is
     read from the title when one is saved (so a person's edit is used as written)
@@ -275,7 +322,10 @@ def _with_episode_context(job_id, drama_id, lines, engine, engine_choice, drama_
         with llm_tasks.bounded_job_calls(job_id, lambda: background_jobs.is_cancel_requested(job_id)):
             brief = llm_tasks.generate_episode_brief(
                 lines, engine, meta, character_names,
-                usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "episode_brief"))
+                usage_cb=_logged_and_counted(
+                    paid_calls.usage_logger(drama_id, engine_choice, engine, "episode_brief"),
+                    engine, spent_cb),
+                plain_stream_prompt=stream_recipe.is_active(style_guidelines))
     except (HeadroomError, LLMTaskTimeout, background_jobs.JobCancelled):
         raise
     except Exception as exc:
@@ -472,12 +522,22 @@ def _plan_bulk_title(results, did, drama, api_keys, models, expected_engines,
     if not api_key:
         api_key = "local"
 
+    # The engine is the title's own, so the model its last run chose is this engine's.
+    last = profile_service.title_run_defaults(drama, engine_choice, engine_choice)
+    model = models.get(engine_choice)
+    if model is None and "model" in last:
+        try:
+            translate_run_service._require_offered_model(engine_choice, last["model"])
+            model = last["model"]
+        except InvalidInputError:
+            pass    # no longer offered: the engine's default
+
     # Same cap logic as Workspace's Translate button -- only the engines that bill per token and report
     # usage are subject to it, and it's re-resolved against the
     # month's spend-so-far right before each drama, not just once for
     # the whole batch, since earlier dramas in this same run add to
     # that spend too.
-    cap_applies = translate_run_service.engine_cap_applies(engine_choice, gemini_free_tier)
+    cap_applies = translate_run_service.engine_cap_applies(engine_choice, gemini_free_tier, model)
     cost_cap = None
     if cap_applies and not monthly_cap:
         # Unattended spend needs a ceiling; the start refuses without one,
@@ -491,15 +551,6 @@ def _plan_bulk_title(results, did, drama, api_keys, models, expected_engines,
             results["skipped_cap"].append(did)
             return None
 
-    # The engine is the title's own, so the model its last run chose is this engine's.
-    last = profile_service.title_run_defaults(drama, engine_choice, engine_choice)
-    model = models.get(engine_choice)
-    if model is None and "model" in last:
-        try:
-            translate_run_service._require_offered_model(engine_choice, last["model"])
-            model = last["model"]
-        except InvalidInputError:
-            pass    # no longer offered: the engine's default
     try:
         engine = engine_registry.get_engine(
             engine_choice, api_key, model,
@@ -518,19 +569,23 @@ def _start_bulk_title(did, drama, rows, plan, title, per_job_id, default_locale,
     Returns whether it started."""
     from services import settings_service, translate_run_service
     engine_choice, engine = plan["engine_choice"], plan["engine"]
-    last = plan["last"]
+    model = getattr(engine, "model", None)
+    is_novel = drama.get("content_mode") == "novel_narration"
+    # The same engine and model decide the prompt and the sizes, so a plain stream
+    # prompt never runs with the full prompt's context and batch size.
+    last, defs = translate_run_service.remembered_and_defaults(
+        drama, plan["last"], is_novel, engine_choice, model)
     lines = core_module.lines_from_rows(rows)
     # Must not always be "audio_drama" (wrong for a novel-narration
     # drama): same per-content-mode default the shared
     # translate-finishing helper uses.
-    is_novel = drama.get("content_mode") == "novel_narration"
     style_preset = last.get("style_preset") or ("novel" if is_novel else "audio_drama")
     style_note = last.get("style_note", default_style_note)
     locale = default_locale if locale_is_explicit else last.get("locale", default_locale)
     glossary_terms, style_guidelines, _ = build_run_style_context(
         did, drama, lines, style_preset, include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns, principal=principal)
-    defs = translate_run_service.get_translate_config_defaults(is_novel, engine)
+        default_female_pronouns=default_female_pronouns, principal=principal,
+        engine_name=engine_choice, model=model)
     defs = {k: last.get(k, v) for k, v in defs.items()}
     novel_reference = novel_files_service.read_reference_text(did, drama)
 
@@ -551,13 +606,12 @@ def _start_bulk_title(did, drama, rows, plan, title, per_job_id, default_locale,
             # Only a local Ollama model loads onto this PC's GPU; an Ollama
             # cloud tag is remote and must not queue behind GPU jobs. The
             # guard stops a local one running alongside another GPU job.
-            gpu_touching=engine_local.ollama_touches_local_gpu(
-                engine_choice, getattr(engine, "model", None)),
+            gpu_touching=engine_local.ollama_touches_local_gpu(engine_choice, model),
             description=f"Ollama translation ({title})" if engine_choice == "ollama" else None,
             run_settings=run_settings_service.for_translate(
                 drama, include_genre_notes, default_female_pronouns, glossary_terms,
                 style_guidelines, style_note, engine=engine_choice,
-                model=getattr(engine, "model", None), locale=locale,
+                model=model, locale=locale,
                 style_preset=style_preset, force_retranslate=False, **defs),
                 line_fields=("en", "flag", "flag_note"))
     except ConflictError:

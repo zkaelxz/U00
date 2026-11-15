@@ -108,7 +108,7 @@ export function ThemeMenu() {
       <button
         ref={button}
         type="button"
-        className="theme-menu-btn"
+        className="theme-menu-btn hb-box"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -122,7 +122,8 @@ export function ThemeMenu() {
           } else if (e.key === 'Escape' && open) close(false)
         }}
       >
-        {ICONS[theme]}
+        <span className="hb-icon">{ICONS[theme]}</span>
+        <span className="hb-words" aria-hidden="true">Theme</span>
       </button>
       {open && (
         <ThemeMenuItems

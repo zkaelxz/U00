@@ -94,7 +94,7 @@ export default function SourceStage() {
   }, [saveDraft, from])
   const fromUrl = from === 'url'
 
-  // The sub-tab: a link's ?tab= first, Library's "Create and fill details with AI" (Fill in details is on Details), then the
+  // The sub-tab: a link's ?tab= first, Library's "Create + fill with AI" (Fill in details is on Details), then the
   // one this title was last left on.
   const kindOfTitle = titleKind(drama.media_type, drama.content_mode)
   const linkedTab = () => {
@@ -352,7 +352,8 @@ export default function SourceStage() {
     </div>
   )
   const hasTranscribe = mediaTabsFor(kindOfTitle).some((t) => t.id === 'transcribe')
-  const subtitles = !simple && appliesTo(kindOfTitle, 'subtitle_import') && canUpload && (
+  // Simple leaves the section out, but the drop box takes subtitle files too: a dropped one brings it in rather than vanish.
+  const subtitles = (!simple || droppedSubtitle !== null) && appliesTo(kindOfTitle, 'subtitle_import') && canUpload && (
     <Section
       key="subtitles"
       storageKey="source.group.subtitles"

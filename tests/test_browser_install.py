@@ -45,7 +45,7 @@ INSTALLER = textwrap.dedent("""
         os.makedirs(os.path.join(root, "chromium-1"))
         print("net::ERR_CONNECTION_RESET", flush=True)
         sys.exit(1)
-    print("key " + os.environ["FAKE_SECRET"] + " in " + root + "/chromium-1", flush=True)
+    print("key " + os.environ["FAKE_PRINTED_VALUE"] + " in " + root + "/chromium-1", flush=True)
     for i in range(1, 31):
         print("progress", i * 3, "%", "x" * 400, flush=True)
     for name in ("chromium-1", "chromium_headless_shell-1"):
@@ -96,7 +96,8 @@ def env(isolated_db, monkeypatch, tmp_path):
     monkeypatch.setattr(svc, "_global_chromium_present", lambda: state["global"])
     monkeypatch.setattr(svc, "_free_mb", lambda: state["free"])
     monkeypatch.setattr(svc, "_command", lambda: [sys.executable, str(script), state["mode"]])
-    monkeypatch.setenv("FAKE_SECRET", SECRET)
+    # Not named like a secret, which the install now strips: the point here is the redaction of output.
+    monkeypatch.setenv("FAKE_PRINTED_VALUE", SECRET)
     monkeypatch.setenv("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD", "1")
     background_jobs.clear_job(svc.BROWSER_JOB_ID)
     svc._RESULT["last"] = None

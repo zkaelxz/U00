@@ -39,13 +39,13 @@ def open_folder(folder: str):
     OSError when the PC has no file manager to open it with. A repeat for the
     same folder within a few seconds is ignored so a double click can't pile
     up Explorer windows."""
+    if not _has_desktop():
+        raise NoDesktopError("no desktop session")
     now = time.monotonic()
     with _lock:
         if now - _last_opened.get(folder, -_REPEAT_WINDOW_S) < _REPEAT_WINDOW_S:
             return
         _last_opened[folder] = now
-    if not _has_desktop():
-        raise NoDesktopError("no desktop session")
     if sys.platform.startswith("win"):
         # Explorer directly, not ShellExecute: the "open" verb on a folder is
         # whatever shell extension or file-manager replacement claims it.
@@ -53,4 +53,11 @@ def open_folder(folder: str):
     else:
         argv = ["open" if sys.platform == "darwin" else "xdg-open", folder]
     # No shell; the file manager outlives this call (Explorer exits non-zero even on success).
-    subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=not sys.platform.startswith("win"))
+    try:
+        subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=not sys.platform.startswith("win"))
+    except OSError:
+        # A failed launch must not make the retry look like a double click and
+        # report success without opening anything.
+        with _lock:
+            _last_opened.pop(folder, None)
+        raise

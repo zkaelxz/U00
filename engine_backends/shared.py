@@ -490,6 +490,25 @@ def strip_echoed_label(speaker, reply: str) -> str:
     return stripped if stripped.strip() else reply
 
 
+# translategemma:12b has answered one line with "Strange. Or: Weird. Or: Odd.": a list of
+# alternatives where a subtitle takes exactly one. "Or:" opening a sentence is the marker; a
+# plain "or" inside a sentence is ordinary dialogue and never matches.
+_ALTERNATIVE_MARKER = re.compile(r"(?<=[.!?…])\s+(?:Or|Alternatively):\s")
+
+
+def keep_first_alternative(reply: str) -> str:
+    """The reply cut to its first answer when the model listed several
+    ("Strange. Or: Weird." -> "Strange."). Unchanged when there is no marker
+    or nothing would be left before it."""
+    if not reply:
+        return reply
+    match = _ALTERNATIVE_MARKER.search(reply)
+    if not match:
+        return reply
+    first = reply[:match.start()].strip()
+    return first or reply
+
+
 def build_numbered_lines(ids: list, zh_lines: list, speaker_names: list | None = None,
                          languages: list | None = None) -> str:
     """

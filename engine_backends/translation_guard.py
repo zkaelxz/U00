@@ -6,6 +6,7 @@ retry and flagging live in translate_pipeline."""
 import json
 import math
 import re
+import unicodedata
 
 # Thresholds are deliberately generous: a false alarm costs a paid re-ask, a
 # miss only leaves today's behaviour.
@@ -170,9 +171,17 @@ def dialogue_lost(source: str, reply: str) -> bool:
     return _english_words(outside) < 2
 
 
+def novel_script_leak(reply: str) -> bool:
+    """Any CJK character in a novel's English, quotes and kept terms included.
+    The general check exempts what a glossary or style profile mentions, but a
+    profile that says "keep 凹 as written" made a model leave it in the prose."""
+    return bool(_CJK.search(reply or ""))
+
+
 def line_problems(source: str, reply: str, allowed_runs=(), novel: bool = False) -> list:
     """Problems visible from one line alone. novel: also check that spoken
-    words keep their quotation marks and speaker tag."""
+    words keep their quotation marks and speaker tag, and that no source
+    script is left (strictly: see novel_script_leak)."""
     problems = []
     if not reply.strip():
         return problems
@@ -181,7 +190,7 @@ def line_problems(source: str, reply: str, allowed_runs=(), novel: bool = False)
     issue = length_issue(source, reply)
     if issue:
         problems.append(issue)
-    if leftover_source_script(reply, allowed_runs):
+    if (novel_script_leak(reply) if novel else leftover_source_script(reply, allowed_runs)):
         problems.append("leftover")
     return problems
 
@@ -268,3 +277,65 @@ def guard_batch(chunk: list, redo, stop, allowed_runs=(), novel: bool = False) -
                 live[p].en = candidate[p]
     return [(live[p], reason)
             for p, reason in suspect_positions(sources, replies, allowed_runs, novel).items()]
+
+
+# Imperial words in the English only count when the source carries a measurement
+# of its own (metric or Chinese) and none of the imperial kind: 英尺 and 磅 in the
+# source make feet and pounds correct, and a line with no measurement has nothing
+# to convert ("a mile of road" in a figure of speech would be the model's choice).
+_IMPERIAL_IN_ENGLISH = re.compile(
+    r"\b(?:feet|foot|inch(?:es)?|miles?|pounds?|lbs?|ounces?|yards?|fahrenheit)\b|\d\s?°\s?F\b",
+    re.IGNORECASE)
+_MEASURE_IN_SOURCE = re.compile(r"[0-9零一二三四五六七八九十百千两半]\s?(?:米|公里|千米|厘米|公斤|千克|克|度|升|里|丈|尺|寸|斤)")
+_IMPERIAL_IN_SOURCE = re.compile(r"英尺|英寸|英里|英吋|磅|盎司|码|华氏|フィート|インチ|マイル|ポンド|피트|인치|마일|파운드|°F")
+
+IMPERIAL_NOTE = "check: metric measurement in the source reads as imperial here"
+
+
+def converted_to_imperial(source: str, english: str) -> bool:
+    """Novel mode keeps the source's units; a line that turns a measurement of
+    the source into feet, miles, pounds or Fahrenheit is flagged."""
+    return bool(_IMPERIAL_IN_ENGLISH.search(english or "") and _MEASURE_IN_SOURCE.search(source or "")
+                and not _IMPERIAL_IN_SOURCE.search(source or ""))
+
+
+# A model that has seen the prompt's "[Name]" speaker rule sometimes invents the
+# prefix itself on a source line that has none; only such a prefix is removed, so
+# a source that really opens with a bracketed label keeps its own.
+_INVENTED_TAG = re.compile(r"^\s*\[[^\[\]\n]{1,40}\]\s+(?=\S)")
+
+
+def strip_invented_speaker_tag(source: str, english: str) -> str:
+    if (source or "").lstrip().startswith(("[", "【", "［")):
+        return english
+    return _INVENTED_TAG.sub("", english or "", count=1)
+
+
+
+SCRIPT_LEAK_NOTE = "check: Chinese, Japanese or Korean characters left in the English"
+NUMBER_NOTE = "check: a number in the source is different or missing in the English"
+HEADER_NOTE = "check: a chapter heading was added to this line"
+
+_NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
+# "Chapter 1 1:" and similar: a heading the model carried over from the
+# batch's chapter marker onto an ordinary paragraph.
+_ENGLISH_HEADER = re.compile(r"^\s*(?:chapter|ch\.?)\s*\d+[\s\d]*[:.\-–—]", re.IGNORECASE)
+_SOURCE_HEADER = re.compile(r"第.{1,9}[章回话話節节]|^\s*(?:chapter|ch\.?)\s*\d|[0-9０-９]+\s*화", re.IGNORECASE)
+
+
+def _numbers(text: str) -> set:
+    return {n.replace(",", "") for n in _NUMBER.findall(unicodedata.normalize("NFKC", text or ""))}
+
+
+def changed_number(source: str, english: str) -> bool:
+    """A number of two or more digits in the source that the English leaves out
+    while writing other numbers (35 degrees turned into 95). English that
+    spells the number out has no digits and is not judged: that is the model's
+    ordinary choice, and a false alarm costs the reader a look."""
+    wanted = {n for n in _numbers(source) if len(n.replace(".", "")) >= 2}
+    got = _numbers(english)
+    return bool(wanted and got and not wanted <= got)
+
+
+def added_chapter_header(source: str, english: str) -> bool:
+    return bool(_ENGLISH_HEADER.match(english or "") and not _SOURCE_HEADER.search(source or ""))

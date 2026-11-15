@@ -209,7 +209,8 @@ def _log_failure(exc: Exception):
 
 
 def _refuse_over_cap(engine_name: str, free_tier: bool, estimate: float):
-    if not translate_run_service.engine_cap_applies(engine_name, free_tier):
+    # The engine is built with its default model, which is never a hosted tag.
+    if not translate_run_service.engine_cap_applies(engine_name, free_tier, None):
         return
     monthly = translate_run_service.month_cap_usd()
     if not monthly:

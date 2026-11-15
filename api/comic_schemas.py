@@ -104,6 +104,17 @@ class ComicVisibilityResult(BaseModel):
     hidden_count: int
 
 
+class ComicStartChapterRequest(BaseModel):
+    """Start a new chapter at this page; a blank title is numbered by the reader."""
+    model_config = ConfigDict(extra="forbid")
+    page_id: int = Field(ge=1)
+    title: str = Field("", max_length=200)
+
+
+class ComicStartChapterResult(BaseModel):
+    changed: int
+
+
 class ComicSourceChapter(BaseModel):
     chapter_id: str = ""
     title: str

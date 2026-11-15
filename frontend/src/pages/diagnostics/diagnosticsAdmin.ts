@@ -236,6 +236,7 @@ export const MODEL_DOWNLOAD_IDS: Record<string, string> = {
   'Qwen3-ASR': 'qwen3_asr',
   'SenseVoice (FunASR)': 'sensevoice',
   'manga-ocr': 'manga_ocr',
+  'LaMa-manga': 'lama_manga',
 }
 
 /** Why the last download of a model did not finish, or null (nothing started, running, or done). */

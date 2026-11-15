@@ -20,6 +20,11 @@ before it is translated. Three rules keep that safe:
 - A newly added page is discarded only while the pipeline lock is still
   held (`discard_on_failure`); after release another request may already
   have answered with it, so a later failure keeps it for a re-capture.
+
+Within one request the pages overlap (`PageOrder`): the next page is read
+while one translates, but each still reads after the page before it read
+and translates after it translated, so the library's page order and each
+page's previous-page context are what a one-at-a-time loop gave.
 """
 
 import contextlib
@@ -76,15 +81,16 @@ def _evict_idle_chains():
         _contexts.pop(key, None)
 
 
-def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb):
+def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb, **extras):
     """Translates one page as the next link of its title's context chain.
-    Other titles never wait on this title's lock."""
+    Other titles never wait on this title's lock. `extras` (character_notes,
+    page_image) go to `translate_page_bubbles` as given."""
     import scanlate_translate
     key = _chain_key(drama_id, source_url)
     if key is None:
         scanlate_translate.translate_page_bubbles(
             bubbles, engine, drama or {}, previous_context="",
-            glossary_terms=glossary, usage_cb=usage_cb)
+            glossary_terms=glossary, usage_cb=usage_cb, **extras)
         return
     with _context_lock:
         chain = _chain_locks.get(key)
@@ -100,7 +106,7 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
                 previous = _contexts.get(key, "") if linked else ""
             new_context = scanlate_translate.translate_page_bubbles(
                 bubbles, engine, drama or {}, previous_context=previous,
-                glossary_terms=glossary, usage_cb=usage_cb)
+                glossary_terms=glossary, usage_cb=usage_cb, **extras)
             if linked:
                 with _context_lock:
                     _contexts[key] = new_context
@@ -169,3 +175,65 @@ def discard_on_failure(drama_id):
             except Exception:
                 pass
         raise
+
+
+class Stopped(Exception):
+    """The request stopped (cancelled, or a page failed in a way every later one would)
+    before this page's turn to read came."""
+
+
+class _Unordered:
+    """The turn of a page that waits for no other page."""
+
+    def reading(self):
+        return contextlib.nullcontext()
+
+    def translating(self):
+        return contextlib.nullcontext()
+
+
+UNORDERED = _Unordered()
+
+
+class PageOrder:
+    """Turns for the pages of one request, by their index in it. `should_stop` is asked when
+    a page's turn to read comes; True raises `Stopped` there, before anything is stored.
+    `finish(index)` must run for every page, however it ended, or the next page waits for ever."""
+
+    def __init__(self, count: int, should_stop=lambda: False):
+        self._read = [threading.Event() for _ in range(count)]
+        self._translated = [threading.Event() for _ in range(count)]
+        self._should_stop = should_stop
+
+    def turn(self, index: int) -> "_PageTurn":
+        return _PageTurn(self, index)
+
+    def finish(self, index: int) -> None:
+        self._read[index].set()
+        self._translated[index].set()
+
+
+class _PageTurn:
+    def __init__(self, order: PageOrder, index: int):
+        self._order = order
+        self._index = index
+
+    @contextlib.contextmanager
+    def reading(self):
+        if self._index:
+            self._order._read[self._index - 1].wait()
+        if self._order._should_stop():
+            raise Stopped()
+        yield
+        # Not on failure: the caller records why first, then `finish` lets the next page check
+        # `should_stop`, so a failure that stops the request is seen before the next read starts.
+        self._order._read[self._index].set()
+
+    @contextlib.contextmanager
+    def translating(self):
+        if self._index:
+            self._order._translated[self._index - 1].wait()
+        try:
+            yield
+        finally:
+            self._order._translated[self._index].set()

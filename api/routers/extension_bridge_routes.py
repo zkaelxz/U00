@@ -16,12 +16,15 @@ bridge's own limit, since the proxy's small default body cap is lifted for
 `/api/ext-bridge/pages` and `/page`.
 """
 
+import asyncio
+import json
+
 from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 import page_server
-from api.auth import require_device_token, require_engines_allowed
+from api.auth import holds, require_device_token, require_engines_allowed
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
 from services import extension_bridge_service
@@ -68,16 +71,60 @@ def _refuse_when_cap_spent() -> None:
     if not name:
         return
     try:
-        translate_run_service.refuse_when_cap_spent(name)
+        translate_run_service.refuse_when_cap_spent(
+            name, False, page_server.get_translation_config().get("model"))
     except ServiceError as e:
         raise page_server.EndpointError(429, e.message) from None
 
 
-def _images(payload: dict, single: bool, principal) -> dict:
+def _images(payload: dict, single: bool, principal, write=None) -> dict | None:
     images = payload.get("images")
     extension_bridge_service.validate_image_batch(single, images)
     _refuse_when_cap_spent()
+    if write is not None:
+        return extension_bridge_service.streamed_lines(payload, images, write, principal=principal)
     return extension_bridge_service.run_images(payload, images, principal=principal)
+
+
+async def _streamed(work) -> StreamingResponse:
+    """Runs `work(write)` on a worker thread and answers with the lines it writes as they come.
+    The answer starts only with the first line, so a refusal raised before it (a bad batch, the
+    spending cap, no such title) is re-raised here and becomes the usual error answer."""
+    loop = asyncio.get_running_loop()
+    lines: asyncio.Queue = asyncio.Queue()
+
+    def put(item):
+        loop.call_soon_threadsafe(lines.put_nowait, item)
+
+    def run():
+        try:
+            work(lambda line: put(("line", line)))
+        except BaseException as e:   # handed to the request, which decides what the caller sees
+            put(("error", e))
+        finally:
+            put(("end", None))
+
+    asyncio.ensure_future(run_in_threadpool(run))
+    kind, first = await lines.get()
+    if kind == "error":
+        raise first
+
+    async def body():
+        item = (kind, first)
+        while item[0] != "end":
+            if item[0] == "line":
+                yield json.dumps(item[1]).encode("utf-8") + b"\n"
+            else:
+                import applog
+                applog.get_logger().warning("Extension bridge stream failed", exc_info=item[1])
+                status = item[1].status if isinstance(item[1], page_server.EndpointError) else 500
+                message = (item[1].message if isinstance(item[1], page_server.EndpointError)
+                           else "the app failed to answer this request")
+                yield json.dumps({"error": message, "status": status}).encode("utf-8") + b"\n"
+            item = await lines.get()
+
+    return StreamingResponse(body(), media_type=extension_bridge_service.STREAM_CONTENT_TYPE,
+                             headers=_NO_STORE)
 
 
 def _text(payload: dict, principal) -> dict:
@@ -94,11 +141,27 @@ def _require_engine_allowed(request: Request) -> None:
                                 model=page_server.get_translation_config().get("model"))
 
 
-async def _handle(request: Request, work, uses_engine: bool = False):
+# `extension.send` only lets a member use the extension; what the extension writes into a
+# title is still governed by the permissions the People screen gives for it, so taking
+# `lines.edit` or `jobs.start` away must stop the extension too.
+_WRITE = ("lines.edit",)
+_ENGINE_WRITE = ("lines.edit", "jobs.start")
+
+
+def _require_held(request: Request, permissions) -> None:
+    if not all(holds(request, p) for p in permissions):
+        raise ForbiddenError("Not allowed.")
+
+
+async def _handle(request: Request, work, uses_engine: bool = False, needs=(), streamed=None):
+    """`streamed(payload, write)`: the work for a request that asks for `stream`."""
     try:
+        _require_held(request, needs)
         if uses_engine:
             _require_engine_allowed(request)
         payload = await _json_body(request)
+        if streamed is not None and payload.get("stream") is True:
+            return await _streamed(lambda write: streamed(payload, write))
         return _answer(200, await run_in_threadpool(work, payload))
     except page_server.EndpointError as e:
         return _refusal(e)
@@ -122,32 +185,60 @@ async def get_health(request: Request):
              summary="Device token: translate one page image")
 async def post_page(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: _images(payload, True, principal), uses_engine=True)
+    return await _handle(request, lambda payload: _images(payload, True, principal), uses_engine=True,
+                         needs=_ENGINE_WRITE)
 
 
 @router.post("/pages", dependencies=[require_device_token()],
              summary="Device token: translate several page images")
 async def post_pages(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: _images(payload, False, principal), uses_engine=True)
+    return await _handle(request, lambda payload: _images(payload, False, principal), uses_engine=True,
+                         needs=_ENGINE_WRITE,
+                         streamed=lambda payload, write: _images(payload, False, principal, write))
 
 
 @router.post("/text", dependencies=[require_device_token()],
              summary="Device token: translate a block of page text")
 async def post_text(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: _text(payload, principal), uses_engine=True)
+    return await _handle(request, lambda payload: _text(payload, principal), uses_engine=True,
+                         needs=_ENGINE_WRITE)
 
 
 @router.post("/novel", dependencies=[require_device_token()],
              summary="Device token: save a web-novel page's text as a chapter")
 async def post_novel(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: novel.save_from_bridge(payload, principal=principal))
+    return await _handle(request, lambda payload: novel.save_from_bridge(payload, principal=principal),
+                         needs=_WRITE)
 
 
 @router.post("/title", dependencies=[require_device_token()],
              summary="Device token: find or create the title for a page")
 async def post_title(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: titles.resolve_from_bridge(payload, principal=principal))
+    # Naming a new title is one AI call on the owner's extension engine, so a member who could
+    # not send a page through that engine (engine rights, or `jobs.start`) gets the title without it.
+    may_spend = holds(request, "jobs.start")
+    if may_spend:
+        try:
+            _require_engine_allowed(request)
+        except ForbiddenError:
+            may_spend = False
+    return await _handle(request, lambda payload: titles.resolve_from_bridge(
+        payload, principal=principal, translate_title=may_spend), needs=_WRITE)
+
+
+@router.post("/capture-summary", dependencies=[require_device_token()],
+             summary="Device token: keep a finished capture's summary line in the app log")
+async def post_capture_summary(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: extension_bridge_service.record_capture_summary(
+        payload, principal=principal), needs=_WRITE)
+
+
+@router.post("/cancel", dependencies=[require_device_token()],
+             summary="Device token: stop working on the rest of a batch of pages")
+async def post_cancel(request: Request):
+    return await _handle(request, extension_bridge_service.cancel_run)

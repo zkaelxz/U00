@@ -5,6 +5,7 @@
  */
 import { useEffect, useState } from 'react'
 
+import { fmtSentAt } from '../../api/live'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { chatDue } from './captions'
@@ -46,7 +47,7 @@ export function LiveChat({ view, language }: { view: ChatView; language: string 
         <ol className="live-chat-list" aria-label="Chat messages, newest first">
           {shown.map((m) => (
             <li key={m.id}>
-              <span className="live-chat-author">{m.author}{m.paid && <span className="live-chat-paid"> {m.paid}</span>}</span>
+              <span className="live-chat-author">{m.author}{m.paid && <span className="live-chat-paid"> {m.paid}</span>}{m.sent_at > 0 && <time className="live-chat-time" dateTime={new Date(m.sent_at * 1000).toISOString()}> · {fmtSentAt(m.sent_at)}</time>}</span>
               <span className="live-src" lang={language}>{m.text}</span>
               {m.state === 'done' && <span className="live-en">{m.translation}</span>}
               {m.state === 'pending' && <span className="muted">Translating…</span>}

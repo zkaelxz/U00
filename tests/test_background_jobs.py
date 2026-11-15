@@ -1867,6 +1867,32 @@ class TestNotifyOnCompletion:
         assert not _wait_for(lambda: calls, timeout=0.5)
         bg.clear_job("t_notify_off")
 
+    def test_no_toast_is_attempted_without_a_desktop(self, monkeypatch):
+        import sys
+        import types
+        fake_plyer = types.ModuleType("plyer")
+        fake_notification = types.ModuleType("plyer.notification")
+        calls = []
+        fake_notification.notify = lambda **kw: calls.append(kw)
+        fake_plyer.notification = fake_notification
+        monkeypatch.setitem(sys.modules, "plyer", fake_plyer)
+        monkeypatch.setitem(sys.modules, "plyer.notification", fake_notification)
+        job_settings.set_notify_on_completion(True)
+
+        monkeypatch.setattr(job_settings.desktop_session, "has_desktop", lambda: False)
+        job_settings._notify_job_finished("A job", "done")
+        assert calls == []
+
+        monkeypatch.setattr(job_settings.desktop_session, "has_desktop", lambda: True)
+        job_settings._notify_job_finished("A job", "done")
+        assert len(calls) == 1
+
+    def test_has_desktop_is_true_off_windows(self, monkeypatch):
+        import sys
+        monkeypatch.setattr(sys, "platform", "linux")
+        from lib import desktop_session
+        assert desktop_session.has_desktop() is True
+
     def test_successful_job_notifies_when_enabled(self, monkeypatch):
         calls = []
         monkeypatch.setattr(job_runner, "_notify_job_finished", lambda *a, **k: calls.append(a))
@@ -1954,6 +1980,78 @@ class TestNotifyOnCompletion:
         assert len(calls) == 1
         assert "A translation job" in calls[0]["message"]
         assert "Fail" in calls[0]["message"]
+
+    def test_a_waiting_job_pops_up_the_bells_sentence(self, monkeypatch):
+        import sys
+        import types
+        fake_plyer = types.ModuleType("plyer")
+        fake_notification = types.ModuleType("plyer.notification")
+        calls = []
+        fake_notification.notify = lambda **kw: calls.append(kw)
+        fake_plyer.notification = fake_notification
+        monkeypatch.setitem(sys.modules, "plyer", fake_plyer)
+        monkeypatch.setitem(sys.modules, "plyer.notification", fake_notification)
+        monkeypatch.setattr(job_settings.desktop_session, "has_desktop", lambda: True)
+        job_settings.set_notify_on_completion(True)
+        did = db.create_drama(title_en="Moonlit Garden", owner_user_id=5, is_private=1)
+        desc = f"Glossary from lines (title #{did})"
+
+        job_settings._notify_job_finished(desc, "done", waiting={
+            "text": "12 glossary names to review", "target": {"page": "glossary", "drama_id": did}})
+        # The PC's own pop-up names even a private title, as the bell does there.
+        assert calls[-1]["message"] == "Waiting for you: 12 glossary names to review - Moonlit Garden"
+        job_settings._notify_job_finished(f"Translation (drama #{did})", "done",
+                                          waiting={"cap": True})
+        assert calls[-1]["message"] == \
+            "Waiting for you: Translation stopped at the spending cap - Moonlit Garden"
+        job_settings._notify_job_finished(f"Translation (drama #{did})", "done",
+                                          waiting={"reason": "3 requests failed in a row"})
+        assert calls[-1]["message"] == \
+            "Waiting for you: Translation stopped - Moonlit Garden. 3 requests failed in a row"
+        # On the Guest profile the screen hides private titles, so the pop-up leaves the name out.
+        from services import pc_profile_service
+        monkeypatch.setattr(pc_profile_service, "guest_active", lambda: True)
+        job_settings._notify_job_finished(desc, "done", waiting={
+            "text": "12 glossary names to review", "target": {"page": "glossary", "drama_id": did}})
+        assert calls[-1]["message"] == "Waiting for you: 12 glossary names to review"
+        monkeypatch.setattr(pc_profile_service, "guest_active", lambda: False)
+        # A failed job keeps "Failed"; a broken note falls back to "Finished", never raising.
+        job_settings._notify_job_finished(desc, "error", waiting={"cap": True})
+        assert calls[-1]["message"] == f"Failed: {desc}"
+        from services import notification_service
+
+        def boom(*a, **k):
+            raise RuntimeError("down")
+        monkeypatch.setattr(notification_service, "waiting_job_message", boom)
+        job_settings._notify_job_finished(desc, "done", waiting={"cap": True})
+        assert calls[-1]["message"] == f"Finished: {desc}"
+
+    def test_a_long_pop_up_is_cut_to_fit_the_windows_balloon(self, monkeypatch):
+        import sys
+        import types
+        fake_plyer = types.ModuleType("plyer")
+        fake_notification = types.ModuleType("plyer.notification")
+        calls = []
+        fake_notification.notify = lambda **kw: calls.append(kw)
+        fake_plyer.notification = fake_notification
+        monkeypatch.setitem(sys.modules, "plyer", fake_plyer)
+        monkeypatch.setitem(sys.modules, "plyer.notification", fake_notification)
+        monkeypatch.setattr(job_settings.desktop_session, "has_desktop", lambda: True)
+        job_settings.set_notify_on_completion(True)
+        did = db.create_drama(title_en="Moonlit Garden " + "x" * 75)   # 90 characters
+        job_settings._notify_job_finished(f"Translation (drama #{did})", "done",
+                                          waiting={"reason": "r" * 200})
+        message = calls[-1]["message"]
+        assert len(message) <= job_settings.POPUP_MAX_UNITS == 255
+        assert message.startswith("Waiting for you: Translation stopped - Moonlit Garden")
+        assert message.endswith("…")
+        # The field counts UTF-16 units: each of these takes two.
+        did = db.create_drama(title_en="🌙" * 60)
+        job_settings._notify_job_finished(f"Translation (drama #{did})", "done",
+                                          waiting={"reason": "r" * 200})
+        message = calls[-1]["message"]
+        assert len(message.encode("utf-16-le")) // 2 <= 255
+        assert message.startswith("Waiting for you: Translation stopped - 🌙") and message.endswith("…")
 
     def test_notify_job_finished_does_nothing_when_disabled(self, monkeypatch):
         import sys
@@ -2792,7 +2890,7 @@ def test_a_thread_job_that_did_not_run_for_a_missing_package_ends_as_an_error():
     ("empty", None, "Nothing was produced: no speech or text was found."),
     ("qwen3_asr", "CUDA out of memory", "Qwen3-ASR failed on this audio. CUDA out of memory"),
     ("groq", "HTTP 503", "The Groq transcription request failed. HTTP 503"),
-    ("vocal_separation", "demucs crashed", "Separating the vocals failed. demucs crashed"),
+    ("vocal_separation", "separator crashed", "Separating the vocals failed. separator crashed"),
 ])
 def test_a_thread_job_whose_worker_reports_a_failure_ends_as_an_error(monkeypatch, reason,
                                                                       detail, text):
@@ -2866,6 +2964,43 @@ def test_a_process_job_with_an_unlisted_failure_reason_notifies_as_failed(monkey
     (args, kwargs), = calls
     assert args[1] == "error" and "Couldn't cut this line's audio." in kwargs["reason"]
     bg.clear_job(job_id)
+
+
+def test_a_process_job_stopped_at_its_cap_passes_a_waiting_note(monkeypatch):
+    _install_fake_process(monkeypatch, run_target_on_start=True)
+    calls = []
+    monkeypatch.setattr(job_runner, "_notify_job_finished", lambda *a, **k: calls.append((a, k)))
+
+    def fake_worker(result_queue):
+        result_queue.put(("ok", {"cap_reached": 0.5, "translated_count": 2}))
+
+    job_id = "test_process_cap_waiting"
+    bg.clear_job(job_id)
+    job_launch.start_process_job(job_id, fake_worker, args=())
+    assert _wait_for_status(job_id, "running")["status"] == "done"
+    _wait_for(lambda: calls)
+    (args, kwargs), = calls
+    assert args[1] == "done" and kwargs["waiting"] == {"cap": True, "target": {"page": "jobs"}}
+    bg.clear_job(job_id)
+
+
+def test_a_thread_job_passes_its_own_waiting_note_but_a_failed_one_does_not(monkeypatch):
+    calls = []
+    monkeypatch.setattr(job_runner, "_notify_job_finished", lambda *a, **k: calls.append((a, k)))
+    note = {"text": "2 glossary names to review", "target": {"page": "glossary", "drama_id": 3}}
+    for job_id, result in (("test_thread_waiting_ok", {"waiting": note}),
+                           ("test_thread_waiting_failed", {"waiting": note, "failed_reason": "timeout"})):
+        bg.clear_job(job_id)
+        assert job_launch.start_job(job_id, lambda j=job_id, r=result: bg.set_result(j, r)) is True
+        _wait(job_id)
+    _wait_for(lambda: len(calls) == 2)
+    by_id = {k["job_id"]: (a, k) for a, k in calls}
+    assert by_id["test_thread_waiting_ok"][1]["waiting"] == note
+    assert by_id["test_thread_waiting_ok"][0][1] == "done"
+    assert by_id["test_thread_waiting_failed"][0][1] == "error"
+    assert by_id["test_thread_waiting_failed"][1]["waiting"] is None
+    for job_id in by_id:
+        bg.clear_job(job_id)
 
 
 @pytest.mark.parametrize("reason", ["no_lines", "no_text", "empty_kept_existing"])

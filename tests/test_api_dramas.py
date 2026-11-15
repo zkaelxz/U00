@@ -393,7 +393,7 @@ def test_open_folder_opens_the_titles_own_folder(client, opened):
     import os
     drama_id = db.create_drama(title_en="A")
     r = client.post(f"/api/dramas/{drama_id}/folder/open", headers=LOCAL)
-    assert r.status_code == 200 and r.json() == {"opened": True}
+    assert r.status_code == 200 and r.json() == {"opened": True, "folder": None}
     folder = os.path.realpath(os.path.join(db.DRAMAS_DIR, str(drama_id)))
     assert opened == [folder] and os.path.isdir(folder)
     assert str(folder) not in r.text
@@ -454,7 +454,7 @@ def test_open_folder_route_is_pc_only():
     assert decls[("/api/dramas/{drama_id}/folder/open", ("POST",))] == [("local_only", None)]
 
 
-def test_open_folder_from_a_background_service_says_so(client, monkeypatch):
+def test_open_folder_from_a_background_service_returns_the_folder_to_open_by_hand(client, monkeypatch):
     from lib import file_manager
 
     def no_desktop(folder):
@@ -462,7 +462,21 @@ def test_open_folder_from_a_background_service_says_so(client, monkeypatch):
     monkeypatch.setattr(file_manager, "open_folder", no_desktop)
     drama_id = db.create_drama(title_en="A")
     r = client.post(f"/api/dramas/{drama_id}/folder/open", headers=LOCAL)
-    assert r.status_code == 400 and "background service" in _error(r)["message"]
+    folder = os.path.realpath(os.path.join(db.DRAMAS_DIR, str(drama_id)))
+    assert r.status_code == 200 and r.json() == {"opened": False, "folder": folder}
+    again = client.post(f"/api/dramas/{drama_id}/folder/open", headers=LOCAL)
+    assert again.json() == {"opened": False, "folder": folder}
+
+
+def test_open_folder_without_a_desktop_names_the_same_folder_for_a_comic(client, monkeypatch):
+    from lib import file_manager
+
+    def no_desktop(folder):
+        raise file_manager.NoDesktopError("no desktop session")
+    monkeypatch.setattr(file_manager, "open_folder", no_desktop)
+    drama_id = db.create_drama(title_en="C", media_type="comic")
+    r = client.post(f"/api/dramas/{drama_id}/folder/open", headers=LOCAL)
+    assert r.json()["folder"] == os.path.realpath(db.drama_dir(drama_id))
 
 
 def test_duplicate_makes_an_independent_copy(client):
@@ -471,3 +485,13 @@ def test_duplicate_makes_an_independent_copy(client):
     assert resp.status_code == 201, resp.text
     assert resp.json()["title_en"] == "Orig (copy)" and resp.json()["id"] != src["id"]
     assert client.post("/api/dramas/987654/duplicate", json={}).status_code == 404
+
+
+def test_capture_notes_route_lists_a_titles_notes_and_404s_for_a_missing_title(client):
+    import db
+    did = client.post("/api/dramas", json={"source_language": "zh", "title_en": "Cap"}).json()["id"]
+    assert client.get(f"/api/library/dramas/{did}/capture-notes").json() == {"items": []}
+    db.add_capture_note(did, "Saved 3 of 3 pages.")
+    items = client.get(f"/api/library/dramas/{did}/capture-notes").json()["items"]
+    assert [i["summary"] for i in items] == ["Saved 3 of 3 pages."]
+    assert client.get("/api/library/dramas/999999/capture-notes").status_code == 404

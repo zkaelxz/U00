@@ -129,3 +129,12 @@
 .reader-edit-toggle[aria-pressed='true'] { background: var(--accent-soft, var(--surface-2)); }
 .reader-edit-form { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-3); }
 .reader-edit-form textarea { width: 100%; box-sizing: border-box; }
+.reader-term-count { text-align: right; margin: 0; }
+.reader-term-delete { color: var(--danger, #c0392b); align-self: center; }
+
+.reader-chapter-btn { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reader-chapter-list { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; gap: var(--space-1); }
+.reader-chapter-list button { width: 100%; min-height: 44px; display: flex; justify-content: space-between; gap: var(--space-3); text-align: left; }
+
+.reader-chapter-part { margin-top: var(--space-2); font-weight: 600; font-size: var(--text-sm, 0.9em); }
+.reader-chapter-list button[aria-current='true'] { border-color: var(--accent); }

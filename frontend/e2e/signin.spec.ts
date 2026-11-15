@@ -104,14 +104,14 @@ test("sign-in not set up on the PC: says so, no button", async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('signed in: header avatar shows the initial and the menu the email; Sign out posts with CSRF and returns to Login', async ({ page, context, baseURL }) => {
+test('signed in: the header account shows the name and the menu the email; Sign out posts with CSRF and returns to Login', async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: 'baihe_csrf', value: 'csrf-token-123', url: baseURL! }])
   const s = await mockAuth(page, ME.signedIn)
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   const menu = page.locator('details.user-menu')
   await expect(menu.locator('summary')).toHaveAttribute('aria-label', `Account: ${USER.display_name}`)
-  await expect(menu.locator('summary')).toHaveText('K')
+  await expect(menu.locator('summary')).toHaveText('Kae ▾', { useInnerText: true })
   await menu.locator('summary').click()
   await expect(page.getByTestId('user-email')).toHaveText(USER.email!)
   await maybeScreenshot(page, 'desktop-signed-in-menu')
@@ -134,7 +134,7 @@ test('a 401 mid-visit shows a sign-in overlay above the still-mounted app', asyn
   await page.goto('/#/library')
   const overlay = page.getByRole('dialog', { name: "You've been signed out" })
   await expect(overlay).toBeVisible()
-  const link = overlay.getByRole('link', { name: 'Sign in with Google (new tab)' })
+  const link = overlay.getByRole('link', { name: 'Sign in with Google' })
   await expect(link).toHaveAttribute('target', '_blank')
   await expect(link).toHaveAttribute('href', '/api/auth/login?return_to=%2F%23%2Flibrary')
   await expect(page.locator('.app-shell')).toHaveCount(1)
@@ -145,10 +145,10 @@ test('a 401 mid-visit shows a sign-in overlay above the still-mounted app', asyn
 })
 
 test('a 401 with a draft open keeps the draft; signing in from another tab brings it back', async ({ page }) => {
-  // New title is for sessions that hold library.create.
+  // The Add box, and with it New title, is for sessions that hold library.create.
   const s = await mockAuth(page, { ...ME.signedIn, permissions: [...ME.signedIn.permissions, 'library.create'] })
   await page.goto('/#/library')
-  await page.getByRole('button', { name: 'New title', exact: true }).click()
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
   const title = page.getByRole('dialog', { name: 'New title' }).getByLabel('English title')
   await title.fill('Unsaved draft title')
   // The session ends on the server; the next jobs read (on focus) gets the 401.

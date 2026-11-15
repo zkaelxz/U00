@@ -26,7 +26,7 @@ def cache(monkeypatch):
     monkeypatch.setattr(diagnostics, "delete_hf_cache_revision",
                         lambda rev, *a, **k: deleted.append(rev) or True)
     monkeypatch.setattr(diagnostics, "scan_model_folder", lambda kind, *a, **k: [
-        {"name": {"torch": "htdemucs.th", "audio_separator": "model.ckpt"}[kind], "size_bytes": 7}])
+        {"name": {"torch": "model.pt", "audio_separator": "model.ckpt"}[kind], "size_bytes": 7}])
     monkeypatch.setattr(diagnostics, "delete_model_folder_entry",
                         lambda kind, name, *a, **k: deleted.append(f"{kind}:{name}") or True)
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
@@ -67,19 +67,19 @@ class TestModelCacheDelete:
 
     def test_model_folder_files_delete_only_listed_names(self, client, cache):
         base = "/api/diagnostics/model-cache/files"
-        assert client.post(f"{base}/torch/htdemucs.th/delete", json={}).status_code == 422
-        r = client.post(f"{base}/torch/htdemucs.th/delete", json={"confirm": True})
-        assert r.status_code == 200 and r.json() == {"deleted": True, "name": "htdemucs.th"}
+        assert client.post(f"{base}/torch/model.pt/delete", json={}).status_code == 422
+        r = client.post(f"{base}/torch/model.pt/delete", json={"confirm": True})
+        assert r.status_code == 200 and r.json() == {"deleted": True, "name": "model.pt"}
         r = client.post(f"{base}/audio_separator/model.ckpt/delete", json={"confirm": True})
         assert r.status_code == 200
         # A name listed in the other folder, an unknown folder, a path.
         assert client.post(f"{base}/torch/model.ckpt/delete",
                            json={"confirm": True}).status_code == 404
-        assert client.post(f"{base}/hf/htdemucs.th/delete",
+        assert client.post(f"{base}/hf/model.pt/delete",
                            json={"confirm": True}).status_code == 422
-        assert client.post(f"{base}/torch/..%2Fhtdemucs.th/delete",
+        assert client.post(f"{base}/torch/..%2Fmodel.pt/delete",
                            json={"confirm": True}).status_code in (404, 405, 422)
-        assert cache == ["torch:htdemucs.th", "audio_separator:model.ckpt"]
+        assert cache == ["torch:model.pt", "audio_separator:model.ckpt"]
 
     def test_unknown_or_malformed_names_refused(self, client, cache):
         assert client.post(f"/api/diagnostics/model-cache/hf/{'b' * 40}/delete",
@@ -120,6 +120,6 @@ class TestModelCacheDelete:
                             raise_server_exceptions=False)
         assert remote.post(f"/api/diagnostics/model-cache/hf/{REV}/delete",
                            json={"confirm": True}).status_code in (401, 403)
-        assert remote.post("/api/diagnostics/model-cache/files/torch/htdemucs.th/delete",
+        assert remote.post("/api/diagnostics/model-cache/files/torch/model.pt/delete",
                            json={"confirm": True}).status_code in (401, 403)
         assert cache == []

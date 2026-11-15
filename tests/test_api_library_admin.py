@@ -114,6 +114,22 @@ class TestBulkStatusTags:
         assert r.status_code == 200
         assert not db.has_custom_tag(db.get_drama(a), "Favorite")
 
+    def test_series_assigns_all_picked_titles(self, client):
+        a, b = _new("A"), _new("B")
+        r = client.post(f"{BASE}/bulk/series", json={"drama_ids": [a, b], "new_series_name": "Saga"})
+        assert r.status_code == 200, r.text
+        assert r.json()["updated"] == 2
+        assert db.get_drama(a)["series_id"] == db.get_drama(b)["series_id"] is not None
+
+    @pytest.mark.parametrize("body", [
+        {"drama_ids": [1]},
+        {"drama_ids": [1], "series_id": 1, "new_series_name": "X"},
+        {"drama_ids": [1], "series_id": -1},
+        {"drama_ids": [], "series_id": 1},
+    ])
+    def test_series_validation_422(self, client, body):
+        assert client.post(f"{BASE}/bulk/series", json=body).status_code == 422
+
     @pytest.mark.parametrize("body", [
         {"drama_ids": [1], "tag": "Evil", "present": True},
         {"drama_ids": [1], "tag": "favorite", "present": True},
@@ -571,6 +587,7 @@ _LOCAL_ONLY = [
 _ADMIN_LIBRARY = [
     ("post", "/bulk/status", {"json": {"drama_ids": [1], "status": "aligned"}}),
     ("post", "/bulk/tags", {"json": {"drama_ids": [1], "tag": "Favorite", "present": True}}),
+    ("post", "/bulk/series", {"json": {"drama_ids": [1], "series_id": 0}}),
     ("get", "/artifacts/backup/info", {}),
     ("get", "/storage", {}),
 ]

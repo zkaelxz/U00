@@ -1,17 +1,21 @@
+import { setLineSpeaker } from '../../../../api/characters'
 import { snapToSpeech, startTimingCheck } from '../../../../api/timingCheck'
-import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, patchLine, setReviewed } from '../../../../api/review'
+import { lineNumber } from '../../../../lineNumber'
+import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, patchLine, setMark, setReviewed } from '../../../../api/review'
 import type { NoteDraft, RowActions } from './LineRow'
 import type { LinesControllerDeps, LinesCore } from './linesController'
+import { nextAfterCheck, onlyNeedsSpeaker, QUEUE_FILTER, stillListedNote } from './checkQueueModel'
 import { isDirty, type LineDraft } from './reviewDraft'
 import { charCount, codePointOffset, suggestionPatch } from './reviewLogic'
 import { dismissTmEverywhere } from './tmDismiss'
-import { retireUndoOffer } from './undoOffer'
+import { offerUndo, retireUndoOffer } from './undoOffer'
 
 // The callbacks every line row calls. Stable for the life of the controller; they read the
 // current panel state through `st` at call time.
 export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): RowActions {
-  const { dramaId, st, player, selectRef, showOnPageRef, setIssue, setStatus, setActiveId, setError, setAi, setRetranscribeFocusId } = deps
+  const { dramaId, st, pending, player, selectRef, showOnPageRef, setIssue, setStatus, setActiveId, setError, setAi, setRetranscribeFocusId } = deps
   const { find, replaceLine, failLine, setEditNow, saveEdit, leaveEdit, beforeWrite, afterWrite, focusTo, activate, openEdit, openSheet, saveAndNext } = core
+  const savingSpeaker = new Set<number>()
   return {
     activate: (id) => void activate(id),
     retranscribeFocused: () => setRetranscribeFocusId(null),
@@ -122,6 +126,28 @@ export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): Row
         st.current.onChanged()
       }, (e) => failLine(id, e))
     },
+    setMark: async (id, mark) => {
+      if (!(await leaveEdit())) return
+      setMark(dramaId, id, mark, find(id)?.en).then((saved) => {
+        replaceLine(saved)
+        setIssue(null)
+        st.current.onChanged()
+      }, (e) => failLine(id, e))
+    },
+    reviewAndNext: async (id) => {
+      if (!(await leaveEdit())) return
+      const { shown, page, pages } = st.current
+      const next = nextAfterCheck(shown, id, page < pages)
+      setReviewed(dramaId, id, true, find(id)?.en).then((saved) => {
+        replaceLine(saved)
+        setIssue(null)
+        // The checked line leaves the queue on the reload below; the card after it opens in its place.
+        if (next !== undefined) pending.current = { target: next }
+        offerUndo('checked', dramaId, saved)
+        st.current.onChanged()
+      }, (e) => failLine(id, e))
+    },
+    retranscribe: (id) => void openEdit(id, true).then((ok) => ok && setRetranscribeFocusId(id)),
     checkTiming: () => {
       startTimingCheck(dramaId).then(
         () => {
@@ -161,6 +187,42 @@ export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): Row
         setIssue(null)
         st.current.onChanged()
       }, (e) => failLine(id, e))
+    },
+    acceptSpeaker: async (id, speaker) => {
+      // A double tap or a repeated key would post twice: the second gets a 409 or an
+      // empty undo, and the keys would step past the next blank line.
+      if (savingSpeaker.has(id)) return false
+      savingSpeaker.add(id)
+      try {
+        const blocked = await beforeWrite([id])
+        if (blocked) {
+          setStatus(blocked)
+          return false
+        }
+        const line = find(id)
+        const r = await setLineSpeaker(dramaId, [id], speaker)
+        afterWrite([id])
+        if (line) {
+          replaceLine({ ...line, speaker, speaker_manual: true })
+          // A queue card listed for its blank speaker alone leaves on the reload below: the card after it opens, as after a
+          // check. One listed for more stays open, and says so.
+          const { filter, searching, shown, page, pages } = st.current
+          const inQueue = filter === QUEUE_FILTER && !searching
+          if (inQueue && onlyNeedsSpeaker(line)) {
+            const next = nextAfterCheck(shown, id, page < pages)
+            if (next !== undefined) pending.current = { target: next }
+          }
+          const note = inQueue ? stillListedNote(line, speaker) : null
+          if (r.undo.length) deps.setSpeakerUndo?.({ lineNumber: lineNumber(line.idx), speaker, entries: r.undo, ...(note && { note }) })
+        }
+        st.current.onChanged()
+        return true
+      } catch (e) {
+        setError(e)
+        return false
+      } finally {
+        savingSpeaker.delete(id)
+      }
     },
     dismissTm: (s) => dismissTmEverywhere(dramaId, s),
     clearIssue: () => setIssue(null),

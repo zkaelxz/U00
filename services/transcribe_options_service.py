@@ -90,7 +90,7 @@ def stored_min_pause_sec(drama) -> float:
 _BOOL_FIELDS = ("separate_vocals_first", "realign_long_segments", "whisper_fast_mode",
                 "whisper_repeat_guard", "split_by_sentences", "vocabulary_hint", "use_groq",
                 "difficult_audio")
-_SEPARATION_BACKENDS = ("auto", "audio_separator", "demucs")
+_SEPARATION_BACKENDS = ("auto", "audio_separator")
 
 
 def check_transcribe_fields(fields: dict, source_language) -> dict:
@@ -556,21 +556,23 @@ def stored_whisper_size(drama: dict) -> str:
     (without the value) when it falls back. A model that is not recommended for
     the title's language (saved before the rule, or after a language change)
     falls back the same way; whisper_size_notice says so in the UI."""
+    language = drama.get("source_language") or "zh"
+    fallback = whisper_models.default_whisper_size_for(language)
     size = drama.get("whisper_size")
     if not size:
-        return default_whisper_size()
+        return fallback
     if size not in _allowed_whisper_sizes():
         import applog
         applog.get_logger().warning(
             f"drama {drama.get('id')}: stored whisper_size is not a known model size; "
-            f"using the default {default_whisper_size()}")
-        return default_whisper_size()
+            f"using the default {fallback}")
+        return fallback
     if not whisper_models.whisper_model_fits_language(size, drama.get("source_language") or "zh"):
         import applog
         applog.get_logger().warning(
             f"drama {drama.get('id')}: stored whisper_size is not recommended for the title's "
-            f"language; using the default {default_whisper_size()}")
-        return default_whisper_size()
+            f"language; using the default {fallback}")
+        return fallback
     return size
 
 
@@ -584,7 +586,7 @@ def whisper_size_notice(drama: dict):
     problem = whisper_models.whisper_model_language_problem(size, drama.get("source_language") or "zh")
     if not problem:
         return None
-    return f"This title was saved with {size}. {problem} It now uses {default_whisper_size()}."
+    return f"This title was saved with {size}. {problem} It now uses {whisper_models.default_whisper_size_for(drama.get('source_language') or 'zh')}."
 
 
 # --- Advisor: which models and switches not to combine -----------------------
@@ -616,6 +618,9 @@ _ADVICE_RULES = (
     ("ja_model_language", "blocked",
      lambda c: c["model"] in ("ja-1.5b", "kotoba-v2") and _runs_whisper(c) and c["language"] not in ("", "ja"),
      "This Whisper model is for Japanese only.", lambda c: {"whisper_size": "large-v3"}),
+    ("zh_model_language", "blocked",
+     lambda c: c["model"] == "breeze-asr-25" and _runs_whisper(c) and c["language"] not in ("", "zh"),
+     "Breeze-ASR-25 is for Chinese only.", lambda c: {"whisper_size": "large-v3"}),
     ("qwen_long_audio", "warn",
      lambda c: c["backend"] in _LONG_AUDIO_QWEN,
      "Qwen3 ASR on long audio gives no word timings, fewer lines and \"Timing uncertain · Split evenly\" flags. Use Whisper.",

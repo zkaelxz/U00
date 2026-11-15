@@ -13,10 +13,10 @@
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-/* ---- inspector: from 1400px the checks and tools sit in a sticky column beside the lines, so a check can run while you keep reading.
+/* ---- inspector: from 1400px (TOOLS_BESIDE_LINES in reviewToolsTabs.ts, which decides the This line tab) the checks and tools sit in a sticky column beside the lines, so a check can run while you keep reading.
    Below that width everything stays stacked: a narrower lines column makes the sticky toolbar wrap into rows that cover the lines. The sticky offset is --bar-h (header + strip), the same one the toolbar uses. ---- */
 @media (min-width: 1400px) {
-  .stage-review { grid-template-columns: minmax(0, 1fr) 24rem; align-items: start; column-gap: var(--space-4); }
+  .stage-review { grid-template-columns: minmax(0, 1fr) 24.8rem; align-items: start; column-gap: 1.3333rem; }
   .stage-review > .review-editor { grid-column: 1; grid-row: 1; }
   .stage-review > .review-ai {
     grid-column: 2; grid-row: 1;
@@ -25,11 +25,16 @@
   }
 }
 
-/* The tools panel inside the inspector: one padding, one gap, equal-height check buttons with their Bulk switch directly under each. */
+/* The wider tools column leaves the lines 12px less: with a video beside them, the chips, the search box and the pager no longer
+   shared a row at 1920px, and the wrapped pager made the sticky toolbar 48px taller. The box still grows to take the row's rest. */
 @media (min-width: 1400px) {
-  .stage-review .review-toolbox { padding: var(--space-3); display: grid; gap: var(--space-3); }
-  .stage-review .review-toolbox .ui-tabs { flex-wrap: wrap; }
-  .stage-review .review-toolbox-panel, .stage-review .review-tab-body { display: grid; gap: var(--space-3); margin: 0; padding: 0; }
+  .review-editor.has-side .review-search { flex-basis: 13rem; }
+}
+
+/* The tools panel inside the inspector: one gap, equal-height check buttons with their Bulk switch directly under each. */
+@media (min-width: 1400px) {
+  .stage-review .review-toolbox-panel, .stage-review .review-tab-body { display: grid; gap: var(--space-3); margin: 0; }
+  .stage-review .review-tab-body { padding: 0; }
   .stage-review .review-check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4) var(--space-3); align-items: start; }
   .stage-review .review-job-row { display: grid; gap: var(--space-2); align-content: start; }
   .stage-review .review-job-row > .btn { width: 100%; height: 52px; white-space: normal; text-align: center; line-height: 1.2; }
@@ -83,6 +88,8 @@
 .review-chip input:checked + span { background: color-mix(in srgb, var(--accent) 16%, var(--field-bg)); border-color: var(--accent); color: var(--text); font-weight: 600; }
 .review-chip input:focus-visible + span { outline: 2px solid transparent; box-shadow: 0 0 0 4px var(--focus); outline-offset: 2px; }
 .review-search { position: relative; display: flex; flex: 1 1 16rem; min-width: 0; }
+/* With Replace… after it, the search box gives way first, so the filter row stays one row with every filter chip shown. */
+.review-toolbar.has-replace-in-row .review-search { flex-basis: 10rem; }
 .review-search input { padding-right: 2.4rem; }
 .review-search input::-webkit-search-cancel-button { display: none; }
 button.review-clear { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); padding: 0 10px; border: none; background: none; font-size: var(--text-lg); line-height: 1; }
@@ -100,6 +107,9 @@ button.review-clear { position: absolute; right: 2px; top: 50%; transform: trans
 .review-undo-text { flex: 1 1 14rem; min-width: 0; }
 .review-undo-actions { display: inline-flex; gap: var(--space-2); }
 .review-undo-actions button { min-height: var(--touch, 44px); min-width: var(--touch, 44px); }
+.review-undo-speaker { margin-top: var(--space-2); }
+/* One row on a phone: it sits over the list while the next blank lines are filled. */
+.review-undo-speaker .review-undo-text { flex-basis: 8rem; }
 
 /* ---- player strip ---- */
 .review-player { display: grid; gap: var(--space-1); border-top: 1px solid var(--border); padding-top: var(--space-2); }
@@ -176,6 +186,27 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 /* Open, the panel sits right under the toolbar: sticky, a toolbar with the player and waveform (~380px) covered its labels and first rows on a 800px-tall screen. */
 .review-editor.is-replacing .review-toolbar { position: static; }
 .review-editor.is-replacing .review-line { scroll-margin-top: calc(var(--bar-h, 0px) + var(--space-2)); }
+/* Desktop with a side video: one column as tall as the screen, video and waveform on top and the toolbar, Find and replace and lines scrolling underneath, so the video never leaves view. Only on tall screens, and only from 1400px, where the checks sit in a column beside it: narrower, they stack under the lines and a pinned column would cover them. On a shorter screen the video shrinks, or the card would leave the lines a few rows. The sticky toolbar sticks to the scrolling section's top, not the page's, and rows scroll to just under it. */
+@media (min-width: 1400px) {
+  .review-editor.has-side {
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: var(--space-2);
+    position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2));
+    height: calc(100vh - var(--bar-h, 0px) - var(--space-4));
+  }
+  .review-editor.has-side > .review-watch { grid-row: 1; position: static; height: auto; max-height: 62vh; }
+  .review-editor.has-side > .review-watch .review-stage { max-height: 22vh; }
+  /* position: relative so absolutely placed children (the sr-only page and line counts) are clipped by this scroller; anchored to the sticky section instead, they sat at their place in the full list and stretched the page into empty space below. */
+  .review-editor.has-side > .review-main { grid-row: 2; align-self: stretch; min-height: 0; overflow-y: auto; align-content: start; position: relative; }
+  .review-editor.has-side .review-toolbar { top: 0; }
+  .review-editor.has-side .review-line { scroll-margin-top: calc(var(--review-toolbar-h, 9rem) + var(--space-2)); }
+  .review-editor.has-side.is-replacing .review-line { scroll-margin-top: var(--space-2); }
+}
+@media (min-width: 1400px) and (max-height: 859px) {
+  .review-editor.has-side > .review-watch { max-height: 52vh; }
+  .review-editor.has-side > .review-watch .review-stage { max-height: 14vh; }
+}
+/* Full screen: the side-video caps above (higher specificity) would otherwise shrink the picture to a small box on a black screen. */
+.review-editor.has-side > .review-watch .review-player-frame.is-fullscreen .review-stage { max-height: none; }
 .review-replace { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
 .review-replace-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .review-replace-head h2 { margin: 0; }
@@ -185,9 +216,14 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 .review-line {
   padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+/* Its own rule, with `.review-lines` for weight: workspace.css gives every control with a tabindex a scroll-margin of
+   one class' worth, which beat this one and let K/J leave the active row under the sticky toolbar. Raising the rule
+   above would also outrank the later `.review-line` padding overrides, so only the margins move. */
+.review-lines .review-line {
   scroll-margin-top: calc(var(--bar-h, 0px) + var(--review-toolbar-h, 9rem) + var(--space-2));
   scroll-margin-bottom: 5rem;
-  min-width: 0;
 }
 .review-lines.is-compact .review-line { padding-block: 2px; font-size: var(--text-sm); line-height: 1.3; }
 .review-lines.is-compact .review-body { margin-top: 0; }
@@ -204,12 +240,17 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 .review-line-meta { font-size: var(--text-sm); color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: center; min-width: 0; }
 .review-idx { color: var(--text); font-weight: 600; font-family: var(--font-mono); font-size: 0.92em; font-variant-numeric: tabular-nums; }
 /* In the nowrap meta row the flag chip is the only item that may shrink; otherwise a long note squeezes "#2 3" onto two lines. */
+/* Adds no box of its own: the number and time are items of the meta line, except in a wide closed queue row. */
+.review-line-ref { display: contents; }
 .review-idx, .review-time { flex: none; white-space: nowrap; }
 .review-time { font-family: var(--font-mono); font-size: 0.92em; font-variant-numeric: tabular-nums; }
+/* The check queue and its This line column read as a sentence, so their numbers are in the body font; tabular, so a list of times lines up. */
+.review-line.is-queue :is(.review-idx, .review-time), .this-line-times .review-time { font-family: inherit; font-size: inherit; }
 .review-flag { color: var(--warn); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
-.review-flag-toggle { display: block; max-width: 100%; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: inherit; }
+.review-flag-toggle { display: block; max-width: 100%; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .review-flag-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .review-flag-note { margin: var(--space-1) 0 0; padding: 2px var(--space-2); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.4; color: var(--warn); background: var(--warn-soft); overflow-wrap: anywhere; white-space: normal; }
+.review-badge-reasons { margin: var(--space-1) 0 0; font-size: var(--text-sm); line-height: 1.4; overflow-wrap: anywhere; }
 .review-flag-open { margin: 2px 0 0; color: var(--warn); font-size: var(--text-sm); overflow-wrap: anywhere; white-space: normal; }
 .review-flag .pill { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 button.review-more { margin-left: auto; min-width: 36px; padding: 2px 10px; font-size: var(--text-lg); line-height: 1.2; border-color: transparent; background: none; color: var(--muted); font-weight: 700; }
@@ -226,7 +267,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 }
 @media (hover: none) {
   .stage-review button:hover:not(:disabled):not(.primary):not(.btn):not(.toggle) { background: var(--surface); border-color: var(--border); }
-  .stage-review button.review-en:hover, .stage-review button.review-more:hover { background: none; border-color: transparent; }
+  .stage-review button.review-en:hover, .stage-review button.review-more:hover, .stage-review button.check-queue-link:hover { background: none; border-color: transparent; }
 }
 .review-en-edit { display: grid; gap: var(--space-1); min-width: 0; }
 .review-en-edit textarea { width: 100%; font: inherit; font-size: var(--text-edit); field-sizing: content; min-height: 3.2lh; }
@@ -284,6 +325,15 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-chips { flex: 1 1 0; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .review-chip span { min-height: var(--touch); padding-inline: 10px; }
   .review-chips { gap: 2px; }
+  /* The scrollbar is hidden, so while more chips sit past the right edge the row fades out there: a cut chip reads as "scroll", not as broken.
+     With no room to scroll the timeline is inactive and the fade stays 0. */
+  @supports (animation-timeline: scroll()) {
+    .review-chips {
+      mask-image: linear-gradient(to right, #000 calc(100% - var(--chips-fade)), transparent);
+      animation: review-chips-fade linear both;
+      animation-timeline: scroll(self inline);
+    }
+  }
   /* Between lines the caption is a blank bar: on a phone it reads as an empty card. */
   .review-caption.is-empty { display: none; }
   .review-pager { margin-left: auto; }
@@ -293,12 +343,17 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   button.review-clear { min-width: var(--touch); min-height: var(--touch); }
   .review-body { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .review-line { padding: var(--space-1) var(--space-2); }
-  .review-line-meta { flex-wrap: nowrap; }
+  /* Wraps rather than squeezing: at 320px a speaker beside a Source changed badge would shrink to nothing. */
+  .review-line-meta { flex-wrap: wrap; }
   .review-speaker { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* ⋯ sits in the row's top-right corner, out of the meta line's height; its 44px box overlaps only padding. */
-  .review-line { position: relative; }
-  .review-line-meta { padding-right: calc(var(--touch) - var(--space-2)); }
-  button.review-more { position: absolute; top: 0; right: 0; min-width: var(--touch); min-height: var(--touch); padding: 0; margin: 0; }
+  /* ⋯ sits in the row's top-right corner, out of the meta line's flow. `.stage-review` outweighs index.css's phone
+     `.btn.btn-sm { position: relative }`, which otherwise left ⋯ after the last item, over the source text and past the
+     edge of a 320px screen. It keeps the small button's 32px box and its ::after, whose 44px hit area stays clear of the
+     first text line and the row above it (phone-spacing checks that). The meta line stays 32px tall so Review still fits 8 rows on a phone.
+     ⚑ keeps its width: the speaker is what gives way. */
+  .review-line-meta { padding-right: calc(var(--touch) - var(--space-2)); min-height: calc(var(--touch) - var(--space-1) - var(--space-2)); }
+  .review-line-meta > .review-flag { flex: none; }
+  .stage-review button.review-more { position: absolute; top: var(--space-1); right: 0; min-width: var(--touch); padding: 0; margin: 0; }
   .review-ai-compare { grid-template-columns: minmax(0, 1fr); }
   .review-editbar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-sticky, 3);
@@ -306,6 +361,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
     min-height: 56px; padding: var(--space-1) var(--space-2) calc(var(--space-1) + env(safe-area-inset-bottom, 0px));
     background: var(--surface); border-top: 1px solid var(--border);
   }
+  /* Wherever the phone menu is drawn under the bar (the check page) its published height clears it; a menu at the top leaves the bar at the bottom edge. */
+  .review-editbar { padding-bottom: calc(var(--space-1) + var(--phone-bar-h, env(safe-area-inset-bottom, 0px))); }
+  .app-shell.nav-top .review-editbar { padding-bottom: calc(var(--space-1) + env(safe-area-inset-bottom, 0px)); }
   .review-editbar button { flex: 1 1 0; min-width: 0; min-height: var(--touch); padding-inline: var(--space-1); white-space: nowrap; }
   .review-editbar button.btn-primary { flex-grow: 1.7; }
   .review-editbar > [role='status'] { flex: 2 1 0; min-width: 0; font-size: var(--text-sm); }
@@ -330,7 +388,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-page-label { min-width: 2.5em; }
 }
 
-/* Flag reason: one truncated line on the active phone row; in full at the top of the ⋯ sheet. */
+/* Flag reason: a few words on the active phone row, wrapped rather than cut when a name makes them long; in full at the top of the ⋯ sheet. */
 .review-flag-line { font-size: var(--text-sm); margin-top: 2px; }
 .review-flag-full { margin: 0; color: var(--warn); overflow-wrap: anywhere; }
 .review-hint-text { margin: 0; }
@@ -341,8 +399,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* Keep the first text line clear of the ⋯ corner: a float carves out only the part the button covers. */
   .review-body { display: block; }
   .stage-review button.review-en { display: block; width: 100%; }
-  /* The margin keeps the flag button clear of the ⋯ button's padded hit area. */
-  .review-flag-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: var(--space-2); padding-right: calc(var(--touch) - var(--space-2)); }
+  /* The margin keeps the flag button clear of the ⋯ button's padded hit area. keep-all: Chinese, Japanese and Korean text
+     may break between any two characters, which would split a glossary name; it moves to the next line whole instead. */
+  .review-flag-line { white-space: normal; overflow-wrap: break-word; word-break: keep-all; margin-top: var(--space-2); padding-right: calc(var(--touch) - var(--space-2)); }
 }
 
 .review-hidden-edit { align-items: center; flex-wrap: wrap; border-color: var(--warn); }
@@ -368,6 +427,14 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-diff-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-1) var(--space-4); margin-top: 2px; }
 .review-diff-pair del { color: var(--bad); }
 .review-diff-pair ins { color: var(--ok); text-decoration: none; }
+.compare-saves-list { list-style: none; padding: 0; margin: var(--space-2) 0 0; }
+.compare-saves-list li { padding: var(--space-2); border-bottom: 1px solid var(--border, currentColor); }
+.compare-saves-list li.compare-saves-active { outline: 2px solid var(--accent, currentColor); outline-offset: -2px; }
+.compare-saves-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin-top: 2px; }
+.compare-saves-side { overflow-wrap: anywhere; }
+.compare-saves-side del { color: var(--bad); }
+.compare-saves-side ins { color: var(--ok); text-decoration: none; font-weight: 600; }
+@media (max-width: 640px) { .compare-saves-pair { grid-template-columns: minmax(0, 1fr); } }
 .review-origin { margin-top: var(--space-1); font-size: var(--text-sm); }
 .review-origin summary { cursor: pointer; color: var(--muted); }
 .review-origin-body { display: grid; gap: var(--space-1); padding-top: var(--space-1); }
@@ -391,6 +458,10 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-flagnav { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .review-tm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-2); margin-top: var(--space-1); padding: var(--space-1) var(--space-2); border-left: 3px solid var(--accent); font-size: var(--text-sm); overflow-wrap: anywhere; min-width: 0; }
 .review-tm > span:first-child { min-width: 0; }
+.review-speaker-guess { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin-top: var(--space-1); font-size: var(--text-sm); min-width: 0; }
+.review-speaker-guess .btn { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; }
+.review-speaker-guess .btn > span:first-of-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-speaker-guess-why { color: var(--muted); font-size: var(--text-xs, 0.75rem); }
 .review-tm .review-actions { margin-top: 0; }
 .review-alts, .review-grammar { margin: 0; padding-left: 1.4em; display: grid; gap: var(--space-2); overflow-wrap: anywhere; min-width: 0; }
 .review-alts > li { display: grid; gap: 2px; justify-items: start; }
@@ -402,19 +473,34 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 }
 
 /* The tools under the line list: one tab level; each panel fits about one desktop screen. */
+/* The tabs are pills in a card of their own; on a phone they keep the 44px tap height. */
+.review-toolbox .ui-tabs { flex-wrap: wrap; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
+.review-toolbox .ui-tabs .ui-tab { min-height: 0; padding: 5px 8px; border: 0; border-radius: 6px; font-size: var(--text-sm); }
+.review-toolbox .ui-tabs .ui-tab[aria-selected="true"],
+.review-toolbox .ui-tabs .ui-tab[aria-selected="true"]:hover:not(:disabled) { background: var(--highlight); color: var(--text); font-weight: var(--weight-bold); }
+@media (pointer: coarse), (max-width: 640px) {
+  .review-toolbox .ui-tabs .ui-tab { min-height: 44px; }
+}
+@media (min-width: 641px) {
+  /* Each panel is one white card, the way This line's three are; the toolbox itself is only the stack of them. */
+  .stage-review .review-toolbox { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; gap: 0.6667rem; }
+  /* The card's padding and the gap between its sections are kept small: Change many lines holds a dozen sections and has to stay within one desktop screen even while the first card opens. */
+  .review-toolbox-panel:not(.review-line-dock) { padding: 0.6667rem 1.0667rem; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
+  .stage-review .review-toolbox-panel > .review-tab-body { gap: 0.3333rem; }
+}
 .review-toolbox { display: grid; gap: var(--space-2); min-width: 0; }
 .review-toolbox-panel[hidden] { display: none; }
 .review-toolbox-panel > .review-tab-body { gap: var(--space-2); }
 .review-tab-empty { margin: var(--space-3) 0; }
 /* The four AI checks as a 2x2 grid: each Start button keeps its own width with its small Bulk switch beside it. */
-.review-check-grid { display: grid; grid-template-columns: repeat(2, max-content); justify-content: start; gap: var(--space-2) var(--space-6); }
+.review-check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, max-content)); justify-content: start; gap: var(--space-2) var(--space-6); }
 .review-job-row { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .review-job-row > button { min-width: 0; white-space: normal; }
 .review-bulk { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
 @media (max-width: 640px) {
   .review-check-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
   .review-job-row { justify-content: space-between; }
-  /* Six tabs wrap to two rows; growing them fills both rows instead of leaving one tab alone on the second. */
+  /* The group tabs wrap to two rows; growing them fills both rows instead of leaving one tab alone on the second. */
   .review-toolbox .ui-tabs .ui-tab { flex: 1 1 auto; }
 }
 
@@ -426,7 +512,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 
 /* Phone: rows of dense buttons keep >= 12px between them so the 44px hit areas never overlap. */
 @media (max-width: 640px) {
-  .review-ai-panel, .review-actions, .review-tools, .review-tm, .review-flagnav { gap: var(--space-3); }
+  .review-ai-panel, .review-actions, .review-tools, .review-tm, .review-flagnav, .review-speaker-guess { gap: var(--space-3); }
 }
 
 /* Compare transcription */
@@ -447,6 +533,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 
 /* ---- line selection ---- */
 .review-selectall { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-2); font-size: var(--text-sm); }
+.review-list-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
 /* The box sits in the row's left padding (not the meta flow), so showing or hiding it never moves text. */
 .review-line { --select-size: 32px; }
 .review-select {
@@ -473,21 +560,25 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-selbar-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 @media (pointer: coarse), (max-width: 640px) {
   .review-line { --select-size: var(--touch); }
-  .review-selbar .btn { min-height: var(--touch); }
+  .review-selbar .btn, .review-speaker-guess .btn { min-height: var(--touch); }
+  /* The waveform's one-symbol buttons and the Set speaker buttons sit in tight rows, where a .btn-sm's reach past its box is cut by its neighbours. */
+  .review-wave-tools .btn, .review-set-speaker .btn { min-height: var(--touch); }
+  .review-wave-tools .btn { min-width: var(--touch); }
+  /* Already 44px, so the .btn-sm reach would only spill onto the button in the next row. */
+  .review-wave-tools .btn::after, .review-set-speaker .btn::after { content: none; }
 }
 @media (max-width: 640px) {
   /* Clear of the fixed phone action bar. */
-  .review-selbar { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
+  .review-selbar, .review-undo-speaker { bottom: var(--editbar-h, calc(56px + env(safe-area-inset-bottom, 0px))); }
 }
 
 /* ---- waveform timeline ---- */
 .review-wave-section { display: grid; gap: var(--space-1); }
 .review-wave { display: grid; gap: var(--space-1); min-width: 0; }
 .review-wave-tools { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; font-size: var(--text-sm); }
+/* Room for "#123" whether or not a line is under the playhead, so the wrapped row doesn't change while playing. */
+.review-wave-centre { min-width: 17ch; }
 .review-wave-range { margin-left: auto; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-/* In the pinned card the buttons would wrap to a different row count as the line under the playhead changes ("Centre on line" comes and goes), jolting the video above; one scrolling row keeps the card's height fixed. */
-.review-watch .review-wave-tools { flex-wrap: nowrap; overflow-x: auto; }
-.review-watch .review-wave-tools > * { flex: none; white-space: nowrap; }
 .review-wave-box { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); cursor: crosshair; touch-action: pan-y; user-select: none; }
 .review-wave-canvas { position: absolute; inset: 0; display: block; }
 .review-wave-cue { position: absolute; top: 0; bottom: 0; z-index: 0; background: color-mix(in srgb, var(--info) 14%, transparent); border-left: 1px solid var(--info); border-right: 1px solid var(--info); overflow: hidden; }
@@ -541,9 +632,271 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 
 /* In-page floating player (browsers without Document Picture-in-Picture). */
 .review-float { position: fixed; z-index: 60; display: grid; gap: var(--space-1); padding: var(--space-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); max-width: calc(100vw - 16px); box-sizing: border-box; }
-.review-float-bar { display: flex; align-items: center; gap: var(--space-1); cursor: grab; touch-action: none; font-size: var(--text-sm); }
-.review-float-title { flex: 1 1 auto; min-width: 0; }
+/* At the narrowest box Return player drops to its own line rather than squeezing "Player" into "Play / er". */
+.review-float-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); cursor: grab; touch-action: none; font-size: var(--text-sm); }
+.review-float-title { flex: 1 0 auto; }
 .review-float-body { min-width: 0; }
 .review-float-body .review-stage { max-height: none; }
 .review-float-resize { position: absolute; top: 0; left: 0; width: 20px; height: 20px; cursor: nwse-resize; touch-action: none; border-top-left-radius: var(--radius-sm); border-top: 3px solid var(--accent); border-left: 3px solid var(--accent); box-sizing: border-box; }
 .review-float-resize:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Simple's check queue (CheckQueue.tsx): every text wraps rather than being cut off. */
+.review-queue-row { row-gap: var(--space-1); }
+.check-queue-fine, .check-queue-next { font-size: var(--text-sm); overflow-wrap: anywhere; }
+.check-queue-next { margin: 0; }
+.check-queue-footer {
+  display: grid; gap: var(--space-2); margin-top: var(--space-3); padding: var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius, 8px); background: var(--surface); overflow-wrap: anywhere;
+}
+.check-queue-footer p { margin: 0; }
+.check-queue-mark, .review-queue-actions, .check-queue-undo { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.review-queue-actions { margin-top: var(--space-2); }
+/* Wrong and Mixed are one choice, so a narrow card wraps them to the next row together. */
+.review-mark { min-width: var(--touch); justify-content: center; }
+.review-mark-pair { display: inline-flex; gap: var(--space-2); }
+.check-queue-undo { font-size: var(--text-sm); overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  /* Under All the one button back to the queue spans the row, as the main button does under the header; the Undo strip has a line of its own. */
+  .review-queue-row > .btn-primary { flex: 1 1 100%; min-height: var(--touch); }
+  .review-queue-row .check-queue-undo { flex: 1 1 100%; }
+  .review-editbar.is-queue button { white-space: normal; line-height: 1.2; }
+  .review-queue-actions .btn, .check-queue-footer .btn, .check-queue-undo .btn { min-height: var(--touch); }
+  /* Simple's only control in the filter row's More: a full-height target, as the other buttons of its page. */
+  .review-extras .btn.review-replace-simple { min-height: var(--touch); }
+  /* Its (i) stays beside it: a phone's confirm button otherwise takes the whole row, pushed right. */
+  .check-queue-mark .confirm-button { flex: 0 1 auto; justify-content: flex-start; }
+}
+
+/* A queue card (LineRow with queue): the reason as a chip in the meta line, the English as a box to type in, and one
+   green finishing button. Every text wraps rather than being cut off. */
+.review-queue-reason {
+  flex: 0 1 auto; min-width: 0; padding: 2px var(--space-2); border-radius: var(--radius-sm);
+  font-size: var(--text-sm); line-height: 1.4; color: var(--warn); white-space: normal; overflow-wrap: anywhere;
+  /* Opaque over the surface: the soft tint alone turned grey on the open card's blue. */
+  background: color-mix(in srgb, var(--warn) 16%, var(--surface));
+}
+.review-queue-sentence { display: block; margin: var(--space-2) 0; padding: var(--space-1) var(--space-2); }
+/* Under a queue card whose speaker was just set while another reason keeps it listed. */
+.review-speaker-note { margin: var(--space-2) 0; padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm, 4px); color: var(--ok); background: var(--ok-soft); }
+/* A name wraps only at its spaces; the line list's body text may still break anywhere. */
+.review-speaker { overflow-wrap: normal; }
+.review-line.is-queue.is-active { border-radius: var(--radius); padding-block: var(--space-3); }
+.review-line.is-queue.is-active .review-zh { font-size: var(--text-lg); }
+.review-queue-en { display: grid; gap: var(--space-1); min-width: 0; }
+.review-queue-label { font-size: var(--text-sm); color: var(--muted); }
+.stage-review .review-queue-en button.review-en {
+  /* Flex so a short English sits at the top of the box, where typing starts, not in its middle. */
+  display: flex; align-items: flex-start; width: 100%; min-height: 3.2lh; padding: var(--space-2) var(--space-3); line-height: 1.4;
+  border: 1px solid var(--field-edge); border-radius: var(--radius-sm); background: var(--field-bg); color: var(--text);
+}
+.stage-review .review-queue-en button.review-en:hover:not(:disabled) { outline: none; border-color: var(--accent); background: var(--field-bg); }
+.stage-review .review-queue-en button.review-en:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; background: var(--field-bg); }
+.review-queue-tools { gap: var(--space-2); margin-top: var(--space-3); }
+.review-queue-tools .review-queue-done { margin-left: auto; }
+.review-queue-why { margin: var(--space-2) 0 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); line-height: 1.4; color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, var(--surface)); overflow-wrap: anywhere; }
+@media (pointer: coarse) {
+  .review-queue-tools .btn { min-height: var(--touch); }
+}
+@media (max-width: 640px) {
+  /* The meta line reaches the bottom of ⋯'s 44px box, so the Why box under it never sits in that tap area. */
+  .review-line.is-queue .review-line-meta { min-height: calc(var(--touch) - var(--space-1)); }
+  .review-line.is-queue.is-active { padding-block: var(--space-1) var(--space-3); }
+  .review-line.is-queue.is-active .review-body { margin-top: var(--space-3); }
+  .review-line.is-queue .review-queue-en { margin-top: var(--space-2); }
+  /* Two buttons: Skip for now takes a third, the green step the rest, the widest target for the step taken most. */
+  /* The phone menu sits under this bar on the check page, so its published height is the bottom padding. The bar's own
+     padding already clears the home indicator when the menu is not there. */
+  .review-editbar.is-queue { padding-block: var(--space-2) calc(var(--space-2) + var(--phone-bar-h, env(safe-area-inset-bottom, 0px))); }
+  .app-shell.nav-top .review-editbar.is-queue { padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px)); }
+  /* No side padding: a flex basis of 0 still holds the padding, which would skew the one-to-two split. */
+  .review-editbar.is-queue button { flex: 1 1 0; min-height: var(--touch); padding-inline: 0; }
+  .review-editbar.is-queue .review-queue-done { flex: 2 1 0; font-weight: var(--weight-bold); }
+}
+
+/* Simple folds an audio title's player strip, its panel and the waveform away, in Need a look and under All, so the first
+   line sits under the switch row; the header's Player button brings them back. Hidden, not unmounted: the card's Play and
+   the player's keys use them. */
+.review-editor.is-media-folded :is(.review-player, .review-player-dock, .review-wave-section) { display: none; }
+
+/* The queue is one line at a time: no tick box on its cards (a line ticked under All is cleared from the selection bar). */
+.review-line.is-queue .review-select { display: none; }
+.review-line.is-queue { padding-left: var(--space-4); }
+@media (max-width: 640px) {
+  .review-line.is-queue { padding-left: var(--space-3); }
+}
+
+/* Where the wide card is not drawn the wrapper adds no box, so the grid spaces the lines as it always did. */
+.review-list-plain, .review-list-card { display: contents; }
+
+/* Simple's wide screens (the phone draws its own card): the first row with no box, one white card for the lines and the
+   queue's footer, the open card with an accent edge, and a closed row as one line of number, source, English and reason. */
+@media (min-width: 641px) {
+  /* The row keeps its height while its controls wait for the title's answer, so the list under it does not jump. */
+  .review-queue-row.is-wide { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6667rem; min-height: var(--control-h); min-width: 0; }
+  .review-queue-row.is-wide .check-queue-fine-group { display: inline-flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+  /* The check queue has nothing else in the toolbar's box unless the player is unfolded. */
+
+  /* Two separate pills, not a segmented control: the checked one has the heavier accent edge in the same outer size. */
+  .segmented.check-queue-switch { display: inline-flex; gap: 0.6667rem; padding: 0; border: 0; border-radius: 0; background: none; }
+  .segmented.check-queue-switch label {
+    flex: none; min-height: var(--control-h); padding: 9px 14px; border: 1px solid var(--border); border-radius: var(--radius-pill);
+    background: var(--surface); color: var(--text); font-size: var(--text-md); font-weight: var(--weight-medium); white-space: nowrap;
+  }
+  .segmented.check-queue-switch label:has(input:checked) { padding: 8px 13px; border: 2px solid var(--accent); background: var(--accent-soft); color: var(--text); box-shadow: none; font-weight: var(--weight-bold); }
+
+  .review-list-card { display: flex; flex-direction: column; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-panel); }
+  .review-list-card:not(:has(.review-line, .check-queue-footer, .review-bottom-pager)) { display: none; }
+  /* The card's own edge replaces the list's hairlines, and each row's divider is its top edge. */
+  .review-list-card .review-lines { box-shadow: none; }
+  .review-list-card .review-line { border-bottom: 0; border-top: 1px solid var(--border); }
+  .review-list-card .review-line:first-child { border-top: 0; }
+  .review-list-card .review-lines > .review-line:first-child { border-top-left-radius: calc(var(--radius-panel) - 1px); border-top-right-radius: calc(var(--radius-panel) - 1px); }
+  .review-list-card .review-bottom-pager { padding: var(--space-2); border-top: 1px solid var(--border); }
+
+  .review-line.is-queue.is-active {
+    display: grid; gap: 0.6667rem; padding: 0.9333rem 1.0667rem; border-radius: 0; border-left: 4px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 5%, var(--surface)); box-shadow: none;
+  }
+  .review-line.is-queue.is-active:focus-visible { box-shadow: inset 0 0 0 3px var(--focus); }
+  /* Where nothing is under the list and the card is no taller than its rows, the open card is the card's own bottom edge: its square tint and accent edge would stick out of the rounded corners. */
+  @media (max-width: 1399px) {
+    .review-list-card > .review-lines:last-child > .review-line.is-queue.is-active:last-child {
+      border-bottom-left-radius: calc(var(--radius-panel) - 1px); border-bottom-right-radius: calc(var(--radius-panel) - 1px);
+    }
+  }
+  /* The grid's gap spaces the card's lines. */
+  .review-line.is-queue.is-active > * { margin: 0; }
+  .review-line.is-queue.is-active .review-line-meta { gap: var(--space-1) 12px; }
+  .review-line.is-queue.is-active button.review-more { border-color: transparent; color: var(--muted); }
+  .review-line.is-queue.is-active .review-zh { font-size: var(--text-edit); }
+  .review-queue-tools .btn.btn-sm { min-height: var(--control-h); padding: 8px 14px; font-size: var(--text-md); }
+
+  /* A closed row: [number and time] [source and English] [reason]. The reason stays on the line while the row has room for
+     both texts at 10rem each, else it drops under them. The speaker, reading speed and badges wait for the open card. */
+  .review-line.is-queue:not(.is-active) {
+    display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-4); row-gap: var(--space-1);
+    padding: 0.8rem 1.0667rem 0.8rem 0.8rem; border-left: 4px solid transparent; cursor: pointer;
+  }
+  .review-line.is-queue:not(.is-active) > * { order: 7; flex: 1 1 100%; min-width: 0; }
+  .review-line.is-queue:not(.is-active) > .review-line-meta { display: contents; }
+  .review-line.is-queue:not(.is-active) > .review-line-meta > :not(.review-line-ref, .review-queue-reason) { display: none; }
+  .review-line.is-queue:not(.is-active) > .review-line-meta > .review-line-ref {
+    order: 1; flex: none; display: flex; gap: 0.4rem; width: 5.75rem; font-size: var(--text-sm); color: var(--muted); white-space: nowrap;
+  }
+  .review-line.is-queue:not(.is-active) > .review-body { order: 2; flex: 1 1 21rem; min-width: min(21rem, 100%); margin-top: 0; }
+  .review-line.is-queue:not(.is-active) :is(.review-zh, button.review-en) { font-size: var(--text-md); }
+  .review-line.is-queue:not(.is-active) > .review-line-meta > .review-queue-reason {
+    order: 3; flex: 0 1 auto; max-width: 100%; margin-left: auto; padding: 2px 9px; border-radius: 10px;
+  }
+
+  /* The card of the queue reaches the window's bottom when its rows are few, as drawn; its top is measured (useToolbarHeight),
+     and the page's own bottom space stays under it, so it never makes the page scroll. */
+  @media (min-width: 1400px) {
+    .review-list-card:has(.review-line.is-queue) { min-height: calc(100vh - var(--review-card-top, 0px) - var(--page-gap)); }
+  }
+
+  /* The footer is the card's last line, as sentence and links. */
+  .review-list-card .check-queue-footer {
+    margin: 0; padding: 0.9333rem 1.0667rem; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: none;
+    font-size: var(--text-sm); color: var(--muted);
+  }
+  .review-list-card > .check-queue-footer:first-child { border-top: 0; }
+}
+/* A phone's open card, as drawn: one white card with a hairline edge and no coloured edge, its first line the line's place
+   and the way to the lines around it, its Next line at the bottom, tall enough to reach the bottom bar when its content is short. */
+/* Nothing in it (a phone's queue has no switch row) or only a folded player: no box, no padding. A phone's first row, which carries the Undo notice, lives in this box and keeps it. */
+.review-toolbar.is-bare:empty, .review-editor.is-media-folded .review-toolbar.is-bare:not(:has(.review-queue-row)) { display: none; }
+@media (max-width: 640px) {
+  .review-line.is-queue.is-active {
+    display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-1) var(--space-4) var(--space-4);
+    border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: none;
+    min-height: calc(100svh - var(--review-card-top, 0px) - var(--editbar-h, 56px) - var(--space-3));
+  }
+  .review-line.is-queue.is-active:focus-visible { box-shadow: inset 0 0 0 3px var(--focus); }
+  .review-line.is-queue.is-active > * { margin: 0; }
+  .review-line.is-queue.is-active .review-body, .review-line.is-queue.is-active .review-queue-en { margin-top: 0; }
+  .review-line.is-queue.is-active .review-body { gap: var(--space-3); }
+  .review-line.is-queue.is-active .review-line-meta {
+    flex-wrap: wrap; gap: 0 var(--space-1); min-height: var(--touch); padding-right: 0;
+    font-size: var(--text-sm); color: var(--muted);
+  }
+  /* The dots are their own boxes, so a flex row would drop the spaces around them. */
+  .review-line.is-queue.is-active .review-line-ref { display: inline-flex; }
+  .review-card-dot { margin-inline: var(--space-1); }
+  .review-line.is-queue.is-active .review-idx { font-weight: var(--weight-bold); color: var(--text); }
+  /* When the place and the link do not both fit, the link drops to the next line, still at the right. */
+  .review-line.is-queue.is-active .review-card-around { margin-left: auto; min-height: var(--touch); font-size: var(--text-sm); }
+  .review-line.is-queue.is-active .review-queue-why { padding: var(--space-2) 10px; border-radius: var(--radius); }
+  .review-line.is-queue.is-active .review-queue-en button.review-en { font-size: var(--text-edit); }
+  .review-line.is-queue.is-active button.review-card-more { min-width: var(--touch); padding: 0; border: 1px solid var(--border); color: var(--text); }
+  .review-line.is-queue.is-active .check-queue-next { margin-top: auto; padding-top: var(--space-3); }
+}
+.check-queue-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.check-queue-link {
+  display: inline-flex; align-items: center; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: var(--radius-sm); background: none;
+  color: var(--accent-text); font: inherit; text-decoration: underline; cursor: pointer;
+}
+.check-queue-link:disabled { color: var(--muted); text-decoration: none; cursor: default; }
+@media (max-width: 640px) {
+  .check-queue-link { min-height: var(--touch); }
+}
+/* The tools behind one Checks and tools button (ReviewTools' folded): the wrapper adds no box while open. */
+.review-toolbox-body { display: contents; }
+.review-toolbox-body[hidden] { display: none; }
+.review-toolbox .btn.review-toolbox-fold { width: 100%; min-height: var(--touch, 44px); justify-content: center; }
+
+/* This line (ThisLinePanel), in the tools column beside the queue. */
+.this-line { display: grid; gap: 0.6667rem; min-width: 0; }
+/* Three white cards, as drawn: a .card is only a top hairline in the Frost look, so the edge is asked for here. */
+.stage-review .this-line-card { gap: var(--space-2); padding: 0.9333rem 1.0667rem; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
+.this-line-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.this-line-title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-bold); }
+/* The column's width is fixed, so the picture asks for as many 3px bars with 1px between as fit (SOUND_BARS) and each is drawn about that wide. */
+.this-line-wave { position: relative; height: 54px; }
+.this-line-wave svg { display: block; width: 100%; height: 100%; }
+.this-line-wave rect { fill: color-mix(in srgb, var(--muted) 35%, var(--surface)); }
+.this-line-wave rect.is-in { fill: var(--accent); }
+.this-line-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); pointer-events: none; }
+.this-line-times { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
+.this-line-why { margin: 0; font-size: var(--text-sm); line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
+.this-line-link { justify-self: start; }
+.this-line-around { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.stage-review .this-line-near {
+  display: grid; gap: 2px; box-sizing: border-box; width: 100%; min-height: 44px; margin: 0; padding: 6px 8px;
+  border: 1px solid transparent; border-radius: var(--radius); background: none; color: var(--text);
+  font: inherit; font-weight: normal; line-height: 1.4; text-align: left; overflow-wrap: anywhere;
+}
+.stage-review button.this-line-near { cursor: pointer; }
+.stage-review button.this-line-near:hover:not(:disabled) { border-color: var(--accent); background: none; }
+.this-line-near.is-open { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.this-line-near-idx { font-weight: var(--weight-bold); }
+.this-line-near-en { font-size: var(--text-sm); }
+
+@property --chips-fade { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@keyframes review-chips-fade { from { --chips-fade: 32px; } 99% { --chips-fade: 32px; } to { --chips-fade: 0px; } }
+
+/* The speaker's name is a button that opens the list of speakers under it, over the lines below. */
+.review-speaker-pick { position: relative; display: inline-block; min-width: 0; max-width: 100%; }
+button.review-speaker { display: inline-block; max-width: 100%; padding: 0 var(--space-1); border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; font: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+button.review-speaker:hover, button.review-speaker[aria-expanded='true'] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.review-speaker-list {
+  position: absolute; top: calc(100% + var(--space-1)); left: 0; z-index: 4; min-width: 12rem; max-width: min(20rem, 90vw);
+  display: grid; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--field-edge); border-radius: var(--radius); background: var(--surface);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
+}
+.review-speaker-list .btn { justify-content: flex-start; }
+.review-speaker-new { display: flex; gap: var(--space-1); }
+.review-speaker-new input { min-width: 0; flex: 1 1 auto; }
+@media (max-width: 640px) {
+  button.review-speaker, .review-speaker-list .btn, .review-speaker-new .btn { min-height: var(--touch); }
+  /* The name can sit anywhere along the row, so the list takes the screen's width, just above the line bar, instead of
+     hanging off the name and running past the edge. */
+  .review-speaker-list { position: fixed; top: auto; left: var(--space-3); right: var(--space-3); bottom: calc(var(--editbar-h, 56px) + var(--space-2)); max-width: none; max-height: 50vh; overflow-y: auto; }
+}
+.review-set-speaker-head { margin: 0 0 var(--space-2); font-weight: 600; }
+.review-set-speaker-names, .review-set-speaker-new { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.review-set-speaker-new { margin-top: var(--space-2); }
+.review-set-speaker-new input { min-width: 0; flex: 1 1 10rem; }
+/* Your marks. The desktop buttons are ordinary small buttons; a pressed one takes its mark's colour. */
+.review-mark[aria-pressed='true'].review-mark-wrong { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, var(--surface)); }
+.review-mark[aria-pressed='true'].review-mark-mixed { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, var(--surface)); }

@@ -42,8 +42,9 @@ import {
   writeTranslateTab,
   type TranslateTab,
 } from '../translateTabs'
-import { useSimple, useStage } from '../StageContext'
+import { useSimple, useStage, useStageFocus } from '../StageContext'
 import { foldsTranslateOptions, titleKind } from '../titleKind'
+import { stageLabel } from '../stages'
 import { useTranslateRunForm } from './useTranslateRunForm'
 import { MediaTabPanel } from './MediaTabPanel'
 import {
@@ -97,6 +98,7 @@ import { EngineGateNote } from './EngineGateNote'
 import { translateBlocker } from './stageBlockers'
 import { useEngineGate } from './useEngineGate'
 import './translate.css'
+import { recommendedModelNote } from '../recommendedModel'
 import { AI_ENGINE_LABEL, NO_KEY_ENGINES_HELP } from '../../../helpText'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
@@ -105,6 +107,8 @@ const LOCAL_ENGINE_HINT = 'Ollama is not answering on this PC. See Diagnostics >
 
 const REVIEW_GLOSSARY_NOTE = 'Translate will first scan the transcript for glossary terms and show them for your approval, then translate.'
 const REVIEW_GLOSSARY_HELP = `Changes what the Translate button does. ${REVIEW_GLOSSARY_NOTE} The scan uses the engine saved for this title.`
+
+const ESTIMATE_BUTTON_ID = 'translate-estimate'
 
 function EstimateView({ e }: { e: TranslateRunEstimate }) {
   const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown'
@@ -237,7 +241,7 @@ function OllamaNotice({ onRecheck }: { onRecheck: () => Promise<void> }) {
   }
   return (
     <div className="translate-ollama" data-testid="ollama-warning">
-      <span className="warn" role="status">Can't reach Ollama on this PC. Is it running? Start Ollama, then check again.</span>
+      <span className="warn" role="status">Can't reach Ollama. Start it, then check again.</span>
       <button type="button" className={buttonClass('ghost', 'sm')} disabled={pending} onClick={recheck}>Check again</button>
       {rechecked && !pending && <span className="muted">Still no answer.</span>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
@@ -279,7 +283,12 @@ function RunPanel({
   } = form
   // reviewing counts presses (0 = closed) so each press extracts afresh.
   // Simple keeps the engine, model, style and variant out of sight behind one summary line.
-  const [changing, setChanging] = useState(false)
+  // The Simple title page's Estimate cost links here; the button it promises is behind Change, so the link opens it.
+  const [changing, setChanging] = useState(() => {
+    const r = parseRoute(window.location.hash)
+    return r.name === 'drama' && r.id === dramaId && r.focus === 'estimate'
+  })
+  useStageFocus('estimate', ESTIMATE_BUTTON_ID)
   const [reviewing, setReviewing] = useState(0)
   const [reviewNote, setReviewNote] = useState<string | null>(null)
   const canReview = !!drama.series_id
@@ -378,7 +387,7 @@ function RunPanel({
   const basics = (
     <>
       <div className="translate-basics">
-        <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP} ${engineNotesHelp(config.engines)}`}>
+        <Field label={AI_ENGINE_LABEL} help={`Which service translates. The default comes from Settings. ${recommendedModelNote(titleKind(drama.media_type, drama.content_mode))} ${NO_KEY_ENGINES_HELP} ${engineNotesHelp(config.engines)}`}>
           <select className="engine-select" value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
             <option value="">Default ({engineLabel(config.translation_engine)})</option>
             {config.engines.map((e) => (
@@ -420,7 +429,7 @@ function RunPanel({
   // Same controls as the video page, kept out of sight so a novel's Translate is one button.
   const estimateControls = (
     <>
-      <button type="button" className={buttonClass('secondary')} onClick={runEstimate}>Estimate cost</button>
+      <button type="button" id={ESTIMATE_BUTTON_ID} className={buttonClass('secondary')} onClick={runEstimate}>Estimate cost</button>
       <GlossaryRetranslateAction inline f={f} busy={busy} onStarted={onStarted} />
       {/* aria-live rather than role=status: the stage already has one status line, and this region must stay mounted to be announced. */}
       <span aria-live="polite">{estimate && estimate.key === estimateKeyFor(f) && <EstimateView e={estimate.value} />}</span>
@@ -470,7 +479,7 @@ function RunPanel({
               <>
                 <span>Still needed: lines to translate.</span>
                 <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
-                  Go to Media
+                  Go to {stageLabel('source', titleKind(drama.media_type, drama.content_mode))}
                 </ButtonLink>
               </>
             )}
@@ -659,13 +668,13 @@ function RunPanel({
             )}
             <Field
               label="Include baihe/GL genre guidance"
-              help={`Adds the baihe notes to the prompt: both leads are women, keep 姐姐/妹妹-style address, do not soften romance. It does not by itself turn he into she; use the she/her default for that.${savedNote}`}
+              help={`Tells the translator both leads are women, to keep 姐姐/妹妹-style address and not soften romance. It does not turn he into she; use the she/her default for that.${savedNote}`}
             >
               <Toggle checked={f.genre_notes} onChange={(v) => saveToggle('genre_notes', v)} />
             </Field>
             <Field
               label="Use approved translations as examples"
-              help="Adds lines of this series you already approved (edited by hand, accepted from memory, or marked reviewed) that closely match these lines to the prompt, so repeated phrases keep one wording. Needs a title in a series; this run only. Whether it improves quality has not been measured."
+              help="Adds approved lines from this series (edited by hand, accepted from memory or marked reviewed) that closely match, so repeated phrases keep one wording. Needs a title in a series; this run only. Its effect on quality is not measured."
             >
               <Toggle checked={f.memory_examples} onChange={(v) => set('memory_examples', v)} />
             </Field>
@@ -724,7 +733,12 @@ export default function TranslateStage() {
     store: (next) => writeTranslateTab(browserStorage(), dramaId, next),
   })
   const simple = useSimple()
-  const visibleTabs = simple ? TRANSLATE_TABS.filter((t) => SIMPLE_TRANSLATE_TABS.includes(t.id)) : TRANSLATE_TABS
+  // A link that names a tab Simple leaves out (the Reader's Edit in Translate opens Characters) shows that tab
+  // for the rest of the visit; otherwise the link would land on Translate and seem to do nothing.
+  const [linkedTabs, setLinkedTabs] = useState<readonly TranslateTab[]>([])
+  const named = linkedTab()
+  if (simple && named && !SIMPLE_TRANSLATE_TABS.includes(named) && !linkedTabs.includes(named)) setLinkedTabs([...linkedTabs, named])
+  const visibleTabs = simple ? TRANSLATE_TABS.filter((t) => SIMPLE_TRANSLATE_TABS.includes(t.id) || linkedTabs.includes(t.id)) : TRANSLATE_TABS
   const resolvedTab = resolveTranslateTab(wantedTab)
   const tab = visibleTabs.some((t) => t.id === resolvedTab) ? resolvedTab : 'translate'
 

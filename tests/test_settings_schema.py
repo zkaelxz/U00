@@ -26,10 +26,14 @@ STATE_KEYS = {
     "auto_backup.identity": "library identity, copied across a restore by library_restore_service",
     "jellyfin": "Jellyfin card document; its API key is in .env (BAIHE_JELLYFIN_API_KEY)",
     "job_queue": "the Jobs page queue document (services/queue_service.py), edited on that page",
+    "pc_profile_pin": "salted hash of the PC window profile PIN, set on the PC-profiles card (services/pc_profile_service.py), never shown",
+    "pc_profile_pin.blocked_until": "wall-clock end of the PC window PIN pause, so a restart does not reset it (services/pc_profile_service.py)",
     "quick_video.profile_id": "the profile Quick video translate uses, chosen in Settings (services/quick_video_service.py)",
     "quick_video.runs": "recent Quick video translate runs and the watch-once titles to remove (services/quick_video_service.py)",
+    "app_update.before": "the library's tables and newest backup when the last app update started (app_update_service), rewritten by each update",
     "source_update.pending": "the update-and-restart in flight (source_update_service), cleared by the next boot",
     "source_update.last_result": "the last update-and-restart's outcome sentence, rewritten on every update",
+    "resource_alert_state": "which resource alerts are active and when each last notified (services/resource_monitor_service.py), rewritten as they change",
     "benchmark_sweep": "the Benchmark Lab's latest settings sweep and its decision, written by benchmark_sweep_service",
     "benchmark_translate_sweep": "the Benchmark Lab's latest translation settings sweep and its decision, written by benchmark_translate_sweep_service",
 }
@@ -397,6 +401,8 @@ def test_choice_empty_string_is_kept_only_when_listed():
 ROOT_READERS = {
     "jobs/job_settings.py": "gpu_limit_enabled, gpu_max_parallel and notify_on_completion gate "
                           "job scheduling, below the service layer",
+    "engine_backends/engine_registry.py": "ollama_cloud_default decides which model a default resolves to, "
+                                          "below the service layer",
     "ollama_unload.py": "unload_ollama_before_transcribe is read where the GPU is about to be used",
 }
 
@@ -463,3 +469,15 @@ def test_tracked_sees_untracked_files(tmp_path):
     (tmp_path / "ignored.py").write_text("x = 1\n", encoding="utf-8")
     (tmp_path / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
     assert _tracked("*.py", root=tmp_path) == ["new_module.py"]
+
+
+def test_reasoning_settings_default_per_engine_and_name_the_engine(isolated_db):
+    assert settings_service.reasoning_override("claude") is None
+    assert settings_service.reasoning_override("openai") == "less"
+    settings_service.set_settings({"claude_reasoning": "less"})
+    assert settings_service.reasoning_override("claude") == "less"
+    assert settings_service.reasoning_override("deepseek") is None
+    settings_service.set_settings({"openai_reasoning": "default"})
+    assert settings_service.reasoning_override("openai") is None
+    with pytest.raises(InvalidInputError):
+        settings_service.set_settings({"openai_reasoning": "none"})

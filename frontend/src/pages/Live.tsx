@@ -21,7 +21,7 @@ import { useEffect, useId, useState } from 'react'
 import { api, hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP,
-  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
+  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, languageWhisperDefault, glossaryChoices, glossaryIds, glossaryValue,
   isActive, lagLine, pickEngine, resolveModel, startLive, statusLine, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
@@ -39,9 +39,11 @@ import { usePersistedState } from '../hooks/usePersistedState'
 import { followOptions } from '../api/liveFollows'
 import { useDeveloperMode } from './assistant/developerMode'
 import { NeedsInstall } from './readiness/NeedsInstall'
-import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperSize } from './readiness/needs'
+import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperOptionNote, liveWhisperSize } from './readiness/needs'
+import { whisperExclusionReason } from './workspace/sourceForm'
 import { FollowedChannels } from './live/FollowedChannels'
 import { LiveCaptions } from './live/LiveCaptions'
+import { SaveSession } from './live/SaveSession'
 import { LiveChatSection, ReadChatField } from './live/LiveChat'
 import { DelayedPlayer } from './live/DelayedPlayer'
 import { useLiveSession } from './live/useLiveSession'
@@ -112,9 +114,14 @@ export default function LivePage() {
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
   // The delayed player records on the PC and the server refuses it from away, so a choice
   // remembered on this browser is set aside there (the PC keeps it).
-  const form: LiveForm = { ...formDefaults(opts), ...prefs, url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
+  const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
+  // A Japanese-only model must not stay selected for another language: Start would refuse it.
+  const changeLanguage = (language: string) => {
+    const excluded = whisperExclusionReason(opts.whisper_exclusions, form.whisper_size, language)
+    setPrefs({ ...prefs, source_language: language, ...(excluded ? { whisper_size: languageWhisperDefault(opts, language) } : {}) })
+  }
 
   // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.
   const [titles, setTitles] = useState<{ id: number; name: string; series_id: number | null }[] | null>(null)
@@ -253,7 +260,7 @@ export default function LivePage() {
           </Field>
           <div className="field-row">
             <Field label="Language">
-              <select value={form.source_language} disabled={active || busy} onChange={(e) => setOpt('source_language', e.target.value)}>
+              <select value={form.source_language} disabled={active || busy} onChange={(e) => changeLanguage(e.target.value)}>
                 {opts.languages.map((l) => (
                   <option key={l.code} value={l.code}>
                     {l.label}
@@ -280,14 +287,14 @@ export default function LivePage() {
           </div>
           {engines && !usable.length && (
             <p className="muted" data-testid="live-no-engine-note">
-              <a href={routeHref({ name: 'settings' })}>Add an engine key in Settings</a>
+              <a href={routeHref({ name: 'settings' })}>Add a key in Settings</a>
             </p>
           )}
           {engines && !usable.length && developerMode && (
             <p className="muted" data-testid="live-echo-note">Echo (testing) is available in Developer Mode</p>
           )}
           <Field label="Use glossary and packs from"
-            help="Optional. The glossary always comes from a series. Pick a series for its glossary and the language packs of its newest title that has a pack choice; pick a title for its series' glossary and that title's own packs. The names and terms that occur in the stream are sent with each translation request. Nothing is written to the library.">
+            help="Optional. The glossary always comes from a series. Pick a series (uses the packs of its newest title that has a pack choice) or a title (uses its series' glossary and its own packs). Terms found in the stream are sent with each translation. Nothing is written to the library.">
             <select value={glossaryPick} disabled={active || busy} data-testid="live-glossary-title"
               onChange={(e) => setPrefs({ ...prefs, ...glossaryIds(e.target.value) })}>
               <option value="">None</option>
@@ -333,9 +340,10 @@ export default function LivePage() {
                 <select value={form.whisper_size} disabled={active || busy} onChange={(e) => setOpt('whisper_size', e.target.value)}>
                   {opts.whisper_sizes.map((w) => {
                     const size = liveWhisperSize(readiness, w, pc !== 'remote')
+                    const wrongLanguage = !!whisperExclusionReason(opts.whisper_exclusions, w, form.source_language)
                     return (
-                      <option key={w} value={w} disabled={!!size.reason && w !== form.whisper_size}>
-                        {w}{size.reason ? ' (not available)' : size.download ? ' (downloads first)' : ''}
+                      <option key={w} value={w} disabled={wrongLanguage || (!!size.reason && w !== form.whisper_size)}>
+                        {w}{liveWhisperOptionNote(wrongLanguage, size)}
                       </option>
                     )
                   })}
@@ -355,7 +363,7 @@ export default function LivePage() {
               </Field>
             </div>
             {opts.whisper_sizes.map((w) => {
-              const reason = liveWhisperSize(readiness, w, pc !== 'remote').reason
+              const reason = whisperExclusionReason(opts.whisper_exclusions, w, form.source_language) ?? liveWhisperSize(readiness, w, pc !== 'remote').reason
               return reason ? <p key={w} className="muted" data-testid="live-whisper-reason">{w}: {reason}</p> : null
             })}
             <label className="live-check">
@@ -365,12 +373,12 @@ export default function LivePage() {
             {gpuReason && <p className="muted" data-testid="live-gpu-note">{gpuReason}</p>}
             {pc !== 'remote' && (
               <Field label="Delayed player"
-                help="Records a delayed copy of the picture and sound on this PC and plays that instead of the stream's own player, so the picture can be held back to match the lines even where the stream can't be rewound. Downloads the video as well as the audio. Takes effect when you press Start.">
+                help="Records a delayed copy of the video on this PC and plays it instead of the stream's player, so the picture matches the lines even where the stream can't be rewound. Downloads video as well as audio. Takes effect on Start.">
                 <Toggle checked={form.delayed_player} disabled={active || busy} onChange={(v) => setOpt('delayed_player', v)} />
               </Field>
             )}
             {form.delayed_player && (
-              <Field label="Delayed player quality" help="The tallest picture recorded for the delayed player. Taller is sharper but downloads and stores more (1080p is roughly 5 Mbit/s); streams that don't offer it use the nearest smaller size. Takes effect when you press Start.">
+              <Field label="Delayed player quality" help="Tallest picture recorded for the delayed player. Taller is sharper but downloads and stores more (1080p is about 5 Mbit/s). A stream without it uses the nearest smaller size. Takes effect on Start.">
                 <select value={form.player_height} disabled={active || busy} onChange={(e) => setOpt('player_height', Number(e.target.value))}>
                   {opts.player_heights.map((h) => <option key={h} value={h}>{h}p</option>)}
                 </select>
@@ -476,6 +484,7 @@ export default function LivePage() {
             {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
             {feed.length > 0 && <CueFeed cues={feed} lang={session.status?.source_language ?? form.source_language} waiting={active} />}
             {total > feed.length && <p className="muted">Showing the newest {feed.length} of {total} lines.</p>}
+            {total > 0 && <SaveSession cues={session.cues} />}
           </div>
           </div>
         )}

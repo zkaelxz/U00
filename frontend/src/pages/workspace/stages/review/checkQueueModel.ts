@@ -1,0 +1,576 @@
+/** What the Simple view's check queue shows: which view it opens on, its counts, its reasons and its wording. */
+import { humanize, humanizeValue } from '../../../../components/labels'
+import { lineNumber } from '../../../../lineNumber'
+import { capFirst, plural } from '../../../../labels'
+import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
+import { formatTime, needsSpeaker, RISK_CONFIDENCE_BELOW } from './reviewLogic'
+
+// The queue is the server's risk view: translated, unchecked lines with a flag, a low Whisper score or no speaker (in a
+// title that has speakers), riskiest first.
+export const QUEUE_FILTER: LineFilter = 'risk'
+
+/**
+ * The view Review opens on. A link that names lines wins over the queue, so it never opens on a list without
+ * the line it points at: ?focus=flagged opens Flagged, ?find= (a Ctrl+K line hit) and ?focus=all open All.
+ * `onAll`: the title page of a title with lines still without English, which the queue never lists, opens on All too.
+ */
+export function initialLinesFilter(link: { focus?: string; find?: string } | null, simple: boolean, onAll = false): LineFilter {
+  if (link?.focus === 'flagged') return 'flagged'
+  if (!simple || onAll || link?.focus === 'all' || link?.find) return 'all'
+  return QUEUE_FILTER
+}
+
+/** Why an unflagged line is in the queue: only Whisper's score put it there. Null for a flagged line, which shows its flag. */
+export function confidenceReason(line: Pick<ReviewLine, 'flag' | 'confidence'>): string | null {
+  if (line.flag || line.confidence == null || line.confidence >= RISK_CONFIDENCE_BELOW) return null
+  return `Whisper was unsure of this line (${Math.round(line.confidence * 100)}% sure)`
+}
+
+type SpeakerFields = Pick<ReviewLine, 'speaker' | 'speaker_manual' | 'sfx' | 'zh' | 'en'>
+
+/** Why an unflagged, confidently heard line is in the queue: it is the lowest-ranked reason, a speaker still to pick. */
+export const NO_SPEAKER_REASON: QueueReason = { text: 'This line has no speaker yet.', short: 'No speaker yet', chip: 'No speaker yet', next: 'no speaker yet' }
+
+/** Listed for no speaker alone: taking one is what takes it out of the queue. */
+export const onlyNeedsSpeaker = (line: Pick<ReviewLine, 'flag' | 'confidence'> & SpeakerFields) =>
+  !line.flag && !confidenceReason(line) && needsSpeaker(line)
+
+/** The sentence added after a flagged line's reason when Whisper's score would have listed it too; null otherwise. */
+export function alsoUnsureText(line: Pick<ReviewLine, 'flag' | 'confidence'>): string | null {
+  if (!line.flag || line.confidence == null || line.confidence >= RISK_CONFIDENCE_BELOW) return null
+  return `Whisper was also unsure of this line (${Math.round(line.confidence * 100)}% sure).`
+}
+
+/** A flag with no words of its own: its tidied name and the note as stored, "Uncertain · Check". */
+function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
+  return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${capFirst(line.flag_note)}` : ''}`
+}
+
+/**
+ * A queue card's reason: the sentence the open card shows, the few words of a flag outside the queue, the chip of a
+ * card in the queue's list, and the kind alone for the phone's Next line, which names two cards on one line.
+ */
+export interface QueueReason {
+  text: string
+  short: string
+  chip: string
+  next: string
+}
+
+// A note the server writes in a known shape becomes its own sentence (none: the kind's own sentence already says it all);
+// null means "not that shape", never a part of it.
+type ReadNote = (note: string) => { text?: string; short?: string; chip?: string } | null
+
+interface FlagKind {
+  text: string
+  short: string
+  // The chip where it says more than `short`, for a note that could not be read.
+  chip?: string
+  read?: ReadNote
+}
+
+const NUM = '(\\d+(?:\\.\\d+)?)'
+
+// "a", "a and b", "a, b and c"
+const joinAnd = (parts: string[]) => (parts.length < 2 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`)
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1)
+
+// Notes that are one fixed text on the server, each with the sentence that replaces it.
+const fixedNotes = (notes: Record<string, string>): ReadNote => (note) => (note in notes ? { text: notes[note] } : null)
+// A note whose words the kind's own sentence already covers.
+const saidByKind = (matches: (note: string) => boolean): ReadNote => (note) => (matches(note) ? {} : null)
+
+// engine_backends/glossary_check.py flag_note: "Glossary: 夷陵老祖 -> Yiling Patriarch; 魏婴 -> Wei Ying missing (+2 more)".
+const readGlossary: ReadNote = (note) => {
+  const m = /^Glossary: ([\s\S]+) missing(?: \(\+(\d+) more\))?$/.exec(note)
+  if (!m) return null
+  const pairs = m[1].split('; ').map((p) => p.split(' -> '))
+  if (pairs.some((p) => p.length !== 2 || !p[0].trim() || !p[1].trim())) return null
+  const more = Number(m[2] ?? 0)
+  const names = pairs.map(([src]) => src).join(', ') + (more ? ` and ${more} more` : '')
+  const several = pairs.length > 1 || more > 0
+  const writes = joinAnd([...pairs.map(([src, en]) => `${src} as “${en}”`), ...(more ? [`${more} more ${more === 1 ? 'name' : 'names'}`] : [])])
+  const one = pairs.length === 1 && !more
+  return {
+    text: `The glossary writes ${writes}, but the English doesn’t use ${one ? 'that name' : 'those names'}. ` +
+      `Put ${one ? 'it' : 'them'} in the English, or change the glossary if ${one ? 'the' : 'a'} name is wrong.`,
+    short: `Glossary name not used: ${names}`,
+    chip: `The English does not use the glossary ${several ? 'names' : 'name'} for ${names}`,
+  }
+}
+
+// subtitle_formats.py _dense_note: the speed, the limit, then either room to show it longer or "shorten the text".
+const readSpeed: ReadNote = (note) => {
+  const m = new RegExp(`^${NUM} characters/second -- more than ~${NUM}/s is hard to read in time\\. ([\\s\\S]+)$`).exec(note)
+  if (!m) return null
+  const room = new RegExp(`^The next line leaves room: it could be shown ${NUM} s longer, or shorten the text\\.$`).exec(m[3])
+  const fix = m[3] === 'The speech is this fast: shorten the text.'
+    ? 'Shorten the text.'
+    : room ? `Shorten the text, or show the line ${room[1]} s longer: the next line leaves room.` : null
+  if (!fix) return null
+  return {
+    text: `Too fast to read: ${m[1]} characters a second (over ${m[2]} is hard). ${fix}`,
+    short: `Too fast to read, ${Math.round(Number(m[1]))} characters a second`,
+    chip: `Too fast to read: ${Math.round(Number(m[1]))} characters a second`,
+  }
+}
+
+// subtitle_formats.py overlap_note.
+const readOverlap: ReadNote = (note) => {
+  const m = new RegExp(`^Overlapped the next line by ${NUM}s; exports trim its end to ${NUM}s\\. Adjust the timing to fix it for good\\.$`).exec(note)
+  return m ? { text: `This line runs ${m[1]} s into the next one, so exports end it early, at ${formatTime(Number(m[2]))}. Change its end time to fix it for good.` } : null
+}
+
+// timing_drift.py: the findings joined by "; ", first letter raised, a full stop, and the music caveat on a noisy file.
+const MUSIC_CAVEAT = ' Speech detection can mistake music for speech; check by ear.'
+const DRIFT_PARTS: [RegExp, (m: RegExpExecArray) => string][] = [
+  [/^sits in silence \(no speech detected\)$/, () => 'no speech is heard during it'],
+  [new RegExp(`^starts ${NUM} s before speech$`), (m) => `it starts ${m[1]} s before the speech`],
+  [new RegExp(`^ends ${NUM} s after speech$`), (m) => `it ends ${m[1]} s after the speech`],
+  [/^mostly silence \((\d+)% speech\)$/, (m) => `it is mostly silence (speech for ${m[1]}% of it)`],
+  [new RegExp(`^overlaps the next line by ${NUM} s$`), (m) => `it runs ${m[1]} s into the next line`],
+]
+const readDrift: ReadNote = (note) => {
+  const music = note.endsWith(MUSIC_CAVEAT)
+  const body = music ? note.slice(0, -MUSIC_CAVEAT.length) : note
+  if (!body.endsWith('.')) return null
+  const parts = lowerFirst(body.slice(0, -1)).split('; ').map((part) => {
+    for (const [re, say] of DRIFT_PARTS) {
+      const m = re.exec(part)
+      if (m) return say(m)
+    }
+    return null
+  })
+  if (parts.some((p) => p === null)) return null
+  // "it starts … and ends …": the subject is said once.
+  const said = (parts as string[]).map((p, i) => (i > 0 && parts[0]?.startsWith('it ') && p.startsWith('it ') ? p.slice(3) : p))
+  return {
+    text: `Timing doesn’t match the audio: ${joinAnd(said)}. Play it and move the start or end.` +
+      (music ? ' Music can be taken for speech in this audio, so check by ear.' : ''),
+  }
+}
+
+// auto_qc.py issue_note: one sentence per direction, then the advice.
+const QC_ADVICE = ' Check the translation says the same thing.'
+const QC_PARTS: [string, string][] = [
+  ['In the source but not the translation: ', 'In the source but not the English: '],
+  ['In the translation but not the source: ', 'In the English but not the source: '],
+  ['Uses a translation flagged as prohibited: ', 'The English uses a translation the glossary says not to use: '],
+]
+const readQc: ReadNote = (note) => {
+  if (!note.endsWith(QC_ADVICE)) return null
+  const parts = note.slice(0, -QC_ADVICE.length).split(/(?<=\.) (?=In the source but not|In the translation but not|Uses a translation flagged)/)
+  const said = parts.map((part) => {
+    const kind = QC_PARTS.find(([from]) => part.startsWith(from))
+    return kind && part.endsWith('.') ? kind[1] + part.slice(kind[0].length) : null
+  })
+  if (said.some((s) => s === null)) return null
+  return { text: `English and source disagree on a number, date, name, amount or unit. ${said.join(' ')} Make them match.` }
+}
+
+// compare_transcription_service._disagreement_note, with its engine labels.
+const OTHER_ENGINES = ['Whisper', 'Qwen3 ASR with speech detection', 'Qwen3 ASR on long windows', 'Qwen3 ASR', 'anime-whisper (Japanese, experimental, non-commercial)']
+const readDisagree: ReadNote = (note) => {
+  const engines = OTHER_ENGINES.map((e) => e.replace(/[()]/g, '\\$&')).join('|')
+  const m = new RegExp(`^Heard differently \\((\\d+)% alike\\)\\. Saved: ([\\s\\S]*?) / (${engines}): ([\\s\\S]*)$`).exec(note)
+  if (!m) return null
+  return {
+    text: `Two speech engines heard this line differently. The saved text is “${m[2]}”; ${m[3]} heard “${m[4]}”. ` +
+      'Play it and keep the one that’s right, or transcribe the line again.',
+  }
+}
+
+// source_suspect.py: its findings joined by "; " (the mid-phrase one holds a "; " of its own).
+// Every script script_mix can name: the source language's foreign ones and the stray ones.
+const SCRIPTS: Record<string, string> = {
+  Kana: 'Japanese kana', Hangul: 'Korean letters', Cyrillic: 'Cyrillic letters', Arabic: 'Arabic letters',
+  Hebrew: 'Hebrew letters', Thai: 'Thai letters', Greek: 'Greek letters', Devanagari: 'Devanagari letters',
+}
+const SUSPECT_PART = /(?:“([^”]*)” repeats (\d+)\+ times in a row|has ([A-Za-z/]+) characters|(is mostly Latin letters)|ends mid-phrase; the next line is only “([^”]*)”)(?:; |$)/y
+const readSuspect: ReadNote = (note) => {
+  if (note === 'Qwen3-ASR returned no text here; Whisper\'s text was kept') {
+    return { text: 'Qwen3-ASR heard no words here, so Whisper’s text was kept. Play the line and check the source text.' }
+  }
+  const found: string[] = []
+  SUSPECT_PART.lastIndex = 0
+  while (SUSPECT_PART.lastIndex < note.length) {
+    const m = SUSPECT_PART.exec(note)
+    if (!m) return null
+    if (m[1] !== undefined) found.push(`“${m[1]}” repeats ${m[2]} or more times in a row`)
+    else if (m[3] !== undefined) {
+      const names = m[3].split('/').map((s) => SCRIPTS[s])
+      if (names.some((n) => !n)) return null
+      found.push(`it has ${joinAnd(names)} in it`)
+    } else if (m[4] !== undefined) found.push('it is mostly Latin letters')
+    else found.push(`it stops mid-sentence, and the next line is only “${m[5]}”`)
+  }
+  if (found.length === 0) return null
+  return {
+    text: `The source text looks off: ${joinAnd(found)}. The transcription may be wrong or split badly, which can make the English odd. ` +
+      'Play it and fix the source text, or transcribe the line again.',
+  }
+}
+
+// translate_pipeline.py: "<engine>: <the engine's stated reason>".
+const readBlocked: ReadNote = (note) => {
+  const m = /^([\w.-]+): ([\s\S]+)$/.exec(note)
+  if (!m) return null
+  return {
+    text: `The translation engine’s content filter refused this line, so it was not translated. ${humanize('engine', m[1])} gave this reason: “${m[2]}”. ` +
+      'Retry the line with another engine.',
+  }
+}
+
+// bulk_apply.py and bulk_reflect.py: which batch job lost its result.
+const readBulk: ReadNote = (note) => {
+  const lost = /^Bulk result not applied: ([\s\S]+)$/.exec(note)
+  if (lost) {
+    return { text: `Source changed while the batch waited, so its English was dropped. Translate again. Dropped English: “${lost[1]}”.` }
+  }
+  return fixedNotes({
+    'Source text changed while a bulk Reflect job was pending':
+      'The source text changed while a batch review of the English was waiting, so its suggestion was not used. Check the English still matches the source.',
+    'Source text changed while bulk flagging was pending -- re-run it':
+      'The source text changed while a batch check was waiting, so its result was not used. Run the check again.',
+    'Source text changed while bulk emotion tagging was pending':
+      'The source text changed while batch emotion tagging was waiting, so its tag was not used. Tag the line again.',
+  })(note)
+}
+
+// translation_guard.py's notes for a reply that came back wrong, and the line it gave up on.
+const readTranslationCheck: ReadNote = (note) => {
+  // bulk_apply.py adds the rejected reply after the reason, kept so a reply the check got wrong can be copied back.
+  const unusable = /^check: the model's reply for this line was unusable \(([^)]+)\)(?::\s*([\s\S]*))?$/.exec(note)
+  if (unusable) {
+    const reply = unusable[2]?.trim()
+    return {
+      text: `The translation engine’s answer for this line could not be used (${unusable[1]}), so the English may be missing or wrong. ` +
+        `${reply ? `Its answer was “${reply}”. ` : ''}Fix the English, or use Re-write.`,
+    }
+  }
+  return fixedNotes({
+    'check: may be merged or shifted':
+      'The English may also hold the next line’s words, or belong to a different line. Compare it with the source and the lines around it.',
+    'check: Chinese, Japanese or Korean characters left in the English':
+      'The English still has Chinese, Japanese or Korean characters in it. Translate those words too.',
+    'check: a number in the source is different or missing in the English':
+      'A number in the source is different or missing in the English. Check the number.',
+    'check: a chapter heading was added to this line':
+      'A chapter heading that isn’t in the source was added to this line. Take it out of the English.',
+    'check: metric measurement in the source reads as imperial here':
+      'The source gives a metric measurement, but the English shows it in imperial units. Check the measurement.',
+  })(note)
+}
+
+const TIMING_CHECK = ' Play it and check it starts and ends with the speech.'
+
+// whisper_hallucination.py: each note says which sign of made-up text it saw.
+const MAYBE_INVENTED = ' Play the line, then fix it or delete it.'
+const readInvented = fixedNotes({
+  'Looks like a credit line Whisper writes on silence; check against the audio':
+    `This looks like a credit line Whisper writes over silence, not something said here.${MAYBE_INVENTED}`,
+  'Text in a script this audio is unlikely to hold; check against the audio':
+    `The text is in a script this audio is unlikely to hold, so Whisper may have made it up.${MAYBE_INVENTED}`,
+  'check: the same line came back several times with long gaps; check it is real speech':
+    `The same line came back several times with long gaps between, which happens when Whisper makes text up.${MAYBE_INVENTED}`,
+  'Looks like a list of invented words; check against the audio':
+    `This looks like a list of made-up words rather than speech.${MAYBE_INVENTED}`,
+  'More text than this stretch of audio can hold; check against the audio':
+    `There is more text here than this stretch of audio can hold.${MAYBE_INVENTED}`,
+  'One-character lines in a row, often noise; check against the audio':
+    `This is one of several one-character lines in a row, which is often noise.${MAYBE_INVENTED}`,
+  'Cut into slivers of audio, often unclear speech; check against the audio':
+    `This line is cut into slivers of audio, which is often unclear speech.${MAYBE_INVENTED}`,
+  'Text in a split second of audio; check against the audio':
+    `This text sits in a split second of audio, too short to hold it.${MAYBE_INVENTED}`,
+})
+
+// One entry per key of FLAG_REASONS and SYSTEM_FLAG_REASONS in engine_backends/flag_reasons.py, plus the flags set
+// outside it: whisper_hallucination.py IMPLAUSIBLE_FLAG and speaker_overlap_service.py TALK_OVER_FLAG.
+const FLAG_KINDS: Record<string, FlagKind> = {
+  uncertain_translation: {
+    text: 'The English may not say what the source says, or may read awkwardly. Read both and fix the English if needed.',
+    short: 'Translation may be off',
+    read: readTranslationCheck,
+  },
+  ambiguous_reference: {
+    text: 'Unclear who or what “she” or “that place” means. Check the English.',
+    short: 'Unclear who or what',
+  },
+  name_uncertain: {
+    text: 'A name or term here may be misspelled, or written differently than in other lines. Check it against the glossary.',
+    short: 'Name may be misspelled',
+  },
+  slang_idiom: {
+    text: 'This line has slang or a saying that may not have come across well in English. Check the English sounds natural and means the same.',
+    short: 'Slang or a saying',
+  },
+  timing_uncertain: {
+    text: `The times of this line are a guess and may not match the speech.${TIMING_CHECK}`,
+    short: 'Times are a guess',
+    read: fixedNotes({
+      'Forced alignment returned zero-length or out-of-order timing for this line, so it uses the approximate timing instead -- check it lines up.':
+        `The app couldn’t match this line’s times to the speech, so it uses a rough guess.${TIMING_CHECK}`,
+      'Forced alignment returned zero-length or out-of-order timing for part of this line; it was estimated from the neighbouring words -- check it lines up.':
+        `Part of this line couldn’t be matched to the speech, so its times were worked out from the words around it.${TIMING_CHECK}`,
+      'Split evenly by length (no sentence punctuation or word timings to cut at); the times are approximate.':
+        `This line was split by length, with no punctuation or word timings to cut at, so its times are rough.${TIMING_CHECK}`,
+    }),
+  },
+  language_uncertain: {
+    text: 'The text doesn’t seem to be in the language heard for this line, even after a second try. Check the text, and the line’s spoken language under Edit details.',
+    short: 'Language unclear',
+    read: saidByKind((note) => note === 'The spoken language of this line couldn\'t be confirmed: the text doesn\'t match the language detected, and a retry in the title\'s language didn\'t match either -- check the text and the language.'),
+  },
+  timing_overlap: {
+    text: 'This line runs into the next one, so exports end it early. Change its end time to fix it for good.',
+    short: 'Runs into the next line',
+    read: readOverlap,
+  },
+  timing_drift: {
+    text: 'Timing doesn’t match the audio. Play it and move the start or end.',
+    short: 'Times off the speech',
+    read: readDrift,
+  },
+  reading_speed: {
+    text: 'Too fast to read: too many characters for the time shown. Shorten the text.',
+    short: 'Too fast to read',
+    read: readSpeed,
+  },
+  factual_detail: {
+    text: 'English and source disagree on a number, date, name, amount or unit. Make them match.',
+    short: 'A number or name differs',
+    read: readQc,
+  },
+  engines_disagree: {
+    text: 'Two speech engines heard this line differently. Play it and keep the one that’s right, or transcribe the line again.',
+    short: 'Heard two ways',
+    read: readDisagree,
+  },
+  gap_untranscribed: {
+    text: 'Added for audio with no subtitle. Play it and check the text.',
+    short: 'Added for a gap',
+    read: saidByKind((note) => note === 'Added for a stretch with no subtitle line; check the text'),
+  },
+  bulk_source_changed: {
+    text: 'The source text changed while a batch job was waiting, so its result was not used. Translate this line again.',
+    short: 'Source changed during a batch',
+    read: readBulk,
+  },
+  source_changed: {
+    text: 'Source changed after translation, so the English may not match. Keep it if it fits, or improve it.',
+    short: 'Source changed',
+  },
+  pronoun_check: {
+    text: 'The English says “he” or “him”, but this line’s speaker has no character set as he/him. Check the pronoun is right.',
+    short: 'Check he or him',
+    read: saidByKind((note) => note === 'Says he/him but no he/him character is set for this speaker; check the pronoun'),
+  },
+  glossary_missing: {
+    text: 'The English doesn’t use the glossary’s name. Use it, or fix the glossary.',
+    short: 'Glossary name not used',
+    chip: 'The English does not use a glossary name',
+    read: readGlossary,
+  },
+  source_mismatch: {
+    text: 'The English reads unlike its source line. It may belong to the line before or after, leave something out, or answer a different line. Compare it with the lines around it.',
+    short: 'May not match the source',
+    read: saidByKind((note) => /^Source match: the English reads unlike its source line \(similarity [\d.]+\)$/.test(note)),
+  },
+  source_suspect: {
+    text: 'The source text looks off: the transcription may be wrong or split badly, which can make the English odd. Play it and fix the source text, or transcribe the line again.',
+    short: 'Source text looks off',
+    read: readSuspect,
+  },
+  content_blocked: {
+    text: 'The translation engine’s content filter refused this line, so it was not translated. Retry the line with another engine.',
+    short: 'Blocked by the engine',
+    read: readBlocked,
+  },
+  text_uncertain: {
+    text: `Whisper may have written something that was not said here.${MAYBE_INVENTED}`,
+    short: 'May not be real speech',
+    read: readInvented,
+  },
+  talk_over: {
+    text: 'Another speaker talks over this line. Type what they say, or delete the line.',
+    short: 'Another speaker talks here',
+    read: saidByKind((note) => note === 'Another speaker talks here; type what they say or delete the line'),
+  },
+}
+
+/** Every flag kind the queue writes its own words for. */
+export const QUEUE_FLAG_KINDS = Object.keys(FLAG_KINDS)
+
+/**
+ * Why a queue card is listed, in everyday words; a flagged line says the same wherever Review writes its flag out.
+ * A note the server writes in a known shape gives the specifics; any other note is shown as it is after the plain
+ * sentence. An unknown flag keeps the line list's own text. Null for a line with no flag that Whisper was sure of and
+ * that has a speaker.
+ */
+export function queueReason(line: Pick<ReviewLine, 'flag' | 'flag_note' | 'confidence'> & Partial<SpeakerFields>): QueueReason | null {
+  if (!line.flag) {
+    const unsure = confidenceReason(line)
+    // The chip keeps the score: a closed card on a wide screen leaves out the Shaky badge that also says it. Whisper is a
+    // name, so the Next line keeps its capital.
+    if (unsure) return { text: unsure, short: `Whisper was unsure (${Math.round((line.confidence ?? 0) * 100)}% sure)`, chip: unsure, next: 'Whisper was unsure' }
+    return line.zh !== undefined && line.en !== undefined && needsSpeaker(line as SpeakerFields) ? NO_SPEAKER_REASON : null
+  }
+  const kind = FLAG_KINDS[line.flag]
+  if (!kind) {
+    const short = humanizeValue(line.flag)
+    return { text: flagText(line), short, chip: short, next: lowerFirst(short) }
+  }
+  // The Next line runs on after a comma, so the kind's words drop their capital.
+  const next = lowerFirst(kind.short)
+  const note = (line.flag_note ?? '').trim()
+  const read = note && kind.read ? kind.read(note) : null
+  if (read) {
+    const short = read.short ?? kind.short
+    return { text: read.text ?? kind.text, short, chip: read.chip ?? kind.chip ?? short, next }
+  }
+  return { text: note ? `${kind.text} Note: ${capFirst(note)}` : kind.text, short: kind.short, chip: kind.chip ?? kind.short, next }
+}
+
+/** The one existing line action that fits a card's reason, shown beside Play. */
+export type QueueAction = 'glossary' | 'retranscribe' | 'retry' | 'snap' | 'keep'
+
+const ACTION_BY_FLAG: Record<string, QueueAction> = {
+  glossary_missing: 'glossary',
+  name_uncertain: 'glossary',
+  source_suspect: 'retranscribe',
+  engines_disagree: 'retranscribe',
+  text_uncertain: 'retranscribe',
+  content_blocked: 'retry',
+  timing_uncertain: 'snap',
+  timing_drift: 'snap',
+  timing_overlap: 'snap',
+  source_changed: 'keep',
+}
+
+export function queueAction(line: Pick<ReviewLine, 'flag' | 'confidence'>): QueueAction | null {
+  if (line.flag) return ACTION_BY_FLAG[line.flag] ?? null
+  return confidenceReason(line) ? 'retranscribe' : null
+}
+
+/** What a card says once its speaker is set but another reason still lists it; null when nothing else does. */
+export function stillListedNote(line: ReviewLine, speaker: string): string | null {
+  const short = queueReason({ ...line, speaker })?.short
+  if (!short) return null
+  // The reason runs on after a colon, so its first word drops its capital; Whisper is a name and keeps it.
+  return `Speaker set to ${speaker}. This line is still listed: ${short.startsWith('Whisper ') ? short : lowerFirst(short)}.`
+}
+
+/** The next two cards after the one open, for the phone's one-card view; null at the end of the list. */
+export function nextText(shown: ReviewLine[], activeId: number | null): string | null {
+  const at = shown.findIndex((l) => l.id === activeId)
+  const next = shown.slice(at + 1, at + 3)
+  if (at === -1 || next.length === 0) return null
+  return `Next: ${next.map((l) => `line ${lineNumber(l.idx)}, ${queueReason(l)?.next ?? 'Whisper was unsure'}`).join(' · ')}`
+}
+
+/**
+ * The card to open once `id` is checked and has left the queue: the one after it. The last card of a page with more
+ * pages behind it is followed by the line that reload brings up from the next page, which lands last; only the very
+ * last card of the queue goes back to the one before it.
+ */
+export function nextAfterCheck(shown: ReviewLine[], id: number, morePages: boolean): number | 'last' | undefined {
+  const at = shown.findIndex((l) => l.id === id)
+  return shown[at + 1]?.id ?? (morePages ? 'last' : shown[at - 1]?.id)
+}
+
+/** The open card's place in the whole queue, across pages: its 1-based number and how many cards there are. */
+export interface QueuePlace {
+  at: number
+  total: number
+}
+
+export function queuePlace(shown: ReviewLine[], activeId: number | null, page: number, pageSize: number, total: number): QueuePlace | null {
+  const at = shown.findIndex((l) => l.id === activeId)
+  return at === -1 ? null : { at: (page - 1) * pageSize + at + 1, total }
+}
+
+/** "2 of 5 to look at". */
+export const placeText = (p: QueuePlace): string => `${p.at} of ${p.total} to look at`
+
+export interface QueueCounts {
+  all: number | null
+  risk: number
+  untranslated: number
+  unreviewed: number
+  marked: number
+}
+
+export const queueCounts = (page: ReviewLinesPage, all: number | null): QueueCounts => ({
+  all, risk: page.risk_count ?? 0, untranslated: page.untranslated_count, unreviewed: page.unreviewed_count ?? 0,
+  marked: page.marked_count,
+})
+
+/** Lines with English and no warning: not in the queue and not waiting for a translation. */
+export const fineCount = (c: QueueCounts): number | null => (c.all === null ? null : Math.max(0, c.all - c.risk - c.untranslated))
+
+export const fineText = (c: QueueCounts): string | null => {
+  const fine = fineCount(c)
+  return fine === null || c.all === null ? null : `${fine} of ${c.all} look fine`
+}
+
+/** Unchecked lines outside the queue: what Mark the rest would look at (its exact count is the server's). */
+export const restUnchecked = (c: QueueCounts): number => Math.max(0, c.unreviewed - c.risk)
+
+export function otherFineText(c: QueueCounts): string | null {
+  const fine = fineCount(c)
+  if (!fine || c.risk === 0) return null
+  return fine === 1 ? 'The other line has no warnings.' : `The other ${fine} lines have no warnings.`
+}
+
+export const untranslatedText = (n: number): string | null =>
+  n > 0 ? `${plural(n, 'line')} ${n === 1 ? 'has' : 'have'} no English yet.` : null
+
+// The words Mark episode reviewed already uses for the same wait.
+export const JOB_RUNNING_TEXT = 'Another job is running on this title. Try again when it finishes.'
+export const UNSURE_FIRST = 'Look at the lines Whisper was unsure of first: this would mark them checked too.'
+export const NO_SPEAKER_FIRST = 'Give the lines with no speaker a speaker first, or check them: this would mark them checked too.'
+export const WHOLE_LIST_FIRST =
+  'Work through the list until it fits on one page. Until then the app can’t tell whether this would also mark lines that still need a look.'
+
+/**
+ * Why Mark the rest can't run now, or null when it can. Mark episode reviewed skips flagged lines only, so an
+ * unflagged low-score or no-speaker line in the queue would be marked unseen. The list counts can't tell those lines apart
+ * (flagged_count also holds checked and untranslated lines), so the queue page itself is read: it must hold the
+ * whole queue, every line flagged.
+ */
+export function markRestBlocker(queuePage: ReviewLinesPage, jobRunning: boolean): string | null {
+  if (jobRunning) return JOB_RUNNING_TEXT
+  if (queuePage.lines.length < queuePage.total) return WHOLE_LIST_FIRST
+  const unflagged = queuePage.lines.filter((l) => !l.flag)
+  if (unflagged.some((l) => !onlyNeedsSpeaker(l))) return UNSURE_FIRST
+  if (unflagged.length > 0) return NO_SPEAKER_FIRST
+  return null
+}
+
+/** The reason a press asked for, kept only while it is still the one that blocks: another reason, or none, waits for its own press. */
+export const askedReason = (askedFor: string | null, blocker: string | null): string | null => (blocker !== null && askedFor === blocker ? askedFor : null)
+
+/**
+ * What the footer's Mark the rest as checked… draws. While `blocker` holds it stays a link that does nothing but say why,
+ * once pressed (`asked`); a reason nobody asked for is not shown. Unblocked, it is the two-step button. Still loading
+ * (`!settled`) it is disabled either way: the page shown may miss a line that now needs a look.
+ */
+export function markRestView(blocker: string | null, asked: boolean, settled: boolean): { control: 'say-why' | 'confirm'; disabled: boolean; reason: string | null } {
+  return { control: blocker ? 'say-why' : 'confirm', disabled: !settled, reason: blocker && asked ? blocker : null }
+}
+
+export const checkedText = (line: Pick<ReviewLine, 'idx'>) => `Line #${lineNumber(line.idx)} marked checked.`
+
+/** The lines either side of an open card in the title's own order; null where the title starts or ends. */
+export interface Around {
+  before: ReviewLine | null
+  after: ReviewLine | null
+}
+
+/** The lines before and after `id` from the All view's page holding it and, at its edges, the pages either side. */
+export function aroundFrom(page: ReviewLine[], id: number, prevLast: ReviewLine | null, nextFirst: ReviewLine | null): Around | null {
+  const at = page.findIndex((l) => l.id === id)
+  if (at === -1) return null
+  return { before: page[at - 1] ?? prevLast, after: page[at + 1] ?? nextFirst }
+}

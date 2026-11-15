@@ -10,6 +10,7 @@ import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { NarrationConfig } from '../../../types/dub'
 import { AI_ENGINE_LABEL } from '../../../helpText'
+import { stageLabel } from '../stages'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { EngineGateNote } from './EngineGateNote'
 import { useEngineGate, useTitleEngines } from './useEngineGate'
@@ -19,6 +20,9 @@ interface Props {
   busy: boolean
   onJobStarted: (jobId: string) => void
 }
+
+// Only novel-narration titles show this panel, and their first stage is named as a novel's.
+const ATTACH_NOVEL = `Attach the novel text on the ${stageLabel('source', 'novel')} stage first`
 
 export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
   const [cfg, setCfg] = useState<NarrationConfig | null>(null)
@@ -75,14 +79,14 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
       }, setError)
 
   const summary = !cfg.has_novel_source
-    ? 'Attach the novel text on the Media stage first'
+    ? ATTACH_NOVEL
     : cfg.job_running
       ? 'A chunk-and-tag job is already running'
       : `${engine ? humanize('engine', engine) : 'no engine'}${model.trim() ? ` · ${model.trim()}` : ''}`
 
   return (
     <Section storageKey="dub.narration" title="Chunk and tag speakers" summary={summary}>
-      {!cfg.has_novel_source && <p className="muted">Attach the novel text on the Media stage first.</p>}
+      {!cfg.has_novel_source && <p className="muted">{ATTACH_NOVEL}.</p>}
       <div className="dub-grid">
         <Field
           label={AI_ENGINE_LABEL}

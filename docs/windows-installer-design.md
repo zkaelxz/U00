@@ -49,7 +49,7 @@ Per-user install, no admin rights (`PrivilegesRequired=lowest`):
 | `...\Baihe Studio\manifest.json` | App version, Python version and hash, wheel list with hashes, installed-size estimate | Installer | Yes |
 | `...\Baihe Studio\wheels\` | The bundled core wheels and their `wheels.lock.txt`, kept for an offline restore after a failed Diagnostics install | Installer | Yes, wholesale (`[InstallDelete]`) |
 | `%ProgramFiles%\Baihe Studio Services\` (admin-only; with the service task) | Copies of the service script, interpreter, WinSW and Caddy that run elevated (§11) | `service.py install` | Yes, by the service update |
-| **Data folder**, default `%LOCALAPPDATA%\Baihe Studio\` (chosen on the "Where to keep your library" page, or with `/DATADIR=`) | `library\` (database, dramas, media, backups, logs), `.env` (settings and API keys), `model_cache\` (Hugging Face, torch and audio-separator caches), `launcher\` (server pid, server log, install log) | The app at runtime | **Never** |
+| **Data folder**, default `%LOCALAPPDATA%\Baihe Studio\` (chosen on the "Where to keep your library" page, or with `/DATADIR=`) | `library\` (database, dramas, media, backups, logs), `.env` (settings and API keys), `model_cache\` (Hugging Face, torch and audio-separator caches), `tools\` (ffmpeg downloaded from Diagnostics), `launcher\` (server pid, server log, install log) | The app at runtime | **Never** |
 
 Why a separate data folder: the program folder is replaced on every upgrade
 and removed on uninstall, and a multi-GB growing library doesn't belong next
@@ -595,7 +595,8 @@ Settings → Apps → Baihe Studio → Uninstall (or `unins000.exe`):
   `backups\auto`, logs, `source_cache`, browser profiles,
   `extension_token.txt`), `.env`, `model_cache`, and the
   launcher's files. If the user picked an existing folder, only those named
-  items go, and the folder is removed only if that leaves it empty.
+  items go (plus `voice_engines` and `playwright_browsers`, which only a clean
+  uninstall removes), and the folder is removed only if that leaves it empty.
 - **Temporary items.** Baihe Studio's own named items in `%TEMP%` are removed:
   `baihe_*` work folders, `baihe_page_*` files and `baihe-torch-pins-*` files.
   Nothing else in `%TEMP%` is removed. Temporary folders Python names itself
@@ -725,13 +726,18 @@ per-user.
   its interpreter, the wrapper) is copied to `%ProgramFiles%\Baihe Studio
   Services`, which only administrators can change, and the later commands
   (`stop`, `uninstall`) run only from there, at the location Windows reports
-  for Program Files. **Known gap:** the first `install` (and an update's) is
-  run elevated by Setup from its own extraction, `{app}\service`, in the
-  user-writable program folder, before it is copied; a process running as the
-  user could replace those files in that window and have them run as
-  administrator. Fixing it needs Setup to be elevated or to extract
-  somewhere only administrators can write. **Accepted for now; revisit if
-  the PC gets other users.**
+  for Program Files. The first `install` (and an update's) cannot run from the
+  admin folder, which doesn't exist yet, and Setup's own extraction
+  (`{app}\service`) is in the user-writable program folder. So Setup does not
+  run anything from there: it checks `installer/stage_service.ps1` against a
+  SHA-256 compiled into Setup, hands that text to `powershell.exe -EncodedCommand`
+  (elevated), and that script copies `{app}\service` into
+  `%ProgramFiles%\Baihe Studio Services.staging`, recomputes one digest over the
+  copy (`build_installer.service_tree_digest`, compiled into Setup) and refuses
+  with exit code 3, installing nothing, unless it matches. Only then does it run
+  `service.py install` from the copy. A link anywhere in `{app}\service` is refused too.
+  The service payload is bound to the installer that carries it, so a swap
+  between extraction and the permission prompt is refused rather than run.
   Uninstall takes the account off both folders again and removes the admin
   folder (files still loaded are moved aside, inside Program Files, and
   deleted at the next restart).
@@ -868,7 +874,7 @@ The owner's step-by-step guide, with a table of which ports are opened or forwar
 A second service, `BaiheCaddy` (WinSW, `NT SERVICE\BaiheCaddy`, same privilege
 cut, depends on `BaiheStudio`), is installed **disabled and stopped**, with
 `caddy.exe` built from `installer/caddy`: stock Caddy plus `rate_limit`, every
-module pinned by `go.sum`, Go `go1.26.10` pinned by SHA-256 in the workflow, and
+module pinned by `go.sum`, Go `go1.26.11` pinned by SHA-256 in the workflow, and
 the binary pinned by `CADDY_SHA256` in `build_installer.py`. Its certificates
 and ACME key live in `%ProgramFiles%\Baihe Studio Services\caddy-data`
 (Caddy, SYSTEM and Administrators only).

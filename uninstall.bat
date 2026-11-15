@@ -205,6 +205,17 @@ if exist "!OLD_STARTMENU_LNK!" echo   - Start Menu entry: !OLD_STARTMENU_LNK!
 for /d %%D in ("library.pre_restore_*" "library.pre_reset_*" ".restore_staging_*") do call :leftover "Library copy kept beside it (may hold your real library if library\ is missing)" "%%~fD"
 if exist "library.restore-lock" echo   - library.restore-lock ^(restore lock file^)
 if exist ".env" echo   - .env ^(your settings and API keys; stays in this folder, contents are never shown^)
+REM Folders the app makes next to library\ as it runs. Reported, never deleted: voice_engines and
+REM playwright_browsers are large, and saved_comics and baihe_trash hold things the user kept.
+REM With BAIHE_DATA_DIR set they are in that folder, which is listed as a whole below.
+if not defined BAIHE_DATA_DIR (
+    call :leftover "Voice engines" "!APP_DIR!voice_engines"
+    call :leftover "Downloaded browser" "!APP_DIR!playwright_browsers"
+    call :leftover "Saved comics" "!APP_DIR!saved_comics"
+    call :leftover "Items moved to Trash" "!APP_DIR!baihe_trash"
+    call :leftover "Android app update file" "!APP_DIR!android"
+    call :leftover "Queued Diagnostics install" "!APP_DIR!pending_install"
+)
 if defined BAIHE_DATA_DIR if exist "!BAIHE_DATA_DIR!\" echo   - Your BAIHE_DATA_DIR folder: !BAIHE_DATA_DIR! ^(library, settings, vtuber_names.json and anything else Baihe saved there; not touched^)
 call :leftover "Hugging Face model cache" "!HF_DIR!"
 set "TORCH_DIR=%TORCH_HOME%"

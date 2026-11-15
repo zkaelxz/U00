@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test'
 
-import { ME, REMOTE_HEALTH_OFF } from './authMocks'
+import { BACKUP_SETTINGS_QUIET, ME, REMOTE_HEALTH_OFF } from './authMocks'
 import { pagePng } from './comicMocks'
 import { json } from './mockHelpers'
 
@@ -31,6 +31,7 @@ export async function mockManga(page: Page, opts: { local?: boolean; empty?: boo
   await page.route(/\/api\/meta$/, (route) => json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local }))
   await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
   await page.route(/\/api\/diagnostics\/remote-health$/, (route) => json(route, REMOTE_HEALTH_OFF))
+  await page.route(/\/api\/backups\/settings$/, (route) => json(route, BACKUP_SETTINGS_QUIET))
   await page.route(/\/api\/assistant\/settings$/, (route) => json(route, { developer_mode: false, engine: null, model: null, engine_choices: [] }))
   await page.route('**/api/events?*', (route) =>
     route.fulfill({ status: 429, json: { error: { code: 'rate_limited', message: 'No stream in this test.' } } }))

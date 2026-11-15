@@ -6,6 +6,7 @@ glossary_service describes the contract; import these names from there.
 
 No FastAPI import.
 """
+import re
 import threading
 import uuid
 from typing import Optional
@@ -18,13 +19,14 @@ from engine_backends import shared as engine_shared
 from engine_backends import paid_calls
 import translation_guide as tguide
 from engine_backends.shared import TranslationCancelled
-from glossary_io import TERM_CATEGORIES, TERM_POLICIES
+from glossary_io import MIN_ALIAS_LEN, TERM_CATEGORIES, TERM_POLICIES
 from services import job_checkpoint_service, novel_files_service, paid_job_service
-from services.glossary_common import MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text, split_term_conventions
+from services.glossary_common import MAX_ITEM_LEN, MAX_LIST_ITEMS, MAX_NOTES_LEN, MAX_TERM_LEN, _drama, _series_id, _text, split_term_conventions
 from lib.errors import (
     ConflictError,
     InvalidInputError,
     MissingKeyError,
+    NotFoundError,
     UnsupportedOperationError,
 )
 
@@ -34,7 +36,10 @@ from lib.errors import (
 # ---------------------------------------------------------------------------
 
 RAW_NOVEL_FILENAME = "raw_novel_context.txt"
-_EXTRACT_FAILED = "Glossary extraction failed."
+def _extract_failed(engine_name: str) -> str:
+    """Names the engine because it is the title's saved one, which is not the engine
+    picked on the Translate form for a single run."""
+    return f"Glossary extraction failed (engine: {engine_name})."
 
 
 def novel_glossary_job_id(drama_id: int) -> str:
@@ -61,11 +66,32 @@ def novel_glossary_engine(drama_id: int) -> str:
 # anything else is Low. Deliberately simple so a reviewer can predict it.
 HIGH_CONFIDENCE_MIN_OCCURRENCES = 3
 MAX_ALTERNATIVES = 5
+MAX_ALIASES = 5
 
 
 def _confidence(occurrences: int, alternatives: list, translation: str) -> str:
     consistent = bool(translation) and not alternatives
     return "high" if consistent and occurrences >= HIGH_CONFIDENCE_MIN_OCCURRENCES else "low"
+
+
+def _proposal_aliases(proposal: dict, term: str, known: set) -> list:
+    """The other spellings a proposal carries. One that is another glossary
+    term's own text is left out: it would claim a different name."""
+    raw = proposal.get("aliases")
+    clean = [a.strip()[:MAX_TERM_LEN] for a in raw if isinstance(a, str)] if isinstance(raw, list) else []
+    return list(dict.fromkeys(a for a in clean if len(a) >= MIN_ALIAS_LEN and a != term and a not in known))[:MAX_ALIASES]
+
+
+def _merged_aliases(current, proposed: list):
+    """The stored aliases with the proposal's added, as the pipe-separated text
+    the glossary keeps; None when there is nothing to add (the stored value stays)."""
+    if not proposed:
+        return None
+    kept = [a.strip() for a in str((current or {}).get("aliases") or "").split("|") if a.strip()]
+    # The term editor refuses more than MAX_LIST_ITEMS aliases, so a merge that
+    # went past it would make the term impossible to save again.
+    fits = [a for a in proposed if len(a) <= MAX_ITEM_LEN and "|" not in a]
+    return "|".join(list(dict.fromkeys(kept + fits))[:max(MAX_LIST_ITEMS, len(kept))])
 
 
 def _normalize_proposals(proposals, known_terms, source_text: str = "") -> list:
@@ -93,7 +119,11 @@ def _normalize_proposals(proposals, known_terms, source_text: str = "") -> list:
             "suggested_translation": translation,
             "occurrences": occurrences,
             "alternatives": alternatives,
-            "confidence": _confidence(occurrences, alternatives, translation),
+            "aliases": _proposal_aliases(p, term, known),
+            # A meaning the model says it inferred must not read as High just because the
+            # word repeats: Select all High would apply the guess unreviewed.
+            "confidence": "low" if p.get("unsure") is True
+                          else _confidence(occurrences, alternatives, translation),
             "category": p.get("category") if p.get("category") in TERM_CATEGORIES else None,
             "policy": p.get("policy") if p.get("policy") in TERM_POLICIES else None,
             "reason": str(p.get("reason") or "")[:MAX_NOTES_LEN],
@@ -167,9 +197,31 @@ def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_t
     except Exception as exc:
         # Engine errors can echo request details; never surface them raw.
         raise RuntimeError(
-            _EXTRACT_FAILED + " " + engine_shared.redact_secrets(str(exc))) from None
-    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms, src_text),
-                                        "run_id": run_id, **paid_job_service.stop_fields(limits)})
+            _extract_failed(engine_name) + " " + engine_shared.redact_secrets(str(exc))) from None
+    normalized = _normalize_proposals(proposals, known_terms, src_text)
+    background_jobs.set_result(job_id, {"proposals": normalized, "run_id": run_id,
+                                        **paid_job_service.stop_fields(limits),
+                                        **_review_waiting(drama_id, normalized)})
+
+
+def _review_waiting(drama_id: int, proposals: list) -> dict:
+    """{"waiting": note} for the job's result when the Glossary tab will
+    offer at least one name (new to the glossary and not ignored), so the
+    bell and the push say there is something to review
+    (jobs_service.waiting_note); {} when there is none."""
+    new = [p["term"] for p in proposals if not p.get("already_in_glossary")]
+    try:
+        sid = (db.get_drama(drama_id) or {}).get("series_id")
+        ignored = db.list_dismissed_glossary_terms(sid, new) if sid and new else set()
+    except Exception:
+        # Only the count in a notification depends on this; the paid run's
+        # proposals must still be kept.
+        ignored = set()
+    count = sum(1 for term in new if term not in ignored)
+    if not count:
+        return {}
+    return {"waiting": {"text": f"{count} glossary name{'s' if count != 1 else ''} to review",
+                        "target": {"page": "glossary", "drama_id": drama_id}}}
 
 
 # The run_id of each extraction job id's latest started run, for the status
@@ -294,8 +346,8 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
 
     engine_name, engine = _glossary_engine(drama, engine_name)
     from services import settings_service, translate_run_service
-    translate_run_service.refuse_when_cap_spent(engine_name,
-                                                bool(settings_service.get("gemini_free_tier")))
+    translate_run_service.refuse_when_cap_spent(
+        engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
     job_id = novel_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
@@ -306,6 +358,32 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     if not started:
         raise ConflictError("A glossary extraction is already running for this title.")
     return {"job_id": job_id, "engine": engine_name, "paired": bool(en_text)}
+
+
+def draft_project_instructions(drama_id: int, engine_name: Optional[str] = None) -> dict:
+    """One call that drafts this novel's style instruction from a sample of its
+    raw text, for the person to review in the Instruction tab. Nothing is saved:
+    the draft only fills the box. Paid-engine spend like a glossary run; the
+    engine is the title's stored one, checked by the route's gate (ConflictError
+    if it changed since). {"instructions": str, "engine": str}."""
+    drama = _drama(drama_id)
+    src = _read_drama_file(drama_id, RAW_NOVEL_FILENAME, capped=False)
+    if not src.strip():
+        src = _read_drama_file(drama_id, drama.get("novel_reference_filename"))
+    if not src.strip():
+        raise UnsupportedOperationError("Attach a novel to this title first.")
+    engine_name, engine = _glossary_engine(drama, engine_name)
+    from services import settings_service, translate_run_service
+    translate_run_service.refuse_when_cap_spent(
+        engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
+    try:
+        text = tguide.draft_novel_style_instructions(
+            src, engine, drama.get("source_language") or "zh",
+            usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "style_draft"))
+    except Exception as exc:
+        raise RuntimeError(f"Style draft failed (engine: {engine_name}). "
+                           + engine_shared.redact_secrets(str(exc))) from None
+    return {"instructions": text, "engine": engine_name}
 
 
 _PROPOSAL_FIELDS = ("term", "suggested_translation", "category", "policy", "reason",
@@ -430,11 +508,18 @@ def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existin
         if current is not None and not overwrite_existing:
             report["skipped_existing"].append(term)
             continue
+        notes = p["reason"]
+        # "unclear" means the scan found no evidence, not that the user's
+        # pronoun note is wrong, so overwriting must not erase it.
+        if (current is not None and re.match(r"\s*unclear", notes, re.IGNORECASE)
+                and tguide._PRONOUN_LEAD.match(current.get("notes") or "")):
+            notes = current["notes"]
         db.upsert_glossary_term(
-            sid, term, translation, notes=p["reason"],
+            sid, term, translation, notes=notes,
             category=edit.get("category", p["category"]),
             policy=edit.get("policy", p["policy"]),
-            enforce_exact=bool(current.get("enforce_exact")) if current else False)
+            enforce_exact=bool(current.get("enforce_exact")) if current else False,
+            aliases=_merged_aliases(current, p.get("aliases") or []))
         report["overwritten" if current is not None else "added"].append(term)
     return report
 
@@ -514,9 +599,12 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
                             source_language, known_terms):
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
-    background_jobs.update_progress(job_id, 0.1, f"Scanning {len(source_lines)} lines...")
+    # One request covers the whole sample, so there is no real progress to report. The ticker keeps
+    # the elapsed time fresh and lifts the stall flag to the no-progress allowance instead of
+    # showing a healthy slow model as stuck after five minutes.
     try:
-        with _bounded_calls(job_id, drama_id, engine, engine_name, "extract_terms") as limits:
+        with background_jobs.stage_ticker(job_id, f"Scanning {len(source_lines)} lines...", frac=0.1), \
+                _bounded_calls(job_id, drama_id, engine, engine_name, "extract_terms") as limits:
             proposals = tguide.extract_terms_llm(
                 source_lines, engine, source_language=source_language, known_terms=known_terms,
                 usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "extract_terms"))
@@ -524,22 +612,37 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
         raise background_jobs.JobCancelled() from None
     except Exception as exc:
         raise RuntimeError(
-            _EXTRACT_FAILED + " " + engine_shared.redact_secrets(str(exc))) from None
+            _extract_failed(engine_name) + " " + engine_shared.redact_secrets(str(exc))) from None
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
     # `renderings` is the novel path's cross-window tally; a single call has no
     # windows, so a model-supplied one would be an unvetted alternatives source.
     proposals = [{k: v for k, v in p.items() if k != "renderings"}
                  for p in proposals if isinstance(p, dict)]
-    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms,
-                                                                  "\n".join(source_lines)),
-                                        "run_id": run_id, **paid_job_service.stop_fields(limits)})
+    normalized = _normalize_proposals(proposals, known_terms, "\n".join(source_lines))
+    background_jobs.set_result(job_id, {"proposals": normalized, "run_id": run_id,
+                                        **paid_job_service.stop_fields(limits),
+                                        **_review_waiting(drama_id, normalized)})
 
 
-def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -> dict:
+def _chapter_source_lines(drama_id: int, chapter: int) -> list:
+    """The source lines of one saved chapter, by the numbering GET line-chapters shows."""
+    from services import novel_line_chapters_service
+
+    found = next((c for c in novel_line_chapters_service.line_chapters(drama_id)["chapters"]
+                  if c["number"] == chapter), None)
+    if found is None:
+        raise NotFoundError("That chapter was not found in this title.")
+    rows = [r for r in db.load_lines(drama_id) if r["idx"] >= found["first_idx"]][:found["line_count"]]
+    return [r["zh"] for r in rows if (r.get("zh") or "").strip()]
+
+
+def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None,
+                             chapter: Optional[int] = None) -> dict:
     """Starts proposing glossary terms from this drama's saved source lines
     (`tguide.extract_terms_llm`, which samples up to 400 lines across the
-    whole drama). One LLM call on the drama's translation_engine; the
+    whole drama), or only chapter `chapter` of GET line-chapters when given
+    (NotFoundError when there is no such chapter). One LLM call on the drama's translation_engine; the
     engine_name rule is start_novel_glossary_run's. Refused before starting
     when this month's spending cap is already used up (capped engines only,
     as translate_run_service). Paid-engine spend: yes, unless the engine is
@@ -553,13 +656,17 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
 
     drama = _drama(drama_id)
     sid = _series_id(drama, required=False)
-    source_lines = [r["zh"] for r in db.load_lines(drama_id) if (r.get("zh") or "").strip()]
+    if chapter is not None:
+        source_lines = _chapter_source_lines(drama_id, chapter)
+    else:
+        source_lines = [r["zh"] for r in db.load_lines(drama_id) if (r.get("zh") or "").strip()]
     if not source_lines:
         raise UnsupportedOperationError(
-            "This title has no source lines yet; transcribe or import them first.")
+            "This title has no source lines yet; transcribe or import them first."
+            if chapter is None else "That chapter has no source lines.")
     engine_name, engine = _glossary_engine(drama, engine_name)
-    translate_run_service.refuse_when_cap_spent(engine_name,
-                                                bool(settings_service.get("gemini_free_tier")))
+    translate_run_service.refuse_when_cap_spent(
+        engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
 
     job_id = lines_glossary_job_id(drama_id)
     started = _start_extraction_job(

@@ -4,6 +4,16 @@
 
 const GENERIC_FAILURE = "That didn't work.";
 
+// Chrome and Edge never update an extension loaded from a folder, so the app reports the
+// version it ships and the extension says when its own copy is older.
+function staleExtensionNote(data) {
+  const shipped = data && data.extension_version;
+  const mine = chrome.runtime.getManifest().version;
+  if (!shipped || shipped === mine) return "";
+  return `This extension is version ${mine}; your Baihe has ${shipped}. In Baihe's Settings, download the` +
+    " extension, unzip it over this extension's folder, then press Reload on the extensions page.";
+}
+
 function pluralize(count, noun) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }

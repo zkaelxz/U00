@@ -72,8 +72,9 @@ def _fetch_hub(repos, report, cancelled) -> None:
 
         class Bar(huggingface_hub.utils.tqdm):
             def update(self, n=1):
-                # The file-count bar has no unit "B"; only bytes are reported.
-                if self.unit == "B" and n:
+                # The file-count bar has no unit "B"; only bytes are reported. A bar
+                # the library disables never sets `unit` at all.
+                if getattr(self, "unit", None) == "B" and n:
                     received[0] += n
                     report(step / len(repos), f"Downloading {repo_id}… {received[0] / 1e9:.1f} GB so far")
                     if cancelled():
@@ -84,6 +85,23 @@ def _fetch_hub(repos, report, cancelled) -> None:
         with model_pins.fetching(repo_id):
             huggingface_hub.snapshot_download(
                 repo_id, revision=model_pins.revision(repo_id), etag_timeout=30, tqdm_class=Bar)
+
+
+def _lama_ready() -> bool:
+    import scanlate_inpaint
+    return scanlate_inpaint.lama_ml_weights_cached()
+
+
+def _fetch_lama(report, cancelled) -> None:
+    # One checkpoint file, not the whole repo: scanlate_inpaint loads only this file.
+    import scanlate_inpaint
+    try:
+        scanlate_inpaint._load_lama_generator(allow_download=True)
+    except ImportError as exc:
+        raise ModelDownloadFailed(
+            "LaMa-manga needs torch, safetensors and huggingface_hub. Install them in "
+            "Packages and installs first.") from exc
+    report(0.99, "Downloaded LaMa-manga")
 
 
 CATALOG = {
@@ -101,6 +119,11 @@ CATALOG = {
         "label": "manga-ocr",
         "ready": _manga_ocr_ready,
         "fetch": lambda report, cancelled: _fetch_hub(_manga_ocr_repos(), report, cancelled),
+    },
+    "lama_manga": {
+        "label": "LaMa-manga (Scanlate text cleanup)",
+        "ready": _lama_ready,
+        "fetch": _fetch_lama,
     },
 }
 

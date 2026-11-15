@@ -383,7 +383,7 @@ def test_a_member_key_never_reaches_a_local_model(monkeypatch):
 
 def test_direct_model_names_drop_the_app_cloud_suffix():
     assert local.direct_cloud_model("gemma4:31b-cloud") == "gemma4:31b"
-    assert local.direct_cloud_model("gemma4:cloud") == "gemma4"
+    assert local.direct_cloud_model("qwen3-coder:cloud") == "qwen3-coder"
 
 
 def test_over_the_cap_names_the_members_own_quota(monkeypatch):

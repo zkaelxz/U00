@@ -3,7 +3,8 @@ services/source_update_service.py -- "Update now" for a git working copy
 started with start.bat, usable from the website by an admin.
 
 It does not merge anything itself. start.bat already fetches and
-fast-forwards origin/baihe-subtitler, reinstalls changed requirements and
+fast-forwards origin/baihe-subtitler to its newest commit whose Tests run
+passed (`update_target`, which start.bat runs as `tools/update_target.py`), reinstalls changed requirements and
 rebuilds the screens when the app is not running, so an update here is: check
 that start.bat would succeed (same rules, with a plain-words reason for each
 refusal), stop this server cleanly, and let tools/restart_after_update.py run
@@ -24,7 +25,7 @@ import time
 import background_jobs
 import db
 import process_guard
-from lib import proc
+from lib import github_checks, proc
 from services import app_update_service, auth_service, shutdown_service
 from services import update_service as us
 from lib.errors import (ConflictError, DependencyUnavailableError,
@@ -55,6 +56,8 @@ WRONG_BRANCH = f"This copy isn't on the {BRANCH} branch."
 EDITED = "Some of the program files in this folder were edited."
 OFFLINE = "Couldn't reach GitHub. Try again later."
 NOT_FF = "This copy has changes of its own that the update can't sit on top of."
+NO_GREEN = "No newer version has passed its tests yet."
+CANT_CHECK = "Couldn't check on GitHub which versions passed their tests. Try again later."
 TURNED_OFF = "Updates are turned off for this copy."
 NOT_WINDOWS = "Updating from the website works on Windows only."
 NOT_START_BAT = "Baihe wasn't started with start.bat, so it can't restart itself. Update it on the PC."
@@ -157,6 +160,8 @@ def _run_check() -> None:
         elif _git("merge-base", "--is-ancestor", old, new)[0] != 0:
             problem = NOT_FF
         else:
+            new, problem = update_target(old, new)
+        if problem is None and new is not None and new != old:
             _, count = _git("rev-list", "--count", f"{old}..{new}")
             _, log = _git("log", f"-n{MAX_CHANGES}", "--format=%s", f"{old}..{new}")
             result.update(behind=int(count) if count.isdigit() else None, latest=_short(new),
@@ -164,6 +169,25 @@ def _run_check() -> None:
     result["error"] = problem
     with _lock:
         _check.update(result)
+
+
+def update_target(old, new):
+    """(sha, None) for the newest commit after `old` on the branch's own line
+    up to `new` whose Tests run passed, else (None, reason): about one push in
+    ten on the branch fails its tests, and a copy must not start on one."""
+    code, url = _git("remote", "get-url", "origin")
+    repo = github_checks.repo_from_remote(url) if code == 0 else None
+    if repo is None:
+        return None, CANT_CHECK
+    code, out = _git("rev-list", "--first-parent", f"-n{github_checks.MAX_COMMITS}",
+                     f"{old}..{new}")
+    if code != 0:
+        return None, UNREADABLE
+    try:
+        sha = github_checks.newest_passing(repo, out.split())
+    except github_checks.CheckUnavailable:
+        return None, CANT_CHECK
+    return (sha, None) if sha else (None, NO_GREEN)
 
 
 def _settle_pending(head) -> None:

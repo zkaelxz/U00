@@ -181,7 +181,7 @@ class TestSending:
         from lib.errors import UnsupportedOperationError
         from services import translate_run_service
 
-        def spent(name, free=False):
+        def spent(name, free=False, model=None):
             raise UnsupportedOperationError("This month's spending cap is used up.")
         monkeypatch.setattr(translate_run_service, "refuse_when_cap_spent", spent)
         r = _client().post(f"{BASE}/text", headers=_auth(token), json={"text": "你好"})
@@ -234,6 +234,51 @@ class TestTitleAndNovel:
         r = _client().post(f"{BASE}/novel", headers=_auth(token), json={
             "drama_id": theirs, "heading": "c1", "text": "文本"})
         assert r.status_code == 404
+
+
+class TestWritePermissions:
+    """`extension.send` alone must not write into titles once `lines.edit` or `jobs.start` is gone."""
+
+    ROUTES = {
+        "novel": {"heading": "c1", "text": "文本"},
+        "title": {"url": "https://example.com/c/1", "titles": ["我的漫画"], "kind": "comic"},
+        "text": {"text": "你好"},
+        "page": {"images": ["x"]},
+        "pages": {"images": ["x"]},
+    }
+
+    @pytest.mark.parametrize("route", sorted(ROUTES))
+    def test_without_lines_edit_every_write_route_is_refused(self, isolated_db, route):
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "lines.edit")
+        r = _client().post(f"{BASE}/{route}", headers=_auth(token), json=self.ROUTES[route])
+        assert r.status_code == 403
+
+    @pytest.mark.parametrize("route", ["text", "page", "pages"])
+    def test_without_jobs_start_the_engine_routes_are_refused(self, isolated_db, route):
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "jobs.start")
+        r = _client().post(f"{BASE}/{route}", headers=_auth(token), json=self.ROUTES[route])
+        assert r.status_code == 403
+
+    def test_a_refused_title_creates_nothing(self, isolated_db):
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "lines.edit")
+        before = len(db.list_dramas())
+        _client().post(f"{BASE}/title", headers=_auth(token), json=self.ROUTES["title"])
+        assert len(db.list_dramas()) == before
+
+    def test_health_and_cancel_stay_open(self, isolated_db):
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "lines.edit")
+        auth_service.revoke_permission(u["id"], "jobs.start")
+        assert _client().get(f"{BASE}/health", headers=_auth(token)).status_code == 200
+        assert _client().post(f"{BASE}/cancel", headers=_auth(token), json={}).status_code != 403
+
+    def test_a_member_with_the_default_rights_still_works(self, isolated_db):
+        _, token = _member("a@example.com")
+        r = _client().post(f"{BASE}/title", headers=_auth(token), json=self.ROUTES["title"])
+        assert r.status_code == 200
 
 
 class _PaidEngine:
@@ -321,3 +366,94 @@ def test_the_pcs_own_token_gets_a_404_for_an_out_of_range_title_id(isolated_db):
         with pytest.raises(page_server.EndpointError) as exc:
             page_server.translate_image(buf.getvalue(), "image/png", drama_id=bad)
         assert (exc.value.status, str(exc.value)) == (404, "no such drama"), bad
+
+
+def test_health_reports_the_shipped_extension_version():
+    import json
+    from services import extension_bridge_service as svc
+    with open(svc._MANIFEST, encoding="utf-8") as f:
+        assert svc.bundled_extension_version() == json.load(f)["version"]
+
+
+class TestTitleNaming:
+    """A new title's English name is one AI call on the owner's extension engine."""
+
+    def _setup(self, monkeypatch, engine):
+        from engine_backends import engine_registry, llm_tasks
+        from services import translate_run_service
+        calls = []
+        page_server.set_translation_config(engine=engine, api_key="k", base_url=None, free_tier=False)
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
+        monkeypatch.setattr(translate_run_service, "refuse_when_cap_spent", lambda *a, **k: None)
+        monkeypatch.setattr(llm_tasks, "call_llm_json",
+                            lambda e, prompt, **kw: calls.append(prompt) or '{"title": "Hidden Child"}')
+        return calls
+
+    def _title(self, token):
+        body = {"url": "https://comic.naver.com/webtoon/detail?titleId=1&no=1",
+                "titles": ["남편이 아이를 숨겼다 1화 - 네이버 웹툰", "네이버 웹툰"]}
+        return _client().post(f"{BASE}/title", json=body, headers=_auth(token))
+
+    def test_a_member_without_engines_paid_gets_the_title_but_no_paid_call(self, isolated_db, monkeypatch):
+        calls = self._setup(monkeypatch, "claude")
+        _u, token = _member("a@example.com")
+        r = self._title(token)
+        assert r.status_code == 200 and calls == []
+        assert db.get_drama(r.json()["drama_id"])["title_en"] == ""
+
+    def test_a_member_with_engines_paid_gets_the_name(self, isolated_db, monkeypatch):
+        calls = self._setup(monkeypatch, "claude")
+        _u, token = _member("a@example.com", paid=True)
+        r = self._title(token)
+        assert len(calls) == 1
+        assert db.get_drama(r.json()["drama_id"])["title_en"] == "Hidden Child"
+
+    def test_a_free_local_engine_is_open_to_every_member(self, isolated_db, monkeypatch):
+        calls = self._setup(monkeypatch, "ollama")
+        _u, token = _member("a@example.com")
+        assert self._title(token).status_code == 200 and len(calls) == 1
+
+    def test_a_member_without_jobs_start_gets_the_title_but_no_call(self, isolated_db, monkeypatch):
+        calls = self._setup(monkeypatch, "ollama")
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "jobs.start")
+        r = self._title(token)
+        assert r.status_code == 200 and calls == []
+        assert db.get_drama(r.json()["drama_id"])["title_en"] == ""
+
+class TestCaptureSummary:
+    def test_a_member_logs_a_summary_for_a_title_they_can_edit(self, isolated_db, monkeypatch):
+        import applog
+        lines = []
+        monkeypatch.setattr(applog, "get_logger", lambda: type("L", (), {"info": staticmethod(
+            lambda fmt, *a: lines.append(fmt % a))})())
+        u, token = _member("a@example.com")
+        did = _drama(u["id"])
+        r = _client().post(f"{BASE}/capture-summary", json={"drama_id": did, "summary": "Saved 2 of 2 pages"},
+                           headers=_auth(token))
+        assert r.status_code == 200 and lines == [f"Extension capture (title {did}, member): Saved 2 of 2 pages"]
+
+    def test_a_member_cannot_log_against_someone_elses_private_title(self, isolated_db, monkeypatch):
+        import applog
+        lines = []
+        monkeypatch.setattr(applog, "get_logger", lambda: type("L", (), {"info": staticmethod(
+            lambda fmt, *a: lines.append(fmt % a))})())
+        owner, _t = _member("owner@example.com")
+        _u, token = _member("a@example.com")
+        r = _client().post(f"{BASE}/capture-summary", json={"drama_id": _drama(owner["id"]), "summary": "x"},
+                           headers=_auth(token))
+        assert r.status_code == 404 and lines == []
+
+    def test_without_lines_edit_no_note_is_kept(self, isolated_db):
+        u, token = _member("a@example.com")
+        did = _drama(u["id"])
+        body = {"drama_id": did, "summary": "Saved 2 of 2 pages"}
+        auth_service.revoke_permission(u["id"], "lines.edit")
+        assert _client().post(f"{BASE}/capture-summary", json=body, headers=_auth(token)).status_code == 403
+        assert db.list_capture_notes(did) == []
+        auth_service.grant_permission(u["id"], "lines.edit")
+        assert _client().post(f"{BASE}/capture-summary", json=body, headers=_auth(token)).status_code == 200
+        assert [n["summary"] for n in db.list_capture_notes(did)] == ["Saved 2 of 2 pages"]
+
+    def test_no_token_is_refused(self, isolated_db):
+        assert _client().post(f"{BASE}/capture-summary", json={"summary": "x"}).status_code == 401

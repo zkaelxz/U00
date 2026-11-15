@@ -215,7 +215,7 @@ def estimate(set_name: str, language: str, engine: str, model: str | None = None
     ceiling = max(models, key=lambda m: _pass_cost(plan, plan.with_model(plan.default, m), "tuning", m))
     total = sum(_pass_cost(plan, setup, half, ceiling) for setup, half in todo)
     monthly_cap, spend = settings_service.get_monthly_cap_usd(), db.get_month_spend()
-    capped = lab._cap_applies(engine)
+    capped = lab._cap_applies(engine, plan.default_model)
     remaining, refusal = pricing.resolve_cost_cap(None, monthly_cap, spend) if capped else (None, None)
     return {
         "set_name": set_name, "language": language, "engine": engine, "model": plan.default_model,

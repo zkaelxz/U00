@@ -115,7 +115,7 @@ export function SimilarSpellings({ term, onAdded, onClose }: {
                     <button
                       type="button"
                       className={buttonClass('secondary', 'sm')}
-                      title="Future glossary matches will count this spelling as the same term"
+                      title="Count this spelling as the same term"
                       aria-label={`Add ${c.text} as alias`}
                       onClick={() => setConfirming(c.text)}
                     >
@@ -174,7 +174,6 @@ function ClusterCard({ cluster, hasSeries, onCreated }: {
             type="button"
             className={buttonClass('secondary', 'sm')}
             disabled={!hasSeries || !!cluster.existing_term}
-            title="Name this person in English and save the spellings as one glossary term"
             aria-label={`Make a term from ${cluster.suggested_original}`}
             onClick={() => setOpen(true)}
           >
@@ -226,7 +225,7 @@ export function PossibleNames({ hasSeries, onCreated }: { hasSeries: boolean; on
           type="button"
           className={buttonClass('secondary')}
           disabled={loading}
-          title="Looks through the source lines for names that are written several ways. Free; nothing is changed."
+          title="Find names written several ways. Free; changes nothing."
           onClick={scan}
         >
           {loading ? 'Looking…' : result ? 'Look again' : 'Find possible names'}

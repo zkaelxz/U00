@@ -1,6 +1,7 @@
-import { useId, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import { buttonClass } from '../../../../components/uiClasses'
+import { useSimple } from '../../StageContext'
 import type { LineFilter } from '../../../../types/review'
 import { gapChipLabel, gapStepText } from './gapModel'
 import { chipLabel, parseJump } from './reviewLogic'
@@ -12,6 +13,7 @@ interface FilterCounts {
   unreviewed: number
   shaky: number
   risk: number
+  marked: number
 }
 
 interface Props {
@@ -47,13 +49,19 @@ interface Props {
   compact: boolean
   onCompact: (v: boolean) => void
   player: ReactNode
+  // Simple's switch between the check queue and every line, on a row of its own above the chips.
+  lead?: ReactNode
+  // The check queue: only that switch and the player; the chips, search and extras are under All.
+  bare?: boolean
+  // Each new value is a press of the header's Search: show the search box, open behind its toggle on a phone, and focus it.
+  searchAsk?: number
 }
 
 // The shaky and risk chips only appear for a title that has lines they would list, so other titles keep the four chips a phone's row fits.
-const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated', 'unreviewed', 'shaky', 'risk']
-const CONDITIONAL: LineFilter[] = ['shaky', 'risk']
+const FILTERS: LineFilter[] = ['all', 'flagged', 'untranslated', 'unreviewed', 'shaky', 'risk', 'marked']
+const CONDITIONAL: LineFilter[] = ['shaky', 'risk', 'marked']
 const FULL: Record<LineFilter, string> = {
-  all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated', unreviewed: 'Unreviewed', shaky: 'Least confident first', risk: 'Riskiest first',
+  all: 'All lines', flagged: 'Flagged', untranslated: 'Untranslated', unreviewed: 'Unreviewed', shaky: 'Least confident first', risk: 'Riskiest first', marked: 'Marked',
 }
 
 // A number you can type into: Enter or leaving the box jumps (clamped to 1..max), Escape puts the old value back.
@@ -133,14 +141,29 @@ export function Pager({ page, pages, onPage, labelled }: { page: number; pages: 
 // type, pager, Go to #, Replace… and the shortcut list; the player strip sits
 // under it when the drama has media.
 export function ReviewToolbar({ searchRef, ...p }: Props) {
+  // Simple keeps Replace; row density, Go to # and the shortcut list are for people who live in this screen.
+  const simple = useSimple()
   const [searchOpen, setSearchOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [goTo, setGoTo] = useState('')
   const showSearch = !p.isPhone || searchOpen || p.search !== ''
+  // The box is not drawn until the list shows All, which a press of Search asks for first; so the focus waits for it.
+  const ask = p.searchAsk ?? 0
+  const [askSeen, setAskSeen] = useState(ask)
+  if (ask !== askSeen) {
+    setAskSeen(ask)
+    if (p.isPhone) setSearchOpen(true)
+  }
+  const askFocused = useRef(ask)
+  useEffect(() => {
+    if (askFocused.current === ask || !searchRef.current) return
+    askFocused.current = ask
+    searchRef.current.focus()
+  })
 
   const chips = (
     <div className="review-chips" role="radiogroup" aria-label="Show">
-      {FILTERS.filter((f) => !CONDITIONAL.includes(f) || p.filter === f || (p.counts?.[f as 'shaky' | 'risk'] ?? 0) > 0).map((f) => {
+      {FILTERS.filter((f) => !CONDITIONAL.includes(f) || p.filter === f || (p.counts?.[f as 'shaky' | 'risk' | 'marked'] ?? 0) > 0).map((f) => {
         const count = !p.counts ? null : f === 'all' ? p.counts.all : p.counts[f]
         return (
           <label key={f} className="review-chip">
@@ -184,15 +207,20 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
     </div>
   )
 
+  const replace = (
+    <button type="button" className={buttonClass('ghost', 'sm', simple ? 'review-replace-simple' : undefined)} aria-expanded={p.replaceOpen} onClick={p.onToggleReplace}>
+      Replace…
+    </button>
+  )
+  // Simple's wide toolbar has nothing else for the extras row, so Replace… ends the filter row and the lines start higher.
+  const replaceInRow = simple && !p.isPhone
   const extras = (
     <div className="review-toolbar-row review-extras">
-      <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={p.replaceOpen} onClick={p.onToggleReplace}>
-        Replace…
-      </button>
-      <button type="button" className={buttonClass('ghost', 'sm')} aria-pressed={p.compact} onClick={() => p.onCompact(!p.compact)}>
+      {replace}
+      {!simple && <button type="button" className={buttonClass('ghost', 'sm')} aria-pressed={p.compact} onClick={() => p.onCompact(!p.compact)}>
         Compact rows
-      </button>
-      <form
+      </button>}
+      {!simple && <form
         className="review-goto"
         onSubmit={(e) => {
           e.preventDefault()
@@ -204,10 +232,10 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
           <span>Go to #</span>
           <input inputMode="numeric" aria-label="Go to line number" value={goTo} onChange={(e) => setGoTo(e.target.value)} />
         </label>
-      </form>
-      <button type="button" className={buttonClass('ghost', 'sm')} aria-haspopup="dialog" onClick={p.onKeys}>
+      </form>}
+      {!simple && <button type="button" className={buttonClass('ghost', 'sm')} aria-haspopup="dialog" onClick={p.onKeys}>
         Shortcuts
-      </button>
+      </button>}
     </div>
   )
   const count =
@@ -220,10 +248,15 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
     ) : null
 
   // Phones: Search and More are buttons on the chip row; each opens its own
-  // row inside the toolbar box.
+  // row inside the toolbar box. A wider screen draws Simple's first row above the box, with no box of its own; the box
+  // stays mounted, empty and unshown, in the check queue, because the place-keeping code measures it.
+  const leadRow = p.lead && <div className={p.isPhone ? 'review-toolbar-row review-queue-row' : 'review-queue-row is-wide'}>{p.lead}</div>
   return (
-    <div className={p.collapsed ? 'review-toolbar is-collapsed' : 'review-toolbar'}>
-      <div className="review-toolbar-row">
+    <>
+    {!p.isPhone && leadRow}
+    <div className={['review-toolbar', p.collapsed && 'is-collapsed', p.bare && 'is-bare', replaceInRow && 'has-replace-in-row'].filter(Boolean).join(' ')}>
+      {p.isPhone && leadRow}
+      {!p.bare && <div className="review-toolbar-row">
         {chips}
         {p.gapCount > 0 && (
           <span className="review-gap-step" role="group" aria-label="Gaps: stretches with no line">
@@ -244,7 +277,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
         )}
         {p.suspectCount > 0 && (
           <button type="button" className="review-chip review-suspect-chip" aria-expanded={p.suspectOpen}
-                  title="Lines whose transcription looks wrong or split badly" onClick={p.onToggleSuspect}>
+                  title="Transcription may be wrong" onClick={p.onToggleSuspect}>
             {p.isPhone ? `Source ${p.suspectCount}` : `Source looks off ${p.suspectCount}`}
           </button>
         )}
@@ -263,16 +296,18 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
         )}
         {!p.isPhone && searchBox}
         {!p.isPhone && count}
+        {replaceInRow && replace}
         {p.showPager && <Pager page={p.page} pages={p.pages} onPage={p.onPage} labelled />}
-      </div>
-      {p.isPhone && showSearch && (
+      </div>}
+      {!p.bare && p.isPhone && showSearch && (
         <div className="review-toolbar-row">
           {searchBox}
           {count}
         </div>
       )}
-      {(!p.isPhone || moreOpen) && extras}
+      {!p.bare && (p.isPhone ? moreOpen : !replaceInRow) && extras}
       {p.player}
     </div>
+    </>
   )
 }

@@ -106,6 +106,7 @@ class SeriesCopyTermsPreview(BaseModel):
     source_series_id: int
     new_count: int
     skipped_count: int
+    replacements_new: int = Field(0, description="Word replacements the copy would add.")
     new_terms: List[str] = Field(description="The first 50 terms that would be added.")
     skipped_terms: List[str] = Field(description="The first 50 already there.")
 
@@ -115,6 +116,7 @@ class SeriesCopyTermsResult(BaseModel):
     source_series_id: int
     added: int
     skipped: int
+    replacements_added: int = 0
 
 
 class SeriesDefaultsField(BaseModel):

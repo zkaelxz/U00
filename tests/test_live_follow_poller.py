@@ -380,7 +380,7 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
         monkeypatch.setattr(background_jobs, "list_all_jobs",
                             lambda: {"t": {"status": "running", "gpu_touching": True}})
     elif gate == "cap":
-        def over(engine, free_tier):
+        def over(engine, free_tier, model=None):
             raise UnsupportedOperationError("cap")
         monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap", over)
     elif gate == "engine":
@@ -421,7 +421,7 @@ def test_auto_start_uses_the_monthly_cap_helper(env, starts, monkeypatch):
     from services import line_ai_service
     seen = []
     monkeypatch.setattr(line_ai_service, "refuse_if_over_monthly_cap",
-                        lambda engine, free_tier: seen.append(engine))
+                        lambda engine, free_tier, model=None: seen.append(engine))
     _check(_auto(env))
     assert seen == ["fake"] and len(starts) == 1
 
@@ -457,7 +457,7 @@ def test_push_goes_out_only_when_asked_and_with_its_own_text(isolated_db, monkey
     notification_service.reset_for_tests()
     monkeypatch.delenv(notification_service.DISABLED_ENV, raising=False)
     monkeypatch.setattr(notification_service, "configured_channels", lambda: ["ntfy"])
-    monkeypatch.setattr(notification_service, "_schedule_flush", lambda: None)
+    monkeypatch.setattr(notification_service, "_schedule_flush", lambda *_: None)
     notification_service.notify_live_follow("Member ch is live now", 11, 1, start_action=True)
     assert notification_service._pending == []
     notification_service.notify_live_follow("Mine scheduled a stream", None, 2, starts_at=NOW,

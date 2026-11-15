@@ -26,12 +26,12 @@ test('translate all pages, follow the job, then read the typeset pages', async (
 
   await panel.getByRole('button', { name: 'Translate all pages' }).click()
   await expect(panel.getByTestId('job-status')).toHaveText(/Done · Pages: 3 translated\./)
-  expect(s.runs).toEqual([{ mode: 'missing', engine: 'ollama', detect_backend: 'auto' }])
+  expect(s.runs).toEqual([{ mode: 'missing', engine: 'ollama', detect_backend: 'auto', art_captions: false }])
   // The viewer reloaded: typeset images are available now.
   await expect(typeset).toBeEnabled()
   await expect.poll(() => s.images.some((i) => i.endsWith(':rendered'))).toBe(true)
   // Notes are text, never markup.
-  await expect(panel.getByText('<b>1 region</b> had no translation.')).toBeVisible()
+  await expect(panel.getByLabel('Page 1 notes').getByText('<b>1 region</b> had no translation.')).toBeVisible()
   if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/scanlate-desktop.png`, fullPage: true })
   expect(s.unmocked).toEqual([])
 })
@@ -55,7 +55,7 @@ test('closing the panel while a job runs still loads the typeset pages when it f
   expect(s.unmocked).toEqual([])
 })
 
-test('redo this page, redo all needs a second press, export gives a download', async ({ page }) => {
+test('redo pages needs a second press, export gives a download', async ({ page }) => {
   const s = await mockScanlate(page, { pageCount: 3, lastPage: 1 })
   await page.goto('/#/comic/7?page=2')
   // Wait for the pages before clicking: while they load, the pager appears in
@@ -66,23 +66,33 @@ test('redo this page, redo all needs a second press, export gives a download', a
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Translate pages' })
   // A page's hand-edited text boxes are replaced, so the first press only asks.
-  await panel.getByRole('button', { name: 'Redo page 2' }).click()
+  await panel.getByRole('button', { name: 'Redo pages' }).click()
   expect(s.runs).toEqual([])
-  await panel.getByRole('button', { name: 'Redo page 2' }).press('Escape')
-  await expect(panel.getByRole('button', { name: 'Replace text on page 2' })).toHaveCount(0)
+  await panel.getByRole('button', { name: 'Redo pages' }).press('Escape')
+  await expect(panel.getByRole('button', { name: 'Redo page 2' })).toHaveCount(0)
   expect(s.runs).toEqual([])
+  await panel.getByLabel('How', { exact: true }).selectOption('full')
+  await panel.getByRole('button', { name: 'Redo pages' }).click()
   await panel.getByRole('button', { name: 'Redo page 2' }).click()
-  await panel.getByRole('button', { name: 'Replace text on page 2' }).click()
   await expect(panel.getByTestId('job-status')).toHaveText(/Done/)
   expect(s.runs.at(-1)).toMatchObject({ mode: 'page', page_id: 7 * 100 + 2 })
+  expect(s.runs.at(-1)).not.toHaveProperty('keep_text')
 
-  await panel.getByText('Advanced').click()
-  await panel.getByRole('button', { name: /Redo all/ }).click()
+  await panel.getByLabel('Pages', { exact: true }).selectOption('all')
+  await panel.getByLabel('How', { exact: true }).selectOption('keep_text')
+  await panel.getByRole('button', { name: 'Redo pages' }).click()
   expect(s.runs).toHaveLength(1)
-  await panel.getByRole('button', { name: 'Replace text on every page' }).click()
+  await panel.getByRole('button', { name: 'Redo all pages' }).click()
   await expect.poll(() => s.runs.length).toBe(2)
-  expect(s.runs.at(-1)).toMatchObject({ mode: 'all', confirm: true })
+  expect(s.runs.at(-1)).toMatchObject({ mode: 'all', confirm: true, keep_text: true })
   await expect(panel.getByTestId('job-status')).toHaveText(/Done/)
+
+  await panel.getByLabel('Pages', { exact: true }).selectOption('chosen')
+  await panel.getByLabel('Which pages', { exact: true }).fill('1-2')
+  await panel.getByRole('button', { name: 'Redo pages' }).click()
+  await panel.getByRole('button', { name: 'Redo the chosen pages' }).click()
+  await expect.poll(() => s.runs.length).toBe(3)
+  expect(s.runs.at(-1)).toMatchObject({ mode: 'pages', page_ids: [701, 702], confirm: true })
 
   await panel.getByRole('button', { name: 'Export ZIP' }).click()
   await expect(panel.getByRole('link', { name: 'Download ZIP' })).toHaveAttribute(
@@ -144,4 +154,28 @@ test('opening the panel when the bar wraps to three rows leaves its heading belo
       return bar && head ? head.y - (bar.y + bar.height) : -999
     })
     .toBeGreaterThanOrEqual(0)
+})
+
+test('the warnings menu stays in the bar and jumps to a page with its box marked', async ({ page }) => {
+  await mockScanlate(page, { pageCount: 4, lastPage: 1 })
+  await page.route(/\/api\/scanlate\/dramas\/7\/run-notes$/, (route) =>
+    route.fulfill({
+      json: {
+        drama_id: 7,
+        pages: [
+          { page_id: 702, ordinal: 2, notes: [{ level: 'warning', message: 'Region 2 had no translation and was left as the original.' }] },
+          { page_id: 703, ordinal: 3, notes: [{ level: 'warning', message: 'No bubbles found on this page. That is normal for covers and splash art.' }] },
+        ],
+      },
+    }),
+  )
+  await page.goto('/#/comic/7?page=1')
+  const menu = page.locator('.comic-warning-menu')
+  await expect(menu.getByText('Warnings (2)')).toBeVisible()
+  await menu.getByText('Warnings (2)').click()
+  await expect(menu.getByRole('button', { name: 'Next warning (page 2)' })).toBeVisible()
+  await menu.getByText('Text boxes left in the original language (1)').click()
+  await expect(menu.getByText('Text box numbered 2 on the page has no translation')).toBeVisible()
+  await menu.getByRole('button', { name: 'Next warning (page 2)' }).click()
+  await expect(page.getByTestId('comic-page-label')).toHaveText('Page 2 of 4')
 })

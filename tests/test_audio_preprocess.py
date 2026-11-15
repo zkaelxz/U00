@@ -1,15 +1,15 @@
 """
 tests/test_audio_preprocess.py -- audio_preprocess.py, vocal separation
-via Demucs or audio-separator (Mel-Band RoFormer).
+via audio-separator (Mel-Band RoFormer).
 
-Neither backend is installed in this sandbox (no GPU, no network, heavy
-model download) -- each is faked at its own Python API boundary, the
+It is not installed in this sandbox (no GPU, no network, heavy
+model download) -- it is faked at its own Python API boundary, the
 same way other tests here fake faster_whisper.WhisperModel or
 paddleocr.PaddleOCR: this exercises the real error handling, stem
 selection and path plumbing, without needing the actual neural network.
 
 Step 4g added real per-chunk progress and a genuine mid-run cancel by
-chunking the input audio *outside* the backend (neither exposes a
+chunking the input audio *outside* the backend (it exposes no
 callback of its own) and recombining the results with a crossfade. That
 chunking always goes through soundfile now (same "prefer soundfile over
 torchaudio for a plain WAV" reasoning as Step 4c's diarize.py fix), so
@@ -54,43 +54,6 @@ def _write_wav(path, seconds, samplerate=8000, freq=220.0):
     return data, samplerate
 
 
-def _install_fake_demucs(monkeypatch, stems=("drums", "bass", "other", "vocals"),
-                          separate_exc=None, vocals_gain=1.0):
-    """FakeSeparator.separate_audio_file reads the chunk file it's given
-    via soundfile and returns a "vocals" stem that's the same waveform
-    (scaled by vocals_gain) -- a stand-in for the real model, close
-    enough to a passthrough to verify the chunking/crossfade machinery
-    reassembles a coherent signal."""
-    import soundfile as sf
-    captured = {"separate_paths": []}
-
-    class FakeSeparator:
-        def __init__(self, model="htdemucs", device="cuda"):
-            captured["model"] = model
-            captured["device"] = device
-            self._device = device
-            self.samplerate = 8000
-
-        def separate_audio_file(self, path):
-            captured["separate_paths"].append(path)
-            if separate_exc:
-                raise separate_exc
-            data, _ = sf.read(path, dtype="float32", always_2d=True)
-            return "origin", {s: (data * vocals_gain if s == "vocals" else data) for s in stems}
-
-    def fake_save_audio(tensor, path, samplerate=None):
-        sf.write(path, tensor, samplerate or 8000)
-
-    fake_api = types.ModuleType("demucs.api")
-    fake_api.Separator = FakeSeparator
-    fake_api.save_audio = fake_save_audio
-    fake_demucs = types.ModuleType("demucs")
-    fake_demucs.api = fake_api
-    monkeypatch.setitem(sys.modules, "demucs", fake_demucs)
-    monkeypatch.setitem(sys.modules, "demucs.api", fake_api)
-    return captured
-
-
 def _install_fake_audio_separator(monkeypatch, vocals_only=True, separate_exc=None):
     captured = {"separate_paths": []}
 
@@ -121,127 +84,6 @@ def _install_fake_audio_separator(monkeypatch, vocals_only=True, separate_exc=No
     monkeypatch.setitem(sys.modules, "audio_separator", fake_pkg)
     monkeypatch.setitem(sys.modules, "audio_separator.separator", fake_module)
     return captured
-
-
-class TestSeparateVocalsDemucs:
-    def test_writes_the_vocals_stem_to_out_path(self, monkeypatch, tmp_path):
-        pytest.importorskip("soundfile")
-        captured = _install_fake_demucs(monkeypatch)
-        in_path, out_path = str(tmp_path / "audio.wav"), str(tmp_path / "vocals.wav")
-        _write_wav(in_path, seconds=1.0)
-
-        result = audio_preprocess.separate_vocals_demucs(in_path, out_path)
-
-        assert result == out_path
-        assert os.path.exists(out_path)
-        # A 1s file at the default 30s chunk size is exactly one chunk.
-        assert len(captured["separate_paths"]) == 1
-
-    def test_uses_the_requested_model(self, monkeypatch, tmp_path):
-        pytest.importorskip("soundfile")
-        captured = _install_fake_demucs(monkeypatch)
-        in_path = str(tmp_path / "audio.wav")
-        _write_wav(in_path, seconds=0.5)
-        audio_preprocess.separate_vocals_demucs(in_path, str(tmp_path / "vocals.wav"),
-                                                model="htdemucs_ft")
-        assert captured["model"] == "htdemucs_ft"
-
-    def test_missing_demucs_raises_a_clear_actionable_error(self, monkeypatch):
-        # No fixture file needed -- the ImportError fires before any
-        # chunking/audio-reading logic runs.
-        monkeypatch.setitem(sys.modules, "demucs", None)
-        monkeypatch.setitem(sys.modules, "demucs.api", None)
-        with pytest.raises(audio_preprocess.VocalSeparationError, match="pip install demucs"):
-            audio_preprocess.separate_vocals_demucs("/fake/audio.wav", "/fake/vocals.wav")
-
-    def test_separation_failure_is_wrapped_not_raised_raw(self, monkeypatch, tmp_path):
-        pytest.importorskip("soundfile")
-        _install_fake_demucs(monkeypatch, separate_exc=RuntimeError("out of memory"))
-        in_path = str(tmp_path / "audio.wav")
-        _write_wav(in_path, seconds=0.5)
-        with pytest.raises(audio_preprocess.VocalSeparationError, match="out of memory"):
-            audio_preprocess.separate_vocals_demucs(in_path, str(tmp_path / "vocals.wav"))
-
-    def test_a_model_with_no_vocals_stem_raises_a_clear_error(self, monkeypatch, tmp_path):
-        pytest.importorskip("soundfile")
-        _install_fake_demucs(monkeypatch, stems=("drums", "bass"))
-        in_path = str(tmp_path / "audio.wav")
-        _write_wav(in_path, seconds=0.5)
-        with pytest.raises(audio_preprocess.VocalSeparationError, match="vocals stem"):
-            audio_preprocess.separate_vocals_demucs(in_path, str(tmp_path / "vocals.wav"))
-
-    def _stub_demucs(self, monkeypatch):
-        """Fake demucs plus a no-op chunk loop: device reporting needs no audio."""
-        captured = {}
-
-        class FakeSeparator:
-            def __init__(self, model="htdemucs", device="cuda"):
-                captured["device"] = device
-                self._device = device
-
-        fake_api = types.ModuleType("demucs.api")
-        fake_api.Separator = FakeSeparator
-        fake_api.save_audio = lambda *a, **k: None
-        fake_demucs = types.ModuleType("demucs")
-        fake_demucs.api = fake_api
-        monkeypatch.setitem(sys.modules, "demucs", fake_demucs)
-        monkeypatch.setitem(sys.modules, "demucs.api", fake_api)
-        monkeypatch.setattr(audio_preprocess, "_separate_vocals_chunked", lambda *a, **k: None)
-        return captured
-
-    def test_demucs_reports_loading_then_device(self, monkeypatch, tmp_path):
-        self._stub_demucs(monkeypatch)
-        events = []
-        audio_preprocess.separate_vocals_demucs(
-            "in.wav", str(tmp_path / "v.wav"), event_cb=lambda e, v: events.append((e, v)))
-        assert events == [("loading", "demucs"), ("device", "gpu")]
-
-    def test_demucs_use_gpu_false_forces_cpu_and_says_so(self, monkeypatch, tmp_path):
-        captured = self._stub_demucs(monkeypatch)
-        events = []
-        audio_preprocess.separate_vocals_demucs(
-            "in.wav", str(tmp_path / "v.wav"), use_gpu=False,
-            event_cb=lambda e, v: events.append((e, v)))
-        assert captured["device"] == "cpu"
-        assert ("device", "cpu") in events
-
-    def test_separate_vocals_demucs_constructs_its_separator_exactly_once(self, monkeypatch, tmp_path):
-        """A per-chunk model reload would be a real performance
-        regression against the old single-call path -- Separator(...)
-        must be constructed exactly once regardless of chunk count.
-        Forces several real chunks by wrapping _separate_vocals_chunked
-        with a small chunk_seconds -- separate_vocals_demucs itself
-        doesn't expose that as a public parameter."""
-        pytest.importorskip("soundfile")
-        import soundfile as sf
-        constructions = []
-
-        class CountingSeparator:
-            def __init__(self, model="htdemucs"):
-                constructions.append(model)
-                self.samplerate = 8000
-
-            def separate_audio_file(self, path):
-                data, _ = sf.read(path, dtype="float32", always_2d=True)
-                return "origin", {"vocals": data}
-
-        fake_api = types.ModuleType("demucs.api")
-        fake_api.Separator = CountingSeparator
-        fake_api.save_audio = lambda tensor, path, samplerate=None: sf.write(path, tensor, samplerate or 8000)
-        fake_demucs = types.ModuleType("demucs")
-        fake_demucs.api = fake_api
-        monkeypatch.setitem(sys.modules, "demucs", fake_demucs)
-        monkeypatch.setitem(sys.modules, "demucs.api", fake_api)
-
-        real_chunked = audio_preprocess._separate_vocals_chunked
-        monkeypatch.setattr(
-            audio_preprocess, "_separate_vocals_chunked",
-            lambda *a, **kw: real_chunked(*a, **{**kw, "chunk_seconds": 0.2, "overlap_seconds": 0.02}))
-
-        in_path = str(tmp_path / "audio.wav")
-        _write_wav(in_path, seconds=1.0, samplerate=8000)
-        audio_preprocess.separate_vocals_demucs(in_path, str(tmp_path / "vocals.wav"))
-        assert len(constructions) == 1  # several chunks, one Separator
 
 
 class TestSeparateVocalsAudioSeparator:
@@ -283,7 +125,7 @@ class TestSeparateVocalsAudioSeparator:
         captured = _install_fake_audio_separator(monkeypatch)
         events = []
         with pytest.raises(audio_preprocess.VocalSeparationError,
-                           match="can't be limited to the CPU here. Use Demucs, or turn GPU on."):
+                           match="can't be limited to the CPU here. Turn GPU on to separate vocals."):
             audio_preprocess.separate_vocals_audio_separator(
                 "/fake/audio.wav", str(tmp_path / "vocals.wav"), use_gpu=False,
                 event_cb=lambda e, v: events.append((e, v)))
@@ -303,25 +145,67 @@ class TestSeparateVocalsAudioSeparator:
         assert captured["model"] == audio_preprocess.MEL_ROFORMER_VOCAL_MODEL
         assert [e for e, _ in events] == ["loading", "device"]
 
-    def test_auto_falls_back_to_demucs_on_the_cpu_when_gpu_is_off(self, monkeypatch, tmp_path):
+    def test_the_model_is_loaded_once_however_many_chunks_there_are(self, monkeypatch, tmp_path):
+        """A per-chunk model reload would be a real slowdown: the separator
+        is built and its model loaded exactly once per call."""
         pytest.importorskip("soundfile")
-        _install_fake_audio_separator(monkeypatch)
-        _install_fake_demucs(monkeypatch)
+        captured = _install_fake_audio_separator(monkeypatch)
+        loads = []
+        real_load = sys.modules["audio_separator.separator"].Separator.load_model
+        sys.modules["audio_separator.separator"].Separator.load_model = (
+            lambda self, model_filename: (loads.append(model_filename), real_load(self, model_filename))[1])
+        real_chunked = audio_preprocess._separate_vocals_chunked
+        monkeypatch.setattr(
+            audio_preprocess, "_separate_vocals_chunked",
+            lambda *a, **kw: real_chunked(*a, **{**kw, "chunk_seconds": 0.2, "overlap_seconds": 0.02}))
+        in_path = str(tmp_path / "audio.wav")
+        _write_wav(in_path, seconds=1.0, samplerate=8000)
+        audio_preprocess.separate_vocals_audio_separator(in_path, str(tmp_path / "vocals.wav"))
+        assert len(captured["separate_paths"]) > 1
+        assert len(loads) == 1
+
+
+class TestSeparateVocals:
+    @pytest.mark.parametrize("backend", ["auto", "audio_separator", "demucs"])
+    def test_every_accepted_name_runs_audio_separator(self, monkeypatch, tmp_path, backend):
+        """"demucs" is a value an older title, series default or saved profile
+        can still hold; it must not fail with a KeyError."""
+        pytest.importorskip("soundfile")
+        captured = _install_fake_audio_separator(monkeypatch)
         in_path, out_path = str(tmp_path / "audio.wav"), str(tmp_path / "vocals.wav")
         _write_wav(in_path, seconds=0.3, samplerate=8000)
-        assert audio_preprocess.separate_vocals(in_path, out_path, use_gpu=False) == out_path
+        assert audio_preprocess.separate_vocals(in_path, out_path, backend=backend) == out_path
+        assert captured["model"] == audio_preprocess.MEL_ROFORMER_VOCAL_MODEL
+
+    def test_an_unknown_backend_name_is_rejected(self):
+        with pytest.raises(KeyError):
+            audio_preprocess.separate_vocals("/fake/audio.wav", "/fake/vocals.wav", backend="nonsense")
+
+    def test_gpu_off_is_refused_with_no_other_engine_to_fall_back_to(self, monkeypatch, tmp_path):
+        _install_fake_audio_separator(monkeypatch)
+        with pytest.raises(audio_preprocess.VocalSeparationError, match="Turn GPU on"):
+            audio_preprocess.separate_vocals("/fake/audio.wav", str(tmp_path / "v.wav"),
+                                             backend="auto", use_gpu=False)
+
+    def test_a_cancel_propagates_as_a_cancel(self, monkeypatch):
+        def _cancelling_backend(audio_path, out_path, progress_cb=None, cancel_check_cb=None, **_):
+            raise audio_preprocess.VocalSeparationCancelled("stopped")
+
+        monkeypatch.setitem(audio_preprocess._BACKENDS, "audio_separator", _cancelling_backend)
+        with pytest.raises(audio_preprocess.VocalSeparationCancelled):
+            audio_preprocess.separate_vocals("/fake/audio.wav", "/fake/vocals.wav", backend="auto")
 
 
 class TestSeparateVocalsChunked:
     """Step 4g: the actual new machinery -- chunking the input outside
-    whichever backend is used, reporting progress per chunk, checking
+    the backend, reporting progress per chunk, checking
     for a cancel before each chunk starts, and recombining with a
     crossfade. Tested here directly against _separate_vocals_chunked
     with a tiny chunk_seconds, so a short fixture exercises real
     multi-chunk behavior without needing a large, slow fixture (the
-    public separate_vocals_demucs/separate_vocals_audio_separator
-    wrappers don't expose chunk_seconds -- it's an internal tuning knob,
-    not a user-facing setting the roadmap asked for)."""
+    public separate_vocals_audio_separator wrapper doesn't expose
+    chunk_seconds -- it's an internal tuning knob, not a user-facing
+    setting)."""
 
     @staticmethod
     def _identity_process_chunk(chunk_path, chunk_out_path):
@@ -420,30 +304,6 @@ class TestSeparateVocalsChunked:
 
         with pytest.raises(audio_preprocess.VocalSeparationError, match="model exploded"):
             audio_preprocess._separate_vocals_chunked(in_path, out_path, _boom, chunk_seconds=1.0)
-
-
-class TestSeparateVocalsCancelNeverFallsBackToTheOtherBackend:
-    """A cancel is a deliberate stop, not a failure -- separate_vocals()'s
-    own "auto" retry-the-other-backend logic must never treat
-    VocalSeparationCancelled as something worth retrying."""
-
-    def test_a_cancel_from_the_first_backend_is_not_retried_on_the_second(self, monkeypatch):
-        calls = []
-
-        def _cancelling_backend(audio_path, out_path, progress_cb=None, cancel_check_cb=None, **_):
-            calls.append("audio_separator")
-            raise audio_preprocess.VocalSeparationCancelled("stopped")
-
-        def _should_never_run(audio_path, out_path, progress_cb=None, cancel_check_cb=None, **_):
-            calls.append("demucs")
-            raise audio_preprocess.VocalSeparationError("should never be reached")
-
-        monkeypatch.setitem(audio_preprocess._BACKENDS, "audio_separator", _cancelling_backend)
-        monkeypatch.setitem(audio_preprocess._BACKENDS, "demucs", _should_never_run)
-
-        with pytest.raises(audio_preprocess.VocalSeparationCancelled):
-            audio_preprocess.separate_vocals("/fake/audio.wav", "/fake/vocals.wav", backend="auto")
-        assert calls == ["audio_separator"]
 
 
 class TestModelDirRespectsPortableModeOverride:
@@ -733,7 +593,7 @@ class TestModelDownloadGuard:
 
 class TestCancelWhileWaitingThroughTheRealWrapper:
     @pytest.mark.parametrize("backend", ["audio_separator", "auto"])
-    def test_cancel_is_a_cancel_and_never_falls_back_to_demucs(self, monkeypatch, tmp_path, backend):
+    def test_cancel_while_waiting_is_a_cancel(self, monkeypatch, tmp_path, backend):
         import json
         pytest.importorskip("soundfile")
         _install_fake_audio_separator(monkeypatch)
@@ -742,15 +602,11 @@ class TestCancelWhileWaitingThroughTheRealWrapper:
         (tmp_path / "models" / f"{audio_preprocess.MEL_ROFORMER_VOCAL_MODEL}.part-1-abcd").write_text(
             json.dumps({"pid": 1, "start": None}))
         monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(tmp_path / "models"))
-        demucs = []
-        monkeypatch.setitem(audio_preprocess._BACKENDS, "demucs",
-                            lambda *a, **k: demucs.append(1))
         in_path = str(tmp_path / "audio.wav")
         _write_wav(in_path, seconds=0.3, samplerate=8000)
         with pytest.raises(audio_preprocess.VocalSeparationCancelled):
             audio_preprocess.separate_vocals(in_path, str(tmp_path / "v.wav"), backend=backend,
                                              cancel_check_cb=lambda: True)
-        assert demucs == []
 
     def test_guard_errors_are_not_prefixed_as_a_model_load_failure(self, monkeypatch, tmp_path):
         import json

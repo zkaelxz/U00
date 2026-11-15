@@ -11,7 +11,7 @@ describe('reading speed check', () => {
 
   it('reports the cleared count and where to undo', () => {
     expect(clearMessage({ cleared_count: 8609, flagged_count: 0, history_id: 4 }, false)).toBe(
-      'Cleared 8609 reading-speed flags. Undo from Records, Line history.')
+      'Cleared 8609 reading-speed flags. Undo from Records → Line history.')
     expect(clearMessage({ cleared_count: 1, flagged_count: 0, history_id: 4 }, false)).toContain('1 reading-speed flag.')
   })
 

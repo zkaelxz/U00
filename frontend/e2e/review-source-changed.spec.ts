@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import { openFoldFor } from './reviewFolds'
 import { mockSourceChanged } from './sourceChangedMocks'
 
 // A line whose source text changed after it was translated keeps its English
@@ -19,6 +20,9 @@ test('the rows say "Source changed" in text and the Flagged filter shows them', 
   await expect(page.locator('.review-line[data-line-id="2"]').getByTestId('source-changed-badge')).toHaveCount(0)
   // The deep link the Translate and Export warnings use opens Review on Flagged.
   await page.goto('/#/drama/3/translate')
+  // Review reads ?focus only when it mounts. A hash change that lands before Translate has replaced it leaves the
+  // same Review on screen, so the link would never get the chance to open Flagged.
+  await expect(page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Translate' })).toHaveAttribute('aria-current', 'page')
   await page.goto('/#/drama/3/review?focus=flagged')
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(2)
   // The tools (Coverage lives there) stay available on that link.
@@ -27,7 +31,8 @@ test('the rows say "Source changed" in text and the Flagged filter shows them', 
 
 test('Review checks: the count, "Retranslate these" on exactly those ids, two-step "Keep English for all"', async ({ page }) => {
   const seen = await mockSourceChanged(page)
-  await page.goto('/#/drama/3/review?tools=coverage')
+  await page.goto('/#/drama/3/review?tools=problems')
+  await openFoldFor(page, 'Source changed')
   const panel = page.getByTestId('source-changed')
   await expect(panel.getByTestId('source-changed-count')).toHaveText('2 lines changed in the source since they were translated.')
 
@@ -42,7 +47,8 @@ test('Review checks: the count, "Retranslate these" on exactly those ids, two-st
 
 test('Keep English for all needs a second press', async ({ page }) => {
   const seen = await mockSourceChanged(page)
-  await page.goto('/#/drama/3/review?tools=coverage')
+  await page.goto('/#/drama/3/review?tools=problems')
+  await openFoldFor(page, 'Source changed')
   const panel = page.getByTestId('source-changed')
   await panel.getByRole('button', { name: /Keep English for all/ }).click()
   expect(seen.keeps).toEqual([])

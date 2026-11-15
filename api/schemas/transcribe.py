@@ -371,6 +371,8 @@ class LiveFormOptions(BaseModel):
     """What the Live form offers and starts on: the values Start checks against."""
     languages: List[LiveLanguage]
     whisper_sizes: List[str]
+    # {size: {language: reason}} for the pairs Start refuses (whisper_models.WHISPER_LANGUAGE_RULES).
+    whisper_exclusions: Dict[str, Dict[str, str]]
     segment_range: List[float]
     overlap_range: List[float]
     max_minutes_range: List[float]
@@ -379,6 +381,8 @@ class LiveFormOptions(BaseModel):
     default_engine: str
     default_model: Optional[str] = None
     thinking_switch_engines: List[str]
+    # {language: model} the form starts on for that language, only for models already downloaded.
+    language_whisper_defaults: Dict[str, str] = {}
     defaults: LiveFormDefaults
 
 
@@ -437,6 +441,8 @@ class LiveChatMessage(BaseModel):
     text: str
     # A Super Chat's amount as YouTube wrote it ("$5.00"); empty for an ordinary message.
     paid: str = ""
+    # When the chatter sent it, epoch seconds as YouTube stamped it; 0 when the message carried none.
+    sent_at: float = 0
     translation: str
     state: str   # pending | done | failed | skipped (shown as written)
 
@@ -823,7 +829,9 @@ class SpeechCoverageRunResult(BaseModel):
 
 class SpeechCoverageGap(BaseModel):
     """A stretch with speech and no subtitle line. raw_status: "lost_after"
-    (the raw transcript has text here), "none" (it has none), "unknown" (no
+    (the raw transcript has text here), "filtered" (a hallucination filter
+    removed what was written here; filter_reasons says which: "repeat",
+    "stock_phrase", "invented_list"), "none" (it has nothing), "unknown" (no
     raw transcript for the title)."""
     start: float
     end: float
@@ -831,6 +839,7 @@ class SpeechCoverageGap(BaseModel):
     speech_seconds: float
     raw_status: str
     raw_text: str = ""
+    filter_reasons: List[str] = []
     after_line_id: Optional[int] = None
     before_line_id: Optional[int] = None
 

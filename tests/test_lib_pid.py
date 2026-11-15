@@ -104,3 +104,52 @@ class TestOwnerProcessAlive:
 
 def test_the_launcher_shares_the_probe():
     assert launcher._pid_alive is pid_lib.pid_alive
+
+
+
+def test_our_own_start_stamp_is_the_same_each_time():
+    if os.name != "nt" and not os.path.isdir("/proc/self"):
+        pytest.skip("no start-stamp probe on this OS")
+    stamp = pid_lib.process_start_token(os.getpid())
+    assert stamp and stamp == pid_lib.process_start_token(os.getpid())
+
+
+@pytest.mark.skipif(not os.path.isdir("/proc/self"), reason="Linux /proc probe")
+def test_an_exited_child_has_no_start_stamp():
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    assert pid_lib.process_start_token(proc.pid) is None
+
+
+def test_linux_stamp_counts_fields_from_the_last_parenthesis(tmp_path):
+    (tmp_path / "sys" / "kernel" / "random").mkdir(parents=True)
+    (tmp_path / "sys" / "kernel" / "random" / "boot_id").write_text("b00t\n")
+    (tmp_path / "42").mkdir()
+    # A command name may hold ") " itself; starttime is field 22.
+    fields = ["S"] + [str(n) for n in range(4, 22)] + ["777", "0"]
+    (tmp_path / "42" / "stat").write_text("42 (odd) name) " + " ".join(fields) + "\n")
+    assert pid_lib._linux_start_token(42, str(tmp_path)) == "lb00t-777"
+    assert pid_lib._linux_start_token(43, str(tmp_path)) is None
+
+
+class _TimesK32(_K32):
+    def __init__(self, ticks, ok=True, handle=1):
+        super().__init__(handle=handle)
+        self.ticks, self.times_ok = ticks, ok
+
+    def GetProcessTimes(self, handle, created, *_rest):
+        created._obj.dwHighDateTime = self.ticks >> 32
+        created._obj.dwLowDateTime = self.ticks & 0xFFFFFFFF
+        return self.times_ok
+
+
+def test_windows_stamp_is_the_creation_filetime():
+    k32 = _TimesK32(0x01DB_1234_5678_9ABC)
+    assert pid_lib._windows_start_token(5, k32) == f"w{0x01DB_1234_5678_9ABC}"
+    assert k32.closed == [1]
+
+
+@pytest.mark.parametrize("k32", [_TimesK32(10**17, ok=False), _TimesK32(10**17, handle=0),
+                                 _TimesK32(0)])
+def test_windows_stamp_unknown_is_none(k32):
+    assert pid_lib._windows_start_token(5, k32) is None

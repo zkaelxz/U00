@@ -180,25 +180,39 @@ def delete(confirm_text=None, expected_size_bytes=None) -> dict:
     return {"deleted": removed, "freed_bytes": freed}
 
 
-def keep_before_reset() -> str:
-    """Call under the library's exclusive hold, right before db.reset_library:
-    keeps the database (a consistent snapshot) and the titles' media in
-    <library>.pre_reset_<time>, so one Reset can be undone by hand. Returns
-    that folder for after_reset. Raises ServiceError with nothing changed
-    when the copy can't be made."""
+def snapshot_before_reset() -> str:
+    """Call under the library's exclusive hold: makes <library>.pre_reset_<time>
+    holding a consistent snapshot of the database. Only that: the titles' media
+    stay where they are until move_media_before_reset, so a caller that still
+    has something to lock can refuse with nothing displaced. Returns the folder.
+    Raises ServiceError, leaving nothing behind, when the copy can't be made."""
     parent, base = _parent_and_base()
     dest = os.path.join(parent, f"{base}{PRE_RESET_MARKER}{int(time.time() * 1000)}")
     try:
         os.mkdir(dest)
         if os.path.isfile(db.DB_PATH):
             db.snapshot_database(os.path.join(dest, "library.db"))
-        if os.path.isdir(db.DRAMAS_DIR):
-            # Same volume (a sibling folder): one rename, nothing copied.
-            os.rename(db.DRAMAS_DIR, os.path.join(dest, "dramas"))
     except Exception:
         shutil.rmtree(dest, ignore_errors=True)
         raise ServiceError(RESET_COPY_FAILED) from None
     return dest
+
+
+def move_media_before_reset(dest: str) -> None:
+    """Moves the titles' media into `dest`, right before db.reset_library. Same
+    volume (a sibling folder): one rename, nothing copied. On failure `dest` is
+    removed and ServiceError raised, with the media where it was."""
+    try:
+        if os.path.isdir(db.DRAMAS_DIR):
+            os.rename(db.DRAMAS_DIR, os.path.join(dest, "dramas"))
+    except Exception:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise ServiceError(RESET_COPY_FAILED) from None
+
+
+def discard_snapshot(dest: str) -> None:
+    """Drops a snapshot made by snapshot_before_reset whose media was never moved."""
+    shutil.rmtree(dest, ignore_errors=True)
 
 
 def after_reset(dest: str, ok: bool) -> None:
@@ -213,6 +227,11 @@ def after_reset(dest: str, ok: bool) -> None:
         if live is None or (kept or 0) > live:
             return
         moved = os.path.join(dest, "dramas")
+        # A request during the reset can recreate an empty dramas/ (a new title's
+        # folder, an upload); the media must still go back over it.
+        if os.path.isdir(db.DRAMAS_DIR) and not os.path.islink(db.DRAMAS_DIR) \
+                and not os.listdir(db.DRAMAS_DIR) and os.path.isdir(moved):
+            os.rmdir(db.DRAMAS_DIR)
         if os.path.isdir(moved) and not os.path.lexists(db.DRAMAS_DIR):
             os.rename(moved, db.DRAMAS_DIR)
         if not os.path.lexists(moved):

@@ -156,6 +156,39 @@ class TestOllama:
         self._serve(monkeypatch, loaded=("gemma4:12b",))
         mh.check_ollama("http://localhost:11434", "gemma4:12b")
 
+    def _resident(self, monkeypatch, models):
+        monkeypatch.setattr(mh, "_ollama_json", lambda url: {"models": models})
+
+    def test_ram_reserve_counts_the_part_that_does_not_fit_the_gpu(self, monkeypatch, reserve):
+        # 20 GB model + cache, 12 GB of VRAM free: about 11 GB spills to RAM,
+        # and 16 - 11 leaves less than the 8 GB kept free.
+        reserve(ram=8, ram_free=16 * GB, vram_free=12 * GB)
+        self._serve(monkeypatch, size_gb=20)
+        self._resident(monkeypatch, [])
+        with pytest.raises(mh.HeadroomError) as ei:
+            mh.check_ollama("http://localhost:11434", "gemma4:31b")
+        assert "RAM" in str(ei.value)
+
+    def test_a_model_that_fits_the_gpu_is_not_refused_on_ram(self, monkeypatch, reserve):
+        reserve(ram=8, ram_free=9 * GB, vram_free=30 * GB)
+        self._serve(monkeypatch, size_gb=17)
+        self._resident(monkeypatch, [])
+        mh.check_ollama("http://localhost:11434", "qwen3.6:27b")
+
+    def test_an_ollama_that_cannot_use_the_gpu_counts_the_whole_model_as_ram(self, monkeypatch, reserve):
+        reserve(ram=8, ram_free=16 * GB, vram_free=30 * GB)
+        self._serve(monkeypatch, size_gb=17)
+        self._resident(monkeypatch, [{"name": "translategemma:12b", "size": 8 * GB, "size_vram": 0}])
+        with pytest.raises(mh.HeadroomError) as ei:
+            mh.check_ollama("http://localhost:11434", "qwen3.6:27b")
+        assert "RAM" in str(ei.value)
+
+    def test_unreadable_vram_does_not_block_on_ram(self, monkeypatch, reserve):
+        reserve(ram=8, ram_free=9 * GB)  # no VRAM reading
+        self._serve(monkeypatch, size_gb=20)
+        self._resident(monkeypatch, [])
+        mh.check_ollama("http://localhost:11434", "gemma4:31b")
+
     def test_engine_checks_once_per_instance(self, monkeypatch):
         from engine_backends.local import OllamaEngine
         seen = []

@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PREF_KEY_PREFIX, readPref, writePref } from './usePersistedState'
 import { comboOf, isTextEntry, type KeyLike } from './useShortcut'
+import { scrollBehavior } from './useMediaQuery'
 
 const k = (key: string, mods: Partial<KeyLike> = {}): KeyLike => ({
   key, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, ...mods,
@@ -64,5 +65,21 @@ describe('persisted preferences', () => {
     const bad = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') } }
     expect(readPref(bad, 'x', 'a')).toBe('a')
     expect(writePref(bad, 'x', 'a')).toBe(false)
+  })
+})
+
+describe('scrollBehavior', () => {
+  afterEach(() => vi.unstubAllGlobals())
+  const prefer = (reduce: boolean) =>
+    vi.stubGlobal('window', { matchMedia: (q: string) => ({ matches: reduce && q === '(prefers-reduced-motion: reduce)' }) })
+
+  it('scrolls without animation when reduced motion is asked for', () => {
+    prefer(true)
+    expect(scrollBehavior()).toBe('auto')
+  })
+
+  it('scrolls smoothly otherwise', () => {
+    prefer(false)
+    expect(scrollBehavior()).toBe('smooth')
   })
 })

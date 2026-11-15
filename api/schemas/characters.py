@@ -13,14 +13,22 @@ __all__ = [
     "CharactersCloneEngines",
     "CharactersVoiceBankEntry",
     "CharactersVoiceBankApply",
+    "CastPerson",
+    "CastApplyEntry",
+    "CastProposal",
+    "CastApplyRequest",
+    "CastApplyResult",
     "GlossaryTerm",
     "GlossaryTermUpsert",
     "GlossaryImportRequest",
     "GlossaryImportResult",
     "GlossaryBulkDeleteRequest",
     "GlossaryBulkDeleteResult",
+    "GlossaryCopyTitleTermsResult",
+    "GlossaryTitleTerm",
     "GlossaryInstructions",
     "GlossaryInstructionsUpdate",
+    "InstructionsDraft",
     "GlossaryCatalogueOption",
     "GlossaryTermPolicyOption",
     "GlossaryWorkflowTier",
@@ -53,6 +61,7 @@ __all__ = [
     "CharactersMergeUndo",
     "CharactersMergeUndoRequest",
     "CharactersMergeResult",
+    "ChaptersGlossaryRunResult",
     "LinesGlossaryRunResult",
     "GlossaryProposalEdit",
     "GlossaryProposalsApplyRequest",
@@ -212,6 +221,17 @@ class GlossaryBulkDeleteResult(BaseModel):
     not_found: List[int]
 
 
+class GlossaryTitleTerm(BaseModel):
+    term_original: str
+    term_translation: str
+    clashes_with_series: bool
+
+
+class GlossaryCopyTitleTermsResult(BaseModel):
+    copied: List[str]
+    skipped: List[str]
+
+
 class GlossaryInstructions(BaseModel):
     project_instructions: str
     series_instructions: str
@@ -221,6 +241,11 @@ class GlossaryInstructionsUpdate(BaseModel):
     model_config = {"extra": "forbid"}
 
     text: str
+
+
+class InstructionsDraft(BaseModel):
+    instructions: str
+    engine: str
 
 
 class GlossaryCatalogueOption(BaseModel):
@@ -271,6 +296,8 @@ class NovelGlossaryProposal(BaseModel):
     already_in_glossary: bool
     occurrences: int = 0
     alternatives: List[str] = Field(default_factory=list)
+    # Other spellings of the term the excerpt itself shows; saved as its aliases.
+    aliases: List[str] = Field(default_factory=list)
     confidence: Literal["high", "low"] = "low"
 
 
@@ -463,6 +490,12 @@ class LinesGlossaryRunResult(BaseModel):
     job_id: str
     engine: str
     line_count: int
+
+
+class ChaptersGlossaryRunResult(BaseModel):
+    job_id: str
+    engine: str
+    chapter_count: int
 
 
 class GlossaryProposalEdit(BaseModel):
@@ -773,3 +806,40 @@ class NameReportMarkResult(BaseModel):
 class NameReportCancelRequest(BaseModel):
     # Another person's scan; only the PC owner or an admin at the PC may name one.
     job_id: Optional[str] = Field(None, max_length=64)
+
+
+class CastPerson(BaseModel):
+    """One person the glossary scan found. pronouns is what the scan read from the text ("" when it
+    said unclear); current_pronouns is what the title or its series already has for that name."""
+    term: str
+    name: str
+    pronouns: str
+    who: str
+    occurrences: int
+    current_pronouns: str
+    exists: bool
+
+
+class CastProposal(BaseModel):
+    drama_id: int
+    ready: bool
+    has_series: bool
+    people: List[CastPerson]
+
+
+class CastApplyEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=100)
+    pronouns: Literal["she/her", "he/him", "they/them"]
+
+
+class CastApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    people: List[CastApplyEntry] = Field(min_length=1, max_length=200)
+
+
+class CastApplyResult(BaseModel):
+    set: List[str]
+    added: List[str]
+    kept: List[str]
+    not_applied: List[str]

@@ -105,12 +105,12 @@ def redact_text(text: str) -> str:
 
 
 def _error_item_text(item) -> str:
-    """A translate batch error ({"batch_index", "lines": [idx...], "error"})
-    as "lines 3-4: <message>" (1-based), instead of str(dict)."""
+    """A translate batch error ({"batch_index", "lines": [idx...], "error"}) or a narration
+    one ({"line_idx", "error"}) as "lines 3-4: <message>" (1-based), instead of str(dict)."""
     if not isinstance(item, dict):
         return str(item)
     message = item.get("error") or item.get("message") or "failed"
-    lines = [i for i in (item.get("lines") or []) if isinstance(i, int) and not isinstance(i, bool)]
+    lines = [i for i in (item.get("lines") or [item.get("line_idx")]) if isinstance(i, int) and not isinstance(i, bool)]
     if not lines:
         return str(message)
     lo, hi = min(lines) + 1, max(lines) + 1
@@ -358,6 +358,45 @@ def speaker_skip_text(result):
     return f"Speaker detection did not run: {why}." if why else None
 
 
+# Repeated: paid_calls.stop_reason_for prefixes an error that may already start with it.
+_STOPPED_PREFIX = re.compile(r"^(?:Stopped:\s*)+")
+_LEADING_COUNT = re.compile(r"^Stopped: (\d+) ")
+
+
+def waiting_note(result):
+    """What a job that ended `done` leaves the person to do, for the bell and
+    the push (notification_service.notify_job_finished), or None. A result may
+    carry its own {"text", "target"} under "waiting" (names to review); a stop
+    at a spending cap or by another run limit is read here, because the Jobs
+    page names it (_summary_outcome) while a plain "Finished" would hide it.
+    Only the sentence forms of "stopped" ("Stopped...", from
+    engine_backends.paid_calls, bulk_poll and the bulk runner) count: other
+    jobs use the key for their own words ("cancelled"). `own_reason` is True
+    only for Baihe's own fixed sentences (a failure streak, the rate limit):
+    the push quotes no other reason, since one may carry a provider's error
+    text."""
+    if not isinstance(result, dict):
+        return None
+    own = result.get("waiting")
+    if isinstance(own, dict) and isinstance(own.get("text"), str) and own["text"].strip():
+        return {"text": own["text"], "target": own.get("target")}
+    jobs_page = {"page": "jobs"}
+    cap = result.get("cap_reached")
+    stopped = result.get("stopped")
+    from engine_backends import paid_calls, run_limits
+    if (isinstance(cap, (int, float)) and not isinstance(cap, bool)) \
+            or stopped == paid_calls.CAP_STOP_REASON:
+        return {"cap": True, "target": jobs_page}
+    if isinstance(stopped, str) and stopped.startswith("Stopped"):
+        reason = scrub_text(_STOPPED_PREFIX.sub("", stopped)).strip()
+        count = _LEADING_COUNT.match(stopped)
+        fixed = stopped == run_limits.RATE_LIMIT_STOP_REASON or (
+            count is not None and stopped == paid_calls.failure_stop_reason(int(count.group(1))))
+        return {"reason": reason[:1].upper() + reason[1:], "own_reason": fixed,
+                "target": jobs_page}
+    return None
+
+
 def derive_outcome(status, error, result, detail_state=None, job_id=None):
     """(outcome, outcome_message) for a finished job, normalised from its
     status and projected result so a client never has to know each job's
@@ -592,7 +631,7 @@ def is_stale(record: dict, now: Optional[float] = None) -> bool:
 # the two drift apart). Ids with no entry, or not scoped to a drama, are "other".
 JOB_KIND_BY_PREFIX = {
     "translate_": "translate", "bulk_translate_": "translate",
-    "novel_glossary_": "translate", "lines_glossary_": "translate",
+    "novel_glossary_": "translate", "lines_glossary_": "translate", "chapters_glossary_": "translate",
     "spelling_suggest_": "translate",
     "flag_": "review", "fixflag_": "review", "timingchk_": "review", "consistency_": "review",
     "emotion_": "review", "notes_": "review", "bulk_consistency_": "review",

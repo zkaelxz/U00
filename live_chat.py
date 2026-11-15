@@ -19,6 +19,9 @@ TIMEOUT = (10, 20)
 MAX_PAGE_BYTES = 3_000_000
 MAX_REPLY_BYTES = 2_000_000
 
+# Year 9999 in epoch seconds: anything larger is a garbled stamp, not a time.
+_MAX_EPOCH = 253_402_300_799
+
 MAX_KEPT = 300
 MAX_TEXT_CHARS = 200
 MAX_AUTHOR_CHARS = 60
@@ -137,8 +140,18 @@ def _continuation_of(continuations):
     return None
 
 
+def _sent_at(body: dict) -> float:
+    """Epoch seconds YouTube stamped on a message (`timestampUsec`, microseconds as a string), else 0
+    for a missing or implausible one so the panel shows no time rather than a wrong one."""
+    try:
+        seconds = int(body.get("timestampUsec")) / 1_000_000
+    except (TypeError, ValueError):
+        return 0.0
+    return seconds if 0 < seconds < _MAX_EPOCH else 0.0
+
+
 def parse_reply(reply):
-    """([{id, author, text, paid}], next (token, wait_ms) or None) from one chat poll."""
+    """([{id, author, text, paid, sent_at}], next (token, wait_ms) or None) from one chat poll."""
     live = ((reply.get("continuationContents") or {}).get("liveChatContinuation")
             if isinstance(reply, dict) else None)
     if not isinstance(live, dict):
@@ -155,7 +168,7 @@ def parse_reply(reply):
             if text or paid:
                 messages.append({"id": str(body.get("id") or ""),
                                  "author": clean_text(_text(body.get("authorName")))[:MAX_AUTHOR_CHARS],
-                                 "text": text, "paid": paid})
+                                 "text": text, "paid": paid, "sent_at": _sent_at(body)})
     return messages, _continuation_of(live.get("continuations"))
 
 
@@ -185,9 +198,9 @@ class ChatBoard:
         self.state = "connecting"
         self.message = CONNECTING
 
-    def add(self, author: str, text: str, paid: str, state: str) -> dict:
+    def add(self, author: str, text: str, paid: str, state: str, sent_at: float = 0.0) -> dict:
         with self._lock:
-            entry = {"id": self._next_id, "author": author, "text": text, "paid": paid,
+            entry = {"id": self._next_id, "author": author, "text": text, "paid": paid, "sent_at": sent_at,
                      "translation": "", "state": state}
             self._next_id += 1
             self._messages.append(entry)
@@ -332,7 +345,7 @@ class ChatWorker:
             wanted = (not capped and message["text"]
                       and worth_translating(message["text"], self.source_language, self._recent))
             entry = self.board.add(message["author"], message["text"], message["paid"],
-                                   PENDING if wanted else SKIPPED)
+                                   PENDING if wanted else SKIPPED, message.get("sent_at", 0.0))
             if wanted:
                 todo.append(entry)
             elif capped and message["text"]:

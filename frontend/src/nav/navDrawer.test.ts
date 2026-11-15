@@ -53,13 +53,13 @@ describe('NavDrawer', () => {
 describe('PhoneBar', () => {
   const bar = (running: number, route: Route = library, moreOpen = false, context: NavContext = owner) =>
     renderToStaticMarkup(withJobs(running, createElement(PhoneBar, { route, context, moreOpen, onMore: () => {} })))
-  // Make subtitles needs library.create; the bar leaves out what the person may not use.
+  // Add needs library.create; the bar leaves out what the person may not use.
   const owner: NavContext = { ...ctx, session: { ...session, me: { ...session.me, permissions: [...session.me.permissions, 'library.create'] } } as SessionState }
 
-  it('has Library, Make, Jobs in that order and a More button that controls the drawer', () => {
+  it('has Library, Add, Jobs in that order and a More button that controls the drawer', () => {
     const html = bar(0)
     const labels = [...html.matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1])
-    expect(labels).toEqual(['Library', 'Make', 'Jobs', 'More'])
+    expect(labels).toEqual(['Library', 'Add', 'Jobs', 'More'])
     expect(html).toContain('aria-label="More"')
     expect(html).toContain('aria-controls="nav-drawer"')
     expect(bar(0, library, true)).toContain('aria-expanded="true"')
@@ -94,5 +94,20 @@ describe('NavGroups', () => {
     expect(html).toMatch(/aria-current="page"[^>]*>.*?<span class="rail-label">Jobs<\/span>/)
     expect(html).toContain('data-testid="rail-jobs-count"')
     expect(renderToStaticMarkup(withJobs(0, createElement(NavGroups, { route: { name: 'jobs' }, context: ctx })))).not.toContain('rail-jobs-count')
+  })
+
+  it('puts the current mark on the title row, not Library, while a title shows under Library', () => {
+    const html = renderToStaticMarkup(withJobs(0, createElement(NavGroups, { route: { name: 'drama', id: 2, stage: null } as Route, context: ctx })))
+    expect(html.match(/aria-current="page"/g)).toHaveLength(1)
+    expect(html).toMatch(/<a class="rail-title"[^>]*aria-current="page"/)
+  })
+
+  it('shows 0 beside Jobs only in the listed menu, never with the running-count test id, and hides it from the name', () => {
+    const at = (running: number, listed: boolean) => renderToStaticMarkup(withJobs(running, createElement(NavGroups, { route: library, context: ctx, listed })))
+    expect(at(0, true)).toMatch(/<span class="rail-zero" data-testid="rail-jobs-zero" aria-hidden="true">0<\/span>/)
+    expect(at(0, true)).not.toContain('rail-jobs-count')
+    expect(at(0, false)).not.toContain('rail-zero')
+    expect(at(2, true)).not.toContain('rail-zero')
+    expect(at(2, true)).toContain('data-testid="rail-jobs-count"')
   })
 })

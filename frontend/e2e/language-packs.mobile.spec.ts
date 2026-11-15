@@ -27,7 +27,7 @@ test('fits the phone width with 44px targets', async ({ page }: { page: Page }) 
   expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
   for (const loc of [
     page.getByRole('button', { name: 'Add 先輩 to my glossary' }),
-    page.getByRole('button', { name: 'Use this choice for Japanese titles' }),
+    page.getByRole('button', { name: 'Apply to Japanese titles' }),
     page.getByLabel('How to write them'),
   ]) {
     const box = await loc.boundingBox()

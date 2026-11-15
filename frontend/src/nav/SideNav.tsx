@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { routeHref, type Route } from '../router'
 import type { NavContext } from './navItems'
 import { NavGroups } from './navLinks'
-import { setNavDock, useNavDock } from './navDock'
+import { setNavDock, useNavDock, useNavPosition } from './navDock'
 import { createRailOpen } from './railOpen'
 import './sideNav.css'
 import './navPosition.css'
@@ -15,6 +15,9 @@ export function SideNav({ route, context }: { route: Route; context: NavContext 
   const mode = useNavDock()
   const docked = mode !== 'float'
   const minimized = mode === 'minimized'
+  const position = useNavPosition()
+  // Only the vertical docked menu reads as a list of words; a bar, a pill and the minimized rail keep their icons.
+  const listed = docked && !minimized && (position === 'left' || position === 'right')
   const [open, setOpen] = useState(false)
   const asideRef = useRef<HTMLElement>(null)
   const [rail] = useState(() => createRailOpen(setOpen))
@@ -28,7 +31,7 @@ export function SideNav({ route, context }: { route: Route; context: NavContext 
       rail.dispose()
     }
   }, [rail])
-  const classes = ['app-rail', docked && 'is-docked', minimized && 'is-minimized', open && 'is-open'].filter(Boolean).join(' ')
+  const classes = ['app-rail', docked && 'is-docked', listed && 'is-listed', minimized && 'is-minimized', open && 'is-open'].filter(Boolean).join(' ')
   return (
     <aside
       ref={asideRef}
@@ -46,7 +49,7 @@ export function SideNav({ route, context }: { route: Route; context: NavContext 
           <span className="rail-label">Baihe Studio</span>
         </a>
       </p>
-      <NavGroups route={route} context={context} collapsed />
+      <NavGroups route={route} context={context} collapsed listed={listed} />
       {docked && (
         <button
           type="button"
@@ -58,6 +61,7 @@ export function SideNav({ route, context }: { route: Route; context: NavContext 
           <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             {minimized ? <path d="M9 6l6 6-6 6" /> : <path d="M15 6l-6 6 6 6" />}
           </svg>
+          {listed && <span className="rail-chevron" aria-hidden="true">‹</span>}
           <span className="rail-label">{minimized ? 'Expand navigation' : 'Minimize navigation'}</span>
         </button>
       )}

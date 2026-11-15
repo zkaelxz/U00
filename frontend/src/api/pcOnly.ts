@@ -41,6 +41,8 @@ function readRemembered(): PcMode {
 }
 
 let mode: PcMode = readRemembered()
+// Owner/Guest state from /api/meta; null where profiles do not apply.
+let profile: { pin_set: boolean; guest: boolean } | null = null
 // A 403 seen during this page load: stays remote even if meta says local.
 let refusedThisLoad = false
 const listeners = new Set<() => void>()
@@ -53,6 +55,16 @@ function set(next: PcMode) {
 
 export function getPcMode(): PcMode {
   return mode
+}
+
+export function getPcProfileStatus() {
+  return profile
+}
+
+/** Replace the cached profile state after a change made on this page. */
+export function setPcProfileStatus(next: { pin_set: boolean; guest: boolean } | null): void {
+  profile = next
+  listeners.forEach((l) => l())
 }
 
 export function subscribePcMode(listener: () => void): () => void {
@@ -76,8 +88,9 @@ export function markRemote(): void {
  * earlier page load (so one stray 403 doesn't stick), but not one seen
  * during this page load.
  */
-export function applyMeta(meta: Pick<MetaResponse, 'local' | 'features'>): void {
+export function applyMeta(meta: Pick<MetaResponse, 'local' | 'features' | 'pc_profile'>): void {
   applyFeatures(meta.features)
+  profile = meta.pc_profile && typeof meta.pc_profile.pin_set === 'boolean' ? meta.pc_profile : null
   if (typeof meta.local !== 'boolean') return
   if (!meta.local) set('remote')
   else if (!refusedThisLoad) {
@@ -140,6 +153,7 @@ export function pcOnlyFetch(f: Fetch = fetch): Fetch {
 /** Test-only: forget the mode and the cached meta load. */
 export function resetPcModeForTests(next: PcMode = 'unknown'): void {
   metaLoad = null
+  profile = null
   metaFailed = false
   refusedThisLoad = false
   mode = next

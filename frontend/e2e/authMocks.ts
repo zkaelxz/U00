@@ -53,6 +53,13 @@ export const REMOTE_HEALTH_OFF = {
   certificate: { ...OFF_CHECK, days_left: null }, ddns: { ...OFF_CHECK, configured: false }, listener: OFF_CHECK,
 }
 
+/** The app shell's backup banner (PC only) reads this; healthy here, so no banner. */
+export const BACKUP_SETTINGS_QUIET = {
+  enabled: true, frequency: 'daily', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'],
+  last_run_at: null, last_attempt_at: null, last_error: null, last_note: null, next_run_at: null, running: false,
+  same_drive_as_library: true, problem: null, copies: [],
+}
+
 /** What the app shell and the Library page GET, keyed by pathname. */
 export const GET_FIXTURES: Record<string, unknown> = {
   '/api/health': { status: 'ok' },
@@ -82,6 +89,7 @@ export const GET_FIXTURES: Record<string, unknown> = {
   '/api/diagnostics/remote-health': REMOTE_HEALTH_OFF,
   // Settings > Remote access (PC only, so not asked by these remote specs).
   '/api/diagnostics/remote-health/ip-check': { configured: false },
+  '/api/diagnostics/remote-setup': { steps: [], next: null, fields: { public_url: false, google_client_id: false, google_client_secret: false }, restart_needed: false },
   // The Library admin panel's per-person backup picker.
   '/api/admin/users': { users: [] },
   // Settings > App updates (PC only): a source checkout, never checked.
@@ -91,7 +99,7 @@ export const GET_FIXTURES: Record<string, unknown> = {
     verified: false, verified_version: null, verified_name: null, can_install: false, signature_check: false, signature_verified: false, auto_check: false, include_prereleases: false,
     custom_source: false, app_update: 'none', app_update_here: false, app_size: null, app_download: 'idle',
     app_downloaded_bytes: 0, app_download_error: null, app_verified: false, app_verified_version: null,
-    can_apply_app: false, app_last_result: null, app_last_result_at: null,
+    can_apply_app: false, app_last_result: null, app_last_result_at: null, app_rollback_library_changed: false, app_rollback_library_unknown: false, app_rollback_backup_at: null,
   },
   // Settings > Signed-in devices, for a signed-in person: just this device.
   '/api/auth/sessions': {

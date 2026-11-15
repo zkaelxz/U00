@@ -35,3 +35,6 @@ a.chapters-row { text-decoration: none; box-sizing: border-box; }
 .episodes-list { max-height: none; }
 .episodes-row { grid-template-columns: minmax(0, 1fr) auto; }
 .episodes-row .chapters-meta { grid-column: auto; text-align: right; }
+/* The open title's row stands out without a second colour: bold, on the soft tint This line uses for the open line. */
+.episodes-row[aria-current='page'] { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.episodes-row[aria-current='page'] .chapters-title { font-weight: var(--weight-bold); }

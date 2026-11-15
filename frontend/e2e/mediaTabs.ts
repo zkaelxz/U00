@@ -4,7 +4,7 @@ import { expectPickedTab, pickTab } from './tabPicker'
 
 // Tools shares the Transcribe tab and Credits the Details tab; each keeps its own panel, so a spec can still say which.
 export type MediaTabName = 'add' | 'transcribe' | 'tools' | 'details' | 'credits'
-export const TAB_LABEL: Record<MediaTabName, string> = { add: 'Add media', transcribe: 'Transcribe', tools: 'Transcribe', details: 'Details', credits: 'Details' }
+export const TAB_LABEL: Record<MediaTabName, string> = { add: 'Add media', transcribe: 'Run', tools: 'Run', details: 'Details', credits: 'Details' }
 
 /** Opens a title's Media stage on one sub-tab through the deep link. */
 export async function gotoMedia(page: Page, tab: MediaTabName, id = 1) {

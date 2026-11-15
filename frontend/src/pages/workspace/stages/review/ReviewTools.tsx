@@ -1,27 +1,27 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react'
 
 import { Tabs, type TabInfo } from '../../../../components/Tabs'
 import { tabButtonId, tabPanelId } from '../../../../components/tabIds'
 import { browserStorage } from '../../../../hooks/usePersistedState'
 import { useRoute } from '../../../../router'
+import { buttonClass } from '../../../../components/uiClasses'
+import { useSimple } from '../../StageContext'
 import {
-  REVIEW_TOOLS_TABS, readLastTab, seedFirstCard, writeLastTab, type ReviewToolsTab,
+  activeToolsTab, EPISODES_TAB, EPISODES_TAB_LABEL, groupOfTool, LINE_TAB, LINE_TAB_LABEL, lineTabOpen, readAddedTools, readLastTab,
+  remembersTab, seedFirstCard, shownGroups, shownTools, writeAddedTools, writeLastTab, type ReviewTool, type ReviewToolsGroup, type ToolsTab,
 } from './reviewToolsTabs'
 
 const ID_PREFIX = 'review-tools'
 
-const EMPTY_TEXT: Record<ReviewToolsTab, string> = {
-  check: 'Nothing to show here yet.',
-  fix: 'Nothing to show here yet.',
-  coverage: 'Nothing to look at: no gaps, untranslated lines or pacing problems.',
-  voices: 'Nothing to show here yet.',
-  restructure: 'Nothing to show here yet. These tools appear once the title has lines.',
-  history: 'Nothing to show here yet. Notes, versions and history appear as you work.',
-  extras: 'Nothing to show here yet. These tools appear once the title has lines.',
+const EMPTY_TEXT: Record<ReviewToolsGroup, string> = {
+  problems: 'Nothing to show here yet.',
+  change: 'Nothing to show here yet. These tools appear once the title has lines.',
+  records: 'Nothing to show here yet. Notes, versions and history appear as you work.',
+  finish: 'Nothing to show here yet. These tools appear once the title has lines.',
 }
 
-// A tab whose sections are all empty says so once, instead of showing a blank panel.
-function TabBody({ tab, children }: { tab: ReviewToolsTab; children: ReactNode }) {
+// A group whose sections are all empty says so once, instead of showing a blank panel.
+function TabBody({ group, children }: { group: ReviewToolsGroup; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
   const [empty, setEmpty] = useState(false)
   useEffect(() => {
@@ -37,70 +37,182 @@ function TabBody({ tab, children }: { tab: ReviewToolsTab; children: ReactNode }
   return (
     <>
       <div ref={ref} className="review-tab-body stack">{children}</div>
-      {empty && <p className="muted review-tab-empty" data-testid="review-tab-empty">{EMPTY_TEXT[tab]}</p>}
+      {empty && <p className="muted review-tab-empty" data-testid="review-tab-empty">{EMPTY_TEXT[group]}</p>}
     </>
   )
 }
 
 interface Props {
   dramaId: number
-  // The job status, shown above the tabs so a running job is visible on every tab.
+  // The job status, shown above the groups so a running job is visible on every group.
   status: ReactNode
-  panels: Record<ReviewToolsTab, ReactNode>
-  // Warning counts on a tab (Coverage shows how many things to look at).
-  attention?: Partial<Record<ReviewToolsTab, number>>
-  // A button elsewhere asked for a tab (Compare transcription… opens History); seq makes a repeat count.
-  request?: { tab: ReviewToolsTab; seq: number } | null
+  tools: Record<ReviewTool, ReactNode>
+  // Warning counts on a tool (Coverage shows how many things to look at), shown on the group that holds it.
+  attention?: Partial<Record<ReviewTool, number>>
+  // A button elsewhere asked for a tool (Compare transcription… opens its group); seq makes a repeat count.
+  request?: { tool: ReviewTool; seq: number } | null
+  // While set, a This line tab leads the row and its panel is this empty element, which another part of the stage fills.
+  lineDock?: Ref<HTMLDivElement> | null
+  // The tab row and panels sit behind one Checks and tools button; the job status stays above it.
+  folded?: boolean
+  // While set, an Episodes tab ends the row with this list of the series' episodes.
+  episodes?: ReactNode
+  // Told whether the This line tab is the one showing: the open card says in full what the panel would.
+  onLineShown?: (shown: boolean) => void
 }
 
-// The tools under the line list as one tab level. A tab's panel mounts the first
-// time it is shown and then stays, so open folds and drafts survive a switch.
-export function ReviewTools({ dramaId, status, panels, attention = {}, request = null }: Props) {
+// The tools under the line list as one tab level of groups. A group's panel mounts
+// the first time it is shown and then stays, so open folds and drafts survive a switch.
+export function ReviewTools({ dramaId, status, tools, attention = {}, request = null, lineDock = null, folded = false, episodes = null, onLineShown }: Props) {
+  // A link or remembered choice for a group Simple leaves out opens Look for problems.
+  // A button that needs a tool Simple leaves out adds it for this title: Transcribe this gap
+  // starts its run in Re-transcribe, which must be mounted to start it and to apply what it heard.
+  const simple = useSimple()
+  const [added, setAdded] = useState<ReadonlySet<ReviewTool>>(() => readAddedTools(browserStorage(), dramaId))
+  const visibleTools = useMemo(() => shownTools(simple, added), [simple, added])
+  const shown = useMemo(() => shownGroups(simple, added), [simple, added])
+  const allowed = useCallback((g: ReviewToolsGroup) => shown.some((x) => x.id === g), [shown])
   const route = useRoute()
   const linked = route.name === 'drama' && route.id === dramaId ? route.tools : undefined
-  const [tab, setTabState] = useState<ReviewToolsTab>(() => {
-    const first = linked ?? readLastTab(browserStorage(), dramaId)
+  const [tab, setTabState] = useState<ReviewToolsGroup>(() => {
+    const wanted = linked ?? readLastTab(browserStorage(), dramaId)
+    const first = allowed(wanted) ? wanted : 'problems'
     seedFirstCard(browserStorage(), first)
     return first
   })
-  const [visited, setVisited] = useState<ReadonlySet<ReviewToolsTab>>(() => new Set([tab]))
+  const [visited, setVisited] = useState<ReadonlySet<ReviewToolsGroup>>(() => new Set([tab]))
+  // Starts closed on each visit; a link to a group or a button that asks for a tool opens it.
+  const [unfolded, setUnfolded] = useState(() => !!linked)
+  const lineOffered = !!lineDock
+  const [line, setLine] = useState(() => ({ offered: lineOffered, open: lineTabOpen({ offered: false, open: false }, lineOffered, !!linked) }))
+  const episodesOffered = !!episodes
+  // Picked like a group, but kept for this visit only; the list mounts on the first pick and then stays.
+  const [episodesOpen, setEpisodesOpen] = useState(false)
+  const [episodesSeen, setEpisodesSeen] = useState(false)
+  if (line.offered !== lineOffered) {
+    const open = lineTabOpen(line, lineOffered, !!linked)
+    setLine({ offered: lineOffered, open })
+    if (open) setEpisodesOpen(false)
+  }
+  const active: ToolsTab = activeToolsTab(tab, lineOffered && line.open, episodesOffered && episodesOpen)
+  const lineShown = active === LINE_TAB && !(folded && !unfolded)
+  // Before paint, so the open card never flashes its whole sentence beside the panel that already says it.
+  useLayoutEffect(() => {
+    onLineShown?.(lineShown)
+    return () => onLineShown?.(false)
+  }, [lineShown, onLineShown])
 
-  const select = useCallback((t: ReviewToolsTab) => {
-    seedFirstCard(browserStorage(), t)
-    setTabState(t)
-    setVisited((v) => (v.has(t) ? v : new Set(v).add(t)))
-    writeLastTab(browserStorage(), dramaId, t)
+  const open = useCallback((g: ReviewToolsGroup) => {
+    seedFirstCard(browserStorage(), g)
+    setTabState(g)
+    setVisited((v) => (v.has(g) ? v : new Set(v).add(g)))
+    setLine((l) => (l.open ? { ...l, open: false } : l))
+    setEpisodesOpen(false)
+    writeLastTab(browserStorage(), dramaId, g)
   }, [dramaId])
+  const select = useCallback((g: ReviewToolsGroup) => {
+    // A link for a group Simple leaves out keeps the group that is open.
+    if (allowed(g)) open(g)
+  }, [allowed, open])
+  const pick = useCallback((t: ToolsTab) => {
+    if (remembersTab(t)) select(t)
+    else if (t === EPISODES_TAB) {
+      setLine((l) => (l.open ? { ...l, open: false } : l))
+      setEpisodesOpen(true)
+      setEpisodesSeen(true)
+    } else {
+      setLine((l) => ({ ...l, open: true }))
+      setEpisodesOpen(false)
+    }
+  }, [select])
 
-  // A link's tab wins over the remembered one, also while the stage is already open.
+  // A link's group wins over the remembered one, also while the stage is already open.
+  // Only when the link changes: adding a tool must not send the open group back to the link's.
+  const appliedLink = useRef<string | null>(null)
   useEffect(() => {
-    if (linked) select(linked)
-  }, [linked, select])
+    const key = linked ? `${dramaId}:${linked}` : null
+    if (linked && key !== appliedLink.current) {
+      select(linked)
+      setUnfolded(true)
+    }
+    appliedLink.current = key
+  }, [dramaId, linked, select])
+  const selectTool = useCallback((tool: ReviewTool) => {
+    if (!added.has(tool)) {
+      const next = new Set(added).add(tool)
+      setAdded(next)
+      writeAddedTools(browserStorage(), dramaId, next)
+    }
+    open(groupOfTool(tool))
+    setUnfolded(true)
+  }, [added, dramaId, open])
   const seenSeq = useRef(request?.seq ?? 0)
   useEffect(() => {
     if (request && request.seq !== seenSeq.current) {
       seenSeq.current = request.seq
-      select(request.tab)
+      selectTool(request.tool)
     }
-  }, [request, select])
+  }, [request, selectTool])
 
-  const tabs: TabInfo<ReviewToolsTab>[] = REVIEW_TOOLS_TABS.map((t) => ({ ...t, attention: attention[t.id] }))
+  const tabs: TabInfo<ToolsTab>[] = [
+    ...(lineOffered ? [{ id: LINE_TAB, label: LINE_TAB_LABEL } as const] : []),
+    ...shown.map((g) => ({
+      ...g,
+      attention: visibleTools.filter((t) => t.group === g.id).reduce((n, t) => n + (attention[t.id] ?? 0), 0),
+    })),
+    ...(episodesOffered ? [{ id: EPISODES_TAB, label: EPISODES_TAB_LABEL } as const] : []),
+  ]
+  const bodyId = `${ID_PREFIX}-body`
   return (
     <section className="review-toolbox" aria-label="Checks and tools">
       {status}
-      <Tabs label="Review tools" idPrefix={ID_PREFIX} tabs={tabs} active={tab} onSelect={select} keepRow />
-      {REVIEW_TOOLS_TABS.map(({ id }) => (
+      {folded && (
+        <button type="button" className={buttonClass('secondary', 'md', 'review-toolbox-fold')} aria-expanded={unfolded} aria-controls={bodyId}
+                onClick={() => setUnfolded(!unfolded)}>
+          Checks and tools <span aria-hidden="true">{unfolded ? '▴' : '▾'}</span>
+        </button>
+      )}
+      {/* One wrapper whether folded or not, so folding hides the panels without unmounting their open folds and drafts. */}
+      <div id={bodyId} className="review-toolbox-body" hidden={folded && !unfolded}>
+      <Tabs label="Review tools" idPrefix={ID_PREFIX} tabs={tabs} active={active} onSelect={pick} keepRow />
+      {lineOffered && (
+        <div
+          ref={lineDock}
+          id={tabPanelId(ID_PREFIX, LINE_TAB)}
+          role="tabpanel"
+          aria-labelledby={tabButtonId(ID_PREFIX, LINE_TAB)}
+          className="review-toolbox-panel review-line-dock"
+          hidden={active !== LINE_TAB}
+        />
+      )}
+      {shown.map(({ id }) => (
         <div
           key={id}
           id={tabPanelId(ID_PREFIX, id)}
           role="tabpanel"
           aria-labelledby={tabButtonId(ID_PREFIX, id)}
           className="review-toolbox-panel"
-          hidden={tab !== id}
+          hidden={active !== id}
         >
-          {visited.has(id) && <TabBody tab={id}>{panels[id]}</TabBody>}
+          {visited.has(id) && (
+            <TabBody group={id}>
+              {visibleTools.filter((t) => t.group === id).map((t) => <Fragment key={t.id}>{tools[t.id]}</Fragment>)}
+            </TabBody>
+          )}
         </div>
       ))}
+      {episodesOffered && (
+        <div
+          id={tabPanelId(ID_PREFIX, EPISODES_TAB)}
+          role="tabpanel"
+          aria-labelledby={tabButtonId(ID_PREFIX, EPISODES_TAB)}
+          className="review-toolbox-panel"
+          hidden={active !== EPISODES_TAB}
+        >
+          {episodesSeen && episodes}
+        </div>
+      )}
+      </div>
     </section>
   )
 }

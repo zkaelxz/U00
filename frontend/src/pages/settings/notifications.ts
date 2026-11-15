@@ -35,14 +35,14 @@ export const CHANNELS: {
 
 // "What to send": which events go to Discord/ntfy. `field` is the status
 // field, `body` the key POST .../categories takes.
-export type CategoryField = 'send_jobs' | 'send_chapters' | 'send_remote'
+export type CategoryField = 'send_jobs' | 'send_chapters' | 'send_remote' | 'show_private_titles'
 
 export const CATEGORIES: { field: CategoryField; body: keyof NotificationCategories; label: string; help: string }[] = [
   {
     field: 'send_jobs',
     body: 'jobs',
-    label: 'Jobs finished or failed',
-    help: 'A message when a job (transcribe, translate, dub, export and so on) finishes or fails.',
+    label: 'Jobs finished, failed or waiting for you',
+    help: 'A message when a job (transcribe, translate, dub, export and so on) finishes or fails, and when a run stops and waits for you.',
   },
   {
     field: 'send_chapters',
@@ -56,10 +56,16 @@ export const CATEGORIES: { field: CategoryField; body: keyof NotificationCategor
     label: 'Remote access problems',
     help: 'A message when remote access stops working or its certificate is not renewed in time, and again when it is fixed.',
   },
+  {
+    field: 'show_private_titles',
+    body: 'private_titles',
+    label: 'This channel is only mine: show private titles',
+    help: 'Off: a title or series that not everyone in the household can see is left out of the message. Turn on only if you alone can read this channel.',
+  },
 ]
 
 export const CATEGORIES_NOTE =
-  'These choose what goes to Discord and ntfy. The bell at the top of the page always lists every event.'
+  'These choose what goes to Discord and ntfy. The Alerts button at the top of the page always lists every event.'
 
 /** The request body for one switch: only the field that changed. */
 export function categoryChange(field: CategoryField, next: boolean): NotificationCategories {

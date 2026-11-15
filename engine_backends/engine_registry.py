@@ -4,6 +4,8 @@ import inspect
 import re
 from pathlib import Path
 from lib.errors import MissingPackageError
+from lib import settings_schema
+from . import pricing
 from .claude import ClaudeEngine
 from .gemini import GeminiEngine
 from .local import OllamaEngine, is_ollama_cloud_model
@@ -114,7 +116,7 @@ KEYLESS_ENGINES = {"ollama"}
 # Ids a provider renamed but still serves: a preset or title that saved one
 # keeps running, so a translate run still accepts them after the built-in
 # default moves. The offered lists do not show them.
-_LEGACY_MODEL_ALIASES = {"deepseek": ("deepseek-v4-flash",)}
+_LEGACY_MODEL_ALIASES = {"deepseek": ("deepseek-v4-flash",), "openai": pricing.OPENAI_RETIRED_MODELS}
 
 
 def legacy_ids(engine_name: str) -> tuple:
@@ -128,7 +130,7 @@ ENGINE_NOTES = {
     "claude": "Paid, cloud; best tone and character voice.",
     "deepseek": "Paid, cloud, very cheap; strong on Chinese.",
     "gemini": "Paid, cloud, cheap; strong on Chinese/Japanese.",
-    "openai": "Paid, cloud; GPT-5 models, billed per token.",
+    "openai": "Paid, cloud; GPT-6 models, billed per token.",
     "ollama": "Free and private; local Gemma 4 on your GPU.",
 }
 
@@ -172,19 +174,51 @@ def _read_overrides(setting_key: str, valid_keys) -> dict:
             if k in valid_keys and isinstance(v, str) and MODEL_ID_RE.fullmatch(v) and ".." not in v}
 
 
+# Set by services.ownership_service, which knows who a request acts for; this
+# module sits below it. Returns False for a caller who may not use a hosted default.
+_hosted_default_caller_ok = None
+
+
+def set_hosted_default_caller_check(check) -> None:
+    global _hosted_default_caller_ok
+    _hosted_default_caller_ok = check
+
+
+def hosted_default_allowed() -> bool:
+    """Whether a hosted Ollama tag may be a default for this caller: the owner
+    opted in (Settings) and the caller holds paid-engine permission. A caller
+    without it falls back to the local default (translategemma), so the owner's
+    choice never sends a restricted account's text off the PC."""
+    try:
+        import db
+        if not settings_schema.coerce(
+                "ollama_cloud_default", db.get_app_setting("pref.ollama_cloud_default")):
+            return False
+    except Exception:
+        return False
+    return _hosted_default_caller_ok is None or bool(_hosted_default_caller_ok())
+
+
+def hosted_default_blocked(engine_name: "str | None", model) -> bool:
+    """True when `model` is a hosted Ollama tag that may not be used as a default:
+    a default is used by every call that names Ollama without a model, so a hosted
+    tag there sends text off this PC unannounced unless the owner opted in."""
+    return engine_name == "ollama" and is_ollama_cloud_model(model) and not hosted_default_allowed()
+
+
 def model_override_for_default(engine_name: str):
     """The user's chosen model for `engine_name`'s built-in default, or None.
     An override for an engine this build no longer has is ignored."""
     model = _read_overrides(MODEL_OVERRIDE_DEFAULTS_KEY, ENGINES).get(engine_name)
     # Re-checked on read: a restored backup bypasses the write-time check, and
-    # a hosted tag as the default would send text off this PC unannounced.
-    return None if engine_name == "ollama" and is_ollama_cloud_model(model) else model
+    # switching the opt-in off must stop a stored hosted default at once.
+    return None if hosted_default_blocked(engine_name, model) else model
 
 
 def model_override_for_tier(tier_key: str):
     model = _read_overrides(MODEL_OVERRIDE_TIERS_KEY, WORKFLOW_TIERS).get(tier_key)
     tier = WORKFLOW_TIERS.get(tier_key) or {}
-    return None if tier.get("translation_engine") == "ollama" and is_ollama_cloud_model(model) else model
+    return None if hosted_default_blocked(tier.get("translation_engine"), model) else model
 
 
 def builtin_default_model(engine_name: str):
@@ -208,6 +242,7 @@ def effective_default_model(engine_name: str):
 # ceiling (translate_run_service.MAX_BATCH_SIZE) stays 60: Claude's reply cap.
 DEFAULT_BATCH_SIZE = 30
 STRONG_ENGINE_BATCH_SIZE = 60
+PLAIN_STREAM_BATCH_SIZE = 10
 
 # (engine, model-name fragments) pairs whose models hold up at the larger batch.
 # A fragment matches anywhere in the lowercased model name; an engine or model
@@ -370,12 +405,24 @@ def _missing_package_name(exc: ImportError, fallback: str) -> str:
     return top if _PACKAGE_NAME_RE.fullmatch(top) else fallback
 
 
-def default_translate_options(engine=None, model=None, novel: bool = False) -> dict:
+def default_translate_options(engine=None, model=None, novel: bool = False,
+                              plain_stream: bool = False) -> dict:
     """Context window sizes and batch size a translate run starts with; the
     batch size follows the engine and model (none given = the generic 30).
-    A novel reads across paragraphs, so it looks further back and ahead."""
-    return {"context_window": 30 if novel else 10, "context_window_ahead": 15 if novel else 6,
-            "batch_size": default_batch_size(engine, model)}
+    A novel reads across paragraphs, so it looks further back and ahead.
+    plain_stream (a Gemma 4 run on a stream title with the plain prompt): 10 lines per
+    request and no neighbouring lines, which made its captions worse."""
+    options = {"context_window": 30 if novel else 10, "context_window_ahead": 15 if novel else 6,
+               "batch_size": default_batch_size(engine, model)}
+    if plain_stream:
+        options.update(batch_size=PLAIN_STREAM_BATCH_SIZE, context_window=0, context_window_ahead=0)
+    return options
+
+
+def is_gemma4(engine, model: str | None = None) -> bool:
+    """Whether this engine and model is Gemma 4 (local or Ollama cloud). TranslateGemma
+    is a different model and does not match."""
+    return "gemma4" in _engine_and_model_name(engine, model)[1]
 
 
 def batch_size_defaults(engines: list) -> dict:

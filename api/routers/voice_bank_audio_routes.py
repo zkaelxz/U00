@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 
 from api.auth import require_permission
 from api.schemas import ErrorResponse
+from lib.storage_errors import require_readable
 from services import voice_bank_audio_service
 
 router = APIRouter(prefix="/api/library", tags=["library"])
@@ -27,6 +28,7 @@ _STREAM = [require_permission("media.stream")]
                        416: {"description": "Range not satisfiable"}})
 def get_voice_bank_audio(entry_id: int = Path(ge=1, le=2**31 - 1)):
     path, ctype, ext = voice_bank_audio_service.clip_for_entry(entry_id)
+    require_readable(path)
     return FileResponse(path, media_type=ctype, filename=f"voice_{entry_id}{ext}",
                         content_disposition_type="inline",
                         headers={"Cache-Control": "no-store",

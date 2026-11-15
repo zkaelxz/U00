@@ -3,6 +3,7 @@ import { type Page } from '@playwright/test'
 import { expect, test } from './fixtures'
 import { openSettingsGroups } from './settingsNav'
 import { guardWrites } from './mockHelpers'
+import { translateTab } from './translateTabs'
 
 // Settings > Notifications and the header bell. Every notification
 // call is mocked and fulfilled; a catch-all aborts (and records) any other
@@ -77,7 +78,7 @@ async function mockNotifications(
 
 async function open(page: Page) {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Connections')
   const section = page.getByRole('region', { name: 'Notifications' })
   await expect(section).toBeVisible()
   return section
@@ -153,7 +154,7 @@ test('away from the PC the section is left out and makes no notification calls',
     return route.fulfill({ response: resp, json: { ...body, local: false } })
   })
   await page.goto('/#/settings')
-  await expect(page.getByRole('tab', { name: 'Notifications and backups' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Connections' })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Notifications' })).toHaveCount(0)
   expect(calls).toEqual([])
   expect(unmocked).toEqual([])
@@ -166,11 +167,11 @@ test('What to send: each switch saves at once, sending only what changed', async
   const bodies = await mockNotifications(page, { ...OFF, discord_configured: true, send_chapters: false }, { categoriesGate: gate })
   const section = await open(page)
   const group = section.getByRole('group', { name: 'What to send' })
-  const jobs = group.getByRole('switch', { name: 'Jobs finished or failed' })
+  const jobs = group.getByRole('switch', { name: 'Jobs finished, failed or waiting for you' })
   const chapters = group.getByRole('switch', { name: 'New chapters found' })
   await expect(jobs).toBeChecked()
   await expect(chapters).not.toBeChecked()
-  await expect(group.getByText('The bell at the top of the page always lists every event.')).toBeVisible()
+  await expect(group.getByText('The Alerts button at the top of the page always lists every event.')).toBeVisible()
   await expect(section.getByText(/have new chapters/).first()).toBeVisible()
 
   await jobs.click()
@@ -200,7 +201,7 @@ test('What to send: a failed save puts the switch back and says so', async ({ pa
   const unmocked = await guard(page)
   await mockNotifications(page, OFF, { categoriesStatus: 500 })
   const section = await open(page)
-  const jobs = section.getByRole('switch', { name: 'Jobs finished or failed' })
+  const jobs = section.getByRole('switch', { name: 'Jobs finished, failed or waiting for you' })
   await expect(jobs).toBeChecked()
   await jobs.click()
   await expect(section.getByRole('alert')).toBeVisible()
@@ -213,7 +214,9 @@ test('What to send: a failed save puts the switch back and says so', async ({ pa
 
 const NOW = () => Math.floor(Date.now() / 1000)
 
-async function mockBell(page: Page, items: { id: number; at: number; kind: string; text: string }[]) {
+type BellItem = { id: number; at: number; kind: string; text: string; target?: Record<string, unknown> }
+
+async function mockBell(page: Page, items: BellItem[]) {
   const state = { items, calls: 0 }
   await page.route((u) => u.pathname === '/api/notifications', (route) => {
     state.calls += 1
@@ -231,12 +234,12 @@ test('header bell: unread count, the list, and opening marks them seen', async (
     { id: 1, at: now - 4 * 3600, kind: 'job_done', text: 'Transcribe finished: Signal' },
   ])
   await page.goto('/#/library')
-  const button = page.getByRole('button', { name: 'Notifications (3 new)' })
+  const button = page.getByRole('button', { name: 'Alerts (3 new)' })
   await expect(button).toBeVisible()
   await expect(page.getByTestId('notify-count')).toHaveText('3')
 
   await button.click()
-  const panel = page.getByRole('region', { name: 'Recent notifications' })
+  const panel = page.getByRole('region', { name: 'Recent alerts' })
   await expect(panel).toBeVisible()
   const rows = panel.getByRole('listitem')
   await expect(rows).toHaveCount(3)
@@ -250,7 +253,7 @@ test('header bell: unread count, the list, and opening marks them seen', async (
   await expect(panel.locator('.notify-new')).toHaveCount(3)
   await expect(panel.getByText('This list is kept until the app restarts.')).toBeVisible()
   // Opening marked them seen.
-  await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('button', { name: 'Alerts', exact: true })).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByTestId('notify-count')).toHaveCount(0)
   if (process.env.NOTIFY_SCREENS_DIR) {
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -260,11 +263,11 @@ test('header bell: unread count, the list, and opening marks them seen', async (
   // Escape closes and hands focus back.
   await page.keyboard.press('Escape')
   await expect(panel).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Alerts', exact: true })).toBeFocused()
 
   // Reopening (and a reload) shows nothing new; items stay listed.
   await page.reload()
-  const plain = page.getByRole('button', { name: 'Notifications', exact: true })
+  const plain = page.getByRole('button', { name: 'Alerts', exact: true })
   await expect(plain).toBeVisible()
   await expect(page.getByTestId('notify-count')).toHaveCount(0)
   await plain.click()
@@ -278,8 +281,30 @@ test('header bell: unread count, the list, and opening marks them seen', async (
   bell.items = [{ id: 4, at: NOW(), kind: 'job_done', text: 'Export finished: Signal' }, ...bell.items]
   const before = bell.calls
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-  await expect(page.getByRole('button', { name: 'Notifications (1 new)' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Alerts (1 new)' })).toBeVisible()
   expect(bell.calls).toBeGreaterThan(before)
+  expect(unmocked).toEqual([])
+})
+
+test('header bell: a waiting row opens the place it names, and a row without a target has no link', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockBell(page, [
+    { id: 2, at: NOW() - 60, kind: 'waiting', text: 'Waiting for you: 12 glossary names to review - Signal', target: { page: 'glossary', drama_id: 1 } },
+    { id: 1, at: NOW() - 120, kind: 'waiting', text: 'Waiting for you: An episode is done.', target: { page: 'somewhere', drama_id: 1 } },
+  ])
+  await page.goto('/#/library')
+  await page.getByRole('button', { name: /^Alerts/ }).click()
+  const rows = page.getByRole('region', { name: 'Recent alerts' }).getByRole('listitem')
+  await expect(rows.nth(0)).toContainText('Waiting')
+  await expect(rows.nth(0)).toContainText('12 glossary names to review - Signal')
+  await expect(rows.nth(1).getByRole('link')).toHaveCount(0) // a target the page does not know
+  const open = rows.nth(0).getByRole('link', { name: 'Open' })
+  await expect(open).toHaveAttribute('href', '#/drama/1/translate?tab=glossary')
+  await expect(open).toHaveAttribute('title', 'Open the Glossary tab of this title')
+  await open.click()
+  await expect(page).toHaveURL(/#\/drama\/1\/translate\?tab=glossary$/)
+  await expect(translateTab(page, 'glossary')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('region', { name: 'Recent alerts' })).toHaveCount(0)
   expect(unmocked).toEqual([])
 })
 
@@ -287,10 +312,10 @@ test('header bell: empty list, and hidden when the list is refused', async ({ pa
   const unmocked = await guard(page)
   await mockBell(page, [])
   await page.goto('/#/library')
-  const button = page.getByRole('button', { name: 'Notifications', exact: true })
+  const button = page.getByRole('button', { name: 'Alerts', exact: true })
   await button.click()
-  const panel = page.getByRole('region', { name: 'Recent notifications' })
-  await expect(panel.getByText('Nothing yet. Finished and failed jobs show up here.')).toBeVisible()
+  const panel = page.getByRole('region', { name: 'Recent alerts' })
+  await expect(panel.getByText('Nothing yet. Finished and failed jobs, and runs that are waiting for you, show up here.')).toBeVisible()
   await expect(panel.getByRole('listitem')).toHaveCount(0)
 
   await page.route((u) => u.pathname === '/api/notifications', (route) =>
@@ -298,7 +323,7 @@ test('header bell: empty list, and hidden when the list is refused', async ({ pa
   )
   await page.reload()
   await expect(page.getByRole('button', { name: 'Report a problem' })).toBeVisible()
-  await expect(page.getByRole('button', { name: /^Notifications/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Alerts/ })).toHaveCount(0)
   expect(unmocked).toEqual([])
 })
 
@@ -308,13 +333,13 @@ test('header bell: fits the one-row header at 1280px, and its panel stays on scr
   for (const width of [1280, 1024]) {
     await page.setViewportSize({ width, height: 800 })
     await page.goto('/#/library')
-    const bell = page.getByRole('button', { name: /^Notifications/ })
+    const bell = page.getByRole('button', { name: /^Alerts/ })
     await expect(bell).toBeVisible()
     const b = (await bell.boundingBox())!
     // The header is a single row of icons beside the left rail, so the bell sits at the top of the page.
     expect(b.y).toBeLessThan(80)
     await bell.click()
-    const p = (await page.getByRole('region', { name: 'Recent notifications' }).boundingBox())!
+    const p = (await page.getByRole('region', { name: 'Recent alerts' }).boundingBox())!
     expect(p.x).toBeGreaterThanOrEqual(0)
     expect(p.x + p.width).toBeLessThanOrEqual(width)
     await page.keyboard.press('Escape')

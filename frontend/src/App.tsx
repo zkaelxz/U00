@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
-import { loginHref, type AuthUser } from './api/auth'
+import { accountWords, loginHref, nameWidth, type AuthUser } from './api/auth'
 import { api } from './api/client'
 import { featureOn } from './api/features'
 import { useFeatures } from './hooks/useFeatures'
@@ -16,6 +16,7 @@ import { useDeveloperMode } from './pages/assistant/developerMode'
 import { HelpTip } from './components/HelpTip'
 import { JobsMenu } from './components/JobsMenu'
 import { NotificationBell } from './components/NotificationBell'
+import { BackupHealthBanner } from './components/BackupHealthBanner'
 import { PaidLimitBanner } from './components/PaidLimitBanner'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
 import { ThemeMenu } from './components/ThemeMenu'
@@ -29,6 +30,7 @@ import { useHiddenNav } from './nav/hiddenNav'
 import { BackButton } from './nav/BackButton'
 import { MenuButton, NavDrawer } from './nav/NavDrawer'
 import { PhoneBar } from './nav/PhoneBar'
+import { usePhoneBarWanted } from './nav/phoneBarRequest'
 import { PopOutMenu } from './nav/PopOutMenu'
 import { isPopOutWindow } from './nav/popOut'
 import { DOCK_MIN_WIDTH } from './nav/navItems'
@@ -37,9 +39,13 @@ import { SideNav } from './nav/SideNav'
 import { useHeaderHeight } from './nav/useHeaderHeight'
 import { ReportProblemButton } from './report/ReportProblem'
 import { usePcOnly } from './hooks/usePcOnly'
+import { usePcProfile } from './hooks/usePcProfile'
+import { lockPcProfile, profilePicked, rememberProfilePicked } from './api/pcProfile'
+import { buttonClass } from './components/uiClasses'
 import { routeHref, useRoute } from './router'
 
 // Each page is its own chunk, so the first load downloads only the shell and the Library.
+const PcProfilePicker = lazy(() => import('./pages/PcProfilePicker'))
 const AdminPage = lazy(() => import('./pages/Admin'))
 const AssistantPage = lazy(() => import('./pages/Assistant'))
 const ComicPage = lazy(() => import('./pages/Comic'))
@@ -52,6 +58,7 @@ const LibraryToolsPage = lazy(() => import('./pages/LibraryTools'))
 const LivePage = lazy(() => import('./pages/Live'))
 const ReaderPage = lazy(() => import('./pages/Reader'))
 const FollowAlongPage = lazy(() => import('./pages/follow/FollowAlong'))
+const WatchPage = lazy(() => import('./pages/watch/Watch'))
 const SavedMangaPage = lazy(() => import('./pages/SavedManga'))
 const SavedMangaReader = lazy(() => import('./pages/SavedMangaReader'))
 const SeriesPage = lazy(() => import('./pages/series/SeriesPage'))
@@ -61,23 +68,52 @@ const MakeSubtitlesPage = lazy(() => import('./pages/MakeSubtitlesPage'))
 const TranslatePage = lazy(() => import('./pages/Translate'))
 const WorkspaceShell = lazy(() => import('./pages/workspace/WorkspaceShell'))
 
-// Shown only when the server can't be reached; the version lives in
-// Diagnostics and in problem reports, where it is useful.
-function ApiStatus() {
-  const [down, setDown] = useState(false)
+const API_STATUS_RECHECK_MS = 30_000
 
+type ApiState = 'unknown' | 'up' | 'down'
+
+// "Can't reach Baihe" everywhere once a check has failed. With room for words (a wide window or a pop-out) the
+// last answered check also shows "Connected", and before the first answer nothing shows, so a slow start never
+// claims a state it hasn't checked. Not a live region: it would be read out on every page. The version lives in
+// Diagnostics and in problem reports, where it is useful.
+function ApiStatus({ showConnected }: { showConnected: boolean }) {
+  const [state, setState] = useState<ApiState>('unknown')
+
+  // Checked again on a timer and when the window comes back to the front: a single check
+  // at load never showed a server that stopped later, nor cleared once it came back.
   useEffect(() => {
-    api.meta().catch(() => setDown(true))
+    let stopped = false
+    const check = () => {
+      api.meta().then(() => !stopped && setState('up'), () => !stopped && setState('down'))
+    }
+    check()
+    const timer = window.setInterval(check, API_STATUS_RECHECK_MS)
+    window.addEventListener('focus', check)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+      window.removeEventListener('focus', check)
+    }
   }, [])
 
-  if (!down) return null
+  if (state === 'up' && showConnected) {
+    return (
+      <span className="api-connected" data-testid="api-connected">
+        <span aria-hidden="true">●</span> Connected
+      </span>
+    )
+  }
+  if (state !== 'down') return null
   return (
-    <span className="badge bad" data-testid="api-status">
+    <span className="badge bad api-down" data-testid="api-status">
       Can't reach Baihe
       <HelpTip label="Can't reach Baihe" id="api-status-help">Check that Baihe Studio is still running on this PC.</HelpTip>
     </span>
   )
 }
+
+// The header's words steps are sized for a name this wide (Latin-letter units, see nameWidth); a wider one asks for more room (index.css, .has-long-name).
+const LONG_ACCOUNT_NAME = 12
 
 // The display name wins over the email: an address's first letter is rarely the person's.
 function accountInitial(user: AuthUser | null): string | null {
@@ -93,6 +129,8 @@ function UserMenu({ user }: { user: AuthUser | null }) {
   const [error, setError] = useState<string | null>(null)
   const label = user ? (user.email ?? user.display_name ?? 'Signed in') : 'Account'
   const initial = accountInitial(user)
+  // Never the address: it is long and private enough that it only shows inside the open panel.
+  const shownName = accountWords(user?.display_name)
 
   async function onSignOut() {
     setBusy(true)
@@ -107,8 +145,8 @@ function UserMenu({ user }: { user: AuthUser | null }) {
 
   return (
     <details className="user-menu" ref={ref}>
-      <summary aria-label={`Account: ${user?.display_name ?? label}`}>
-        <span className="user-menu-avatar" aria-hidden="true">
+      <summary className="hb-box" aria-label={`Account: ${user?.display_name ?? label}`}>
+        <span className="user-menu-avatar hb-icon" aria-hidden="true">
           {initial ?? (
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <circle cx="12" cy="8" r="4" />
@@ -116,11 +154,15 @@ function UserMenu({ user }: { user: AuthUser | null }) {
             </svg>
           )}
         </span>
+        <span className="hb-words" aria-hidden="true">
+          {shownName} ▾
+        </span>
       </summary>
       <div className="user-menu-panel">
         {user ? (
           <>
             <p className="muted">Signed in as</p>
+            {user.email && user.display_name?.trim() && <p className="user-menu-fullname" data-testid="user-name">{user.display_name.trim()}</p>}
             <p className="user-menu-email" data-testid="user-email">{label}</p>
           </>
         ) : (
@@ -174,7 +216,7 @@ function SignInOverlay({ configured }: { configured: boolean }) {
           <>
             <p className="muted">Your unsaved work is still here. Sign in in a new tab, then come back to this one.</p>
             <a className="login-button" href={loginHref(returnTo)} target="_blank" rel="noopener noreferrer">
-              Sign in with Google (new tab)
+              Sign in with Google
             </a>
           </>
         ) : (
@@ -198,6 +240,24 @@ function skipToContent(e: React.MouseEvent) {
 // are held to the 1200px column by .app-bounded.
 const BOUNDED_ROUTES: ReadonlySet<string> = new Set(['drama', 'read', 'comic', 'comic-edit', 'manga-read'])
 
+// Locks the PC window back to Guest and asks again, so a title stays hidden after the owner walks away.
+function ProfileSwitch({ guest }: { guest: boolean }) {
+  const switchProfile = async () => {
+    try {
+      await lockPcProfile()
+    } catch {
+      return
+    }
+    rememberProfilePicked(false)
+    window.location.reload()
+  }
+  return (
+    <button type="button" className={buttonClass()} data-testid="profile-switch" onClick={() => void switchProfile()}>
+      {guest ? 'Guest · Switch profile' : 'Owner · Switch profile'}
+    </button>
+  )
+}
+
 export default function App() {
   const route = useRoute()
   const session = useSession()
@@ -205,12 +265,15 @@ export default function App() {
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
   const features = useFeatures()
+  const profile = usePcProfile()
+  const [pickedHere, setPickedHere] = useState(profilePicked)
   const [hidden] = useHiddenNav(session)
   const [storedMode, storeMode] = usePersistedState<string>(VIEW_MODE_PREF, '')
   const viewMode = asViewMode(storedMode)
   const popOut = isPopOutWindow()
   // A pop-out has no side nav, drawer or phone bar: its header carries the page switcher instead, at every width.
   const wide = useMediaQuery(`(min-width: ${DOCK_MIN_WIDTH}px)`) && !popOut
+  const menuWanted = usePhoneBarWanted()
   const navDock = useNavDock()
   const navPosition = useNavPosition()
   const headerRef = useHeaderHeight()
@@ -223,7 +286,9 @@ export default function App() {
     if (sourcesOff) window.location.replace(routeHref({ name: 'library' }))
   }, [sourcesOff])
 
-  useDocumentTitle(mainRef, `${view}:${route.name}`)
+  const picking = view === 'app' && !!profile.status?.pin_set && !pickedHere
+  // The key changes when the page behind these screens appears, so the title is set once <main> exists.
+  useDocumentTitle(mainRef, `${view}:${route.name}:${picking ? 'gate' : 'page'}`)
 
   if (view === 'connecting') {
     return (
@@ -232,13 +297,23 @@ export default function App() {
       </p>
     )
   }
+  // With a PIN set, every new tab on the PC asks who is using Baihe first. The server is already
+  // on Guest until then, so the lists behind this screen never show a private title.
+  if (picking) {
+    return (
+      <Suspense fallback={null}>
+        <PcProfilePicker onDone={() => { setPickedHere(true); window.location.reload() }} />
+      </Suspense>
+    )
+  }
   const signInConfigured = session.status !== 'ready' || session.me.sign_in_configured
   const signedOut = sessionExpired(session)
   if (view === 'login' && !signedOut) return <LoginPage configured={signInConfigured} />
   const user = menuUser(session)
   const navContext = { session, pcMode, developerMode, hidden, features, simple: viewMode === 'simple' }
-  // Title workspaces and readers keep the header's Menu button: their bottom edge belongs to their own actions.
-  const phoneBar = !wide && !popOut && !BOUNDED_ROUTES.has(route.name)
+  // Title workspaces and readers keep the header's Menu button: their bottom edge belongs to their own actions. The one
+  // exception is a page that makes room for the menu under its own bar and asks for it.
+  const phoneBar = !wide && !popOut && (!BOUNDED_ROUTES.has(route.name) || (route.name === 'drama' && menuWanted))
   // Left is the original layout and adds nothing; on a phone only the bar can move, and only to the top.
   const shellClass = [
     'app-shell',
@@ -249,16 +324,22 @@ export default function App() {
     (wide ? navPosition !== 'left' : phoneBar && navPosition === 'top') && `nav-${navPosition}`,
   ].filter(Boolean).join(' ')
 
+  // Wide windows and pop-outs have room for the controls' words. The PIN profile button and the account use up some of it, so their steps come earlier (index.css).
+  const room = wide || popOut
+  const longName = canSignOut(session) && nameWidth(accountWords(user?.display_name)) > LONG_ACCOUNT_NAME
+  const headerEndClass = ['header-end', room && 'has-room', room && (profile.status?.pin_set || canSignOut(session)) && 'has-extras', room && longName && 'has-long-name'].filter(Boolean).join(' ')
+
   const headerEnd = (
-    <div className="header-end">
-      {(wide || popOut) && <ViewModeSwitch mode={viewMode} onChange={storeMode} />}
+    <div className={headerEndClass}>
+      {room && <ViewModeSwitch mode={viewMode} onChange={storeMode} />}
       <CommandPalette route={route} context={navContext} />
+      <ReportProblemButton hidden={!room} />
       <JobsMenu />
       <NotificationBell />
-      <ReportProblemButton hidden={!wide && !popOut} />
-      {(wide || popOut) && <KeyboardHelpButton />}
-      {(wide || popOut) && <ThemeMenu />}
-      <ApiStatus />
+      {room && <KeyboardHelpButton />}
+      {room && <ThemeMenu />}
+      <ApiStatus showConnected={room} />
+      {profile.status?.pin_set && <ProfileSwitch guest={profile.status.guest} />}
       {canSignOut(session) && <UserMenu user={user} />}
     </div>
   )
@@ -270,6 +351,7 @@ export default function App() {
       {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
       {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
       {route.name === 'follow' && <FollowAlongPage key={route.id} id={route.id} />}
+      {route.name === 'watch' && <WatchPage key={route.id} id={route.id} />}
       {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
       {route.name === 'comic-edit' && <ComicEditor key={route.id} id={route.id} page={route.page} />}
       {route.name === 'series' && <SeriesPage key={route.id} id={route.id} tab={route.tab} />}
@@ -306,6 +388,7 @@ export default function App() {
   const content = (
     <>
       <RemoteHealthBanner />
+      <BackupHealthBanner />
       <PaidLimitBanner />
       <RouteErrorBoundary>
         <Suspense fallback={null}>
@@ -350,7 +433,7 @@ export default function App() {
         </div>
         {!wide && !popOut && <NavDrawer route={route} context={navContext} open={menuOpen} onOpenChange={setMenuOpen} viewMode={viewMode} onViewMode={storeMode} />}
         <GlobalShortcuts route={route} />
-        {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} />}
+        {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} words={BOUNDED_ROUTES.has(route.name)} />}
       </div>
     </JobsProvider>
   )

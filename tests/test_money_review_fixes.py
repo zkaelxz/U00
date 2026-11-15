@@ -165,7 +165,7 @@ class TestExtensionTextCapture:
     def test_a_free_engine_is_unchanged(self, isolated_db, monkeypatch):
         class Free(_Paid):
             name = "ollama"
-            model = "qwen3:8b"
+            model = "translategemma:12b"
         engine = Free()
         page_server.set_config_provider(None)
         page_server.set_translation_config(engine="ollama", api_key="local")

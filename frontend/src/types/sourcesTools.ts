@@ -26,6 +26,8 @@ export interface UrlPreflight {
   next_link?: boolean
   previous_link?: boolean
   warnings: string[]
+  // Recorded terms findings for the site, shown as information; they never block an import.
+  terms_notes?: string[]
   lines: string[]
   display_url: string
 }

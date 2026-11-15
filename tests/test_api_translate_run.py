@@ -222,3 +222,19 @@ def test_estimate_counts_only_the_chosen_lines(local_client):
     whole = local_client.get(f"{BASE}/{did}/estimate", params={"engine": "fake"}).json()
     some = local_client.get(f"{BASE}/{did}/estimate", params={"engine": "fake", "line_ids": ids[:2]}).json()
     assert whole["target_line_count"] == 4 and some["target_line_count"] == 2
+
+
+def test_run_passes_own_lines_only_with_the_chosen_lines(local_client, monkeypatch):
+    # Review's "Re-translate selected" relies on the run keeping an edit made while it works.
+    from services import translate_run_service
+    seen = {}
+    monkeypatch.setattr(translate_run_service, "start_translate_run",
+                        lambda drama_id, **kw: seen.update(kw) or {"job_id": "j", "drama_id": drama_id})
+    did = _seed()
+    ids = [ln["id"] for ln in db.load_lines(did)]
+    local_client.post(f"{BASE}/{did}/run", json={"engine": "fake", "force_retranslate": True,
+                                                  "line_ids": ids[:1], "own_lines_only": True})
+    assert seen["own_lines_only"] is True and seen["line_ids"] == ids[:1]
+    seen.clear()
+    local_client.post(f"{BASE}/{did}/run", json={"engine": "fake"})
+    assert seen["own_lines_only"] is False

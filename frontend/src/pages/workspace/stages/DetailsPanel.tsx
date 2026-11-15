@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { hasStatus } from '../../../api/client'
 import { setDramaSeries, updateDramaMetadata } from '../../../api/library'
@@ -27,7 +27,8 @@ import {
   type DetailsForm,
 } from '../detailsForm'
 import type { MediaTab } from '../mediaTabs'
-import { useStage } from '../StageContext'
+import { ADD_SOURCE_LINK_EVENT, SOURCE_URL_FIELD_ID } from '../AddSourceLink'
+import { useStage, useStageFocus } from '../StageContext'
 import { CreditsCover } from './CreditsCoverPanel'
 import { EpisodeSummaryGenerate } from './EpisodeSummaryGenerate'
 import { FillFromLink } from './FillFromLink'
@@ -61,6 +62,25 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
   const [seriesReloads, setSeriesReloads] = useState(0)
   const [moreSignal, setMoreSignal] = useState(0)
   const [creditsSignal, setCreditsSignal] = useState(0)
+  // "Add a source link" in the title header: by its address when Details was not open, by this event when it already is.
+  const linkedSignal = useStageFocus('sourceLink', SOURCE_URL_FIELD_ID)
+  const [pressedSignal, setPressedSignal] = useState(0)
+  useEffect(() => {
+    const press = () => setPressedSignal((n) => n + 1)
+    window.addEventListener(ADD_SOURCE_LINK_EVENT, press)
+    return () => window.removeEventListener(ADD_SOURCE_LINK_EVENT, press)
+  }, [])
+  const linkSignal = linkedSignal + pressedSignal
+  // The press can come before the tab switch it asks for has rendered, so the request waits for Details to show.
+  const answeredSignal = useRef(0)
+  useEffect(() => {
+    if (linkSignal === answeredSignal.current || tab !== 'details') return
+    answeredSignal.current = linkSignal
+    // Field gives its control the id, so the wrapper carries this one.
+    const input = document.querySelector<HTMLInputElement>(`#${SOURCE_URL_FIELD_ID} input`)
+    input?.focus({ preventScroll: true })
+    input?.scrollIntoView({ block: 'center' })
+  }, [linkSignal, tab])
 
   // Re-seed from the drama when it changes elsewhere (Auto-fill apply, Use
   // this content type, a URL download finishing): only the fields the user
@@ -189,7 +209,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
     <>
       <MediaTabPanel id="details" active={tab}>
         <section className="panel" aria-label="Edit details">
-          <Section storageKey="source.details" defaultOpen openSignal={moreSignal} title="Edit details" summary={`${title} · ${modeLabel(form.media_type)} · ${humanize('language', form.source_language)}`}>
+          <Section storageKey="source.details" defaultOpen openSignal={moreSignal + linkSignal} title="Edit details" summary={`${title} · ${modeLabel(form.media_type)} · ${humanize('language', form.source_language)}`}>
             <form {...formProps}>
               {saveBar('Save details', true)}
               <div className="source-grid">
@@ -245,7 +265,9 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
               <Field label="Summary" error={errors.summary}>
                 <textarea rows={2} value={form.summary} onChange={set('summary')} />
               </Field>
-              {text('source_url', 'The page this title came from. The full link is kept for the PC owner; everyone else sees it without any ?query part, which can hold a download token.', 'url')}
+              <div id={SOURCE_URL_FIELD_ID}>
+                {text('source_url', 'The page this title came from. The full link is kept for the PC owner; everyone else sees it without any ?query part, which can hold a download token.', 'url')}
+              </div>
               <FillFromLink
                 dramaId={dramaId}
                 link={form.source_url}
@@ -276,7 +298,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
                 />
                 <Field
                   label={FIELD_LABELS.episode_brief}
-                  help="Written by one extra request that reads the whole episode before a translate run (Settings > Translation: Read the whole episode before translating), and given to every batch. Edit it freely: an edited brief is used as written, and empty means the next run writes a new one. A wrong brief colours every line."
+                  help="Written by one extra request that reads the whole episode before translating (Settings > Translation: Read the whole episode before translating) and given to every batch. Edit it freely; it is used as written. Empty means the next run writes a new one. A wrong brief colours every line."
                   error={errors.episode_brief}
                 >
                   <textarea rows={4} value={form.episode_brief} onChange={set('episode_brief')} />

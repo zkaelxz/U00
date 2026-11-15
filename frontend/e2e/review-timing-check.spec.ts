@@ -49,7 +49,8 @@ test('the flagged line shows its note and snaps to speech', async ({ page }) => 
   const seen = { snaps: [] as unknown[], runs: 0 }
   await open(page, seen)
   const row = page.locator('.review-line[data-line-id="2"]')
-  await expect(row.getByTestId('line-flag')).toContainText('Starts 2.0 s before speech')
+  await expect(row.getByTestId('line-flag')).toContainText(
+    'Timing doesn’t match the audio: it starts 2.0 s before the speech. Play it and move the start or end.')
   await expect(page.locator('.review-line[data-line-id="1"]').getByRole('button', { name: 'Snap to speech' })).toHaveCount(0)
   await row.getByRole('button', { name: 'Snap to speech' }).click()
   await expect.poll(() => seen.snaps).toEqual([{ line_ids: [2] }])
@@ -59,7 +60,7 @@ test('Check timing starts the job and Snap all flagged sends no line ids', async
   await page.setViewportSize({ width: 1280, height: 900 })
   const seen = { snaps: [] as unknown[], runs: 0 }
   await open(page, seen)
-  await openTab(page, 'Fix')
+  await openTab(page, 'Look for problems')
   const fold = page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: /^Flag lines for review$/ }) })
   if ((await fold.getAttribute('open')) === null) await fold.locator(':scope > summary').click()
   const panel = fold.getByTestId('timing-check')

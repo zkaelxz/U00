@@ -86,9 +86,8 @@ export function TrashPanel({ trash, onChanged, onStale }: Props) {
               onCancel={() => setEmptying(false)}
             >
               <p className="du-warn">
-                Permanently deletes the {trash.item_count} item{trash.item_count === 1 ? '' : 's'} in Trash shown
-                above ({formatDecimalBytes(trash.size_bytes)}) and frees that space. If anything in Trash changed since this
-                list loaded, nothing is deleted. This can&apos;t be undone.
+                Delete the {trash.item_count} item{trash.item_count === 1 ? '' : 's'} above forever? Frees {formatDecimalBytes(trash.size_bytes)}.
+                If Trash changed since this list loaded, nothing is deleted. Can&apos;t be undone.
               </p>
               {keptTitlesLine(trash.items) && <p className="du-warn" data-testid="trash-kept-titles">{keptTitlesLine(trash.items)}</p>}
             </TypedConfirm>
@@ -183,7 +182,7 @@ function TrashRow({ item, blocked, onChanged, onStale }: {
           onCancel={() => setDeleting(false)}
         >
           <p className="du-warn">
-            Permanently deletes {name} ({trashSizeLine(item)}) from this PC. This frees the space and can&apos;t be undone.
+            Delete {name} ({trashSizeLine(item)}) forever? Can&apos;t be undone.
           </p>
           {item.from_kept_title && <p className="du-warn" data-testid="trash-kept-title">{FROM_KEPT_TITLE}</p>}
         </TypedConfirm>

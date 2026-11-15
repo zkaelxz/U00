@@ -182,14 +182,14 @@ describe('describeError shows the real reason', () => {
     const leftBehind =
       "The title was not restored, but some of its files could not be cleaned up and are still in the library's dramas folder."
     expect(describeError(api(500, 'application_error', leftBehind, 'POST'))).toEqual({
-      title: 'The action failed.',
-      detail: leftBehind,
+      title: leftBehind,
+      detail: null,
     })
     expect(describeError(api(500, 'application_error', 'That folder could not be read.', 'GET'))).toEqual({
-      title: 'Could not load this.',
-      detail: 'That folder could not be read.',
+      title: 'That folder could not be read.',
+      detail: null,
     })
-    expect(describeError(api(500, 'application_error', 'RuntimeError: The engine could not be started.', 'POST')).detail).toBe(
+    expect(describeError(api(500, 'application_error', 'RuntimeError: The engine could not be started.', 'POST')).title).toBe(
       'The engine could not be started.',
     )
   })
@@ -246,6 +246,17 @@ describe('error text by who is reading', () => {
     expect(keyWritesRefused()).toBe(ASK_PC_OWNER)
   })
 
+  it('a member whose failed action reason points at Diagnostics gets the generic heading', () => {
+    const err = new ApiError(500, { code: 'application_error', message: 'The model is missing. Install it in Diagnostics.' }, 'POST')
+    resetSessionForTests(me(['admin.diagnostics']))
+    expect(describeError(err)).toEqual({ title: 'The model is missing. Install it in Diagnostics.', detail: null })
+    resetSessionForTests(me([]))
+    expect(describeError(err)).toEqual({
+      title: 'The action failed. Nothing was changed unless stated otherwise.',
+      detail: null,
+    })
+  })
+
   it('away from the PC the unreachable text does not ask whether Baihe is running', () => {
     resetPcModeForTests('remote')
     expect(couldNotReachBaihe()).toMatch(/Check your connection/)
@@ -258,6 +269,14 @@ describe('error text by who is reading', () => {
     expect(describeError(new ApiError(403, {
       code: 'forbidden', message: msg, details: { reason: PAID_LIMIT_REASON },
     }, 'POST')).title).toBe(msg)
+  })
+
+  it('a PIN form shows the server sentence for a wrong PIN instead of the generic refusal', () => {
+    const wrong = new ApiError(403, { code: 'forbidden', message: 'That PIN is not right.' }, 'POST')
+    expect(describeError(wrong, { pinText: true }).title).toBe('That PIN is not right.')
+    expect(describeError(wrong).title).toBe('Not allowed from this device or account.')
+    const bare = new ApiError(403, { code: 'forbidden', message: 'Not allowed.' }, 'POST')
+    expect(describeError(bare, { pinText: true }).title).toBe('Not allowed from this device or account.')
   })
 
   it('a refusal by permission keeps its generic text for everyone', () => {

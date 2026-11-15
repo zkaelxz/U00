@@ -183,6 +183,11 @@ class TestJobResults:
         assert "sk-ABCDEFGHIJKLMNOP12345" not in result["errors"][0]
         assert result["errors"][1] == "line 8: bad json"
 
+    def test_a_narration_error_names_its_line(self):
+        result = jobs_service.project_result({"errors": [
+            {"line_idx": 4, "error": "This speaker has no voice set up."}]})
+        assert result["errors"] == ["line 5: This speaker has no voice set up."]
+
     def test_redaction_survives_getuser_failure(self, monkeypatch):
         import getpass
 

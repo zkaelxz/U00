@@ -30,7 +30,7 @@ test('opens with the header button, and Esc closes it and returns focus to the b
   await expect(searchButton(page)).toBeFocused()
 })
 
-test('Ctrl+K from the bare page then Esc returns focus to the Quick search button, not body', async ({ page }) => {
+test('Ctrl+K from the bare page then Esc returns focus to the search button, not body', async ({ page }) => {
   await page.goto('/#/library')
   await expect(searchButton(page)).toBeVisible()
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
@@ -95,11 +95,11 @@ test('a page hidden through Menu items is not listed, but its address still work
   await expectHiddenItemNotListed(page, viaShortcut(page))
 })
 
-test('typing "srt" finds Make subtitles', async ({ page }) => {
+test('typing "srt" finds Add', async ({ page }) => {
   await page.goto('/#/library')
   await viaShortcut(page)()
   await paletteInput(page).fill('srt')
-  await expect(palette(page).getByRole('option', { name: /^Make subtitles/ })).toBeVisible()
+  await expect(palette(page).getByRole('option', { name: /^Add/ })).toBeVisible()
 })
 
 test('a settings hit opens its card on the right tab, scrolled into view', async ({ page }) => {
@@ -108,7 +108,7 @@ test('a settings hit opens its card on the right tab, scrolled into view', async
   await paletteInput(page).fill('upload size')
   await palette(page).getByRole('option', { name: /^Upload size limit/ }).click()
   await expect(page).toHaveURL(/#\/settings\?card=advanced$/)
-  await expect(page.getByRole('tab', { name: 'Performance and advanced' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: 'Advanced' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('region', { name: 'Offline, paths and limits' })).toBeInViewport()
 })
 

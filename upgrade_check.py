@@ -85,7 +85,10 @@ _NO_END: dict[str, Any] = {}
 
 
 def _stream_process(cmd: list, timeout: float, cwd: str | None = None, env: dict | None = None, cancel=None):
-    return proc_run.stream_tree(cmd, timeout, cwd=cwd, env=env, cancel=cancel,
+    # The candidate release and the test suite run third-party code: keep API
+    # keys set as real environment variables out of them.
+    return proc_run.stream_tree(cmd, timeout, cwd=cwd, env=proc_run.secretless_env(drop_prefixes=()) if env is None else env,
+                                cancel=cancel,
                                 warn=job_process_kill._warn_via_jobs)
 
 
@@ -134,7 +137,7 @@ def _dist_version_in(venv_py: str, pip_name: str, cancel=None):
         out = proc_run.run_captured(
             [venv_py, "-c", "import importlib.metadata, sys; "
                             "print(importlib.metadata.version(sys.argv[1]))", pip_name],
-            60, cancel=cancel)
+            60, cancel=cancel, env=proc_run.secretless_env(drop_prefixes=()))
     except OSError:
         return None
     return out.stdout.strip() if out.returncode == 0 else None
@@ -169,8 +172,8 @@ def _ensure_pytest(venv_py: str, python_executable: str, timeout: float, cancel=
 
 def _can_import(venv_py: str, module: str, cancel=None) -> bool:
     try:
-        return proc_run.run_captured([venv_py, "-c", f"import {module}"], 60,
-                                            cancel=cancel).returncode == 0
+        return proc_run.run_captured([venv_py, "-c", f"import {module}"], 60, cancel=cancel,
+                                     env=proc_run.secretless_env(drop_prefixes=())).returncode == 0
     except OSError:
         return False
 
@@ -265,7 +268,7 @@ def _check_in_work(work, pip_name, version, project_root, test_args, python_exec
     # deleted while sqlite still holds them. A private TMP inside `work` goes away with it.
     scratch = os.path.join(work, "tmp")
     os.makedirs(scratch, exist_ok=True)
-    test_env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1",
+    test_env = dict(proc_run.secretless_env(drop_prefixes=()), PYTHONIOENCODING="utf-8", PYTHONUTF8="1",
                     TMP=scratch, TEMP=scratch, TMPDIR=scratch)
     result = {"done": True, "ok": False, "verdict": "incomplete", "reason": "",
               "version": version, "new_failures": [], "preexisting_failures": [],

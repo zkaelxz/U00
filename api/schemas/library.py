@@ -17,6 +17,8 @@ __all__ = [
     "TempCleanResult",
     "DramaSummary",
     "DramaDetail",
+    "CaptureNote",
+    "CaptureNoteList",
     "DramaSeriesUpdate",
     "DramaListResponse",
     "ExportReadiness",
@@ -77,6 +79,7 @@ __all__ = [
     "LibraryArtifactKind",
     "LibraryBulkStatusRequest",
     "LibraryBulkTagRequest",
+    "LibraryBulkSeriesRequest",
     "LibraryBulkDeleteRequest",
     "LibraryBulkTranslateRequest",
     "LibraryExportRequest",
@@ -145,6 +148,15 @@ class DramaSummary(BaseModel):
     page_count: int = Field(default=0, description="Pages a comic has. Only counted in the Library list.")
     pages_translated: int = Field(default=0, description="Comic pages with translated text. Only counted in the Library list.")
     new_chapters: int = Field(default=0, description="New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.")
+
+
+class CaptureNote(BaseModel):
+    summary: str
+    created_at: str
+
+
+class CaptureNoteList(BaseModel):
+    items: List[CaptureNote] = Field(description="Newest first, at most 5.")
 
 
 class DramaDetail(DramaSummary):
@@ -691,6 +703,21 @@ class LibraryBulkTagRequest(BaseModel):
     present: StrictBool
 
 
+class LibraryBulkSeriesRequest(BaseModel):
+    """Puts every picked title in one series: `series_id` (0 takes them out)
+    or `new_series_name`, exactly one."""
+    model_config = ConfigDict(extra="forbid")
+    drama_ids: LibraryDramaIds
+    series_id: Optional[StrictInt] = Field(default=None, ge=0, le=2**31 - 1)
+    new_series_name: Optional[str] = Field(default=None, max_length=300)
+
+    @model_validator(mode="after")
+    def _exactly_one(self):
+        if (self.series_id is None) == (self.new_series_name is None):
+            raise ValueError("Pass series_id or new_series_name.")
+        return self
+
+
 class LibraryBulkDeleteRequest(BaseModel):
     """Needs confirm=true and confirm_text "DELETE"."""
     model_config = ConfigDict(extra="forbid")
@@ -741,7 +768,7 @@ class LibraryStorageCleanRequest(BaseModel):
 
 class LibraryBulkItem(BaseModel):
     """One requested drama's outcome. error: not_found, job_running,
-    delete_failed, not_translated or no_translated_lines."""
+    delete_failed, not_translated, no_translated_lines, not_allowed, conflict or failed."""
     drama_id: int
     ok: bool
     error: Optional[str] = None
@@ -911,6 +938,9 @@ class RomanizeCreditsResult(BaseModel):
 
 class DramaFolderOpened(BaseModel):
     opened: bool
+    # Set only when opened is false because the server has no desktop: the PC owner's own
+    # folder to open by hand. The route is local_only, so the path never leaves the PC.
+    folder: Optional[str] = None
 
 
 class DramaSourceLink(BaseModel):

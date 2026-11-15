@@ -12,7 +12,7 @@ const BASE = {
   custom_source: false,
   app_update: 'none', app_update_here: true, app_size: null, app_download: 'idle', app_downloaded_bytes: 0,
   app_download_error: null, app_verified: false, app_verified_version: null, can_apply_app: false,
-  app_last_result: null, app_last_result_at: null,
+  app_last_result: null, app_last_result_at: null, app_rollback_library_changed: false, app_rollback_library_unknown: false, app_rollback_backup_at: null,
 }
 const AVAILABLE = {
   ...BASE, latest: '0.2.0', update_available: true, installer_name: 'BaiheStudio-Setup-0.2.0.exe',
@@ -61,7 +61,7 @@ async function mockUpdates(page: Page, initial: Record<string, unknown> = {}, ap
 test('check, download and verify, then open Setup behind a confirm', async ({ page }) => {
   const calls = await mockUpdates(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Updates')
   const c = card(page)
   await expect(c.locator('.card-meta')).toHaveText('Version 0.1.0')
   await expect(c.getByTestId('update-check-line')).toHaveText('Not checked yet.')
@@ -94,7 +94,7 @@ test('check, download and verify, then open Setup behind a confirm', async ({ pa
 test('a release that only changes the app updates it on its own, behind a confirm', async ({ page }) => {
   const calls = await mockUpdates(page, {}, { app_update: 'available', app_size: 41_000_000 })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Updates')
   const c = card(page)
   await c.getByRole('button', { name: 'Check for updates' }).click()
   await expect(c.getByTestId('update-app-line')).toHaveText(
@@ -118,7 +118,7 @@ test('a release that only changes the app updates it on its own, behind a confir
 test('under the background service the app-only path says to use the full installer', async ({ page }) => {
   await mockUpdates(page, {}, { app_update: 'available', app_update_here: false })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Updates')
   const c = card(page)
   await c.getByRole('button', { name: 'Check for updates' }).click()
   await expect(c.getByTestId('update-app-line')).toHaveText(
@@ -132,16 +132,32 @@ test('under the background service the app-only path says to use the full instal
 test('the last app-only update says how it went', async ({ page }) => {
   await mockUpdates(page, { app_last_result: 'Version 0.2.0 didn’t start, so Baihe Studio went back to 0.1.0.' })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Updates')
   await expect(card(page).getByTestId('update-app-result')).toHaveText(
     'Version 0.2.0 didn’t start, so Baihe Studio went back to 0.1.0.',
   )
+  await expect(card(page).getByTestId('update-app-rollback-backup')).toHaveCount(0)
+})
+
+test('a rollback after the newer version changed the library points at the backup', async ({ page }) => {
+  await mockUpdates(page, {
+    app_last_result:
+      'Version 0.2.0 didn’t start, so Baihe Studio went back to 0.1.0. Version 0.2.0 had already changed the library’s tables before it stopped.',
+    app_rollback_library_changed: true,
+    app_rollback_backup_at: '2026-11-12T10:00:00Z',
+  })
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Updates')
+  const line = card(page).getByTestId('update-app-rollback-backup')
+  await expect(line).toContainText('The newest backup from before the update was taken')
+  const link = line.getByRole('link', { name: 'Open Backup' })
+  await expect(link).toHaveAttribute('href', '#/library-tools?tab=backup')
 })
 
 test('a copy with a release key says when the signature was verified', async ({ page }) => {
   await mockUpdates(page, { signature_check: true })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Updates')
   const c = card(page)
   const line = c.getByTestId('update-signature-line')
   await expect(line).toHaveText('Updates must carry a valid release signature.')
@@ -156,7 +172,7 @@ test('a copy with a release key says when the signature was verified', async ({ 
 test('the daily check is a switch, off by default', async ({ page }) => {
   const calls = await mockUpdates(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Updates')
   const toggle = card(page).getByRole('switch', { name: 'Check once a day' })
   await toggle.click()
   await expect(toggle).toBeChecked()
@@ -167,7 +183,7 @@ test('the daily check is a switch, off by default', async ({ page }) => {
 test('the pre-release switch is on the card without Developer Mode', async ({ page }) => {
   const calls = await mockUpdates(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Updates')
   const toggle = card(page).getByRole('switch', { name: 'Include pre-releases' })
   await toggle.click()
   await expect(toggle).toBeChecked()
@@ -177,19 +193,48 @@ test('the pre-release switch is on the card without Developer Mode', async ({ pa
 test('a custom update source is named on the card', async ({ page }) => {
   await mockUpdates(page, { custom_source: true })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Updates')
   await expect(card(page).getByTestId('update-custom-source')).toHaveText(
     'Custom update source: this PC checks a different repository.',
   )
 })
 
-test('away from the PC the card is left out and asks nothing', async ({ page }) => {
+test('away from the PC the App updates part is left out and asks nothing', async ({ page }) => {
   const calls = await mockUpdates(page)
   await page.route((u) => u.pathname === '/api/meta', (route) =>
     json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false }),
   )
   await page.goto('/#/settings')
-  await expect(page.getByRole('tab', { name: 'Notifications and backups' })).toHaveCount(0)
+  // The Updates card itself stays for someone who may update Baihe from away; only its PC-only parts go.
+  await openSettingsGroups(page, 'Updates')
+  await expect(page.getByRole('region', { name: 'Updates', exact: true })).toBeVisible()
   await expect(card(page)).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Phone app', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Packages', exact: true })).toHaveCount(0)
   expect(calls).toEqual([])
+})
+
+test('one Updates card lists the app, the phone app, packages and the extension', async ({ page }) => {
+  await mockUpdates(page)
+  await page.route((u) => u.pathname === '/api/diagnostics/install-presets', (route) =>
+    json(route, { tasks: [], packages: {}, outdated: ['torch', 'numpy'] }))
+  let fetched = 0
+  await page.route((u) => u.pathname === '/api/system/android-app/fetch', (route) => {
+    fetched += 1
+    return json(route, { changed: true, version_code: 42 })
+  })
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Updates')
+  const updates = page.getByRole('region', { name: 'Updates', exact: true })
+  await expect(card(page)).toBeVisible()
+
+  await updates.getByRole('region', { name: 'Phone app', exact: true }).getByRole('button', { name: 'Get the newest phone app' }).click()
+  await expect(updates.getByTestId('update-phone-line')).toHaveText('Phone app build 42 is ready for your phone.')
+  expect(fetched).toBe(1)
+
+  const packages = updates.getByRole('region', { name: 'Packages', exact: true })
+  await expect(packages.getByTestId('update-packages-line')).toContainText('2 packages have updates.')
+  await expect(updates.getByRole('region', { name: 'Updates for the extension' })).toContainText('never updates an extension loaded from a folder')
+  await packages.getByRole('link', { name: 'Open Diagnostics > Packages' }).click()
+  await expect(page).toHaveURL(/#\/diagnostics\?card=packages$/)
 })

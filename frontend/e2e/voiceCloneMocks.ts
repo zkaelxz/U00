@@ -26,7 +26,7 @@ interface Mocks {
   state: { entries: ReturnType<typeof character>[]; jobDone: boolean; extracted: boolean; started: boolean }
 }
 
-export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}): Promise<Mocks> {
+export async function mockVoiceClone(page: Page, opts: { remote?: boolean; noAudio?: boolean } = {}): Promise<Mocks> {
   const m: Mocks = {
     posts: [],
     state: {
@@ -56,7 +56,7 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
   await page.route('**/api/library/dramas/1', (route) =>
     untilTestEnds(async () => {
       const resp = await route.fetch()
-      await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7 } })
+      await route.fulfill({ response: resp, json: { ...(await resp.json()), series_id: 7, has_audio: !opts.noAudio } })
     }),
   )
   await page.route('**/api/characters/dramas/1', (route) => json(route, m.state.entries))
@@ -115,8 +115,9 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
   })
   await page.route('**/api/characters/dramas/1/character', (route) => {
     record(route)
-    const body = route.request().postDataJSON() as { speaker_label: string; voice_actor?: string }
-    return json(route, update(body.speaker_label, { voice_actor: body.voice_actor ?? '' }))
+    const body = route.request().postDataJSON() as { speaker_label: string; voice_actor?: string; voice_design?: string }
+    const patch = body.voice_design !== undefined ? { voice_design: body.voice_design } : { voice_actor: body.voice_actor ?? '' }
+    return json(route, update(body.speaker_label, patch))
   })
   await page.route('**/api/characters/dramas/1/series-link', (route) => {
     record(route)
@@ -137,7 +138,7 @@ export async function mockVoiceClone(page: Page, opts: { remote?: boolean } = {}
 }
 
 export async function openVoices(page: Page) {
-  await page.goto('/#/drama/1/review?tools=voices')
+  await page.goto('/#/drama/1/review?tools=change')
   const summary = page.locator('summary', { hasText: 'Voices and cloning' }).first()
   // The section starts open; click only a closed one.
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()

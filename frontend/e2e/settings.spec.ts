@@ -3,7 +3,7 @@ import { openSettingsGroups } from './settingsNav'
 
 test('settings toggles round-trip and keys are yes/no only', async ({ page }) => {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Connections')
   const box = page.getByRole('switch', { name: /Notify when a job finishes/ })
   await expect(box).toBeVisible()
   const before = await box.isChecked()
@@ -14,7 +14,7 @@ test('settings toggles round-trip and keys are yes/no only', async ({ page }) =>
   await Promise.all([saved(), box.click()])
   await expect(box).toBeChecked({ checked: !before })
   await page.reload()
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Connections')
   await expect(box).toBeChecked({ checked: !before })
 
   await Promise.all([saved(), box.click()]) // restore
@@ -34,7 +34,7 @@ test('a failed update rolls the toggle back and shows an error', async ({ page }
       : route.continue(),
   )
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Performance and advanced')
+  await openSettingsGroups(page, 'Transcription and jobs')
   const box = page.getByRole('switch', { name: /Use the GPU/ })
   const before = await box.isChecked()
   await box.click()
@@ -45,7 +45,7 @@ test('a failed update rolls the toggle back and shows an error', async ({ page }
 test('Engines and keys: one list with key status on every row, Set key opens that form in place, and the page fits a phone', async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 800 })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Engines and keys')
   const card = page.getByRole('region', { name: 'Which engine does what' })
   await expect(card.locator('.card-meta')).toHaveText(/^\d+ of \d+ keys set/)
   const list = card.getByRole('list', { name: 'Engines' })
@@ -75,7 +75,7 @@ test('away from the PC the engine rows show key status only, with no Set buttons
     return route.fulfill({ response: resp, json: { ...(await resp.json()), local: false } })
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Engines and keys')
   const card = page.getByRole('region', { name: 'Which engine does what' })
   await expect(card.getByText('Choosing engines, testing and setting keys is PC only.')).toBeVisible()
   await expect(card.locator('[data-testid^="key-"]').first()).toHaveText(/^(Set|Missing)$/)
@@ -85,14 +85,14 @@ test('away from the PC the engine rows show key status only, with no Set buttons
 
 test('settings booleans are keyboard-operable switches', async ({ page }) => {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Performance and advanced')
-  const system = page.locator('#settings-panel-system')
+  await openSettingsGroups(page, 'Transcription and jobs')
+  const system = page.locator('#settings-panel-transcription')
   for (const name of [/Limit GPU jobs/, /Use the GPU/, /Free local-model memory/, /Resume translation batches on start/])
     await expect(system.getByRole('switch', { name })).toBeVisible()
   await expect(page.getByRole('checkbox')).toHaveCount(0)
-  await openSettingsGroups(page, 'Integrations')
+  await openSettingsGroups(page, 'Connections')
   await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible()
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Engines and keys')
   // Keys live in the one engine list, with the .env explanation.
   await expect(page.getByRole('region', { name: 'Which engine does what' }).getByText('Saved on the Baihe PC and never shown again.')).toBeVisible()
   const sw = page.getByRole('switch', { name: /Gemini free tier/ })
@@ -116,8 +116,8 @@ test('settings booleans are keyboard-operable switches', async ({ page }) => {
 test('a collapsible section shows a summary and starts closed on every visit', async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 800 })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Performance and advanced')
-  const details = () => page.locator('details.section:has(> summary > .section-title:text-is("Server addresses"))')
+  await openSettingsGroups(page, 'Advanced')
+  const details = () => page.locator('details.section:has(> summary > .section-title:text-is("Program locations"))')
   await expect(details().locator('.section-summary')).toHaveText(/\d+ of \d+ set/)
   await expect(details()).not.toHaveAttribute('open', '')
 
@@ -128,7 +128,7 @@ test('a collapsible section shows a summary and starts closed on every visit', a
 
   await page.reload()
   await expect(page.locator('.section-body details.section[open]')).toHaveCount(0)
-  await openSettingsGroups(page, 'Performance and advanced')
+  await openSettingsGroups(page, 'Advanced')
   await expect(details()).not.toHaveAttribute('open', '')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
@@ -137,7 +137,7 @@ test('no two cards across the settings tabs share a title', async ({ page }) => 
   await page.goto('/#/settings')
   const titles: string[] = []
   for (const tab of [
-    'Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'Performance and advanced',
+    'Engines and keys', 'Costs', 'Transcription and jobs', 'Connections', 'Updates', 'My account and look', 'Advanced',
   ] as const) {
     await openSettingsGroups(page, tab)
     titles.push(...(await page.locator('.settings-panel:not([hidden]) .card-fold > details > summary > .section-title').allTextContents()))
@@ -161,7 +161,7 @@ test('an engine key saves with one click, then Test key appears and the key is n
     return r.continue()
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Engines and keys')
   const card = page.getByRole('region', { name: 'Which engine does what' })
   await card.getByRole('button', { name: /^(Set key for Claude|Replace Claude key)$/ }).click()
   await expect(card.getByRole('button', { name: 'Test key' })).toHaveCount(0)
@@ -188,5 +188,5 @@ test('a failed settings load shows Retry, and Retry brings the other tabs back',
   fail = false
   await banner.getByRole('button', { name: 'Retry' }).click()
   await expect(banner).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: /Translation/ })).toBeVisible()
+  await expect(page.getByRole('tab', { name: /Engines/ })).toBeVisible()
 })
