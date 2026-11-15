@@ -114,7 +114,7 @@ export function StyleField({ config, style, onStyleChange, onTierApplied, onPres
   }
   return (
     <>
-      <Field label="Style" help={`Style preset: what the translator is asked to sound like. The tiers and your saved presets in the same list fill in engine, model and the other settings together and stay editable. Starting tiers: Draft is DeepSeek; Standard is Claude Sonnet; Release is Claude Opus with Reflect and Auto QC. My presets are the ones saved in the Library. ${NOTHING_STARTS_HELP}`}>
+      <Field label="Style" help={`What the translator should sound like. Each choice fills in engine, model and other settings together, and you can still edit them. Draft is DeepSeek; Standard is Claude Sonnet; Release is Claude Opus with Reflect and Auto QC. My presets are saved in the Library. ${NOTHING_STARTS_HELP}`}>
         <select
           value={style}
           disabled={pending}
