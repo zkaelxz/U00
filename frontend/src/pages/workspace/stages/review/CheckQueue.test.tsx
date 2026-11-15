@@ -53,7 +53,7 @@ describe('the check queue footer', () => {
 
   it('puts the untranslated lines on their own line under it, as a link', () => {
     const html = footer(clean, { c: { ...counts, untranslated: 2 } })
-    expect(html).toContain('<p class="check-queue-untranslated">2 lines have no English yet. <button type="button" class="check-queue-link">Show the untranslated lines</button></p>')
+    expect(html).toContain('<p class="check-queue-untranslated">2 lines have no English yet. <button type="button" class="check-queue-link">Show untranslated</button></p>')
   })
 })
 

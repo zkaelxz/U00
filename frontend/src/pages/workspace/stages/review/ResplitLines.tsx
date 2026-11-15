@@ -322,11 +322,11 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
             {busy || running ? 'Splitting…' : 'Re-split long lines'}
           </button>
           <button type="button" disabled={blocked} onClick={reassign}>
-            Re-assign speakers from saved detection
+            Reassign speakers
           </button>
           <button type="button" disabled={blocked} onClick={talkOver}
-            title="Where the saved detection heard a second speaker over another's line, starts that speaker's late line where their voice begins, or adds a blank flagged line for them.">
-            Add lines for talk-over
+            title="Gives a talk-over speaker their own line where their voice starts">
+            Add talk-over lines
           </button>
         </div>
         {speakers && (
