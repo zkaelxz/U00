@@ -109,10 +109,14 @@ def _save_version_logged(drama_id: int, lines, label: str, engine_choice: str, e
     _log_finish_step(drama_id, "translation version", started, len(lines))
 
 
-def _store_episode_summary(drama_id: int, summary_engine, summary_engine_choice) -> None:
+def _store_episode_summary(drama_id: int, summary_engine, summary_engine_choice, stage_cb=None) -> None:
     engine_name = summary_engine_choice or getattr(summary_engine, "name", "")
     model = getattr(summary_engine, "model", "")
     fresh = db.load_line_objects(drama_id)
+    # Its own timing stage: a local summary model has to load after a cloud run, which
+    # the single Finish stage hid.
+    if stage_cb is not None:
+        stage_cb("Episode summary")
     started = time.monotonic()
     summary = llm_tasks.generate_episode_summary(
         fresh, summary_engine,
@@ -184,7 +188,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                            line_scoped: bool = False,
                            summary_monthly_cap_usd: float | None = None,
                            flags_needing_recheck: set | None = None, *, enforce_ids, embed_texts=None,
-                           sentence_parts=()) -> bool:
+                           sentence_parts=(), stage_cb=None) -> bool:
     """What happens after translate_pipeline.translate_lines_with_engine
     returns, shared by the translate jobs so they can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves
@@ -310,5 +314,5 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         if refusal:
             summary_engine = None
     if fields.get("status") == "translated" and not cancelled and summary_engine is not None:
-        _store_episode_summary(drama_id, summary_engine, summary_engine_choice)
+        _store_episode_summary(drama_id, summary_engine, summary_engine_choice, stage_cb)
     return True
