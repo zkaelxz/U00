@@ -337,7 +337,7 @@ class SettingsOverview(BaseModel):
     gemini_free_tier: bool = False
     bulk_auto_resume: bool = False
     offer_provider_models: bool = False
-    # Developer Mode is on and the switch hasn't lapsed (settings_service.remote_uploads_on).
+    # On and not lapsed (settings_service.remote_uploads_on).
     remote_uploads: bool = False
     preferences: SettingsPreferences
     endpoints: Dict[str, Optional[str]]

@@ -207,7 +207,7 @@ export const ELSEWHERE_INDEX: ElsewhereEntry[] = [
   people('Sign-in accounts', 'people users members accounts household invite password role permissions admin sign in login'),
   people('Activity log', 'audit log who did what history'),
   people('Public address check', 'remote access address tunnel cdn url away outside home internet'),
-  people('Uploads from away', 'allow uploads from away remote upload admin developer mode 7 days', true),
+  people('Uploads from away', 'allow uploads from away remote upload admin 7 days', true),
   people('PC profiles', 'guest owner pin hide private titles brothers lock', true),
 ]
 

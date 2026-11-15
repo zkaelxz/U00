@@ -11,6 +11,7 @@ documented priority order and BOM-safe parsing.
 """
 
 import sqlite3
+import time
 
 import pytest
 
@@ -136,23 +137,23 @@ def test_overview_reports_which_ocr_backends_can_run_and_why_not(isolated_db, mo
     assert "auto" not in status
 
 
-def test_remote_uploads_switch_needs_developer_mode_and_lapses(isolated_db):
+def test_remote_uploads_switch_lapses_and_does_not_need_developer_mode(isolated_db):
     import db
-    from lib.errors import InvalidInputError as Refused
     assert settings_service.remote_uploads_on() is False
-    with pytest.raises(Refused):
-        settings_service.set_settings({"remote_uploads": True})
-    db.set_app_setting("assistant.developer_mode", True)
+    assert not settings_service.get("developer_mode")
     overview = settings_service.set_settings({"remote_uploads": True})
     assert overview["remote_uploads"] is True
-    on_at = db.get_app_setting("remote_uploads.on_at")
+    on_at = db.get_app_setting("remote_uploads.since")
     days = settings_service.REMOTE_UPLOADS_DAYS * 86400
     assert settings_service.remote_uploads_on(on_at + days - 1) is True
     assert settings_service.remote_uploads_on(on_at + days) is False
     assert settings_service.remote_uploads_on(on_at - 1) is False
-    db.set_app_setting("assistant.developer_mode", False)
-    assert settings_service.remote_uploads_on(on_at) is False
-    assert settings_service.get_settings_overview()["remote_uploads"] is False
-    db.set_app_setting("assistant.developer_mode", True)
     settings_service.set_settings({"remote_uploads": False})
     assert settings_service.remote_uploads_on(on_at) is False
+
+
+def test_a_remote_uploads_stamp_from_the_developer_mode_days_does_not_count(isolated_db):
+    import db
+    db.set_app_setting("remote_uploads", True)
+    db.set_app_setting("remote_uploads.on_at", time.time())
+    assert settings_service.remote_uploads_on() is False

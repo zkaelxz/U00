@@ -550,7 +550,7 @@ class TestWholeLibraryRestore:
         db.create_drama(title_en="A")
         theirs = {"jellyfin": {"url": "http://evil.example"}, "pref.tesseract_cmd": "C:/evil.exe",
                   "pref.lncrawl_cmd": "C:/evil2.exe", "remote_uploads": True,
-                  "remote_uploads.on_at": time.time(),
+                  "remote_uploads.since": time.time(),
                   "comic_save": {"folder": "\\\\evil\\share"}, "web_search": {"base_url": "http://evil"},
                   "pref.whisper_model_path": "\\\\evil\\m", "pref.cookies_file": "\\\\evil\\c",
                   "pref.max_upload_mb": 99999,
@@ -559,7 +559,7 @@ class TestWholeLibraryRestore:
             db.set_app_setting(key, value)
         backup = _library_zip(tmp_path)
         mine = {"jellyfin": {"url": "http://nas.local"}, "pref.tesseract_cmd": "C:/ok.exe",
-                "pref.lncrawl_cmd": None, "remote_uploads": False, "remote_uploads.on_at": None,
+                "pref.lncrawl_cmd": None, "remote_uploads": False, "remote_uploads.since": None,
                 "comic_save": {"folder": "C:/comics"}, "web_search": {"base_url": "http://ok"},
                 "pref.whisper_model_path": "", "pref.cookies_file": "", "pref.max_upload_mb": 500,
                 "pref.cookies_browser": "none"}
