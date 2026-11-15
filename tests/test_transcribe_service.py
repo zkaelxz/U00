@@ -2730,3 +2730,37 @@ def test_a_threshold_changed_in_settings_wins_over_the_sensitive_preset():
     from services.transcribe_pipeline import _tuning_for_preset
     tuning = asr_backend.DEFAULT_TUNING._replace(vad_threshold=0.6)
     assert _tuning_for_preset(tuning, "qwen3_asr_vad", "sensitive").vad_threshold == 0.6
+
+
+def _bound_worker_args(args):
+    import inspect
+    return inspect.signature(transcribe_pipeline._transcribe_worker).bind(*args, None).arguments
+
+
+def test_worker_args_for_settings_use_the_settings_without_reading_the_library(isolated_db):
+    # isolated_db has no titles at all, so a lookup of the title would raise NotFoundError.
+    settings = {"source_language": "zh", "transcript_mode": "whisper", "min_silence_ms": 300, "beam_size": 7,
+                "sensitivity_preset": "sensitive", "separate_vocals_first": 1, "split_by_sentences": 1}
+    args = transcribe_service.worker_args_for_settings(settings, "a.wav", "scratch", False, "名字。")
+    bound = _bound_worker_args(args)
+    assert (bound["audio_path"], bound["transcript_mode"], bound["scratch_dir"]) == ("a.wav", "whisper", "scratch")
+    assert (bound["min_silence_ms"], bound["beam_size"], bound["sensitivity_preset"]) == (300, 7, "sensitive")
+    assert bound["separate_vocals_first"] is True and bound["split_by_sentences"] is True
+    assert bound["initial_prompt"] == "名字。" and bound["use_gpu"] is False and bound["checkpoint"] is None
+
+
+def test_worker_args_for_settings_prompt_falls_back_like_a_run(isolated_db):
+    plain = {"source_language": "zh", "transcript_mode": "whisper"}
+    assert _bound_worker_args(transcribe_service.worker_args_for_settings(
+        plain, "a.wav", "s", False))["initial_prompt"] == ""
+    assert _bound_worker_args(transcribe_service.worker_args_for_settings(
+        {**plain, "difficult_audio": 1}, "a.wav", "s", False))["initial_prompt"] == "以下是普通話的句子。"
+
+
+def test_worker_args_for_settings_refuses_a_supplied_transcript_or_groq(isolated_db):
+    with pytest.raises(InvalidInputError):
+        transcribe_service.worker_args_for_settings(
+            {"source_language": "zh", "transcript_mode": "hardsub_ocr"}, "a.wav", "s", False)
+    with pytest.raises((InvalidInputError, DependencyUnavailableError)):
+        transcribe_service.worker_args_for_settings(
+            {"source_language": "zh", "transcript_mode": "whisper", "use_groq": 1}, "a.wav", "s", False)
