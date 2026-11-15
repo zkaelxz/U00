@@ -235,7 +235,7 @@ describe('switching the view under an unsaved draft', () => {
     const setFilter = vi.fn()
     const nav = buildLinesNavigation({
       dramaId: 7, ctl: { leaveEdit } as never, st: { current: {} as LinesState },
-      pending: { current: null }, listRef: { current: null }, searching: false, filter: 'risk', page: 1, place: { pageFor: () => 1 },
+      pending: { current: null }, listRef: { current: null }, searching: false, filter: 'risk', page: 1, place: { pageFor: () => 1, abandon: () => {} },
       setFilter, setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
     })
     return { nav, setFilter }
