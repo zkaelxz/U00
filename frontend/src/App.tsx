@@ -16,6 +16,7 @@ import { useDeveloperMode } from './pages/assistant/developerMode'
 import { HelpTip } from './components/HelpTip'
 import { JobsMenu } from './components/JobsMenu'
 import { NotificationBell } from './components/NotificationBell'
+import { BackupHealthBanner } from './components/BackupHealthBanner'
 import { PaidLimitBanner } from './components/PaidLimitBanner'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
 import { ThemeMenu } from './components/ThemeMenu'
@@ -387,6 +388,7 @@ export default function App() {
   const content = (
     <>
       <RemoteHealthBanner />
+      <BackupHealthBanner />
       <PaidLimitBanner />
       <RouteErrorBoundary>
         <Suspense fallback={null}>

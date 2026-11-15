@@ -2,7 +2,7 @@ import { deflateSync } from 'node:zlib'
 
 import type { Page, Route } from '@playwright/test'
 
-import { ME, REMOTE_HEALTH_OFF } from './authMocks'
+import { BACKUP_SETTINGS_QUIET, ME, REMOTE_HEALTH_OFF } from './authMocks'
 import { json } from './mockHelpers'
 
 // Shared page.route mocks for the comic viewer specs (routes under
@@ -210,6 +210,7 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
   await page.route(/\/api\/auth\/me$/, (route) => json(route, ME.authOff))
   // The app shell's remote-access banner (PC only): remote access off.
   await page.route(/\/api\/diagnostics\/remote-health$/, (route) => json(route, REMOTE_HEALTH_OFF))
+  await page.route(/\/api\/backups\/settings$/, (route) => json(route, BACKUP_SETTINGS_QUIET))
   // The header asks whether to show the Assistant link (Developer Mode off).
   await page.route(/\/api\/assistant\/settings$/, (route) => json(route, { developer_mode: false, engine: null, model: null, engine_choices: [] }))
 
