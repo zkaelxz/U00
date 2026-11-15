@@ -765,6 +765,9 @@ button.review-speaker:hover, button.review-speaker[aria-expanded='true'] { backg
 .review-speaker-new input { min-width: 0; flex: 1 1 auto; }
 @media (max-width: 640px) {
   button.review-speaker, .review-speaker-list .btn, .review-speaker-new .btn { min-height: var(--touch); }
+  /* The name can sit anywhere along the row, so the list takes the screen's width, just above the line bar, instead of
+     hanging off the name and running past the edge. */
+  .review-speaker-list { position: fixed; top: auto; left: var(--space-3); right: var(--space-3); bottom: calc(var(--editbar-h, 56px) + var(--space-2)); max-width: none; max-height: 50vh; overflow-y: auto; }
 }
 .review-set-speaker-head { margin: 0 0 var(--space-2); font-weight: 600; }
 .review-set-speaker-names, .review-set-speaker-new { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
