@@ -91,7 +91,7 @@ function Controls() {
           <>
             <Field
               label="Qwen3-ASR batch size"
-              help="Lines sent to Qwen3-ASR at once (Qwen3 ASR backend). 1 sends one at a time (the tested way). Higher can be faster on a GPU but is not checked against real audio, so compare the text before relying on it."
+              help="Lines sent to Qwen3-ASR at once (Qwen3 ASR backend). 1 is the tested way. Higher can be faster on a GPU but is untested on real audio, so compare the text."
               error={batchError}
             >
               <input
@@ -122,7 +122,7 @@ function Controls() {
         <div className="setting-list">
           <Field
             label="Refine line timing with the forced aligner"
-            help="For the Qwen3 ASR with speech detection backend: after transcribing, Qwen3-ForcedAligner tightens each line's start and end inside its speech span. Slower. Lines whose timing had to be estimated are flagged. Off uses the speech spans as they are."
+            help="Qwen3 ASR with speech detection backend only. Tightens each line's start and end inside its speech span. Slower; lines with estimated timing are flagged. Off keeps the speech spans as they are."
           >
             <Toggle
               checked={opts.qwen_vad_refine_timing}
@@ -134,7 +134,7 @@ function Controls() {
           {qwen3 && <NeedsInstall need={qwen3} />}
           <Field
             label="Mixed languages"
-            help="For a video where people speak more than one language (say Korean, Chinese and Japanese). Detects the language of each stretch of speech and marks lines that differ from the title's language in Review. Works with the Whisper and Qwen3 ASR with speech detection backends; the latter has Qwen3-ASR detect the language itself (Chinese, Japanese, Korean or English) and skips timing refinement. Slower: one detection per stretch. Off transcribes everything in the title's language."
+            help="For videos with more than one spoken language. Detects each stretch's language and marks lines that differ from the title's language in Review. Works with the Whisper and Qwen3 ASR with speech detection backends; the latter skips timing refinement. Slower. Off transcribes everything in the title's language."
           >
             <Toggle
               checked={opts.mixed_languages}

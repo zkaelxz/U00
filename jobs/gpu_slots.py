@@ -186,15 +186,19 @@ def acquire(holder: str, description: str | None = None, *, job_id: str | None =
     """Claims a cross-process GPU slot for `holder`; True if taken. Shared by
     UI jobs and every other process so all follow the same cap.
 
-    The first holder needs only a free slot (and, with check_external_load,
-    no other application loading the GPU). Joining running holders needs
+    With check_external_load, nothing starts while the GPU guard holds jobs
+    (low memory or a hot card, jobs/gpu_guard.py). The first holder needs
+    only a free slot (and, with check_external_load, no other application
+    loading the GPU). Joining running holders needs
     gpu_max_parallel > 1, fewer holders than that, enough free VRAM and the
     settle time (see GPU_PARALLEL_SETTLE_SECONDS). The utilization check is
     skipped when joining: Baihe's own running job is what loads the GPU
     then, and free VRAM already counts every application's use.
 
     May raise from the database; callers decide whether that queues/waits."""
-    from jobs import job_settings, job_table
+    from jobs import gpu_guard, job_settings, job_table
+    if check_external_load and gpu_guard.hold_reason():
+        return False
     cap = job_settings.get_gpu_max_parallel()
     if cap > 1:
         others = holder_count(exclude_holder=holder)

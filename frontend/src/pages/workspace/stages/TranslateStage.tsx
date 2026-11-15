@@ -668,13 +668,13 @@ function RunPanel({
             )}
             <Field
               label="Include baihe/GL genre guidance"
-              help={`Adds the baihe notes to the prompt: both leads are women, keep 姐姐/妹妹-style address, do not soften romance. It does not by itself turn he into she; use the she/her default for that.${savedNote}`}
+              help={`Tells the translator both leads are women, to keep 姐姐/妹妹-style address and not soften romance. It does not turn he into she; use the she/her default for that.${savedNote}`}
             >
               <Toggle checked={f.genre_notes} onChange={(v) => saveToggle('genre_notes', v)} />
             </Field>
             <Field
               label="Use approved translations as examples"
-              help="Adds lines of this series you already approved (edited by hand, accepted from memory, or marked reviewed) that closely match these lines to the prompt, so repeated phrases keep one wording. Needs a title in a series; this run only. Whether it improves quality has not been measured."
+              help="Adds approved lines from this series (edited by hand, accepted from memory or marked reviewed) that closely match, so repeated phrases keep one wording. Needs a title in a series; this run only. Its effect on quality is not measured."
             >
               <Toggle checked={f.memory_examples} onChange={(v) => set('memory_examples', v)} />
             </Field>

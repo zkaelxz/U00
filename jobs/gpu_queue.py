@@ -105,7 +105,10 @@ def _note_gpu_wait_reason_locked(job_id):
     if job is None or job.get("status") != "queued":
         return
     import live_whisper
-    reason = live_whisper.WAIT_MESSAGE if live_whisper.gpu_claim_held() else None
+    from jobs import gpu_guard
+    reason = gpu_guard.hold_reason()
+    if reason is None and live_whisper.gpu_claim_held():
+        reason = live_whisper.WAIT_MESSAGE
     if reason is None and _running_gpu_job_count_locked(job_id) == 0:
         try:
             from gpu_wait_message import external_gpu_wait_message
@@ -156,13 +159,11 @@ def _gpu_slot_available_locked(job_id, description):
     transcoding on the same card is the motivating case). nvidia-smi's own
     utilization/free-VRAM numbers (diagnostics_torch.external_gpu_is_busy) are
     checked as a third, independent guard for exactly that: real driver-
-    level load, whoever caused it. Same accepted-latency tradeoff as the
-    cross-process check below: nothing polls this on its own, so a
-    job queued purely because of external load resumes the next time some
-    *other* GPU-touching job's finish triggers _promote_next_queued_gpu_job()
-    again, not the instant the external load actually clears -- not a
-    correctness gap (the GPU is never actually shared either way), just the
-    same soft, best-effort latency this guard already accepts elsewhere.
+    level load, whoever caused it. The GPU guard's hold (low memory, a hot
+    card: jobs/gpu_guard.py) is checked there too. A job queued for any of
+    these is re-checked when another GPU job finishes and by the API's
+    GPU-queue poller (api/background.py, every GPU_QUEUE_POLL_SECONDS), so it
+    starts within that long of the load clearing.
 
     On True, this also claims the cross-process lock for job_id as a side
     effect, the same moment the in-process side is about to mark job_id

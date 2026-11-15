@@ -48,6 +48,8 @@ _started = None
 # (a job queued behind GPU load Baihe didn't start is re-checked only when
 # another GPU job finishes). The API calls job_runner.recheck_gpu_queue
 # on a timer, only while background services are on, and stops it at shutdown. The call is a cheap no-op when nothing is queued.
+# Each tick also runs the GPU guard (jobs/gpu_guard.py): one nvidia-smi reading
+# that holds, unloads or stops GPU work while the card is short of memory or hot.
 GPU_QUEUE_POLL_SECONDS = 20.0
 _gpu_poller = None          # (thread, stop_event) while running
 _gpu_lock = threading.Lock()
@@ -65,6 +67,12 @@ def start_gpu_queue_poller(interval: float | None = None) -> bool:
 
         def loop():
             while not stop.wait(interval):
+                try:
+                    # Before the re-check, so a hold that just cleared lets a queued job start now.
+                    from jobs import gpu_guard
+                    gpu_guard.tick()
+                except Exception as exc:
+                    log_warning("GPU guard tick failed: %s", exc)
                 try:
                     from jobs import job_runner
                     job_runner.recheck_gpu_queue()

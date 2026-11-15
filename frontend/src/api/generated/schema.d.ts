@@ -27486,6 +27486,21 @@ export interface components {
              */
             gap_fill_min_gap_seconds: number;
             /**
+             * Gpu Guard
+             * @default true
+             */
+            gpu_guard: boolean;
+            /**
+             * Gpu Guard Stop Minutes
+             * @default 2
+             */
+            gpu_guard_stop_minutes: number;
+            /**
+             * Gpu Guard Temp C
+             * @default 85
+             */
+            gpu_guard_temp_c: number;
+            /**
              * Keep Free Ram Gb
              * @default 0
              */
@@ -27862,6 +27877,12 @@ export interface components {
             gap_fill_min_gap_seconds?: number | null;
             /** Gemini Free Tier */
             gemini_free_tier?: boolean | null;
+            /** Gpu Guard */
+            gpu_guard?: boolean | null;
+            /** Gpu Guard Stop Minutes */
+            gpu_guard_stop_minutes?: number | null;
+            /** Gpu Guard Temp C */
+            gpu_guard_temp_c?: number | null;
             /** Gpu Limit Enabled */
             gpu_limit_enabled?: boolean | null;
             /** Gpu Max Parallel */
