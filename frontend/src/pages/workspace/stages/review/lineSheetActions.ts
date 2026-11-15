@@ -43,6 +43,7 @@ export function buildSheetActions({ sheetLine, ctl, edits, player, setSheet, set
     onTool: (mode) => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, mode)),
     onDismissFlag: () => closeSheetThen(() => sheetLine && actions.dismissFlag(sheetLine.id)),
     onSetReviewed: (reviewed) => closeSheetThen(() => sheetLine && actions.setReviewed(sheetLine.id, reviewed)),
+    onSetMark: (mark) => closeSheetThen(() => sheetLine && actions.setMark(sheetLine.id, mark)),
     onSnapToSpeech: () => closeSheetThen(() => sheetLine && actions.snapToSpeech?.(sheetLine.id)),
     onAddNote: () =>
       closeSheetThen(() => {

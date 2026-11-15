@@ -2,6 +2,7 @@ import { memo, useEffect, useState, type FocusEvent, type KeyboardEvent, type Mo
 
 import { retryBlockedLine } from '../../../../api/review'
 import { translateApi } from '../../../../api/translate'
+import { LineMarkBadge, LineMarkButtons } from './LineMarkButtons'
 import { Badge } from '../../../../components/Badge'
 import { ButtonLink } from '../../../../components/Button'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
@@ -11,7 +12,7 @@ import { humanize } from '../../../../components/labels'
 import { languageLabel } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
-import type { ReviewLine, SpeakerGuess, TmSuggestion } from '../../../../types/review'
+import type { LineMark, ReviewLine, SpeakerGuess, TmSuggestion } from '../../../../types/review'
 import type { TimingSuggestion } from '../../../../types/timingCheck'
 import type { TranslateEngine } from '../../../../types/translate'
 import { LineAi } from './LineAi'
@@ -23,7 +24,7 @@ import { SpeakerSelect } from './SpeakerSelect'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
-import { flagText, queueAction, queueReason, type QueueAction } from './checkQueueModel'
+import { queueAction, queueReason, type QueueAction } from './checkQueueModel'
 import { CONFLICT_MESSAGE, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
@@ -89,6 +90,8 @@ export interface RowActions {
   useSuggestion: (id: number, text: string) => Promise<boolean>
   dismissFlag: (id: number) => void
   setReviewed: (id: number, reviewed: boolean) => void
+  // Your wrong / mixed verdict on the line; null clears it.
+  setMark: (id: number, mark: LineMark | null) => void
   // The check queue's "Looks right, next": marks the line checked and opens the next card.
   reviewAndNext: (id: number) => void
   // The line menu's "Re-transcribe…": opens the line's details on its re-transcribe step.
@@ -167,8 +170,8 @@ export function FlagNote({ text }: { text: string }) {
   )
 }
 
-// Phones keep a one-line chip; a button reveals the whole note there, where
-// there is no hover and no room to show it inline.
+// Phones show a flag's few words; a press reveals the whole sentence there,
+// where there is no hover and no room to show it inline.
 export function FlagToggle({ text, open, onToggle, controls, children }: {
   text: string
   open: boolean
@@ -398,6 +401,7 @@ function QueueTools({ line, hasMedia, ai, linePanel, fit, actions, ...fitProps }
       <FitAction line={line} fit={fit} actions={actions} {...fitProps} />
       <ImproveButton line={line} ai={ai} actions={actions} />
       {!linePanel && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.showOnPage(line.id)}>See the lines around it</button>}
+      <LineMarkButtons line={line} onMark={actions.setMark} />
       {line.reviewed && (
         <button type="button" className={buttonClass('secondary', 'sm')} disabled={!line.en} aria-pressed onClick={() => actions.setReviewed(line.id, false)} title="Mark unchecked (R)">
           Checked
@@ -421,6 +425,7 @@ function QueuePhoneActions({ line, ai, actions, ...fitProps }: FitProps & { ai: 
       <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.showOnPage(line.id)}>See the lines around it</button>
       <FitAction line={line} actions={actions} {...fitProps} />
       <ImproveButton line={line} ai={ai} actions={actions} />
+      <LineMarkButtons line={line} onMark={actions.setMark} />
     </div>
   )
 }
@@ -486,6 +491,8 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
   const badgeReasons = [isShaky(line) && !(queue && !line.flag) && SHAKY_HELP, isSourceChanged(line) && !queue && SOURCE_CHANGED_HELP].filter((r): r is string => !!r)
   const textLang = sourceTextLang(line.lang, sourceLanguage)
   const reason = queue ? queueReason(line) : null
+  // Outside the queue only a flag is written out: a low Whisper score there has its Shaky badge.
+  const flagReason = line.flag && !queue ? queueReason(line) : null
   const fit = queue ? queueAction(line) : null
   const card = queue && active
   const fitProps: FitProps = { dramaId, line, fit, isPhone, timingSnap: timingSnap ?? null, retranscribe, actions }
@@ -561,6 +568,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
         {line.reviewed && <span data-testid="line-checked"><Badge tone="ok">Checked</Badge></span>}
+        <LineMarkBadge line={line} />
         <ShakyBadge line={line} help={badgeHelp} />
         {isSourceChanged(line) && (
           <>
@@ -573,10 +581,10 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         {line.dub_filename && !isPhone && !simple && <span>Dub: {line.dub_filename}</span>}
         {/* A closed card keeps to a few words, so the list stays one glance per line; so does the open one while the This line panel beside it says the rest. */}
         {reason && !isPhone && (!active || linePanel) && <span className="review-queue-reason" data-testid="queue-reason">{reason.short}</span>}
-        {line.flag && isPhone && !queue && (
+        {flagReason && isPhone && (
           <span className="review-flag" data-testid="line-flag">
             <span aria-hidden="true">⚑</span>
-            <span className="sr-only"> Flagged: {flagText(line)}</span>
+            <span className="sr-only"> Flagged: {flagReason.text}</span>
           </span>
         )}
         <button
@@ -590,7 +598,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
           {active && !isPhone ? 'More' : '⋯'}
         </button>
       </div>
-      {line.flag && !isPhone && !queue && <FlagNote text={flagText(line)} />}
+      {flagReason && !isPhone && <FlagNote text={flagReason.text} />}
       {/* Its own line under the top one, so the sentence never squeezes the number, time, speaker and More beside it. */}
       {reason && !isPhone && active && !linePanel && <p className="review-queue-reason review-queue-sentence" data-testid="queue-reason">{reason.text}</p>}
       {reason && isPhone && active && <p className="review-queue-why" data-testid="queue-reason">Why: {reason.text}</p>}
@@ -600,15 +608,15 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       {/* A phone's meta line has no room for the number (it would move ⋯ under the tap point), so the active row shows it below. */}
       {!prose && isPhone && active && (!queue || line.flag === READING_SPEED_FLAG) && <LineCps line={line} lineAbove />}
       {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}
-      {isPhone && active && line.flag && !queue && (
+      {isPhone && active && flagReason && (
         <div className="review-flag review-flag-line">
-          <FlagToggle text={`Flagged: ${flagText(line)}`} open={flagOpen} onToggle={setFlagOpen} controls={flagNoteId}>
-            Flagged: {flagText(line)}
+          <FlagToggle text={`Flagged: ${flagReason.text}`} open={flagOpen} onToggle={setFlagOpen} controls={flagNoteId}>
+            Flagged: {flagReason.short}
           </FlagToggle>
         </div>
       )}
-      {line.flag && flagOpen && (
-        <p id={flagNoteId} className="review-flag-open" role="note">{flagText(line)}</p>
+      {flagReason && flagOpen && (
+        <p id={flagNoteId} className="review-flag-open" role="note">{flagReason.text}</p>
       )}
       {/* A closed queue card stays one glance; the open one carries the timing tools, with its Snap among the card's buttons. */}
       {line.flag === TIMING_UNCERTAIN_FLAG && (active || (!isPhone && !queue)) && (
@@ -691,6 +699,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
               Snap to speech
             </button>
           )}
+          <LineMarkButtons line={line} onMark={actions.setMark} variant="ghost" />
           <button
             type="button"
             className={buttonClass('ghost', 'sm')}

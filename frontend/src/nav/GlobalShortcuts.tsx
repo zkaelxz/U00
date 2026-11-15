@@ -13,7 +13,7 @@ import { globalShortcut } from './palette'
 import './palette.css'
 
 const PAGE_KEYS: [string, string][] = [
-  ['Ctrl/⌘+K', 'Quick search'],
+  ['Ctrl/⌘+K', 'Search pages and titles'],
   ['/', 'Search this page (Library, Settings, Sources, Discover)'],
   ['?', 'This list'],
 ]
@@ -25,6 +25,17 @@ const COMIC_KEYS: [string, string][] = [
   ['Space / Shift+Space', 'Next / previous page (paged mode)'],
 ]
 
+const WATCH_KEYS: [string, string][] = [
+  ['Space or Alt+Space', 'Play or pause'],
+  ['← / →', 'Back / forward 5 seconds (Shift: 1 second)'],
+  ['F', 'Full screen (video, with the picture focused)'],
+  ['↑ / ↓', 'Previous / next line'],
+  ['L', 'Loop line on or off'],
+  ['E', 'Fix the line being spoken'],
+  ['Ctrl/⌘+Enter', 'Save and play'],
+  ['Esc', 'Cancel the fix'],
+]
+
 // The header button and the "?" key share one sheet, so the button asks it to open by event.
 const OPEN_EVENT = 'baihe:open-keys'
 
@@ -32,12 +43,13 @@ export function KeyboardHelpButton() {
   return (
     <button
       type="button"
-      className="keys-btn"
+      className="keys-btn hb-box"
       aria-label="Keyboard shortcuts"
       aria-haspopup="dialog"
       onClick={() => window.dispatchEvent(new Event(OPEN_EVENT))}
     >
-      ?
+      <span className="hb-icon" aria-hidden="true">?</span>
+      <span className="hb-words" aria-hidden="true">Shortcuts</span>
     </button>
   )
 }
@@ -70,6 +82,8 @@ export function GlobalShortcuts({ route }: { route: Route }) {
   return (
     <Sheet open={open} title="Keyboard shortcuts" onClose={() => setOpen(false)}>
       <KeyList keys={PAGE_KEYS} />
+      <h3>On the Watch page</h3>
+      <KeyList keys={WATCH_KEYS} />
       <h3>In the comic reader</h3>
       <KeyList keys={COMIC_KEYS} />
       <h3>In Review</h3>

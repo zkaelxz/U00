@@ -1,10 +1,10 @@
 import { setLineSpeaker } from '../../../../api/characters'
 import { snapToSpeech, startTimingCheck } from '../../../../api/timingCheck'
 import { lineNumber } from '../../../../lineNumber'
-import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, patchLine, setReviewed } from '../../../../api/review'
+import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, patchLine, setMark, setReviewed } from '../../../../api/review'
 import type { NoteDraft, RowActions } from './LineRow'
 import type { LinesControllerDeps, LinesCore } from './linesController'
-import { nextAfterCheck } from './checkQueueModel'
+import { nextAfterCheck, onlyNeedsSpeaker, QUEUE_FILTER } from './checkQueueModel'
 import { isDirty, type LineDraft } from './reviewDraft'
 import { charCount, codePointOffset, suggestionPatch } from './reviewLogic'
 import { dismissTmEverywhere } from './tmDismiss'
@@ -126,6 +126,14 @@ export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): Row
         st.current.onChanged()
       }, (e) => failLine(id, e))
     },
+    setMark: async (id, mark) => {
+      if (!(await leaveEdit())) return
+      setMark(dramaId, id, mark, find(id)?.en).then((saved) => {
+        replaceLine(saved)
+        setIssue(null)
+        st.current.onChanged()
+      }, (e) => failLine(id, e))
+    },
     reviewAndNext: async (id) => {
       if (!(await leaveEdit())) return
       const { shown, page, pages } = st.current
@@ -196,6 +204,12 @@ export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): Row
         afterWrite([id])
         if (line) {
           replaceLine({ ...line, speaker, speaker_manual: true })
+          // A queue card listed for its blank speaker alone leaves on the reload below: the card after it opens, as after a check.
+          const { filter, searching, shown, page, pages } = st.current
+          if (filter === QUEUE_FILTER && !searching && onlyNeedsSpeaker(line)) {
+            const next = nextAfterCheck(shown, id, page < pages)
+            if (next !== undefined) pending.current = { target: next }
+          }
           if (r.undo.length) deps.setSpeakerUndo?.({ lineNumber: lineNumber(line.idx), speaker, entries: r.undo })
         }
         st.current.onChanged()

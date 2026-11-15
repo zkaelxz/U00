@@ -221,18 +221,19 @@ export function NotificationBell() {
       <button
         ref={button}
         type="button"
-        className="notify-bell-btn"
+        className="notify-bell-btn hb-box"
         aria-label={bellLabel(count)}
         aria-expanded={open}
         aria-controls={panelId}
         onClick={toggle}
       >
-        <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" focusable="false">
+        <svg className="hb-icon" aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" focusable="false">
           <path
             fill="currentColor"
             d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-6v-5a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1z"
           />
         </svg>
+        <span className="hb-words" aria-hidden="true">Alerts</span>
         {count > 0 && (
           <span className="notify-count" aria-hidden="true" data-testid="notify-count">
             <Badge tone="accent">{count}</Badge>
@@ -242,7 +243,7 @@ export function NotificationBell() {
       {open && (
         <div className={alignStart ? 'notify-panel align-start' : 'notify-panel'} id={panelId} role="region" aria-labelledby={`${panelId}-title`}>
           <p className="notify-panel-title" id={`${panelId}-title`}>
-            Recent notifications
+            Recent alerts
           </p>
           {items.length === 0 ? (
             <p className="muted notify-empty">{EMPTY_TEXT}</p>

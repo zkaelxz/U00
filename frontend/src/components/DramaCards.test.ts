@@ -22,12 +22,12 @@ describe('DramaCards', () => {
     expect(out).toContain('href="#/drama/7" title="Moonlit">Moonlit</a>')
     expect(out).toContain('月光')
     expect(out).toContain('aria-label="Details: Moonlit"')
-    expect(out).toContain('href="#/read/7?watch=1" aria-label="Listen Moonlit" class="btn btn-ghost btn-sm drama-card-read"')
+    expect(out).toContain('href="#/watch/7" aria-label="Listen Moonlit" class="btn btn-ghost btn-sm drama-card-read"')
     expect(out).not.toContain('btn-primary')
   })
 
   it('names the quiet button by the kind of title: Watch a video, Read a novel', () => {
-    expect(html([drama({ media_type: 'video_drama' })])).toContain('href="#/read/7?watch=1" aria-label="Watch Moonlit" class="btn btn-ghost btn-sm drama-card-read">Watch<')
+    expect(html([drama({ media_type: 'video_drama' })])).toContain('href="#/watch/7" aria-label="Watch Moonlit" class="btn btn-ghost btn-sm drama-card-read">Watch<')
     expect(html([drama({ media_type: 'novel' })])).toContain('href="#/read/7" aria-label="Read Moonlit" class="btn btn-ghost btn-sm drama-card-read">Read<')
   })
 

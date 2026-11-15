@@ -22,6 +22,19 @@ function row(simple: boolean, line: ReviewLine = LINE, { queue = false, isPhone 
   )
 }
 
+const noop = () => {}
+const sheet = (line: ReviewLine) => renderToStaticMarkup(
+  <LineActionsSheet
+    state={{ lineId: line.id, view: 'menu' }} line={line} run={[line]} hasMedia jobRunning={false} limited busy={false}
+    error={null} errorText={null} canRetranscribe={false} sourceLanguage="zh" timingSnap={{ line_id: 7, start: 1, end: 3, new_start: 1.2, new_end: 2.8 }}
+    actions={{
+      onView: noop, onClose: noop, onPlay: noop, onEditDetails: noop, onRetranscribe: noop, onImprove: noop, onWhy: noop,
+      onTool: noop, onDismissFlag: noop, onAddNote: noop, onSplit: noop, onMerge: noop, onAdd: noop, onDelete: noop,
+      onSetLanguage: noop, onSnapToSpeech: noop, onSetReviewed: noop, onSetMark: noop,
+    }}
+  />,
+)
+
 describe('Simple view line row', () => {
   it('drops the end time, dub name and the extra tools but keeps the ones most lines need', () => {
     const html = row(true)
@@ -132,18 +145,6 @@ describe('check queue card', () => {
   })
 
   it('still offers Edit details, Snap to speech and Dismiss flag or Keep English in the card\'s More sheet', () => {
-    const noop = () => {}
-    const sheet = (line: ReviewLine) => renderToStaticMarkup(
-      <LineActionsSheet
-        state={{ lineId: line.id, view: 'menu' }} line={line} run={[line]} hasMedia jobRunning={false} limited busy={false}
-        error={null} errorText={null} canRetranscribe={false} sourceLanguage="zh" timingSnap={{ line_id: 7, start: 1, end: 3, new_start: 1.2, new_end: 2.8 }}
-        actions={{
-          onView: noop, onClose: noop, onPlay: noop, onEditDetails: noop, onRetranscribe: noop, onImprove: noop, onWhy: noop,
-          onTool: noop, onDismissFlag: noop, onAddNote: noop, onSplit: noop, onMerge: noop, onAdd: noop, onDelete: noop,
-          onSetLanguage: noop, onSnapToSpeech: noop, onSetReviewed: noop,
-        }}
-      />,
-    )
     const html = sheet(glossary)
     for (const t of ['>Edit details<', 'Snap to speech', '>Dismiss flag<']) expect(html).toContain(t)
     expect(sheet({ ...LINE, flag: 'source_changed' })).toContain('>Keep English<')
@@ -174,3 +175,36 @@ describe('check queue card', () => {
   })
 })
 
+
+describe('a flagged line outside the check queue', () => {
+  const speed = { ...LINE, flag: 'reading_speed', flag_note: '25.2 characters/second -- more than ~17/s is hard to read in time. The speech is this fast: shorten the text.' }
+  const SPEED_SENTENCE = 'This subtitle is too fast to read: 25.2 characters a second, and more than about 17 is hard to read in time. Shorten the text.'
+  const free = { ...LINE, flag: 'uncertain_translation', flag_note: 'the pun on 饺子 may not land' }
+  const FREE_SENTENCE = 'The English may not say what the source says, or may read awkwardly. Read both and fix the English if needed. Note: The pun on 饺子 may not land'
+  const unknown = { ...LINE, flag: 'uncertain', flag_note: 'check' }
+
+  it('says why in the check card\'s sentence under the meta line in Full and under All, with the same words in its title', () => {
+    for (const simple of [false, true]) {
+      for (const [line, said] of [[speed, SPEED_SENTENCE], [free, FREE_SENTENCE], [unknown, 'Uncertain · Check']] as const) {
+        expect(row(simple, line)).toContain(`data-testid="line-flag" title="${said}"><span aria-hidden="true">⚑</span> ${said}</p>`)
+      }
+    }
+    expect(row(false, speed)).not.toContain('Reading speed')
+  })
+
+  it('on a phone reads the sentence to a screen reader and shows the few words on the active row, the sentence in its tooltip', () => {
+    const closed = row(false, speed, { isPhone: true, active: false })
+    expect(closed).toContain(`<span class="sr-only"> Flagged: ${SPEED_SENTENCE}</span>`)
+    expect(closed).not.toContain('review-flag-toggle')
+    const html = row(false, speed, { isPhone: true })
+    expect(html).toContain(`title="Flagged: ${SPEED_SENTENCE}" aria-expanded="false">Flagged: Fast to read, 25 characters a second</button>`)
+    expect(row(true, free, { isPhone: true })).toContain('>Flagged: Translation may be off</button>')
+    expect(row(true, unknown, { isPhone: true })).toContain('>Flagged: Uncertain</button>')
+  })
+
+  it('writes the sentence at the top of the More sheet', () => {
+    expect(sheet(speed)).toContain(`data-testid="sheet-flag"><span aria-hidden="true">⚑ </span>Flagged: ${SPEED_SENTENCE}</p>`)
+    expect(sheet(free)).toContain(`data-testid="sheet-flag"><span aria-hidden="true">⚑ </span>Flagged: ${FREE_SENTENCE}</p>`)
+    expect(sheet(unknown)).toContain('data-testid="sheet-flag"><span aria-hidden="true">⚑ </span>Flagged: Uncertain · Check</p>')
+  })
+})

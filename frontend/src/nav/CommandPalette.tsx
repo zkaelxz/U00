@@ -67,14 +67,16 @@ export function CommandPalette({ route, context }: { route: Route; context: NavC
         type="button"
         className="palette-btn"
         aria-haspopup="dialog"
-        aria-label="Quick search"
-        title={`Search pages (${SHORTCUT_LABEL})`}
+        aria-label="Search pages and titles"
+        title={`Search pages and titles (${SHORTCUT_LABEL})`}
         onClick={show}
       >
-        <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg className="hb-icon" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5" />
         </svg>
-        <kbd aria-hidden="true">{SHORTCUT_LABEL}</kbd>
+        <span className="hb-words" aria-hidden="true">Search pages and titles</span>
+        {/* The dot joins the words to the key hint, so it lives in the hint and goes when a touch screen hides it. */}
+        <kbd aria-hidden="true"><span className="palette-dot">· </span>{SHORTCUT_LABEL}</kbd>
       </button>
       <dialog
         ref={dialog}
@@ -153,12 +155,12 @@ function PaletteBody({ route, context, onClose }: { route: Route; context: NavCo
           type="search"
           role="combobox"
           className="palette-input"
-          aria-label="Search pages"
+          aria-label="Search pages and titles"
           aria-expanded={results.length > 0}
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={results.length > 0 ? optionId(at) : undefined}
-          placeholder="Search pages"
+          placeholder="Search pages and titles"
           enterKeyHint="go"
           autoComplete="off"
           spellCheck={false}

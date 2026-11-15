@@ -241,7 +241,7 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 .review-idx, .review-time { flex: none; white-space: nowrap; }
 .review-time { font-family: var(--font-mono); font-size: 0.92em; font-variant-numeric: tabular-nums; }
 .review-flag { color: var(--warn); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
-.review-flag-toggle { display: block; max-width: 100%; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: inherit; }
+.review-flag-toggle { display: block; max-width: 100%; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .review-flag-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .review-flag-note { margin: var(--space-1) 0 0; padding: 2px var(--space-2); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.4; color: var(--warn); background: var(--warn-soft); overflow-wrap: anywhere; white-space: normal; }
 .review-badge-reasons { margin: var(--space-1) 0 0; font-size: var(--text-sm); line-height: 1.4; overflow-wrap: anywhere; }
@@ -339,10 +339,14 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-line { padding: var(--space-1) var(--space-2); }
   .review-line-meta { flex-wrap: nowrap; }
   .review-speaker { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* ⋯ sits in the row's top-right corner, out of the meta line's height; its 44px box overlaps only padding. */
-  .review-line { position: relative; }
-  .review-line-meta { padding-right: calc(var(--touch) - var(--space-2)); }
-  button.review-more { position: absolute; top: 0; right: 0; min-width: var(--touch); min-height: var(--touch); padding: 0; margin: 0; }
+  /* ⋯ sits in the row's top-right corner, out of the meta line's flow. `.stage-review` outweighs index.css's phone
+     `.btn.btn-sm { position: relative }`, which otherwise left ⋯ after the last item, over the source text and past the
+     edge of a 320px screen. It keeps the small button's 32px box and its ::after, whose 44px hit area stays clear of the
+     first text line and the row above it (phone-spacing checks that). The meta line stays 32px tall so Review still fits 8 rows on a phone.
+     ⚑ keeps its width: the speaker is what gives way. */
+  .review-line-meta { padding-right: calc(var(--touch) - var(--space-2)); min-height: calc(var(--touch) - var(--space-1) - var(--space-2)); }
+  .review-line-meta > .review-flag { flex: none; }
+  .stage-review button.review-more { position: absolute; top: var(--space-1); right: 0; min-width: var(--touch); padding: 0; margin: 0; }
   .review-ai-compare { grid-template-columns: minmax(0, 1fr); }
   .review-editbar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-sticky, 3);
@@ -374,7 +378,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-page-label { min-width: 2.5em; }
 }
 
-/* Flag reason: one truncated line on the active phone row; in full at the top of the ⋯ sheet. */
+/* Flag reason: a few words on the active phone row, wrapped rather than cut when a name makes them long; in full at the top of the ⋯ sheet. */
 .review-flag-line { font-size: var(--text-sm); margin-top: 2px; }
 .review-flag-full { margin: 0; color: var(--warn); overflow-wrap: anywhere; }
 .review-hint-text { margin: 0; }
@@ -385,8 +389,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* Keep the first text line clear of the ⋯ corner: a float carves out only the part the button covers. */
   .review-body { display: block; }
   .stage-review button.review-en { display: block; width: 100%; }
-  /* The margin keeps the flag button clear of the ⋯ button's padded hit area. */
-  .review-flag-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: var(--space-2); padding-right: calc(var(--touch) - var(--space-2)); }
+  /* The margin keeps the flag button clear of the ⋯ button's padded hit area. keep-all: Chinese, Japanese and Korean text
+     may break between any two characters, which would split a glossary name; it moves to the next line whole instead. */
+  .review-flag-line { white-space: normal; overflow-wrap: break-word; word-break: keep-all; margin-top: var(--space-2); padding-right: calc(var(--touch) - var(--space-2)); }
 }
 
 .review-hidden-edit { align-items: center; flex-wrap: wrap; border-color: var(--warn); }
@@ -765,3 +770,6 @@ button.review-speaker:hover, button.review-speaker[aria-expanded='true'] { backg
 .review-set-speaker-names, .review-set-speaker-new { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .review-set-speaker-new { margin-top: var(--space-2); }
 .review-set-speaker-new input { min-width: 0; flex: 1 1 10rem; }
+/* Your marks. The desktop buttons are ordinary small buttons; a pressed one takes its mark's colour. */
+.review-mark[aria-pressed='true'].review-mark-wrong { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, var(--surface)); }
+.review-mark[aria-pressed='true'].review-mark-mixed { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, var(--surface)); }

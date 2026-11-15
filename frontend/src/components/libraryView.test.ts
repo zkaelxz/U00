@@ -102,14 +102,14 @@ describe('readVerb and readAction', () => {
     expect(readVerb({ media_type: 'audio_drama', content_mode: 'novel_narration' })).toBe('Read')
     expect(readVerb({ media_type: 'video_drama', content_mode: 'novel_narration' })).toBe('Read')
   })
-  it('opens the player fold only from Watch and Listen', () => {
-    expect(readAction({ id: 3, media_type: 'video_drama' })).toEqual({ label: 'Watch', href: '#/read/3?watch=1' })
-    expect(readAction({ id: 1, media_type: 'audio_drama' })).toEqual({ label: 'Listen', href: '#/read/1?watch=1' })
+  it('opens the Watch page only from Watch and Listen', () => {
+    expect(readAction({ id: 3, media_type: 'video_drama' })).toEqual({ label: 'Watch', href: '#/watch/3' })
+    expect(readAction({ id: 1, media_type: 'audio_drama' })).toEqual({ label: 'Listen', href: '#/watch/1' })
     expect(readAction({ id: 2, media_type: 'novel' })).toEqual({ label: 'Read', href: '#/read/2' })
     expect(readAction({ id: 4, media_type: 'manga' })).toEqual({ label: 'Read', href: '#/comic/4' })
     expect(readAction({ id: 5, media_type: null })).toEqual({ label: 'Read', href: '#/read/5' })
   })
-  it('says Continue, without the fold, once the title has a saved reading place', () => {
+  it('says Continue, opening the Reader, once the title has a saved reading place', () => {
     expect(readAction({ id: 3, media_type: 'video_drama' }, true)).toEqual({ label: 'Continue', href: '#/read/3' })
   })
 })
@@ -156,10 +156,10 @@ describe('continueAction', () => {
     expect(continueAction(work(), done(), 0)).toEqual({ label: 'Export', href: '#/drama/5/export' })
   })
 
-  it('an exported title says Watch, Listen or Read and opens the Reader as the cards do', () => {
-    expect(continueAction(work(), done({ status: 'exported' }), null)).toEqual({ label: 'Watch', href: '#/read/5?watch=1' })
+  it('an exported title says Watch, Listen or Read and opens the same page as the cards do', () => {
+    expect(continueAction(work(), done({ status: 'exported' }), null)).toEqual({ label: 'Watch', href: '#/watch/5' })
     expect(continueAction(work('audio_drama'), done({ status: 'exported', media_type: 'audio_drama' }), null))
-      .toEqual({ label: 'Listen', href: '#/read/5?watch=1' })
+      .toEqual({ label: 'Listen', href: '#/watch/5' })
     expect(continueAction(work('novel'), done({ status: 'exported', media_type: 'novel' }), 4)).toEqual({ label: 'Read', href: '#/read/5' })
     expect(continueAction(work('audio_drama'), done({ status: 'exported', media_type: 'audio_drama', content_mode: 'novel_narration' }), null))
       .toEqual({ label: 'Read', href: '#/read/5' })

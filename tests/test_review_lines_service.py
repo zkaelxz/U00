@@ -371,6 +371,46 @@ class TestRiskView:
         assert [ln["idx"] for ln in page["lines"]] == [1, 0]
 
 
+class TestRiskViewNoSpeaker:
+    def _seeded(self, db):
+        lines = [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f"中{i}", en=f"Hi {i}") for i in range(7)]
+        lines[0].speaker = "A"
+        lines[1].flag = "timing_overlap"      # a flag outranks a blank speaker
+        lines[2].speaker_manual = True        # cleared on purpose: needs nothing
+        lines[3].reviewed = True              # checked: never ranked
+        lines[4].en = ""                      # untranslated: never ranked
+        lines[6].speaker = "B"
+        return _seed(db, lines)               # idx 5 has no speaker and nothing else against it
+
+    def test_a_blank_speaker_is_listed_after_every_flag(self, isolated_db):
+        did = self._seeded(isolated_db)
+        page = svc.list_review_lines(did, only="risk")
+        assert [ln["idx"] for ln in page["lines"]] == [1, 5]
+        assert page["risk_count"] == 2
+
+    def test_a_flagged_line_with_no_speaker_ranks_above_one_with_only_the_flag(self, isolated_db):
+        lines = [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f"中{i}", en=f"Hi {i}", speaker="A") for i in range(3)]
+        lines[0].flag = "timing_overlap"
+        lines[1].flag = "timing_overlap"
+        lines[1].speaker = None
+        did = _seed(isolated_db, lines)
+        assert [ln["idx"] for ln in svc.list_review_lines(did, only="risk")["lines"]] == [1, 0]
+
+    def test_a_title_with_no_speakers_lists_no_blank_ones(self, isolated_db):
+        did = _seed(isolated_db, _flag_lines(4))
+        page = svc.list_review_lines(did, only="risk")
+        assert page["lines"] == [] and page["risk_count"] == 0
+
+    def test_taking_the_speaker_takes_the_line_out(self, isolated_db):
+        did = self._seeded(isolated_db)
+        target = next(ln for ln in isolated_db.load_line_objects(did) if ln.idx == 5)
+        target.speaker = "A"
+        target.speaker_manual = True
+        isolated_db.save_lines(did, [target], fields=("speaker", "speaker_manual"))
+        page = svc.list_review_lines(did, only="risk")
+        assert [ln["idx"] for ln in page["lines"]] == [1]
+
+
 class TestAdjacentUnreviewed:
     def _seeded(self, db):
         lines = _flag_lines(6)

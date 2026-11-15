@@ -57,8 +57,8 @@ test('Details opens a sheet; Esc closes it and returns focus', async ({ page }) 
   await expect(sheet).toContainText('墨香铜臭 (Mo Xiang Tong Xiu)')
   await expect(sheet).toContainText('Audio drama')
   await expect(sheet.getByRole('link', { name: 'Open workspace' })).toHaveClass(/btn-primary/)
-  // An audio drama: Listen, opening the Reader with its player.
-  await expect(sheet.getByRole('link', { name: 'Listen', exact: true })).toHaveAttribute('href', /#\/read\/\d+\?watch=1$/)
+  // An audio drama: Listen, opening the Watch page.
+  await expect(sheet.getByRole('link', { name: 'Listen', exact: true })).toHaveAttribute('href', /#\/watch\/\d+$/)
   await page.keyboard.press('Escape')
   await expect(sheet).toBeHidden()
   await expect(details).toBeFocused()

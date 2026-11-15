@@ -33,3 +33,15 @@ test('tap a suggested speaker on a phone', async ({ page }) => {
   }
   expect(speakers()[1]).toBe('Cray')
 })
+
+test('a phone card in Need a look offers the speakers and moves on after a tap', async ({ page }) => {
+  seedBlankSpeakers()
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', JSON.stringify('simple')))
+  await page.goto('/#/drama/3/review')
+  await expect(page.getByTestId('queue-position')).toHaveText('1 of 3 to look at')
+  await expect(page.getByTestId('queue-reason')).toHaveText('Why: This line has no speaker yet.')
+  await guesses(page, 2).getByRole('button', { name: /^Cray/ }).tap()
+  await expect(page.getByTestId('queue-position')).toHaveText('1 of 2 to look at')
+  await expect(guesses(page, 3)).toBeVisible()
+  expect(speakers()[1]).toBe('Cray')
+})

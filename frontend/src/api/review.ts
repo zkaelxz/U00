@@ -4,6 +4,7 @@ import type {
   HistoryItem,
   HistorySnapshot,
   LineFilter,
+  LineMark,
   LineExplanation,
   LineImprovement,
   LineNoteCreate,
@@ -82,6 +83,10 @@ export const setLinesLanguage = (id: number, req: SetLanguageRequest, f?: Fetch)
 
 export const setReviewed = (id: number, lineId: number, reviewed: boolean, expectedEn?: string, f?: Fetch) =>
   postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/reviewed`, { reviewed, expected_en: expectedEn }, f)
+
+// Your verdict on a line (null clears it); the server refuses it, 409, if the English changed since you looked.
+export const setMark = (id: number, lineId: number, mark: LineMark | null, expectedEn?: string, f?: Fetch) =>
+  postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/mark`, { mark, expected_en: expectedEn }, f)
 
 // Records every translated, unflagged, unchecked line of the title as approved.
 export const markEpisodeReviewed = (id: number, f?: Fetch) =>

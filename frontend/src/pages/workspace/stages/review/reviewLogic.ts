@@ -76,6 +76,17 @@ export function initialActiveId(lines: ReviewLine[]): number | null {
   return pick ? pick.id : null
 }
 
+/**
+ * The line a load makes active when no move asked for one: the active line while it is still listed; on the list's
+ * first load its starting line (`queue`: the check queue lists the riskiest line first, flagged or not, so its first
+ * card); else the first line.
+ */
+export function ownActiveId(lines: ReviewLine[], cur: number | null, { first, queue }: { first: boolean; queue: boolean }): number | null {
+  if (cur !== null && lines.some((l) => l.id === cur)) return cur
+  if (first && !queue) return initialActiveId(lines)
+  return lines[0]?.id ?? null
+}
+
 type Step = { id: number } | { page: 'next' | 'prev' } | null
 
 /** The line `delta` rows away from `activeId`, or a page change at an edge. */
@@ -365,6 +376,7 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   if (filter === 'unreviewed') return short ? `Unrev.${n}` : `Unreviewed${n}`
   if (filter === 'shaky') return short ? `Shaky${n}` : `Least confident${n}`
   if (filter === 'risk') return short ? `Risk${n}` : `Riskiest${n}`
+  if (filter === 'marked') return `Marked${n}`
   return short ? `Untr.${n}` : `Untranslated${n}`
 }
 
@@ -387,10 +399,10 @@ const SHAKY_BELOW = 0.6
 export const isShaky = (line: Pick<ReviewLine, 'confidence' | 'reviewed'>) =>
   line.confidence != null && line.confidence < SHAKY_BELOW && !line.reviewed
 
-/** Mirrors review_lines_service._risk_score > 0: any flag, or confidence under 0.8, on a translated unchecked line. */
+/** Mirrors review_lines_service._risk_score > 0: any flag, a mark, or confidence under 0.8, on a translated unchecked line. */
 export const RISK_CONFIDENCE_BELOW = 0.8
-const isRisky = (line: Pick<ReviewLine, 'en' | 'reviewed' | 'flag' | 'confidence'>) =>
-  isUnreviewed(line) && (!!line.flag || (line.confidence != null && line.confidence < RISK_CONFIDENCE_BELOW))
+const isRisky = (line: Pick<ReviewLine, 'en' | 'reviewed' | 'flag' | 'confidence' | 'mark'>) =>
+  isUnreviewed(line) && (!!line.flag || !!line.mark || (line.confidence != null && line.confidence < RISK_CONFIDENCE_BELOW))
 
 /** Whether the server's filter (review_lines_service._visible) still lists this line. */
 export function inFilter(line: ReviewLine, filter: LineFilter): boolean {
@@ -399,6 +411,7 @@ export function inFilter(line: ReviewLine, filter: LineFilter): boolean {
   if (filter === 'unreviewed') return isUnreviewed(line)
   if (filter === 'shaky') return isShaky(line)
   if (filter === 'risk') return isRisky(line)
+  if (filter === 'marked') return !!line.mark
   return true
 }
 
@@ -410,6 +423,7 @@ export function emptyMessage(filter: LineFilter, term: string, sourceStage: stri
   if (filter === 'unreviewed') return 'Every translated line is checked.'
   if (filter === 'shaky') return 'No unchecked lines Whisper was unsure of.'
   if (filter === 'risk') return 'No unchecked line has a flag or low confidence.'
+  if (filter === 'marked') return 'No lines marked wrong or mixed.'
   return `No lines yet. Add them on ${sourceStage} first.`
 }
 
