@@ -198,8 +198,30 @@ def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_t
         # Engine errors can echo request details; never surface them raw.
         raise RuntimeError(
             _extract_failed(engine_name) + " " + engine_shared.redact_secrets(str(exc))) from None
-    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms, src_text),
-                                        "run_id": run_id, **paid_job_service.stop_fields(limits)})
+    normalized = _normalize_proposals(proposals, known_terms, src_text)
+    background_jobs.set_result(job_id, {"proposals": normalized, "run_id": run_id,
+                                        **paid_job_service.stop_fields(limits),
+                                        **_review_waiting(drama_id, normalized)})
+
+
+def _review_waiting(drama_id: int, proposals: list) -> dict:
+    """{"waiting": note} for the job's result when the Glossary tab will
+    offer at least one name (new to the glossary and not ignored), so the
+    bell and the push say there is something to review
+    (jobs_service.waiting_note); {} when there is none."""
+    new = [p["term"] for p in proposals if not p.get("already_in_glossary")]
+    try:
+        sid = (db.get_drama(drama_id) or {}).get("series_id")
+        ignored = db.list_dismissed_glossary_terms(sid, new) if sid and new else set()
+    except Exception:
+        # Only the count in a notification depends on this; the paid run's
+        # proposals must still be kept.
+        ignored = set()
+    count = sum(1 for term in new if term not in ignored)
+    if not count:
+        return {}
+    return {"waiting": {"text": f"{count} glossary name{'s' if count != 1 else ''} to review",
+                        "target": {"page": "glossary", "drama_id": drama_id}}}
 
 
 # The run_id of each extraction job id's latest started run, for the status
@@ -597,9 +619,10 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
     # windows, so a model-supplied one would be an unvetted alternatives source.
     proposals = [{k: v for k, v in p.items() if k != "renderings"}
                  for p in proposals if isinstance(p, dict)]
-    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms,
-                                                                  "\n".join(source_lines)),
-                                        "run_id": run_id, **paid_job_service.stop_fields(limits)})
+    normalized = _normalize_proposals(proposals, known_terms, "\n".join(source_lines))
+    background_jobs.set_result(job_id, {"proposals": normalized, "run_id": run_id,
+                                        **paid_job_service.stop_fields(limits),
+                                        **_review_waiting(drama_id, normalized)})
 
 
 def _chapter_source_lines(drama_id: int, chapter: int) -> list:

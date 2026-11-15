@@ -53,6 +53,8 @@ button.notify-bell-btn[aria-expanded='true'] { color: var(--text); }
 
 @media (pointer: coarse), (max-width: 640px) {
   button.notify-bell-btn { min-width: 44px; min-height: 44px; padding-inline: 0; }
+  /* Start Live and Open: one size, and a full 44px box rather than the dense ::after hit area. */
+  .notify-action .btn.btn-sm { min-height: 44px; }
 }
 @media (max-width: 640px) {
   /* Phones: the panel spans the header (the page's 16px gutters) under the bell; the sticky header is its containing block. */

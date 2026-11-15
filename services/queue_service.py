@@ -69,6 +69,7 @@ IDLE, ACTIVE, PAUSED = "idle", "running", "paused"
 _HHMM = re.compile(r"^([01][0-9]|2[0-3]):([0-5][0-9])$")
 _MAX_REASON = 300
 _STOPPED_AFTER_FAILURE = "Stopped because an item failed. Start the queue to go on."
+_STOPPED_MESSAGE = "The queue stopped because an item failed. Start the queue to go on."
 _INTERRUPTED = "Interrupted: Baihe stopped while this ran. Press Retry to run it again."
 _WAITING_FOR_CAP = ("Waiting for other jobs of the account that added it to finish; it "
                     "starts when one of them ends.")
@@ -813,6 +814,7 @@ def tick(now: float | None = None) -> None:
         finished, status, reason = _job_outcome(running_job)
         if not finished:
             return
+        stopped_for = None
         with _lock:
             doc = _load()
             item = next((i for i in doc["items"] if i["id"] == running["id"]), None)
@@ -821,8 +823,21 @@ def tick(now: float | None = None) -> None:
                 if status == FAILED and doc["stop_on_failure"]:
                     doc["state"] = IDLE
                     doc["notice"] = _STOPPED_AFTER_FAILURE
+                    stopped_for = item
             _save(doc)
+        if stopped_for is not None:
+            _announce_stop(stopped_for)
     _start_next(now)
+
+
+def _announce_stop(item: dict) -> None:
+    """Once per stop: only the tick that moves the item off RUNNING gets here. The Jobs page's
+    notice has no subject, which a phone message needs. It names no title, so the push may say
+    the same; the bell entry is the adder's (and the PC owner's and admins')."""
+    from services import notification_service
+    notification_service.notify_waiting(_STOPPED_MESSAGE, push_text=_STOPPED_MESSAGE,
+                                        owner_user_id=item.get("user_id"),
+                                        target={"page": "jobs"})
 
 
 def _start_next(now: float, deferred=frozenset()) -> None:
