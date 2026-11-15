@@ -43,8 +43,8 @@ test('the rail lists every page in groups and each item navigates and becomes cu
   }
 })
 
-test('on a title, the reader and a comic the title row is current, not Library, and the title shows under it', async ({ page }) => {
-  for (const hash of ['#/drama/2/review', '#/read/2', '#/comic/2']) {
+test('on a title, the reader, the Watch page and a comic the title row is current, not Library, and the title shows under it', async ({ page }) => {
+  for (const hash of ['#/drama/2/review', '#/read/2', '#/watch/2', '#/comic/2']) {
     await page.goto(`/${hash}`)
     const row = page.getByTestId('rail-title')
     await expect(row).toBeVisible()

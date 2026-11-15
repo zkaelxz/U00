@@ -39,9 +39,9 @@ export function Icon({ d }: { d: string }) {
   )
 }
 
-// Only drama, reader and comic routes name a title; the viewers' own pages already show it, so this just labels the rail row.
+// Only drama, reader, Watch and comic routes name a title; the viewers' own pages already show it, so this just labels the rail row.
 function openTitleId(route: Route): number | null {
-  return route.name === 'drama' || route.name === 'read' || route.name === 'comic' ? route.id : null
+  return route.name === 'drama' || route.name === 'read' || route.name === 'watch' || route.name === 'comic' ? route.id : null
 }
 
 // The title row, not Library, is the current page while it shows: one row says where you are, in every mode.
