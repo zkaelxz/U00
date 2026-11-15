@@ -600,7 +600,7 @@ export interface paths {
         put?: never;
         /**
          * Import chosen dramas from an uploaded backup file as new dramas (confirm=true, confirm_text=RESTORE)
-         * @description Multipart: file, drama_ids (repeat the field; ids as listed by /import/list), confirm (the string "true"), confirm_text, join_series ("true" merges each series into one of the same name here; otherwise it comes in as a new series).
+         * @description Multipart: file, drama_ids (repeat the field; ids as listed by /import/list), confirm (the string "true"), confirm_text, join_series ("true" merges each series into one of the same name here; otherwise it comes in as a new series), voice_bank ("true" adds the file's voice bank entries), settings ("true" takes the file's Translation and Preferences settings; never keys or paths).
          */
         post: operations["post_import_api_backups_import_post"];
         delete?: never;
@@ -13433,6 +13433,17 @@ export interface components {
              * @description The file has columns this version doesn't know; they are ignored.
              */
             schema_differs: boolean;
+            /**
+             * Settings Available
+             * @default false
+             */
+            settings_available: boolean;
+            /**
+             * Voice Bank Entries
+             * @description Voice bank entries whose clip the file holds (none in a database-only file).
+             * @default 0
+             */
+            voice_bank_entries: number;
         };
         /** BackupJobStarted */
         BackupJobStarted: {
@@ -20048,6 +20059,11 @@ export interface components {
             imported: components["schemas"]["ImportedDrama"][];
             /** Media Imported */
             media_imported: number;
+            /**
+             * Notes
+             * @default []
+             */
+            notes: string[];
             /** Series Created */
             series_created: number;
             /**
@@ -20055,6 +20071,16 @@ export interface components {
              * @default 0
              */
             series_joined: number;
+            /**
+             * Settings Imported
+             * @default 0
+             */
+            settings_imported: number;
+            /**
+             * Voice Bank Imported
+             * @default 0
+             */
+            voice_bank_imported: number;
         };
         /** ImportedDrama */
         ImportedDrama: {
@@ -33532,6 +33558,8 @@ export interface operations {
                     /** Format: binary */
                     file: string;
                     join_series?: string;
+                    settings?: string;
+                    voice_bank?: string;
                 };
             };
         };
