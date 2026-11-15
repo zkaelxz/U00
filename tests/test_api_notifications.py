@@ -593,7 +593,7 @@ def test_status_is_booleans_only(env):
     assert r.status_code == 200
     assert r.json() == {"discord_configured": True, "ntfy_configured": True,
                         "ntfy_allow_local": False, "send_jobs": True, "send_chapters": True,
-                        "send_remote": True}
+                        "send_remote": True, "show_private_titles": False}
     _no_secret(r.text)
 
 
@@ -898,6 +898,41 @@ def test_push_leaves_out_a_private_drama_title_but_the_in_app_list_keeps_it(env,
                                                 "Finished: Translation"]
     assert _texts() == ["Finished: Translation - Secret Garden",
                         "Finished: Translation - Open Garden"]
+
+
+def test_messages_name_the_series_and_the_private_switch_lifts_the_household_rule(env, no_timer):
+    _write(env, discord=DISCORD)
+    open_series = db.get_or_create_series("Willow Lane")
+    secret_series = db.get_or_create_series("Hidden Row", owner_user_id=5, is_private=True)
+    shared = db.create_drama(title_en="Open Garden", series_id=open_series)
+    in_secret = db.create_drama(title_en="Quiet Room", series_id=secret_series)
+    private = db.create_drama(title_en="Secret Garden", owner_user_id=5, is_private=1)
+
+    def pushes():
+        ns._pending.clear()
+        for did in (shared, in_secret, private):
+            ns.notify_job_finished(f"Translation (drama #{did})", "done", job_id=f"translate_{did}")
+        return [m for _s, m, _c in ns._pending]
+
+    assert ns.get_status()["show_private_titles"] is False
+    assert pushes() == ["Finished: Translation - Open Garden (Willow Lane)",
+                        "Finished: Translation", "Finished: Translation"]
+    assert ns.set_categories(private_titles=True)["show_private_titles"] is True
+    assert pushes() == ["Finished: Translation - Open Garden (Willow Lane)",
+                        "Finished: Translation - Quiet Room (Hidden Row)",
+                        "Finished: Translation - Secret Garden"]
+    assert ns.set_categories(jobs=False)["show_private_titles"] is True   # untouched
+    assert ns.set_categories(private_titles=False)["show_private_titles"] is False
+
+
+def test_private_titles_switch_route_is_pc_only(env):
+    remote = TestClient(create_app(ApiSettings(auth_mode="on", allow_key_writes=True)),
+                        base_url=REMOTE, raise_server_exceptions=False)
+    assert remote.post("/api/settings/notifications/categories", json={"private_titles": True},
+                       headers=session_headers(_session(True))).status_code == 403
+    assert ns.show_private_titles() is False
+    r = _client().post("/api/settings/notifications/categories", json={"private_titles": True})
+    assert r.status_code == 200 and r.json()["show_private_titles"] is True
 
 
 def test_ids_increase_but_do_not_count_hidden_events(env, no_timer, monkeypatch):
