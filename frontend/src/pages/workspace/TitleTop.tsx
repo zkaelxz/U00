@@ -1,6 +1,6 @@
 /** The top of an audio or video title's Simple pages: the header with the title's controls, the step links and the one main button. */
 // On a phone the steps fold behind one "Step N of 5" button and the other controls behind More, so the page's own content starts high.
-import { useId, useState, type ReactNode } from 'react'
+import { useId, useRef, useState, type ReactNode } from 'react'
 
 import { openDramaFolder } from '../../api/library'
 import type { DramaDetail } from '../../api/types'
@@ -119,6 +119,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
   const [moreOpen, setMoreOpen] = useState(false)
   const [foldOpen, setFoldOpen] = useState(false)
   const moreId = useId()
+  const phoneMore = useRef<HTMLButtonElement>(null)
   const foldId = useId()
   const steps = titleSteps(progress)
   const current = steps.find((s) => s.state === 'current')
@@ -132,7 +133,13 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
       {hasLines && <ButtonLink href={to.transcribe}>Redo transcription</ButtonLink>}
       <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>Glossary</ButtonLink>
       {hasLines && onSearch && (
-        <button type="button" className={buttonClass('secondary')} onClick={() => { setFoldOpen(false); setMoreOpen(false); onSearch() }}>Search</button>
+        <button type="button" className={buttonClass('secondary')} onClick={() => {
+          setFoldOpen(false)
+          setMoreOpen(false)
+          // A phone's Search is inside More's panel, which this press closes. The lines move the focus to their search box once they are on All; until then, and if a draft they cannot save refuses the change, it stays on the button that opened the panel.
+          phoneMore.current?.focus()
+          onSearch()
+        }}>Search</button>
       )}
     </>
   )
@@ -167,7 +174,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
         <JobPill dramaId={id} onFinished={onJobFinished} />
         {phone ? (
           <>
-            <button type="button" className={buttonClass('secondary', undefined, 'title-top-more')} aria-expanded={moreOpen} aria-controls={moreId} onClick={() => { setFoldOpen(false); setMoreOpen((o) => !o) }}>
+            <button type="button" ref={phoneMore} className={buttonClass('secondary', undefined, 'title-top-more')} aria-expanded={moreOpen} aria-controls={moreId} onClick={() => { setFoldOpen(false); setMoreOpen((o) => !o) }}>
               More
             </button>
             <button type="button" className={buttonClass('secondary', undefined, 'steps-fold-toggle')} aria-expanded={foldOpen} aria-controls={foldId} onClick={() => { setMoreOpen(false); setFoldOpen((o) => !o) }}>

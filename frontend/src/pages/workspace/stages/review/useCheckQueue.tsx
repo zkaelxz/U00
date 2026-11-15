@@ -39,6 +39,8 @@ interface Deps {
   // The view `data` was loaded for, and whether it is the answer to the latest view and reload asked for.
   dataFilter: LineFilter | null
   settled: boolean
+  // The error of the latest load; a new one means the view asked for is not coming.
+  loadError: unknown
   // The first page of lines is on its way.
   loading: boolean
   allTotal: number | null
@@ -117,6 +119,10 @@ export function useCheckQueue(d: Deps) {
   const toView = async (f: LineFilter) => {
     if (await d.changeFilter(f)) reveal.current = pending.current === null
   }
+  // A load that fails leaves the request unanswered, and a later render must not scroll for it.
+  useEffect(() => {
+    if (d.loadError) reveal.current = false
+  }, [d.loadError])
   useEffect(() => {
     if (!reveal.current || d.dataFilter !== d.filter || !d.settled) return
     reveal.current = false

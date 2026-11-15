@@ -445,6 +445,27 @@ test.describe(() => {
     await expectNoSidewaysScroll(page)
   })
 
+  test('Search refused by a draft that cannot be saved leaves the focus on More, which opened the panel', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/review')
+    const cards = page.locator('.review-line')
+    await expect(cards.locator('.review-idx')).toHaveText('Line 24')
+    await page.route('**/api/lines/dramas/3/lines/*', (route) => route.request().method() === 'POST'
+      ? route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'Could not save.' } } })
+      : route.fallback())
+    await cards.getByTestId('line-en').tap()
+    await cards.getByRole('textbox', { name: 'Translation' }).fill('A change that cannot be saved')
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await headerMore(page).tap()
+    await page.locator('.steps-fold-controls').getByRole('button', { name: 'Search', exact: true }).tap()
+    await expect(headerMore(page)).toHaveAttribute('aria-expanded', 'false')
+    // Still on the queue with the draft kept: the change to All was refused.
+    await expect(page.getByTestId('queue-position')).toBeVisible()
+    await expect(page.getByRole('searchbox', { name: 'Search lines' })).toHaveCount(0)
+    await expect(headerMore(page)).toBeFocused()
+  })
+
   test('the title page on the Check step: the card first, then the footer and the tools, all clear of the bottom bar', async ({ page }) => {
     seedCheckLines({ audio: true })
     await mockPeaks(page)

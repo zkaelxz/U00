@@ -9,7 +9,7 @@ import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import type { CheckLead } from '../../StageContext'
 import {
-  checkedText, fineText, markRestBlocker, markRestView, otherFineText, restUnchecked, untranslatedText, type QueueCounts,
+  askedReason, checkedText, fineText, markRestBlocker, markRestView, otherFineText, restUnchecked, untranslatedText, type QueueCounts,
 } from './checkQueueModel'
 import { MARK_REVIEWED_HELP, markEpisodeReviewedText } from './markEpisodeReviewedText'
 
@@ -96,16 +96,17 @@ export function CheckQueueFooter({ dramaId, queuePage, counts, jobRunning, settl
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [note, setNote] = useState<string | null>(null)
-  const [asked, setAsked] = useState(false)
+  const [askedFor, setAskedFor] = useState<string | null>(null)
   const reasonId = useId()
   const helpId = useId()
   const other = otherFineText(counts)
   const rest = restUnchecked(counts) > 0
   const blocker = markRestBlocker(queuePage, jobRunning)
   const untranslated = untranslatedText(counts.untranslated)
-  // A reason asked for stays on screen only while it is true, and a later one is not shown before its own press.
-  if (asked && !blocker) setAsked(false)
-  const markRest = markRestView(blocker, asked, settled)
+  // A reason asked for stays on screen only while it is the one that blocks; another reason, or the same one after it lifted, is not shown before its own press.
+  const asked = askedReason(askedFor, blocker)
+  if (askedFor !== asked) setAskedFor(asked)
+  const markRest = markRestView(blocker, asked !== null, settled)
   if (!other && !rest && !untranslated && !note && !error) return null
 
   const run = () => {
@@ -131,7 +132,7 @@ export function CheckQueueFooter({ dramaId, queuePage, counts, jobRunning, settl
             {/* While it cannot run it is still a link: pressing it says why, instead of a greyed button with the reason always on screen. */}
             {markRest.control === 'say-why' ? (
               <button type="button" className="check-queue-link" disabled={markRest.disabled} aria-label="Mark the rest as checked"
-                      aria-describedby={markRest.reason ? reasonId : undefined} onClick={() => setAsked(true)}>
+                      aria-describedby={markRest.reason ? reasonId : undefined} onClick={() => setAskedFor(blocker)}>
                 Mark the rest as checked…
               </button>
             ) : (

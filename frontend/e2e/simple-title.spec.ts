@@ -1,4 +1,4 @@
-import { clearCheckLines, GLOSSARY_SENTENCE, joinSeries, leaveSeries, mockPeaks, seedCheckLines, seedLines } from './compareSelectedHelpers'
+import { clearCheckLines, GLOSSARY_SENTENCE, joinSeries, leaveSeries, mockPeaks, seedCheckLines, seedLines, seedOneFlaggedLine } from './compareSelectedHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
 import { clearLines } from './resegmentLlmMocks'
 import { serveJobs } from './workspaceJobPillMocks'
@@ -368,6 +368,22 @@ test.describe('the check queue', () => {
     await page.goto('/#/drama/3')
     await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   }
+
+  test('an open card that is the card\'s last row follows its rounded corners where the list card ends at it', async ({ page }) => {
+    seedOneFlaggedLine()
+    await page.setViewportSize({ width: 1100, height: 900 })
+    await simple(page)
+    const open = page.locator('.review-line.is-active')
+    await expect(open).toBeVisible()
+    const radii = () => open.evaluate((el) => {
+      const [list, row] = [getComputedStyle(el.closest('.review-list-card')!), getComputedStyle(el)]
+      return { card: parseFloat(list.borderBottomLeftRadius), left: parseFloat(row.borderBottomLeftRadius), right: parseFloat(row.borderBottomRightRadius) }
+    })
+    const r = await radii()
+    expect(r.card, 'the list card has rounded corners').toBeGreaterThan(8)
+    expect(r.left, 'the open card\'s bottom left follows the list card\'s corner').toBeCloseTo(r.card - 1, 0)
+    expect(r.right, 'the open card\'s bottom right follows the list card\'s corner').toBeCloseTo(r.card - 1, 0)
+  })
 
   test('opens on the lines that need a look, says why, and moves on as each one is checked', async ({ page }) => {
     seedCheckLines({ untranslated: true })
@@ -1335,13 +1351,15 @@ test.describe('the check queue', () => {
     await expect(page.locator('.review-line').first()).toBeVisible()
     // One reading per frame of the All pill's place and the first row of the list, from before the button to after it.
     await page.evaluate(() => {
-      const w = window as unknown as { rec: { all: number | null; row: number | null }[]; stop: boolean }
+      const w = window as unknown as { rec: { all: number | null; row: number | null; first: number | null }[]; stop: boolean }
       w.rec = []
       w.stop = false
       const frame = () => {
         const all = document.querySelectorAll('.check-queue-switch label')[1]
         const row = document.querySelector('.review-line')
-        w.rec.push({ all: all ? all.getBoundingClientRect().x : null, row: row ? row.getBoundingClientRect().y : null })
+        // The first row's own height is read from before the button, while it holds only its place.
+        const first = document.querySelector('.review-queue-row')
+        w.rec.push({ all: all ? all.getBoundingClientRect().x : null, row: row ? row.getBoundingClientRect().y : null, first: first ? first.getBoundingClientRect().height : null })
         if (!w.stop) requestAnimationFrame(frame)
       }
       frame()
@@ -1351,15 +1369,18 @@ test.describe('the check queue', () => {
     await expect(page.getByRole('button', { name: 'Check the 3 lines', exact: true })).toBeVisible()
     await page.waitForTimeout(400)
     const rec = await page.evaluate(() => {
-      const w = window as unknown as { rec: { all: number | null; row: number | null }[]; stop: boolean }
+      const w = window as unknown as { rec: { all: number | null; row: number | null; first: number | null }[]; stop: boolean }
       w.stop = true
       return w.rec
     })
     const alls = rec.map((r) => r.all).filter((x): x is number => x !== null)
     const rows = rec.map((r) => r.row).filter((y): y is number => y !== null)
+    const heights = rec.map((r) => r.first).filter((h): h is number => h !== null)
     expect(alls.length, 'the pills were drawn').toBeGreaterThan(3)
     expect(Math.max(...alls) - Math.min(...alls), 'the All pill never moved once drawn').toBeLessThanOrEqual(1)
     expect(Math.max(...rows) - Math.min(...rows), 'the list never moved under the row').toBeLessThanOrEqual(1)
+    expect(heights.length, 'the first row was drawn before the button arrived').toBeGreaterThan(30)
+    expect(Math.max(...heights) - Math.min(...heights), 'the first row kept its height when the button arrived').toBeLessThanOrEqual(1)
   })
 
   test('the list is one white card: the open card has an accent edge, a closed row a clear one, no ⋯, and the footer is its last line', async ({ page }) => {
@@ -1477,15 +1498,19 @@ test.describe('the check queue', () => {
     await simple(page)
     await page.goto('/#/drama/3/review')
     await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await page.getByRole('button', { name: 'Read them all' }).scrollIntoViewIfNeeded()
+    expect(await page.evaluate(() => window.scrollY), 'the page is scrolled past the start of the list').toBeGreaterThan(0)
     await page.getByRole('button', { name: 'Read them all' }).click()
     await expect(allRadio(page)).toBeChecked()
     await expect(page.locator('.review-line').nth(5)).toBeVisible()
     const first = await page.locator('.review-line').first().evaluate((el) => {
       const r = el.getBoundingClientRect()
-      return { top: r.top, bottom: r.bottom, height: window.innerHeight }
+      const bar = document.querySelector('.review-toolbar')
+      const stuck = bar && getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().bottom : 0
+      return { top: r.top, bottom: r.bottom, height: window.innerHeight, under: stuck }
     })
-    expect(first.top, 'the first line is not above the window').toBeGreaterThanOrEqual(0)
-    expect(first.bottom).toBeLessThanOrEqual(first.height)
+    expect(first.top, 'the first line is not above the window or under the sticky bar').toBeGreaterThanOrEqual(Math.max(0, first.under) - 1)
+    expect(first.bottom, 'the first line ends inside the window').toBeLessThanOrEqual(first.height)
   })
   test('with the tools beside it, the queue\'s card reaches the bottom of the window without making the page scroll', async ({ page }) => {
     seedCheckLines()

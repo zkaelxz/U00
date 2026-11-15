@@ -528,6 +528,9 @@ export function markRestBlocker(queuePage: ReviewLinesPage, jobRunning: boolean)
  * once pressed (`asked`); a reason nobody asked for is not shown. Unblocked, it is the two-step button. Still loading
  * (`!settled`) it is disabled either way: the page shown may miss a line that now needs a look.
  */
+/** The reason a press asked for, kept only while it is still the one that blocks: another reason, or none, waits for its own press. */
+export const askedReason = (askedFor: string | null, blocker: string | null): string | null => (blocker !== null && askedFor === blocker ? askedFor : null)
+
 export function markRestView(blocker: string | null, asked: boolean, settled: boolean): { control: 'say-why' | 'confirm'; disabled: boolean; reason: string | null } {
   return { control: blocker ? 'say-why' : 'confirm', disabled: !settled, reason: blocker && asked ? blocker : null }
 }

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import {
-  alsoUnsureText, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, markRestView, nextAfterCheck, nextText, otherFineText,
+  alsoUnsureText, askedReason, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, markRestView, nextAfterCheck, nextText, otherFineText,
   placeText, queueAction, queueCounts, queuePlace, queueReason, QUEUE_FLAG_KINDS, restUnchecked, UNSURE_FIRST, untranslatedText, WHOLE_LIST_FIRST,
 } from './checkQueueModel'
 
@@ -366,6 +366,18 @@ describe('markRestBlocker', () => {
 
   it('waits for a running job', () => {
     expect(markRestBlocker(page([]), true)).toBe(JOB_RUNNING_TEXT)
+  })
+})
+
+describe('askedReason', () => {
+  it('keeps the reason that was asked for while it still blocks', () => {
+    expect(askedReason(UNSURE_FIRST, UNSURE_FIRST)).toBe(UNSURE_FIRST)
+  })
+
+  it('does not show a different blocker, or the same one after it lifted, before its own press', () => {
+    expect(askedReason(UNSURE_FIRST, JOB_RUNNING_TEXT)).toBeNull()
+    expect(askedReason(UNSURE_FIRST, null)).toBeNull()
+    expect(askedReason(null, JOB_RUNNING_TEXT)).toBeNull()
   })
 })
 
