@@ -44,3 +44,16 @@ test('the workspace strip and Review toolbar sit under the header, not behind it
   }
   expect(await noSideways(page)).toBe(true)
 })
+
+for (const width of [660, 700]) {
+  test(`${width} px beside the docked menu: the page does not scroll sideways`, async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('baihe.navDock', 'docked'))
+    await page.setViewportSize({ width, height: 800 })
+    await page.goto('/#/library')
+    await expect(page.getByTestId('stats')).toBeVisible()
+    expect(await noSideways(page)).toBe(true)
+    const header = (await page.locator('.app-header').boundingBox())!
+    const end = (await page.locator('.header-end').boundingBox())!
+    expect(end.x + end.width, 'controls end inside the header').toBeLessThanOrEqual(header.x + header.width + 1)
+  })
+}

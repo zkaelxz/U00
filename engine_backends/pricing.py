@@ -310,13 +310,12 @@ def estimate_text_tokens(text: str) -> float:
 
 
 def estimate_translation_cost(engine, zh_lines: list, batch_size: int | None = None) -> float:
-    """Rough pre-run estimate of a normal single-pass translation run,
-    from the lines' own character count. For token-billed engines this
-    uses a tokenizer-free heuristic (a token per CJK character, ~3.5 chars/token otherwise) -- an
-    order-of-magnitude estimate, not a precise bill. batch_size: every batch
-    re-sends the instructions, so a run in many batches costs more input
-    than one request carrying all the lines."""
-    return estimate_cost_for_engine(engine, *estimate_translation_tokens(zh_lines, batch_size))
+    """Rough pre-run estimate of a normal single-pass translation run with the
+    bare instructions (estimate_run_tokens: the real reply size, and every batch
+    re-sending the instructions when batch_size is given). Tokenizer-free, so an
+    estimate, not a bill; a title's own glossary and style guide are not known here."""
+    inp, out, _ = estimate_run_tokens(zh_lines, batch_size or len(zh_lines) or 1)
+    return estimate_cost_for_engine(engine, inp, out)
 
 
 def estimate_translation_tokens(zh_lines: list, batch_size: int | None = None) -> tuple:
@@ -335,6 +334,59 @@ def estimate_translation_tokens(zh_lines: list, batch_size: int | None = None) -
     input_tokens = int(source_tokens) + batches * per_batch_prompt
     output_tokens = int(chars / 2.5)  # English translations tend to run a bit longer than CJK source
     return input_tokens, output_tokens
+
+
+# A translate run's real output ran about 2.5x the reply text it saved (11 finished
+# Sonnet 5.5 runs in the usage log: 2.2-3.2x, median 2.7): hidden reasoning, batch
+# retries and the pronoun re-check all bill as output, and output costs 5x input.
+RUN_OUTPUT_FACTOR = 2.5
+# Per line: the JSON key and quotes around its translation in the reply.
+REPLY_TOKENS_PER_LINE = 6
+# Per line: its number in the request.
+REQUEST_TOKENS_PER_LINE = 3
+
+
+def estimate_run_tokens(zh_lines: list, batch_size: int, stable_text: str | None = None,
+                        context_lines: tuple = (0, 0)) -> tuple:
+    """(input, output, repeated) tokens for a translate run as it really sends
+    it, which estimate_translation_tokens does not know about: the title's own
+    prompt (stable_text: style guide, glossary, summary of the last episode; the
+    bare instructions when omitted), the neighbouring lines each batch carries
+    (context_lines = (lines before, lines after)) and the reply's extra output.
+    `repeated` is the part of the input that is the same in every batch, which
+    an engine with a prompt cache bills at a tenth after the first."""
+    from .prompts import build_stable_system_text
+    if not zh_lines:
+        return 0, 0, 0
+    source_tokens = sum(estimate_text_tokens(z) for z in zh_lines)
+    batches = -(-len(zh_lines) // max(batch_size or len(zh_lines), 1))
+    stable_tokens = int(estimate_text_tokens(
+        stable_text if stable_text is not None else build_stable_system_text({})))
+    per_line = source_tokens / len(zh_lines)
+    before, after = context_lines
+    # A preceding line is shown with its English, which runs about as long as the source.
+    per_batch_context = int(per_line * (2 * before + after))
+    input_tokens = (int(source_tokens) + REQUEST_TOKENS_PER_LINE * len(zh_lines)
+                    + batches * (stable_tokens + 300 + per_batch_context))
+    reply = source_tokens + REPLY_TOKENS_PER_LINE * len(zh_lines)
+    return input_tokens, int(reply * RUN_OUTPUT_FACTOR), (batches - 1) * stable_tokens
+
+
+def estimate_episode_brief_tokens(zh_lines: list) -> tuple:
+    """(input, output) of the whole-episode pre-read, which llm_tasks.generate_episode_brief
+    cuts at EPISODE_BRIEF_SOURCE_CHARS; its answer is capped at 700 tokens and a
+    real one was 512."""
+    from .llm_tasks import EPISODE_BRIEF_SOURCE_CHARS
+    text = "\n".join(z for z in zh_lines)[:EPISODE_BRIEF_SOURCE_CHARS]
+    return int(estimate_text_tokens(text)) + 300, 600
+
+
+def estimate_episode_summary_tokens(zh_lines: list) -> tuple:
+    """(input, output) of the once-per-episode summary written at the end of a run:
+    the prompt plus the whole finished English (about a token per source character),
+    and a few sentences back (a real one ran 90-140 tokens, the call allows 500)."""
+    source_tokens = sum(estimate_text_tokens(z) for z in zh_lines)
+    return int(source_tokens) + REPLY_TOKENS_PER_LINE * len(zh_lines) + 250, 200
 
 
 def estimate_reflect_mode_cost(engine, zh_lines: list, batch_size: int | None = None) -> float:
