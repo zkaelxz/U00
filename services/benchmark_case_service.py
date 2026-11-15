@@ -7,7 +7,6 @@ loop, scoring and persistence stay in benchmark_lab_service.
 import json
 import os
 import re
-import tempfile
 import time
 
 import audio_preprocess
@@ -15,6 +14,7 @@ import background_jobs
 import benchmark
 import db
 import long_line_split
+import storage
 import sensitivity_preset as presets
 from engine_backends import shared, pricing, engine_registry
 import whisper_models
@@ -263,7 +263,7 @@ def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str | None =
             raise background_jobs.JobCancelled()
 
     try:
-        with tempfile.TemporaryDirectory(prefix="benchmark_") as scratch:
+        with storage.job_workdir("benchmark") as scratch:
             timing = difficult.mark(timing_settings_service.values(), options)
             prepared = difficult.prepare(
                 _Reporter(cancelled), os.path.join(db.BENCHMARK_DIR, case["input_filename"]), scratch, "whisper",
