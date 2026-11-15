@@ -9,7 +9,9 @@ writes, or deletes anything in your actual library.
 import contextlib
 import sys
 import os
+import atexit
 import shutil
+import stat
 import tempfile
 import threading
 import time
@@ -39,7 +41,63 @@ import db
 # pointed at a temp library here, before any test module is imported, and
 # isolated_db still gives each test that asks a fresh one on top.
 REAL_LIBRARY_DIR = os.path.abspath(db.LIBRARY_DIR)
+def rmtree_retrying(path, tries=5, pause=0.5):
+    """Windows can't delete a sqlite file something still has open, and
+    ignore_errors=True then leaves the folder in %TEMP% for good. The
+    handle is usually released a moment later, so retry before giving up."""
+    if os.name != "nt":
+        tries = 1   # POSIX unlinks open files, so one pass is enough
+
+    def _clear_readonly(func, p, _exc):
+        # A read-only file (a copied model or db file) also blocks the delete on Windows.
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass
+
+    for attempt in range(tries):
+        shutil.rmtree(path, onerror=_clear_readonly)
+        if not os.path.exists(path):
+            return
+        if attempt < tries - 1:
+            time.sleep(pause)
+
+
+_STALE_TEST_DIR_AGE = 2 * 3600
+
+
+def sweep_stale_test_dirs(root=None, max_age=_STALE_TEST_DIR_AGE):
+    """Removes baihe_test_* folders that earlier runs left behind (a killed
+    run or a Windows file lock skips the normal cleanup). The age limit
+    keeps it from touching the folders of a run that is still going in
+    another terminal. Only directories: baihe_tmp_ is also the app's own
+    prefix for temp files, so it is not ours to sweep."""
+    root = root or tempfile.gettempdir()
+    cutoff = time.time() - max_age
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return
+    for name in names:
+        if not name.startswith("baihe_test_"):
+            continue
+        path = os.path.join(root, name)
+        try:
+            if os.path.isdir(path) and not os.path.islink(path) and os.path.getmtime(path) < cutoff:
+                rmtree_retrying(path, tries=2, pause=0.2)
+        except OSError:
+            pass
+
+
+# xdist workers import this file too; only the controller sweeps, so a
+# worker never deletes a sibling's freshly made folder.
+if "PYTEST_XDIST_WORKER" not in os.environ:
+    sweep_stale_test_dirs()
 _SESSION_ROOT = tempfile.mkdtemp(prefix="baihe_test_session_")
+# pytest_unconfigure covers normal, failed and Ctrl+C runs; atexit also
+# covers sys.exit and an unhandled error in pytest itself.
+atexit.register(rmtree_retrying, _SESSION_ROOT)
 db.configure_library_dir(os.path.join(_SESSION_ROOT, "library"))
 db.init_db()
 
@@ -87,26 +145,12 @@ def _real_library_audit_hook(event, args):
 sys.addaudithook(_real_library_audit_hook)
 
 
-def _rmtree_retrying(path, tries=5, pause=0.5):
-    """Windows can't delete a sqlite file something still has open, and
-    ignore_errors=True then leaves the folder in %TEMP% for good. The
-    handle is usually released a moment later, so retry before giving up."""
-    if os.name != "nt":
-        tries = 1   # POSIX unlinks open files, so one pass is enough
-    for attempt in range(tries):
-        shutil.rmtree(path, ignore_errors=True)
-        if not os.path.exists(path):
-            return
-        if attempt < tries - 1:
-            time.sleep(pause)
-
-
 def pytest_configure(config):
     config._baihe_real_library_hits = _REAL_LIBRARY_HITS
 
 
 def pytest_unconfigure(config):
-    _rmtree_retrying(_SESSION_ROOT)
+    rmtree_retrying(_SESSION_ROOT)
 
 
 @pytest.fixture(autouse=True)
@@ -367,7 +411,7 @@ def isolated_db(_template_library):
     db.init_db()
     yield db
     db.configure_library_dir(previous)
-    _rmtree_retrying(parent_dir)
+    rmtree_retrying(parent_dir)
 
 
 def _reset_background_jobs_memory():
@@ -432,7 +476,7 @@ def tmp_path_str():
     scattering str() conversions through the tests.)"""
     d = tempfile.mkdtemp(prefix="baihe_tmp_")
     yield d
-    _rmtree_retrying(d)
+    rmtree_retrying(d)
 
 
 @pytest.fixture
