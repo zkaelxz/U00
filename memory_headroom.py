@@ -63,7 +63,13 @@ _warned_unreadable = set()
 
 class HeadroomError(RuntimeError):
     """Raised before a load that would break the keep-free reserve. The
-    message is for the user."""
+    message is for the user. `vram_need_mb` is the GPU memory the model
+    needs (None for RAM), so the GPU guard can wait for room and start the
+    job again (jobs/gpu_guard.py)."""
+
+    def __init__(self, message: str, vram_need_mb: float | None = None):
+        super().__init__(message)
+        self.vram_need_mb = vram_need_mb
 
 
 def reserved_mb(memory: str) -> float:
@@ -185,7 +191,8 @@ def check_need(label: str, need_mb, memory: str, free_mb=None) -> None:
         f"Not loading {label}: it needs about {_gb(need_mb)} of {word}, {_gb(free_mb)} is free, "
         f"and {_gb(reserved)} is kept free for other programs (Settings > Advanced > Offline and performance > {setting}). "
         "The needed size is an estimate. To go ahead: unload another model (Settings > Loaded now, "
-        "once no job is running), use a smaller model or int8 where offered, or lower the setting.")
+        "once no job is running), use a smaller model or int8 where offered, or lower the setting.",
+        vram_need_mb=float(need_mb) if memory == "vram" else None)
 
 
 # The speech detectors take the whole file as a 16 kHz mono float32 array.
