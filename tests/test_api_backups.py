@@ -223,9 +223,10 @@ class TestLocal:
         r = _clean(client.get(f"{BASE}/settings"))
         assert r.status_code == 200
         body = r.json()
-        assert body["enabled"] is False and body["frequency"] == "daily"
+        assert body["enabled"] is True and body["frequency"] == "daily"
         assert body["include_media"] is False and body["folder"] == ""
-        assert body["next_run_at"] is None and body["running"] is False
+        assert body["problem"] is None and body["same_drive_as_library"] is True
+        assert body["next_run_at"] is not None and body["running"] is False
         assert body["copies"] == []
         snap = _clean(client.get(f"{BASE}/snapshot")).json()
         assert snap["exists"] is False and snap["copies"] == []

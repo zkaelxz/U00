@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page } from '@playwright/test'
-import { REMOTE_HEALTH_OFF } from './authMocks'
+import { BACKUP_SETTINGS_QUIET, REMOTE_HEALTH_OFF } from './authMocks'
 import { json } from './mockHelpers'
 import { LIVE_FORM_FALLBACK } from '../src/api/live'
 import type { LiveChatPage, LiveFormOptions } from '../src/types/live'
@@ -122,6 +122,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   await page.route((u) => u.pathname === '/api/jobs', (route) => json(route, { items: [] }))
   // The app shell's remote-access banner (PC only): remote access off.
   await page.route('**/api/diagnostics/remote-health', (route) => json(route, REMOTE_HEALTH_OFF))
+  await page.route('**/api/backups/settings', (route) => json(route, BACKUP_SETTINGS_QUIET))
   // No push stream: these specs drive the page through its polling fallback
   // (event-stream.spec.ts covers the pushed Live status).
   await page.route('**/api/events?*', (route) =>
