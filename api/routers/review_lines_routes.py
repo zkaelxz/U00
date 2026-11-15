@@ -27,7 +27,7 @@ _404_422 = error_responses(404, 422)
 
 
 @router.get("/dramas/{drama_id}/lines", dependencies=[require_permission("lines.read")], response_model=ReviewLinesPage,
-            summary="One page of a drama's lines, optionally only flagged/untranslated/unreviewed/shaky/risk",
+            summary="One page of a drama's lines, optionally only flagged/untranslated/unreviewed/shaky/risk/marked",
             responses=_404_422)
 def get_review_lines(drama_id: int = Path(ge=1), page: int = Query(1, ge=1),
                      page_size: int = Query(40, ge=1, le=200), only: str = "all"):
@@ -93,12 +93,13 @@ def get_review_line_original_text(drama_id: int = Path(ge=1), line_id: int = Pat
 
 @router.get("/dramas/{drama_id}/flagged-adjacent", dependencies=[require_permission("lines.read")],
             response_model=ReviewLinePosition,
-            summary="The nearest flagged (or unreviewed) line before/after a line, across pages",
+            summary="The nearest flagged (or unreviewed, or marked) line before/after a line, across pages",
             responses=_404_422)
 def get_review_flagged_adjacent(drama_id: int = Path(ge=1),
                                 direction: Literal["next", "prev"] = "next",
                                 from_line_id: Optional[int] = Query(None, ge=1),
                                 page_size: int = Query(40, ge=1, le=200), only: str = "all",
-                                kind: Literal["flagged", "unreviewed"] = "flagged"):
+                                kind: Literal["flagged", "unreviewed", "marked",
+                                              "flagged_or_marked"] = "flagged"):
     return review_lines_service.adjacent_flagged(drama_id, direction == "next", from_line_id,
                                                  page_size, only, kind)

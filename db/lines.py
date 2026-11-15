@@ -10,6 +10,7 @@ import db
 # core has no db dependency, so importing it here can't cycle.
 from core import LINE_FIELDS as _LINE_COLUMNS
 from core import LINE_LANGUAGES as _LINE_LANGUAGES
+from core import LINE_MARKS as _LINE_MARKS
 from core import lines_from_rows
 from lib.errors import ConflictError
 
@@ -40,6 +41,9 @@ def check_line_fields(declared):
     unknown = sorted(set(declared) - set(_LINE_COLUMNS))
     if unknown:
         raise ValueError(f"Unknown line column(s) in line_fields: {', '.join(unknown)}")
+    if "mark" in declared:
+        # A mark is a person's judgement; a job only clears one by changing the English.
+        raise ValueError("A job may not write a line's mark (line_fields names mark).")
     return frozenset(declared)
 
 
@@ -78,7 +82,18 @@ def line_value(ln, f):
     if f == "lang":
         # "" and None both mean "the title's language"; store one of them.
         return v or None
+    if f == "mark":
+        return _stored_mark(v)
     return "" if (f == "flag_note" and v is None) else v
+
+
+def _stored_mark(value):
+    """A mark as stored: NULL for none (never ""), else a core.LINE_MARKS value."""
+    if not value:
+        return None
+    if value not in _LINE_MARKS:
+        raise ValueError(f"Unknown line mark: {value!r}")
+    return value
 
 
 def update_line_fields_if(drama_id: int, line_id: int, values: dict, expected: dict) -> bool:
@@ -142,25 +157,67 @@ _CLEAR_STALE_WORDS = "word_timings = CASE WHEN zh IS ? THEN word_timings ELSE NU
 # text no longer applies.
 _CLEAR_STALE_CONFIDENCE = "confidence = CASE WHEN zh IS ? THEN confidence ELSE NULL END"
 _UNCHECK_ON_NEW_EN = "reviewed = CASE WHEN COALESCE(en, '') = COALESCE(?, '') THEN reviewed ELSE 0 END"
+# A mark judged the English as it was, so it goes the same way as the Checked mark.
+_UNMARK_ON_NEW_EN = "mark = CASE WHEN COALESCE(en, '') = COALESCE(?, '') THEN mark ELSE NULL END"
+_SQL_ON_NEW_EN = {"reviewed": _UNCHECK_ON_NEW_EN, "mark": _UNMARK_ON_NEW_EN}
+# _implied_writes' value for a column cleared only where the stored English differs.
+_IF_NEW_EN = object()
+
+
+def _refuse_checked_and_marked(written: dict):
+    """written: {column: stored value} of one row's write."""
+    if written.get("reviewed") and written.get("mark"):
+        # Checked says the English is right and a mark says it isn't; picking one here would
+        # hide the caller's bug.
+        raise ValueError("A line can't be both checked and marked.")
+
+
+def _implied_writes(written: dict, cols, full_sync: bool) -> dict:
+    """What every line write adds to `written` ({column: stored value}), so no service can
+    forget it: {column: value to store, or _IF_NEW_EN}. Setting a mark unchecks the line
+    and checking it clears the mark; a new English unchecks and unmarks it unless the
+    write sets that column itself (_unchecks)."""
+    implied = {}
+    for col, other, cleared in (("reviewed", "mark", 0), ("mark", "reviewed", None)):
+        if col in written:
+            continue
+        if written.get(other):
+            implied[col] = cleared
+        elif "en" in written and _unchecks(cols, full_sync, False, col):
+            implied[col] = _IF_NEW_EN
+    return implied
+
+
+def _implied_sql(implied: dict, new_en) -> tuple:
+    sets, args = [], []
+    for col, how in implied.items():
+        if how is _IF_NEW_EN:
+            sets.append(_SQL_ON_NEW_EN[col])
+            args.append(new_en)
+        else:
+            sets.append(f"{col} = ?")
+            args.append(how)
+    return sets, args
 
 
 def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
     """(sql, params) for one line's conditional UPDATE; validates columns."""
-    sets, args = [], []
+    written = {}
     for col, val in values.items():
         if col not in _LINE_COLUMNS:
             raise ValueError(f"Unknown line column: {col}")
-        sets.append(f"{col} = ?")
-        args.append(val)
+        written[col] = _stored_mark(val) if col == "mark" else val
+    _refuse_checked_and_marked(written)
+    sets, args = [f"{col} = ?" for col in written], list(written.values())
     if "zh" in values:
         sets.append(_CLEAR_STALE_WORDS)
         args.append(values["zh"])
         if "confidence" not in values:
             sets.append(_CLEAR_STALE_CONFIDENCE)
             args.append(values["zh"])
-    if "en" in values and "reviewed" not in values:
-        sets.append(_UNCHECK_ON_NEW_EN)
-        args.append(values["en"])
+    more_sets, more_args = _implied_sql(_implied_writes(written, values, False), values.get("en"))
+    sets += more_sets
+    args += more_args
     conds: list[str] = ["id = ?", "drama_id = ?"]
     cargs: list[object] = [line_id, drama_id]
     for col, val in (expected or {}).items():
@@ -181,6 +238,12 @@ def _line_cas_sql(drama_id: int, line_id: int, values: dict, expected: dict):
             cargs.append(val or "")
         elif col in ("zh", "en", "speaker", "flag", "flag_note"):
             conds.append(f"COALESCE({col}, '') = ?")
+            cargs.append(val or "")
+        elif col == "mark":
+            # Read leniently too (core._stored_line_mark): an unknown stored mark is no mark.
+            marks = ", ".join("?" for _ in _LINE_MARKS)
+            conds.append(f"CASE WHEN mark IN ({marks}) THEN mark ELSE '' END = ?")
+            cargs.extend(_LINE_MARKS)
             cargs.append(val or "")
         else:
             raise ValueError(f"Unknown expected column: {col}")
@@ -313,8 +376,10 @@ def _update_line(conn, drama_id: int, ln, cols, full_sync: bool, only_if_unchang
     lid = ln.id
     orig = getattr(ln, "orig", None)
     changed = [f for f in cols if orig is None or db.line_value(ln, f) != orig.get(f)]
+    written = {f: db.line_value(ln, f) for f in changed}
+    _refuse_checked_and_marked(written)
     sets = [f + " = ?" for f in changed]
-    values = [db.line_value(ln, f) for f in changed]
+    values = list(written.values())
     words = getattr(ln, "word_timings", None)
     outcome = None
     if full_sync and words is not None and (orig is None or words != orig.get("word_timings")):
@@ -331,9 +396,9 @@ def _update_line(conn, drama_id: int, ln, cols, full_sync: bool, only_if_unchang
         ln.confidence = None
         if orig is not None:
             orig["confidence"] = None
-    if "en" in changed and _unchecks(cols, full_sync, "reviewed" in changed):
-        sets.append(_UNCHECK_ON_NEW_EN)
-        values.append(db.line_value(ln, "en"))
+    more_sets, more_values = _implied_sql(_implied_writes(written, cols, full_sync), written.get("en"))
+    sets += more_sets
+    values += more_values
     if changed and only_if_unchanged:
         if orig is None:
             return False, None
@@ -365,6 +430,7 @@ def _unchanged_where(drama_id: int, ln, changed, orig: dict, guard_cols, guard_n
 
 def _insert_line(conn, drama_id: int, ln) -> int:
     """Inserts a full sync's new line and writes its id back onto it."""
+    _refuse_checked_and_marked({f: db.line_value(ln, f) for f in ("reviewed", "mark")})
     cur = conn.execute(
         f"INSERT INTO lines (drama_id, {', '.join(_LINE_COLUMNS)}, word_timings) "
         f"VALUES (?, {', '.join('?' for _ in _LINE_COLUMNS)}, ?)",
@@ -392,13 +458,13 @@ def _delete_dropped_lines(conn, drama_id: int, lines, existing: set, kept: set, 
     conn.executemany("DELETE FROM lines WHERE id = ?", [(lid,) for lid in removed])
 
 
-def _unchecks(cols, full_sync: bool, reviewed_changed: bool) -> bool:
-    """Whether a save that changes `en` also clears the Checked mark: yes unless
-    the writer set `reviewed` itself (a field-scoped save naming it, or a full
-    sync whose Line carries a new value)."""
-    if reviewed_changed:
+def _unchecks(cols, full_sync: bool, col_changed: bool, col: str = "reviewed") -> bool:
+    """Whether a save that changes `en` also clears the Checked mark (or, with
+    col="mark", the line's mark): yes unless the writer set that column itself
+    (a field-scoped save naming it, or a full sync whose Line carries a new value)."""
+    if col_changed:
         return False
-    return full_sync or "reviewed" not in cols
+    return full_sync or col not in cols
 
 
 def _rebase_saved_lines(lines, cols, full_sync: bool, words: dict):
@@ -409,11 +475,21 @@ def _rebase_saved_lines(lines, cols, full_sync: bool, words: dict):
         # save only writes what changes after this point.
         new_en = ("en" in cols and ln.orig is not None and ln.orig.get("en") != db.line_value(ln, "en")
                   and _unchecks(cols, full_sync, db.line_value(ln, "reviewed") != ln.orig.get("reviewed")))
+        # What _implied_writes added to the row's write; without a baseline the save
+        # can't tell whether the English changed, as for new_en.
+        written = {f: db.line_value(ln, f) for f in cols
+                   if ln.orig is None or db.line_value(ln, f) != ln.orig.get(f)}
+        implied = _implied_writes(written, cols, full_sync)
+        unchecked = "reviewed" in implied and implied["reviewed"] is not _IF_NEW_EN
+        unmarked = "mark" in implied and (implied["mark"] is not _IF_NEW_EN or ln.orig is not None)
         ln.orig = {**(ln.orig or {}), **{f: db.line_value(ln, f) for f in cols}}
-        if new_en and getattr(ln, "reviewed", False):
-            # The row was just unchecked (_UNCHECK_ON_NEW_EN); keep the object in step.
+        if (new_en or unchecked) and getattr(ln, "reviewed", False):
+            # The row was just unchecked (_UNCHECK_ON_NEW_EN, or a mark set); keep the object in step.
             ln.reviewed = False
             ln.orig["reviewed"] = False
+        if unmarked:
+            ln.mark = None
+            ln.orig["mark"] = None
         if words.get(id(ln)) == "written":
             ln.orig["word_timings"] = ln.word_timings
         elif words.get(id(ln)) == "cleared":
@@ -494,7 +570,7 @@ def _delete_line_refs(conn, line_id):
 
 
 _LOAD_COLUMNS = ("id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, "
-                 "speaker_manual, sfx, lang, reviewed, ass_event, confidence")
+                 "speaker_manual, sfx, lang, reviewed, ass_event, confidence, mark")
 
 
 def load_lines(drama_id: int, with_words: bool = False, ids=None):
@@ -520,7 +596,7 @@ def load_line_objects(drama_id: int, with_words: bool = False, ids=None):
     return lines_from_rows(db.load_lines(drama_id, with_words, ids))
 
 
-LineText = collections.namedtuple("LineText", "id idx zh en speaker flag flag_note reviewed confidence")
+LineText = collections.namedtuple("LineText", "id idx zh en speaker flag flag_note reviewed confidence mark")
 
 
 def load_line_texts(drama_id: int) -> list:
@@ -530,9 +606,13 @@ def load_line_texts(drama_id: int) -> list:
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.cursor()
         cur.row_factory = None
+        # Counts read the mark as load_lines' callers do (core._stored_line_mark).
+        marks = ", ".join("?" for _ in _LINE_MARKS)
+        columns = [f"CASE WHEN mark IN ({marks}) THEN mark END" if f == "mark" else f
+                   for f in db.LineText._fields]
         rows = cur.execute(
-            f"SELECT {', '.join(db.LineText._fields)} FROM lines WHERE drama_id = ? ORDER BY idx, id",
-            (drama_id,)).fetchall()
+            f"SELECT {', '.join(columns)} FROM lines WHERE drama_id = ? ORDER BY idx, id",
+            (*_LINE_MARKS, drama_id)).fetchall()
     return [db.LineText._make(r) for r in rows]
 
 

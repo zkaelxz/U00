@@ -60,7 +60,7 @@ class TestLines:
         assert client.get(f"{BASE}/{did}/lines?page=4&page_size=40").json()["lines"] == []
         assert set(body["lines"][0]) == {"id", "idx", "start", "end", "zh", "en", "speaker",
                                          "speaker_manual", "sfx", "flag", "flag_note",
-                                         "dub_filename", "lang", "reviewed", "confidence"}
+                                         "dub_filename", "lang", "reviewed", "confidence", "mark"}
 
     def test_only_filters(self, client):
         did = _seed_big()
@@ -68,6 +68,22 @@ class TestLines:
         assert r["total"] == 10 and all(l["flag"] for l in r["lines"])
         r = client.get(f"{BASE}/{did}/lines?only=untranslated").json()
         assert r["total"] == 5 and all(l["en"] == "" for l in r["lines"])
+
+    def test_marked_filter_count_and_adjacent_kinds(self, client):
+        did = _seed_big()
+        ids = _line_ids(did)
+        for i in (3, 7):
+            assert db.update_line_fields_if(did, ids[i], {"mark": "wrong"}, {})
+        r = client.get(f"{BASE}/{did}/lines?only=marked").json()
+        assert (r["total"], r["marked_count"]) == (2, 2)
+        assert [l["idx"] for l in r["lines"]] == [3, 7] and {l["mark"] for l in r["lines"]} == {"wrong"}
+        r = client.get(f"{BASE}/{did}/flagged-adjacent?kind=marked&from_line_id={ids[3]}")
+        assert r.status_code == 200 and r.json()["idx"] == 7
+        r = client.get(f"{BASE}/{did}/flagged-adjacent?kind=flagged_or_marked&from_line_id={ids[3]}")
+        assert r.status_code == 200 and r.json()["idx"] == 7
+        r = client.get(f"{BASE}/{did}/flagged-adjacent?kind=flagged_or_marked&from_line_id={ids[7]}")
+        assert r.json()["idx"] == 10
+        assert client.get(f"{BASE}/{did}/flagged-adjacent?kind=mark").status_code == 422
 
     def test_bad_only_is_422(self, client):
         did = _seed_big()

@@ -257,7 +257,7 @@ def _carry_over_existing(lines, existing):
         if not queue:
             continue
         old = queue.pop(0)
-        ln.id, ln.en, ln.reviewed = old.id, old.en, old.reviewed
+        ln.id, ln.en, ln.reviewed, ln.mark = old.id, old.en, old.reviewed, old.mark
         ln.flag, ln.flag_note = old.flag, old.flag_note
         if old.speaker_manual:
             ln.speaker, ln.speaker_manual = old.speaker, True
