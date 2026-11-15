@@ -200,7 +200,7 @@ is `tools/windows_script_checks.py` or is the restore code (`services/library_re
 | PR labelled `full-ci` | true | true |
 | PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | true | true |
 | No changed file under `frontend/`, `api/`, `services/` or `db/` (adapters, root modules, installer, scripts, tools, tests, docs..., and the restore code the Windows script checks run) | false | true |
-| Every changed file is under `frontend/` or `docs/` | true if any is under `frontend/` | false: `test-shard` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) plus `TestHostedCloningRemoved` |
+| Every changed file is under `frontend/` or `docs/` | true if any is under `frontend/` | false: `test-shard` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) or read `docs/` (`--docs-tests`) plus `TestHostedCloningRemoved` |
 | Anything else | true | true |
 | The file list is empty or the classifier errors | true | true |
 

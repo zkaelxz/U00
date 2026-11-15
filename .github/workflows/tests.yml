@@ -281,14 +281,16 @@ jobs:
             $(python tools/ci_changes.py --sources-tests) 2>&1 | tee pytest.log
 
       # A change under frontend/ and docs/ only: run the tests that read
-      # frontend files (so backend/frontend drift still fails) plus the
+      # frontend or docs files (so backend/frontend drift and a broken docs
+      # table still fail) plus the
       # repo-wide word scan. `guards` runs the rest of the quick guards.
-      - name: Run tests that read frontend files
+      - name: Run tests that read frontend or docs files
         if: needs.changes.outputs.run_full_pytest != 'true'
         run: |
           set -o pipefail
           python run_tests.py -q -n auto --ff --durations=25 \
             $(python tools/ci_changes.py --frontend-tests) \
+            $(python tools/ci_changes.py --docs-tests) \
             tests/test_dub.py::TestHostedCloningRemoved::test_no_references_remain \
             $(sed 's/^/--ignore=/' tests/ci_guards.txt) 2>&1 | tee pytest.log
 
