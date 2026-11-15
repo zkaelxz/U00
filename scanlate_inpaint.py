@@ -864,6 +864,17 @@ def _strokes_on_a_line(gray_roi):
         reach = scanlate_tuning.LINE_REACH * max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT], typical)
         if abs((centres[i][0] - px) * vy - (centres[i][1] - py) * vx) <= reach:
             mask[labels == i] = 255
+    # Specks of the old lettering (a dot, a stroke end) are too small or too close to a letter
+    # to pass as glyphs, yet sit in the same strip; left behind they read as dirt beside the English.
+    count = stats.shape[0]
+    lo, hi = float(along.min()) - typical, float(along.max()) + typical
+    for i in range(1, count):
+        if mask[labels == i].any() or max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) > scanlate_tuning.LINE_SPECK_MAX_OF_GLYPH * typical:
+            continue
+        across = (centres[i][0] - px) * vy - (centres[i][1] - py) * vx
+        lengthwise = (centres[i][0] - px) * vx + (centres[i][1] - py) * vy
+        if abs(across) <= scanlate_tuning.LINE_SPECK_REACH * typical and lo <= lengthwise <= hi:
+            mask[labels == i] = 255
     grown = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
     return grown, math.degrees(math.atan2(vy, vx)) * (1 if vx >= 0 else -1), typical
 
