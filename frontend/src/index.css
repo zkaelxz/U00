@@ -594,7 +594,7 @@ details.section[open] > summary::before { content: '\25BE'; }
    plus 10px gaps and a margin, in rem so a larger text size moves them; the second set is for a header that also carries
    the PIN profile button or the account (329px more), and a third for an account name longer than twelve letters, which
    asks for 6rem more (the widest name the button shows, width 24 as nameWidth counts it, is about 90px wider than the width 12 the others are sized for). */
-.header-end.has-room { flex: 1 1 0; min-width: 31.6rem; justify-content: flex-end; gap: var(--space-2); container: header-end / inline-size; }
+.header-end.has-room { flex: 1 1 0; min-width: min(31.6rem, 100%); justify-content: flex-end; gap: var(--space-2); container: header-end / inline-size; }
 .header-end.has-room.has-extras { min-width: 46.8rem; }
 /* A size container has no content width of its own, so the min-width stands in for the icons' natural width (32.2rem, 47rem with the PIN
    button or account) and lets the header wrap the row to a line of its own where the icons-only row wraps, so the header is never taller than it is
@@ -609,7 +609,7 @@ details.section[open] > summary::before { content: '\25BE'; }
 .header-end.has-room:has(.api-down) { padding-left: 3.6rem; }
 .header-end.has-room:has(.api-down) > :first-child { margin-left: -3.6rem; }
 /* The badge itself (140px with its gap) is part of the icons' natural width while it shows, so the row wraps before it would squeeze the controls. */
-.header-end.has-room:has(.api-down) { min-width: 41.4rem; }
+.header-end.has-room:has(.api-down) { min-width: min(41.4rem, 100%); }
 .header-end.has-room.has-extras:has(.api-down) { min-width: 56.6rem; }
 @media (max-width: 640px) { .header-end.has-room:has(.api-down), .header-end.has-room.has-extras:has(.api-down) { min-width: 0; } }
 /* "Connected" is a luxury of the same room the five controls' words need: below that step the row keeps today's width and says nothing while the server answers. */
