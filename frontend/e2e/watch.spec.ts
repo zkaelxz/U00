@@ -341,6 +341,19 @@ test.describe('with sound', () => {
     await expect(now(page).getByRole('status')).toHaveText('No marked or flagged line after this one.')
   })
 
+  test('a mark made after a saved fix says so, instead of the old Saved.', async ({ page }) => {
+    await page.goto('/#/watch/3')
+    await ready(page)
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('e')
+    await field(page).fill('Line 2, fixed by ear')
+    await now(page).getByRole('button', { name: 'Save and play' }).click()
+    await expect(now(page).getByRole('status')).toHaveText('Saved.')
+    await page.keyboard.press('x')
+    await expect(now(page).getByRole('status')).toHaveText('Marked wrong.')
+  })
+
   test('a person who may not edit lines has no mark buttons and no mark keys, but can jump to marked lines', async ({ page }) => {
     await page.route('**/api/auth/me', (r) => r.fulfill({ json: { ...ME.signedIn, permissions: ['library.read'] } }))
     await page.goto('/#/watch/3')

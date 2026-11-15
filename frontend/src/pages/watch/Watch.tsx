@@ -152,6 +152,8 @@ export default function WatchPage({ id }: { id: number }) {
     onSaved: () => setCaptionVersion((v) => v + 1),
   })
   const { markStatus, markBusy, mark, say } = useWatchMarks(id, setLines)
+  // A fix's own message (Saved., a refused save) replaces a mark message that is still showing, not the other way round.
+  useEffect(() => say(''), [status, say])
   const jumpToMarked = (direction: 1 | -1) => {
     const to = attentionIndex(ordered, currentIndex >= 0 ? currentIndex : null, direction)
     if (to === null) {
@@ -180,8 +182,9 @@ export default function WatchPage({ id }: { id: number }) {
     }
     if (fix) return false
     if (key === 'good' || key === 'wrong' || key === 'mixed') {
-      if (!canEdit) return false
-      void mark(current, key)
+      if (!canEdit || !current) return false
+      // The buttons are off while a save is out and for a line with no English; the keys follow them.
+      if (!busy && current.en) void mark(current, key)
       return true
     }
     if (key === 'nextmarked' || key === 'prevmarked') {
@@ -311,7 +314,7 @@ export default function WatchPage({ id }: { id: number }) {
                 canEdit={canEdit}
                 fix={fix}
                 busy={busy}
-                status={status || markStatus}
+                status={markStatus || status}
                 onMark={canEdit ? (verdict) => void mark(fixLine ?? current, verdict) : undefined}
                 onJump={jumpToMarked}
                 markBusy={markBusy}
