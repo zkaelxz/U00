@@ -156,6 +156,8 @@ def estimate_cost(probe, options: dict, cases: list) -> float:
         batches = math.ceil(len(lines) / options["batch_size"])
         average = sum(engine_pricing.estimate_text_tokens(z) for z in lines) / len(lines)
         tokens_in, tokens_out = pricing.estimate_translation_tokens(lines, options["batch_size"])
+        if not engine_pricing.is_reasoning_model(probe.model):
+            tokens_out = engine_pricing.estimate_run_tokens(lines, options["batch_size"])[1]
         context = batches * (options["context_window"] + options["context_window_ahead"]) * average
         tokens_in += int(context + batches * engine_pricing.estimate_text_tokens(guidelines))
         if engine_pricing.is_reasoning_model(probe.model):
@@ -170,12 +172,14 @@ def is_reasoning_arm(cfg: dict) -> bool:
 
 def estimate_per_case_cost(probe, cases: list) -> float:
     """One call per case, so the fixed instructions overhead is paid per case."""
-    multiplier = engine_pricing.REASONING_OUTPUT_MULTIPLIER if engine_pricing.is_reasoning_model(
-        probe.model) else 1
+    reasoning = engine_pricing.is_reasoning_model(probe.model)
     total = 0.0
     for case in cases:
-        tokens_in, tokens_out = pricing.estimate_translation_tokens([case.get("source_text") or ""])
-        total += engine_pricing.estimate_cost_for_engine(probe, tokens_in, tokens_out * multiplier)
+        lines = [case.get("source_text") or ""]
+        tokens_in, tokens_out = pricing.estimate_translation_tokens(lines)
+        tokens_out = (tokens_out * engine_pricing.REASONING_OUTPUT_MULTIPLIER if reasoning
+                      else engine_pricing.estimate_run_tokens(lines, 1)[1])
+        total += engine_pricing.estimate_cost_for_engine(probe, tokens_in, tokens_out)
     return total
 
 

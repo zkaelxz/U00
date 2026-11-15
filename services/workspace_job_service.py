@@ -221,10 +221,9 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     # A run takes minutes, and the user may type English meanwhile.
     _save, _notes, kept_edits = translation_finish.own_lines_callbacks(drama_id, lines, provenance)
     job_timing_service.mark_stage(job_id, "Translate")
+    drama_meta, cost_cap_usd = _episode_context_and_cap(job_id, drama_id, lines, engine, engine_choice, drama_meta, character_names, target_ids, style_guidelines, cost_cap_usd)
     _, errors = translate_pipeline.translate_lines_with_engine(
-        lines, engine, drama_meta=_with_episode_context(
-            job_id, drama_id, lines, engine, engine_choice, drama_meta, character_names, target_ids, style_guidelines), style_note=style_note,
-        novel_reference=novel_reference, force_retranslate=force_retranslate,
+        lines, engine, drama_meta=drama_meta, style_note=style_note, novel_reference=novel_reference, force_retranslate=force_retranslate,
         locale=locale, glossary_terms=glossary_terms, style_guidelines=style_guidelines,
         context_window=context_window, context_window_ahead=context_window_ahead,
         batch_size=batch_size, character_names=character_names,
@@ -280,8 +279,28 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         raise background_jobs.JobCancelled(job_id)
 
 
+def _episode_context_and_cap(job_id, drama_id, lines, engine, engine_choice, drama_meta,
+                             character_names, target_ids, style_guidelines, cost_cap_usd):
+    """(drama_meta with its episode context, the cost cap left for the batches). The
+    estimate shown before the run counts the pre-read, so the cap does too."""
+    spent = []
+    meta = _with_episode_context(job_id, drama_id, lines, engine, engine_choice, drama_meta,
+                                 character_names, target_ids, style_guidelines, spent_cb=spent.append)
+    return meta, (None if cost_cap_usd is None else max(0.0, cost_cap_usd - sum(spent)))
+
+
+def _logged_and_counted(log, engine, spent_cb):
+    """usage_cb that logs a call and reports its dollars to spent_cb, so the run's own
+    cost cap counts a call made outside the batch loop."""
+    def record(inp, out, *rest):
+        log(inp, out, *rest)
+        if spent_cb is not None:
+            spent_cb(pricing.estimate_cost_for_engine(engine, inp, out))
+    return record
+
+
 def _with_episode_context(job_id, drama_id, lines, engine, engine_choice, drama_meta,
-                          character_names, target_ids, style_guidelines="") -> dict:
+                          character_names, target_ids, style_guidelines="", spent_cb=None) -> dict:
     """drama_meta plus what the batches carry beyond the previous episode's summary:
     the series note (earlier episodes only) and the episode's brief. The brief is
     read from the title when one is saved (so a person's edit is used as written)
@@ -303,7 +322,9 @@ def _with_episode_context(job_id, drama_id, lines, engine, engine_choice, drama_
         with llm_tasks.bounded_job_calls(job_id, lambda: background_jobs.is_cancel_requested(job_id)):
             brief = llm_tasks.generate_episode_brief(
                 lines, engine, meta, character_names,
-                usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "episode_brief"),
+                usage_cb=_logged_and_counted(
+                    paid_calls.usage_logger(drama_id, engine_choice, engine, "episode_brief"),
+                    engine, spent_cb),
                 plain_stream_prompt=stream_recipe.is_active(style_guidelines))
     except (HeadroomError, LLMTaskTimeout, background_jobs.JobCancelled):
         raise
