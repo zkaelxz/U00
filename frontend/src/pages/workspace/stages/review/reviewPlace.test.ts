@@ -9,7 +9,7 @@ import {
 
 const mk = (id: number, idx: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx, start: idx, end: idx + 1, zh: `句${idx}`, en: `Line ${idx}`, speaker: null,
-  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, ...over,
+  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
 })
 
 const inLines: Spot = { lineId: 512, lineNumber: 50, page: 2 }
@@ -36,6 +36,13 @@ describe('reading the kept places', () => {
     for (const bad of [null, 'lines', 12, [inLines], {}, { lineId: 512, lineNumber: 50, page: 2, view: 'lines' }]) {
       expect(readPlaces(bad), JSON.stringify(bad)).toEqual(NO_PLACES)
     }
+  })
+  it('reads a number too large to write into an address as no place', () => {
+    // 1e21 is an integer to Number.isInteger, and the page address would carry it as `1e+21`.
+    for (const huge of [1e21, 2 ** 53, Number.MAX_VALUE]) {
+      expect(readPlaces({ queue: { ...inQueue, page: huge }, lines: { ...inLines, lineId: huge } }), String(huge)).toEqual(NO_PLACES)
+    }
+    expect(readPlaces({ lines: { ...inLines, page: Number.MAX_SAFE_INTEGER } }).lines?.page).toBe(Number.MAX_SAFE_INTEGER)
   })
   it('stores only the spots there are', () => {
     expect(storedPlaces(both)).toEqual({ queue: inQueue, lines: inLines })

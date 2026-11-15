@@ -113,7 +113,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [suspectOpen, setSuspectOpen] = useState(false)
   const selection = useLineSelectionContext()
   const pending = useRef<Pending | null>(null)
-  const { filter, setFilter, page, setPage, place } = useReviewPlace(dramaId, simple, !!goTo, pending)
+  const { filter, setFilter, page, setPage, place } = useReviewPlace(dramaId, simple, pending)
   const { input, setInput, term, setTerm } = useLinkedFind(dramaId)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [edit, setEdit] = useState<EditState | null>(null)
@@ -287,7 +287,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const playerId = useId()
   const media = useQueueMedia(mediaKind === 'audio' && !emptyDrama, isPhone, sectionRef, playerId)
   const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, canRetranscribeLine, retranscribeNeed, data, dataFilter, settled, loading, allTotal, shown, activeId, page, pages, ctl, pending, listRef, st, changeFilter, onChanged, setError, mediaToggle: media.toggle })
-  useKeepPlace(place, { dramaId, activeId, shown, filter, searching, queue: queue.on, page, listRef, ownPickRef, goToLine, setStatus, setJumpedId })
+  useKeepPlace(place, { dramaId, activeId, shown, filter, searching, term, editing: edit?.lineId ?? null, queue: queue.on, page, listRef, ownPickRef, goToLine, setStatus, setJumpedId })
   const mediaFolded = queue.foldsMedia && media.folds
   const toggleReplace = () => {
     const next = !replaceOpen

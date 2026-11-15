@@ -11,8 +11,8 @@ export interface Spot {
   page: number
 }
 
-// The check queue (Need a look), and the lines: All, any other filter or a search, whose lines are all in All too.
-// Each keeps its own, so working through the queue does not lose the reading place in All.
+// A search or any filter but the queue keeps its line under `lines`, because every line is in All too. The queue has
+// its own spot so that working through it does not lose the reading place in All.
 export interface Places {
   queue: Spot | null
   lines: Spot | null
@@ -26,7 +26,8 @@ export const placeKey = (dramaId: number) => `review.at.${dramaId}`
 
 export const NO_PLACES: Places = { queue: null, lines: null }
 
-const whole = (n: unknown, min: number): n is number => Number.isInteger(n) && (n as number) >= min
+// Safe, not just integral: 1e21 is an integer, and it would be written into the page address as `1e+21`.
+const whole = (n: unknown, min: number): n is number => Number.isSafeInteger(n) && (n as number) >= min
 
 function readSpot(value: unknown): Spot | null {
   if (typeof value !== 'object' || value === null) return null
