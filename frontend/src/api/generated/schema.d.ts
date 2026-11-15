@@ -13198,8 +13198,18 @@ export interface components {
             last_run_at: string | null;
             /** Next Run At */
             next_run_at: string | null;
+            /**
+             * Problem
+             * @description Why the owner should look: backups off, the last run failed, or no success for a long while.
+             */
+            problem: ("off" | "failing" | "stale") | null;
             /** Running */
             running: boolean;
+            /**
+             * Same Drive As Library
+             * @description The copies share a drive with the library, so one drive failure loses both.
+             */
+            same_drive_as_library: boolean;
         };
         /**
          * AutoBackupSettingsUpdate

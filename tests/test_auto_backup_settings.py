@@ -25,12 +25,13 @@ from tests.auto_backup_helpers import (
 
 
 class TestSettings:
-    def test_defaults_off_daily_db_only_default_folder(self, isolated_db):
+    def test_defaults_on_daily_db_only_default_folder(self, isolated_db):
         s = abt_.get_settings()
-        assert s == {"enabled": False, "frequency": "daily", "include_media": False,
+        assert s == {"enabled": True, "frequency": "daily", "include_media": False,
                      "folder": ""}
         ov = abs_.settings_overview()
-        assert ov["enabled"] is False and ov["next_run_at"] is None
+        assert ov["enabled"] is True and ov["next_run_at"] is not None
+        assert ov["same_drive_as_library"] is True and ov["problem"] is None
         assert ov["last_run_at"] is None and ov["last_error"] is None
         assert ov["running"] is False and ov["copies"] == []
         assert set(ov["frequencies"]) == {"daily", "weekly", "monthly"}
@@ -143,6 +144,7 @@ def started(monkeypatch):
 
 class TestDueCheck:
     def test_disabled_by_default(self, isolated_db, started):
+        abs_.set_settings(enabled=False)
         assert abs_.check_and_run() == "disabled"
         assert abt_.is_due() is False
         assert abt_.next_run_at() is None
@@ -169,6 +171,7 @@ class TestDueCheck:
         assert abt_.next_run_at() == last + period
 
     def test_disabled_even_when_overdue(self, isolated_db, started):
+        abs_.set_settings(enabled=False)
         _state(last_success_at="2000-01-01T00:00:00+00:00")
         assert abs_.check_and_run() == "disabled"
         assert started == []
@@ -491,3 +494,34 @@ class TestLeadReviewFollowUps:
             row = c.execute("SELECT profile_id, line_idx FROM reading_history "
                             "WHERE drama_id = ?", (res["drama_id"],)).fetchone()
         assert tuple(row) == (None, 3)
+
+
+class TestProblem:
+    NOW = datetime.datetime(2026, 3, 10, tzinfo=datetime.timezone.utc)
+
+    def _settings(self, **kw):
+        return {**abt_.DEFAULT_SETTINGS, **kw}
+
+    def test_off_is_a_problem_even_for_a_saved_choice(self, isolated_db):
+        abs_.set_settings(enabled=False)
+        assert abs_.settings_overview()["problem"] == "off"
+
+    def test_failed_last_run(self):
+        assert abt_.problem(self._settings(), {"last_error": "boom"}, self.NOW) == "failing"
+
+    def test_stale_only_after_two_intervals_and_a_day(self):
+        ok = {"last_success_at": "2026-03-07T00:00:00+00:00"}      # 3 days: daily limit is 3 days
+        assert abt_.problem(self._settings(), ok, self.NOW) is None
+        old = {"last_success_at": "2026-03-06T00:00:00+00:00"}
+        assert abt_.problem(self._settings(), old, self.NOW) == "stale"
+        weekly = {"last_success_at": "2026-02-26T00:00:00+00:00"}  # 12 days, weekly limit 15
+        assert abt_.problem(self._settings(frequency="weekly"), weekly, self.NOW) is None
+
+    def test_never_run_yet_is_not_a_problem(self):
+        assert abt_.problem(self._settings(), {}, self.NOW) is None
+
+    def test_folder_on_another_volume_is_not_the_library_drive(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(os, "stat", lambda p, *a, **k: type("S", (), {
+            "st_dev": 2 if "elsewhere" in str(p) else 1})())
+        assert abt_.same_drive_as_library("") is True
+        assert abt_.same_drive_as_library(os.path.abspath("elsewhere")) is False

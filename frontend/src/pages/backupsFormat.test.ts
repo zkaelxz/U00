@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../api/client'
 import type { AutoBackupSettings, RestoreDramaDone, SnapshotCopy, SnapshotDrama, SnapshotInfo } from '../types/backups'
 import {
-  CHOOSE_COPY_TEXT, FOLDER_RULES, changedSettings, chooseCopyCandidates, describeCopy, describeRestore, describeSnapshot,
+  BACKUP_PROBLEM_TEXT, CHOOSE_COPY_TEXT, FOLDER_RULES, changedSettings, chooseCopyCandidates, describeCopy, describeRestore, describeSnapshot,
   filterSnapshotDramas, folderChange, formatWhen, initialRestoreCopy, isManaged, isoDay, nextRunText, serverSentence,
   settingsSummary, snapshotFacts, snapshotKindLabel, splitCopies, restoreNotes,
 } from './backupsFormat'
@@ -16,7 +16,7 @@ const snap = (o: Partial<SnapshotInfo>): SnapshotInfo => ({
 })
 
 const SETTINGS: AutoBackupSettings = {
-  copies: [], last_note: null, enabled: false, frequency: 'weekly', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'],
+  copies: [], last_note: null, enabled: false, frequency: 'weekly', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'], same_drive_as_library: true, problem: null,
   last_run_at: null, last_attempt_at: null, last_error: null, next_run_at: null, running: false,
 }
 
@@ -218,5 +218,11 @@ describe('restore one title', () => {
     expect(describeRestore({ ...r, owners_reassigned: 2, copy_has_accounts: false, skipped_tables: [] }))
       .toContain('This copy holds no accounts, so 2 owners went to the PC owner.')
     expect(describeRestore({ ...r, owners_reassigned: 0, skipped_tables: [] })).not.toContain('owner')
+  })
+})
+
+describe('backup problem text', () => {
+  it('has a sentence for every problem the server can report', () => {
+    expect(Object.keys(BACKUP_PROBLEM_TEXT).sort()).toEqual(['failing', 'off', 'stale'])
   })
 })

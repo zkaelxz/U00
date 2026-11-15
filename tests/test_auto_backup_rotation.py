@@ -22,6 +22,14 @@ from tests.auto_backup_helpers import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _two_daily_two_weekly(monkeypatch):
+    """These tests pin the rotation rule itself with a small, easy-to-count
+    window; the shipped sizes are checked in test_auto_backup_rotation."""
+    monkeypatch.setattr(abc_, "KEEP_DAILY", 2)
+    monkeypatch.setattr(abc_, "KEEP_WEEKLY", 2)
+
+
 def _name(when):
     return f"baihe_snapshot-{when:%Y%m%d-%H%M%S}.zip"
 
@@ -60,6 +68,8 @@ class TestRotation:
             _run_at(monkeypatch, _at(day))
         assert len(os.listdir(_default_dir())) == 10
         monkeypatch.undo()
+        monkeypatch.setattr(abc_, "KEEP_DAILY", 2)     # undo() also dropped the fixture's
+        monkeypatch.setattr(abc_, "KEEP_WEEKLY", 2)
         with abc_._snapshot_lock:
             assert abc_._prune(_default_dir(), _name(_at(20))) == 6
         assert sorted(os.listdir(_default_dir())) == [
@@ -482,3 +492,9 @@ class TestNamedCopy:
         assert os.path.islink(os.path.join(_default_dir(), name))
         assert outside.read_bytes() == data
         assert db.get_drama(a) is None
+
+
+class TestShippedRetention:
+    def test_default_window_is_a_week_of_days_and_a_month_of_weeks(self, monkeypatch):
+        monkeypatch.undo()
+        assert (abc_.KEEP_DAILY, abc_.KEEP_WEEKLY) == (7, 4)

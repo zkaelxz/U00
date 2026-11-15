@@ -49,6 +49,11 @@ class AutoBackupSettings(BaseModel):
                                                        "damaged sources.db left out).")
     next_run_at: Optional[str] = None
     running: bool
+    same_drive_as_library: bool = Field(description="The copies share a drive with the library, "
+                                                    "so one drive failure loses both.")
+    problem: Optional[Literal["off", "failing", "stale"]] = Field(
+        None, description="Why the owner should look: backups off, the last run failed, or "
+                          "no success for a long while.")
     copies: List[SnapshotCopy] = Field(default_factory=list, description="Newest first.")
 
 
