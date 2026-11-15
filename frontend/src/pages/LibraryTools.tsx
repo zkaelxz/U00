@@ -21,6 +21,8 @@ import { buttonClass } from '../components/uiClasses'
 import { useHolds } from '../hooks/useHolds'
 import { useLoad } from '../hooks/useLoad'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { CardFoldContext } from '../components/cardFold'
+import { SaveFolderCard } from './manga/SaveFolder'
 import { usePcOnly, usePcPendingNote, type PcMode } from '../hooks/usePcOnly'
 import { engineLabel, languageLabel } from '../labels'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
@@ -68,6 +70,9 @@ function EmptyTab({ children }: { children: ReactNode }) {
 // nothing while another section on the tab has content, but a failed load stays visible.
 // `first` marks the first section on screen, which starts open; it is only known once every list
 // on the tab has loaded, so nothing mounts before then (a fold reads its default when it mounts).
+// Where saved chapters go, beside the Saved manga list it fills. PC only: it names a folder on this PC.
+const SAVE_FOLDER_FOLD = { storageKey: 'tools.save-folder', defaultOpen: false }
+
 function ToolSection({ card, count, summary, error, first, ready, children }: {
   card: LibraryToolsCard; count?: number; summary?: string; error: unknown; first: boolean; ready: boolean; children: ReactNode
 }) {
@@ -343,6 +348,11 @@ export default function LibraryToolsPage() {
         </ToolSection>
         {!organizeReady && <p className="muted">Loading…</p>}
         {organizeReady && !organizeShown.some(Boolean) && <EmptyTab>{ORGANIZE_EMPTY}</EmptyTab>}
+        {pc !== 'remote' && organizeReady && (
+          <div className="tools-export">
+            <CardFoldContext.Provider value={SAVE_FOLDER_FOLD}><SaveFolderCard /></CardFoldContext.Provider>
+          </div>
+        )}
         {pc !== 'remote' && (
           <div className="tools-export">
             <h2 className="tools-group-title">Export</h2>

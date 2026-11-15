@@ -121,3 +121,15 @@ export function phoneAppLine(r: AndroidAppFetchResult): string {
     ? `Phone app build ${r.version_code} is ready for your phone.`
     : `The phone app is already up to date (build ${r.version_code}).`
 }
+
+export const UPDATES_TITLE = 'Updates'
+
+export const EXTENSION_UPDATE_NOTE =
+  "A browser never updates an extension loaded from a folder. After Baihe updates, the extension's popup says when its copy is older: download it again, unzip it over the old folder and press Reload on the browser's extensions page."
+
+/** null = the count isn't known (it is an extra; the link beside it still works). */
+export function packagesLine(outdated: number | null): string {
+  if (outdated == null) return 'Python packages are updated in Diagnostics.'
+  if (outdated === 0) return 'Every package is up to date.'
+  return outdated === 1 ? '1 package has an update.' : `${outdated} packages have updates.`
+}

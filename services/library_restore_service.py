@@ -59,7 +59,7 @@ _RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
     # the web-search server, or switch uploads from away back on. Every path
     # setting is kept by type, so a new one is covered without being listed here.
     # "jellyfin", "comic_save" and "web_search" are those services' SETTING keys.
-    "jellyfin", "comic_save", "web_search", "remote_uploads", "remote_uploads.on_at",
+    "jellyfin", "comic_save", "web_search", "remote_uploads", "remote_uploads.since",
     # This PC window's Guest PIN belongs to the PC, not to the library a backup came from.
     "pc_profile_pin", "pc_profile_pin.blocked_until",
     *(setting.store_key for setting in settings_schema.SETTINGS
