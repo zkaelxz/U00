@@ -254,8 +254,11 @@ test.describe(() => {
       const [wrong, mixed, more] = await Promise.all([/Wrong/, /Mixed/, 'More actions for line 24'].map(async (name) => (await card.getByRole('button', { name }).boundingBox())!))
       expect(mixed.y, `Wrong and Mixed share a row at ${width}px`).toBe(wrong.y)
       expect(mixed.x, `Mixed follows Wrong at ${width}px`).toBeGreaterThan(wrong.x + wrong.width)
-      expect(more.y, `the menu is in their row at ${width}px`).toBe(wrong.y)
-      expect(more.x, `the menu ends their row at ${width}px`).toBeGreaterThan(mixed.x + mixed.width)
+      // With the words Glossary and Suggest a rewrite ahead of them the menu may wrap to the next row, but it stays inside the card.
+      const box = (await card.boundingBox())!
+      expect(more.x, `the menu is inside the card at ${width}px`).toBeGreaterThanOrEqual(box.x)
+      expect(more.x + more.width, `the menu is inside the card at ${width}px`).toBeLessThanOrEqual(box.x + box.width)
+      expect(more.y, `the menu is not above Wrong at ${width}px`).toBeGreaterThanOrEqual(wrong.y)
       await expectNoSidewaysScroll(page)
     }
     await card.getByRole('button', { name: /Wrong/ }).tap()
@@ -294,10 +297,10 @@ test.describe(() => {
     await expect(cards.getByTestId('queue-reason')).toHaveText(`Why: ${GLOSSARY_SENTENCE}`)
     await expect(cards.locator('.review-queue-label')).toHaveText('English')
     expect(await cards.getByTestId('line-en').evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
-    await expect(cards.getByRole('link', { name: 'Open glossary' })).toBeVisible()
-    for (const target of [cards.getByRole('button', { name: 'See the lines around it' }), cards.getByRole('link', { name: 'Open glossary' }),
-      cards.getByRole('button', { name: 'Improve translation' }), cards.getByTestId('line-en')]) await expectTall(target, (await target.textContent()) ?? '')
-    await expect(bar.getByRole('button')).toHaveText(['Skip for now', 'Looks right, next'])
+    await expect(cards.getByRole('link', { name: 'Glossary', exact: true })).toBeVisible()
+    for (const target of [cards.getByRole('button', { name: 'See the lines around it' }), cards.getByRole('link', { name: 'Glossary', exact: true }),
+      cards.getByRole('button', { name: 'Suggest a rewrite' }), cards.getByTestId('line-en')]) await expectTall(target, (await target.textContent()) ?? '')
+    await expect(bar.getByRole('button')).toHaveText(['Skip', 'Next'])
     const fill = await bar.getByRole('button', { name: 'Looks right, next' }).evaluate((el) => {
       const probe = document.createElement('span')
       probe.style.color = 'var(--ok)'
@@ -385,10 +388,10 @@ test.describe(() => {
       const top = await cards.evaluate((el) => el.getBoundingClientRect().top + window.scrollY)
       expect(top, `the first card's top at ${width}px`).toBeLessThanOrEqual(cardTopAtMost[width])
       // Play is on the card, so the bar has the two buttons only, as tall as each other and the green one twice as wide.
-      await expect(barButtons).toHaveText(['Skip for now', 'Looks right, next'])
+      await expect(barButtons).toHaveText(['Skip', 'Next'])
       const boxes = await barButtons.evaluateAll((els) => els.map((el) => { const r = el.getBoundingClientRect(); return { w: r.width, h: Math.round(r.height) } }))
       expect(new Set(boxes.map((b) => b.h)).size, `the bar's buttons are one height at ${width}px`).toBe(1)
-      expect(boxes[0].h, `the bar's buttons are tall enough at ${width}px`).toBeGreaterThanOrEqual(48)
+      expect(boxes[0].h, `the bar's buttons are tall enough at ${width}px`).toBeGreaterThanOrEqual(44)
       expect(Math.abs(boxes[1].w - 2 * boxes[0].w), `Looks right, next is twice as wide at ${width}px`).toBeLessThanOrEqual(4)
       await expect(cards.getByRole('button', { name: 'Play line', exact: true })).toBeVisible()
       await expectTall(cards.getByRole('button', { name: 'Play line', exact: true }), `Play line at ${width}px`)

@@ -3,7 +3,7 @@ import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
 
-// The engine and model picker on the per-line AI panels (Improve translation,
+// The engine and model picker on the per-line AI panels (Suggest a rewrite,
 // Why this?, Alternatives, Grammar). The run config is the real one with the
 // keys faked; the AI answers are mocked.
 
@@ -60,13 +60,13 @@ test('the pick is sent, remembered, and unusable engines say why', async ({ page
       line_id: lineId(route.request().url()), current_en: 'Hello there', suggestion: 'Hi there', changed: true, engine: 'x', model: null,
     } })
   })
-  let row = await openAi(page, 'Improve translation')
+  let row = await openAi(page, 'Suggest a rewrite')
   const engine = row.getByTestId('line-ai-picker').getByLabel('AI engine', { exact: true })
   await expect(engine.locator('option', { hasText: 'Default (' })).toHaveCount(1)
   await expect(engine.locator('option[value="deepseek"]')).toBeDisabled()
   await expect(engine.locator('option[value="deepseek"]')).toContainText('no key')
   await expect(engine.locator('option[value="claude"]')).toContainText('paid')
-  await row.getByRole('button', { name: 'Suggest' }).click()
+  await row.getByRole('button', { name: 'Suggest', exact: true }).click()
   await expect(row.getByTestId('line-ai-suggestion')).toBeVisible()
   expect(bodies[0]).not.toHaveProperty('engine')
 
@@ -78,7 +78,7 @@ test('the pick is sent, remembered, and unusable engines say why', async ({ page
 
   await page.reload()
   await expect(rows(page)).toHaveCount(2)
-  row = await openAi(page, 'Improve translation')
+  row = await openAi(page, 'Suggest a rewrite')
   await expect(row.getByTestId('line-ai-picker').getByLabel('AI engine', { exact: true })).toHaveValue('claude')
 })
 

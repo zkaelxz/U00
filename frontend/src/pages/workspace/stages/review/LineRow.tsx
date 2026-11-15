@@ -342,7 +342,7 @@ interface FitProps {
 // line's retry needs its engine picker, so it is drawn under the card instead (BlockedRetry).
 function FitAction({ dramaId, line, fit, isPhone, timingSnap, retranscribe, actions }: FitProps) {
   if (fit === 'glossary') {
-    return <ButtonLink variant="secondary" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })}>Open glossary</ButtonLink>
+    return <ButtonLink variant="secondary" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })}>Glossary</ButtonLink>
   }
   if (fit === 'keep') {
     return (
@@ -382,8 +382,8 @@ function FitAction({ dramaId, line, fit, isPhone, timingSnap, retranscribe, acti
 function ImproveButton({ line, ai, actions }: { line: ReviewLine; ai: PanelMode | null; actions: RowActions }) {
   return (
     <button type="button" className={buttonClass('secondary', 'sm')} disabled={!line.en} aria-pressed={ai === 'improve'}
-            onClick={() => actions.setAi(line.id, ai === 'improve' ? null : 'improve')} title="Improve translation (I)">
-      {line.en ? 'Improve translation' : 'Improve (needs a translation first)'}
+            onClick={() => actions.setAi(line.id, ai === 'improve' ? null : 'improve')} title="Ask the AI to suggest a rewrite of this line (I)">
+      {line.en ? 'Suggest a rewrite' : 'Suggest a rewrite (needs a translation first)'}
     </button>
   )
 }
@@ -720,9 +720,9 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
             disabled={!line.en}
             aria-pressed={ai === 'improve'}
             onClick={() => actions.setAi(line.id, ai === 'improve' ? null : 'improve')}
-            title="Improve translation (I)"
+            title="Ask the AI to suggest a rewrite of this line (I)"
           >
-            {line.en ? 'Improve translation' : 'Improve (needs a translation first)'}
+            {line.en ? 'Suggest a rewrite' : 'Suggest a rewrite (needs a translation first)'}
           </button>
           {!simple && <WhySplitMerge line={line} ai={ai} jobRunning={jobRunning} limited={limited} reasonId={reasonId} actions={actions} />}
           {timingSnap && actions.snapToSpeech && (

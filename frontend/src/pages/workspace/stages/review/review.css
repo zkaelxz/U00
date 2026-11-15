@@ -649,6 +649,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .check-queue-mark, .review-queue-actions, .check-queue-undo { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .review-queue-actions { margin-top: var(--space-2); }
 /* Wrong and Mixed are one choice, so a narrow card wraps them to the next row together. */
+.review-mark { min-width: var(--touch); justify-content: center; }
 .review-mark-pair { display: inline-flex; gap: var(--space-2); }
 .check-queue-undo { font-size: var(--text-sm); overflow-wrap: anywhere; }
 @media (max-width: 640px) {
@@ -704,7 +705,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
      padding already clears the home indicator when the menu is not there. */
   .review-editbar.is-queue { padding-block: var(--space-2) calc(var(--space-2) + var(--phone-bar-h, env(safe-area-inset-bottom, 0px))); }
   /* No side padding: a flex basis of 0 still holds the padding, which would skew the one-to-two split. */
-  .review-editbar.is-queue button { flex: 1 1 0; min-height: 48px; padding-inline: 0; }
+  .review-editbar.is-queue button { flex: 1 1 0; min-height: var(--touch); padding-inline: 0; }
   .review-editbar.is-queue .review-queue-done { flex: 2 1 0; font-weight: var(--weight-bold); }
 }
 
