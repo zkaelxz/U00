@@ -119,7 +119,7 @@ describe('check queue card', () => {
 
   it('on a phone starts the card with "Line 7 · 0:01.0" and the speaker, then the link, and ends it with the Next line', () => {
     const html = row(true, { ...glossary, speaker: 'Wei' }, { queue: true, isPhone: true, queueNext: 'Next: line 12, too fast to read' })
-    expect(html).toContain('<span class="review-line-ref"><span class="review-idx">Line 7</span><span class="review-card-dot" aria-hidden="true">·</span><span class="review-time">0:01.0</span></span><span class="review-card-dot" aria-hidden="true">·</span><span class="review-speaker">Wei</span>')
+    expect(html).toContain('<span class="review-line-ref"><span class="review-idx">Line 7</span><span class="review-card-dot" aria-hidden="true">·</span><span class="review-time">0:01.0</span></span><span class="review-card-dot" aria-hidden="true">·</span><span class="review-speaker-pick"><button type="button" class="review-speaker" aria-expanded="false" aria-label="Speaker of line 7: Wei. Change it" title="Change the speaker">Wei</button></span>')
     expect(html.indexOf('review-speaker')).toBeLessThan(html.indexOf('review-card-around'))
     expect(html).toContain('<p class="muted check-queue-next">Next: line 12, too fast to read</p>')
     expect(html.indexOf('check-queue-next')).toBeGreaterThan(html.indexOf('Improve translation'))
