@@ -469,8 +469,7 @@ COPIED = {
                "translate_by_sentence", "translate_start_json", "transcribe_start_json", "release_date",
                "difficult_audio", "ass_styles", "episode_brief"},
     "lines": {"idx", "start", "end", "zh", "en", "speaker", "flag", "flag_note",
-              "speaker_manual", "sfx", "lang", "word_timings", "reviewed", "ass_event", "confidence",
-              "mark"},
+              "speaker_manual", "sfx", "lang", "word_timings", "reviewed", "ass_event", "confidence"},
     "characters": {"speaker_label", "character_name", "voice_actor", "tts_voice", "offline_voice",
                    "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "pronouns"},
@@ -659,6 +658,33 @@ def test_a_backup_from_before_line_ids_keeps_each_note_on_its_line(local_client)
     second = [ln for ln in db.load_line_objects(new) if ln.idx == 1][0]
     notes = {n["term"]: n["line_id"] for n in db.list_translation_notes(new)}
     assert notes == {"t": second.id, "gone": None}
+
+
+def test_imported_lines_obey_the_mark_rules(local_client):
+    from core import Line
+    from services import narration_service
+    a, b, g = _world()
+
+    def marked(c):
+        ids = [r[0] for r in c.execute("SELECT id FROM lines WHERE drama_id = ? ORDER BY idx", (g,))]
+        # Checked and marked (a damaged or hand-edited file), an unknown mark, a plain mark.
+        for lid, reviewed, mark in zip(ids, (1, 1, 0), ("wrong", "Bogus", "mixed")):
+            c.execute("UPDATE lines SET reviewed = ?, mark = ? WHERE id = ?", (reviewed, mark, lid))
+        _ins(c, "lines", drama_id=g, idx=3, start=3.0, end=3.5, zh="Gamma-zh-3", en="Gamma-en-3",
+             reviewed=1)
+
+    r = _post_import(local_client, _db_bytes(marked), [g])
+    assert r.status_code == 200, r.text
+    new = r.json()["imported"][0]["drama_id"]
+    assert [(r["reviewed"], r["mark"]) for r in db.load_lines(new)] == [
+        (0, "wrong"), (1, None), (0, "mixed"), (1, None)]
+    # A save with no baseline (the narration re-chunk) of those lines must not refuse.
+    existing = db.load_line_objects(new)
+    fresh = [Line(idx=ln.idx, start=ln.start, end=ln.end, zh=ln.zh) for ln in existing]
+    narration_service._carry_over_existing(fresh, existing)
+    db.save_lines(new, fresh)
+    assert [(r["reviewed"], r["mark"]) for r in db.load_lines(new)] == [
+        (0, "wrong"), (1, None), (0, "mixed"), (1, None)]
 
 
 def test_a_backup_from_a_newer_baihe_is_refused(local_client, monkeypatch):

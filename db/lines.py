@@ -43,6 +43,9 @@ def check_line_fields(declared):
         raise ValueError(f"Unknown line column(s) in line_fields: {', '.join(unknown)}")
     if "mark" in declared:
         # A mark is a person's judgement; a job only clears one by changing the English.
+        # This covers jobs that declare a list of columns. A FULL_SYNC job replaces the
+        # lines: it carries each line's existing mark onto its new Line (narration) but
+        # sets none.
         raise ValueError("A job may not write a line's mark (line_fields names mark).")
     return frozenset(declared)
 
@@ -94,6 +97,24 @@ def _stored_mark(value):
     if value not in _LINE_MARKS:
         raise ValueError(f"Unknown line mark: {value!r}")
     return value
+
+
+def settle_copied_marks(conn, drama_id=None):
+    """Makes line rows copied in as a file had them (a backup import, a library
+    restore) obey what every save enforces: a mark that isn't a core.LINE_MARKS
+    value becomes NULL, and a marked line is unchecked. drama_id: only that
+    title's lines; None: every line. Runs on `conn`'s open transaction."""
+    if "mark" not in {r[1] for r in conn.execute('PRAGMA main.table_info("lines")')}:
+        return
+    where, args = ("drama_id = ?", [drama_id]) if drama_id is not None else ("1", [])
+    marks = ", ".join("?" for _ in _LINE_MARKS)
+    conn.execute(f"UPDATE main.lines SET mark = NULL WHERE mark IS NOT NULL "
+                 f"AND mark NOT IN ({marks}) AND {where}", [*_LINE_MARKS, *args])
+    # The mark wins over the tick: it is the more specific judgement, and an unchecked
+    # line is looked at again where a wrongly checked one is not. A row left both would
+    # make the next save of it without a baseline refuse (_refuse_checked_and_marked).
+    conn.execute(f"UPDATE main.lines SET reviewed = 0 WHERE mark IS NOT NULL "
+                 f"AND COALESCE(reviewed, 0) != 0 AND {where}", args)
 
 
 def update_line_fields_if(drama_id: int, line_id: int, values: dict, expected: dict) -> bool:
