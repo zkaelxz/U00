@@ -1,6 +1,7 @@
 /* Ctrl+K quick search (nav/CommandPalette.tsx) */
 button.palette-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: var(--text-sm); color: var(--muted); }
 button.palette-btn:hover:not(:disabled) { color: var(--text); }
+button.palette-btn kbd { white-space: nowrap; }
 button.palette-btn .palette-dot { display: none; }
 button.palette-btn kbd { font: inherit; font-size: var(--text-xs, 0.75rem); padding: 0 4px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 
