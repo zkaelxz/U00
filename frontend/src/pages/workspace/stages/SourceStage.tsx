@@ -352,7 +352,8 @@ export default function SourceStage() {
     </div>
   )
   const hasTranscribe = mediaTabsFor(kindOfTitle).some((t) => t.id === 'transcribe')
-  const subtitles = !simple && appliesTo(kindOfTitle, 'subtitle_import') && canUpload && (
+  // Simple leaves the section out, but the drop box takes subtitle files too: a dropped one brings it in rather than vanish.
+  const subtitles = (!simple || droppedSubtitle !== null) && appliesTo(kindOfTitle, 'subtitle_import') && canUpload && (
     <Section
       key="subtitles"
       storageKey="source.group.subtitles"
