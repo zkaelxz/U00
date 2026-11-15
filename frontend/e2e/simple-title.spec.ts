@@ -1548,7 +1548,8 @@ test.describe('the check queue', () => {
     })
     expect(await pill('This line')).toMatchObject({ padding: '5px 8px', radius: '6px', weight: '600', underline: '0px' })
     expect((await pill('This line')).bg, 'the selected tab is filled').not.toBe('rgba(0, 0, 0, 0)')
-    expect((await pill('Look for problems')).bg, 'the others are not').toBe('rgba(0, 0, 0, 0)')
+    // Retried: the tab that was selected before the open card's This line took over fades out for a moment.
+    await expect(page.getByRole('tab', { name: 'Look for problems' }), 'the others are not').toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     // This line: three white cards with an edge.
     const cards = page.getByTestId('this-line').locator('.this-line-card')
     await expect(cards).toHaveCount(3)
