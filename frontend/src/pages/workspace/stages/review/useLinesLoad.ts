@@ -6,7 +6,7 @@ import { QUEUE_FILTER } from './checkQueueModel'
 import type { EditState } from './LineRow'
 import { linesLoaded, type Pending, type Target } from './linesController'
 import { draftFromLine } from './reviewDraft'
-import { initialActiveId, PAGE_SIZE, pageCount } from './reviewLogic'
+import { ownActiveId, PAGE_SIZE, pageCount } from './reviewLogic'
 
 function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
   if (t === 'first') return lines[0]
@@ -45,6 +45,9 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
   const [error, setError] = useState<unknown>(null)
   const [retries, setRetries] = useState(0)
   const loadedOnce = useRef(false)
+  // The line a load made active by itself (no move asked for one), when that changed the active line: the kept place
+  // must not take it for the person's move. Set where the pick is made, read and cleared where the place is written.
+  const ownPickRef = useRef<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -61,16 +64,14 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
         if (p?.edit) setEdit(openPendingEdit(target))
       } else {
         const first = !loadedOnce.current
-        setActiveId((cur) =>
-          cur !== null && lines.some((l) => l.id === cur)
-            ? cur
-            : first
-              // The check queue lists the riskiest line first, flagged or not, so it opens on its first card.
-              ? (!term && filter === QUEUE_FILTER ? (lines[0]?.id ?? null) : initialActiveId(lines))
-              : (lines[0]?.id ?? null),
-        )
+        setActiveId((cur) => {
+          const next = ownActiveId(lines, cur, { first, queue: !term && filter === QUEUE_FILTER })
+          if (next !== cur) ownPickRef.current = next
+          return next
+        })
       }
       loadedOnce.current = true
+      p?.landed?.(lines, target !== undefined)
     }
     const req = term
       ? searchLines(dramaId, term).then((r) => {
@@ -115,7 +116,7 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
     setRetries((n) => n + 1)
   }
   return {
-    data, setData, found, setFound, allTotal, error, setError, retry,
+    data, setData, found, setFound, allTotal, error, setError, retry, ownPickRef,
     dataFilter: loadedFor?.filter ?? null,
     settled: loadedFor?.filter === filter && loadedFor.reloads === reloads,
   }

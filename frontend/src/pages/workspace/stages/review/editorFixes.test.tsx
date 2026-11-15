@@ -21,7 +21,7 @@ vi.mock('../../../../api/restructure', () => restructure)
 
 const line = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start: id, end: id + 0.5, zh: `zh ${id}`, en: `en ${id}`, speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, ...over,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
 })
 const editing = (base: ReviewLine, en: string): EditState =>
   ({ lineId: base.id, base, draft: { ...draftFromLine(base), en }, details: false, note: null })
@@ -194,7 +194,7 @@ describe('typing in Search with an unsaved draft', () => {
     const ctl = { leaveEdit: vi.fn(() => new Promise<boolean>(() => {})), saveFailed: () => false }
     const nav = buildLinesNavigation({
       dramaId: 7, ctl: ctl as never, st: { current: { edit: editing(line(1), 'typed') } as LinesState },
-      pending: { current: null }, listRef: { current: null }, searching: false, filter: 'all', page: 1,
+      pending: { current: null }, listRef: { current: null }, searching: false, filter: 'all', page: 1, place: { pageFor: () => 1, abandon: () => {} },
       setFilter: vi.fn(), setPage: vi.fn(), setInput, setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
     })
     void nav.changeSearch('a')
@@ -207,7 +207,7 @@ describe('typing in Search with an unsaved draft', () => {
     const { ctl, st } = controller(editing(line(1), 'typed'))
     const nav = buildLinesNavigation({
       dramaId: 7, ctl, st, pending: { current: null }, listRef: { current: null }, searching: false, filter: 'all',
-      page: 1, setFilter: vi.fn(), setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
+      page: 1, place: { pageFor: () => 1, abandon: () => {} }, setFilter: vi.fn(), setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
     })
     await nav.changeSearch('a')
     await nav.changeSearch('ab')
@@ -221,7 +221,7 @@ describe('typing in Search with an unsaved draft', () => {
     const { ctl, st } = controller(editing(line(1), 'typed'))
     const nav = buildLinesNavigation({
       dramaId: 7, ctl, st, pending: { current: null }, listRef: { current: null }, searching: false, filter: 'all',
-      page: 1, setFilter: vi.fn(), setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
+      page: 1, place: { pageFor: () => 1, abandon: () => {} }, setFilter: vi.fn(), setPage: vi.fn(), setInput: vi.fn(), setTerm: vi.fn(), setStatus: vi.fn(), setError: vi.fn(),
     })
     await nav.changeSearch('a')
     ctl.actions.reload()

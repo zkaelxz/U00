@@ -7,6 +7,7 @@ export function markEpisodeReviewedText(r: EpisodeReviewedResult): string {
   const parts = [`Marked ${plural(r.reviewed, 'line')} reviewed`, `${r.remembered} added to translation memory`]
   if (r.kept_existing) parts.push(`${r.kept_existing} already in memory kept`)
   if (r.skipped_flagged) parts.push(`${plural(r.skipped_flagged, 'flagged line')} left alone`)
+  if (r.skipped_marked) parts.push(`${plural(r.skipped_marked, 'marked line')} left alone`)
   return `${parts.join('; ')}.`
 }
 

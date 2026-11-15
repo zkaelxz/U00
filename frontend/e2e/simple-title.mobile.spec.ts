@@ -179,6 +179,24 @@ test.describe(() => {
     leaveSeries()
   })
 
+  test('Wrong and Mixed sit in the open card, are tall enough to tap at 320px, mark the line and clear it', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/review')
+    const card = page.locator('.review-line')
+    await expect(card.locator('.review-idx')).toHaveText('#24')
+    for (const width of [390, 320] as const) {
+      await page.setViewportSize({ width, height: 844 })
+      for (const name of [/Wrong/, /Mixed/]) await expectTall(card.getByRole('button', { name }), `${name} at ${width}px`)
+      await expectNoSidewaysScroll(page)
+    }
+    await card.getByRole('button', { name: /Wrong/ }).tap()
+    await expect(card.getByTestId('line-mark')).toContainText('Wrong')
+    await expect(card.getByRole('button', { name: /Wrong/ })).toHaveAttribute('aria-pressed', 'true')
+    await card.getByRole('button', { name: /Wrong/ }).tap()
+    await expect(card.getByTestId('line-mark')).toHaveCount(0)
+  })
+
   test('the check queue on a phone is one card at a time, with Skip for now, wrapped reasons and no sideways scroll', async ({ page }) => {
     seedCheckLines()
     await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
@@ -465,6 +483,74 @@ test.describe(() => {
     expect(p.width, 'Player keeps its own width').toBeLessThan(200)
     await expectNoSidewaysScroll(page)
     await page.setViewportSize({ width: 320, height: 844 })
+    await expectNoSidewaysScroll(page)
+  })
+
+  test('under All at 320px a flagged line says why in a few words, whole and clear of ⋯, which open the sentence', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.setViewportSize({ width: 320, height: 844 })
+    await page.goto('/#/drama/3/review')
+    await page.locator('label').filter({ hasText: /^All 24$/ }).tap()
+    await expect(page.getByRole('group', { name: 'Lines to show' }).getByRole('radio', { name: /^All/ })).toBeChecked()
+    const speed = 'This subtitle is too fast to read: 25.2 characters a second, and more than about 17 is hard to read in time. Shorten the text.'
+    for (const [n, short, sentence] of [[12, 'Fast to read, 25 characters a second', speed], [24, 'Glossary name not used: 夷陵老祖', GLOSSARY_SENTENCE]] as const) {
+      const row = page.locator('.review-line').filter({ has: page.locator('.review-idx', { hasText: new RegExp(`^#${n}$`) }) })
+      const more = row.getByRole('button', { name: `More actions for line ${n}` })
+      // Where ⋯ sits in the row before the few words appear under the meta line.
+      const moreAt = () => more.evaluate((el) => {
+        const [b, r] = [el.getBoundingClientRect(), el.closest('li')!.getBoundingClientRect()]
+        return [b.x, b.y - r.y, b.width, b.height].map((v) => Math.round(v))
+      })
+      const before = await moreAt()
+      // The English, not the source: a tap on the source lands on ⋯ just above it, as a finger near a button does.
+      await row.getByTestId('line-en').tap()
+      await expect(row).toHaveAttribute('aria-current', 'true')
+      const chip = row.locator('.review-flag-toggle')
+      await expect(chip).toHaveText(`Flagged: ${short}`)
+      await expect(chip).toHaveAttribute('title', `Flagged: ${sentence}`)
+      for (const box of [chip, row.locator('.review-flag-line')]) {
+        expect(await box.evaluate((el) => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight), `#${n}'s few words are whole`).toBe(true)
+      }
+      const [c, m] = await Promise.all([chip, more].map(async (l) => (await l.boundingBox())!))
+      expect(c.x + c.width <= m.x || c.y >= m.y + m.height, `#${n}'s few words stay clear of ⋯`).toBe(true)
+      expect(await moreAt(), `#${n}'s ⋯ stays where it was`).toEqual(before)
+      await expectNoSidewaysScroll(page)
+      await chip.tap()
+      await expect(row.getByRole('note')).toHaveText(sentence)
+      await expectNoSidewaysScroll(page)
+    }
+  })
+
+  test('the few words keep a glossary name in one piece when they wrap', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/review')
+    await page.locator('label').filter({ hasText: /^All 24$/ }).tap()
+    const row = page.locator('.review-line').filter({ has: page.locator('.review-idx', { hasText: /^#24$/ }) })
+    await row.getByTestId('line-en').tap()
+    const chip = row.locator('.review-flag-toggle')
+    await expect(chip).toHaveText('Flagged: Glossary name not used: 夷陵老祖')
+    // Every width from a wide phone to a narrow one: wherever the first line ends, it must not end inside the name.
+    const split: number[] = []
+    const wrapped: number[] = []
+    for (let width = 390; width >= 320; width -= 2) {
+      await page.setViewportSize({ width, height: 844 })
+      const lines = await chip.evaluate((el, name) => {
+        const count = (range: Range) => new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size
+        const all = document.createRange()
+        all.selectNodeContents(el)
+        const text = [...el.childNodes].find((n): n is Text => n.nodeType === Node.TEXT_NODE && (n as Text).data.includes(name))!
+        const part = document.createRange()
+        part.setStart(text, text.data.indexOf(name))
+        part.setEnd(text, text.data.indexOf(name) + name.length)
+        return { all: count(all), name: count(part) }
+      }, '夷陵老祖')
+      if (lines.all > 1) wrapped.push(width)
+      if (lines.name > 1) split.push(width)
+    }
+    expect(wrapped, 'the few words wrap on a narrow phone').toContain(320)
+    expect(split, 'widths at which the glossary name is split across lines').toEqual([])
     await expectNoSidewaysScroll(page)
   })
 

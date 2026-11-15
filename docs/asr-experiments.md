@@ -681,6 +681,68 @@ mistakes, not wrong words. Not tested: GPU, the forced-aligner refine option,
 Whisper plus Qwen combined.
 
 
+## Measured results: November 2026 (RTX 3080 Ti)
+
+Measured 2026-11-10 to 14 on the owner's Windows PC (RTX 3080 Ti, the app's own venv, offline), against the repo state at `v0.1.1` to `v0.1.4` plus later base commits (about `777c5cc4`, `61f8ac70`, `cc407a75`, `2d266ed4`). The reference text is the owner's hand-corrected transcripts of private titles, so the audio, text and scripts are not in the repo; only the numbers are. Scores are `1 - CER` from the app's scorer unless noted. Run-to-run noise is stated where it was measured.
+
+### Vocal separation before transcription
+
+Whisper large-v3 fp16, temperature 0, Chinese, default speech detection (beam 5, silence 300 ms, threshold 0.5), two runs per cell. CER against hand-corrected lines (lower is better):
+
+| Clip | Original | Roformer | Demucs |
+|---|---|---|---|
+| 172 s, 40 lines | 0.358 | 0.205 | 0.176 to 0.188 |
+| 276 s, about 90 lines | 0.399 | 0.365 | 0.406 to 0.411 |
+
+Real-time factor rose from 0.13 to 0.20 (original) to 0.16 to 0.29 (separated). Both separators lose short lines the original gets right (for example single-syllable replies, 3 to 9 lines per clip). Demucs output differs run to run; roformer and the original repeat exactly. This is why separation is opt-in: the gain depends on the clip.
+
+### Korean and Japanese ASR backends
+
+One Korean clip (270 s, 91 lines) and one Japanese clip (36 s, 24 lines), three runs each:
+
+| System | Korean score | Korean start error (mean) | Japanese score | Japanese start error (mean) |
+|---|---|---|---|---|
+| large-v3, app path | 0.963 | 0.38 s | 0.933 | 0.00 s |
+| large-v3, default decode | 0.945 | 0.89 s | 0.933 | 0.13 s |
+| large-v3, temperature 0 | 0.956 | 0.77 s | 0.933 | 0.13 s |
+| Qwen3-ASR 1.7B with aligner, 8 s windows | 0.914 | 2.79 s | 0.853 | 3.53 s |
+| Qwen3-ASR 1.7B with aligner, 15 s windows | 0.911 | 5.94 s | 0.870 | 6.85 s |
+| Japanese-tuned 1.5B, default decode | not run | | 0.920 | 0.51 s |
+
+Qwen3-ASR scored lower and its start times were off by seconds on both languages, so it is not preferred for these.
+
+Qwen3 forced aligner, bf16 against float32 over 34 calls: identical text on every call, start times differ by at most 0.72 s. There was no reason found to change the dtype.
+
+### Speaker detection on a multi-speaker title
+
+One title, 467 lines, 11 hand-labelled voices. Right / wrong / blank, labels mapped one-to-one to the gold names (the best case for each system):
+
+| System | Right | Wrong | Blank | Time and VRAM |
+|---|---|---|---|---|
+| Nemotron, no cutoff | 60.2% | 26.6% | 13.3% | 10 s, about 0.5 GB |
+| Nemotron, 0.8 cutoff (the app) | 37.5% | 4.1% | 58.5% | same |
+| pyannote, automatic count | 63.4% | 35.5% | 1.1% | 61 s, about 9.5 GB |
+| pyannote, 8 speakers typed | 53.1% | 45.8% | 1.1% | 123 s, about 9.5 GB |
+
+Nemotron is fixed at 8 speakers by its model config, so at least three of the 11 voices must share a channel. The 0.8 cutoff keeps wrong labels near 4% by leaving lines blank. Matching each line to saved voice prints by cosine similarity did worse than Nemotron clusters unless the prints came from the same episode (best 327 of 467 right with an interleaved split, 162 with a time split, because the cast changes by scene). Adding a print from the long title to a short title's print made the short title worse (124 of 201 lines wrong against 63).
+
+### Translation engines on the same title
+
+The app's own translate job, all 471 lines re-translated, the owner's corrected Chinese and speaker names, chrF against the owner's English. One-run noise is about 1 chrF (one engine agreed with itself on only 180 of 471 lines on a repeat).
+
+| Engine | chrF | Time | Cost |
+|---|---|---|---|
+| gemma4:31b-cloud | 54.05 | 78 s | $0.014 |
+| claude-sonnet-5-5 | 52.89 | 162 s | $0.253 |
+| deepseek-v4-pro | 50.71 | 124 s | $0.084 |
+| gpt-6-luna | 50.15 | 141 s | $0.009 |
+
+Gemma's lead over deepseek and luna is larger than the noise; its gap to Sonnet is not. No engine made an error, leaked a speaker tag, or contradicted a gendered pronoun (deepseek omitted pronouns more often, 29 matches against 35). Supplying the speaker names fixed character names in the output; chrF did not change. Gemma 12B was not tested (not installed).
+
+### Limits
+
+Each figure is from one clip or one title and one run unless stated, with a human-corrected reference that is itself imperfect. The comic OCR comparison from the same period has no reference text and is not scored, so no OCR figures are given.
+
 ## Difficult audio
 
 A per-title opt-in (`dramas.difficult_audio`, Transcribe > Advanced > Switches, also a series default) for audio where the default drops speech:

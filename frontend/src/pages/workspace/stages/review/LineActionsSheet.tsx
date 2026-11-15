@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Sheet } from '../../../../components/Sheet'
-import { humanizeValue } from '../../../../components/labels'
-import type { ReviewLine } from '../../../../types/review'
+import type { LineMark, ReviewLine } from '../../../../types/review'
 import { AddLineForm, type NewLine } from './AddLineForm'
 import { MergeConfirm } from './MergeConfirm'
 import { HardSubCaseButton } from './HardSubCaseButton'
@@ -18,6 +17,7 @@ import { lineNumber } from '../../../../lineNumber'
 import { retranscribeMenuState } from './retranscribeLogic'
 import { isSourceChanged } from '../sourceChanged'
 import { formatTime, type ToolMode } from './reviewLogic'
+import { queueReason } from './checkQueueModel'
 import type { TimingSuggestion } from '../../../../types/timingCheck'
 
 export type SheetView = 'menu' | 'split' | 'merge' | 'add' | 'language'
@@ -44,6 +44,7 @@ export interface SheetActions {
   onTool: (mode: ToolMode) => void
   onDismissFlag: () => void
   onSetReviewed: (reviewed: boolean) => void
+  onSetMark: (mark: LineMark | null) => void
   onSnapToSpeech?: () => void
   onAddNote: () => void
   onSplit: (choice: SplitChoice) => void
@@ -230,8 +231,7 @@ export function LineActionsSheet(p: Props) {
           )}
           {line && view === 'menu' && line.flag && (
             <p className="review-flag-full" data-testid="sheet-flag">
-              <span aria-hidden="true">⚑ </span>Flagged: {humanizeValue(line.flag)}
-              {line.flag_note ? ` · ${line.flag_note}` : ''}
+              <span aria-hidden="true">⚑ </span>Flagged: {queueReason(line)?.text}
             </p>
           )}
           {line && view === 'menu' && (
@@ -303,6 +303,9 @@ export function LineActionsSheet(p: Props) {
               {!!line.en && (
                 <li><button type="button" onClick={() => p.actions.onSetReviewed(!line.reviewed)}>{line.reviewed ? 'Mark unchecked' : 'Mark checked'}</button></li>
               )}
+              {!!line.en && (['wrong', 'mixed'] as const).map((m) => (
+                <li key={m}><button type="button" aria-pressed={line.mark === m} onClick={() => p.actions.onSetMark(line.mark === m ? null : m)}>{line.mark === m ? `Clear the ${m} mark` : `Mark ${m}`}</button></li>
+              ))}
               {line.flag && (
                 <li><button type="button" onClick={p.actions.onDismissFlag}>{isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}</button></li>
               )}

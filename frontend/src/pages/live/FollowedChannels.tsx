@@ -42,9 +42,9 @@ const STATE_TONE: Record<string, BadgeTone> = { live: 'accent', upcoming: 'info'
 const STATE_LABEL: Record<string, string> = { live: 'Live', upcoming: 'Scheduled', not_live: 'Not live', error: 'Problem' }
 const MODE_LABEL: Record<LiveFollowMode, string> = { notify: 'Notify me', auto: 'Start Live automatically' }
 const MODE_HELP =
-  'Notify me: a bell notification when the hourly check finds the channel live or a scheduled stream. Start Live automatically (PC owner only, needs Check every hour): also starts Live with this channel’s saved options when nothing else is using the GPU and the monthly spending cap has room.'
+  'Notify me: an alert when the hourly check finds the channel live or a scheduled stream. Start Live automatically (PC owner only, needs Check every hour): also starts Live with this channel’s saved options when nothing else is using the GPU and the monthly spending cap has room.'
 const HOURLY_HELP =
-  'Off (the default): the channel is checked only when you press Check now or Check all. On: Baihe checks it about once an hour, plus once just after a stream scheduled within the hour starts, and sends one bell notification per stream.'
+  'Off (the default): the channel is checked only when you press Check now or Check all. On: Baihe checks it about once an hour, plus once just after a stream scheduled within the hour starts, and sends one alert per stream.'
 
 type Props = {
   /** The Live form's current options, saved to a channel by "Use Live options". */

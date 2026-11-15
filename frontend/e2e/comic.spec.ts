@@ -283,7 +283,9 @@ test('the Reader sends a comic with no lines to the comic viewer', async ({ page
   await page.goto('/#/read/13')
   await expect(page).toHaveURL(/#\/comic\/13\?page=2$/)
   await expect(label(page)).toHaveText('Page 2 of 8')
-  await expect(page.getByRole('link', { name: 'Library' }).first()).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('rail-title')).toHaveAttribute('href', '#/drama/13')
+  await expect(page.getByTestId('rail-title')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: 'Library' }).first()).not.toHaveAttribute('aria-current', 'page')
   expect(s.unmocked).toEqual([])
 })
 

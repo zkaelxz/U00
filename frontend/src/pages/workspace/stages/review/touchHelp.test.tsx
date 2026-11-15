@@ -7,7 +7,7 @@ import { LineRow, type RowActions } from './LineRow'
 
 const LINE: ReviewLine = {
   id: 7, idx: 6, start: 1, end: 3, zh: '你好', en: 'Hello', speaker: null, speaker_manual: false,
-  sfx: false, flag: 'timing_drift', flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null,
+  sfx: false, flag: 'timing_drift', flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null,
 }
 
 const noop = () => {}
@@ -20,7 +20,7 @@ function sheet(timingSnap: { new_start: number; new_end: number } | null) {
       actions={{
         onView: noop, onClose: noop, onPlay: noop, onEditDetails: noop, onRetranscribe: noop, onImprove: noop, onWhy: noop,
         onTool: noop, onDismissFlag: noop, onAddNote: noop, onSplit: noop, onMerge: noop, onAdd: noop, onDelete: noop,
-        onSetLanguage: noop, onSnapToSpeech: noop, onSetReviewed: noop,
+        onSetLanguage: noop, onSnapToSpeech: noop, onSetReviewed: noop, onSetMark: noop,
       }}
     />,
   )

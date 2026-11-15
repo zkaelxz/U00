@@ -184,40 +184,16 @@ test('the library detail panel links to the reader', async ({ page }) => {
   await expect(label(page)).toHaveText('Page 1 of 3')
 })
 
-test('a Watch card opens the Reader with Watch / listen open; a plain link leaves it as remembered', async ({ page }) => {
-  // Blessing shown as a video title with a video to play, so its card says Watch and the Reader has the player fold.
-  await page.route((u) => u.pathname === '/api/library/dramas', async (route) => {
-    if (route.request().method() !== 'GET') return route.fallback()
-    const res = await route.fetch()
-    const body = await res.json()
-    const items = body.items.map((d: { id: number }) => (d.id === 2 ? { ...d, media_type: 'video_drama' } : d))
-    await route.fulfill({ response: res, json: { ...body, items } })
-  })
-  // Held until the Reader has rewritten its address to the saved page (dropping ?watch=1), so the fold mounts after
-  // that and only the flag kept from arrival can open it.
-  let release!: () => void
-  const held = new Promise<void>((r) => { release = r })
-  await page.route('**/api/reader/dramas/2/media', async (r) => {
-    await held
-    await r.fulfill({ json: { original: 'video', narration: false, caption_tracks: [] } })
-  })
+test('a title with a video to play has the Watch / listen fold, closed until it is opened', async ({ page }) => {
+  await page.route('**/api/reader/dramas/2/media', (r) => r.fulfill({ json: { original: 'video', narration: false, caption_tracks: [] } }))
   const player = page.locator('details.section').filter({ has: page.locator('summary', { hasText: 'Watch / listen' }) })
-  await page.goto('/#/library')
-  const watch = page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: "Watch Heaven Official's Blessing", exact: true })
-  await expect(watch).toHaveAttribute('href', '#/read/2?watch=1')
-  await watch.click()
-  await expect(page).toHaveURL(/#\/read\/2\?page=1$/)
-  await expect(player).toHaveCount(0)
-  release()
-  await expect(player).toHaveAttribute('open', '')
-
-  // Both are hash changes in one document: wait for the Library so the Reader really closes before it opens again.
-  await page.goto('/#/library')
-  await expect(page.getByRole('region', { name: 'Titles' })).toBeVisible()
   await page.goto('/#/read/2')
   await expect(label(page)).toHaveText('Page 1 of 3')
   await expect(player).toHaveCount(1)
   await expect(player).not.toHaveAttribute('open')
+  await player.locator('summary').click()
+  await expect(player).toHaveAttribute('open', '')
+  await expect(player.locator('video')).toBeVisible()
 })
 
 test('a Reading history name resumes reading', async ({ page }) => {

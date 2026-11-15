@@ -49,7 +49,8 @@ test('the flagged line shows its note and snaps to speech', async ({ page }) => 
   const seen = { snaps: [] as unknown[], runs: 0 }
   await open(page, seen)
   const row = page.locator('.review-line[data-line-id="2"]')
-  await expect(row.getByTestId('line-flag')).toContainText('Starts 2.0 s before speech')
+  await expect(row.getByTestId('line-flag')).toContainText(
+    'The times of this line don’t match the speech in the audio: it starts 2.0 s before the speech. Play it and move its start or end to the speech.')
   await expect(page.locator('.review-line[data-line-id="1"]').getByRole('button', { name: 'Snap to speech' })).toHaveCount(0)
   await row.getByRole('button', { name: 'Snap to speech' }).click()
   await expect.poll(() => seen.snaps).toEqual([{ line_ids: [2] }])

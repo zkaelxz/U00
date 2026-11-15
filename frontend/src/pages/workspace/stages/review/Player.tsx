@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
+import { useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type RefObject, type SyntheticEvent } from 'react'
 
 import { createPortal } from 'react-dom'
 
@@ -12,7 +12,7 @@ import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
 import { CAPTION_SIZE_OPTIONS, clampTime, FULLSCREEN_IDLE_MS, JUMP_ERROR, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, jumpPlaceholder, playerKeyAction, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
-import { useStage } from '../../StageContext'
+import { StageContext } from '../../StageContext'
 import { stageLabel } from '../../stages'
 import { titleKind } from '../../titleKind'
 import { FloatingFrame } from './FloatingFrame'
@@ -64,6 +64,16 @@ interface Props {
   // Phones: where the video, seek bar and tools go instead (outside the sticky
   // toolbar, so they scroll away); null while that spot isn't mounted yet.
   panelHost?: HTMLElement | null
+  // Outside a title's workspace (the Watch page) there is no stage context to name the Media step from.
+  sourceStage?: string
+  // The Watch page is the player, so it is never folded away there.
+  alwaysOpen?: boolean
+  // The page shows the spoken line itself, larger, so a sound-only title's caption strip (and the choice that only
+  // changes it) would repeat it; the pop-out window and the floating box keep both, as the only text there.
+  lineShownByPage?: boolean
+  // A page that plays by seeking rather than line by line (the Watch page) names the line under the playhead, which
+  // Loop line then repeats. Stable, so the player does not redraw for it.
+  loopLineAt?: (time: number) => Segment | null
 }
 
 // The Fullscreen API is still webkit-prefixed in older Safari.
@@ -114,15 +124,15 @@ function usePlayState(onFailed?: () => void) {
 // A player over the Range endpoint, with a seek bar, jump to time and
 // subtitles from the current lines (the Reader's caption route). Only rendered
 // when the drama has audio (or a source video); the element fetches the stream itself.
-export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost }: Props) {
-  const { drama } = useStage()
+export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost, sourceStage, alwaysOpen = false, lineShownByPage = false, loopLineAt }: Props) {
+  const stage = useContext(StageContext)
   const media = useRef<HTMLMediaElement | null>(null)
   const trackEl = useRef<HTMLTrackElement | null>(null)
   const { playing, setPlaying, failed, setFailed, fail, outside } = usePlayState(onFailed)
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(NaN)
   const [segment, setSegment] = useState<Segment | null>(null)
-  const [loop, setLoop] = usePersistedState('review.loop', false)
+  const [loop, setLoop] = useLoopSwitch(loopLineAt !== undefined)
   const [open, setOpen] = usePersistedState('review.playerOpen', !(useMediaQuery('(max-width: 640px)') && kind === 'video')) // closed on a phone: an open video hides the lines
   const [ratePref, setRatePref] = usePersistedState('review.rate', 1)
   const rate = validRate(ratePref)
@@ -158,10 +168,6 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
   const src = englishAbsent && subs === 'English' ? null : subtitleSrc(dramaId, subs, captionVersion)
   const cue = cueFor && cueFor.src === src ? cueFor.text : ''
   const subsMissing = src === null ? subs === 'English' && englishAbsent : missingSrc === src
-
-  useEffect(() => {
-    loopRef.current = loop
-  }, [loop])
 
   // Also on loadedmetadata: a new source can reset the element's speed.
   const applyRate = useCallback((el: HTMLMediaElement | null) => {
@@ -210,6 +216,7 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
     segRef.current = s
     setSegment(s)
   }
+  useLoop({ loop, loopRef, playing, loopLineAt, media, segRef, setSeg })
 
   // While a line plays, stop (or loop) exactly at its end; timeupdate alone
   // fires only about four times a second.
@@ -458,10 +465,11 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
 
   const overlay = kind === 'video' && !floating && subs !== 'off' ? overlayText(cue) : ''
   const canFullscreen = kind === 'video' && !floating && fullscreenAvailable()
+  const textSubs = !(lineShownByPage && kind !== 'video' && !floating && !boxed)
 
   // Kept mounted while folded away, so the sound and the strip above still work.
   const panel = (
-    <div className="review-player-panel" hidden={!open && !floating && !boxed}>
+    <div className="review-player-panel" hidden={!open && !alwaysOpen && !floating && !boxed}>
       <div
         ref={frameRef}
         data-testid="player-frame"
@@ -501,7 +509,7 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
         )}
         </div>
       ) : null}
-      {(kind !== 'video' || floating) && subs !== 'off' && (
+      {(kind !== 'video' || floating) && textSubs && subs !== 'off' && (
         <p className={cue ? 'review-caption' : 'review-caption is-empty'} data-testid="player-caption">
           {cue || '\u00a0'}
         </p>
@@ -558,7 +566,7 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
               ))}
             </select>
           </label>
-          <label className="review-subs">
+          {textSubs && <label className="review-subs">
             Subtitles
             <select value={subs} onChange={(e) => setSubs(e.target.value)}>
               {SUBTITLE_OPTIONS.map((o) => (
@@ -567,7 +575,7 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
                 </option>
               ))}
             </select>
-          </label>
+          </label>}
           {canFullscreen && (
             <button
               type="button"
@@ -600,7 +608,7 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
           {jumpError}
         </p>
       )}
-      {subsMissing && subs !== 'off' && <p className="muted">{NO_SUBS[subs]}</p>}
+      {subsMissing && textSubs && subs !== 'off' && <p className="muted">{NO_SUBS[subs]}</p>}
     </div>
   )
 
@@ -628,13 +636,15 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
             Loop<span className="review-loop-word"> line</span>
           </label>
         </span>
-        <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? 'Hide player' : 'Show player'}
-        </button>
+        {!alwaysOpen && (
+          <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? 'Hide player' : 'Show player'}
+          </button>
+        )}
         <PopOutButton supported={pop.supported} floating={floating} boxed={boxed} onPop={() => void pop.open()} onReturn={pop.close} onToggleBox={() => setBoxed(!boxed)} />
         {trailing}
       </div>
-      {failed && <p className="error" role="alert">{playError(stageLabel('source', titleKind(drama.media_type, drama.content_mode)))}</p>}
+      {failed && <p className="error" role="alert">{playError(sourceStage ?? stageLabel('source', titleKind(stage?.drama.media_type, stage?.drama.content_mode)))}</p>}
       <div className="review-player-slot" ref={slotRef} />
       {createPortal(panel, panelBox)}
       {boxed && <FloatingFrame width={boxWidth} onWidth={setBoxWidth} onReturn={() => setBoxed(false)} hostRef={setBoxHost} />}
@@ -650,4 +660,52 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
       )}
     </div>
   )
+}
+
+/**
+ * The Loop line switch. A page that plays by seeking (loopLineAt) would hold the sound inside its first line for someone
+ * who left Loop line on in Review, so there it starts off each visit and neither reads nor writes Review's stored choice.
+ */
+function useLoopSwitch(byPage: boolean): [boolean, (on: boolean) => void] {
+  const [stored, setStored] = usePersistedState('review.loop', false)
+  const [visit, setVisit] = useState(false)
+  return byPage ? [visit, setVisit] : [stored, setStored]
+}
+
+/**
+ * Loop line's state, and on a page that plays by seeking (loopLineAt) the line it repeats: while the sound plays with
+ * Loop line on and no line was played, the page's line under the playhead is taken as the played line, so it repeats
+ * at its end like one. A seek clears it like any played line, and it is taken again where the sound lands. Turning
+ * Loop line off drops a line taken only for it, in the same step as the switch, so the sound runs on instead of
+ * stopping at that line's end.
+ */
+function useLoop({ loop, loopRef, playing, loopLineAt, media, segRef, setSeg }: {
+  loop: boolean
+  loopRef: RefObject<boolean>
+  playing: boolean
+  loopLineAt: ((time: number) => Segment | null) | undefined
+  media: RefObject<HTMLMediaElement | null>
+  segRef: RefObject<Segment | null>
+  setSeg: (s: Segment | null) => void
+}) {
+  const taken = useRef<Segment | null>(null)
+  useEffect(() => {
+    loopRef.current = loop
+    if (!loop && taken.current && segRef.current === taken.current) setSeg(null)
+    // The refs are the player's own, and setSeg, new each render, only writes them and the segment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loop])
+  useEffect(() => {
+    if (!loopLineAt || !loop || !playing) return
+    let raf = 0
+    const look = () => {
+      const el = media.current
+      const line = el && !segRef.current ? loopLineAt(el.currentTime) : null
+      if (line) setSeg((taken.current = line))
+      raf = requestAnimationFrame(look)
+    }
+    raf = requestAnimationFrame(look)
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loopLineAt, loop, playing])
 }
