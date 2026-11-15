@@ -707,3 +707,25 @@ def test_prose_instead_of_an_array_is_not_retried(isolated_db, monkeypatch):
     monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: calls.append(1) or "Sorry, no.")
     tguide.extract_glossary_from_novel("林" * 3000, _Engine())
     assert len(calls) == len(tguide._sample_across_text("林" * 3000))
+
+
+def test_split_open_stage_replaces_the_whole_job_row_with_the_measured_steps(isolated_db):
+    job_timing_service.start_run("split_job", now=1000.0)
+    job_timing_service.split_open_stage(
+        "split_job", [("Separate vocals", 20.0), ("Transcribe", 60.0), ("Align", None),
+                      ("Load model", 0)], now=1100.0)
+    job_timing_service.finish_run("split_job", now=1105.0)
+
+    run = job_timing_service.list_runs("split_job")[0]
+    assert [(s["stage"], s["duration_seconds"]) for s in run["stages"]] == [
+        ("Other", 20.0), ("Separate vocals", 20.0), ("Transcribe", 60.0), ("Save and finish", 5.0)]
+    assert run["total_seconds"] == 105.0
+
+
+def test_split_open_stage_scales_steps_that_add_up_to_more_than_the_job_lasted(isolated_db):
+    job_timing_service.start_run("split_job", now=1000.0)
+    job_timing_service.split_open_stage("split_job", [("A", 90.0), ("B", 90.0)], now=1100.0)
+    job_timing_service.finish_run("split_job", now=1100.0)
+
+    run = job_timing_service.list_runs("split_job")[0]
+    assert [(s["stage"], s["duration_seconds"]) for s in run["stages"]][:2] == [("A", 50.0), ("B", 50.0)]
