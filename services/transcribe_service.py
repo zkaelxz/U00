@@ -45,7 +45,7 @@ from types import SimpleNamespace
 from typing import Optional
 
 import background_jobs
-from jobs import crash_retry, job_launch
+from jobs import crash_retry, gpu_guard, job_launch
 import core as core_module
 import whisper_models
 import segment_splitting
@@ -269,6 +269,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     "qwen3_forced_align" while transcript_mode is "whisper" (forced
     alignment needs a known transcript); ConflictError if a transcription is already running for
     this drama."""
+    # Taken first, so a restart repeats the call as it was made.
+    again = functools.partial(start_transcribe_run, **locals())
     drama = apply_run_overrides(ownership_service.require_drama(drama_id), overrides)
     if db.load_line_ids(drama_id):
         # The run replaces every line the title already has.
@@ -311,6 +313,9 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         started = _start_worker_job(job_id, drama_id, drama, run)
     if not started:
         raise ConflictError(f"A transcription is already running for title {drama_id}.")
+    # A stopped transcription applies nothing, so a fresh start is clean (a
+    # Whisper decode picks up from its checkpoints).
+    gpu_guard.allow_restart(job_id, again)
     return {"job_id": job_id}
 
 
@@ -712,6 +717,10 @@ def _chain_diarization(job_id, drama_id, hf_token, diarize_audio_path, expected_
             run_settings=run_settings_service.for_diarize(
                 expected_speakers, min_speakers, max_speakers,
                 bool(settings_service.get("use_gpu"))), line_fields=("speaker", "speaker_manual"))
+        if started:
+            gpu_guard.allow_restart(f"diarize_{drama_id}", functools.partial(
+                diarization_service.start_diarization_run, drama_id, expected_speakers,
+                min_speakers=min_speakers, max_speakers=max_speakers))
     except ConflictError:
         # A clean stop cancels every job and refuses new ones, so one
         # that began after the lines were saved refuses the follow-up

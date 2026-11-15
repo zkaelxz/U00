@@ -11,10 +11,11 @@ values out, so another service could call them too. The HF
 token itself is never returned (server-side keys are never
 exposed over an API), only whether one is configured.
 """
+import functools
 from typing import Optional
 
 import background_jobs
-from jobs import crash_retry, job_launch
+from jobs import crash_retry, gpu_guard, job_launch
 import db
 from services.source_service import drama_audio_path as _drama_audio_path
 import diagnostics
@@ -352,6 +353,8 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     is combined with an exact expected_speakers.
     Returns {"job_id": ...} -- poll it via the existing GET /api/jobs/
     {job_id}."""
+    # Taken first, so a restart repeats the call as it was made.
+    again = functools.partial(start_diarization_run, **locals())
     drama = ownership_service.require_drama(drama_id)
 
     if overwrite_manual and confirm is not True:
@@ -393,4 +396,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
             overwrite_manual=overwrite_manual), line_fields=("speaker", "speaker_manual"))
     if not started:
         raise ConflictError(f"A diarization job is already running for title {drama_id}.")
+    # Speakers are applied only when a run finishes, so a stopped run left
+    # nothing behind and a fresh start is clean.
+    gpu_guard.allow_restart(job_id, again)
     return {"job_id": job_id}
