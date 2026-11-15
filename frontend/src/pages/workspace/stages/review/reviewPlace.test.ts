@@ -9,7 +9,7 @@ import {
 
 const mk = (id: number, idx: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx, start: idx, end: idx + 1, zh: `句${idx}`, en: `Line ${idx}`, speaker: null,
-  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, ...over,
+  speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
 })
 
 const inLines: Spot = { lineId: 512, lineNumber: 50, page: 2 }
