@@ -298,7 +298,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
                 />
                 <Field
                   label={FIELD_LABELS.episode_brief}
-                  help="Written by one extra request that reads the whole episode before a translate run (Settings > Translation: Read the whole episode before translating), and given to every batch. Edit it freely: an edited brief is used as written, and empty means the next run writes a new one. A wrong brief colours every line."
+                  help="Written by one extra request that reads the whole episode before translating (Settings > Translation: Read the whole episode before translating) and given to every batch. Edit it freely; it is used as written. Empty means the next run writes a new one. A wrong brief colours every line."
                   error={errors.episode_brief}
                 >
                   <textarea rows={4} value={form.episode_brief} onChange={set('episode_brief')} />
