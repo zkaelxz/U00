@@ -174,14 +174,29 @@ def _read_overrides(setting_key: str, valid_keys) -> dict:
             if k in valid_keys and isinstance(v, str) and MODEL_ID_RE.fullmatch(v) and ".." not in v}
 
 
+# Set by services.ownership_service, which knows who a request acts for; this
+# module sits below it. Returns False for a caller who may not use a hosted default.
+_hosted_default_caller_ok = None
+
+
+def set_hosted_default_caller_check(check) -> None:
+    global _hosted_default_caller_ok
+    _hosted_default_caller_ok = check
+
+
 def hosted_default_allowed() -> bool:
-    """Whether the owner opted in (Settings) to a hosted Ollama tag as a default."""
+    """Whether a hosted Ollama tag may be a default for this caller: the owner
+    opted in (Settings) and the caller holds paid-engine permission. A caller
+    without it falls back to the local default (translategemma), so the owner's
+    choice never sends a restricted account's text off the PC."""
     try:
         import db
-        return bool(settings_schema.coerce(
-            "ollama_cloud_default", db.get_app_setting("pref.ollama_cloud_default")))
+        if not settings_schema.coerce(
+                "ollama_cloud_default", db.get_app_setting("pref.ollama_cloud_default")):
+            return False
     except Exception:
         return False
+    return _hosted_default_caller_ok is None or bool(_hosted_default_caller_ok())
 
 
 def hosted_default_blocked(engine_name: "str | None", model) -> bool:
