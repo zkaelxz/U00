@@ -751,7 +751,7 @@ test.describe('the check queue', () => {
     // #24 is the last line: the line before it and itself.
     await expect(panel.getByTestId('this-line-around').locator('.this-line-near-idx')).toHaveText(['#23', '#24'])
     expect(await page.evaluate(() => localStorage.getItem('baihe.pref.review.tools.tab.3'))).toBeNull()
-    await panel.getByRole('button', { name: '▶ Play' }).click()
+    await panel.getByRole('button', { name: 'Play', exact: true }).click()
     await expect.poll(() => page.locator('audio').evaluate((a: HTMLAudioElement) => !a.paused)).toBe(true)
     await expect(panel.locator('.this-line-playhead'), 'the playhead shows on the line\'s sound while it plays').toBeVisible()
     await page.keyboard.press('Alt+Space')
@@ -806,7 +806,7 @@ test.describe('the check queue', () => {
     await page.goto('/#/drama/3/review')
     const panel = page.getByTestId('this-line')
     await expect(panel.getByRole('heading', { name: 'Line 24 sound' })).toBeVisible()
-    await expect(panel.getByRole('button', { name: '▶ Play' })).toBeVisible()
+    await expect(panel.getByRole('button', { name: 'Play', exact: true })).toBeVisible()
     await expect(panel).toContainText('0:46.0')
     await expect(panel).not.toContainText('0:46.00')
     await expect(panel.getByTestId('this-line-wave')).toHaveCount(0)
@@ -1487,5 +1487,73 @@ test.describe('the check queue', () => {
     }))
     expect(inner - bottom, 'the card ends one page gap above the window\'s bottom').toBeLessThanOrEqual(30)
     expect(scroll, 'the card does not make the page scroll').toBeLessThanOrEqual(inner)
+  })
+  test('the tools column is 372px wide with its tabs in a card of pills and This line as three white cards with a 3px-bar sound picture', async ({ page }) => {
+    seedCheckLines({ audio: true })
+    await mockPeaks(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    const column = (await page.locator('.review-ai').boundingBox())!
+    const list = (await page.locator('.review-list-card').boundingBox())!
+    expect(Math.abs(column.width - 372), 'the column is 372px wide').toBeLessThanOrEqual(2)
+    expect(Math.abs(column.x - (list.x + list.width) - 20), 'and 20px from the list').toBeLessThanOrEqual(2)
+    // The tabs: pills in a bordered card; the selected one is filled and bold, with no underline.
+    const tabs = page.getByRole('tablist', { name: 'Review tools' })
+    const card3 = await tabs.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { border: s.borderTopWidth, radius: s.borderTopLeftRadius, padding: s.paddingTop, bg: s.backgroundColor }
+    })
+    expect(card3).toEqual({ border: '1px', radius: '14px', padding: '3px', bg: 'rgb(255, 255, 255)' })
+    const pill = (name: string) => page.getByRole('tab', { name }).evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { padding: `${s.paddingTop} ${s.paddingRight}`, radius: s.borderTopLeftRadius, weight: s.fontWeight, underline: s.borderBottomWidth, bg: s.backgroundColor }
+    })
+    expect(await pill('This line')).toMatchObject({ padding: '5px 8px', radius: '6px', weight: '600', underline: '0px' })
+    expect((await pill('This line')).bg, 'the selected tab is filled').not.toBe('rgba(0, 0, 0, 0)')
+    expect((await pill('Look for problems')).bg, 'the others are not').toBe('rgba(0, 0, 0, 0)')
+    // This line: three white cards with an edge.
+    const cards = page.getByTestId('this-line').locator('.this-line-card')
+    await expect(cards).toHaveCount(3)
+    for (let i = 0; i < 3; i++) {
+      expect(await cards.nth(i).evaluate((el) => {
+        const s = getComputedStyle(el)
+        return { border: s.borderTopWidth, radius: s.borderTopLeftRadius, bg: s.backgroundColor }
+      })).toEqual({ border: '1px', radius: '14px', bg: 'rgb(255, 255, 255)' })
+    }
+    // The picture is 54px high, with about 85 bars each 3px wide.
+    const picture = page.getByTestId('this-line-wave')
+    await expect(picture.locator('rect').first()).toBeVisible()
+    expect(Math.abs((await picture.boundingBox())!.height - 54)).toBeLessThanOrEqual(1)
+    const bars = await picture.locator('rect').evaluateAll((rs) => rs.map((r) => r.getBoundingClientRect().width))
+    expect(bars.length).toBeGreaterThanOrEqual(80)
+    expect(bars.length).toBeLessThanOrEqual(90)
+    for (const w of bars) expect(Math.abs(w - 3), 'each bar is 3px wide').toBeLessThanOrEqual(0.5)
+    await expect(page.getByTestId('this-line').getByRole('button', { name: 'Play', exact: true })).toHaveAttribute('title', 'Play the line (Space)')
+    await expectNoSidewaysScroll(page)
+  })
+
+  test('another tab\'s panel is one white card, and the tabs are the same pills under the list', async ({ page }) => {
+    seedCheckLines()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await page.getByRole('tab', { name: 'Look for problems' }).click()
+    const panel = page.getByRole('tabpanel', { name: 'Look for problems' })
+    await expect(panel).toBeVisible()
+    expect(await panel.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { border: s.borderTopWidth, radius: s.borderTopLeftRadius, bg: s.backgroundColor }
+    })).toEqual({ border: '1px', radius: '14px', bg: 'rgb(255, 255, 255)' })
+    await page.setViewportSize({ width: 1280, height: 900 })
+    const tab = page.getByRole('tab', { name: 'Look for problems' })
+    await expect(tab).toBeVisible()
+    expect(await tab.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { padding: `${s.paddingTop} ${s.paddingRight}`, radius: s.borderTopLeftRadius, underline: s.borderBottomWidth }
+    })).toEqual({ padding: '5px 8px', radius: '6px', underline: '0px' })
+    await expectNoSidewaysScroll(page)
   })
 })

@@ -16,7 +16,7 @@
 /* ---- inspector: from 1400px (TOOLS_BESIDE_LINES in reviewToolsTabs.ts, which decides the This line tab) the checks and tools sit in a sticky column beside the lines, so a check can run while you keep reading.
    Below that width everything stays stacked: a narrower lines column makes the sticky toolbar wrap into rows that cover the lines. The sticky offset is --bar-h (header + strip), the same one the toolbar uses. ---- */
 @media (min-width: 1400px) {
-  .stage-review { grid-template-columns: minmax(0, 1fr) 24rem; align-items: start; column-gap: var(--space-4); }
+  .stage-review { grid-template-columns: minmax(0, 1fr) 24.8rem; align-items: start; column-gap: 1.3333rem; }
   .stage-review > .review-editor { grid-column: 1; grid-row: 1; }
   .stage-review > .review-ai {
     grid-column: 2; grid-row: 1;
@@ -25,14 +25,10 @@
   }
 }
 
-/* The tools panel inside the inspector: one padding, one gap, equal-height check buttons with their Bulk switch directly under each. */
+/* The tools panel inside the inspector: one gap, equal-height check buttons with their Bulk switch directly under each. */
 @media (min-width: 1400px) {
-  .stage-review .review-toolbox { padding: var(--space-3); display: grid; gap: var(--space-3); }
-  .stage-review .review-toolbox .ui-tabs { flex-wrap: wrap; }
-  /* Narrower sides than tabs elsewhere (same height and type), so This line, the three groups and Episodes take two
-     rows of the column, not three. */
-  .stage-review .review-toolbox .ui-tab { padding-inline: var(--space-2); }
-  .stage-review .review-toolbox-panel, .stage-review .review-tab-body { display: grid; gap: var(--space-3); margin: 0; padding: 0; }
+  .stage-review .review-toolbox-panel, .stage-review .review-tab-body { display: grid; gap: var(--space-3); margin: 0; }
+  .stage-review .review-tab-body { padding: 0; }
   .stage-review .review-check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4) var(--space-3); align-items: start; }
   .stage-review .review-job-row { display: grid; gap: var(--space-2); align-content: start; }
   .stage-review .review-job-row > .btn { width: 100%; height: 52px; white-space: normal; text-align: center; line-height: 1.2; }
@@ -451,6 +447,19 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 }
 
 /* The tools under the line list: one tab level; each panel fits about one desktop screen. */
+/* The tabs are pills in a card of their own; on a phone they keep the 44px tap height. */
+.review-toolbox .ui-tabs { flex-wrap: wrap; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
+.review-toolbox .ui-tabs .ui-tab { min-height: 0; padding: 5px 8px; border: 0; border-radius: 6px; font-size: 0.8667rem; }
+.review-toolbox .ui-tabs .ui-tab[aria-selected="true"],
+.review-toolbox .ui-tabs .ui-tab[aria-selected="true"]:hover:not(:disabled) { background: var(--highlight); color: var(--text); font-weight: var(--weight-bold); }
+@media (pointer: coarse), (max-width: 640px) {
+  .review-toolbox .ui-tabs .ui-tab { min-height: 44px; }
+}
+@media (min-width: 641px) {
+  /* Each panel is one white card, the way This line's three are; the toolbox itself is only the stack of them. */
+  .stage-review .review-toolbox { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; gap: 0.6667rem; }
+  .review-toolbox-panel:not(.review-line-dock) { padding: 0.9333rem 1.0667rem; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
+}
 .review-toolbox { display: grid; gap: var(--space-2); min-width: 0; }
 .review-toolbox-panel[hidden] { display: none; }
 .review-toolbox-panel > .review-tab-body { gap: var(--space-2); }
@@ -769,22 +778,24 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-toolbox .btn.review-toolbox-fold { width: 100%; min-height: var(--touch, 44px); justify-content: center; }
 
 /* This line (ThisLinePanel), in the tools column beside the queue. */
-.this-line { display: grid; gap: var(--space-3); min-width: 0; }
-.stage-review .this-line-card { gap: var(--space-2); padding: var(--space-3) var(--space-4); }
+.this-line { display: grid; gap: 0.6667rem; min-width: 0; }
+/* Three white cards, as drawn: a .card is only a top hairline in the Frost look, so the edge is asked for here. */
+.stage-review .this-line-card { gap: var(--space-2); padding: 0.9333rem 1.0667rem; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
 .this-line-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .this-line-title { margin: 0; font-size: var(--text-md); font-weight: var(--weight-bold); }
-.this-line-wave { position: relative; height: 48px; }
+/* The column's width is fixed, so the picture asks for as many 3px bars with 1px between as fit (SOUND_BARS) and each is drawn about that wide. */
+.this-line-wave { position: relative; height: 54px; }
 .this-line-wave svg { display: block; width: 100%; height: 100%; }
-.this-line-wave rect { fill: var(--field-edge); }
+.this-line-wave rect { fill: color-mix(in srgb, var(--muted) 35%, var(--surface)); }
 .this-line-wave rect.is-in { fill: var(--accent); }
 .this-line-playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); pointer-events: none; }
-.this-line-times { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
-.this-line-why { margin: 0; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
+.this-line-times { display: flex; justify-content: space-between; gap: var(--space-2); font-size: 0.8667rem; color: var(--muted); }
+.this-line-why { margin: 0; font-size: var(--text-sm); line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; }
 .this-line-link { justify-self: start; }
 .this-line-around { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
 .stage-review .this-line-near {
-  display: grid; gap: 2px; box-sizing: border-box; width: 100%; min-height: 44px; margin: 0; padding: var(--space-1) var(--space-2);
-  border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--text);
+  display: grid; gap: 2px; box-sizing: border-box; width: 100%; min-height: 44px; margin: 0; padding: 6px 8px;
+  border: 1px solid transparent; border-radius: var(--radius); background: none; color: var(--text);
   font: inherit; font-weight: normal; line-height: 1.4; text-align: left; overflow-wrap: anywhere;
 }
 .stage-review button.this-line-near { cursor: pointer; }
