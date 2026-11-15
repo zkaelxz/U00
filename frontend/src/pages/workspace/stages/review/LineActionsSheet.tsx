@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Sheet } from '../../../../components/Sheet'
-import { humanizeValue } from '../../../../components/labels'
 import type { ReviewLine } from '../../../../types/review'
 import { AddLineForm, type NewLine } from './AddLineForm'
 import { MergeConfirm } from './MergeConfirm'
@@ -18,6 +17,7 @@ import { lineNumber } from '../../../../lineNumber'
 import { retranscribeMenuState } from './retranscribeLogic'
 import { isSourceChanged } from '../sourceChanged'
 import { formatTime, type ToolMode } from './reviewLogic'
+import { queueReason } from './checkQueueModel'
 import type { TimingSuggestion } from '../../../../types/timingCheck'
 
 export type SheetView = 'menu' | 'split' | 'merge' | 'add' | 'language'
@@ -230,8 +230,7 @@ export function LineActionsSheet(p: Props) {
           )}
           {line && view === 'menu' && line.flag && (
             <p className="review-flag-full" data-testid="sheet-flag">
-              <span aria-hidden="true">⚑ </span>Flagged: {humanizeValue(line.flag)}
-              {line.flag_note ? ` · ${line.flag_note}` : ''}
+              <span aria-hidden="true">⚑ </span>Flagged: {queueReason(line)?.text}
             </p>
           )}
           {line && view === 'menu' && (
