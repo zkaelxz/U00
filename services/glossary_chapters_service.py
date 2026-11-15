@@ -59,8 +59,7 @@ def _add_new_terms(drama, proposals: list) -> list:
 
 
 def _scan_one(drama, engine, engine_name, lines) -> list:
-    sid = _series_id(drama, required=False)
-    known = db.list_effective_glossary_terms(sid) if sid else []
+    known = db.list_run_glossary_terms(drama)
     proposals = tguide.extract_terms_llm(
         lines, engine, source_language=drama.get("source_language") or "zh", known_terms=known,
         usage_cb=paid_calls.usage_logger(drama["id"], engine_name, engine, "extract_terms"))

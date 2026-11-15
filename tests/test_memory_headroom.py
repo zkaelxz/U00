@@ -40,6 +40,7 @@ def test_refuses_when_load_would_break_the_reserve(reserve):
     text = str(ei.value)
     assert "Whisper large-v3" in text and "8.0 GB is free" in text and "4.0 GB is kept free" in text
     assert "estimate" in text and "lower the setting" in text
+    assert ei.value.vram_need_mb and ei.value.vram_need_mb > 4000
 
 
 def test_allows_when_the_reserve_still_holds(reserve):
@@ -51,7 +52,7 @@ def test_cpu_load_checks_ram_not_vram(reserve):
     reserve(vram=30, ram=4, vram_free=1 * GB, ram_free=6 * GB)
     with pytest.raises(mh.HeadroomError) as ei:
         mh.check("whisper", "large-v3", False)  # ~3.7 GB of 6 free leaves < 4
-    assert "RAM" in str(ei.value)
+    assert "RAM" in str(ei.value) and ei.value.vram_need_mb is None
     mh.check("whisper", "tiny", False)
 
 

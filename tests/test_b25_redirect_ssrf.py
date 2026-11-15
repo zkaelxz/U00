@@ -95,35 +95,17 @@ class TestB25RedirectTargets:
         assert "b23.tv" in contacted  # the short link itself was resolved
         assert not (set(contacted) & PRIVATE_HOSTS), contacted
 
-    def test_resolved_short_link_to_non_bilibili_host_never_reaches_ytdlp(self, isolated_db):
+    def test_resolved_short_link_to_non_bilibili_host_never_reaches_ytdlp(self, isolated_db, monkeypatch):
+        from sources import front_door, registry
         from sources.adapters.bilibili import BilibiliSource
         seen = []
-
-        class _FakeYDL:
-            def __init__(self, opts):
-                pass
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
-            def extract_info(self, url, download=False):
-                seen.append(url)
-                return {"id": "BV1xx411c7mD", "title": "t", "formats": []}
-
-        a = BilibiliSource(allow_adult=False,
-                           url_resolver=lambda u: "http://127.0.0.1:8000/video/BV1xx411c7mD",
-                           ydl_factory=_FakeYDL, sleep=lambda s: None,
-                           client=_no_pace_client("bilibili"))
-        try:
-            a.extract_info("https://b23.tv/abc123")
-        except Exception:
-            pass
-        bad = [u for u in seen
-               if not (urlsplit(u).hostname or "").endswith("bilibili.com")]
-        assert bad == [], bad
+        adapter = BilibiliSource(allow_adult=False,
+                                 url_resolver=lambda u: "http://127.0.0.1:8000/video/BV1xx411c7mD",
+                                 client=_no_pace_client("bilibili"))
+        monkeypatch.setattr(registry, "find_for_url", lambda *a, **k: adapter)
+        p = front_door.preview("https://b23.tv/abc123",
+                               video_probe=lambda u: seen.append(u) or {"title": "t"})
+        assert seen == [] and p.title == ""
 
     def test_front_door_preview_redirect_to_private_host_is_not_followed(self, fake_net):
         from sources import front_door

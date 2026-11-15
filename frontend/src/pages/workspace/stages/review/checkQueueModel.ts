@@ -283,6 +283,8 @@ const readInvented = fixedNotes({
     `This line is cut into slivers of audio, which is often unclear speech.${MAYBE_INVENTED}`,
   'Text in a split second of audio; check against the audio':
     `This text sits in a split second of audio, too short to hold it.${MAYBE_INVENTED}`,
+  'Heard again without the speech detector, which replaced the first hearing; check against the audio':
+    `Whisper heard this stretch a second time without the speech detector and this text replaced the first hearing.${MAYBE_INVENTED}`,
 })
 
 // One entry per key of FLAG_REASONS and SYSTEM_FLAG_REASONS in engine_backends/flag_reasons.py, plus the flags set

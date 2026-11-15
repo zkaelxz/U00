@@ -421,42 +421,33 @@ class TestFrontDoor:
         assert front_door.classify_html("https://x.invalid/v", page).content_type == front_door.VIDEO
 
 class TestBilibiliRouting:
-    """Step 23d: a Bilibili URL now routes through the real BilibiliSource
-    adapter instead of the generic video_download.download path."""
+    """A Bilibili URL routes through BilibiliSource, and its title comes from
+    the caller's video_probe (the guarded yt-dlp child), never yt-dlp here."""
 
-    def _fake_ydl_factory(self, info):
-        import os as _os
+    URL = "https://www.bilibili.com/video/BV1xx411c7mD?spm_id_from=333"
 
-        class FakeYDL:
-            def __init__(self, opts):
-                self.opts = opts
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-            def extract_info(self, url, download=False):
-                if download:
-                    path = self.opts["outtmpl"].replace("%(ext)s", info.get("ext", "mp4"))
-                    _os.makedirs(_os.path.dirname(path), exist_ok=True)
-                    with open(path, "wb") as f:
-                        f.write(b"fake")
-                return info
-        return lambda opts: FakeYDL(opts)
-
-    def test_preview_shows_metadata_via_the_adapter_not_the_generic_video_branch(self, monkeypatch):
-        from sources.adapters.bilibili import BilibiliSource
-        info = {"id": "BV1xx411c7mD", "title": "A Real Bilibili Video",
-               "webpage_url": "https://www.bilibili.com/video/BV1xx411c7mD",
-               "duration": 60, "formats": []}
-        monkeypatch.setattr(BilibiliSource, "_real_ydl_factory",
-                            staticmethod(self._fake_ydl_factory(info)))
-        p = front_door.preview("https://www.bilibili.com/video/BV1xx411c7mD")
-        assert p.content_type == front_door.VIDEO
-        assert p.adapter == "bilibili"
+    def test_preview_reads_the_title_through_the_probe_with_the_tidied_link(self):
+        seen = []
+        p = front_door.preview(self.URL, video_probe=lambda u: seen.append(u) or
+                               {"title": "A Real Bilibili Video"})
+        assert p.content_type == front_door.VIDEO and p.adapter == "bilibili"
         assert p.title == "A Real Bilibili Video"
+        assert seen == ["https://www.bilibili.com/video/BV1xx411c7mD"]
+
+    def test_no_probe_reads_no_metadata(self, monkeypatch):
+        import sys
+        monkeypatch.setitem(sys.modules, "yt_dlp", None)  # any import would raise
+        p = front_door.preview(self.URL)
+        assert p.adapter == "bilibili" and p.title == ""
+
+    def test_a_failed_read_is_a_note_with_the_fixed_message(self):
+        from lib.errors import DependencyUnavailableError
+
+        def probe(url):
+            raise DependencyUnavailableError("Reading the link took too long.")
+        p = front_door.preview(self.URL, video_probe=probe)
+        assert p.notes[-1] == "Couldn't load metadata yet: Reading the link took too long."
+
 
 # ---------------------------------------------------------------------------
 # Chapter ordering
