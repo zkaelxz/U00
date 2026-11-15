@@ -117,7 +117,7 @@ export function TranscribeOptionsFields({ options, config, onChange }: Props) {
       </div>
       <Field
         label="Randomness"
-        help={[unused('decode_randomness'), 'Default can differ run to run. Temperature 0 repeats exactly; fixed seed keeps the default retries but repeats.'].filter(Boolean).join(' ')}
+        help={[unused('decode_randomness'), 'Default can differ run to run. Fixed seed keeps the default retries and aims to repeat. Temperature 0 repeats but scored worse on a hand-corrected title.'].filter(Boolean).join(' ')}
       >
         <select
           value={optionValue(config, defaults, 'decode_randomness')}
@@ -125,8 +125,8 @@ export function TranscribeOptionsFields({ options, config, onChange }: Props) {
           onChange={(e) => set('decode_randomness', e.target.value)}
         >
           <option value="default">Default</option>
-          <option value="temperature_0">Temperature 0</option>
           <option value="seeded">Fixed seed</option>
+          <option value="temperature_0">Temperature 0 (not recommended)</option>
         </select>
       </Field>
       <h3 className="bench-timing-heading">Line timing</h3>
