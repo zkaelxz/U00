@@ -237,8 +237,10 @@ A GPU job is queued instead of started when an earlier GPU job is already waitin
 3. **External load.** For the first holder (`check_external_load=True`, which UI jobs
    pass), `gpu_probe.external_gpu_is_busy` reads nvidia-smi totals. A program Baihe
    did not start (a game, a transcoder) keeps the job queued, with a message that says
-   so (`gpu_wait_message.external_gpu_wait_message`: numbers only, never process names). No nvidia-smi,
-   or a failing check, is ignored for the first job.
+   so (`gpu_wait_message.external_gpu_wait_message`: numbers only, never process names). The
+   memory test is free VRAM under `diagnostics_torch.external_busy_min_free_mb`: the Keep free
+   graphics memory reserve, never under 1 GB. No nvidia-smi, or a failing check, is ignored
+   for the first job.
 
 The "GPU jobs at once" setting (`get_gpu_max_parallel`, `app_settings.gpu_max_parallel`,
 1 to `GPU_MAX_PARALLEL_LIMIT` = 4) is the parallel rule. With a cap above 1, a job joins
@@ -262,6 +264,61 @@ mirrored to `job_records`.
 Nothing polls by itself; a queue is re-checked when a GPU job ends, and by
 `recheck_gpu_queue` on a timer from `api/background.start_gpu_queue_poller` (every
 `GPU_QUEUE_POLL_SECONDS` = 20 s, only while background services are on). A job queued behind another process's lock therefore resumes within about that interval, not instantly.
+
+### Giving way to other programs (`jobs/gpu_guard.py`)
+
+Another program on the PC (Jellyfin's transcodes) can't be seen or limited by Baihe,
+and the owner does not want it capped, so Baihe yields. `gpu_guard.tick` runs at the top
+of every GPU-queue poll (20 s) while the `gpu_guard` preference is on (default on). It
+reads the first GPU's free memory and temperature with one nvidia-smi call. The card is
+*short* when free VRAM is under `external_busy_min_free_mb` and *hot* when the GPU
+temperature is at or above `gpu_guard_temp_c` (85 °C). The CPU temperature is not read. Either starts a hold at once; the hold ends only after every
+reading has stayed 1 GB / 5 °C clear for 60 s, so a value at the limit doesn't flap; in
+that minute the held message says what the card reads now ("GPU memory is free again …,
+checking it stays free"). A changed memory or GPU temperature limit is judged on the next
+reading: a card already clear of the new limit isn't held for the old one's clear minute.
+No reading, or a state older than 90 s, means no hold.
+
+While held:
+
+- `gpu_slots.acquire(check_external_load=True)` refuses, so new and queued GPU jobs
+  wait, first in line showing "Held: low GPU memory (… GB free, … GB kept free)" or
+  "Held: the GPU is hot (…)". Needs the GPU limit on: with it off nothing queues.
+- While short and no Baihe job runs, idle models are unloaded (`whisper_models.release_gpu_models`
+  and `ollama_unload.unload_loaded_models`), at most once a minute.
+- After `gpu_guard_stop_minutes` (2; 0 = never) of one unbroken hold, or at once when free
+  memory is under half the reserve (`CRITICAL_SHARE`: on the V100, four streams left 1.9 GB
+  of a 5 GB reserve during the 2-minute wait), and never during the clear minute, every running GPU
+  job that registered a restart is stopped with `request_cancel` (the same stop as the
+  Stop button) and started again through the call that started it, under its starter's
+  principal (`allow_restart`). With the GPU limit on the new run queues held at once;
+  with it off it waits for the card to clear first. A restart refused as busy (a stopped
+  translation's last Ollama request still running) is retried for 15 min. After
+  `MAX_RESTARTS` (3) restarts in a row a further stop is final, and the job says so.
+- A registered job whose model `memory_headroom` refused (`HeadroomError.vram_need_mb`,
+  carried in a process job's result) doesn't end Failed: as the run ends, `job_runner`
+  asks `gpu_guard.wait_for_room_locked`, which puts it back to "queued" (no notification)
+  saying "Waiting for GPU memory: …". It starts again once free memory covers the reserve
+  plus that need and the card is neither short nor hot. Only then, or if it can't wait, does
+  it end Failed with its own sentence and the usual failure notification: after an hour
+  (`ROOM_WAIT_SECONDS`), when the guard is turned off, or when the guard has no fresh
+  reading or the job used its restarts (it fails at once, as before). Cancel ends it as any
+  queued job.
+
+Which jobs register (checked per type, 2026-11-15):
+
+| Job | Restarts | Why it is clean |
+| --- | --- | --- |
+| Transcription (`start_transcribe_run`, any mode) | yes | the result is applied only by a finished run; a plain Whisper decode resumes from its checkpoints, other modes start over |
+| Speaker detection (`start_diarization_run`, and the one chained after a transcription) | yes | speakers are applied only by a finished run; it starts over |
+| Local-model translation (`start_translate_run`) | only a plain run: not forced, not Reflect, no chosen lines | each batch is saved as it goes, and a new run translates only lines still empty |
+| Everything else (re-segment, re-split, retime, narration and voices, comic OCR, Live, Benchmark Lab, glossary jobs) | no: held while queued, never stopped | short jobs, lines captured at launch, or real-time work a stop would lose |
+
+Known limits: the guard can't tell Baihe's own memory from another program's, so a job
+whose model is bigger than its estimate can push the card short itself (the restart cap
+ends that loop). A job that hits CUDA out-of-memory inside its worker still falls back to
+the CPU (below) rather than waiting. A stream that starts in the seconds before Baihe lets
+go can still fail; the reserve is what protects it.
 
 ### CPU fallback notices
 

@@ -150,6 +150,8 @@ export interface SeriesResult {
   series_id: string
   info: SeriesInfo | null
   chapters: SeriesChapter[]
+  // Plain-language note when the list is known to be incomplete.
+  notice?: string
 }
 
 export interface SourcesJobResult<R = Record<string, unknown>> {

@@ -132,6 +132,23 @@ def test_gpu_queue_poller_only_with_background_services_and_stops(fakes, monkeyp
     assert len(calls) == n
 
 
+def test_each_poll_runs_the_gpu_guard_before_the_queue_recheck(fakes, monkeypatch):
+    """A hold that just cleared lets a queued job start on the same poll."""
+    from jobs import gpu_guard, job_runner
+    order = []
+
+    def tick():
+        order.append("guard")
+        if order.count("guard") == 1:
+            raise RuntimeError("a failing guard must not stop the re-check")
+    monkeypatch.setattr(gpu_guard, "tick", tick)
+    monkeypatch.setattr(job_runner, "recheck_gpu_queue", lambda: order.append("recheck"))
+    monkeypatch.setattr(background, "GPU_QUEUE_POLL_SECONDS", 0.01)
+    with TestClient(create_app(ApiSettings(background_services=True))):
+        assert _until(lambda: len(order) >= 4)
+    assert order[:4] == ["guard", "recheck", "guard", "recheck"]
+
+
 def test_a_started_bridge_loads_its_models_ahead_of_the_first_page(fakes, monkeypatch):
     import page_server
     from sources import store as src_store

@@ -45,7 +45,7 @@ from types import SimpleNamespace
 from typing import Optional
 
 import background_jobs
-from jobs import crash_retry, job_launch
+from jobs import crash_retry, gpu_guard, job_launch
 import core as core_module
 import whisper_models
 import segment_splitting
@@ -100,7 +100,7 @@ def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
     the API transcribe and auto-tune paths so they can't drift. Returns "" when there's nothing to prime with. Raises
     NotFoundError for an unknown drama id."""
     drama = ownership_service.require_drama(drama_id)
-    terms = db.list_effective_glossary_terms(drama["series_id"]) if drama.get("series_id") else []
+    terms = db.list_run_glossary_terms(drama)
     glossary_names = core_module.build_initial_prompt(terms).rstrip("。")
     prompt = "、".join(x for x in (glossary_names, (extra_names or "").strip()) if x)
     if prompt:
@@ -269,6 +269,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     "qwen3_forced_align" while transcript_mode is "whisper" (forced
     alignment needs a known transcript); ConflictError if a transcription is already running for
     this drama."""
+    # Taken first, so a restart repeats the call as it was made.
+    again = functools.partial(start_transcribe_run, **locals())
     drama = apply_run_overrides(ownership_service.require_drama(drama_id), overrides)
     if db.load_line_ids(drama_id):
         # The run replaces every line the title already has.
@@ -311,6 +313,9 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         started = _start_worker_job(job_id, drama_id, drama, run)
     if not started:
         raise ConflictError(f"A transcription is already running for title {drama_id}.")
+    # A stopped transcription applies nothing, so a fresh start is clean (a
+    # Whisper decode picks up from its checkpoints).
+    gpu_guard.allow_restart(job_id, again)
     return {"job_id": job_id}
 
 
@@ -544,7 +549,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             hardsub_interval=hardsub_interval, tesseract_cmd=tesseract_cmd,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
     except memory_headroom.HeadroomError as exc:
-        outcome = {"failed_reason": "headroom", "detail": str(exc)}
+        outcome = {"failed_reason": "headroom", "detail": str(exc), "vram_need_mb": exc.vram_need_mb}
     except ImportError as exc:
         outcome = {**transcribe_pipeline.missing_package_outcome(
             transcribe_pipeline.MISSING_OCR_MESSAGE if transcript_mode == "hardsub_ocr"
@@ -712,6 +717,10 @@ def _chain_diarization(job_id, drama_id, hf_token, diarize_audio_path, expected_
             run_settings=run_settings_service.for_diarize(
                 expected_speakers, min_speakers, max_speakers,
                 bool(settings_service.get("use_gpu"))), line_fields=("speaker", "speaker_manual"))
+        if started:
+            gpu_guard.allow_restart(f"diarize_{drama_id}", functools.partial(
+                diarization_service.start_diarization_run, drama_id, expected_speakers,
+                min_speakers=min_speakers, max_speakers=max_speakers))
     except ConflictError:
         # A clean stop cancels every job and refuses new ones, so one
         # that began after the lines were saved refuses the follow-up
