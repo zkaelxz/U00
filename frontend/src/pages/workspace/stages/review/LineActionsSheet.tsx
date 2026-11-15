@@ -248,7 +248,7 @@ export function LineActionsSheet(p: Props) {
               </li>
               <li>
                 <button type="button" disabled={!line.en} onClick={p.actions.onImprove}>
-                  Suggest a rewrite (AI)
+                  Re-write (AI)
                   {!line.en && <span className="sheet-reason">Needs a translation first.</span>}
                 </button>
               </li>

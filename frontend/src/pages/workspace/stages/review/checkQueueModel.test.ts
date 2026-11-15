@@ -178,12 +178,12 @@ describe('queue reasons', () => {
       .toBe('Qwen3-ASR heard no words here, so Whisper’s text was kept. Play the line and check the source text.')
     // translation_guard.py gives the reason; bulk_apply.py adds the reply it rejected.
     expect(say('uncertain_translation', "check: the model's reply for this line was unusable (far too long for the line)")?.text)
-      .toBe('The translation engine’s answer for this line could not be used (far too long for the line), so the English may be missing or wrong. Fix the English, or use Suggest a rewrite.')
+      .toBe('The translation engine’s answer for this line could not be used (far too long for the line), so the English may be missing or wrong. Fix the English, or use Re-write.')
     expect(say('uncertain_translation', "check: the model's reply for this line was unusable (source text left in it): 三百人? Three hundred")?.text)
       .toBe('The translation engine’s answer for this line could not be used (source text left in it), so the English may be missing or wrong. ' +
-        'Its answer was “三百人? Three hundred”. Fix the English, or use Suggest a rewrite.')
+        'Its answer was “三百人? Three hundred”. Fix the English, or use Re-write.')
     expect(say('uncertain_translation', "check: the model's reply for this line was unusable (empty): ")?.text)
-      .toBe('The translation engine’s answer for this line could not be used (empty), so the English may be missing or wrong. Fix the English, or use Suggest a rewrite.')
+      .toBe('The translation engine’s answer for this line could not be used (empty), so the English may be missing or wrong. Fix the English, or use Re-write.')
     expect(say('timing_uncertain', '')?.text).toBe('The times of this line are a guess and may not match the speech. Play it and check it starts and ends with the speech.')
   })
 

@@ -254,7 +254,7 @@ test.describe(() => {
       const [wrong, mixed, more] = await Promise.all([/Wrong/, /Mixed/, 'More actions for line 24'].map(async (name) => (await card.getByRole('button', { name }).boundingBox())!))
       expect(mixed.y, `Wrong and Mixed share a row at ${width}px`).toBe(wrong.y)
       expect(mixed.x, `Mixed follows Wrong at ${width}px`).toBeGreaterThan(wrong.x + wrong.width)
-      // With the words Glossary and Suggest a rewrite ahead of them the menu may wrap to the next row, but it stays inside the card.
+      // With the words Glossary and Re-write ahead of them the menu may wrap to the next row, but it stays inside the card.
       const box = (await card.boundingBox())!
       expect(more.x, `the menu is inside the card at ${width}px`).toBeGreaterThanOrEqual(box.x)
       expect(more.x + more.width, `the menu is inside the card at ${width}px`).toBeLessThanOrEqual(box.x + box.width)
@@ -299,7 +299,7 @@ test.describe(() => {
     expect(await cards.getByTestId('line-en').evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
     await expect(cards.getByRole('link', { name: 'Glossary', exact: true })).toBeVisible()
     for (const target of [cards.getByRole('button', { name: 'See the lines around it' }), cards.getByRole('link', { name: 'Glossary', exact: true }),
-      cards.getByRole('button', { name: 'Suggest a rewrite' }), cards.getByTestId('line-en')]) await expectTall(target, (await target.textContent()) ?? '')
+      cards.getByRole('button', { name: 'Re-write' }), cards.getByTestId('line-en')]) await expectTall(target, (await target.textContent()) ?? '')
     await expect(bar.getByRole('button')).toHaveText(['Skip', 'Next'])
     const fill = await bar.getByRole('button', { name: 'Looks right, next' }).evaluate((el) => {
       const probe = document.createElement('span')

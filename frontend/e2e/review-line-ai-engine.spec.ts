@@ -3,7 +3,7 @@ import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
 
-// The engine and model picker on the per-line AI panels (Suggest a rewrite,
+// The engine and model picker on the per-line AI panels (Re-write,
 // Why this?, Alternatives, Grammar). The run config is the real one with the
 // keys faked; the AI answers are mocked.
 
@@ -60,7 +60,7 @@ test('the pick is sent, remembered, and unusable engines say why', async ({ page
       line_id: lineId(route.request().url()), current_en: 'Hello there', suggestion: 'Hi there', changed: true, engine: 'x', model: null,
     } })
   })
-  let row = await openAi(page, 'Suggest a rewrite')
+  let row = await openAi(page, 'Re-write')
   const engine = row.getByTestId('line-ai-picker').getByLabel('AI engine', { exact: true })
   await expect(engine.locator('option', { hasText: 'Default (' })).toHaveCount(1)
   await expect(engine.locator('option[value="deepseek"]')).toBeDisabled()
@@ -78,7 +78,7 @@ test('the pick is sent, remembered, and unusable engines say why', async ({ page
 
   await page.reload()
   await expect(rows(page)).toHaveCount(2)
-  row = await openAi(page, 'Suggest a rewrite')
+  row = await openAi(page, 'Re-write')
   await expect(row.getByTestId('line-ai-picker').getByLabel('AI engine', { exact: true })).toHaveValue('claude')
 })
 
