@@ -1117,6 +1117,18 @@ class TestProcessJobOnDone:
         assert seen == [(job_id, {"v": 1}, "running")]
         bg.clear_job(job_id)
 
+    def test_an_exception_with_no_message_still_gives_a_reason(self):
+        def fail():
+            raise TimeoutError()
+
+        job_id = "test_empty_message_error"
+        bg.clear_job(job_id)
+        assert job_launch.start_job(job_id, fail) is True
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "error"
+        assert status["error"].startswith("TimeoutError: Something took too long")
+        bg.clear_job(job_id)
+
     def test_hook_raising_marks_error_with_redacted_message(self, monkeypatch):
         _install_fake_process(monkeypatch, run_target_on_start=True)
 
