@@ -93,6 +93,8 @@ test('the longest header gives its words up in steps: Report a problem, then the
     { width: 1560, words: ['Simple | Advanced', 'Search pages and titles · Ctrl+K', '', 'Jobs 1', 'Alerts 3', 'Shortcuts', 'Theme', '● Connected', 'Owner · Switch profile', 'Wolfgangmaxi ▾'] },
     { width: 1450, words: ['Simple | Advanced', 'Ctrl+K', '', 'Jobs 1', 'Alerts 3', 'Shortcuts', 'Theme', '● Connected', 'Owner · Switch profile', 'Wolfgangmaxi ▾'] },
     { width: 1120, words: ['Simple | Advanced', 'Ctrl+K', '', '1', '3', '?', '', 'Owner · Switch profile', 'W'] },
+    // The narrowest window with the docked menu open (it is 216px wide): icons, still one line.
+    { width: 1100, words: ['Simple | Advanced', 'Ctrl+K', '', '1', '3', '?', '', 'Owner · Switch profile', 'W'] },
   ]
   for (const { width, words } of widths) {
     await page.setViewportSize({ width, height: 800 })
