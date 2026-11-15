@@ -75,7 +75,9 @@ export function useSpeakerUndo(
       onUndo={() => void run()} onDismiss={() => setUndo(null)}
       testId="speaker-undo" historyNote={false} className="review-undo-speaker" />
   ) : null
-  return { setUndo, node }
+  // The note belongs to the one line the last pick set; it goes with the Undo when that is used or dismissed.
+  const noteLineId = undo?.note ? undo.entries[0]?.id : undefined
+  return { setUndo, node, noteLineId, note: undo?.note ?? null }
 }
 
 // Everything the panel needs for blank-speaker lines: the guesses (for the rows and the 1/2/3 keys),
@@ -94,5 +96,6 @@ export function useSpeakerFill(
   const undo = useSpeakerUndo(dramaId, onChanged, setStatus, setError)
   const guessesByLine = useSpeakerGuesses(dramaId, shown, reloads, !prose && count > 0)
   const activeGuesses = (active && needsSpeaker(active) ? guessesByLine.get(active.id) : null) ?? []
-  return { setUndo: undo.setUndo, undoNode: undo.node, stepCount: prose ? 0 : count, guessesByLine, activeGuesses }
+  const noteFor = (id: number) => (id === undo.noteLineId ? undo.note : null)
+  return { setUndo: undo.setUndo, undoNode: undo.node, stepCount: prose ? 0 : count, guessesByLine, activeGuesses, noteFor }
 }

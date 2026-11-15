@@ -650,6 +650,8 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 /* A closed card's chip sits at the end of its line, beside ⋯, where the eye ends each row of the list. */
 .review-line.is-queue:not(.is-active) .review-queue-reason { margin-left: auto; }
 .review-queue-sentence { display: block; margin: var(--space-2) 0; padding: var(--space-1) var(--space-2); }
+/* Under a queue card whose speaker was just set while another reason keeps it listed. */
+.review-speaker-note { margin: var(--space-2) 0; padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm, 4px); color: var(--ok); background: var(--ok-soft); }
 /* A name wraps only at its spaces; the line list's body text may still break anywhere. */
 .review-speaker { overflow-wrap: normal; }
 .review-line.is-queue:not(.is-active) .review-queue-reason + .review-more { margin-left: 0; }
