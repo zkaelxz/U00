@@ -175,14 +175,18 @@ export function filterSettings(query: string, available: ReadonlySet<string>): S
   return { cardIds, counts, total: cardIds.size }
 }
 
-// Setup that lives on Diagnostics or Library tools rather than here. Search lists it as a link, so a
+// Setup that lives on Diagnostics, Library tools or People and access rather than here. Search lists it as a link, so a
 // person who looks for "models" or "backup" in Settings is sent to the page that has it.
-type ElsewhereEntry = { label: string; page: 'Diagnostics' | 'Library tools'; to: Route; keywords: string; requires: string; pcOnly: boolean }
+type ElsewhereEntry = { label: string; page: 'Diagnostics' | 'Library tools' | 'People and access'; to: Route; keywords: string; requires: 'admin.diagnostics' | 'admin.users.read' | 'library.read'; pcOnly: boolean }
 
 const diag = (card: DiagnosticsCard, label: string, keywords: string): ElsewhereEntry =>
   ({ label, page: 'Diagnostics', to: { name: 'diagnostics', card }, keywords, requires: 'admin.diagnostics', pcOnly: true })
 const tools = (tab: LibraryToolsTab, label: string, keywords: string, pcOnly = false): ElsewhereEntry =>
   ({ label, page: 'Library tools', to: { name: 'library-tools', tab }, keywords, requires: 'library.read', pcOnly })
+
+// The page has no per-card link, so these open it at the top.
+const people = (label: string, keywords: string): ElsewhereEntry =>
+  ({ label, page: 'People and access', to: { name: 'admin' }, keywords, requires: 'admin.users.read', pcOnly: false })
 
 export const ELSEWHERE_INDEX: ElsewhereEntry[] = [
   diag('recommended', 'Recommended installs', 'install setup first run packages'),
@@ -202,6 +206,9 @@ export const ELSEWHERE_INDEX: ElsewhereEntry[] = [
   tools('backup', 'Back up or restore now', 'backup restore copy', true),
   tools('storage', 'Storage', 'disk space storage size cleanup', true),
   tools('data', 'Data folder', 'data folder location move library path', true),
+  people('Sign-in accounts', 'people users members accounts household invite password role permissions admin sign in login'),
+  people('Activity log', 'audit log who did what history'),
+  people('Public address check', 'remote access address tunnel cdn url away outside home internet'),
 ]
 
 /** Same word rule as filterSettings; `allowed` drops what this person or device cannot open. */

@@ -126,6 +126,14 @@ test('a search for setup kept on Diagnostics links there', async ({ page }) => {
   await expect(page.getByRole('tab', { name: 'Models' })).toHaveAttribute('aria-selected', 'true')
 })
 
+test('a search for who can sign in links to People and access', async ({ page }) => {
+  await page.goto('/#/settings')
+  await page.getByRole('searchbox', { name: 'Search settings' }).fill('audit log')
+  await page.getByRole('navigation', { name: 'On other pages' }).getByRole('link', { name: 'People and access: Activity log' }).click()
+  await expect(page).toHaveURL(/#\/admin$/)
+  await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
+})
+
 test('deep links land on the Advanced tab with the card open', async ({ page }) => {
   await page.goto('/#/settings?section=developer-mode')
   await expect(tab(page, 'Advanced')).toHaveAttribute('aria-selected', 'true')

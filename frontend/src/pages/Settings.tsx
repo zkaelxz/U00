@@ -229,9 +229,10 @@ export default function SettingsPage() {
   const match = useMemo(() => filterSettings(query, available), [query, available])
   const canDiagnostics = useHolds('admin.diagnostics')
   const canLibrary = useHolds('library.read')
+  const canUsers = useHolds('admin.users.read')
   const elsewhere = useMemo(
-    () => filterElsewhere(query, (entry) => (entry.requires === 'admin.diagnostics' ? canDiagnostics : canLibrary) && (!entry.pcOnly || pcMode === 'local')),
-    [query, canDiagnostics, canLibrary, pcMode],
+    () => filterElsewhere(query, (entry) => ({ 'admin.diagnostics': canDiagnostics, 'admin.users.read': canUsers, 'library.read': canLibrary })[entry.requires] && (!entry.pcOnly || pcMode === 'local')),
+    [query, canDiagnostics, canUsers, canLibrary, pcMode],
   )
   const visibleTabs = SETTINGS_TABS.filter((t) => t.cards.some((c) => shown(c.id)))
   // Before the settings load only the member cards exist: land on the account tab, not Updates, whose open

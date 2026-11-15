@@ -120,6 +120,13 @@ describe('filterElsewhere', () => {
     expect(filterElsewhere('backup', everyone).map((entry) => entry.to)).toEqual([{ name: 'library-tools', tab: 'backup' }])
   })
 
+  it('points a search for who can sign in or the address check at People and access', () => {
+    expect(labels('sign in accounts')).toEqual(['People and access: Sign-in accounts'])
+    expect(filterElsewhere('address tunnel', everyone).map((entry) => entry.to)).toEqual([{ name: 'admin' }])
+    expect(labels('audit')).toEqual(['People and access: Activity log'])
+    expect(labels('accounts', (entry) => entry.requires !== 'admin.users.read')).toEqual([])
+  })
+
   it('leaves out what the caller says this person cannot open', () => {
     expect(labels('models', (entry) => entry.page !== 'Diagnostics')).toEqual([])
   })
