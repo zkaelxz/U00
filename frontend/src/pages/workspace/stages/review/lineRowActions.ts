@@ -1,4 +1,6 @@
+import { setLineSpeaker } from '../../../../api/characters'
 import { snapToSpeech, startTimingCheck } from '../../../../api/timingCheck'
+import { lineNumber } from '../../../../lineNumber'
 import { acceptTm as acceptTmSuggestion, addNote, dismissFlag, patchLine, setReviewed } from '../../../../api/review'
 import type { NoteDraft, RowActions } from './LineRow'
 import type { LinesControllerDeps, LinesCore } from './linesController'
@@ -13,6 +15,7 @@ import { offerUndo, retireUndoOffer } from './undoOffer'
 export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): RowActions {
   const { dramaId, st, pending, player, selectRef, showOnPageRef, setIssue, setStatus, setActiveId, setError, setAi, setRetranscribeFocusId } = deps
   const { find, replaceLine, failLine, setEditNow, saveEdit, leaveEdit, beforeWrite, afterWrite, focusTo, activate, openEdit, openSheet, saveAndNext } = core
+  const savingSpeaker = new Set<number>()
   return {
     activate: (id) => void activate(id),
     retranscribeFocused: () => setRetranscribeFocusId(null),
@@ -176,6 +179,33 @@ export function buildRowActions(deps: LinesControllerDeps, core: LinesCore): Row
         setIssue(null)
         st.current.onChanged()
       }, (e) => failLine(id, e))
+    },
+    acceptSpeaker: async (id, speaker) => {
+      // A double tap or a repeated key would post twice: the second gets a 409 or an
+      // empty undo, and the keys would step past the next blank line.
+      if (savingSpeaker.has(id)) return false
+      savingSpeaker.add(id)
+      try {
+        const blocked = await beforeWrite([id])
+        if (blocked) {
+          setStatus(blocked)
+          return false
+        }
+        const line = find(id)
+        const r = await setLineSpeaker(dramaId, [id], speaker)
+        afterWrite([id])
+        if (line) {
+          replaceLine({ ...line, speaker, speaker_manual: true })
+          if (r.undo.length) deps.setSpeakerUndo?.({ lineNumber: lineNumber(line.idx), speaker, entries: r.undo })
+        }
+        st.current.onChanged()
+        return true
+      } catch (e) {
+        setError(e)
+        return false
+      } finally {
+        savingSpeaker.delete(id)
+      }
     },
     dismissTm: (s) => dismissTmEverywhere(dramaId, s),
     clearIssue: () => setIssue(null),
