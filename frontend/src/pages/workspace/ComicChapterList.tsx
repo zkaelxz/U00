@@ -5,7 +5,8 @@ import { routeHref } from '../../router'
 import { chapterRows, type ChapterRow } from '../comic/chapterLogic'
 
 /** The comic's own chapters on its Simple page; each opens the reader on that chapter's first page. */
-export function ComicChapterList({ id }: { id: number }) {
+// `refresh` changes when a job ends, so pages the job added show up without a reload.
+export function ComicChapterList({ id, refresh = 0 }: { id: number; refresh?: number }) {
   const [rows, setRows] = useState<ChapterRow[]>([])
 
   useEffect(() => {
@@ -15,7 +16,7 @@ export function ComicChapterList({ id }: { id: number }) {
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, refresh])
 
   if (rows.length === 0) return null
   return (

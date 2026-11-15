@@ -102,7 +102,7 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
         <div className="ws-badges">
           <Badge kind="mediaType" value={drama.media_type} />
         </div>
-        <JobPill dramaId={id} onFinished={() => undefined} />
+        <JobPill dramaId={id} onFinished={() => setTick((t) => t + 1)} />
         <TitleViewSwitch view="simple" onChange={onView} />
       </header>
       {comic ? (
@@ -132,7 +132,7 @@ export function SimpleTitlePage({ id, drama, comic = false, onView }: { id: numb
           {hasLines && <TitleLines id={id} total={lineCount ?? 0} />}
         </div>
       )}
-      {comic && <ComicChapterList id={id} />}
+      {comic && <ComicChapterList id={id} refresh={tick} />}
       {/* A comic's own chapters are listed above; its series list names the other titles, so the two headings differ. */}
       <section className="panel" aria-label={comic ? 'Titles in this series' : 'Episodes'}>
         <h2 className="source-subhead">{comic ? 'Titles in this series' : 'Episodes'}</h2>
