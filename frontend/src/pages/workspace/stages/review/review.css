@@ -754,6 +754,28 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 @property --chips-fade { syntax: '<length>'; inherits: false; initial-value: 0px; }
 @keyframes review-chips-fade { from { --chips-fade: 32px; } 99% { --chips-fade: 32px; } to { --chips-fade: 0px; } }
 
+/* The speaker's name is a button that opens the list of speakers under it, over the lines below. */
+.review-speaker-pick { position: relative; display: inline-block; min-width: 0; max-width: 100%; }
+button.review-speaker { display: inline-block; max-width: 100%; padding: 0 var(--space-1); border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; font: inherit; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+button.review-speaker:hover, button.review-speaker[aria-expanded='true'] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.review-speaker-list {
+  position: absolute; top: calc(100% + var(--space-1)); left: 0; z-index: 4; min-width: 12rem; max-width: min(20rem, 90vw);
+  display: grid; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--field-edge); border-radius: var(--radius); background: var(--surface);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
+}
+.review-speaker-list .btn { justify-content: flex-start; }
+.review-speaker-new { display: flex; gap: var(--space-1); }
+.review-speaker-new input { min-width: 0; flex: 1 1 auto; }
+@media (max-width: 640px) {
+  button.review-speaker, .review-speaker-list .btn, .review-speaker-new .btn { min-height: var(--touch); }
+  /* The name can sit anywhere along the row, so the list takes the screen's width, just above the line bar, instead of
+     hanging off the name and running past the edge. */
+  .review-speaker-list { position: fixed; top: auto; left: var(--space-3); right: var(--space-3); bottom: calc(var(--editbar-h, 56px) + var(--space-2)); max-width: none; max-height: 50vh; overflow-y: auto; }
+}
+.review-set-speaker-head { margin: 0 0 var(--space-2); font-weight: 600; }
+.review-set-speaker-names, .review-set-speaker-new { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.review-set-speaker-new { margin-top: var(--space-2); }
+.review-set-speaker-new input { min-width: 0; flex: 1 1 10rem; }
 /* Your marks. The desktop buttons are ordinary small buttons; a pressed one takes its mark's colour. */
 .review-mark[aria-pressed='true'].review-mark-wrong { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, var(--surface)); }
 .review-mark[aria-pressed='true'].review-mark-mixed { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, var(--surface)); }

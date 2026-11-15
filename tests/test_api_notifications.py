@@ -279,8 +279,9 @@ def test_message_has_kind_title_outcome_only(env):
 
 def test_burst_summary():
     assert ns._summarize([("done", "a")]) == "a"
-    assert ns._summarize([("done", "a"), ("error", "b"), ("done", "c")]) == \
-        "3 background jobs ended: 2 finished, 1 failed."
+    assert ns._summarize([("done", "a"), ("done", "c")]) == "2 background jobs finished."
+    assert ns._summarize([("done", "a"), ("error", "Failed: b: no key"), ("done", "c")]) == \
+        "2 background jobs finished. Failed: b: no key."
 
 
 # --- delivery ----------------------------------------------------------------
@@ -487,7 +488,7 @@ def test_burst_collapses_into_one_message(env, dns, posts, no_timer):
     assert ns.flush() == {"discord": "sent", "ntfy": "not_configured"}
     import json
     assert json.loads(posts.calls[0]["data"])["content"].endswith(
-        "3 background jobs ended: 2 finished, 1 failed.")
+        "2 background jobs finished. Failed: Dub generation.")
     assert ns.flush() == {}
 
 
@@ -500,6 +501,46 @@ def test_per_minute_cap(env, dns, posts, no_timer):
     assert ns.flush() == {}
     assert len(posts.calls) == ns.MAX_PER_MINUTE
     assert "rate limit" in _log_text()
+
+
+def test_over_the_cap_only_clean_successes_are_dropped(env, dns, posts, no_timer):
+    _write(env, discord=DISCORD)
+    for _ in range(ns.MAX_PER_MINUTE):
+        ns.notify_job_finished("Translation", "done")
+        assert ns.flush()["discord"] == "sent"
+    ns.notify_job_finished("Translation", "done")
+    ns.notify_job_finished("Export (drama #1)", "error", reason="Disk full")
+    ns.notify_waiting("Ep 1 is done.", push_text="Ep 1 is done.")
+    assert ns.flush()["discord"] == "sent"
+    import json
+    text = json.loads(posts.calls[-1]["data"])["content"]
+    assert "Failed: Export" in text and "Disk full" in text and "Waiting for you" in text
+    assert "Finished" not in text
+    ns.notify_job_finished("Translation", "done")
+    assert ns.flush() == {}
+
+
+def test_a_short_success_stays_in_the_bell_and_a_long_one_pushes(env, dns, posts, no_timer,
+                                                                 monkeypatch):
+    import background_jobs
+    _write(env, discord=DISCORD)
+    times = {}
+    monkeypatch.setattr(background_jobs, "get_status", lambda job_id: times.get(job_id))
+    times["quick"] = {"started_at": 100.0, "finished_at": 100.0 + ns.SUCCESS_PUSH_MIN_SECONDS - 1}
+    times["slow"] = {"started_at": 100.0, "finished_at": 100.0 + ns.SUCCESS_PUSH_MIN_SECONDS}
+    ns.notify_job_finished("Re-time (drama #1)", "done", job_id="quick")
+    assert no_timer == [] and ns.flush() == {}
+    assert [e["kind"] for e in ns.list_recent({"user_id": None, "is_admin": True,
+                                               "is_local_owner": True}, 10)] == ["job_done"]
+    ns.notify_job_finished("Translation", "done", job_id="slow")
+    assert ns.flush()["discord"] == "sent"
+    # Failures and finishes with errors push however short the run was.
+    ns.notify_job_finished("Re-time", "error", job_id="quick")
+    ns.notify_job_finished("Re-time", "done", job_id="quick", with_errors=True)
+    assert ns.flush()["discord"] == "sent"
+    import json
+    text = json.loads(posts.calls[-1]["data"])["content"]
+    assert "Failed: Re-time" in text and "Finished with errors: Re-time" in text
 
 
 def test_slots_free_up_after_a_minute():
@@ -533,6 +574,8 @@ def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, job_h
                                                                       no_timer, monkeypatch):
     _write(env, discord=DISCORD)
     posts.exc = requests.ConnectionError(DISCORD)
+    # The no-op job below ends at once; a zero threshold lets its success push.
+    monkeypatch.setattr(ns, "SUCCESS_PUSH_MIN_SECONDS", 0.0)
     # The runner flips a job's status first and queues the push after, so
     # polling the status (or _pending) races the queueing. Wait instead for
     # notify_job_finished itself to return for both of this test's jobs; a
@@ -841,7 +884,7 @@ def test_mixed_burst_summary():
         "Finished: Translation. 2 new chapters found."
     assert ns._summarize([("done", "a", "jobs"), ("error", "b", "jobs"),
                           ("done", "3 new chapters found", "chapters")]) == \
-        "2 background jobs ended: 1 finished, 1 failed. 3 new chapters found."
+        "a. b. 3 new chapters found."
 
 
 def test_categories_route_is_pc_only(env):
@@ -1107,8 +1150,7 @@ def test_waiting_messages_are_never_folded_into_the_job_count():
     assert ns._summarize([("done", "a", "jobs"), w, ("error", "b", "jobs"),
                           ("waiting", "Waiting for you: 2 glossary names to review", "jobs"),
                           ("done", "3 new chapters found", "chapters")]) == (
-        "2 background jobs ended: 1 finished, 1 failed. "
-        "Waiting for you: Ep 1 is done. Press Continue to run the rest. "
+        "a. Waiting for you: Ep 1 is done. Press Continue to run the rest. b. "
         "Waiting for you: 2 glossary names to review. 3 new chapters found.")
     assert ns._summarize([w, ("waiting", "Waiting for you: The queue stopped.", "jobs")]) == \
         "Waiting for you: Ep 1 is done. Press Continue to run the rest. Waiting for you: The queue stopped."
