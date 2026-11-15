@@ -270,10 +270,11 @@ test('People and access: first card open the first time, the rest closed and rem
   await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
   await expect(navLink(page, 'People and access')).toBeVisible()
   const cards = page.locator('details.section')
-  await expect(cards.locator('summary .section-title')).toHaveText(['People', 'Activity log', 'Public address check'])
+  await expect(cards.locator('summary .section-title')).toHaveText(['People', 'Activity log', 'Public address check', 'Uploads from away'])
   await expect(cards.nth(0)).toHaveAttribute('open', '')
   await expect(cards.nth(1)).not.toHaveAttribute('open', '')
   await expect(cards.nth(2)).not.toHaveAttribute('open', '')
+  await expect(cards.nth(3)).not.toHaveAttribute('open', '')
   // Same page layout as the other pages: no page-specific width.
   await expect(page.locator('section[aria-label="People and access"]')).toHaveAttribute('data-page-shell', 'narrow')
   // Empty text names no command.

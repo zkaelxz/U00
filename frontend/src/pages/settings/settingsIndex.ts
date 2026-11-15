@@ -78,7 +78,6 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
       { id: 'advanced' },
       { id: 'auto-backup' },
       { id: 'save-folder' },
-      { id: 'pc-profiles' },
       { id: 'developer-mode' },
     ],
   },
@@ -89,7 +88,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
 export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
   'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
   'notifications', 'auto-backup', 'save-folder', 'app-updates',
-  'jellyfin', 'web-search', 'inbox', 'extension', 'pc-profiles',
+  'jellyfin', 'web-search', 'inbox', 'extension',
   'performance', 'advanced', 'timing-splitting', 'transcription-experiments', 'developer-mode',
 ])
 
@@ -128,7 +127,6 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('devices', 'Signed-in devices', 'sessions sign out'),
   e('extension-devices', 'Extension tokens per computer', 'browser extension devices token pair'),
   e('ollama-key', 'Your Ollama key', 'ollama cloud api key account quota own'),
-  e('pc-profiles', 'PC profiles', 'guest owner pin hide private titles brothers lock'),
 
   e('jellyfin', 'Jellyfin', 'media server missing subtitles'),
   e('web-search', 'Web search', 'search lookup'),
@@ -185,8 +183,8 @@ const tools = (tab: LibraryToolsTab, label: string, keywords: string, pcOnly = f
   ({ label, page: 'Library tools', to: { name: 'library-tools', tab }, keywords, requires: 'library.read', pcOnly })
 
 // The page has no per-card link, so these open it at the top.
-const people = (label: string, keywords: string): ElsewhereEntry =>
-  ({ label, page: 'People and access', to: { name: 'admin' }, keywords, requires: 'admin.users.read', pcOnly: false })
+const people = (label: string, keywords: string, pcOnly = false): ElsewhereEntry =>
+  ({ label, page: 'People and access', to: { name: 'admin' }, keywords, requires: 'admin.users.read', pcOnly })
 
 export const ELSEWHERE_INDEX: ElsewhereEntry[] = [
   diag('recommended', 'Recommended installs', 'install setup first run packages'),
@@ -209,6 +207,8 @@ export const ELSEWHERE_INDEX: ElsewhereEntry[] = [
   people('Sign-in accounts', 'people users members accounts household invite password role permissions admin sign in login'),
   people('Activity log', 'audit log who did what history'),
   people('Public address check', 'remote access address tunnel cdn url away outside home internet'),
+  people('Uploads from away', 'allow uploads from away remote upload admin developer mode 7 days', true),
+  people('PC profiles', 'guest owner pin hide private titles brothers lock', true),
 ]
 
 /** Same word rule as filterSettings; `allowed` drops what this person or device cannot open. */

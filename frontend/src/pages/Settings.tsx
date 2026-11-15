@@ -40,7 +40,6 @@ import { QuickVideoCard } from './settings/QuickVideoCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { OllamaKeyCard } from './settings/OllamaKeyCard'
-import { PcProfileCard } from './settings/PcProfileCard'
 import { showOllamaKey } from './settings/ollamaKeyModel'
 import { PastCostsCard } from './settings/PastCostsCard'
 import { SpendHistoryCard } from './settings/SpendHistoryCard'
@@ -406,7 +405,6 @@ export default function SettingsPage() {
             )}
             {shown('auto-backup') && <SettingsCard id="auto-backup"><AutoBackupCard /></SettingsCard>}
             {shown('save-folder') && <SettingsCard id="save-folder"><SaveFolderCard /></SettingsCard>}
-            {shown('pc-profiles') && <SettingsCard id="pc-profiles"><PcProfileCard /></SettingsCard>}
             <SettingsCard id="developer-mode"><DeveloperModeCard /></SettingsCard>
           </>
         ))}
