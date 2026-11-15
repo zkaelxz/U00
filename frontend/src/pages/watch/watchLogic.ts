@@ -147,8 +147,8 @@ export function fieldKey(e: { key: string; ctrlKey: boolean; metaKey: boolean; a
   return null
 }
 
-export const CONFLICT_TEXT = 'This line was changed while you were fixing it. What it says now is shown below, and your text is still in the box. Save again if it still needs your fix.'
-export const CONFLICT_UNREAD_TEXT = 'This line was changed while you were fixing it, and its new text could not be loaded. Your text is still in the box. Try Save again in a moment.'
+export const CONFLICT_TEXT = 'This line changed. The new text is below; yours is still in the box. Save again if you still want it.'
+export const CONFLICT_UNREAD_TEXT = 'This line changed and its new text could not load. Yours is still in the box. Try Save again soon.'
 
 /** An open fix: the line, the English the viewer saw when it opened, and what is typed. */
 export interface LineFix {
