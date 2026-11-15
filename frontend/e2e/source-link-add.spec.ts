@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { selectMediaTab } from './mediaTabs'
+
 // "Add a source link" sits in the title header of every title without a link and points at Details. It used to
 // do nothing when Details was already open (the same address) or land with the Edit details card folded and the
 // field off screen. Seeded title 1 is an audio drama, served here without a link.
@@ -46,6 +48,14 @@ for (const view of ['simple', 'full'] as const) {
     // Already on Details: the address does not change, so the second press must still bring the field back.
     await page.evaluate(() => window.scrollTo(0, 0))
     await expect(field(page)).not.toBeInViewport()
+    await (await addLink(page, view)).click()
+    await expect(field(page)).toBeFocused()
+    await expect(field(page)).toBeInViewport()
+
+    // Another tab keeps `focus=sourceLink` in the address without a route change, so the press must still switch
+    // back to Details and bring the field.
+    await selectMediaTab(page, 'transcribe')
+    await expect(field(page)).toBeHidden()
     await (await addLink(page, view)).click()
     await expect(field(page)).toBeFocused()
     await expect(field(page)).toBeInViewport()

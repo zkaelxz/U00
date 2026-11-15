@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { hasStatus } from '../../../api/client'
 import { setDramaSeries, updateDramaMetadata } from '../../../api/library'
@@ -71,13 +71,16 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
     return () => window.removeEventListener(ADD_SOURCE_LINK_EVENT, press)
   }, [])
   const linkSignal = linkedSignal + pressedSignal
+  // The press can come before the tab switch it asks for has rendered, so the request waits for Details to show.
+  const answeredSignal = useRef(0)
   useEffect(() => {
-    if (linkSignal === 0) return
+    if (linkSignal === answeredSignal.current || tab !== 'details') return
+    answeredSignal.current = linkSignal
     // Field gives its control the id, so the wrapper carries this one.
     const input = document.querySelector<HTMLInputElement>(`#${SOURCE_URL_FIELD_ID} input`)
     input?.focus({ preventScroll: true })
     input?.scrollIntoView({ block: 'center' })
-  }, [linkSignal])
+  }, [linkSignal, tab])
 
   // Re-seed from the drama when it changes elsewhere (Auto-fill apply, Use
   // this content type, a URL download finishing): only the fields the user
