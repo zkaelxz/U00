@@ -176,7 +176,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
   await keepFree.getByLabel('Stop a running job after', { exact: true }).fill('5')
   await keepFree.getByRole('button', { name: 'Save' }).click()
   await expect(keepFree.getByRole('status')).toHaveText('Saved.')
-  await expect(keepFree.getByRole('switch', { name: 'Pause GPU jobs when the card is short or hot' })).toBeChecked()
+  await expect(keepFree.getByRole('switch', { name: 'Pause GPU jobs when the GPU is short of memory or hot' })).toBeChecked()
 
   const ocr = await open(page, 'OCR')
   await ocr.getByLabel('Default backend', { exact: true }).selectOption('manga_ocr')

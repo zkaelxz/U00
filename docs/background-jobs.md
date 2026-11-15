@@ -271,8 +271,8 @@ Another program on the PC (Jellyfin's transcodes) can't be seen or limited by Ba
 and the owner does not want it capped, so Baihe yields. `gpu_guard.tick` runs at the top
 of every GPU-queue poll (20 s) while the `gpu_guard` preference is on (default on). It
 reads the first GPU's free memory and temperature with one nvidia-smi call. The card is
-*short* when free VRAM is under `external_busy_min_free_mb` and *hot* at or above
-`gpu_guard_temp_c` (85 °C). Either starts a hold at once; the hold ends only after every
+*short* when free VRAM is under `external_busy_min_free_mb` and *hot* when the GPU
+temperature is at or above `gpu_guard_temp_c` (85 °C). The CPU temperature is not read. Either starts a hold at once; the hold ends only after every
 reading has stayed 1 GB / 5 °C clear for 60 s, so a value at the limit doesn't flap. No
 reading, or a state older than 90 s, means no hold.
 

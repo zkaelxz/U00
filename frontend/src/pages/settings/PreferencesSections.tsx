@@ -177,7 +177,7 @@ export function KeepFreeMemory({ schema, settings, onSettings }: Props) {
       section="Advanced"
       keys={KEEP_FREE_KEYS}
       title="Keep free memory"
-      summary={[p.keep_free_vram_gb || p.keep_free_ram_gb ? 'Memory kept free' : 'No memory reserve', p.gpu_guard ? 'pauses when short or hot' : 'never pauses'].join(' · ')}
+      summary={[p.keep_free_vram_gb || p.keep_free_ram_gb ? 'Memory kept free' : 'No memory reserve', p.gpu_guard ? 'pauses when the GPU is short or hot' : 'never pauses'].join(' · ')}
     />
   )
 }
