@@ -39,7 +39,7 @@ test('the queue reopens on the kept card at 390 px, with no sideways scroll, and
   await expect(cards).toHaveCount(0)
   await page.goto('/#/drama/3/review')
   await expect(position).toHaveText('2 of 3 to look at')
-  await expect(cards.locator('.review-idx')).toHaveText('#7')
+  await expect(cards.locator('.review-idx')).toHaveText('Line 7')
   await expect(page.locator('.review-status')).toHaveText('Back where you stopped, on line 7.')
   await expectNoSidewaysScroll(page)
 
@@ -49,7 +49,7 @@ test('the queue reopens on the kept card at 390 px, with no sideways scroll, and
   await expect(cards).toHaveCount(0)
   await page.goto('/#/drama/3/review')
   await expect(position).toHaveText('1 of 2 to look at')
-  await expect(cards.locator('.review-idx')).toHaveText('#24')
+  await expect(cards.locator('.review-idx')).toHaveText('Line 24')
   await expectNoSidewaysScroll(page)
 })
 

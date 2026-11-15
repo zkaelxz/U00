@@ -34,6 +34,8 @@ class DubTtsEngine(BaseModel):
     # Fixed text saying what this engine needs that is missing here (its
     # package, or ffmpeg); None when it can run.
     unavailable_reason: Optional[str] = None
+    # Speakers with text to speak that this engine has no voice for (only OmniVoice fills those in itself).
+    speakers_without_voice: List[str] = []
 
 
 class NarrationEngineOption(BaseModel):
