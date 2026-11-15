@@ -4,22 +4,10 @@ import { lineNumber } from '../../../../lineNumber'
 import type { ReviewLine, SpeakerGuess } from '../../../../types/review'
 import type { RowActions } from './LineRow'
 import { needsSpeaker } from './reviewLogic'
+import { guessReason, type Reason } from './speakerGuessReason'
 
-type Reason = SpeakerGuess['reasons'][number]
-
-const WHY: Record<Reason, string> = {
-  above: 'the line above',
-  below: 'the line below',
-  voice: 'what speaker detection heard',
-}
 // Short enough for a phone's chip; the full reason is in the button's name.
 const MARK: Record<Reason, string> = { above: '↑', below: '↓', voice: 'voice' }
-
-export function guessReason(reasons: Reason[]): string {
-  const said = reasons.map((r) => WHY[r])
-  const joined = said.length > 1 ? `${said.slice(0, -1).join(', ')} and ${said[said.length - 1]}` : said[0]
-  return reasons[0] === 'voice' ? `From ${joined}` : `Same as ${joined}`
-}
 
 interface Props {
   guesses: SpeakerGuess[]

@@ -206,10 +206,12 @@ class TestBounds:
         monkeypatch.setattr(vision, "read_image_text", _REAL_READ_IMAGE_TEXT)
         started = time.monotonic()
         (sid,) = svc.start_run("ocr", [{"engine": "claude"}])["session_ids"]
-        # The job's start-up time varies with the machine (a cold worker took over 0.5 s),
-        # so cancel once the read has begun, not after a fixed wait.
-        while not calls and time.monotonic() - started < 5:
-            time.sleep(0.02)
+        # The first call is slow to arrive in a cold process (imports, picture decode), and a cancel sent before it
+        # would test cancelling an idle run, not one stuck in a read.
+        deadline = time.monotonic() + 10
+        while not calls and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert calls, "the run never made its first read"
         background_jobs.request_cancel(svc.JOB_ID)
         try:
             wait_for_job(svc.JOB_ID, timeout=15)

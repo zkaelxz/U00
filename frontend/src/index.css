@@ -777,7 +777,7 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .customize-menu-row > :first-child { flex: 1 1 auto; font-weight: var(--weight-medium); }
 .setting-list .field-control > :first-child { flex: 0 0 auto; }
 
-/* Buttons: .btn + one of primary / secondary / ghost / danger; .btn-sm for dense rows.
+/* Buttons: .btn + one of primary / secondary / ghost / danger / ok; .btn-sm for dense rows.
    Works on <button> and on <a> (ButtonLink). */
 .btn {
   display: inline-flex;
@@ -811,10 +811,14 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .btn.btn-ghost:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; }
 .btn.btn-danger { background: transparent; color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--border)); }
 .btn.btn-danger:hover:not(:disabled) { background: var(--bad-soft); border-color: var(--bad); }
+/* Green, for the one step that finishes a line in the check queue (Looks right, next); everything else stays accent. */
+.btn.btn-ok { background: var(--ok); border-color: color-mix(in srgb, var(--ok) 78%, black); color: var(--on-accent); font-weight: var(--weight-bold); box-shadow: none; }
+.btn.btn-ok:hover:not(:disabled) { background: color-mix(in srgb, var(--ok) 88%, var(--text)); border-color: color-mix(in srgb, var(--ok) 78%, black); color: var(--on-accent); }
 .btn.btn-primary:disabled,
 .btn.btn-secondary:disabled,
 .btn.btn-ghost:disabled,
-.btn.btn-danger:disabled {
+.btn.btn-danger:disabled,
+.btn.btn-ok:disabled {
   color: var(--muted);
   background: color-mix(in srgb, var(--text) 7%, var(--surface));
   border-color: var(--border);

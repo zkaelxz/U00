@@ -2,7 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import { needsSpeaker, nextNeedingSpeakerId } from './reviewLogic'
-import { guessReason, SpeakerGuesses } from './SpeakerGuesses'
+import { SpeakerGuesses } from './SpeakerGuesses'
+import { guessReason } from './speakerGuessReason'
 import type { ReviewLine } from '../../../../types/review'
 
 const line = (over: Partial<ReviewLine>) =>

@@ -1,5 +1,5 @@
 /*
- * The side panel of a Simple audio or video title page: Video, Translate, Glossary, Episodes and Export in one tabbed box beside the lines.
+ * The panel of a Simple audio or video title page while it has no lines: Video, Translate, Glossary, Episodes and Export in one tabbed box.
  */
 import { useEffect, useState, type ReactNode } from 'react'
 
@@ -82,7 +82,7 @@ export function TitlePanel({ id, episodes }: { id: number; episodes: ReactNode }
           <p className="title-panel-note" data-testid="panel-translate-summary">{summary ?? 'Engine, style and English variant are on the Translate page.'}</p>
           <div className="actions">
             <ButtonLink href={stage('translate')}>Change</ButtonLink>
-            <ButtonLink href={stage('translate')}>Estimate cost</ButtonLink>
+            <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', focus: 'estimate' })}>Estimate cost</ButtonLink>
           </div>
         </>
       ))}

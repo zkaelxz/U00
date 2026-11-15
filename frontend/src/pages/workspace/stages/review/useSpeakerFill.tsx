@@ -77,3 +77,22 @@ export function useSpeakerUndo(
   ) : null
   return { setUndo, node }
 }
+
+// Everything the panel needs for blank-speaker lines: the guesses (for the rows and the 1/2/3 keys),
+// how many lines still need a speaker (0 where the step button is hidden) and the Undo for a taken one.
+export function useSpeakerFill(
+  dramaId: number,
+  count: number,
+  shown: ReviewLine[],
+  reloads: number,
+  active: ReviewLine | null,
+  prose: boolean,
+  onChanged: () => void,
+  setStatus: Dispatch<SetStateAction<string | null>>,
+  setError: Dispatch<SetStateAction<unknown>>,
+) {
+  const undo = useSpeakerUndo(dramaId, onChanged, setStatus, setError)
+  const guessesByLine = useSpeakerGuesses(dramaId, shown, reloads, !prose && count > 0)
+  const activeGuesses = (active && needsSpeaker(active) ? guessesByLine.get(active.id) : null) ?? []
+  return { setUndo: undo.setUndo, undoNode: undo.node, stepCount: prose ? 0 : count, guessesByLine, activeGuesses }
+}

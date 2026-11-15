@@ -1,3 +1,4 @@
+import { LANGUAGE_LABELS, languageLabel, mediaTypeLabel } from '../../labels'
 import { mediaKind } from './detailsForm'
 
 /**
@@ -34,3 +35,12 @@ export const TITLE_KIND_LABEL: Record<TitleKind, string> = {
  * they are tuned per run far more often.
  */
 export const foldsTranslateOptions = (kind: TitleKind): boolean => kind === 'novel' || kind === 'comic'
+
+/** "Audio drama · Chinese to English" when the source language has a label, else just the kind of title. */
+export function kindBadgeText(mediaType: string | null | undefined, sourceLanguage: string | null | undefined): string {
+  const kind = mediaTypeLabel(mediaType)
+  const code = (sourceLanguage ?? '').toLowerCase()
+  // English is the language every title is translated into, so "English to English" would say nothing.
+  if (!code || code === 'en' || !Object.hasOwn(LANGUAGE_LABELS, code)) return kind
+  return `${kind} · ${languageLabel(code)} to English`
+}

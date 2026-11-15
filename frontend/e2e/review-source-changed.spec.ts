@@ -20,6 +20,9 @@ test('the rows say "Source changed" in text and the Flagged filter shows them', 
   await expect(page.locator('.review-line[data-line-id="2"]').getByTestId('source-changed-badge')).toHaveCount(0)
   // The deep link the Translate and Export warnings use opens Review on Flagged.
   await page.goto('/#/drama/3/translate')
+  // Review reads ?focus only when it mounts. A hash change that lands before Translate has replaced it leaves the
+  // same Review on screen, so the link would never get the chance to open Flagged.
+  await expect(page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Translate' })).toHaveAttribute('aria-current', 'page')
   await page.goto('/#/drama/3/review?focus=flagged')
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(2)
   // The tools (Coverage lives there) stay available on that link.
