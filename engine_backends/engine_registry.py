@@ -184,7 +184,7 @@ def hosted_default_allowed() -> bool:
         return False
 
 
-def hosted_default_blocked(engine_name: str, model) -> bool:
+def hosted_default_blocked(engine_name: "str | None", model) -> bool:
     """True when `model` is a hosted Ollama tag that may not be used as a default:
     a default is used by every call that names Ollama without a model, so a hosted
     tag there sends text off this PC unannounced unless the owner opted in."""
