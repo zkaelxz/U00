@@ -133,6 +133,14 @@ class TestJobResults:
         assert d("error", "boom", None) == ("failed", "boom")
         assert d("running", None, None) == (None, None)
 
+    def test_a_failed_reason_without_a_status_sentence_still_says_what_failed(self):
+        d = jobs_service.derive_outcome
+        for reason in jobs_service.RESULT_ONLY_REASON_MESSAGES:
+            outcome, message = d("done", None, {"failed_reason": reason})
+            assert outcome == "failed" and message != "The job did not finish."
+        assert d("done", None, {"failed_reason": "not_applied", "detail": "A line changed."}) == (
+            "failed", "Nothing was changed. A line changed.")
+
     def test_a_translate_run_that_wrote_nothing_after_errors_is_failed_not_done(self):
         d = jobs_service.derive_outcome
         projected = jobs_service.project_result({"errors": ["batch 1: rate limited"], "translated_count": 0})
