@@ -29,10 +29,10 @@ permissions:
 
 # Cancel a still-running CI run for the same PR once a newer push supersedes
 # it. Pushes to the base branch share one group that never cancels a run in
-# progress: GitHub keeps one more run waiting behind it and gives that place to
-# the newest push, so merges that land back to back are tested together by the
-# run that waits instead of queueing a full run each. A waiting run that loses
-# its place shows as cancelled, and the run that took it covers its commit
+# progress: GitHub keeps one more run waiting behind it and hands that place to
+# each push that arrives, so merges that land back to back are tested together
+# by the run that waits instead of queueing a full run each. A waiting run that
+# loses its place shows as cancelled, and a later run covers its commit
 # (docs/testing-and-ci.md, "After a merge"). The `push-` prefix keeps the
 # nightly run, which has the same ref, in a group of its own. The group is per
 # workflow, so this never touches windows-installer.yml, the one workflow that

@@ -67,9 +67,9 @@ commit: deepen it until `git merge-base` prints one.
 
 Two PRs that share no file can still break each other, and the clear lane finds that out after the merge, not before it. When
 the base has moved since the PR's run, a clear-lane merge lands a tree no PR run tested, so it is tested whole only after the
-merge, by the push run that covers it ("After a merge" below), and the nightly run is the second net. The clear lane is on
-trial (Kae, 2026-11-14): until she calls it routine, a thread that merges by it says so in its merge report and gives that
-push run's result, so that the first ones can be reviewed.
+merge ("After a merge" below), and the nightly run is the second net. The clear lane is on trial (Kae, 2026-11-14): until she
+calls it routine, a thread that merges by it says so in its merge report and gives the result of the push run that covers the
+merge, so that the first ones can be reviewed.
 
 ## CI layout
 
@@ -137,11 +137,15 @@ same tree did.
 Merges that land back to back share a push run (Kae, 2026-11-15: a full run for every merge had left the base's results 67 to
 123 minutes behind a burst of merges). Pushes to `baihe-subtitler` are one concurrency group that never cancels a run in
 progress, so one push run is going and at most one waits behind it. A merge that lands while a run already waits takes that
-run's place, and GitHub cancels the run it replaced before any of its jobs start. The run that waits tests the newest tree,
-which holds every merge before it, and it is shortened only by a green PR run of that same tree on that same base, so the
-merges it stands in for lose no job. The push run that **covers** a merge is the first one, at its commit or a later one,
-that ran to the end, green or red: a cancelled push run at a merge commit means a later run covers it, not that something
-failed.
+run's place, and GitHub cancels the run it replaced before any of its jobs start. The run that waits therefore tests the
+newest tree, which holds every merge before it, and it is shortened only by a green PR run of that same tree on that same
+base, so the merges it stands in for lose no job. The push run that **covers** a merge is the first one, at its commit or a
+later one, that ran to the end, green or red: a cancelled push run at a merge commit means a later run covers it, not that
+something failed.
+
+The newest commit is the exception, because nothing later can cover it. GitHub does not promise the order in which runs reach
+the group, so when two merges land seconds apart the newer one's run can be the one that is cancelled. A cancelled push run
+at the newest commit of the base is re-run by the owner of that merge.
 
 What sharing costs:
 
@@ -151,9 +155,9 @@ What sharing costs:
   re-run.
 - A dev copy and a release tag still need a push run that passed at the exact commit, so a commit whose run was cancelled is
   passed over by the dev copy and refused for a tag (`docs/runbook.md`, section 1, step 5).
-- Re-run a push run (a cancelled one, or the failed jobs of a red one) only when no push run is waiting. GitHub's docs do
-  not say that a re-run stays out of the group, and inside it a re-run would take the waiting run's place, which leaves the
-  newest merge with no run.
+- Re-run an older commit's push run (a cancelled one, or the failed jobs of a red one) only when no push run is waiting.
+  GitHub's docs do not say that a re-run stays out of the group, and inside it a re-run would take the waiting run's place,
+  which leaves the newest merge with no run. Re-running the newest commit's own run is always safe.
 
 ### Which jobs a change runs
 
@@ -189,8 +193,9 @@ A sixth output, `run_app_checks` (the `smoke` and `frontend` jobs), is true unle
 A seventh output, `run_sources_subset`, is true when every changed file on a pull request is under `sources/adapters/` or is a
 `tests/test_sources_*.py` / `tests/test_api_sources_*.py` file. `test-shard` then runs one shard with only the adapter tests and the
 tests of rules every adapter must obey (`tools/ci_changes.py --sources-tests`; the lists are `SOURCES_TEST_GLOBS` and
-`SOURCES_TEST_FILES`) instead of four shards of the whole suite. `guards` still runs, and the push after the merge runs the whole
-suite (a sources subset does not count as having run it), so a break outside the subset shows there. Add a test to `SOURCES_TEST_FILES` when it checks a rule every adapter must obey.
+`SOURCES_TEST_FILES`) instead of four shards of the whole suite. `guards` still runs, and the whole suite runs after the merge,
+in the push run that covers it or in the green PR run of that same tree that shortened it (a sources subset does not count as
+having run it), so a break outside the subset shows there. Add a test to `SOURCES_TEST_FILES` when it checks a rule every adapter must obey.
 
 A fifth output, `run_caddy` (the `caddy` job), is true for every row that says "everything", and otherwise only when a changed
 file is under `deploy/caddy/` or `installer/caddy/`, or is `installer/service_config.py` or `tools/caddy_check.py`.
