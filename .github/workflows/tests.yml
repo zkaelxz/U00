@@ -375,7 +375,7 @@ jobs:
   # same rule: skipped is fine (the change touched no Windows script or
   # frontend), failed or cancelled is not, so a red browser shard blocks merge.
   test:
-    needs: [changes, guards, frontend, test-shard, optional-tests, windows-scripts, e2e, smoke, caddy]
+    needs: [changes, guards, frontend, test-shard, optional-tests, windows-scripts, e2e, smoke, caddy, browser-gate]
     # Skipped with its needs on a draft: a draft cannot be merged, and marking
     # it ready starts a full run.
     if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
@@ -393,9 +393,9 @@ jobs:
           E2E: ${{ needs.e2e.result }}
           SMOKE: ${{ needs.smoke.result }}
           CADDY: ${{ needs.caddy.result }}
-          E2E_DEFERRED: ${{ needs.changes.outputs.e2e_deferred }}
+          BROWSER_GATE: ${{ needs.browser-gate.result }}
         run: |
-          echo "changes=$CHANGES guards=$GUARDS frontend=$FRONTEND test-shard=$SHARDS optional-tests=$OPTIONAL windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY"
+          echo "changes=$CHANGES guards=$GUARDS frontend=$FRONTEND test-shard=$SHARDS optional-tests=$OPTIONAL windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY browser-gate=$BROWSER_GATE"
           [ "$CHANGES" = success ] || exit 1
           [ "$GUARDS" = success ] || [ "$GUARDS" = skipped ] || exit 1
           [ "$FRONTEND" = success ] || [ "$FRONTEND" = skipped ] || exit 1
@@ -405,10 +405,45 @@ jobs:
           [ "$E2E" = success ] || [ "$E2E" = skipped ] || exit 1
           [ "$SMOKE" = success ] || [ "$SMOKE" = skipped ] || exit 1
           [ "$CADDY" = success ] || [ "$CADDY" = skipped ] || exit 1
-          if [ "$E2E_DEFERRED" = true ]; then
-            echo "::error::Not a test failure: the browser tests have not run yet. They run, and this check turns green, once auto-merge is turned on for this PR (or the full-ci label is added)."
-            exit 1
+          [ "$BROWSER_GATE" = success ] || [ "$BROWSER_GATE" = skipped ] || exit 1
+
+  # Sets the `browser-tests` commit status on the PR head, a required check beside `test`. While the
+  # browser tests wait for auto-merge it stays pending (yellow), which blocks the merge without a red
+  # run or a "run failed" email; a skipped job would count as passed, so a status carries the wait.
+  # Not on a cancelled run: a newer run of the PR reports instead. The job runs no PR code, so the
+  # write token never meets it. A fork's token cannot write; the status is then missing, which also
+  # blocks the merge.
+  browser-gate:
+    needs: [changes, e2e]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      statuses: write
+    steps:
+      - name: Report the browser-tests status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHANGES: ${{ needs.changes.result }}
+          E2E: ${{ needs.e2e.result }}
+          E2E_DEFERRED: ${{ needs.changes.outputs.e2e_deferred }}
+        run: |
+          if [ "$CHANGES" != success ]; then
+            state=failure; desc="CI could not tell which tests this PR needs"
+          elif [ "$E2E_DEFERRED" = true ]; then
+            state=pending; desc="Waiting for the merge order: runs once auto-merge is on"
+          elif [ "$E2E" = success ]; then
+            state=success; desc="Browser tests passed"
+          elif [ "$E2E" = skipped ]; then
+            state=success; desc="This change needs no browser tests"
+          else
+            state=failure; desc="Browser tests did not pass"
           fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$state" -f context=browser-tests \
+            -f description="$desc" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null
+          echo "browser-tests: $state ($desc)"
+          [ "$state" != failure ]
 
   # The real server, not the mocked suite: tools/smoke_test.py starts
   # `python -m api` on a throwaway data folder and runs the owner's main flows

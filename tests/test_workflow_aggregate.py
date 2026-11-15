@@ -75,12 +75,20 @@ def test_the_windows_bootstrap_shares_its_pushes_the_same_way():
     assert _concurrency(BOOTSTRAP) == _concurrency(WORKFLOW)
 
 
-def test_the_aggregate_fails_while_the_browser_tests_wait_for_approval():
-    """A PR whose browser tests were held back until auto-merge is turned on must not go green: the
-    skipped `e2e` job alone would read as passed, and `test` is the check that lets a PR merge."""
-    block = _job_blocks()["test"]
-    assert "E2E_DEFERRED: ${{ needs.changes.outputs.e2e_deferred }}" in block
-    assert re.search(r'if \[ "\$E2E_DEFERRED" = true \]; then\n(?:.*\n)*?\s+exit 1\n\s+fi', block)
+def test_waiting_browser_tests_hold_the_merge_with_a_pending_status():
+    """While the browser tests wait for auto-merge, the required `browser-tests` status must be pending:
+    a skipped `e2e` job alone reads as passed, and a red run would email a failure that is not one.
+    Success only when the tests passed or the change needs none; a cancelled run reports nothing."""
+    block = _job_blocks()["browser-gate"]
+    assert "if: ${{ !cancelled() && github.event_name == 'pull_request'" in block
+    assert "statuses: write" in block and "actions/checkout" not in block
+    assert "HEAD_SHA: ${{ github.event.pull_request.head.sha }}" in block
+    script = block.split("run: |", 1)[1]
+    branches = re.findall(r'(?:if|elif) \[ "\$(\w+)" (!?=) (\w+) \]; then\n\s+state=(\w+)', script)
+    assert branches == [("CHANGES", "!=", "success", "failure"), ("E2E_DEFERRED", "=", "true", "pending"),
+                        ("E2E", "=", "success", "success"), ("E2E", "=", "skipped", "success")]
+    assert re.search(r"else\n\s+state=failure", script)
+    assert "context=browser-tests" in script and '[ "$state" != failure ]' in script
 
 
 def test_turning_on_auto_merge_starts_the_run_with_the_browser_tests():

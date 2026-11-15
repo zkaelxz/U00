@@ -22,7 +22,7 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 
 A squash merge, never a force-push, and never before Kae types "Merge NNNN" for it. GitHub's merge queue is not offered to a
 repo owned by a personal account, so GitHub's auto-merge stands in for it: on Kae's order the owning thread turns auto-merge
-(squash) on, and GitHub merges the PR by itself once the required `test` check is green. Turning auto-merge on is also what starts
+(squash) on, and GitHub merges the PR by itself once the required checks, `test` and `browser-tests`, are green. Turning auto-merge on is also what starts
 the browser tests ("Browser tests wait for the merge order" below), so a PR's last run before it merges is always a full one.
 Kae can also turn it on herself with the PR's "Enable auto-merge" button; that is her order too.
 
@@ -139,11 +139,14 @@ fixes). A cache miss only costs the download. The ffmpeg apt install is not cach
 ### Browser tests wait for the merge order
 
 The four `e2e` shards are the largest share of a run's runner time, and a ready PR is often pushed several times before it is
-ordered to merge. On a pull request without auto-merge on, `changes` holds them back (`e2e_deferred=true`) and `test` fails
-with "Not a test failure: the browser tests have not run yet", so the PR cannot merge without them. Turning auto-merge on (the
-`auto_merge_enabled` trigger) starts a new run that includes them, and so does every push while auto-merge stays on. The
-`full-ci` label runs them at once. Pushes to the base, the merge queue and the nightly run never hold them back. A red `test`
-whose only error is that sentence is expected on a PR that has no merge order yet: don't fix anything for it.
+ordered to merge. On a pull request without auto-merge on, `changes` holds them back (`e2e_deferred=true`), and the
+`browser-gate` job sets the required commit status `browser-tests` to pending ("Waiting for the merge order"), so the PR
+cannot merge without them but nothing turns red and no failure email goes out. Turning auto-merge on (the
+`auto_merge_enabled` trigger) starts a new run that includes them, and so does every push while auto-merge stays on; the
+status turns green when they pass, or at once when the change needs none. The `full-ci` label runs them at once. Pushes to the
+base, the merge queue and the nightly run never hold them back. A pending `browser-tests` is expected on a PR that has no merge
+order yet. The status is set by the workflow's token, so a fork's PR (whose token cannot write) and a Dependabot PR (read-only
+token) get none and cannot merge by auto-merge: run the tests on a branch of this repo instead.
 
 ### Draft PRs
 
