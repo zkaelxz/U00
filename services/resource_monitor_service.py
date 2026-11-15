@@ -304,7 +304,8 @@ def sample() -> dict:
 def run_cycle(notify=None, now=None, readings=None) -> list:
     """Samples once, steps every rule and calls `notify(event)` for each event.
     Returns the events. Never raises: a failing `notify` is logged and the
-    state moves on, so one bad send cannot repeat or hide an alert."""
+    state moves on, so one bad send cannot repeat or hide an alert. `notify` defaults
+    to the log, the bell and the push channels."""
     global _memory
     now = time.time() if now is None else now
     rules = get_rules()
@@ -331,7 +332,7 @@ def run_cycle(notify=None, now=None, readings=None) -> list:
                 pass
     for event in events:
         try:
-            (notify or _log_event)(event)
+            (notify or _notify)(event)
         except Exception as exc:
             _log("resource monitor: an alert was not sent (%s)", type(exc).__name__)
     return events
@@ -345,8 +346,11 @@ def _log(fmt, *args):
         pass
 
 
-def _log_event(event) -> None:
+def _notify(event) -> None:
+    """The default `notify`: the log, the bell and the push channels."""
     _log("resource monitor: %s", redact_secrets(event["text"]))
+    from services import notification_service
+    notification_service.notify_resource_alert(event["text"], recovered=event["kind"] == "recovered")
 
 
 def reset_for_tests() -> None:
