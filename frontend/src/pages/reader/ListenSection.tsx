@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 
-import { listenApi } from '../../api/listen'
+import { listenApi, listenTestVoiceUrl } from '../../api/listen'
 import { getCharacters } from '../../api/translateStage'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { useReattachJob } from '../../hooks/useReattachJob'
 import { useSession } from '../../hooks/useSession'
-import { chooseEngine, type ListenConfig } from '../../types/listen'
+import { chooseEngine, listenBlocker, skippedLines, type ListenConfig } from '../../types/listen'
 import type { CharacterEntry } from '../../types/translateStage'
 import { jobFailed, jobSucceeded } from '../../types/jobs'
 import { holds } from '../diagnostics/adminUsers'
@@ -19,14 +19,6 @@ interface Props {
   onReady: () => void
 }
 
-// Null when narration can be started, otherwise the plain reason it cannot.
-function listenBlocker(cfg: ListenConfig, engine: string): string | null {
-  if (cfg.speakable_line_count === 0) return 'There is no text to speak yet.'
-  if (cfg.blocker) return cfg.blocker
-  if (!engine) return 'No voice engine is available.'
-  return cfg.tts_engines.find((t) => t.key === engine)?.unavailable_reason ?? null
-}
-
 // How a speaker's voice is set up, in words.
 function voiceState(c: CharacterEntry): string {
   if (c.has_ref_audio) return 'reference clip'
@@ -35,6 +27,36 @@ function voiceState(c: CharacterEntry): string {
 }
 
 const LANGUAGE_LABEL: Record<string, string> = { translation: 'Translation', original: 'Original language' }
+
+// Speaks one short sentence in this speaker's voice, so a voice can be judged before a whole narration is made.
+function TestVoice({ dramaId, speaker, engine, language, disabled }: {
+  dramaId: number
+  speaker: string
+  engine: string
+  language: string
+  disabled: boolean
+}) {
+  const [error, setError] = useState<unknown>(null)
+  const [jobId, setJobId, runKey] = useJobRun()
+  const { job, done, error: pollError } = useJob(jobId, { runKey })
+  const busy = jobId !== null && !done && !pollError
+  const failed = done && job && jobFailed(job)
+  const test = () =>
+    listenApi.testVoice(dramaId, { speaker_label: speaker, tts_engine: engine, narration_language: language || undefined }).then((r) => {
+      setError(null)
+      setJobId(r.job_id)
+    }, setError)
+  return (
+    <>
+      {' '}
+      <button type="button" disabled={disabled || busy || !engine} onClick={test}>Test voice</button>
+      {busy && <span role="status"> {job?.message || 'Speaking a sample...'}</span>}
+      {failed && <span role="status"> {job.message || job.error || 'The sample could not be made.'}</span>}
+      <ErrorBanner error={error ?? pollError} onDismiss={() => setError(null)} />
+      {done && jobSucceeded(job) && <audio controls autoPlay src={listenTestVoiceUrl(dramaId, runKey)} aria-label={`Sample of ${speaker}'s voice`} />}
+    </>
+  )
+}
 
 export function ListenPicker({ dramaId, engines, engine, voices, disabled, onChange, languages = [], language = '', onLanguage }: {
   dramaId: number
@@ -72,10 +94,11 @@ export function ListenPicker({ dramaId, engines, engine, voices, disabled, onCha
         </label>
       )}
       {voices.map((v) => (
-        <p key={v.speaker_label} className="muted">
+        <div key={v.speaker_label} className="muted">
           {v.character_name || v.speaker_label}: {voiceState(v)}{' '}
-          <a href={`#/drama/${dramaId}/review?tools=change`}>Change voice</a>
-        </p>
+          <a href={`#/drama/${dramaId}/review?focus=voices`}>Change voice</a>
+          <TestVoice dramaId={dramaId} speaker={v.speaker_label} engine={engine} language={language} disabled={disabled} />
+        </div>
       ))}
     </>
   )
@@ -130,7 +153,18 @@ function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfi
 
   const busy = jobId !== null && !done && !pollError
   // This run just made the track: the player in Watch / listen takes over.
-  if (!busy && done && jobSucceeded(job)) return remake ? <p className="muted" role="status">The new narration is in the player below.</p> : null
+  if (!busy && done && jobSucceeded(job)) {
+    const skipped = skippedLines(job)
+    if (skipped.length > 0) {
+      return (
+        <div className="muted" role="status">
+          <p>The narration is in the player below, but {skipped.length === 1 ? '1 line was' : `${skipped.length} lines were`} left silent:</p>
+          <ul>{skipped.map((s) => <li key={s}>{s}</li>)}</ul>
+        </div>
+      )
+    }
+    return remake ? <p className="muted" role="status">The new narration is in the player below.</p> : null
+  }
   const engine = chooseEngine(cfg.tts_engines, cfg.default_engine, pickedEngine)
   const narrationLanguage = cfg.narration_language_options.includes(pickedLanguage) ? pickedLanguage : cfg.narration_language
   const blocker = listenBlocker(cfg, engine)

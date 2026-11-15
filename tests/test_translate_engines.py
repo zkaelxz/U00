@@ -2793,7 +2793,7 @@ class TestEstimateReflectModeCost:
         engine = engine_claude.ClaudeEngine.__new__(engine_claude.ClaudeEngine)
         engine.model = "claude-sonnet-5"
         lines = ["你好世界" * 10] * 5
-        expected_single = engine_pricing.estimate_cost_for_engine(engine, *engine_pricing.estimate_translation_tokens(lines))
+        expected_single = engine_pricing.estimate_translation_cost(engine, lines)
         assert engine_pricing.estimate_reflect_mode_cost(engine, lines) == pytest.approx(expected_single * 3)
 
     def test_every_batch_adds_the_instructions_again(self):

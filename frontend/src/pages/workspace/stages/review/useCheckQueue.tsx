@@ -1,14 +1,17 @@
 /** The check queue's part of the Review line list: the view it opens on, the rows it shows, and the switch, footer and Undo around them. */
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 
 import { setReviewed } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { useRoute } from '../../../../router'
-import { useCheckLead, useCheckSignal, useLinesOnAll } from '../../StageContext'
+import { useCheckLead, useCheckSignal, useLinesOnAll, usePlayerDock, usePositionReport, useSearchRequest } from '../../StageContext'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
-import { CheckedUndo, CheckLeadAction, CheckQueueFooter, CheckQueueSwitch, QueueMediaToggle } from './CheckQueue'
-import { initialLinesFilter, nextText, positionText, QUEUE_FILTER, queueCounts } from './checkQueueModel'
+import { buttonClass } from '../../../../components/uiClasses'
+import { CheckedUndo, CheckLeadAction, CheckQueueFooter, CheckQueueSwitch, QueueFine, QueueMediaToggle } from './CheckQueue'
+import { checkActionLabel } from '../../stepModel'
+import { initialLinesFilter, nextText, QUEUE_FILTER, queueCounts, queuePlace } from './checkQueueModel'
 import type { LinesController, LinesState, Pending } from './linesController'
 import { PAGE_SIZE } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
@@ -36,6 +39,10 @@ interface Deps {
   // The view `data` was loaded for, and whether it is the answer to the latest view and reload asked for.
   dataFilter: LineFilter | null
   settled: boolean
+  // The error of the latest load; a new one means the view asked for is not coming.
+  loadError: unknown
+  // The first page of lines is on its way.
+  loading: boolean
   allTotal: number | null
   shown: ReviewLine[]
   activeId: number | null
@@ -43,11 +50,12 @@ interface Deps {
   pages: number
   ctl: LinesController
   pending: MutableRefObject<Pending | null>
+  listRef: RefObject<HTMLUListElement | null>
   st: MutableRefObject<LinesState>
-  changeFilter: (f: LineFilter) => Promise<void>
+  changeFilter: (f: LineFilter) => Promise<boolean>
   onChanged: () => void
   setError: (e: unknown) => void
-  // The Player toggle of an audio title: in the switch row, or on a phone under the card (queue) or in the toolbar's More (All).
+  // The Player toggle of an audio title: drawn in the header's More row (see useQueueMedia), so it is only placed here.
   mediaToggle?: ReactNode
 }
 
@@ -55,6 +63,7 @@ export function useCheckQueue(d: Deps) {
   const { dramaId, ctl, pending, st } = d
   // A search shows its own results, so the queue is off while one is typed.
   const on = d.simple && d.filter === QUEUE_FILTER && !d.searching
+  const markedOn = d.simple && d.filter === 'marked' && !d.searching
   const [checked, setChecked] = useUndoOffer<ReviewLine>('checked', dramaId)
   const [undoing, setUndoing] = useState(false)
 
@@ -82,6 +91,45 @@ export function useCheckQueue(d: Deps) {
     void openRef.current()
   }, [signal])
 
+  // The header's Search: All, then the search box with the focus. A search typed already stays, so All is asked for only
+  // when the lines are not on it. From another step's page the request is waiting when the lines mount.
+  const { searchSignal = 0, takeSearch } = useSearchRequest()
+  const seenSearch = useRef(searchSignal)
+  const [searchAsk, setSearchAsk] = useState(0)
+  const searchRef = useRef<() => Promise<void>>(async () => {})
+  useEffect(() => {
+    searchRef.current = async () => {
+      const { filter, searching } = st.current
+      // An ask left unanswered would take the focus whenever the search box is next drawn, so it is raised only once the lines are on All.
+      if (!searching && filter !== 'all' && !(await d.changeFilter('all'))) return
+      setSearchAsk((n) => n + 1)
+    }
+  })
+  useEffect(() => {
+    if (takeSearch?.()) void searchRef.current()
+  }, [takeSearch])
+  useEffect(() => {
+    if (searchSignal === seenSearch.current) return
+    seenSearch.current = searchSignal
+    void searchRef.current()
+  }, [searchSignal])
+
+  // A switch between the queue and All that nothing reopens (the kept place's own move holds its row in view) leaves the page where
+  // it was, which can put the new view's first row above the window or under the sticky bar: it is brought into view once drawn.
+  const reveal = useRef(false)
+  const toView = async (f: LineFilter) => {
+    if (await d.changeFilter(f)) reveal.current = pending.current === null
+  }
+  // A load that fails leaves the request unanswered, and a later render must not scroll for it.
+  useEffect(() => {
+    if (d.loadError) reveal.current = false
+  }, [d.loadError])
+  useEffect(() => {
+    if (!reveal.current || d.dataFilter !== d.filter || !d.settled) return
+    reveal.current = false
+    d.listRef.current?.querySelector('.review-line')?.scrollIntoView?.({ block: 'nearest', behavior: 'instant' })
+  })
+
   const undo = async () => {
     if (!checked || !(await ctl.leaveEdit())) return
     setUndoing(true)
@@ -107,7 +155,15 @@ export function useCheckQueue(d: Deps) {
   // bring the waveform out when used.
   const foldsMedia = d.simple && !(on && d.dataFilter === QUEUE_FILTER && d.data?.total === 0)
   const cardOnly = on && d.isPhone
-  const position = cardOnly && d.data ? positionText(d.shown, d.activeId, d.page, PAGE_SIZE, d.data.total) : null
+  const place = cardOnly && d.data ? queuePlace(d.shown, d.activeId, d.page, PAGE_SIZE, d.data.total) : null
+  // The header's steps button says where the open card is; it is told only the numbers, so its words stay its own.
+  const report = usePositionReport()
+  const placeAt = place?.at ?? null
+  const placeTotal = place?.total ?? null
+  useEffect(() => {
+    report?.(placeAt !== null && placeTotal !== null ? { at: placeAt, total: placeTotal } : null)
+    return () => report?.(null)
+  }, [report, placeAt, placeTotal])
   const upNext = cardOnly ? nextText(d.shown, d.activeId) : null
   // Skip for now: the next card, the next page's first, or back to the start of the queue.
   const skip = () => {
@@ -117,33 +173,47 @@ export function useCheckQueue(d: Deps) {
     else if (d.shown[0]) ctl.actions.activate(d.shown[0].id)
   }
 
-  const lead: ReactNode = d.simple ? (
+  // The row waits for the main button and for the counts that name the pills, so nothing in it moves once it is drawn.
+  const drawn = !checkLead || (checkLead.ready && !d.loading)
+  // A phone has no switch row: the queue goes straight to its card, and All has one button back to it while lines need a look.
+  const backToQueue = d.isPhone && !on ? checkActionLabel(counts?.risk ?? null) : null
+  const phoneLead: ReactNode = backToQueue || checked ? (
     <>
-      {checkLead && <CheckLeadAction lead={checkLead} />}
-      {/* The phone's card view leaves "F of M look fine" to the footer's "The other F lines…", so the switch row stays one line. */}
-      <CheckQueueSwitch queue={on} marked={d.simple && d.filter === 'marked' && !d.searching} onMarked={() => void d.changeFilter('marked')} counts={counts} showFine={!(cardOnly && (counts?.risk ?? 0) > 0)} onPick={(q) => void d.changeFilter(q ? QUEUE_FILTER : 'all')} />
+      {backToQueue && <button type="button" className={buttonClass('primary')} onClick={() => void toView(QUEUE_FILTER)}>{backToQueue}</button>}
       {checked && <CheckedUndo line={checked} busy={undoing} onUndo={() => void undo()} onDismiss={() => setChecked(null)} />}
-      {position && <p className="check-queue-position" data-testid="queue-position">{position}</p>}
-      {foldsMedia && !d.isPhone && d.mediaToggle}
     </>
   ) : undefined
+  const wideLead: ReactNode = (
+    <>
+      {checkLead && <CheckLeadAction lead={{ ...checkLead, ready: drawn }} />}
+      {drawn && (
+        <>
+          <CheckQueueSwitch queue={on} marked={markedOn} counts={counts} onPick={(q) => void toView(q ? QUEUE_FILTER : 'all')} onMarked={() => void toView('marked')} />
+          {checked && <CheckedUndo line={checked} busy={undoing} onUndo={() => void undo()} onDismiss={() => setChecked(null)} />}
+          <QueueFine counts={counts} />
+        </>
+      )}
+    </>
+  )
+  const lead: ReactNode = !d.simple ? undefined : d.isPhone ? phoneLead : wideLead
   // Just after the switch is pressed, `data` is still the page of the view before: the footer waits for the queue's own.
   const after: ReactNode = on && d.data && counts && d.dataFilter === QUEUE_FILTER ? (
     <>
-      {upNext && <p className="muted check-queue-next">{upNext}</p>}
-      {foldsMedia && d.isPhone && d.mediaToggle}
       <CheckQueueFooter
         dramaId={dramaId}
         queuePage={d.data}
         counts={counts}
         jobRunning={d.jobRunning}
         settled={d.settled}
-        onReadAll={() => void d.changeFilter('all')}
+        why={d.isPhone}
+        onReadAll={() => void toView('all')}
         onUntranslated={() => void d.changeFilter('untranslated')}
         onChanged={d.onChanged}
       />
     </>
   ) : null
+  // Drawn into the header's More panel, so it only needs to be somewhere in the tree.
+  const media = d.simple && foldsMedia ? d.mediaToggle : null
 
   return {
     on,
@@ -152,9 +222,11 @@ export function useCheckQueue(d: Deps) {
     foldsMedia,
     // A phone shows one card at a time.
     rows: cardOnly ? d.shown.filter((l) => l.id === d.activeId) : d.shown,
-    toolbar: { lead, bare: on, more: foldsMedia && d.isPhone && !on ? d.mediaToggle : undefined },
+    toolbar: { lead, bare: on, searchAsk },
+    // The open card's Next line, which a phone draws at the card's bottom edge.
+    next: upNext,
     retranscribe,
-    after,
+    after: <>{media}{after}</>,
     bar: (line: ReviewLine) => (on ? { onSkip: skip, onLooksRight: () => ctl.actions.reviewAndNext(line.id) } : undefined),
   }
 }
@@ -183,7 +255,9 @@ export function useQueueMedia(audio: boolean, isPhone: boolean, sectionRef: RefO
   }, [open, sectionRef])
   // The button says what is on screen: a player that came out by itself reads as open, and one press folds it again.
   const shown = open || needed
-  const toggle = audio ? (
+  const dock = usePlayerDock()
+  // Drawn in the header's More row, beside the title's other controls; the state stays here, with the player it opens.
+  const toggle = audio && dock ? createPortal(
     <QueueMediaToggle
       open={shown}
       controls={playerId}
@@ -192,7 +266,8 @@ export function useQueueMedia(audio: boolean, isPhone: boolean, sectionRef: RefO
         setNeeded(false)
         setOpen(!shown)
       }}
-    />
+    />,
+    dock,
   ) : null
   return { toggle, folds: audio && !shown, show }
 }

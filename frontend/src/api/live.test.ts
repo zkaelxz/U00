@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
-  LIVE_FORM_FALLBACK, chatReadFrom, mergeChat, formDefaults, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, stopLive, WHISPER_SIZES,
+  LIVE_FORM_FALLBACK, chatReadFrom, mergeChat, formDefaults, languageWhisperDefault, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
 
@@ -354,5 +354,14 @@ describe('chat messages', () => {
   it('reads again from before the oldest pending message, else from the last id', () => {
     expect(chatReadFrom([msg(4), msg(5, 'pending'), msg(6, 'pending')], 6)).toBe(4)
     expect(chatReadFrom([msg(4), msg(5)], 5)).toBe(5)
+  })
+})
+
+describe('languageWhisperDefault', () => {
+  it('uses the language\'s downloaded model and otherwise the form default', () => {
+    const opts = { ...LIVE_FORM_FALLBACK, language_whisper_defaults: { zh: 'breeze-asr-25' } }
+    expect(languageWhisperDefault(opts, 'zh')).toBe('breeze-asr-25')
+    expect(languageWhisperDefault(opts, 'ko')).toBe('small')
+    expect(languageWhisperDefault(LIVE_FORM_FALLBACK, 'zh')).toBe('small')
   })
 })

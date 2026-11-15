@@ -231,7 +231,7 @@ class _UsageMeter:
                 return
             if request is not None:
                 request["abandoned"] = True
-        self._log(*pricing.estimate_translation_tokens(batch))
+        self._log(*pricing.estimate_run_tokens(batch, len(batch) or 1)[:2])
 
     def _log(self, input_tokens: int, output_tokens: int, cache_read: int = 0,
              cache_write: int = 0) -> None:

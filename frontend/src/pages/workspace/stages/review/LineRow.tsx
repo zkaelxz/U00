@@ -19,12 +19,13 @@ import { LineAi } from './LineAi'
 import { LineOrigin } from './LineOrigin'
 import { LineTools } from './LineTools'
 import { RowSpeakerGuesses } from './SpeakerGuesses'
+import { SpeakerChip } from './SpeakerChip'
 import { SpeakerSelect } from './SpeakerSelect'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
 import { queueAction, queueReason, type QueueAction } from './checkQueueModel'
-import { CONFLICT_MESSAGE, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
+import { CONFLICT_MESSAGE, formatTenths, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 import { isSourceChanged } from '../sourceChanged'
@@ -145,6 +146,8 @@ interface Props {
   simple?: boolean
   // A card of Simple's check queue: its reason is always written out, and Mark checked moves on to the next card.
   queue?: boolean
+  // A phone's open card ends with the Next line, which says which cards follow it.
+  queueNext?: string | null
   // Whether a queue card can offer Re-transcribe now, with the line menu's reason when it can't.
   retranscribe?: RetranscribeState | null
   // The This line panel beside the queue shows the open card's reason in full and the lines around it.
@@ -396,7 +399,7 @@ function QueueTools({ line, hasMedia, ai, linePanel, fit, actions, ...fitProps }
     <div className="review-tools review-queue-tools" role="toolbar" aria-label={`Line ${lineNumber(line.idx)} actions`}>
       {hasMedia && (
         <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.playLine(line)} title="Play the line (Space)">
-          ▶ Play
+          Play line
         </button>
       )}
       <FitAction line={line} fit={fit} actions={actions} {...fitProps} />
@@ -418,16 +421,36 @@ function QueueTools({ line, hasMedia, ai, linePanel, fit, actions, ...fitProps }
   )
 }
 
-// The open card on a phone has no toolbar: the way to the lines around it, the fitting action and Improve sit under
-// the English; Play, Skip for now and Looks right, next are in the bar at the bottom.
-function QueuePhoneActions({ line, ai, actions, ...fitProps }: FitProps & { ai: PanelMode | null }) {
+// The open card on a phone has no toolbar: Play line, the fitting action, Improve and the card's menu sit under the English;
+// Skip for now and Looks right, next are in the bar at the bottom. The menu's button is as tall as the others, at the row's end.
+function QueuePhoneActions({ line, hasMedia, ai, actions, ...fitProps }: FitProps & { hasMedia: boolean; ai: PanelMode | null }) {
   return (
     <div className="review-queue-actions">
-      <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.showOnPage(line.id)}>See the lines around it</button>
+      {hasMedia && (
+        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.playLine(line)} title="Play the line (Space)">
+          Play line
+        </button>
+      )}
       <FitAction line={line} actions={actions} {...fitProps} />
       <ImproveButton line={line} ai={ai} actions={actions} />
-      <LineMarkButtons line={line} onMark={actions.setMark} />
+      <span className="review-mark-pair"><LineMarkButtons line={line} onMark={actions.setMark} /></span>
+      <MoreButton line={line} active actions={actions} extra="review-card-more" />
     </div>
+  )
+}
+
+function MoreButton({ line, active, actions, extra, label = '⋯' }: { line: ReviewLine; active: boolean; actions: RowActions; extra: string; label?: string }) {
+  return (
+    <button
+      type="button"
+      className={buttonClass('ghost', 'sm', extra)}
+      aria-label={`More actions for line ${lineNumber(line.idx)}`}
+      aria-haspopup="dialog"
+      tabIndex={active ? undefined : -1}
+      onClick={() => actions.openSheet(line.id)}
+    >
+      {label}
+    </button>
   )
 }
 
@@ -479,7 +502,7 @@ function LineEnglish({ line, draft, discardWarning, isPhone, active, actions, on
   )
 }
 
-function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, guesses, speakerNote, timingSnap, issue, actions, simple = false, queue = false, retranscribe = null, linePanel = false, searchHit, jumped, focusRetranscribe }: Props) {
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, guesses, speakerNote, timingSnap, issue, actions, simple = false, queue = false, queueNext = null, retranscribe = null, linePanel = false, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -496,6 +519,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
   const flagReason = line.flag && !queue ? queueReason(line) : null
   const fit = queue ? queueAction(line) : null
   const card = queue && active
+  const phoneCard = card && isPhone
   const fitProps: FitProps = { dramaId, line, fit, isPhone, timingSnap: timingSnap ?? null, retranscribe, actions }
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -524,6 +548,10 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
     if ((e.target as Element).closest(INTERACTIVE)) return
     actions.activate(line.id)
   }
+  // A wide closed queue row has no button to open it, so Enter on the focused row does.
+  const onRowKey = (e: KeyboardEvent<HTMLLIElement>) => {
+    if (e.key === 'Enter' && e.target === e.currentTarget && queue && !active && !isPhone) actions.activate(line.id)
+  }
 
   const className = ['review-line', queue && 'is-queue', active && 'is-active', draft && 'is-editing', jumped && 'is-jumped', selected && 'is-selected'].filter(Boolean).join(' ')
   const english = <LineEnglish line={line} draft={draft} discardWarning={!!edit?.discardWarning} isPhone={isPhone} active={active} actions={actions} onKey={onKey} />
@@ -537,6 +565,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       aria-current={active ? 'true' : undefined}
       tabIndex={active ? 0 : -1}
       onClick={onRowClick}
+      onKeyDown={onRowKey}
       onBlur={onRowBlur}
     >
       <label className="review-select">
@@ -552,15 +581,19 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         />
       </label>
       <div className="review-line-meta">
-        <span className="review-idx">#{lineNumber(line.idx)}</span>
-        {!prose && (
-          <span className="review-time">
-            {formatTime(line.start)}
-            {!isPhone && !simple && <>–{formatTime(line.end)}</>}
-          </span>
-        )}
+        {/* One cell, so a closed queue row can hold the number and time in a fixed-width column; elsewhere it adds no box. */}
+        <span className="review-line-ref">
+          <span className="review-idx">{phoneCard ? 'Line ' : '#'}{lineNumber(line.idx)}</span>
+          {phoneCard && !prose && <span className="review-card-dot" aria-hidden="true">·</span>}
+          {!prose && (
+            <span className="review-time">
+              {queue ? formatTenths(line.start) : formatTime(line.start)}
+              {!isPhone && !simple && <>–{formatTime(line.end)}</>}
+            </span>
+          )}
+        </span>
         {!prose && !isPhone && (!simple || line.flag === READING_SPEED_FLAG) && <LineCps line={line} />}
-        {!prose && line.speaker && <span className="review-speaker">{line.speaker}</span>}
+        {!prose && line.speaker && <>{phoneCard && <span className="review-card-dot" aria-hidden="true">·</span>}<SpeakerChip dramaId={dramaId} line={line} actions={actions} /></>}
         {langChip && (
           <span data-testid="line-lang" title={`Spoken in ${languageLabel(line.lang)}`}>
             <span aria-hidden="true"><Badge>{langChip}</Badge></span>
@@ -581,23 +614,19 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         )}
         {line.dub_filename && !isPhone && !simple && <span>Dub: {line.dub_filename}</span>}
         {/* A closed card keeps to a few words, so the list stays one glance per line; so does the open one while the This line panel beside it says the rest. */}
-        {reason && !isPhone && (!active || linePanel) && <span className="review-queue-reason" data-testid="queue-reason">{reason.short}</span>}
+        {reason && !isPhone && (!active || linePanel) && <span className="review-queue-reason" data-testid="queue-reason">{reason.chip}</span>}
         {flagReason && isPhone && (
           <span className="review-flag" data-testid="line-flag">
             <span aria-hidden="true">⚑</span>
             <span className="sr-only"> Flagged: {flagReason.text}</span>
           </span>
         )}
-        <button
-          type="button"
-          className={buttonClass('ghost', 'sm', 'review-more')}
-          aria-label={`More actions for line ${lineNumber(line.idx)}`}
-          aria-haspopup="dialog"
-          tabIndex={active ? undefined : -1}
-          onClick={() => actions.openSheet(line.id)}
-        >
-          {active && !isPhone ? 'More' : '⋯'}
-        </button>
+        {/* A phone's open card puts its link to the lines around it here and its menu after the buttons. */}
+        {phoneCard && <button type="button" className="check-queue-link review-card-around" onClick={() => actions.showOnPage(line.id)}>See the lines around it</button>}
+        {/* A wide closed queue row opens with a click or Enter and has no menu of its own; its open card has ⋯. */}
+        {(!queue || isPhone || active) && !phoneCard && (
+          <MoreButton line={line} active={active} extra="review-more" label={active && !isPhone && !queue ? 'More' : '⋯'} actions={actions} />
+        )}
       </div>
       {flagReason && !isPhone && <FlagNote text={flagReason.text} />}
       {/* Its own line under the top one, so the sentence never squeezes the number, time, speaker and More beside it. */}
@@ -636,7 +665,8 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
           </div>
         ) : english}
       </div>
-      {card && isPhone && <QueuePhoneActions ai={ai} {...fitProps} />}
+      {phoneCard && <QueuePhoneActions hasMedia={hasMedia} ai={ai} {...fitProps} />}
+      {phoneCard && queueNext && <p className="muted check-queue-next">{queueNext}</p>}
       {card && fit === 'retry' && !edit?.details && (
         <BlockedRetry dramaId={dramaId} lineId={line.id} dirty={!!edit && buildPatch(edit.base, edit.draft) !== null} jobRunning={jobRunning} onApplied={actions.applyLine} />
       )}

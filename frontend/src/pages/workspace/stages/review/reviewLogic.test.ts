@@ -5,7 +5,7 @@ import type { ReviewLine } from '../../../../types/review'
 import type { ResplitResult } from '../../../../types/restructure'
 import { TRANSLATION_ONLY } from '../../translateForm'
 import { buildPatch, timingPatch, draftFromLine, isDirty, languageSetText, LINE_LANGUAGES, lineLangChip, titleDefaultLabel, sourceTextLang } from './reviewDraft'
-import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, lineCps, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, nextUnreviewedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
+import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, lineCps, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, nextUnreviewedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, formatTenths, formatTime, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
 import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmentWith, droppedText, llmApplyProblem, llmApplyProblemText, llmPreviewSummary, resegmentCostNote, resegmentEngines, JOB_RUNNING_MESSAGE, resegmentSummary, wordSplitterPackages } from './reviewResegment'
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
@@ -521,5 +521,27 @@ describe('lineCps', () => {
   it('guards a zero duration and has nothing for blank text', () => {
     expect(lineCps({ start: 1, end: 1, en: 'a' })).toBe(100)
     expect(lineCps({ start: 0, end: 2, en: '  ' })).toBeNull()
+  })
+})
+
+describe('formatTenths', () => {
+  it('writes a time to the tenth, cut rather than rounded', () => {
+    expect(formatTenths(62.57)).toBe('1:02.5')
+    expect(formatTenths(30.29)).toBe('0:30.2')
+    expect(formatTenths(18.99)).toBe('0:18.9')
+    // Floats just under a tenth still read as that tenth.
+    expect(formatTenths(0.3)).toBe('0:00.3')
+    expect(formatTenths(4.6)).toBe('0:04.6')
+  })
+
+  it('counts minutes past the hour and starts at zero', () => {
+    expect(formatTenths(0)).toBe('0:00.0')
+    expect(formatTenths(59.99)).toBe('0:59.9')
+    expect(formatTenths(60)).toBe('1:00.0')
+    expect(formatTenths(3725.4)).toBe('62:05.4')
+  })
+
+  it('leaves the line list\'s own two-decimal times as they are', () => {
+    expect(formatTime(62.57)).toBe('1:02.57')
   })
 })

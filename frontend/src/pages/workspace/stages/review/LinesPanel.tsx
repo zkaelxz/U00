@@ -283,9 +283,10 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   useEffect(() => {
     if (goTo) void goToRef.current(goTo.target).then(goTo.resolve)
   }, [goTo])
+  const loading = !searching && data === null && !error
   const playerId = useId()
   const media = useQueueMedia(mediaKind === 'audio' && !emptyDrama, isPhone, sectionRef, playerId)
-  const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, canRetranscribeLine, retranscribeNeed, data, dataFilter, settled, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError, mediaToggle: media.toggle })
+  const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, canRetranscribeLine, retranscribeNeed, data, dataFilter, settled, loadError: error, loading, allTotal, shown, activeId, page, pages, ctl, pending, listRef, st, changeFilter, onChanged, setError, mediaToggle: media.toggle })
   useKeepPlace(place, { dramaId, activeId, shown, filter, searching, term, editing: edit?.lineId ?? null, queue: queue.on, page, listRef, ownPickRef, goToLine, setStatus, setJumpedId })
   const mediaFolded = queue.foldsMedia && media.folds
   const toggleReplace = () => {
@@ -317,7 +318,6 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     openSetSpeaker: setSpeaker.open,
     openRetranscribe: (lineIds: number[]) => onRetranscribeLines?.(lineIds),
   })
-  const loading = !searching && data === null && !error
   const showPager = !searching && !!data && pages > 1
   const editingActive = edit !== null && edit.lineId === activeId
   // Phones: the pager shares the player's row so the sticky toolbar stays short.
@@ -478,6 +478,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         )}
         {/* Simple puts the step buttons and Select all shown on one row, so the first line is on the first screen. */}
         {simple ? (stepButtons || selectAll) && <div className="review-list-head">{selectAll}{stepButtons}</div> : selectAll}
+        {/* Simple's wide screens draw the rows, the pager and the queue's footer as one white card. */}
+        <div className={simple ? 'review-list-card' : 'review-list-plain'}>
         <ul className={['review-lines', compact && 'is-compact', selection.count > 0 && 'has-selection'].filter(Boolean).join(' ')} ref={listRef}>
           {queue.rows.map((l) => (
             <LineRow
@@ -500,6 +502,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               actions={actions}
               simple={simple}
               queue={queue.on}
+              queueNext={queue.next}
               linePanel={linePanel}
               retranscribe={queue.retranscribe}
               searchHit={searching}
@@ -510,12 +513,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         </ul>
         {fill.undoNode}
         {selection.count > 0 && <SelectionBar ctx={selectionCtx} />}
-        {showPager && (
-          <div className="review-bottom-pager">
-            <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} />
-          </div>
-        )}
+        {showPager && <div className="review-bottom-pager"><Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} /></div>}
         {queue.after}
+        </div>
 
         {isPhone && active && (
           <PhoneEditBar

@@ -87,6 +87,26 @@ def _generate_units(units, record, language: str, clips_dir: str) -> None:
                     os.remove(requests[i]["out"])
 
 
+def speak_sample(text: str, clone: dict, out_path: str, language: str):
+    """Speaks one text in `clone`'s voice into out_path: None once the file is in place, else the
+    fixed error sentence. For hearing a voice before a whole narration is generated."""
+    engine = clone.get("engine")
+    if engine not in VENV_ENGINES:
+        return engine_refusal(engine) or VENV_LINE_FAILED
+    partial = out_path[:-len(".wav")] + ".partial.wav"
+    request = {"text": text, "out": partial, "language": language, "ref_audio": clone.get("ref_audio"),
+               "ref_text": clone.get("ref_text"), "instruct": clone.get("instruct")}
+    error = None
+    with contextlib.closing(speak_in_venv(engine, [request], os.path.dirname(out_path))) as spoken:
+        for _, error in spoken:
+            pass
+    if error:
+        if os.path.exists(partial):
+            os.remove(partial)
+        return error
+    return _keep_partial(partial, out_path)
+
+
 def _keep_partial(partial: str, clip_path: str):
     """None once the finished clip is in place, else the line's fixed error (a locked file
     on Windows; OSError text names both paths)."""

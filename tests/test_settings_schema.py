@@ -400,6 +400,8 @@ def test_choice_empty_string_is_kept_only_when_listed():
 ROOT_READERS = {
     "jobs/job_settings.py": "gpu_limit_enabled, gpu_max_parallel and notify_on_completion gate "
                           "job scheduling, below the service layer",
+    "engine_backends/engine_registry.py": "ollama_cloud_default decides which model a default resolves to, "
+                                          "below the service layer",
     "ollama_unload.py": "unload_ollama_before_transcribe is read where the GPU is about to be used",
 }
 
