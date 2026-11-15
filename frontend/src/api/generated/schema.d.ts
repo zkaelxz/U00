@@ -11960,7 +11960,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Redo the lines flagged for a missing glossary name with the stronger engine */
+        /** Redo the lines flagged for a missing glossary name, or as doubtful, with the stronger engine */
         post: operations["start_glossary_flagged_redo_api_translate_run_dramas__drama_id__glossary_flagged_run_post"];
         delete?: never;
         options?: never;
@@ -19662,6 +19662,12 @@ export interface components {
          *     of the lines flagged for a missing glossary name.
          */
         GlossaryFlaggedRedoStart: {
+            /**
+             * Kind
+             * @default glossary
+             * @enum {string}
+             */
+            kind?: "glossary" | "doubtful";
             /** Line Ids */
             line_ids?: number[] | null;
         };
@@ -31064,6 +31070,13 @@ export interface components {
             /** Default Style Preset */
             default_style_preset: string;
             defaults: components["schemas"]["TranslateRunDefaults"];
+            /**
+             * Doubtful Flagged Count
+             * @default 0
+             */
+            doubtful_flagged_count: number;
+            /** Doubtful Redo Estimate Usd */
+            doubtful_redo_estimate_usd: number | null;
             /** Drama Id */
             drama_id: number;
             /** Engines */

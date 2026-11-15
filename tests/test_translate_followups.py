@@ -180,6 +180,95 @@ def test_redo_with_no_flagged_lines_is_refused(isolated_db, monkeypatch):
         glossary_flagged_service.start_redo(did, "fake")
 
 
+# --- redo doubtful lines (source mismatch, AI-uncertain) -------------------
+
+def _flag_as(did, flags):
+    """flags: {idx: flag key}."""
+    lines = db.load_line_objects(did)
+    for ln in lines:
+        if ln.idx in flags:
+            ln.flag, ln.flag_note = flags[ln.idx], "note"
+    db.save_lines(did, lines, fields=("flag", "flag_note"))
+
+
+def _flags(did):
+    return [r["flag"] or "" for r in db.load_lines(did)]
+
+
+def _stronger(monkeypatch, engine="fake"):
+    from services import stronger_engine_service as sts
+    monkeypatch.setattr(sts, "stronger_engine_or_none", lambda drama_id: engine)
+
+
+def test_doubtful_count_takes_mismatch_and_ai_uncertain_flags_only(isolated_db, monkeypatch):
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    _flag_as(did, {0: "source_mismatch", 1: "name_uncertain", 2: "glossary_missing", 3: "timing_drift"})
+    _stronger(monkeypatch)
+    fields = glossary_flagged_service.doubtful_config_fields(did)
+    assert fields["doubtful_flagged_count"] == 2
+    assert glossary_flagged_service.config_fields(did)["glossary_flagged_count"] == 0
+
+
+def test_doubtful_redo_rewrites_those_lines_and_clears_their_old_flags(isolated_db, monkeypatch):
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    _flag_as(did, {0: "source_mismatch", 1: "uncertain_translation", 2: "timing_drift"})
+    _stronger(monkeypatch)
+    out = glossary_flagged_service.start_redo(did, "fake", kind="doubtful")
+    assert len(out["line_ids"]) == 2
+    wait_for_job(out["job_id"], timeout=20.0)
+    assert _en(did) == ["[TEST] 句0", "[TEST] 句1", "c", "d"]
+    # The flags described the English that was replaced; an unrelated flag stays.
+    assert _flags(did) == ["", "", "timing_drift", ""]
+    assert glossary_flagged_service.doubtful_config_fields(did)["doubtful_flagged_count"] == 0
+
+
+def test_a_plain_redo_keeps_other_flags(isolated_db, monkeypatch):
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    _flag_as(did, {1: "uncertain_translation"})
+    _stronger(monkeypatch)
+    ids = [ln.id for ln in db.load_line_objects(did)]
+    out = glossary_flagged_service.start_redo(did, "fake", line_ids=[ids[1]])
+    wait_for_job(out["job_id"], timeout=20.0)
+    assert _flags(did)[1] == "uncertain_translation"
+
+
+def test_doubtful_redo_with_nothing_flagged_or_with_line_ids_is_refused(isolated_db, monkeypatch):
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    _stronger(monkeypatch)
+    with pytest.raises(UnsupportedOperationError):
+        glossary_flagged_service.start_redo(did, "fake", kind="doubtful")
+    with pytest.raises(InvalidInputError):
+        glossary_flagged_service.start_redo(did, "fake", kind="doubtful", line_ids=[1])
+
+
+def test_doubtful_estimate_is_reported_when_the_engine_can_be_priced(isolated_db, monkeypatch):
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    _flag_as(did, {0: "source_mismatch"})
+    _stronger(monkeypatch)
+    seen = {}
+
+    def fake_estimate(drama_id, **kw):
+        seen.update(kw)
+        return {"estimated_usd": 0.12}
+    monkeypatch.setattr(translate_run_service, "estimate_translate_cost", fake_estimate)
+    fields = glossary_flagged_service.doubtful_config_fields(did)
+    assert fields == {"doubtful_flagged_count": 1, "doubtful_redo_estimate_usd": 0.12}
+    assert seen["force_retranslate"] is True and len(seen["line_ids"]) == 1
+
+
+def test_api_doubtful_redo(local_client, monkeypatch):
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    _flag_as(did, {3: "slang_idiom"})
+    _stronger(monkeypatch)
+    cfg = local_client.get(f"/api/translate-run/dramas/{did}/config").json()
+    assert cfg["doubtful_flagged_count"] == 1
+    r = local_client.post(f"/api/translate-run/dramas/{did}/glossary-flagged/run",
+                          json={"kind": "doubtful"})
+    assert r.status_code == 200 and len(r.json()["line_ids"]) == 1
+    wait_for_job(r.json()["job_id"], timeout=20.0)
+    assert _en(did)[3] == "[TEST] 句3" and _flags(did)[3] == ""
+
+
 # --- episode summary ------------------------------------------------------
 
 def test_a_run_with_no_summary_engine_says_why(isolated_db, monkeypatch):

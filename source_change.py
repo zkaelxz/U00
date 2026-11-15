@@ -37,10 +37,11 @@ def set_source(ln, new_zh) -> bool:
     return bool(values)
 
 
-def clear_for_new_english(ln) -> bool:
-    """New English answers a source change; any other flag is left alone.
-    True when it cleared the flag."""
-    if ln.flag != SOURCE_CHANGED_FLAG:
+def clear_for_new_english(ln, also: frozenset = frozenset()) -> bool:
+    """New English answers a source change; any other flag is left alone, except
+    the kinds in `also`: a redo of lines flagged for those replaces the English the
+    flag was about. True when it cleared the flag."""
+    if ln.flag != SOURCE_CHANGED_FLAG and ln.flag not in also:
         return False
     ln.flag, ln.flag_note = None, ""
     return True

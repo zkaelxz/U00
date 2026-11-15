@@ -212,6 +212,9 @@ class TranslateRunConfig(BaseModel):
     failed_retryable: bool = False
     glossary_flagged_count: int = 0
     glossary_redo_engine: Optional[str] = None
+    doubtful_flagged_count: int = 0
+    # What redoing the doubtful lines with the stronger engine would cost; None when free or unknown.
+    doubtful_redo_estimate_usd: Optional[float] = None
 
 
 class TranslateRunEstimate(BaseModel):
@@ -594,6 +597,8 @@ class GlossaryFlaggedRedoStart(BaseModel):
     of the lines flagged for a missing glossary name."""
     model_config = ConfigDict(extra="forbid")
     line_ids: Optional[List[int]] = Field(default=None, min_length=1, max_length=500)
+    # "doubtful": the lines flagged as not matching their source or as uncertain by the AI.
+    kind: Literal["glossary", "doubtful"] = "glossary"
 
 
 class GlossaryFlaggedRedoStarted(TranslateRunStarted):

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { dismissTranslateErrors, redoGlossaryFlagged, retryFailedLines } from '../../../api/translateStage'
+import { dismissTranslateErrors, redoDoubtfulLines, redoGlossaryFlagged, retryFailedLines } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { humanize } from '../../../components/labels'
 import type { TranslateRunConfig } from '../../../types/translateStage'
@@ -96,6 +96,42 @@ export function GlossaryFlaggedNotice({ config, busy, onStarted }: Omit<RunProps
         <button type="button" onClick={redo} disabled={pending || busy}>
           Redo these with {humanize('engine', engine)}
         </button>
+      )}
+    </section>
+  )
+}
+
+// Lines Review flagged as unlike their source or as uncertain, with the cost shown
+// before the one-click redo on the stronger engine from Settings. The server applies
+// the monthly cap, writes the usage log and keeps the undo snapshot, as for any run.
+export function DoubtfulLinesNotice({ config, busy, onStarted }: Omit<RunProps, 'form'>) {
+  const { dramaId } = useStage()
+  const [error, setError] = useState<unknown>(null)
+  const [pending, setPending] = useState(false)
+  const count = config.doubtful_flagged_count ?? 0
+  if (count === 0) return null
+  const engine = config.glossary_redo_engine
+  const estimate = config.doubtful_redo_estimate_usd
+  const redo = () => {
+    setPending(true)
+    setError(null)
+    redoDoubtfulLines(dramaId).then((r) => onStarted(r.job_id), (e: unknown) => setError(e)).finally(() => setPending(false))
+  }
+  return (
+    <section className="panel translate-failed" aria-label="Doubtful lines" data-testid="doubtful-lines">
+      <p className="warn">
+        {count} line{count === 1 ? ' is' : 's are'} flagged in Review as unlike {count === 1 ? 'its' : 'their'} source or as uncertain.
+        {!engine && ' Pick a stronger engine in Settings to redo them in one click.'}
+      </p>
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {engine && (
+        <>
+          <button type="button" onClick={redo} disabled={pending || busy}>
+            Redo {count === 1 ? 'this line' : 'these lines'} with {humanize('engine', engine)}
+            {estimate != null ? `: about $${estimate.toFixed(2)}` : ''}
+          </button>
+          <p className="muted">The old English is kept in History, and the monthly cap applies.</p>
+        </>
       )}
     </section>
   )
