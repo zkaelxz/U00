@@ -63,7 +63,7 @@ from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 
 from ocr import default_hardsub_backend
 from services import difficult_audio_service as difficult
 from services import (asr_options_service, diarization_service, job_timing_service, ownership_service, run_settings_service,
-                      name_fix_service, settings_service, source_service, timing_check_service, timing_settings_service,
+                      name_fix_service, settings_service, source_service, speech_coverage_service, timing_check_service, timing_settings_service,
                       transcribe_checkpoint_service, transcribe_pipeline,
                       vocabulary_hint_service)
 from services.transcribe_options_service import (
@@ -641,6 +641,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     transcribe_checkpoint_service.clear(drama_id)
     timing_check_service.after_run(drama_id, outcome)
     name_fix_service.after_transcription(drama_id)
+    speech_coverage_service.after_run(drama_id)
 
     diarize_started, diarize_skipped_reason = _chain_diarization(
         job_id, drama_id, hf_token, diarize_audio_path, expected_speakers, min_speakers,
