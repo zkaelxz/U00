@@ -507,6 +507,8 @@ test.describe('the check queue', () => {
     // On the Review page the same button opens the queue there.
     await page.goto('/#/drama/3/review')
     await expect(queueRadio(page)).toBeChecked()
+    // The button arrives with the title's progress and moves the switch along the row, so a press made before it lands on the button.
+    await expect(page.getByRole('button', { name: 'Check the 3 lines', exact: true })).toBeVisible()
     await allRadio(page).check({ force: true })
     await expect(page.locator('.review-line')).toHaveCount(24)
     await page.getByRole('button', { name: 'Check the 3 lines', exact: true }).click()

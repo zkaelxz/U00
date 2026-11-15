@@ -423,6 +423,8 @@ test.describe(() => {
     for (const width of [390, 320] as const) {
       await page.setViewportSize({ width, height: 844 })
       await page.evaluate(() => window.scrollTo(0, 0))
+      // The pass before this one ends scrolled down, where a phone folds the toolbar and hides the header; both come back a moment after the scroll.
+      await expect(page.locator('.review-toolbar.is-collapsed')).toHaveCount(0)
       await expectTall(main, `${width}px: the main button`)
       await expectOrder([
         ['the header', page.locator('.workspace-header')], ['the main button', main], ['the switch', page.getByRole('group', { name: 'Lines to show' })],
