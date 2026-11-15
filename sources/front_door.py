@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
+from lib.errors import ServiceError
+
 from . import detect, generic_import, ladder, registry
 from .base import host_url_search
 from .ladder import LadderResult
@@ -118,10 +120,14 @@ def classify_html(url: str, html: str) -> Preview:
 
 
 def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = True,
-            allow_browser: bool = True, cancel_check=None) -> Preview:
+            allow_browser: bool = True, cancel_check=None, video_probe=None) -> Preview:
     """`allow_signed_in`/`allow_browser`: see generic_import.fetch_page (the
     API turns both off for a request not from this PC). `cancel_check`
-    reaches a registered adapter's paced client (raises Cancelled)."""
+    reaches a registered adapter's paced client (raises Cancelled).
+    `video_probe(url)`: a video adapter's link read, returning the title as
+    {"title": ...} and raising ServiceError with a fixed message. yt-dlp runs
+    site-supplied extractor code and does its own networking, so the caller
+    runs it in its guarded child process; without one, no metadata is read."""
     url = (url or "").strip()
     adapter = (registry.find_for_url(url, cancel_check=cancel_check) if cancel_check
                else registry.find_for_url(url))
@@ -150,19 +156,15 @@ def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = 
             p.chapter = parsed[1].title
             p.series_id = parsed[1].series_id
             p.chapter_id = parsed[1].chapter_id
-        elif p.content_type == VIDEO and hasattr(adapter, "get_metadata"):
-            # A real VideoSource adapter (e.g. BilibiliSource) --
-            # metadata shown before any download, via extract_info(download=False) under the hood.
+        elif p.content_type == VIDEO and video_probe is not None:
             try:
-                meta = adapter.get_metadata(url)
-                p.title = meta.get("title") or ""
-                parts = adapter.get_parts(url) if hasattr(adapter, "get_parts") else []
-                if len(parts) > 1:
-                    p.chapter_count = len(parts)
-                    p.notes.append(f"Contains {len(parts)} parts.")
+                normalize = getattr(adapter, "normalize_url", None) or (lambda u: u)
+                p.title = video_probe(normalize(url)).get("title") or ""
             except SourceError as e:
                 p.load_error = e
                 p.notes.append(f"Couldn't load metadata yet: {e.reason.value}")
+            except ServiceError as e:
+                p.notes.append(f"Couldn't load metadata yet: {e.message}")
         return p
     if is_video_url(url):
         return Preview(url=url, content_type=VIDEO, platform=urlsplit(url).netloc,

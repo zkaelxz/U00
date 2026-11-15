@@ -142,14 +142,25 @@ def preview_view(p, url: str) -> dict:
     }
 
 
+def _video_probe(cancel_check):
+    """A video adapter's metadata read, through the same killable yt-dlp child
+    and guarded egress proxy as "Fill from link": no cookies, a time limit
+    and an output cap, never yt-dlp inside this process."""
+    from services import link_details_service
+
+    def probe(url: str) -> dict:
+        return link_details_service.video_link_fields(url, cancel_check)
+    return probe
+
+
 def _preview_job(job_id: str, url: str, local: bool):
     cancel_check = lambda: background_jobs.is_cancel_requested(job_id)  # noqa: E731
     background_jobs.update_progress(job_id, 0.1, "Looking at the page...")
     try:
         p = front_door.preview(url, client=source_client(url, job_id),
                                allow_signed_in=local, allow_browser=local,
-                               cancel_check=cancel_check)
-    except Cancelled:
+                               cancel_check=cancel_check, video_probe=_video_probe(cancel_check))
+    except (Cancelled, background_jobs.JobCancelled):
         raise background_jobs.JobCancelled(job_id) from None
     except Exception as e:
         fail_job(job_id, "url_preview", error_view(e))
