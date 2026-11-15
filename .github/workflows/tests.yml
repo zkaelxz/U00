@@ -28,14 +28,19 @@ permissions:
   contents: read
 
 # Cancel a still-running CI run for the same PR once a newer push supersedes
-# it. A push to the base branch gets its own group per commit, so merges that
-# land back to back don't cancel each other's post-merge run. The group is per
+# it. Pushes to the base branch share one group that never cancels a run in
+# progress: GitHub keeps one more run waiting behind it and gives that place to
+# the newest push, so merges that land back to back are tested together by the
+# run that waits instead of queueing a full run each. A waiting run that loses
+# its place shows as cancelled, and the run that took it covers its commit
+# (docs/testing-and-ci.md, "After a merge"). The `push-` prefix keeps the
+# nightly run, which has the same ref, in a group of its own. The group is per
 # workflow, so this never touches windows-installer.yml, the one workflow that
 # publishes a release (it runs only for a tag or on demand); windows-bootstrap.yml
 # is validation only.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && 'push-' || '' }}${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   # Which jobs a change needs; the rules live in tools/ci_changes.py and are
