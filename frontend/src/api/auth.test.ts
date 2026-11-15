@@ -94,6 +94,10 @@ describe('accountWords', () => {
     expect(accountWords('𠮷'.repeat(12))).toBe('𠮷'.repeat(12))
     expect(accountWords('Ab' + 'あ'.repeat(11))).toBe('Ab' + 'あ'.repeat(11))
     expect(accountWords('Abc' + 'あ'.repeat(11))).toBe('Account')
+    // The long mark and the middle dot are as wide as a kana.
+    expect(accountWords('ア'.repeat(12) + 'ー')).toBe('Account')
+    expect(accountWords('Abc' + 'あ'.repeat(10) + 'ー')).toBe('Account')
+    expect(accountWords('Ab' + 'あ'.repeat(10) + 'ー')).toBe('Ab' + 'あ'.repeat(10) + 'ー')
   })
 })
 
@@ -106,6 +110,7 @@ describe('nameWidth', () => {
     expect(nameWidth('ＡＢ')).toBe(4)
     expect(nameWidth('😀')).toBe(2)
     expect(nameWidth('👩‍💻')).toBe(4)
+    expect(nameWidth('ジョージ・ワシントン')).toBe(20)
     expect(nameWidth('')).toBe(0)
   })
 })

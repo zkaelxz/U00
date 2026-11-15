@@ -197,8 +197,8 @@ test('Alerts: the name with and without new rows, and the panel heading', async 
   await expect(page.getByText('Recent notifications')).toHaveCount(0)
 })
 
-// Heights of the same header on the commit before the words, at the same widths (docked menu); with Back the base wrapped the row to a line of its own.
-// These are cells where the commit before the words did not scroll sideways either; where it did (the longest header from 700 to 900), the row may still.
+// Heights measured on the build without the words, at the same widths (docked menu): the header may not be taller than that; with Back that build wrapped the row to a line of its own.
+// These are cells where that build did not scroll sideways either; where it did (the longest header from 700 to 900), the row may still.
 const NARROW = [
   { width: 640, header: 'plain' as const, back: false, tallest: 69 },
   { width: 1000, header: 'longest' as const, back: false, tallest: 66 },
@@ -324,6 +324,76 @@ test('Can\'t reach Baihe is wider than Connected: just above each words step the
     }), `${width}px`).toBeLessThanOrEqual(1)
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${width}px sideways`).toBeLessThanOrEqual(0)
   }
+})
+
+/** Starts with the server answering; the returned function makes every later /api/meta read fail and waits for the badge. */
+async function serverCanStop(page: Page) {
+  let failing = false
+  // Registered after the header's own /api/meta mock, so it sees every read first.
+  await page.route((u) => u.pathname === '/api/meta', (route) => (failing ? route.abort() : route.fallback()))
+  return async () => {
+    failing = true
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.getByTestId('api-status')).toBeVisible()
+  }
+}
+
+const sidewaysPx = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+
+for (const width of [620, 640]) {
+  test(`at ${width}px, the longest header with the server not answering scrolls no further sideways than with it answering`, async ({ page }) => {
+    await longestHeader(page)
+    await dock(page)
+    const stop = await serverCanStop(page)
+    await page.setViewportSize({ width, height: 800 })
+    await page.goto('/#/library')
+    await expect(page.getByTestId('jobs-count')).toHaveText('1')
+    await expect(page.getByTestId('api-connected')).toHaveCount(1)
+    const answering = await sidewaysPx(page)
+    await stop()
+    // The badge's own room (a minimum width) is for windows wide enough to hold it; here the row shrinks.
+    expect(await sidewaysPx(page)).toBeLessThanOrEqual(answering)
+  })
+}
+
+// With the server not answering, at widths where the row cannot fit anyway: heights and sideways overflow measured on the build without the words
+// (docked menu, no Back). The badge may not make the bar taller than that build's or scroll further sideways.
+const DOWN_CELLS = [
+  { width: 700, header: 'plain' as const, tallest: 80, sideways: 153 },
+  { width: 800, header: 'plain' as const, tallest: 80, sideways: 53 },
+  { width: 1080, header: 'longest' as const, tallest: 80, sideways: 10 },
+]
+for (const { width, header, tallest, sideways } of DOWN_CELLS) {
+  test(`at ${width}px, ${header} header with the server not answering: no taller and no further sideways than before the words`, async ({ page }) => {
+    await dock(page)
+    if (header === 'longest') await longestHeader(page)
+    else await quietHeader(page)
+    const stop = await serverCanStop(page)
+    await page.setViewportSize({ width, height: 800 })
+    await page.goto('/#/library')
+    await expect(page.getByTestId('api-connected')).toHaveCount(1)
+    await stop()
+    const s = await headerState(page)
+    expect(Math.round(s.rowHeight)).toBeLessThanOrEqual(tallest)
+    expect(await sidewaysPx(page)).toBeLessThanOrEqual(sideways)
+  })
+}
+
+// Longest header, docked, no Back, 900px: the controls cannot all fit. Measured on the build without the words: 80px tall, 43px of sideways scroll.
+test('at 900px, the longest header beside the docked menu is no taller and scrolls no further sideways than before the words, with nothing under the menu', async ({ page }) => {
+  await dock(page)
+  await longestHeader(page)
+  await page.setViewportSize({ width: 900, height: 800 })
+  await page.goto('/#/library')
+  await expect(page.getByTestId('jobs-count')).toHaveText('1')
+  await expect(page.getByTestId('api-connected')).toHaveCount(1)
+  await expect(page.getByTestId('api-connected')).toBeHidden()
+  const s = await headerState(page)
+  expect(Math.round(s.rowHeight)).toBeLessThanOrEqual(80)
+  expect(await sidewaysPx(page)).toBeLessThanOrEqual(43)
+  const rail = (await page.locator('.app-rail').boundingBox())!
+  const first = (await page.locator('.header-end > *').evaluateAll((els) => els.filter((e) => e.getClientRects().length > 0).map((e) => e.getBoundingClientRect().left)))[0]
+  expect(first).toBeGreaterThanOrEqual(rail.x + rail.width)
 })
 
 test('where the longest header cannot fit beside the docked menu its controls run off to the right, never in under the menu', async ({ page }) => {

@@ -71,8 +71,9 @@ test('docked, the menu is 216px wide with the page to its right, and its rows ar
   const mark = (await rail.locator('.rail-brand-mark').boundingBox())!
   expect([Math.round(mark.width), Math.round(mark.height)]).toEqual([30, 30])
   await expect(rail.getByText('Baihe Studio')).toBeVisible()
-  // A group name sits 12px above its first row and 2px over it, set in from the row text by the same 10px.
+  // The group names are small, bold and muted; the rows are full-colour text. A group name sits 12px above its first row and 2px over it, set in from the row text by the same 10px.
   const heading = rail.getByRole('heading', { name: 'Find and add' })
+  await expect(heading).toHaveCSS('font-weight', '600')
   await expect(heading).toHaveCSS('padding', '12px 10px 2px')
   await expect(heading).toHaveCSS('margin-top', '0px')
 })
