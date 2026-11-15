@@ -317,9 +317,10 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
 def _resolve_run(drama_id, drama, *, source_language, chinese_script, transcript_mode,
                  transcript_text, asr_backend_choice, alignment_method, audio_path, video_path,
                  diarize_audio_path, run_diarize, expected_speakers, min_speakers, max_speakers,
-                 initial_prompt, extra_names) -> SimpleNamespace:
+                 initial_prompt, extra_names, resolved_prompt=None) -> SimpleNamespace:
     """Every value the run needs, read in the parent before the job starts:
-    the worker process must not read the database."""
+    the worker process must not read the database. resolved_prompt, when not
+    None, is used as Whisper's prompt instead of building one from the title."""
     voice_detector = asr_options_service.resolve_voice_detector(drama, source_language)
 
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
@@ -340,7 +341,8 @@ def _resolve_run(drama_id, drama, *, source_language, chinese_script, transcript
     hallucination_silence_sec = stored_hallucination_silence_sec(drama)
     min_pause_sec = stored_min_pause_sec(drama)
     separation_backend = drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"]
-    prompt = _resolve_initial_prompt(drama_id, initial_prompt or "", extra_names or "")
+    prompt = (resolved_prompt if resolved_prompt is not None
+              else _resolve_initial_prompt(drama_id, initial_prompt or "", extra_names or ""))
     qwen_prompt = (vocabulary_hint_service.hint_for_run(drama)
                    if asr_backend_choice.startswith("qwen3") else None)
     use_gpu = settings_service.get("use_gpu")
@@ -366,6 +368,30 @@ def _resolve_run(drama_id, drama, *, source_language, chinese_script, transcript
         qwen_prompt=qwen_prompt, use_gpu=use_gpu, gpu_app_settings=gpu_app_settings,
         timing=timing, run_settings=run_settings,
         description=f"Transcription (title #{drama_id})")
+
+
+def worker_args_for_settings(settings: dict, audio_path: str, scratch_dir: str, use_gpu: bool,
+                             initial_prompt: str = "") -> tuple:
+    """The arguments transcribe_pipeline._transcribe_worker gets for a title with these
+    stored settings (dramas columns), built without reading the library, so
+    tools/release_check can run the app's own pipeline on a golden clip and save
+    nothing. initial_prompt is Whisper's prompt as the title's run would build it; empty
+    means the neutral sentence for Difficult audio, else no prompt."""
+    drama = {**settings, "id": 0}
+    (_, _, source_language, chinese_script, transcript_mode, asr_backend_choice,
+     alignment_method) = _check_run_request(drama, None, None, None, None, None, None)
+    if transcript_mode != "whisper" or drama.get("use_groq"):
+        raise InvalidInputError("Only a local Whisper-mode transcription can run from settings.")
+    prompt = initial_prompt or (_NEUTRAL_PROMPTS.get(source_language, "")
+                                if drama.get("difficult_audio") else "")
+    run = _resolve_run(
+        0, drama, source_language=source_language, chinese_script=chinese_script,
+        transcript_mode=transcript_mode, transcript_text=None,
+        asr_backend_choice=asr_backend_choice, alignment_method=alignment_method,
+        audio_path=audio_path, video_path=None, diarize_audio_path=None, run_diarize=False,
+        expected_speakers=None, min_speakers=None, max_speakers=None, initial_prompt="",
+        extra_names="", resolved_prompt=prompt)
+    return _worker_args(drama, run, scratch_dir, use_gpu)
 
 
 def _start_hardsub_job(job_id, drama_id, drama, run, tesseract_cmd) -> bool:
