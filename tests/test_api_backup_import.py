@@ -235,6 +235,140 @@ def test_owner_and_privacy_forced_and_series_never_merged(isolated_db):
                          ).fetchone()[0] is None
 
 
+def _set_print(c, sid, name, vec, samples):
+    c.execute("UPDATE series_characters SET voice_fingerprint = ?, voice_fingerprint_samples = ? "
+              "WHERE series_id = ? AND character_name = ?",
+              (json.dumps(vec) if vec is not None else None, samples, sid, name))
+
+
+def test_join_series_merges_into_the_series_of_the_same_name(local_client):
+    a, b, g = _world()
+    with _conn() as c:
+        sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (a,)).fetchone()[0]
+        _set_print(c, sid, "Lin", [0.0, 2.0], 3)
+        mei = _ins(c, "series_characters", series_id=sid, character_name="Mei", created_at="x",
+                   notes="from the file")
+        _ins(c, "glossary_terms", series_id=sid, term_original="刀", term_translation="blade")
+        _ins(c, "characters", drama_id=a, speaker_label="S1", character_name="Mei",
+             series_character_id=mei)
+        c.commit()
+    data = _manual_zip()
+    with _conn() as c:   # this library moves on after the backup
+        c.execute("DELETE FROM series_characters WHERE id = ?", (mei,))
+        c.execute("DELETE FROM glossary_terms WHERE term_original = '刀'")
+        c.execute("UPDATE glossary_terms SET term_translation = 'mine' WHERE term_original = '剑'")
+        _set_print(c, sid, "Lin", [4.0, 0.0], 1)
+        c.commit()
+    r = _post_import(local_client, data, [a, b], join_series="true")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["series_joined"] == 1 and body["series_created"] == 0
+    new_a, new_b = (i["drama_id"] for i in body["imported"])
+    with _conn() as c:
+        assert c.execute("SELECT COUNT(*) FROM series").fetchone()[0] == 1
+        assert {r[0] for r in c.execute("SELECT series_id FROM dramas WHERE id IN (?, ?)",
+                                        (new_a, new_b))} == {sid}
+        chars = {r[0]: r[1:] for r in c.execute(
+            "SELECT character_name, id, voice_fingerprint, voice_fingerprint_samples, notes "
+            "FROM series_characters WHERE series_id = ?", (sid,))}
+        assert set(chars) == {"Lin", "Mei"}
+        lin_id, lin_print, lin_n, _ = chars["Lin"]
+        assert json.loads(lin_print) == [1.0, 1.5] and lin_n == 4   # (4*1 + 0*3)/4, (0*1 + 2*3)/4
+        assert chars["Mei"][3] == "from the file"
+        links = dict(c.execute("SELECT speaker_label, series_character_id FROM characters "
+                               "WHERE drama_id = ?", (new_a,)))
+        assert links == {"S0": lin_id, "S1": chars["Mei"][0]}
+        terms = dict(c.execute("SELECT term_original, term_translation FROM glossary_terms "
+                               "WHERE series_id = ?", (sid,)))
+        assert terms == {"剑": "mine", "刀": "blade"}   # what this library has wins
+
+
+def test_without_join_series_the_import_still_adds_a_new_series(local_client):
+    a, b, g = _world()
+    r = _post_import(local_client, _manual_zip(), [a])
+    assert r.json()["series_created"] == 1 and r.json()["series_joined"] == 0
+    with _conn() as c:
+        assert c.execute("SELECT COUNT(*) FROM series").fetchone()[0] == 2
+
+
+def test_join_series_takes_the_file_s_print_when_this_series_has_none(local_client):
+    a, b, g = _world()
+    with _conn() as c:
+        sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (a,)).fetchone()[0]
+        _set_print(c, sid, "Lin", [0.5, 0.5], 2)
+        c.commit()
+    data = _manual_zip()
+    with _conn() as c:
+        _set_print(c, sid, "Lin", None, 0)
+        c.commit()
+    assert _post_import(local_client, data, [a], join_series="true").status_code == 200
+    with _conn() as c:
+        row = c.execute("SELECT voice_fingerprint, voice_fingerprint_samples FROM series_characters "
+                        "WHERE series_id = ? AND character_name = 'Lin'", (sid,)).fetchone()
+    assert json.loads(row[0]) == [0.5, 0.5] and row[1] == 2
+
+
+@pytest.mark.parametrize("incoming", [[1.0, 2.0, 3.0], "not a print", ["x", "y"]])
+def test_join_series_keeps_this_print_when_the_file_s_cannot_be_blended(local_client, incoming):
+    a, b, g = _world()
+    with _conn() as c:
+        sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (a,)).fetchone()[0]
+        c.execute("UPDATE series_characters SET voice_fingerprint = ?, voice_fingerprint_samples = 5 "
+                  "WHERE series_id = ?", (incoming if isinstance(incoming, str)
+                                          else json.dumps(incoming), sid))
+        c.commit()
+    data = _manual_zip()
+    with _conn() as c:
+        _set_print(c, sid, "Lin", [4.0, 0.0], 1)
+        c.commit()
+    assert _post_import(local_client, data, [a], join_series="true").status_code == 200
+    with _conn() as c:
+        row = c.execute("SELECT voice_fingerprint, voice_fingerprint_samples FROM series_characters "
+                        "WHERE series_id = ?", (sid,)).fetchone()
+    assert json.loads(row[0]) == [4.0, 0.0] and row[1] == 1
+
+
+def test_join_series_never_joins_someone_else_s_private_series(isolated_db):
+    other = db.auth_create_user("other@example.com")
+    me = db.auth_create_user("me@example.com")
+    a, b, g = _world(owner=other)
+    data = _manual_zip()
+    with _conn() as c:
+        c.execute("UPDATE series SET is_private = 1")
+        live_series = {r[0] for r in c.execute("SELECT id FROM series")}
+        c.commit()
+    res = bis.import_dramas(io.BytesIO(data), [a], confirm=True, confirm_text="RESTORE",
+                            principal={"user_id": me, "is_local_owner": False}, join_series=True)
+    assert res["series_joined"] == 0 and res["series_created"] == 1
+    with _conn() as c:
+        sid = c.execute("SELECT series_id FROM dramas WHERE id = ?",
+                        (res["imported"][0]["drama_id"],)).fetchone()[0]
+        assert sid not in live_series
+        assert c.execute("SELECT COUNT(*) FROM series_characters WHERE series_id IN (%s)"
+                         % ",".join("?" * len(live_series)), list(live_series)).fetchone()[0] == 1
+
+
+def test_join_series_rechecks_privacy_inside_the_import(isolated_db, monkeypatch):
+    # The series can go private between the ownership check and the write.
+    other = db.auth_create_user("other@example.com")
+    me = db.auth_create_user("me@example.com")
+    a, b, g = _world(owner=other)
+    data = _manual_zip()
+    real = bis._joinable_series
+
+    def then_private(*args):
+        out = real(*args)
+        with _conn() as c:
+            c.execute("UPDATE series SET is_private = 1")
+            c.commit()
+        return out
+
+    monkeypatch.setattr(bis, "_joinable_series", then_private)
+    res = bis.import_dramas(io.BytesIO(data), [a], confirm=True, confirm_text="RESTORE",
+                            principal={"user_id": me, "is_local_owner": False}, join_series=True)
+    assert res["series_joined"] == 0 and res["series_created"] == 1
+
+
 def test_share_by_default_makes_imports_shared(isolated_db):
     me = db.auth_create_user("me@example.com")
     db.auth_update_user(me, share_by_default=1)
@@ -1297,3 +1431,117 @@ def test_new_drama_never_inherits_a_stale_folder(local_client, monkeypatch):
     _no_leak(r)
     assert [d[1] for d in _dramas()][-1] == "Next"
     assert _read(os.path.join(stray, "mine.txt")) == b"mine"
+
+
+# ---- voice bank and settings -------------------------------------------------
+
+def _bank_clip(tmp_path, name, data):
+    path = tmp_path / name
+    path.write_bytes(data)
+    return str(path)
+
+
+def test_voice_bank_comes_in_when_asked_and_a_same_entry_is_skipped(local_client, tmp_path):
+    a, b, g = _world()
+    db.save_voice_bank_entry("Narrator", _bank_clip(tmp_path, "n.wav", b"narrator"), ref_text="hi")
+    db.save_voice_bank_entry("Hero", _bank_clip(tmp_path, "h.wav", b"hero"), notes="calm")
+    data = _manual_zip()
+    for entry in db.list_voice_bank_entries():
+        if entry["name"] == "Hero":
+            db.delete_voice_bank_entry(entry["id"])
+    listed = _post_list(local_client, data).json()
+    assert listed["voice_bank_entries"] == 2
+    r = _post_import(local_client, data, [g])
+    assert r.json()["voice_bank_imported"] == 0
+    assert [e["name"] for e in db.list_voice_bank_entries()] == ["Narrator"]
+    r = _post_import(local_client, data, [g], voice_bank="true")
+    assert r.status_code == 200, r.text
+    _no_leak(r)
+    assert r.json()["voice_bank_imported"] == 1   # Narrator is already here with the same clip
+    entries = {e["name"]: e for e in db.list_voice_bank_entries()}
+    assert sorted(entries) == ["Hero", "Narrator"]
+    hero = entries["Hero"]
+    assert hero["notes"] == "calm"
+    with open(db.voice_bank_clip_path(hero["clip_filename"]), "rb") as fh:
+        assert fh.read() == b"hero"
+
+
+def test_a_database_only_file_offers_no_voice_bank(local_client, tmp_path):
+    _world()
+    db.save_voice_bank_entry("Narrator", _bank_clip(tmp_path, "n.wav", b"narrator"))
+    dest = os.path.join(db.LIBRARY_DIR, "x.db")
+    lbs._sanitized_snapshot(dest)
+    with open(dest, "rb") as fh:
+        assert _post_list(local_client, fh.read(), "library.db").json()["voice_bank_entries"] == 0
+
+
+def test_a_failed_import_leaves_no_voice_bank_clip_behind(local_client, tmp_path, monkeypatch):
+    a, b, g = _world()
+    db.save_voice_bank_entry("Hero", _bank_clip(tmp_path, "h.wav", b"hero"))
+    data = _manual_zip()
+    for entry in db.list_voice_bank_entries():
+        db.delete_voice_bank_entry(entry["id"])
+    before = set(os.listdir(db.VOICE_BANK_DIR))
+    real = bis._import_voice_bank
+
+    def then_fail(*args):
+        assert real(*args) == 1
+        raise OSError("disk")
+
+    monkeypatch.setattr(bis, "_import_voice_bank", then_fail)
+    r = _post_import(local_client, data, [g], voice_bank="true")
+    assert r.status_code >= 400
+    assert set(os.listdir(db.VOICE_BANK_DIR)) == before
+    assert db.list_voice_bank_entries() == []
+    assert len(_dramas()) == 3
+
+
+def test_settings_come_in_when_asked_without_system_update_or_kept_settings(local_client):
+    from services import settings_service
+    a, b, g = _world()
+    settings_service.set_settings({"default_locale": "en-GB", "monthly_cap_usd": 25.0,
+                                   "notify_on_completion": True, "use_gpu": False})
+    db.set_app_setting("update.auto_check", True)
+    data = _manual_zip()
+    settings_service.set_settings({"default_locale": "en-US", "monthly_cap_usd": 5.0,
+                                   "notify_on_completion": False, "use_gpu": True})
+    db.set_app_setting("update.auto_check", False)
+    assert _post_list(local_client, data).json()["settings_available"]
+    r = _post_import(local_client, data, [g])
+    assert r.json()["settings_imported"] == 0 and r.json()["notes"] == []
+    assert settings_service.get("default_locale") == "en-US"
+    r = _post_import(local_client, data, [g], settings="true")
+    assert r.status_code == 200, r.text
+    assert r.json()["settings_imported"] >= 3
+    assert r.json()["notes"] == [bis.KEYS_NOT_IMPORTED]
+    assert settings_service.get("default_locale") == "en-GB"
+    assert settings_service.get("monthly_cap_usd") == 25.0
+    assert settings_service.get("notify_on_completion") is True
+    assert settings_service.get("use_gpu") is True              # System page: this PC's
+    assert db.get_app_setting("update.auto_check") is False   # how this PC updates
+
+
+def test_importable_settings_are_never_secret_path_kept_or_system(isolated_db):
+    from lib import settings_schema
+    from services import library_restore_service as lrs
+    chosen = bis._importable_settings()
+    assert chosen
+    for store_key, key in chosen.items():
+        s = settings_schema.BY_KEY[key]
+        assert s.store == "db" and not s.secret and s.type != "path" and not s.dev_only
+        assert s.tab in ("translation", "preferences") and s.section != "App updates"
+        assert store_key not in lrs._RESTORE_KEPT_APP_SETTINGS
+
+
+def test_a_setting_the_file_holds_badly_is_left_as_it_is(local_client):
+    from services import settings_service
+    a, b, g = _world()
+    data = _db_bytes(lambda c: c.executescript(
+        "INSERT OR REPLACE INTO app_settings (key, value) VALUES "
+        "('pref.default_locale', '\"xx-XX\"'), ('pref.monthly_cap_usd', '12.5'), "
+        "('notify_on_completion', 'not json')"))
+    settings_service.set_settings({"default_locale": "en-AU"})
+    r = _post_import(local_client, data, [g], settings="true")
+    assert r.status_code == 200, r.text
+    assert settings_service.get("default_locale") == "en-AU"
+    assert settings_service.get("monthly_cap_usd") == 12.5
