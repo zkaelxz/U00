@@ -11,7 +11,6 @@ never from the file or the request. Anything else is a plain 404.
 """
 
 import os
-from pathlib import Path
 
 import db
 from lib.errors import NotFoundError
@@ -37,17 +36,7 @@ def clip_for_entry(entry_id: int):
     entry = db.get_voice_bank_entry(entry_id)
     name = (entry or {}).get("clip_filename") or ""
     ext = os.path.splitext(name)[1].lower()
-    if not entry or ext not in AUDIO_TYPES or os.path.basename(name) != name:
+    path = db.voice_bank_clip_path(name) if entry and ext in AUDIO_TYPES else None
+    if path is None:
         raise NotFoundError(_NOT_FOUND)
-    folder = Path(db.VOICE_BANK_DIR)
-    candidate = folder / name
-    try:
-        if folder.is_symlink() or candidate.is_symlink():
-            raise NotFoundError(_NOT_FOUND)
-        root = folder.resolve(strict=True)
-        path = candidate.resolve(strict=True)
-    except (OSError, RuntimeError):
-        raise NotFoundError(_NOT_FOUND) from None
-    if not path.is_relative_to(root) or path.parent != root or not path.is_file():
-        raise NotFoundError(_NOT_FOUND)
-    return str(path), AUDIO_TYPES[ext], ext
+    return path, AUDIO_TYPES[ext], ext
