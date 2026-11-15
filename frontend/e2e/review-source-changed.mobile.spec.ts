@@ -64,3 +64,19 @@ db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh='这是一个
   await expect(second).toHaveAttribute('aria-current', 'true')
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })
+
+test('phone at 320 px: a speaker beside a Source changed badge wraps to its own line, whole', async ({ page }) => {
+  execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
+db.configure_library_dir(${JSON.stringify(libraryDir)})
+from core import Line
+db.update_drama(3, audio_filename=None, source_video_filename=None)
+db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh='一', en='Line %d' % i, speaker='Narrator Voice Two', flag='source_changed' if i == 0 else '') for i in range(6)])
+`], { cwd: repoRoot })
+  await page.setViewportSize({ width: 320, height: 700 })
+  await page.goto('/#/drama/3/review')
+  const row = page.locator('.review-line:not(.review-skeleton)').first()
+  await expect(row.getByTestId('source-changed-badge')).toBeVisible()
+  const speaker = row.locator('.review-speaker')
+  expect(await speaker.evaluate((el) => el.scrollWidth <= el.clientWidth), 'speaker is not cut off').toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})

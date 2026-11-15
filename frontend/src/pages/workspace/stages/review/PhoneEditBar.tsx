@@ -65,7 +65,7 @@ export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCanc
 // The selection bar and the floating player sit just above this bar, which is taller in the check queue (two-line
 // buttons) and while editing. Its live height goes on the page as a CSS variable they both read, and is gone while
 // the bar is not shown.
-function usePublishedHeight(name: string) {
+export function usePublishedHeight(name: string) {
   const observer = useRef<ResizeObserver | null>(null)
   return useCallback((el: HTMLElement | null) => {
     const root = document.documentElement.style

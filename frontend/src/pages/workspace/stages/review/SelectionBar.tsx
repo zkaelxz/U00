@@ -3,6 +3,7 @@ import { type ReactNode, useState } from 'react'
 import { Sheet } from '../../../../components/Sheet'
 import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
+import { usePublishedHeight } from './PhoneEditBar'
 import { SELECTION_ACTIONS, type SelectionActionContext } from './selectionActions'
 
 type BarAction = (typeof SELECTION_ACTIONS)[number] & { why: string | null }
@@ -56,8 +57,10 @@ export function SelectionBar({ ctx }: { ctx: SelectionActionContext }) {
 function PhoneSelectionBar({ ctx, actions, clear }: { ctx: SelectionActionContext; actions: BarAction[]; clear: ReactNode }) {
   const count = ctx.selectedIds.length
   const [sheetOpen, setSheetOpen] = useState(false)
+  // The floating player stacks above this bar, or it would cover Actions… and Clear.
+  const barRef = usePublishedHeight('--selbar-h')
   return (
-    <div className="review-selbar" role="toolbar" aria-label="Selected lines" data-testid="selection-bar">
+    <div ref={barRef} className="review-selbar" role="toolbar" aria-label="Selected lines" data-testid="selection-bar">
       <span className="review-selbar-count">{count} selected</span>
       <span className="review-selbar-actions">
         <button type="button" className={buttonClass('secondary', 'sm')} aria-haspopup="dialog" onClick={() => setSheetOpen(true)}>

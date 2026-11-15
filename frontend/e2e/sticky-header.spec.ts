@@ -44,3 +44,17 @@ test('the workspace strip and Review toolbar sit under the header, not behind it
   }
   expect(await noSideways(page)).toBe(true)
 })
+
+for (const width of [660, 700]) {
+  test(`${width} px beside the docked menu: the toolbar wraps and every button stays on screen`, async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('baihe.navDock', 'docked'))
+    await page.setViewportSize({ width, height: 800 })
+    await page.goto('/#/library')
+    await expect(page.getByTestId('stats')).toBeVisible()
+    expect(await noSideways(page)).toBe(true)
+    for (const name of ['Report a problem', 'Quick search']) {
+      const box = (await page.getByRole('button', { name }).first().boundingBox())!
+      expect(box.x + box.width, name).toBeLessThanOrEqual(width)
+    }
+  })
+}
