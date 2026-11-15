@@ -10,6 +10,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { routeHref } from '../../router'
 import { safeHref } from '../discover/discoverFormat'
+import { AddSourceLink } from './AddSourceLink'
 import { SourceLink } from '../discover/ExternalLink'
 import { JobPill } from './JobPill'
 import { kindBadgeText } from './titleKind'
@@ -131,7 +132,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
       <OpenFolderButton open={() => openDramaFolder(id)} className="ws-folder" title="Show this title's files on the PC" />
       <SourceLink href={drama.source_url} dramaId={id} className={buttonClass('secondary', 'md', 'ws-source')} />
       {!safeHref(drama.source_url) && (
-        <a className="ws-source-add muted" href={routeHref({ name: 'drama', id, stage: 'source', tab: 'details' })}>Add a source link</a>
+        <AddSourceLink id={id} />
       )}
     </>
   )
