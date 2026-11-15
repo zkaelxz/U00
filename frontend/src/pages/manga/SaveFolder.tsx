@@ -63,7 +63,7 @@ export function SaveFolderCard() {
       )}
       {folder?.picked_missing && (
         <p className="warn" role="status">
-          The folder you picked can’t be found (an unplugged drive?), so saves go to the default for now.
+          Save folder not found (unplugged drive?). Saving to the default for now.
         </p>
       )}
       <form className="manga-folder-form" onSubmit={submit}>
