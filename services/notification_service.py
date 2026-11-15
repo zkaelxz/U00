@@ -50,7 +50,16 @@ entry once per stream, for the follow's owner; it goes to Discord/ntfy only
 for the PC owner's own follows (`notify_live_follow`), with no category
 switch of its own.
 
-Categories: "jobs" (a job finished or failed), "chapters" (a tracked-
+A run that stopped and waits for the person ("Waiting for you: ...") adds a
+"waiting" entry (`notify_waiting`, or `notify_job_finished` with the job
+result's waiting note): glossary names to review, a series auto-run hold,
+the queue stopping on a failed item, a job stopped at a spending cap. It
+rides the "jobs" category. Its typed `target` (a page name plus the one id
+that page needs, `clean_target`) lets the bell open the place; the push
+never carries a link, and leaves out a title or series a household member
+couldn't see.
+
+Categories: "jobs" (a job finished, failed or waits), "chapters" (a tracked-
 series check found new chapters) and "remote" (remote access broke or
 recovered, `services/remote_health_service.py`) can each be switched off for
 Discord and ntfy (`db.app_settings["notify_categories"]`, all on by default);
@@ -287,6 +296,17 @@ def _tidy(text, limit):
 _HOUSEHOLD = {"user_id": None, "is_admin": False, "is_local_owner": False}
 
 
+def household_sees(kind, item_id) -> bool:
+    """Could any household member see this drama or series? A push channel
+    may be read by the whole household, so only then may it be named
+    there. False when unsure."""
+    try:
+        from services import ownership_service
+        return ownership_service.can_see(_HOUSEHOLD, kind, int(item_id))
+    except Exception:
+        return False
+
+
 def _drama_title(description, shared_only=False):
     """The drama's title, or None. shared_only: None for a drama a
     household member couldn't see (private, or in a private series), since
@@ -297,16 +317,20 @@ def _drama_title(description, shared_only=False):
     try:
         import db
         drama = db.get_drama(int(m.group(1)))
-        if shared_only and isinstance(drama, dict):
-            from services import ownership_service
-            if not ownership_service.can_see_drama(_HOUSEHOLD, int(m.group(1))):
-                return None
+        if shared_only and isinstance(drama, dict) and not household_sees("drama", m.group(1)):
+            return None
     except Exception:
         return None
     if not isinstance(drama, dict):
         return None
     title = drama.get("title_en") or drama.get("title_zh")
     return _tidy(title, _TITLE_MAX) if title else None
+
+
+def _job_kind(description) -> str:
+    """The job description up to its first "(", or "Background job"."""
+    kind = _tidy(re.split(r"\s*\(", description or "", maxsplit=1)[0], _KIND_MAX)
+    return kind or "Background job"
 
 
 def build_message(description, status, shared_only=False, with_errors=False,
@@ -316,8 +340,7 @@ def build_message(description, status, shared_only=False, with_errors=False,
     outcome, plus the plain reason of a failure that has one."""
     outcome = ("Finished with errors" if with_errors else "Finished") if status == "done" \
         else "Failed"
-    kind = _tidy(re.split(r"\s*\(", description or "", maxsplit=1)[0], _KIND_MAX)
-    text = f"{outcome}: {kind or 'Background job'}"
+    text = f"{outcome}: {_job_kind(description)}"
     title = _drama_title(description, shared_only)
     if title:
         text += f" - {title}"
@@ -332,10 +355,13 @@ def chapter_message(new_count) -> str:
 
 
 def _summarize(events) -> str:
-    """events: (status, message) or (status, message, category) tuples."""
+    """events: (status, message) or (status, message, category) tuples. A
+    "waiting" event is in the jobs category but never folded into the count:
+    the person has something to do, and the count would hide what."""
     if len(events) == 1:
         return events[0][1]
-    jobs = [e for e in events if (e[2] if len(e) > 2 else "jobs") == "jobs"]
+    jobs = [e for e in events
+            if (e[2] if len(e) > 2 else "jobs") == "jobs" and e[0] != "waiting"]
     parts = []
     if len(jobs) == 1:
         parts.append(f"{jobs[0][1]}.")
@@ -343,7 +369,9 @@ def _summarize(events) -> str:
         done = sum(1 for e in jobs if e[0] == "done")
         parts.append(f"{len(jobs)} background jobs ended: {done} finished, "
                      f"{len(jobs) - done} failed.")
-    parts.extend(f"{e[1]}." for e in events if e not in jobs)
+    # A hold's text is already a sentence ("... press Continue to run the rest.").
+    parts.extend(f"{e[1].rstrip('.') if e[0] == 'waiting' else e[1]}." for e in events
+                 if e not in jobs)
     return " ".join(parts)
 
 
@@ -576,21 +604,57 @@ def remove_listener(fn) -> None:
 
 
 # Optional fields an in-app entry may carry for the bell (a followed channel's
-# "Start Live" action and a scheduled start time); never a URL or path.
-_EXTRA_KEYS = ("follow_id", "action", "starts_at")
+# "Start Live" action and a scheduled start time, a waiting entry's target);
+# never a URL or path.
+_EXTRA_KEYS = ("follow_id", "action", "starts_at", "target")
+
+# A waiting entry's target: the page the bell's Open goes to, and the one id
+# that page needs (None: the page needs none). The frontend builds the link.
+TARGET_PAGES = {"glossary": "drama_id", "review": "drama_id", "series": "series_id",
+                "jobs": None}
+WAITING_PREFIX = "Waiting for you: "
+_WAITING_MAX = 300
 
 
-def _record(kind, text, job_id, owner_user_id, extra=None):
+def clean_target(target):
+    """{"page": ..., plus its id} for a known page with a positive int id,
+    else None. Builds a new dict, so no other key can ride along."""
+    if not isinstance(target, dict):
+        return None
+    page = target.get("page")
+    if not isinstance(page, str) or page not in TARGET_PAGES:
+        return None
+    id_key = TARGET_PAGES[page]
+    if id_key is None:
+        return {"page": page}
+    value = target.get(id_key)
+    if type(value) is not int or value <= 0:
+        return None
+    return {"page": page, id_key: value}
+
+
+def _waiting_text(text) -> str:
+    """The prefix, then the text with every link that starts with a scheme
+    ("https://...") taken out and secrets redacted, cut to length last: a
+    key cut in half by the limit would no longer match the redaction."""
+    from services import jobs_service
+    text = redact_secrets(jobs_service.URL_PATTERN.sub("[link removed]", str(text)))
+    return WAITING_PREFIX + _tidy(text, _WAITING_MAX)
+
+
+def _record(kind, text, job_id, owner_user_id, extra=None, names_drama_id=None):
     """The id is the time in milliseconds (bumped to stay increasing), not a
     counter: a gap between two ids a viewer sees says nothing about how
-    many events they were not shown."""
+    many events they were not shown. `names_drama_id` is kept for
+    _sees_target only: it is not one of _EXTRA_KEYS, so no viewer gets it."""
     global _last_id
     now = time.time()
     with _recent_lock:
         _last_id = max(_last_id + 1, int(now * 1000))
         _recent.append({"id": _last_id, "at": now, "kind": kind, "text": text,
                         "job_id": job_id, "owner_user_id": owner_user_id,
-                        **{k: v for k, v in (extra or {}).items() if k in _EXTRA_KEYS}})
+                        **{k: v for k, v in (extra or {}).items() if k in _EXTRA_KEYS},
+                        **({"names_drama_id": names_drama_id} if names_drama_id else {})})
     for fn in list(_listeners):
         try:
             fn()
@@ -607,6 +671,26 @@ def record_event(kind, text) -> None:
         pass
 
 
+def _sees_target(principal, event) -> bool:
+    """A waiting entry names the title or series its target points at, and
+    a hold's entry may also name a title in that series (`names_drama_id`).
+    A hold's entry is kept for its owner alone (no job id): once any of
+    these is no longer visible to them (a deleted title counts), neither is
+    the entry."""
+    from services import ownership_service
+    target = event.get("target") or {}
+    if event["kind"] != "waiting" or ownership_service.sees_every_job(principal):
+        return True
+    named = event.get("names_drama_id")
+    if named is not None and not ownership_service.can_see(principal, "drama", named):
+        return False
+    if "drama_id" in target:
+        return ownership_service.can_see(principal, "drama", target["drama_id"])
+    if "series_id" in target:
+        return ownership_service.can_see(principal, "series", target["series_id"])
+    return True
+
+
 def list_recent(principal=None, limit=RECENT_MAX) -> list:
     """Newest first: {id, at, kind, text}. Job events only for a caller who
     can see that job; new-chapter events for everyone (household-wide)."""
@@ -618,7 +702,8 @@ def list_recent(principal=None, limit=RECENT_MAX) -> list:
         if e["kind"] != "chapters":
             try:
                 visible = ownership_service.can_see_job(principal, e["job_id"] or "",
-                                                        e["owner_user_id"])
+                                                        e["owner_user_id"]) \
+                    and _sees_target(principal, e)
             except Exception:
                 visible = False
             if not visible:
@@ -638,13 +723,57 @@ def _chapter_count(job_id):
         return 0
 
 
+def _waiting_job_text(description, note, shared_only) -> str:
+    """"12 glossary names to review - <title>", "Translation stopped at the
+    spending cap - <title>" or "Translation stopped - <title>. <reason>",
+    without the title when there is none to name. `shared_only` (the push):
+    the title only when the household may see it, and the reason only when
+    the note marks it as one of Baihe's own sentences (`own_reason`), since
+    any other stop sentence may quote a provider's error."""
+    what = note.get("text") if isinstance(note.get("text"), str) else ""
+    if not what.strip():
+        kind = _job_kind(description)
+        what = f"{kind} stopped at the spending cap" if note.get("cap") is True \
+            else f"{kind} stopped"
+    text = _tidy(what, 120)
+    title = _drama_title(description, shared_only)
+    if title:
+        text += f" - {title}"
+    reason = note.get("reason")
+    if isinstance(reason, str) and reason.strip() \
+            and (not shared_only or note.get("own_reason") is True):
+        text += f". {_tidy(reason, 160)}"
+    return text
+
+
+def waiting_job_message(description, note) -> str:
+    """The bell's sentence for a done job's waiting note, for the desktop
+    pop-up on the PC itself (job_settings._notify_job_finished); on the
+    Guest profile, the push's sentence instead."""
+    from services import pc_profile_service
+    try:
+        guest = pc_profile_service.guest_active()
+    except Exception:
+        guest = True
+    # Guest hides private titles from the screen, and the pop-up is on that screen.
+    return _waiting_text(_waiting_job_text(description, note, guest))
+
+
 def notify_job_finished(description, status, job_id=None, owner_user_id=None,
-                        with_errors=False, reason=None):
+                        with_errors=False, reason=None, waiting=None):
     """Record a job-ended event in the in-app list and queue a push for the
-    configured channels. Never raises, never blocks on the network."""
+    configured channels. `waiting`: the waiting note a done job's result
+    left (jobs_service.waiting_note); the job then says "Waiting for you"
+    instead of "Finished". Never raises, never blocks on the network."""
     global _timer
     try:
         if status not in ("done", "error"):
+            return
+        if status == "done" and isinstance(waiting, dict) and job_id != CHAPTER_CHECK_JOB_ID:
+            notify_waiting(_waiting_job_text(description, waiting, False),
+                           push_text=_waiting_job_text(description, waiting, True),
+                           owner_user_id=owner_user_id, job_id=job_id,
+                           target=waiting.get("target"))
             return
         if job_id == CHAPTER_CHECK_JOB_ID and status == "done":
             new = _chapter_count(job_id)
@@ -689,6 +818,41 @@ def notify_remote_access(text) -> None:
             return
         with _lock:
             _pending.append(("remote", message, "remote"))
+            if _timer is None:
+                _timer = _schedule_flush()
+    except Exception as exc:
+        try:
+            _log().warning(f"notification: could not queue ({type(exc).__name__})")
+        except Exception:
+            pass
+
+
+def notify_waiting(text, *, push_text, owner_user_id=None, job_id=None, target=None,
+                   names_drama_id=None) -> None:
+    """A run stopped and waits for the person: "Waiting for you: <text>" in
+    the in-app list, seen like a job event (`job_id`, `owner_user_id`;
+    neither: the PC owner and admins only), and Discord/ntfy when the
+    "jobs" category is on. `push_text` is required because the push is not
+    filtered per viewer: a caller whose text names a title or series a
+    household member couldn't see (household_sees) passes a sentence
+    without that name. `target`: where the bell's Open goes (clean_target;
+    anything else is dropped). `names_drama_id`: the title `text` names,
+    which matters where the target points at its series instead: the entry
+    then also needs that title visible (_sees_target). Only a positive int
+    is kept.
+    Never raises, never blocks on the network."""
+    global _timer
+    try:
+        clean = clean_target(target)
+        named = names_drama_id if type(names_drama_id) is int and names_drama_id > 0 else None
+        _record("waiting", _waiting_text(text), job_id, owner_user_id,
+                {"target": clean} if clean else None, names_drama_id=named)
+        if os.environ.get(DISABLED_ENV) == "1" or not get_categories()["jobs"]:
+            return
+        if not configured_channels():
+            return
+        with _lock:
+            _pending.append(("waiting", _waiting_text(push_text), "jobs"))
             if _timer is None:
                 _timer = _schedule_flush()
     except Exception as exc:
