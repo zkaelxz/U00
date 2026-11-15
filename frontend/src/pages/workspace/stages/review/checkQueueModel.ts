@@ -459,11 +459,19 @@ export function nextAfterCheck(shown: ReviewLine[], id: number, morePages: boole
   return shown[at + 1]?.id ?? (morePages ? 'last' : shown[at - 1]?.id)
 }
 
-/** "2 of 5 to look at": the open card's place in the whole queue, across pages. */
-export function positionText(shown: ReviewLine[], activeId: number | null, page: number, pageSize: number, total: number): string | null {
-  const at = shown.findIndex((l) => l.id === activeId)
-  return at === -1 ? null : `${(page - 1) * pageSize + at + 1} of ${total} to look at`
+/** The open card's place in the whole queue, across pages: its 1-based number and how many cards there are. */
+export interface QueuePlace {
+  at: number
+  total: number
 }
+
+export function queuePlace(shown: ReviewLine[], activeId: number | null, page: number, pageSize: number, total: number): QueuePlace | null {
+  const at = shown.findIndex((l) => l.id === activeId)
+  return at === -1 ? null : { at: (page - 1) * pageSize + at + 1, total }
+}
+
+/** "2 of 5 to look at". */
+export const placeText = (p: QueuePlace): string => `${p.at} of ${p.total} to look at`
 
 export interface QueueCounts {
   all: number | null

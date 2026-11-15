@@ -57,29 +57,38 @@ export function CheckQueueSwitch({ queue, counts, onPick }: {
   )
 }
 
-// What the rest of the title looks like, at the far end of the switch row; one group so a phone's row can place it as one.
-export function QueueFine({ counts, showFine = true }: { counts: QueueCounts | null; showFine?: boolean }) {
-  const helpId = useId()
-  const fine = counts && showFine ? fineText(counts) : null
+// What the rest of the title looks like, at the far end of the switch row, as one group with its (i).
+export function QueueFine({ counts }: { counts: QueueCounts | null }) {
+  const fine = counts ? fineText(counts) : null
   return (
     <span className="check-queue-fine-group">
       {fine && <span className="muted check-queue-fine" data-testid="queue-fine">{fine}</span>}
-      <HelpTip label="Why these lines" id={helpId}>
-        A line is listed when a check flagged it or Whisper was unsure of it, and nobody has marked it checked yet. The
-        riskiest come first. More checks are under Look for problems.
-      </HelpTip>
+      <QueueWhyHelp />
     </span>
   )
 }
 
+// The (i) saying why lines are listed: beside "look fine" on a wide screen, beside the footer's sentence on a phone.
+function QueueWhyHelp() {
+  const helpId = useId()
+  return (
+    <HelpTip label="Why these lines" id={helpId}>
+      A line is listed when a check flagged it or Whisper was unsure of it, and nobody has marked it checked yet. The
+      riskiest come first. More checks are under Look for problems.
+    </HelpTip>
+  )
+}
+
 // Under the cards: what the rest of the title looks like, and the one bulk step, which also teaches translation memory.
-export function CheckQueueFooter({ dramaId, queuePage, counts, jobRunning, settled, onReadAll, onUntranslated, onChanged }: {
+export function CheckQueueFooter({ dramaId, queuePage, counts, jobRunning, settled, why = false, onReadAll, onUntranslated, onChanged }: {
   dramaId: number
   queuePage: ReviewLinesPage
   counts: QueueCounts
   jobRunning: boolean
   // False while a reload is on its way: the page shown may miss a line that now needs a look.
   settled: boolean
+  // A phone has no "look fine" row above the card, so the footer's sentence carries the (i) that row would.
+  why?: boolean
   onReadAll: () => void
   onUntranslated: () => void
   onChanged: () => void
@@ -115,6 +124,7 @@ export function CheckQueueFooter({ dramaId, queuePage, counts, jobRunning, settl
     <section className="check-queue-footer" aria-label="The other lines" data-testid="queue-footer">
       <div className="check-queue-line">
         {other && <span>{other}</span>}
+        {why && <QueueWhyHelp />}
         {counts.risk > 0 && <button type="button" className="check-queue-link" onClick={onReadAll}>Read them all</button>}
         {rest && (
           <span className="check-queue-mark">

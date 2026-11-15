@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 
 import type { DramaDetail } from '../../api/types'
 import { useRoute, type DramaFocus } from '../../router'
+import type { QueuePlace } from './stages/review/checkQueueModel'
 
 export interface StageContextValue {
   dramaId: number
@@ -24,6 +25,9 @@ export interface StageContextValue {
   // Simple's main button on a desktop wherever the lines are (Review and the title page), for the Need a look row to show first;
   // onShown tells the page whether that row drew it.
   checkLead?: CheckLead
+  // A phone's check queue shows one card at a time, and the header's steps button says which: the lines report the open
+  // card's place here, and null once there is none.
+  onPosition?: (place: QueuePlace | null) => void
   // Simple's title page of a title with lines still without English: Review's lines open on All, where those lines are.
   linesOnAll?: boolean
   // Simple's list of the series' episodes, shown as the last tab of Review's tools; unset outside a series.
@@ -59,6 +63,8 @@ export const useSearchRequest = (): Pick<StageContextValue, 'searchSignal' | 'ta
 export const usePlayerDock = (): HTMLElement | null => useContext(StageContext)?.playerDock ?? null
 
 export const useCheckLead = (): CheckLead | undefined => useContext(StageContext)?.checkLead
+
+export const usePositionReport = (): ((place: QueuePlace | null) => void) | undefined => useContext(StageContext)?.onPosition
 
 export const useLinesOnAll = (): boolean => useContext(StageContext)?.linesOnAll ?? false
 

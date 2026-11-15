@@ -5,11 +5,13 @@ import { createPortal } from 'react-dom'
 import { setReviewed } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { useRoute } from '../../../../router'
-import { useCheckLead, useCheckSignal, useLinesOnAll, usePlayerDock, useSearchRequest } from '../../StageContext'
+import { useCheckLead, useCheckSignal, useLinesOnAll, usePlayerDock, usePositionReport, useSearchRequest } from '../../StageContext'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
+import { buttonClass } from '../../../../components/uiClasses'
 import { CheckedUndo, CheckLeadAction, CheckQueueFooter, CheckQueueSwitch, QueueFine, QueueMediaToggle } from './CheckQueue'
-import { initialLinesFilter, nextText, positionText, QUEUE_FILTER, queueCounts } from './checkQueueModel'
+import { checkActionLabel } from '../../stepModel'
+import { initialLinesFilter, nextText, QUEUE_FILTER, queueCounts, queuePlace } from './checkQueueModel'
 import type { LinesController, LinesState, Pending } from './linesController'
 import { PAGE_SIZE } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
@@ -146,7 +148,15 @@ export function useCheckQueue(d: Deps) {
   // bring the waveform out when used.
   const foldsMedia = d.simple && !(on && d.dataFilter === QUEUE_FILTER && d.data?.total === 0)
   const cardOnly = on && d.isPhone
-  const position = cardOnly && d.data ? positionText(d.shown, d.activeId, d.page, PAGE_SIZE, d.data.total) : null
+  const place = cardOnly && d.data ? queuePlace(d.shown, d.activeId, d.page, PAGE_SIZE, d.data.total) : null
+  // The header's steps button says where the open card is; it is told only the numbers, so its words stay its own.
+  const report = usePositionReport()
+  const placeAt = place?.at ?? null
+  const placeTotal = place?.total ?? null
+  useEffect(() => {
+    report?.(placeAt !== null && placeTotal !== null ? { at: placeAt, total: placeTotal } : null)
+    return () => report?.(null)
+  }, [report, placeAt, placeTotal])
   const upNext = cardOnly ? nextText(d.shown, d.activeId) : null
   // Skip for now: the next card, the next page's first, or back to the start of the queue.
   const skip = () => {
@@ -158,37 +168,45 @@ export function useCheckQueue(d: Deps) {
 
   // The row waits for the main button and for the counts that name the pills, so nothing in it moves once it is drawn.
   const drawn = !checkLead || (checkLead.ready && !d.loading)
-  const lead: ReactNode = d.simple ? (
+  // A phone has no switch row: the queue goes straight to its card, and All has one button back to it while lines need a look.
+  const backToQueue = d.isPhone && !on ? checkActionLabel(counts?.risk ?? null) : null
+  const phoneLead: ReactNode = backToQueue || checked ? (
+    <>
+      {backToQueue && <button type="button" className={buttonClass('primary')} onClick={() => void toView(QUEUE_FILTER)}>{backToQueue}</button>}
+      {checked && <CheckedUndo line={checked} busy={undoing} onUndo={() => void undo()} onDismiss={() => setChecked(null)} />}
+    </>
+  ) : undefined
+  const wideLead: ReactNode = (
     <>
       {checkLead && <CheckLeadAction lead={{ ...checkLead, ready: drawn }} />}
       {drawn && (
         <>
           <CheckQueueSwitch queue={on} counts={counts} onPick={(q) => void toView(q ? QUEUE_FILTER : 'all')} />
           {checked && <CheckedUndo line={checked} busy={undoing} onUndo={() => void undo()} onDismiss={() => setChecked(null)} />}
-          {position && <p className="check-queue-position" data-testid="queue-position">{position}</p>}
-          {/* The phone's card view leaves "F of M look fine" to the footer's "The other F lines…", so the switch row stays one line. */}
-          <QueueFine counts={counts} showFine={!(cardOnly && (counts?.risk ?? 0) > 0)} />
+          <QueueFine counts={counts} />
         </>
       )}
-      {foldsMedia && d.mediaToggle}
     </>
-  ) : undefined
+  )
+  const lead: ReactNode = !d.simple ? undefined : d.isPhone ? phoneLead : wideLead
   // Just after the switch is pressed, `data` is still the page of the view before: the footer waits for the queue's own.
   const after: ReactNode = on && d.data && counts && d.dataFilter === QUEUE_FILTER ? (
     <>
-      {upNext && <p className="muted check-queue-next">{upNext}</p>}
       <CheckQueueFooter
         dramaId={dramaId}
         queuePage={d.data}
         counts={counts}
         jobRunning={d.jobRunning}
         settled={d.settled}
+        why={d.isPhone}
         onReadAll={() => void toView('all')}
         onUntranslated={() => void d.changeFilter('untranslated')}
         onChanged={d.onChanged}
       />
     </>
   ) : null
+  // Drawn into the header's More panel, so it only needs to be somewhere in the tree.
+  const media = d.simple && foldsMedia ? d.mediaToggle : null
 
   return {
     on,
@@ -198,8 +216,10 @@ export function useCheckQueue(d: Deps) {
     // A phone shows one card at a time.
     rows: cardOnly ? d.shown.filter((l) => l.id === d.activeId) : d.shown,
     toolbar: { lead, bare: on, searchAsk },
+    // The open card's Next line, which a phone draws at the card's bottom edge.
+    next: upNext,
     retranscribe,
-    after,
+    after: <>{media}{after}</>,
     bar: (line: ReviewLine) => (on ? { onSkip: skip, onLooksRight: () => ctl.actions.reviewAndNext(line.id) } : undefined),
   }
 }

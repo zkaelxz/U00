@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import {
   alsoUnsureText, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, markRestView, nextAfterCheck, nextText, otherFineText,
-  positionText, queueAction, queueCounts, queueReason, QUEUE_FLAG_KINDS, restUnchecked, UNSURE_FIRST, untranslatedText, WHOLE_LIST_FIRST,
+  placeText, queueAction, queueCounts, queuePlace, queueReason, QUEUE_FLAG_KINDS, restUnchecked, UNSURE_FIRST, untranslatedText, WHOLE_LIST_FIRST,
 } from './checkQueueModel'
 
 const line = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
@@ -296,9 +296,11 @@ describe('the phone card', () => {
   const shown = [line(24, { flag: 'glossary_missing' }), line(12, { flag: 'reading_speed' }), line(7, { confidence: 0.5 }), line(9, { flag: 'timing_drift' })]
 
   it('says where the open card is in the whole queue', () => {
-    expect(positionText(shown, 24, 1, 40, 4)).toBe('1 of 4 to look at')
-    expect(positionText(shown, 12, 2, 40, 44)).toBe('42 of 44 to look at')
-    expect(positionText(shown, 99, 1, 40, 4)).toBeNull()
+    expect(queuePlace(shown, 24, 1, 40, 4)).toEqual({ at: 1, total: 4 })
+    expect(queuePlace(shown, 12, 2, 40, 44)).toEqual({ at: 42, total: 44 })
+    expect(queuePlace(shown, 99, 1, 40, 4)).toBeNull()
+    expect(placeText({ at: 1, total: 4 })).toBe('1 of 4 to look at')
+    expect(placeText({ at: 42, total: 44 })).toBe('42 of 44 to look at')
   })
 
   it('names the next two cards with their reason, and nothing after the last', () => {

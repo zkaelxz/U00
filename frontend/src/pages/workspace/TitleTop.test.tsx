@@ -27,16 +27,18 @@ const AT: Record<Exclude<StepKey, 'export'>, TitleProgressInput> = {
 
 const withJobs = (el: ReactElement) =>
   renderToStaticMarkup(<JobsContext.Provider value={{ jobs: [], error: null, polling: false, reload: () => {} }}>{el}</JobsContext.Provider>)
-const render = (progress: TitleProgressInput, page: { home?: boolean; openStep?: StepKey | null; badge?: boolean; drama?: DramaDetail; onCheck?: () => void; onSearch?: () => void } = {}) =>
+const render = (progress: TitleProgressInput, page: { home?: boolean; openStep?: StepKey | null; badge?: boolean; drama?: DramaDetail; onCheck?: () => void; onSearch?: () => void; position?: { at: number; total: number } | null } = {}) =>
   withJobs(
     <TitleTop id={3} drama={page.drama ?? drama} title="Signal" back={{ href: '#/library', label: 'Back to Library', text: 'Library' }}
-      badge={page.badge} home={page.home} openStep={page.openStep ?? null} onCheck={page.onCheck} onSearch={page.onSearch} onJobFinished={() => {}} onView={() => {}} progress={progress} />,
+      badge={page.badge} home={page.home} openStep={page.openStep ?? null} onCheck={page.onCheck} onSearch={page.onSearch} position={page.position} onJobFinished={() => {}} onView={() => {}} progress={progress} />,
   )
 
 // Where the phone draws the main button: in the panel the steps button opens, or on the page under the header.
 function phoneMain(html: string): 'panel' | 'page' {
   expect(html.match(/class="title-main-row"/g)).toHaveLength(1)
-  const panel = html.slice(html.indexOf('class="steps-fold-body"'), html.indexOf('class="steps-fold-controls"'))
+  // The steps panel is the second of the two: More's panel comes first.
+  const from = html.lastIndexOf('class="steps-fold-body"')
+  const panel = html.slice(from, html.indexOf('class="steps-fold-controls"', from))
   return panel.includes('title-main-row') ? 'panel' : 'page'
 }
 
@@ -133,5 +135,43 @@ describe('the header\'s buttons on a desktop', () => {
   it('leave a slot in More\'s row where an audio title\'s Player button is drawn', () => {
     browser(false)
     expect(render(AT.check, { home: true })).toContain('class="title-top-player"')
+  })
+})
+
+describe('the phone\'s header', () => {
+  const place = { at: 1, total: 3 }
+  const names = (html: string) => [...html.matchAll(/<(?:a|button)\b[^>]*>([^<]+)</g)].map((m) => m[1])
+  const panels = (html: string) => {
+    const more = html.indexOf('class="steps-fold-body"')
+    const steps = html.indexOf('class="steps-fold-body"', more + 1)
+    return { more: html.slice(more, steps), steps: html.slice(steps) }
+  }
+
+  it('has More at the right of the name, and the steps button under it holding the step and the open card\'s place', () => {
+    browser(true)
+    const html = render(AT.check, { home: true, onSearch: () => {}, position: place })
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
+    expect(header.indexOf('data-testid="drama-title"')).toBeLessThan(header.indexOf('>More</button>'))
+    expect(header.indexOf('>More</button>')).toBeLessThan(header.indexOf('steps-fold-toggle'))
+    expect(header).toContain('<span>Step 4 of 5 · Check</span> <span class="steps-fold-position" data-testid="queue-position">1 of 3 to look at</span>')
+    expect(header).toContain('aria-hidden="true"><div class="title-top-progress-fill" style="width:33.33333333333333%"></div>')
+  })
+
+  it('has neither the place nor the bar when no card is open', () => {
+    browser(true)
+    const html = render(AT.check, { home: true, onSearch: () => {} })
+    expect(html).not.toContain('queue-position')
+    expect(html).not.toContain('title-top-progress')
+  })
+
+  it('puts Add media, Redo transcription, Glossary, Search, Open folder, the source link and the Player slot in More, and the steps and the switch in the steps panel', () => {
+    browser(true)
+    const { more, steps } = panels(render(AT.check, { home: true, onSearch: () => {} }))
+    expect(names(more)).toEqual(['Add media', 'Redo transcription', 'Glossary', 'Search', 'Open folder', 'Add a source link'])
+    expect(more).toContain('class="title-top-player"')
+    expect(more).not.toContain('Title view')
+    expect(steps).toContain('class="title-steps"')
+    expect(steps).toContain('Title view')
+    expect(steps).not.toContain('>Search<')
   })
 })

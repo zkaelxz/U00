@@ -25,6 +25,12 @@
   }
 }
 
+/* The wider tools column leaves the lines 12px less: with a video beside them, the chips, the search box and the pager no longer
+   shared a row at 1920px, and the wrapped pager made the sticky toolbar 48px taller. The box still grows to take the row's rest. */
+@media (min-width: 1400px) {
+  .review-editor.has-side .review-search { flex-basis: 13rem; }
+}
+
 /* The tools panel inside the inspector: one gap, equal-height check buttons with their Bulk switch directly under each. */
 @media (min-width: 1400px) {
   .stage-review .review-toolbox-panel, .stage-review .review-tab-body { display: grid; gap: var(--space-3); margin: 0; }
@@ -615,8 +621,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 /* Simple's check queue (CheckQueue.tsx): every text wraps rather than being cut off. */
 .review-queue-row { row-gap: var(--space-1); }
 .check-queue-fine, .check-queue-next { font-size: var(--text-sm); overflow-wrap: anywhere; }
-.check-queue-position, .check-queue-next { margin: 0; }
-.check-queue-position { font-weight: var(--weight-medium); }
+.check-queue-next { margin: 0; }
 .check-queue-footer {
   display: grid; gap: var(--space-2); margin-top: var(--space-3); padding: var(--space-3);
   border: 1px solid var(--border); border-radius: var(--radius, 8px); background: var(--surface); overflow-wrap: anywhere;
@@ -626,10 +631,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-queue-actions { margin-top: var(--space-2); }
 .check-queue-undo { font-size: var(--text-sm); overflow-wrap: anywhere; }
 @media (max-width: 640px) {
-  /* The open card's place shares the switch's line when it fits; the rest wraps under them, and the Undo strip takes a line of its own. */
-  .review-queue-row .check-queue-position { order: 1; }
-  .review-queue-row > :not(.check-queue-switch, .check-queue-position) { order: 2; }
-  .review-queue-row .check-queue-undo { order: 3; flex: 1 1 100%; }
+  /* Under All the one button back to the queue spans the row, as the main button does under the header; the Undo strip has a line of its own. */
+  .review-queue-row > .btn-primary { flex: 1 1 100%; min-height: var(--touch); }
+  .review-queue-row .check-queue-undo { flex: 1 1 100%; }
   .review-editbar.is-queue button { white-space: normal; line-height: 1.2; }
   .review-queue-actions .btn, .check-queue-footer .btn, .check-queue-undo .btn { min-height: var(--touch); }
   /* Its (i) stays beside it: a phone's confirm button otherwise takes the whole row, pushed right. */
@@ -670,11 +674,11 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-line.is-queue.is-active { padding-block: var(--space-1) var(--space-3); }
   .review-line.is-queue.is-active .review-body { margin-top: var(--space-3); }
   .review-line.is-queue .review-queue-en { margin-top: var(--space-2); }
-  /* Play and Skip for now keep their own width on one line; the green step takes the rest, the widest target for the
-     step taken most. Its words wrap onto two lines on the narrowest phones, and the others grow with it so the three
-     stay one height. */
-  .review-editbar.is-queue button { flex: 0 1 auto; align-self: stretch; padding-inline: var(--space-3); }
-  .review-editbar.is-queue .review-queue-done { flex: 1 1 0; }
+  /* Two buttons: Skip for now takes a third, the green step the rest, the widest target for the step taken most. */
+  .review-editbar.is-queue { padding-block: var(--space-2) calc(var(--space-2) + env(safe-area-inset-bottom, 0px)); }
+  /* No side padding: a flex basis of 0 still holds the padding, which would skew the one-to-two split. */
+  .review-editbar.is-queue button { flex: 1 1 0; min-height: 48px; padding-inline: 0; }
+  .review-editbar.is-queue .review-queue-done { flex: 2 1 0; font-weight: var(--weight-bold); }
 }
 
 /* Simple folds an audio title's player strip, its panel and the waveform away, in Need a look and under All, so the first
@@ -699,7 +703,6 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-queue-row.is-wide { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6667rem; min-height: var(--control-h); min-width: 0; }
   .review-queue-row.is-wide .check-queue-fine-group { display: inline-flex; align-items: center; gap: var(--space-2); margin-left: auto; }
   /* The check queue has nothing else in the toolbar's box unless the player is unfolded. */
-  .review-toolbar.is-bare:empty, .review-editor.is-media-folded .review-toolbar.is-bare { display: none; }
 
   /* Two separate pills, not a segmented control: the checked one has the heavier accent edge in the same outer size. */
   .segmented.check-queue-switch { display: inline-flex; gap: 0.6667rem; padding: 0; border: 0; border-radius: 0; background: none; }
@@ -760,6 +763,34 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
     font-size: var(--text-sm); color: var(--muted);
   }
   .review-list-card > .check-queue-footer:first-child { border-top: 0; }
+}
+/* A phone's open card, as drawn: one white card with a hairline edge and no coloured edge, its first line the line's place
+   and the way to the lines around it, its Next line at the bottom, tall enough to reach the bottom bar when its content is short. */
+/* Nothing in it (a phone's queue has no switch row) or only a folded player: no box, no padding. */
+.review-toolbar.is-bare:empty, .review-editor.is-media-folded .review-toolbar.is-bare { display: none; }
+@media (max-width: 640px) {
+  .review-line.is-queue.is-active {
+    display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-1) var(--space-4) var(--space-4);
+    border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: none;
+    min-height: calc(100svh - var(--review-card-top, 0px) - var(--editbar-h, 56px) - var(--space-3));
+  }
+  .review-line.is-queue.is-active:focus-visible { box-shadow: inset 0 0 0 3px var(--focus); }
+  .review-line.is-queue.is-active > * { margin: 0; }
+  .review-line.is-queue.is-active .review-body, .review-line.is-queue.is-active .review-queue-en { margin-top: 0; }
+  .review-line.is-queue.is-active .review-line-meta {
+    flex-wrap: wrap; gap: 0 var(--space-1); min-height: var(--touch); padding-right: 0;
+    font-size: var(--text-sm); color: var(--muted);
+  }
+  /* The dots are their own boxes, so a flex row would drop the spaces around them. */
+  .review-line.is-queue.is-active .review-line-ref { display: inline-flex; }
+  .review-card-dot { margin-inline: var(--space-1); }
+  .review-line.is-queue.is-active .review-idx { font-weight: var(--weight-bold); color: var(--text); }
+  /* When the place and the link do not both fit, the link drops to the next line, still at the right. */
+  .review-line.is-queue.is-active .review-card-around { margin-left: auto; min-height: var(--touch); font-size: var(--text-sm); }
+  .review-line.is-queue.is-active .review-queue-why { padding: var(--space-2) 10px; border-radius: var(--radius); }
+  .review-line.is-queue.is-active .review-queue-en button.review-en { font-size: var(--text-edit); }
+  .review-line.is-queue.is-active button.review-card-more { min-width: var(--touch); padding: 0; border: 1px solid var(--border); color: var(--text); }
+  .review-line.is-queue.is-active .check-queue-next { margin-top: auto; padding-top: var(--space-3); }
 }
 .check-queue-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .check-queue-link {

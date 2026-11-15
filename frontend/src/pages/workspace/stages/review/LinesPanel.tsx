@@ -500,6 +500,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               actions={actions}
               simple={simple}
               queue={queue.on}
+              queueNext={queue.next}
               linePanel={linePanel}
               retranscribe={queue.retranscribe}
               searchHit={searching}

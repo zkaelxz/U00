@@ -30,7 +30,11 @@ export function useToolbarHeight(sectionRef: RefObject<HTMLElement | null>) {
     if (!section || !bar || typeof ResizeObserver === 'undefined') return
     const measure = () => {
       section.style.setProperty('--review-toolbar-h', `${bar.offsetHeight}px`)
-      const card = section.querySelector<HTMLElement>('.review-list-card')
+      // A collapsed phone toolbar hides the header above the list, which moves the card up; the card's height is for the page as it opens, so that move is not measured.
+      if (bar.classList.contains('is-collapsed')) return
+      // A phone draws no box for the list's card (display: contents has no rectangle), so its first child, the list, marks the top.
+      const wrapper = section.querySelector<HTMLElement>('.review-list-card')
+      const card = wrapper && wrapper.getClientRects().length === 0 ? wrapper.firstElementChild : wrapper
       if (card) section.style.setProperty('--review-card-top', `${card.getBoundingClientRect().top + window.scrollY}px`)
     }
     const ro = new ResizeObserver(measure)

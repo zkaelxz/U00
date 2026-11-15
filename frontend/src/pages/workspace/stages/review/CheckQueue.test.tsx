@@ -14,9 +14,9 @@ const page = (lines: ReviewLine[]): ReviewLinesPage => ({
 })
 const counts: QueueCounts = { all: 24, risk: 3, untranslated: 0, unreviewed: 24 }
 
-function footer(queuePage: ReviewLinesPage, { settled = true, jobRunning = false, c = counts } = {}) {
+function footer(queuePage: ReviewLinesPage, { settled = true, jobRunning = false, c = counts, why = false } = {}) {
   return renderToStaticMarkup(
-    <CheckQueueFooter dramaId={1} queuePage={queuePage} counts={c} jobRunning={jobRunning} settled={settled} onReadAll={() => {}} onUntranslated={() => {}} onChanged={() => {}} />,
+    <CheckQueueFooter dramaId={1} queuePage={queuePage} counts={c} jobRunning={jobRunning} settled={settled} why={why} onReadAll={() => {}} onUntranslated={() => {}} onChanged={() => {}} />,
   )
 }
 
@@ -32,6 +32,12 @@ describe('the check queue footer', () => {
     expect(html).not.toMatch(/class="check-queue-link"[^>]*aria-describedby/)
     expect(html).not.toContain('Confirm')
     expect(html).not.toMatch(/class="btn /)
+  })
+
+  it('carries the (i) "Why these lines" beside its sentence on a phone only, where no "look fine" row has it', () => {
+    const lines = page([line(1), line(2, { flag: null })])
+    expect(footer(lines, { why: true })).toMatch(/<span>The other 21 lines have no warnings\.<\/span><span class="field-help">[\s\S]*Why these lines/)
+    expect(footer(lines)).not.toContain('Why these lines')
   })
 
   it('keeps Mark the rest as checked… as the two-step button, drawn as a link, when nothing blocks it', () => {
@@ -61,11 +67,8 @@ describe('the first row', () => {
     expect(html).toMatch(/name="check-queue" checked=""[^>]*\/><span>Need a look 3/)
   })
 
-  it('puts "look fine" and its (i) together at the far end, and keeps the (i) when a phone leaves the words out', () => {
+  it('puts "look fine" and its (i) together at the far end', () => {
     expect(renderToStaticMarkup(<QueueFine counts={counts} />)).toMatch(/^<span class="check-queue-fine-group"><span class="muted check-queue-fine" data-testid="queue-fine">21 of 24 look fine<\/span><span class="field-help">/)
-    const phone = renderToStaticMarkup(<QueueFine counts={counts} showFine={false} />)
-    expect(phone).not.toContain('look fine')
-    expect(phone).toContain('Why these lines')
   })
 
   it('draws the main button only once it is known, so nothing in the row moves when it arrives', () => {

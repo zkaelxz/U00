@@ -47,12 +47,12 @@ db.save_lines(3, [Line(idx=i, start=i + 1, end=i + 2, zh='一', en='Line %d' % i
     await page.goto('/#/drama/3/review')
     const bar = page.getByRole('toolbar', { name: 'Line actions' })
     await expect(bar).toBeVisible()
-    // Simple folds the player away until its Player button brings it back; the button is with the title's controls, in the panel the steps button opens.
+    // Simple folds the player away until its Player button brings it back; the button is with the title's controls, in the panel More opens.
     if (view === 'simple') {
-      const steps = page.getByRole('button', { name: /Step \d of 5 · / })
-      await steps.tap()
+      const more = page.locator('.workspace-header').getByRole('button', { name: 'More', exact: true })
+      await more.tap()
       await page.locator('.steps-fold-controls').getByRole('button', { name: 'Player', exact: true }).tap()
-      await steps.tap()
+      await more.tap()
     }
     await page.getByRole('button', { name: 'Pop out' }).tap()
     const float = page.getByRole('group', { name: 'Floating player' })

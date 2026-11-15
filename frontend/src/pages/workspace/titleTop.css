@@ -45,10 +45,16 @@
 .title-top-header.is-phone .title-top-name { flex: 1 1 0; }
 /* Level with the name's first line, not the middle of a name on two lines. */
 .title-top-header.is-phone > .ws-back { align-self: flex-start; }
-.title-top-header.is-phone h1 { overflow-wrap: break-word; }
+.title-top-header.is-phone h1 { overflow-wrap: break-word; font-family: var(--font-sans); font-size: var(--text-edit); }
+/* More sits at the right of the name's row, as tall as the back arrow; the steps button under it has the row to itself. */
+.title-top-header.is-phone > .title-top-more { flex: none; align-self: flex-start; min-width: 44px; min-height: 44px; padding-inline: var(--space-3); }
 /* Its own row under the name, so the steps read as a bar across the page and the first card starts at the same place
    whatever the name's length, give or take its lines. */
 .steps-fold-toggle { flex: 1 1 100%; justify-content: flex-start; min-height: 44px; margin-left: auto; padding-inline: var(--space-3); white-space: normal; text-align: left; font-size: var(--text-sm); font-weight: 600; gap: var(--space-2); }
+/* The open card's place sits at the button's right end, quieter than the step it belongs to. */
+.steps-fold-position { margin-left: auto; color: var(--muted); font-weight: normal; text-align: right; }
+.title-top-progress { flex: 1 1 100%; height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.title-top-progress-fill { height: 100%; border-radius: inherit; background: var(--accent); }
 .steps-fold-toggle::before { content: '\25B8'; flex: none; color: var(--muted); font-size: 0.85em; }
 .steps-fold-toggle[aria-expanded='true']::before { content: '\25BE'; }
 .steps-fold-body:not([hidden]) { display: grid; gap: var(--space-3); margin-top: var(--space-2); }

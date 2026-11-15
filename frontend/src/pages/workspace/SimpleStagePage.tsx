@@ -22,6 +22,7 @@ import { TitlePanel } from './TitlePanel'
 import { TITLE_TOP_PHONE, TitleMainAction, TitleTop } from './TitleTop'
 import { useTitleProgress } from './useTitleProgress'
 import { TitleViewSwitch } from './TitleViewSwitch'
+import type { QueuePlace } from './stages/review/checkQueueModel'
 import type { TitleView } from './titleView'
 
 const OPEN_STEP: Partial<Record<StageId, StepKey>> = { translate: 'translate', review: 'check', export: 'export' }
@@ -78,6 +79,8 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   // The Player button is drawn by the lines and shown in the header, so it sits with the title's other controls.
   const [playerDock, setPlayerDock] = useState<HTMLElement | null>(null)
   const phone = useMediaQuery(TITLE_TOP_PHONE)
+  // The open card's place in the check queue, for the steps button's "1 of 3 to look at" and its progress bar.
+  const [position, setPosition] = useState<QueuePlace | null>(null)
   // Where the lines are, a desktop shows the main button first in the Need a look row, which says when it has drawn it, so the button
   // is never missing and never drawn twice. Without lines it stays here: the one-button flow it may be would restart if moved mid-run.
   const [mainInLead, setMainInLead] = useState(false)
@@ -104,7 +107,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
     [simple, review, seriesId, id, drama, lineCount, translatedCount],
   )
   const ctx = useMemo<StageContextValue>(
-    () => ({ dramaId: id, drama, refetchDrama, onJobDone, simple, checkSignal, searchSignal, takeSearch, playerDock, checkLead, linesOnAll, episodes }),
+    () => ({ dramaId: id, drama, refetchDrama, onJobDone, simple, checkSignal, searchSignal, takeSearch, playerDock, checkLead, onPosition: setPosition, linesOnAll, episodes }),
     [id, drama, refetchDrama, onJobDone, simple, checkSignal, searchSignal, takeSearch, playerDock, checkLead, linesOnAll, episodes],
   )
   // `simple` is true only for audio and video, the only kinds whose Simple pages link to Review.
@@ -130,6 +133,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
           onCheck={onCheck}
           onSearch={onSearch}
           playerSlot={setPlayerDock}
+          position={position}
           mainElsewhere={leadsMain && mainInLead}
         />
       ) : (

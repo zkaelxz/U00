@@ -1,5 +1,5 @@
 /** The top of an audio or video title's Simple pages: the header with the title's controls, the step links and the one main button. */
-// On a phone the steps and the controls fold behind one "Step N of 5" button so the page's own content starts high.
+// On a phone the steps fold behind one "Step N of 5" button and the other controls behind More, so the page's own content starts high.
 import { useId, useState, type ReactNode } from 'react'
 
 import { openDramaFolder } from '../../api/library'
@@ -15,6 +15,7 @@ import { JobPill } from './JobPill'
 import { kindBadgeText } from './titleKind'
 import { TitleFlowStart } from './TitleFlowStart'
 import { TitleViewSwitch } from './TitleViewSwitch'
+import { placeText, type QueuePlace } from './stages/review/checkQueueModel'
 import { checkActionLabel, focusStep, mainInStepsPanel, stepLinks, stepPlace, titleSteps, type StepInput, type StepKey } from './stepModel'
 import type { TitleView } from './titleView'
 import './titleTop.css'
@@ -104,13 +105,15 @@ interface Props {
   onCheck?: () => void
   /** Search pressed: the lines show All and their search box, from this page or from Review. Absent, no Search button. */
   onSearch?: () => void
-  /** Where the lines draw the Player button of an audio title, in More's row (the steps panel on a phone). */
+  /** Where the lines draw the Player button of an audio title, in More's row (More's panel on a phone). */
   playerSlot?: (el: HTMLElement | null) => void
+  /** A phone's open card in the check queue, which the steps button says and its progress bar shows; null when there is none. */
+  position?: QueuePlace | null
   /** The lines' Need a look row shows the main button instead, so it is never drawn twice. */
   mainElsewhere?: boolean
 }
 
-export function TitleTop({ id, drama, title, back, badge = false, home = false, onJobFinished, onView, progress, openStep = null, onCheck, onSearch, playerSlot, mainElsewhere = false }: Props) {
+export function TitleTop({ id, drama, title, back, badge = false, home = false, onJobFinished, onView, progress, openStep = null, onCheck, onSearch, playerSlot, position = null, mainElsewhere = false }: Props) {
   const phone = useMediaQuery(TITLE_TOP_PHONE)
   const [moreOpen, setMoreOpen] = useState(false)
   const [foldOpen, setFoldOpen] = useState(false)
@@ -128,7 +131,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
       {hasLines && <ButtonLink href={to.transcribe}>Redo transcription</ButtonLink>}
       <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>Glossary</ButtonLink>
       {hasLines && onSearch && (
-        <button type="button" className={buttonClass('secondary')} onClick={() => { setFoldOpen(false); onSearch() }}>Search</button>
+        <button type="button" className={buttonClass('secondary')} onClick={() => { setFoldOpen(false); setMoreOpen(false); onSearch() }}>Search</button>
       )}
     </>
   )
@@ -162,9 +165,22 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
         </div>
         <JobPill dramaId={id} onFinished={onJobFinished} />
         {phone ? (
-          <button type="button" className={buttonClass('secondary', undefined, 'steps-fold-toggle')} aria-expanded={foldOpen} aria-controls={foldId} onClick={() => setFoldOpen((o) => !o)}>
-            {(focus && stepPlace(steps, focus)) ?? 'Steps'}
-          </button>
+          <>
+            <button type="button" className={buttonClass('secondary', undefined, 'title-top-more')} aria-expanded={moreOpen} aria-controls={moreId} onClick={() => { setFoldOpen(false); setMoreOpen((o) => !o) }}>
+              More
+            </button>
+            <button type="button" className={buttonClass('secondary', undefined, 'steps-fold-toggle')} aria-expanded={foldOpen} aria-controls={foldId} onClick={() => { setMoreOpen(false); setFoldOpen((o) => !o) }}>
+              <span>{(focus && stepPlace(steps, focus)) ?? 'Steps'}</span>
+              {/* A space between them, so the button's name reads "Step 4 of 5 · Check 1 of 3 to look at" and not "Check1". */}
+              {position && ' '}
+              {position && <span className="steps-fold-position" data-testid="queue-position">{placeText(position)}</span>}
+            </button>
+            {position && (
+              <div className="title-top-progress" aria-hidden="true">
+                <div className="title-top-progress-fill" style={{ width: `${(position.at / position.total) * 100}%` }} />
+              </div>
+            )}
+          </>
         ) : (
           <div className="title-top-actions">
             {secondary}
@@ -177,15 +193,17 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
       </header>
       {phone ? (
         <>
-          <div id={foldId} className="steps-fold-body" hidden={!foldOpen}>
-            <StepRow id={id} input={progress} openStep={openStep} />
-            {current && mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
+          <div id={moreId} className="steps-fold-body" hidden={!moreOpen}>
             <div className="steps-fold-controls">{secondary}</div>
             <div className="steps-fold-controls">
-              {switchView}
               {source}
               {playerButton}
             </div>
+          </div>
+          <div id={foldId} className="steps-fold-body" hidden={!foldOpen}>
+            <StepRow id={id} input={progress} openStep={openStep} />
+            {current && mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
+            <div className="steps-fold-controls">{switchView}</div>
           </div>
           {current && !mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
         </>
