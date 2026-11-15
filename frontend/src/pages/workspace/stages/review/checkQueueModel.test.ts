@@ -70,7 +70,7 @@ const REASONS: [string, string, string, string, string, string][] = [
     'The English may also hold the next line’s words, or belong to a different line. Compare it with the source and the lines around it.',
     'Translation may be off', 'Translation may be off', 'translation may be off'],
   ['ambiguous_reference', 'Who "he" is here is unclear.',
-    'It isn’t clear who or what a word like “she” or “that place” means here. Check the English points to the right person or thing. Note: Who "he" is here is unclear.',
+    'Unclear who or what “she” or “that place” means. Check the English. Note: Who "he" is here is unclear.',
     'Unclear who or what', 'Unclear who or what', 'unclear who or what'],
   ['name_uncertain', 'Wei Ying or Wei Yin?',
     'A name or term here may be misspelled, or written differently than in other lines. Check it against the glossary. Note: Wei Ying or Wei Yin?',
@@ -88,25 +88,25 @@ const REASONS: [string, string, string, string, string, string][] = [
     'This line runs 0.35 s into the next one, so exports end it early, at 0:12.40. Change its end time to fix it for good.',
     'Runs into the next line', 'Runs into the next line', 'runs into the next line'],
   ['timing_drift', 'Starts 0.6 s before speech; ends 1.2 s after speech. Speech detection can mistake music for speech; check by ear.', // timing_drift.py
-    'The times of this line don’t match the speech in the audio: it starts 0.6 s before the speech and ends 1.2 s after the speech. Play it and move its start or end to the speech. Music can be taken for speech in this audio, so check by ear.',
+    'Timing doesn’t match the audio: it starts 0.6 s before the speech and ends 1.2 s after the speech. Play it and move the start or end. Music can be taken for speech in this audio, so check by ear.',
     'Times off the speech', 'Times off the speech', 'times off the speech'],
   ['reading_speed', '25.2 characters/second -- more than ~17/s is hard to read in time. The speech is this fast: shorten the text.', // subtitle_formats._dense_note
-    'This subtitle is too fast to read: 25.2 characters a second, and more than about 17 is hard to read in time. Shorten the text.',
+    'Too fast to read: 25.2 characters a second (over 17 is hard). Shorten the text.',
     'Too fast to read, 25 characters a second', 'Too fast to read: 25 characters a second', 'too fast to read'],
   ['factual_detail', 'In the source but not the translation: 300 (number). Uses a translation flagged as prohibited: Wei Yin. Check the translation says the same thing.', // auto_qc.issue_note
-    'The source and the English don’t agree on a number, date, name, amount or unit. In the source but not the English: 300 (number). The English uses a translation the glossary says not to use: Wei Yin. Make the English say the same thing as the source.',
+    'English and source disagree on a number, date, name, amount or unit. In the source but not the English: 300 (number). The English uses a translation the glossary says not to use: Wei Yin. Make them match.',
     'A number or name differs', 'A number or name differs', 'a number or name differs'],
   ['engines_disagree', 'Heard differently (62% alike). Saved: 三百人 / Qwen3 ASR: 三白人', // compare_transcription_service._disagreement_note
     'Two speech engines heard this line differently. The saved text is “三百人”; Qwen3 ASR heard “三白人”. Play it and keep the one that’s right, or transcribe the line again.',
     'Heard two ways', 'Heard two ways', 'heard two ways'],
   ['gap_untranscribed', 'Added for a stretch with no subtitle line; check the text', // transcribe_gap_service.GAP_FLAG_NOTE
-    'This line was added for a stretch of audio that had no subtitle. Play it and check the text matches what is said.',
+    'Added for audio with no subtitle. Play it and check the text.',
     'Added for a gap', 'Added for a gap', 'added for a gap'],
   ['bulk_source_changed', 'Bulk result not applied: Three hundred people', // bulk_apply.py
-    'The source text changed while a batch translation was waiting, so its English was not used. Translate this line again. The unused English was “Three hundred people”.',
+    'Source changed while the batch waited, so its English was dropped. Translate again. Dropped English: “Three hundred people”.',
     'Source changed during a batch', 'Source changed during a batch', 'source changed during a batch'],
   ['source_changed', '',
-    'The source text was changed after this line was translated, so the English may no longer match. Keep the English if it still fits, or improve it.',
+    'Source changed after translation, so the English may not match. Keep it if it fits, or improve it.',
     'Source changed', 'Source changed', 'source changed'],
   ['pronoun_check', 'Says he/him but no he/him character is set for this speaker; check the pronoun', // translate_pipeline.py
     'The English says “he” or “him”, but this line’s speaker has no character set as he/him. Check the pronoun is right.',
@@ -170,9 +170,9 @@ describe('queue reasons', () => {
       next: 'glossary name not used',
     })
     expect(say('reading_speed', '21.0 characters/second -- more than ~17/s is hard to read in time. The next line leaves room: it could be shown 0.8 s longer, or shorten the text.')?.text)
-      .toBe('This subtitle is too fast to read: 21.0 characters a second, and more than about 17 is hard to read in time. Shorten the text, or show the line 0.8 s longer: the next line leaves room.')
+      .toBe('Too fast to read: 21.0 characters a second (over 17 is hard). Shorten the text, or show the line 0.8 s longer: the next line leaves room.')
     expect(say('timing_drift', 'Sits in silence (no speech detected).')?.text)
-      .toBe('The times of this line don’t match the speech in the audio: no speech is heard during it. Play it and move its start or end to the speech.')
+      .toBe('Timing doesn’t match the audio: no speech is heard during it. Play it and move the start or end.')
     expect(say('source_suspect', 'has Kana/Hangul characters')?.text).toContain('The source text looks off: it has Japanese kana and Korean letters in it.')
     expect(say('source_suspect', "Qwen3-ASR returned no text here; Whisper's text was kept")?.text)
       .toBe('Qwen3-ASR heard no words here, so Whisper’s text was kept. Play the line and check the source text.')
@@ -219,12 +219,12 @@ describe('queue reasons', () => {
   it('never shows half a parse: a note in another shape follows the plain sentence as it is', () => {
     const glossary = queueReason({ flag: 'glossary_missing', flag_note: 'Glossary: a -> b -> c missing', confidence: null })
     expect(glossary).toEqual({
-      text: 'The English doesn’t use a name the glossary sets for this line. Put the glossary’s name in the English, or change the glossary if it is wrong. Note: Glossary: a -> b -> c missing',
+      text: 'The English doesn’t use the glossary’s name. Use it, or fix the glossary. Note: Glossary: a -> b -> c missing',
       short: 'Glossary name not used',
       chip: 'The English does not use a glossary name',
       next: 'glossary name not used',
     })
-    expect(queueReason({ flag: 'timing_drift', flag_note: 'Starts 0.6 s before speech; wobbles.', confidence: null })?.text).toMatch(/speech\. Note: Starts 0\.6 s before speech; wobbles\.$/)
+    expect(queueReason({ flag: 'timing_drift', flag_note: 'Starts 0.6 s before speech; wobbles.', confidence: null })?.text).toMatch(/audio\. Play it and move the start or end\. Note: Starts 0\.6 s before speech; wobbles\.$/)
     expect(queueReason({ flag: 'source_suspect', flag_note: 'has Runic characters', confidence: null })?.text).toMatch(/Note: Has Runic characters$/)
     expect(queueReason({ flag: 'engines_disagree', flag_note: 'Heard differently (62% alike). Saved: 三百人 / qwen9: 三白人', confidence: null })?.short).toBe('Heard two ways')
   })

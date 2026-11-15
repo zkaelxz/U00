@@ -237,7 +237,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
             <EngineGateNote gate={gate} />
             <div className="actions">
               <button type="button" disabled={running || jobRunning || !engineOk || gate !== null} onClick={startAiPreview}>
-                {running && phase === 'ai-preview' ? 'Previewing…' : aiPreview ? 'Preview again with AI' : 'Preview with AI'}
+                {running && phase === 'ai-preview' ? 'Previewing…' : aiPreview ? 'Preview again' : 'Preview with AI'}
               </button>
             </div>
             {jobRunning && !running && <p className="muted" data-testid="resegment-ai-wait">{JOB_RUNNING_MESSAGE}</p>}
@@ -290,7 +290,7 @@ export function StructureSection({ dramaId, jobRunning, onChanged }: Props) {
                     </ul>
                     <TypedConfirm word="resegment" action="Re-segment lines" blocked={blocked} busy={running} onConfirm={start}>
                       <p className="muted">
-                        Your current lines are saved as a snapshot first (Records → Line history).
+                        Saved to Line history first.
                       </p>
                     </TypedConfirm>
                   </>

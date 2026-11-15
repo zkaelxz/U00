@@ -116,7 +116,7 @@ describe('the This line panel', () => {
     const html = renderToStaticMarkup(<LinesAround line={line(24)} around={{ before: line(23), after: line(25, { en: '' }) }} sourceLanguage="zh" onShowLine={() => {}} />)
     expect([...html.matchAll(/>#(\d+)</g)].map((m) => m[1])).toEqual(['23', '24', '25'])
     expect(html).toMatch(/<div class="this-line-near is-open" aria-current="true">.*#24/)
-    expect(html.match(/title="Open this line in the full list"/g)).toHaveLength(2)
+    expect(html.match(/title="Open in full list"/g)).toHaveLength(2)
     expect(html).toContain('<span class="muted review-untranslated">Not translated</span>')
   })
 
@@ -146,7 +146,7 @@ describe('the This line panel', () => {
   it('has a sound card only for an audio title, with Play and the times, and no picture until peaks arrive', () => {
     const audio = renderToStaticMarkup(<ThisLinePanel dramaId={3} line={GLOSSARY} sound player={player} reloads={0} sourceLanguage="zh" onShowLine={() => {}} />)
     expect(audio).toContain('Line 24 sound')
-    expect(audio).toMatch(/title="Play the line \(Space\)">Play</)
+    expect(audio).toMatch(/title="Key: Space">Play</)
     expect(audio).toContain('<span class="sr-only">Start </span>0:48.0</span>')
     expect(audio).toContain('<span class="sr-only">End </span>0:49.5</span>')
     expect(audio).not.toContain('this-line-wave')
@@ -162,7 +162,6 @@ describe('the Player toggle', () => {
     const closed = renderToStaticMarkup(<QueueMediaToggle open={false} controls="player-1" onToggle={() => {}} />)
     expect(closed).toContain('aria-expanded="false"')
     expect(closed).toContain('aria-controls="player-1"')
-    expect(closed).toContain('title="Seek bar, speed, subtitles and the waveform"')
     expect(closed).toMatch(/>Player <span aria-hidden="true">▾<\/span><\/button>/)
     expect(renderToStaticMarkup(<QueueMediaToggle open controls="player-1" onToggle={() => {}} />)).toContain('aria-expanded="true"')
   })

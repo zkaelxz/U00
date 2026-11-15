@@ -5,7 +5,7 @@ import { describeError } from '../../../../components/errorMessages'
 import { usePcOnly } from '../../../../hooks/usePcOnly'
 import type { ReviewLine } from '../../../../types/review'
 
-// "Add a hard-sub test case" in the line sheet. Cuts pictures of this line's burned-in subtitle band from the
+// "Add hard-sub case" in the line sheet. Cuts pictures of this line's burned-in subtitle band from the
 // title's video as a Benchmark Lab OCR case. PC only (the route is local_only, the video is read there), hidden elsewhere.
 export function HardSubCaseButton({ dramaId, line }: { dramaId: number; line: ReviewLine }) {
   const pc = usePcOnly()
@@ -24,7 +24,7 @@ export function HardSubCaseButton({ dramaId, line }: { dramaId: number; line: Re
   return (
     <>
       <button type="button" disabled={busy || added || !line.zh} onClick={add}>
-        {busy ? 'Adding…' : 'Add a hard-sub test case'}
+        {busy ? 'Adding…' : 'Add hard-sub case'}
       </button>
       {note && <p className="muted" role="status">{note}</p>}
     </>

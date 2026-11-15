@@ -96,7 +96,7 @@ export function applyNote(r: RetranscribeManyApplyResult, sourceChanged: number)
   const parts = [`Replaced the source text of ${n} line${n === 1 ? '' : 's'}.`]
   if (sourceChanged > 0) {
     parts.push(
-      `Kept the English on ${sourceChanged} and marked ${sourceChanged === 1 ? 'it' : 'them'} “Source changed”: retranslate or keep ${sourceChanged === 1 ? 'it' : 'them'} from Review checks.`,
+      `Kept the English on ${sourceChanged} and marked ${sourceChanged === 1 ? 'it' : 'them'} “Source changed”. Retranslate or keep ${sourceChanged === 1 ? 'it' : 'them'} in Review checks.`,
     )
   }
   if (r.skipped.length > 0) {

@@ -105,7 +105,7 @@ export const addRegressionCase = (dramaId: number, lineId: number, f?: Fetch) =>
   postJson<{ case: BenchmarkCase; replaced: boolean }>(
     `${BASE}/dramas/${dramaId}/lines/${lineId}/regression`, {}, pcOnlyFetch(f))
 
-// "Add a hard-sub test case" from a Review line: three pictures of the subtitle band across the line's time,
+// "Add hard-sub case" from a Review line: three pictures of the subtitle band across the line's time,
 // cut from the title's video on the PC. The band defaults to the bottom 30% of the picture.
 export const addHardSubCases = (dramaId: number, lineIds: number[], f?: Fetch) =>
   postJson<{ set_name: string; added: number; skipped: number; unclear: number }>(
