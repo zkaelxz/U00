@@ -115,6 +115,20 @@ export function TranscribeOptionsFields({ options, config, onChange }: Props) {
         {toggle('difficult_audio', 'Difficult audio', 'For screaming, whispering or talk over each other; slower and may add a few false lines.')}
         {toggle('separate_vocals_first', 'Separate vocals first', 'Runs vocal separation before transcribing; can drop quiet speech.')}
       </div>
+      <Field
+        label="Randomness"
+        help={[unused('decode_randomness'), 'Default can differ run to run. Temperature 0 repeats exactly; fixed seed keeps the default retries but repeats.'].filter(Boolean).join(' ')}
+      >
+        <select
+          value={optionValue(config, defaults, 'decode_randomness')}
+          disabled={!!unused('decode_randomness')}
+          onChange={(e) => set('decode_randomness', e.target.value)}
+        >
+          <option value="default">Default</option>
+          <option value="temperature_0">Temperature 0</option>
+          <option value="seeded">Fixed seed</option>
+        </select>
+      </Field>
       <h3 className="bench-timing-heading">Line timing</h3>
       <p className="muted">Where lines start and end. Scored on test-set clips that have reference times.</p>
       <div className="bench-config-fields">
