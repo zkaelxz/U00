@@ -24,6 +24,7 @@
  *                 one that only resets a counter
  *   size          'sm' renders the first step as a small secondary button so it
  *                 matches its neighbours in a row of buttons (default: plain)
+ *   firstClass    a class for the first-step button in place of the one `size` gives it, for a caller that draws it as a link
  *   disabled      cannot run now (show the reason next to it)
  *   ariaLabel     first-step accessible name when "‹label› ‹name›" would repeat
  *                 itself (e.g. label "Show token…", name "extension token")
@@ -51,10 +52,11 @@ type Props = {
   ariaLabel?: string
   describedBy?: string
   size?: 'sm'
+  firstClass?: string
   title?: string
 }
 
-export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLabel, busy, disabled, verb = 'delete', tone = 'danger', ariaLabel, describedBy, size, title }: Props) {
+export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLabel, busy, disabled, verb = 'delete', tone = 'danger', ariaLabel, describedBy, size, firstClass, title }: Props) {
   const blocked = !!(busy || disabled)
   const [armed, setArmed] = useState(false)
   // Becoming busy/disabled disarms (state adjusted during render, no effect).
@@ -115,7 +117,7 @@ export function ConfirmButton({ name, onConfirm, label = 'Delete…', confirmLab
         <button
           ref={firstRef}
           type="button"
-          className={size ? buttonClass('secondary', size) : undefined}
+          className={firstClass ?? (size ? buttonClass('secondary', size) : undefined)}
           disabled={blocked}
           aria-label={ariaLabel ?? `${label.replace(/…$/, '')} ${name}`}
           aria-describedby={describedBy}

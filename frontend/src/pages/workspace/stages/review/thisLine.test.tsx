@@ -146,9 +146,9 @@ describe('the This line panel', () => {
   it('has a sound card only for an audio title, with Play and the times, and no picture until peaks arrive', () => {
     const audio = renderToStaticMarkup(<ThisLinePanel dramaId={3} line={GLOSSARY} sound player={player} reloads={0} sourceLanguage="zh" onShowLine={() => {}} />)
     expect(audio).toContain('Line 24 sound')
-    expect(audio).toMatch(/title="Play the line \(Space\)">▶ Play</)
-    expect(audio).toContain('0:48.00')
-    expect(audio).toContain('0:49.50')
+    expect(audio).toMatch(/title="Play the line \(Space\)">Play</)
+    expect(audio).toContain('<span class="sr-only">Start </span>0:48.0</span>')
+    expect(audio).toContain('<span class="sr-only">End </span>0:49.5</span>')
     expect(audio).not.toContain('this-line-wave')
     const video = renderToStaticMarkup(<ThisLinePanel dramaId={3} line={GLOSSARY} sound={false} player={player} reloads={0} sourceLanguage="zh" onShowLine={() => {}} />)
     expect(video).not.toContain('sound')

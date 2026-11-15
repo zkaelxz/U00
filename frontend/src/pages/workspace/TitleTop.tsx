@@ -1,6 +1,6 @@
 /** The top of an audio or video title's Simple pages: the header with the title's controls, the step links and the one main button. */
-// On a phone the steps and the controls fold behind one "Step N of 5" button so the page's own content starts high.
-import { useId, useState, type ReactNode } from 'react'
+// On a phone the steps fold behind one "Step N of 5" button and the other controls behind More, so the page's own content starts high.
+import { useId, useRef, useState, type ReactNode } from 'react'
 
 import { openDramaFolder } from '../../api/library'
 import type { DramaDetail } from '../../api/types'
@@ -16,6 +16,7 @@ import { JobPill } from './JobPill'
 import { kindBadgeText } from './titleKind'
 import { TitleFlowStart } from './TitleFlowStart'
 import { TitleViewSwitch } from './TitleViewSwitch'
+import { placeText, type QueuePlace } from './stages/review/checkQueueModel'
 import { checkActionLabel, focusStep, mainInStepsPanel, stepLinks, stepPlace, titleSteps, type StepInput, type StepKey } from './stepModel'
 import type { TitleView } from './titleView'
 import './titleTop.css'
@@ -103,15 +104,22 @@ interface Props {
   /** The step whose page is open; null on the title page. */
   openStep?: StepKey | null
   onCheck?: () => void
+  /** Search pressed: the lines show All and their search box, from this page or from Review. Absent, no Search button. */
+  onSearch?: () => void
+  /** Where the lines draw the Player button of an audio title, in More's row (More's panel on a phone). */
+  playerSlot?: (el: HTMLElement | null) => void
+  /** A phone's open card in the check queue, which the steps button says and its progress bar shows; null when there is none. */
+  position?: QueuePlace | null
   /** The lines' Need a look row shows the main button instead, so it is never drawn twice. */
   mainElsewhere?: boolean
 }
 
-export function TitleTop({ id, drama, title, back, badge = false, home = false, onJobFinished, onView, progress, openStep = null, onCheck, mainElsewhere = false }: Props) {
+export function TitleTop({ id, drama, title, back, badge = false, home = false, onJobFinished, onView, progress, openStep = null, onCheck, onSearch, playerSlot, position = null, mainElsewhere = false }: Props) {
   const phone = useMediaQuery(TITLE_TOP_PHONE)
   const [moreOpen, setMoreOpen] = useState(false)
   const [foldOpen, setFoldOpen] = useState(false)
   const moreId = useId()
+  const phoneMore = useRef<HTMLButtonElement>(null)
   const foldId = useId()
   const steps = titleSteps(progress)
   const current = steps.find((s) => s.state === 'current')
@@ -124,9 +132,20 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
       {current?.key !== 'add' && <ButtonLink href={to.add}>Add media</ButtonLink>}
       {hasLines && <ButtonLink href={to.transcribe}>Redo transcription</ButtonLink>}
       <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>Glossary</ButtonLink>
+      {hasLines && onSearch && (
+        <button type="button" className={buttonClass('secondary')} onClick={() => {
+          setFoldOpen(false)
+          setMoreOpen(false)
+          // A phone's Search is inside More's panel, which this press closes. The lines move the focus to their search box once they are on All; until then, and if a draft they cannot save refuses the change, it stays on the button that opened the panel.
+          phoneMore.current?.focus()
+          onSearch()
+        }}>Search</button>
+      )}
     </>
   )
   const switchView = <TitleViewSwitch view="simple" onChange={onView} />
+  // Drawn by the lines (a portal), so it is only there on a page that shows an audio title's lines; display: contents keeps an empty slot from taking a gap.
+  const playerButton = <span className="title-top-player" ref={playerSlot} />
   const source = (
     <>
       <OpenFolderButton open={() => openDramaFolder(id)} className="ws-folder" title="Show this title's files on the PC" />
@@ -149,14 +168,27 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
         </ButtonLink>
         <div className="title-top-name">
           <h1 data-testid="drama-title" title={title}>{title}</h1>
-          {/* Under the name, not beside it, so the controls fit on the name's row; a phone's header leaves it out. */}
-          {badge && !phone && <p className="title-top-kind" data-testid="title-kind">{kindBadgeText(drama.media_type, drama.source_language)}</p>}
+          {/* A phone's header leaves the kind out: its row is the back arrow, the name and the steps button. */}
+          {badge && !phone && <span className="title-top-kind" data-testid="title-kind">{kindBadgeText(drama.media_type, drama.source_language)}</span>}
         </div>
         <JobPill dramaId={id} onFinished={onJobFinished} />
         {phone ? (
-          <button type="button" className={buttonClass('secondary', undefined, 'steps-fold-toggle')} aria-expanded={foldOpen} aria-controls={foldId} onClick={() => setFoldOpen((o) => !o)}>
-            {(focus && stepPlace(steps, focus)) ?? 'Steps'}
-          </button>
+          <>
+            <button type="button" ref={phoneMore} className={buttonClass('secondary', undefined, 'title-top-more')} aria-expanded={moreOpen} aria-controls={moreId} onClick={() => { setFoldOpen(false); setMoreOpen((o) => !o) }}>
+              More
+            </button>
+            <button type="button" className={buttonClass('secondary', undefined, 'steps-fold-toggle')} aria-expanded={foldOpen} aria-controls={foldId} onClick={() => { setMoreOpen(false); setFoldOpen((o) => !o) }}>
+              <span>{(focus && stepPlace(steps, focus)) ?? 'Steps'}</span>
+              {/* A space between them, so the button's name reads "Step 4 of 5 · Check 1 of 3 to look at" and not "Check1". */}
+              {position && ' '}
+              {position && <span className="steps-fold-position" data-testid="queue-position">{placeText(position)}</span>}
+            </button>
+            {position && (
+              <div className="title-top-progress" aria-hidden="true">
+                <div className="title-top-progress-fill" style={{ width: `${(position.at / position.total) * 100}%` }} />
+              </div>
+            )}
+          </>
         ) : (
           <div className="title-top-actions">
             {secondary}
@@ -169,20 +201,26 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
       </header>
       {phone ? (
         <>
+          <div id={moreId} className="steps-fold-body" hidden={!moreOpen}>
+            <div className="steps-fold-controls">{secondary}</div>
+            <div className="steps-fold-controls">
+              {source}
+              {playerButton}
+            </div>
+          </div>
           <div id={foldId} className="steps-fold-body" hidden={!foldOpen}>
             <StepRow id={id} input={progress} openStep={openStep} />
             {current && mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
-            <div className="steps-fold-controls">{secondary}</div>
-            <div className="steps-fold-controls">
-              {switchView}
-              {source}
-            </div>
+            <div className="steps-fold-controls">{switchView}</div>
           </div>
           {current && !mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
         </>
       ) : (
         <>
-          <div id={moreId} className="title-top-more-row" hidden={!moreOpen}>{source}</div>
+          <div id={moreId} className="title-top-more-row" hidden={!moreOpen}>
+            {source}
+            {playerButton}
+          </div>
           <StepRow id={id} input={progress} openStep={openStep} />
           {current && !mainElsewhere && <TitleMainRow>{main}</TitleMainRow>}
         </>
