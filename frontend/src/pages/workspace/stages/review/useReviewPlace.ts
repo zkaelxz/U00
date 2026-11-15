@@ -287,11 +287,12 @@ export function useKeepPlace(place: { kept: KeptRef; abandon: () => void }, live
   }, [kept])
 
   // A link that names a search can arrive while the list is open, outside the search box; it is the person's choice.
+  // A term that empties is a change of view clearing the box, and that change's own restore must stand.
   const seenTerm = useRef(live.term)
   useEffect(() => {
     if (seenTerm.current === live.term) return
     seenTerm.current = live.term
-    place.abandon()
+    if (live.term !== '') place.abandon()
     // Only a change of term counts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live.term])

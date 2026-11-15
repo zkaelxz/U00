@@ -272,6 +272,20 @@ test('the sentence goes when the view it was said in is left', async ({ page }) 
   await expect(status(page)).toHaveText('', { timeout: 2000 })
 })
 
+test('picking All with a search still in the box of another view reopens on the kept line', async ({ page }) => {
+  seedPlaceLines()
+  await keepLine55(page)
+  await page.getByRole('radio', { name: /^Flagged/ }).check({ force: true })
+  await expect(row(page, 12)).toHaveAttribute('aria-current', 'true')
+  const box = page.getByRole('searchbox', { name: 'Search lines' })
+  await box.fill('Line 12')
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(1)
+  await page.getByRole('radio', { name: /^All lines/ }).check({ force: true })
+  await expect(row(page, 55)).toHaveAttribute('aria-current', 'true')
+  await expect(pageNumber(page)).toHaveValue('2')
+  await expect(box).toHaveValue('')
+})
+
 test('work in Need a look keeps the place in All, and each view reopens on its own line', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
   seedPlaceLines()
