@@ -209,7 +209,7 @@ def _finish_message_locked(job):
     """Caller holds _lock. A cancel that arrived while the job was finishing
     leaves the job `done` (the work completed), so it must stop saying
     "Cancelling..." in the persisted row."""
-    if job.get("message") == CANCELLING_MESSAGE:
+    if job.get("message") == CANCELLING_MESSAGE or job.get("stop_message"):
         job["message"] = FINISHED_MESSAGE
 
 
@@ -537,7 +537,7 @@ def _mark_cancelled_locked(job_id, run=None):
         job["status"] = "cancelled"
         job["finished_at"] = time.time()
         if job.get("cancel_requested"):
-            job["message"] = CANCELLED_MESSAGE
+            job["message"] = job.get("stop_message") or CANCELLED_MESSAGE
         _interrupted_by_stop_locked(job)
         _mirror_locked(job_id)
 
@@ -892,10 +892,9 @@ def _end_watch(job_id, proc, result_queue, gpu_touching, on_finish, kill_whole_t
 
 def recheck_gpu_queue():
     """Public entry point for _promote_next_queued_gpu_job(), for callers
-    outside this module. Nothing here polls the GPU queue on its own (see
-    _gpu_slot_available_locked's own docstring) -- a job queued because
-    nvidia-smi showed the GPU busy with something Baihe didn't start
-    otherwise only gets re-checked the next time some *other* GPU-touching
-    job finishes. The Running Jobs panel's auto-refresh calls this on every
-    tick specifically to close that gap while it's open."""
+    outside this module. Nothing here polls the GPU queue on its own: a job
+    queued because the GPU was busy with something Baihe didn't start, or
+    held by the GPU guard, is otherwise re-checked only when another
+    GPU-touching job finishes. The API's GPU-queue poller (api/background.py)
+    calls this on a timer to close that gap."""
     _promote_next_queued_gpu_job()

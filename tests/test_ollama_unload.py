@@ -80,6 +80,23 @@ def test_loaded_models_are_unloaded_then_polled_until_empty(isolated_db, monkeyp
     assert ollama_unload.take_notice_result() == {}
 
 
+def test_the_gpu_guard_unloads_every_model_even_with_the_setting_off(isolated_db, monkeypatch):
+    # The guard's own setting is the consent: it frees memory another program needs now.
+    ollama_unload.set_enabled(False)
+    fake = _install(monkeypatch, FakeOllama(loaded=["translategemma:27b", "bge-m3"]))
+    assert ollama_unload.unload_loaded_models() == 2
+    assert [body["model"] for _url, body in fake.posts] == ["translategemma:27b", "bge-m3"]
+    assert fake.loaded == []
+
+
+def test_the_gpu_guard_never_reaches_a_remote_ollama(isolated_db, monkeypatch):
+    monkeypatch.setattr(settings_service, "resolve_key",
+                        lambda name, *a, **k: "http://192.168.1.5:11434" if name == "ollama_url" else None)
+    fake = _install(monkeypatch, FakeOllama(loaded=["m"]))
+    assert ollama_unload.unload_loaded_models() == 0
+    assert fake.gets == [] and fake.posts == []
+
+
 def test_nothing_loaded_sends_no_unload_and_no_notice(isolated_db, monkeypatch):
     fake = _install(monkeypatch, FakeOllama())
     ollama_unload.prepare_gpu_for_transcription(True)
