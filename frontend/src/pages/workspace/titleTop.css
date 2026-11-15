@@ -10,6 +10,8 @@
   background: var(--surface-2); color: var(--muted); font-size: 0.8667rem; overflow-wrap: break-word;
 }
 .title-top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; min-width: 0; }
+/* The drawn buttons are 11px wide on each side of their words; at the app's 16px the name no longer fits beside the chip and five buttons at 1440. */
+.title-top-actions .btn, .title-top-more-row .btn { padding-inline: 11px; }
 /* The slot is empty on a page without an audio title's lines; as a box it would still take a gap. */
 .title-top-player { display: contents; }
 .title-top-more-row:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
