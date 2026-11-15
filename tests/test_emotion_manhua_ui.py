@@ -2,7 +2,7 @@
 tests/test_emotion_manhua_ui.py -- emotion tagging, manhua/webtoon
 handling, and the UI design primitives.
 """
-import sys, os, tempfile, shutil
+import json, sys, os, tempfile, shutil
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
@@ -116,6 +116,19 @@ class TestDetectEmotionsProgress:
         result = em.detect_emotions(lines, BrokenEngine(), batch_size=3, progress_cb=seen.append)
         assert seen == [0.5, 1.0]  # both batches counted as attempted
         assert result == {}  # neither batch's garbage response parsed
+
+
+class TestParseEmotionTagNote:
+    def test_non_string_note_becomes_empty(self):
+        for bad in (5, ["a"], {"x": 1}, None):
+            out = em.parse_emotion_tags(json.dumps(
+                [{"line_idx": 1, "emotion": "angry", "intensity": 0.8, "note": bad}]))
+            assert out[1]["note"] == ""
+
+    def test_long_note_is_clamped(self):
+        out = em.parse_emotion_tags(json.dumps(
+            [{"line_idx": 1, "emotion": "angry", "note": "x" * 5000}]))
+        assert len(out[1]["note"]) == em.MAX_NOTE_CHARS
 
 
 class TestEmotionTagDescriptions:

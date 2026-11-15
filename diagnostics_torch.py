@@ -261,7 +261,15 @@ def external_gpu_is_busy(load: dict | None | EllipsisType = ...):
     if load is None:
         return False
     return (load["utilization_percent"] >= EXTERNAL_GPU_BUSY_UTIL_PERCENT or
-            load["memory_free_mb"] < EXTERNAL_GPU_BUSY_MIN_FREE_MB)
+            load["memory_free_mb"] < external_busy_min_free_mb())
+
+
+def external_busy_min_free_mb() -> float:
+    """The free VRAM a GPU job needs to start: Keep free graphics memory when
+    it is set, so a job never starts into the room kept for other programs,
+    and never less than EXTERNAL_GPU_BUSY_MIN_FREE_MB."""
+    import memory_headroom
+    return max(float(EXTERNAL_GPU_BUSY_MIN_FREE_MB), memory_headroom.reserved_mb("vram"))
 
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,8 @@ stored on the drama. The API reads lines/config from the
 DB, not unsaved browser state. D2: keys/secrets, client-supplied URLs and
 the novel text are never returned -- booleans only.
 """
+import functools
+import inspect
 import json
 import re
 import threading
@@ -31,7 +33,7 @@ from types import SimpleNamespace
 from typing import Optional
 
 import background_jobs
-from jobs import job_launch
+from jobs import gpu_guard, job_launch
 import bulk_poll
 import bulk_translate
 import translation_finish
@@ -400,6 +402,25 @@ def _require_offered_model(engine_name: str, model) -> None:
         raise InvalidInputError("That model isn't offered for this engine.")
 
 
+def _restartable_when_plain(start):
+    """Lets the GPU guard stop a plain run and start it again with the same
+    call (jobs/gpu_guard.py). A plain run saves each batch as it goes and a new
+    one translates only the lines still empty, so the restart carries on. A
+    forced re-translation would redo finished lines, and Reflect, bulk or a
+    chosen set of lines would not start the same way, so those don't."""
+    signature = inspect.signature(start)
+
+    @functools.wraps(start)
+    def run(*args, **kwargs):
+        call = signature.bind(*args, **kwargs).arguments
+        resp = start(*args, **kwargs)
+        if not any(call.get(k) for k in ("force_retranslate", "reflect", "bulk", "line_ids")):
+            gpu_guard.allow_restart(resp["job_id"], functools.partial(run, **call))
+        return resp
+    return run
+
+
+@_restartable_when_plain
 def start_translate_run(drama_id: int, engine_name: str | None = None, model: str | None = None,
                         style_preset: str | None = None, style_note: str | None = None,
                         locale: str | None = None, force_retranslate: bool = False,
