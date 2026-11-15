@@ -48,6 +48,8 @@ def test_a_passed_push_run_counts(github):
 
 @pytest.mark.parametrize("runs", [
     [], [_run("failure")], [_run(None)],
+    # A waiting run that a newer merge replaced: none of its jobs ran.
+    [_run("cancelled")],
     # A pull request's run tests a merge with the base, not this commit.
     [_run("success", event="pull_request")],
     [_run("success", branch="someone-elses-branch")],

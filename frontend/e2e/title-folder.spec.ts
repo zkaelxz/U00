@@ -45,6 +45,12 @@ test('under a background service Open folder shows the folder path to copy, in t
 
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
+  // In Simple, Open folder is under the header's More.
+  await page.locator('.workspace-header').getByRole('button', { name: 'More', exact: true }).click()
   await page.getByRole('button', { name: 'Open folder' }).click()
   await expect(page.getByLabel('Folder path')).toHaveValue('E:\\U00\\library\\dramas\\3')
+  const notice = (await page.getByRole('status').filter({ hasText: 'Open this folder yourself' }).boundingBox())!
+  expect(notice.x).toBeGreaterThanOrEqual(0)
+  expect(notice.x + notice.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
