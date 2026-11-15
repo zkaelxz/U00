@@ -3,7 +3,6 @@
  * the owner turns it off) that keeps rotating copies (one a day for the last
  * 7 days, plus the first of each of the last 4 weeks), plus "Back up now", which adds a copy. The copies are listed newest first; restoring a
  * drama from one, or deleting one, is the card below (SnapshotBlock).
- * Settings keeps only a summary card (AutoBackupCard) that links here.
  * PC only: the Backup tab is left out away from the PC, and nothing is
  * fetched until /api/meta has answered.
  *

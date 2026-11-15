@@ -52,7 +52,7 @@ describe('parseRoute', () => {
     expect(parseRoute('#/settings?section=nope')).toEqual({ name: 'settings' })
     expect(parseRoute('#/settings?card=display')).toEqual({ name: 'settings', card: 'display' })
     expect(parseRoute('#/settings?card=nope')).toEqual({ name: 'settings' })
-    expect(routeHref({ name: 'settings', card: 'auto-backup' })).toBe('#/settings?card=auto-backup')
+    expect(routeHref({ name: 'settings', card: 'updates' })).toBe('#/settings?card=updates')
     expect(routeHref({ name: 'settings', section: 'developer-mode' })).toBe('#/settings?section=developer-mode')
     expect(parseRoute('#/jobs')).toEqual({ name: 'jobs' })
     expect(parseRoute('#/jobs/extra')).toEqual({ name: 'library' })

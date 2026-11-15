@@ -531,8 +531,8 @@ def check_database_before_setup(version) -> None:
         raise ConflictError(_BACKUP_FIRST_UNKNOWN)
 
 
-_BACKUP_STEPS = ("Back up the library first (Settings > Notifications and backups > Automatic "
-                 "backups > Back up now), then update again.")
+_BACKUP_STEPS = ("Back up the library first (Library tools > Backup > "
+                 "Back up now), then update again.")
 _BACKUP_FIRST = ("This update changes the library database, and going back to the current version "
                  "afterwards would need a backup. " + _BACKUP_STEPS)
 _BACKUP_FIRST_UNKNOWN = ("This update may change the library database, and going back to the "

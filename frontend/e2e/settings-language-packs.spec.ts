@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 
-// Settings > Translation and keys > Language packs: the read-only list of built-in packs per
+// Settings > Engines and keys > Language packs: the read-only list of built-in packs per
 // language, with which are on by default. The pack routes are mocked; any write is recorded.
 
 const pack = (id: string, language: string, title: string, entry_count: number) => ({
@@ -47,7 +47,7 @@ async function mockPacks(page: Page) {
 
 async function openCard(page: Page) {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Engines and keys')
   const card = page.getByRole('region', { name: 'Language packs', exact: true })
   await expect(card.getByRole('heading', { name: 'Japanese' })).toBeVisible()
   return card
