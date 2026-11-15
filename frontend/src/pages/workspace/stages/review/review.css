@@ -476,7 +476,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 @media (min-width: 641px) {
   /* Each panel is one white card, the way This line's three are; the toolbox itself is only the stack of them. */
   .stage-review .review-toolbox { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; gap: 0.6667rem; }
-  .review-toolbox-panel:not(.review-line-dock) { padding: 0.9333rem 1.0667rem; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
+  /* The card's padding and the gap between its sections are kept small: Change many lines holds a dozen sections and has to stay within one desktop screen even while the first card opens. */
+  .review-toolbox-panel:not(.review-line-dock) { padding: 0.6667rem 1.0667rem; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
+  .stage-review .review-toolbox-panel > .review-tab-body { gap: 0.3333rem; }
 }
 .review-toolbox { display: grid; gap: var(--space-2); min-width: 0; }
 .review-toolbox-panel[hidden] { display: none; }
