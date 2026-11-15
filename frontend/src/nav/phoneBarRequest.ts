@@ -2,9 +2,10 @@
 import { useEffect, useSyncExternalStore } from 'react'
 
 let wanted = false
+let owner: object | null = null
 const listeners = new Set<() => void>()
 
-const set = (next: boolean) => {
+const publish = (next: boolean) => {
   if (wanted === next) return
   wanted = next
   listeners.forEach((l) => l())
@@ -14,8 +15,16 @@ const set = (next: boolean) => {
  *  not know the page's state, draws it. The ask ends with the page. */
 export function useWantsPhoneBar(want: boolean) {
   useEffect(() => {
-    set(want)
-    return () => set(false)
+    if (!want) return
+    // A remounted page's effect runs before the old one's cleanup, so a cleanup may only end the ask it made.
+    const mine = {}
+    owner = mine
+    publish(true)
+    return () => {
+      if (owner !== mine) return
+      owner = null
+      publish(false)
+    }
   }, [want])
 }
 

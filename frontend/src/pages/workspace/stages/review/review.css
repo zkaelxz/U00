@@ -361,6 +361,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
     min-height: 56px; padding: var(--space-1) var(--space-2) calc(var(--space-1) + env(safe-area-inset-bottom, 0px));
     background: var(--surface); border-top: 1px solid var(--border);
   }
+  /* Wherever the phone menu is drawn under the bar (the check page) its published height clears it; a menu at the top leaves the bar at the bottom edge. */
+  .review-editbar { padding-bottom: calc(var(--space-1) + var(--phone-bar-h, env(safe-area-inset-bottom, 0px))); }
+  .app-shell.nav-top .review-editbar { padding-bottom: calc(var(--space-1) + env(safe-area-inset-bottom, 0px)); }
   .review-editbar button { flex: 1 1 0; min-width: 0; min-height: var(--touch); padding-inline: var(--space-1); white-space: nowrap; }
   .review-editbar button.btn-primary { flex-grow: 1.7; }
   .review-editbar > [role='status'] { flex: 2 1 0; min-width: 0; font-size: var(--text-sm); }
@@ -704,6 +707,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* The phone menu sits under this bar on the check page, so its published height is the bottom padding. The bar's own
      padding already clears the home indicator when the menu is not there. */
   .review-editbar.is-queue { padding-block: var(--space-2) calc(var(--space-2) + var(--phone-bar-h, env(safe-area-inset-bottom, 0px))); }
+  .app-shell.nav-top .review-editbar.is-queue { padding-bottom: calc(var(--space-2) + env(safe-area-inset-bottom, 0px)); }
   /* No side padding: a flex basis of 0 still holds the padding, which would skew the one-to-two split. */
   .review-editbar.is-queue button { flex: 1 1 0; min-height: var(--touch); padding-inline: 0; }
   .review-editbar.is-queue .review-queue-done { flex: 2 1 0; font-weight: var(--weight-bold); }
