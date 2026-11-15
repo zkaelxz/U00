@@ -4,6 +4,7 @@ import inspect
 import re
 from pathlib import Path
 from lib.errors import MissingPackageError
+from lib import settings_schema
 from . import pricing
 from .claude import ClaudeEngine
 from .gemini import GeminiEngine
@@ -173,19 +174,51 @@ def _read_overrides(setting_key: str, valid_keys) -> dict:
             if k in valid_keys and isinstance(v, str) and MODEL_ID_RE.fullmatch(v) and ".." not in v}
 
 
+# Set by services.ownership_service, which knows who a request acts for; this
+# module sits below it. Returns False for a caller who may not use a hosted default.
+_hosted_default_caller_ok = None
+
+
+def set_hosted_default_caller_check(check) -> None:
+    global _hosted_default_caller_ok
+    _hosted_default_caller_ok = check
+
+
+def hosted_default_allowed() -> bool:
+    """Whether a hosted Ollama tag may be a default for this caller: the owner
+    opted in (Settings) and the caller holds paid-engine permission. A caller
+    without it falls back to the local default (translategemma), so the owner's
+    choice never sends a restricted account's text off the PC."""
+    try:
+        import db
+        if not settings_schema.coerce(
+                "ollama_cloud_default", db.get_app_setting("pref.ollama_cloud_default")):
+            return False
+    except Exception:
+        return False
+    return _hosted_default_caller_ok is None or bool(_hosted_default_caller_ok())
+
+
+def hosted_default_blocked(engine_name: "str | None", model) -> bool:
+    """True when `model` is a hosted Ollama tag that may not be used as a default:
+    a default is used by every call that names Ollama without a model, so a hosted
+    tag there sends text off this PC unannounced unless the owner opted in."""
+    return engine_name == "ollama" and is_ollama_cloud_model(model) and not hosted_default_allowed()
+
+
 def model_override_for_default(engine_name: str):
     """The user's chosen model for `engine_name`'s built-in default, or None.
     An override for an engine this build no longer has is ignored."""
     model = _read_overrides(MODEL_OVERRIDE_DEFAULTS_KEY, ENGINES).get(engine_name)
     # Re-checked on read: a restored backup bypasses the write-time check, and
-    # a hosted tag as the default would send text off this PC unannounced.
-    return None if engine_name == "ollama" and is_ollama_cloud_model(model) else model
+    # switching the opt-in off must stop a stored hosted default at once.
+    return None if hosted_default_blocked(engine_name, model) else model
 
 
 def model_override_for_tier(tier_key: str):
     model = _read_overrides(MODEL_OVERRIDE_TIERS_KEY, WORKFLOW_TIERS).get(tier_key)
     tier = WORKFLOW_TIERS.get(tier_key) or {}
-    return None if tier.get("translation_engine") == "ollama" and is_ollama_cloud_model(model) else model
+    return None if hosted_default_blocked(tier.get("translation_engine"), model) else model
 
 
 def builtin_default_model(engine_name: str):

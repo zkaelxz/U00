@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { listenApi } from '../../api/listen'
+import { listenApi, listenTestVoiceUrl } from '../../api/listen'
 import { getCharacters } from '../../api/translateStage'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
@@ -35,6 +35,36 @@ function voiceState(c: CharacterEntry): string {
 }
 
 const LANGUAGE_LABEL: Record<string, string> = { translation: 'Translation', original: 'Original language' }
+
+// Speaks one short sentence in this speaker's voice, so a voice can be judged before a whole narration is made.
+function TestVoice({ dramaId, speaker, engine, language, disabled }: {
+  dramaId: number
+  speaker: string
+  engine: string
+  language: string
+  disabled: boolean
+}) {
+  const [error, setError] = useState<unknown>(null)
+  const [jobId, setJobId, runKey] = useJobRun()
+  const { job, done, error: pollError } = useJob(jobId, { runKey })
+  const busy = jobId !== null && !done && !pollError
+  const failed = done && job && jobFailed(job)
+  const test = () =>
+    listenApi.testVoice(dramaId, { speaker_label: speaker, tts_engine: engine, narration_language: language || undefined }).then((r) => {
+      setError(null)
+      setJobId(r.job_id)
+    }, setError)
+  return (
+    <>
+      {' '}
+      <button type="button" disabled={disabled || busy || !engine} onClick={test}>Test voice</button>
+      {busy && <span role="status"> {job?.message || 'Speaking a sample...'}</span>}
+      {failed && <span role="status"> {job.message || job.error || 'The sample could not be made.'}</span>}
+      <ErrorBanner error={error ?? pollError} onDismiss={() => setError(null)} />
+      {done && jobSucceeded(job) && <audio controls autoPlay src={listenTestVoiceUrl(dramaId, runKey)} aria-label={`Sample of ${speaker}'s voice`} />}
+    </>
+  )
+}
 
 export function ListenPicker({ dramaId, engines, engine, voices, disabled, onChange, languages = [], language = '', onLanguage }: {
   dramaId: number
@@ -72,10 +102,11 @@ export function ListenPicker({ dramaId, engines, engine, voices, disabled, onCha
         </label>
       )}
       {voices.map((v) => (
-        <p key={v.speaker_label} className="muted">
+        <div key={v.speaker_label} className="muted">
           {v.character_name || v.speaker_label}: {voiceState(v)}{' '}
           <a href={`#/drama/${dramaId}/review?focus=voices`}>Change voice</a>
-        </p>
+          <TestVoice dramaId={dramaId} speaker={v.speaker_label} engine={engine} language={language} disabled={disabled} />
+        </div>
       ))}
     </>
   )

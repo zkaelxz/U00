@@ -36,6 +36,21 @@ describe('ListenPicker', () => {
     expect(out).toContain('href="#/drama/22/review?focus=voices"')
     expect(out).toContain('Change voice')
   })
+
+  it('offers a Test voice button for each speaker', () => {
+    const out = renderToStaticMarkup(
+      <ListenPicker dramaId={22} engines={engines} engine="qwen3_tts" disabled={false} onChange={() => undefined}
+        voices={[voice({}), voice({ speaker_label: 'B' })]} />,
+    )
+    expect(out.match(/Test voice/g)).toHaveLength(2)
+  })
+
+  it('turns Test voice off while a narration is being made', () => {
+    const out = renderToStaticMarkup(
+      <ListenPicker dramaId={22} engines={engines} engine="qwen3_tts" disabled={true} onChange={() => undefined} voices={[voice({})]} />,
+    )
+    expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Test voice/)
+  })
 })
 
 describe('voice language', () => {
