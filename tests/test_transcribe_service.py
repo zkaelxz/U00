@@ -2574,10 +2574,10 @@ class TestMissingPackageOutcome:
     def test_a_headroom_refusal_shows_its_own_sentence(self, monkeypatch, tmp_path):
         import queue
         import memory_headroom
-        sentence = "Not loading Whisper large-v3: it needs about 3 GB of RAM, 1 GB is free."
+        sentence = "Not loading Whisper large-v3: it needs about 3 GB of GPU memory, 1 GB is free."
 
         def refuse(*a, **k):
-            raise memory_headroom.HeadroomError(sentence)
+            raise memory_headroom.HeadroomError(sentence, vram_need_mb=3072.0)
         monkeypatch.setattr(transcribe_pipeline, "_transcribe_pipeline", refuse)
         q = queue.Queue()
         transcribe_pipeline._transcribe_worker(
@@ -2585,7 +2585,9 @@ class TestMissingPackageOutcome:
             False, False, False, "", False, "whisper", "whisper_diff", None, 1, False, False, 2.0, 0.35,
             False, False, "normal", "standard", None, None, None, str(tmp_path / "scratch"), q)
         kind, outcome = q.get_nowait()
-        assert (kind, outcome) == ("ok", {"failed_reason": "headroom", "detail": sentence})
+        # The need lets the GPU guard wait for room (jobs/gpu_guard.py).
+        assert (kind, outcome) == ("ok", {"failed_reason": "headroom", "detail": sentence,
+                                          "vram_need_mb": 3072.0})
         # The job ends Failed with the sentence alone, no "HeadroomError:" in front.
         assert job_runner._failed_outcome_error(outcome, "transcribe_1") == sentence
 
@@ -2625,6 +2627,7 @@ class TestMissingPackageOutcome:
             time.sleep(0.02)
         assert status["status"] == "error"
         assert status["error"] == sentence
+        assert status["result"]["vram_need_mb"] is None   # a RAM refusal: nothing to wait for
         background_jobs.clear_job(job_id)
 
     def test_the_failed_import_is_logged_and_kept_out_of_the_result(self, isolated_db):
