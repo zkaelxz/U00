@@ -557,6 +557,12 @@ jobs:
           # tests a merge with the base, not this commit, and anyone can open one.
           conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/tests.yml/runs?head_sha=$GITHUB_SHA&event=push&branch=baihe-subtitler&per_page=100" \
             --jq "$RUNS_FILTER")"
+          # A run that waited and lost its place to a newer merge shows as cancelled; the generic
+          # message below would tell a maintainer to wait for a run that never finishes.
+          if [ "$conclusion" = "cancelled" ]; then
+            echo "::error::The Tests run on baihe-subtitler at $GITHUB_SHA was cancelled and never ran to the end. That is what happens to a run that was still waiting when a newer merge took its place, and it does not mean the commit failed. Tag the later commit once its Tests run passed, or re-run this commit's cancelled run while no other run is waiting and tag when it has passed (docs/runbook.md, section 1, step 5). Nothing was published."
+            exit 1
+          fi
           if [ "$conclusion" != "success" ]; then
             echo "::error::The Tests run on baihe-subtitler at $GITHUB_SHA is $conclusion, not success. Tag a commit whose Tests run on baihe-subtitler passed, or wait for it to finish and re-run this job. Nothing was published."
             exit 1
