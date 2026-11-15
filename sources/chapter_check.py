@@ -21,7 +21,7 @@ from lib.errors import ConflictError
 from engine_backends.shared import redact_for_storage
 
 from . import extension_marker, http, ladder, registry, store
-from .models import SourceError
+from .models import FailureReason, FetchFailed, SourceError
 
 CHECK_JOB_ID = "sources_chapter_check"
 # A cycle's claim expires after this long, so a process that died
@@ -67,6 +67,12 @@ def check_series(adapter, row: dict) -> list:
         return []
     if chapters is None:
         raise TypeError("NotModified was raised outside this poll's own request")
+    partial = getattr(adapter, "chapter_notice", "")
+    if partial:
+        # Nothing is recorded from a short list: the volumes it left out would
+        # later come back as "new" chapters. The validators stay unsaved too,
+        # so the next poll is a full fetch.
+        raise FetchFailed(f"Not checked: {partial}", FailureReason.HTTP_ERROR)
     known = store.known_chapter_ids(source, series_id)
     new = [c for c in chapters if c.chapter_id not in known]
     if new:
