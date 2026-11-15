@@ -45,7 +45,7 @@ describe('NowCard', () => {
     const out = html(props({ line: null }))
     expect(out).toContain('Press play. The line being spoken shows here.')
     expect(out).not.toContain('watch-now-box')
-    expect(out).not.toContain('Fix this line')
+    expect(out).not.toContain('Fix Line')
   })
 
   it('shows the line number and start, the original in its language and the English in a field-like box', () => {
@@ -54,22 +54,22 @@ describe('NowCard', () => {
     expect(out).toContain('<p class="watch-now-zh" lang="zh">第2句</p>')
     expect(out).toContain('>English<')
     expect(out).toMatch(/<button[^>]*class="watch-now-box"[^>]*>Line 2<\/button>/)
-    expect(out).toContain('Fix this line')
-    expect(out).toContain('Hear it again')
+    expect(out).toContain('Fix Line')
+    expect(out).toContain('Listen')
     expect(html(props({ line: line(2, 4, { lang: 'ja' }) }))).toContain('lang="ja"')
   })
 
   it('says No English yet, muted, for a line without English, and still offers the fix', () => {
     const out = html(props({ line: line(2, 4, { en: '' }) }))
     expect(out).toMatch(/class="watch-now-box is-empty"[^>]*>No English yet</)
-    expect(out).toContain('Fix this line')
+    expect(out).toContain('Fix Line')
   })
 
-  it('a click on the box and Fix this line both ask the page to open the fix', () => {
+  it('a click on the box and Fix Line both ask the page to open the fix', () => {
     const onOpen = vi.fn()
     const tree = NowCard(props({ onOpen }))
     ;(byTestId(tree, 'watch-now-box')!.props.onClick as () => void)()
-    ;(byText(tree, 'Fix this line')!.props.onClick as () => void)()
+    ;(byText(tree, 'Fix Line')!.props.onClick as () => void)()
     expect(onOpen).toHaveBeenCalledTimes(2)
   })
 
@@ -86,7 +86,7 @@ describe('NowCard', () => {
     expect(out).not.toContain('watch-now-box')
   })
 
-  // Pressed on the form, so they work from Save and play, Cancel and Hear it again as well as from the box.
+  // Pressed on the form, so they work from Save and play, Cancel and Listen as well as from the box.
   it('Ctrl+Enter saves and Esc cancels anywhere in the fix, not only in the box', () => {
     const onSave = vi.fn()
     const onCancel = vi.fn()
@@ -156,9 +156,9 @@ describe('NowCard', () => {
     const out = html(props({ canEdit: false }))
     expect(out).toContain('<p class="watch-now-en" data-testid="watch-now-en" lang="en">Line 2</p>')
     expect(out).not.toContain('watch-now-box')
-    expect(out).not.toContain('Fix this line')
+    expect(out).not.toContain('Fix Line')
     expect(out).not.toContain('<textarea')
-    expect(out).toContain('Hear it again')
+    expect(out).toContain('Listen')
   })
 })
 
@@ -170,10 +170,12 @@ describe('NowCard marks and jump', () => {
   it('shows the three verdicts and the jump, with the current mark pressed', () => {
     const out = html(props({ line: line(2, 4, { mark: 'wrong' }), onMark: vi.fn(), onJump: vi.fn() }))
     expect(out).toContain('aria-label="Your mark on this line"')
-    expect(out).toMatch(/aria-pressed="true"[^>]*>(?:<span[^>]*>✗<\/span>) Wrong</)
-    expect(out).toMatch(/aria-pressed="false"[^>]*>(?:<span[^>]*>✓<\/span>) Looks right</)
-    expect(out).toContain('Previous marked or flagged')
-    expect(out).toContain('Next marked or flagged')
+    expect(out).toMatch(/aria-pressed="true"[^>]*aria-label="Wrong"/)
+    expect(out).toMatch(/aria-label="Looks right"[^>]*><span[^>]*>✓<\/span><\/button>/)
+    expect(out).toMatch(/aria-label="Wrong"[^>]*><span[^>]*>✗<\/span><\/button>/)
+    expect(out).toMatch(/aria-label="Mixed"[^>]*><span[^>]*>〰<\/span><\/button>/)
+    expect(out).toContain('‹ Prev. Flag')
+    expect(out).toContain('Next Flag ›')
   })
 
   it('does not offer a verdict on a line with no English to judge', () => {

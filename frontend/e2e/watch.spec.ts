@@ -229,7 +229,7 @@ test.describe('with sound', () => {
     await now(page).getByRole('button', { name: 'Save and play' }).focus()
     await page.keyboard.press('Escape')
     await expect(field(page)).toHaveCount(0)
-    await expect(now(page).getByRole('button', { name: 'Fix this line' })).toBeFocused()
+    await expect(now(page).getByRole('button', { name: 'Fix Line' })).toBeFocused()
     await expect(row(page, 2)).toContainText('Line 2, fixed by ear')
     expect(sentAfter).toEqual([])
   })
@@ -335,7 +335,7 @@ test.describe('with sound', () => {
     await expect(rowButton(page, 2)).toHaveAttribute('aria-current', 'true')
     await page.keyboard.press('p')
     await expect(now(page).getByRole('status')).toHaveText('No marked or flagged line before this one.')
-    await now(page).getByRole('button', { name: /Next marked or flagged/ }).click()
+    await now(page).getByRole('button', { name: /Next Flag/ }).click()
     await expect(rowButton(page, 6)).toHaveAttribute('aria-current', 'true')
     await page.keyboard.press('n')
     await expect(now(page).getByRole('status')).toHaveText('No marked or flagged line after this one.')
@@ -364,20 +364,20 @@ test.describe('with sound', () => {
     await page.keyboard.press('x')
     await expect(now(page).getByTestId('line-mark')).toHaveCount(0)
     expect(saved).toEqual([])
-    await expect(now(page).getByRole('button', { name: /Next marked or flagged/ })).toBeVisible()
+    await expect(now(page).getByRole('button', { name: /Next Flag/ })).toBeVisible()
   })
 
-  test('a person who may not edit lines gets no box to press and no Fix this line, and E does nothing', async ({ page }) => {
+  test('a person who may not edit lines gets no box to press and no Fix Line, and E does nothing', async ({ page }) => {
     await page.route('**/api/auth/me', (r) => r.fulfill({ json: { ...ME.signedIn, permissions: ['library.read'] } }))
     await page.goto('/#/watch/3')
     await ready(page)
     await page.keyboard.press('ArrowDown')
     await expect(now(page).getByTestId('watch-now-en')).toHaveText('Line 1')
     await expect(now(page).getByTestId('watch-now-box')).toHaveCount(0)
-    await expect(now(page).getByRole('button', { name: 'Fix this line' })).toHaveCount(0)
+    await expect(now(page).getByRole('button', { name: 'Fix Line' })).toHaveCount(0)
     await page.keyboard.press('e')
     await expect(now(page).getByRole('textbox')).toHaveCount(0)
-    await expect(now(page).getByRole('button', { name: 'Hear it again' })).toBeVisible()
+    await expect(now(page).getByRole('button', { name: 'Listen', exact: true })).toBeVisible()
   })
 
   test('leaving inside the app with a fix typed saves it, with the English that was seen', async ({ page }) => {
@@ -513,7 +513,7 @@ test.describe('with sound', () => {
     await ready(page)
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('ArrowDown')
-    await now(page).getByRole('button', { name: 'Fix this line' }).click()
+    await now(page).getByRole('button', { name: 'Fix Line' }).click()
     const field = now(page).getByRole('textbox', { name: 'English' })
     await field.fill('Mine')
     // Someone else changes the line while the field is open, so the save is refused for real.
@@ -539,7 +539,7 @@ test.describe('with sound', () => {
     await page.goto('/#/watch/3')
     await ready(page)
     await page.keyboard.press('ArrowDown')
-    await now(page).getByRole('button', { name: 'Fix this line' }).click()
+    await now(page).getByRole('button', { name: 'Fix Line' }).click()
     const field = now(page).getByRole('textbox', { name: 'English' })
     await field.fill('Mine')
     await page.route(/\/api\/lines\/dramas\/3\/lines\/\d+$/, (r) => r.request().method() === 'POST'
@@ -923,12 +923,12 @@ test.describe('with sound', () => {
     await expect(now(page).getByRole('status')).toHaveText('')
   })
 
-  test('Esc closes the fix with focus on Cancel and on Hear it again', async ({ page }) => {
+  test('Esc closes the fix with focus on Cancel and on Listen', async ({ page }) => {
     await page.goto('/#/watch/3')
     await ready(page)
     await page.keyboard.press('ArrowDown')
     const sent = saves(page)
-    for (const name of ['Cancel', 'Hear it again']) {
+    for (const name of ['Cancel', 'Listen']) {
       await page.keyboard.press('e')
       await field(page).fill('Not wanted')
       await now(page).getByRole('button', { name }).focus()
@@ -1082,13 +1082,13 @@ test.describe('with sound', () => {
       ol.scrollTop = where === 'top' ? 0 : ol.scrollHeight
     }), where)
 
-    test('a scroll of the list from its scroll bar waits for the person, and Hear it again brings it back', async ({ page }) => {
+    test('a scroll of the list from its scroll bar waits for the person, and Listen brings it back', async ({ page }) => {
       await playFrom(page, '0:18')
       await spokenRowAtFollowPlace(page, 3000)
       await scrollListTo(page, 'end')
       const after = await afterNextLine(page, 20)
       expect(Math.max(...after.map((a) => a.gap))).toBeLessThanOrEqual(2)
-      await now(page).getByRole('button', { name: 'Hear it again' }).click()
+      await now(page).getByRole('button', { name: 'Listen', exact: true }).click()
       await spokenRowAtFollowPlace(page, 3000)
     })
 
