@@ -66,6 +66,13 @@ export function clearCheckLines(drama: number): void {
   inLibrary(`db.save_lines(${drama}, [])`)
 }
 
+// Drama 3 with one line, and it needs a look: the queue is that line alone, with no footer under it.
+export function seedOneFlaggedLine(): void {
+  inLibrary(`from core import Line
+db.update_drama(3, audio_filename=None, source_video_filename=None)
+db.save_lines(3, [Line(idx=0, start=0, end=1.5, zh='第1句', en='Line 1', flag='glossary_missing', flag_note=${JSON.stringify(GLOSSARY_NOTE)})])`)
+}
+
 // Titles 3 and 1 in one series, for the Simple title page's Episodes tab. leaveSeries deletes the series, which takes both
 // titles out of it, so later specs see the library as it was seeded.
 const SERIES = 'E2E episodes'

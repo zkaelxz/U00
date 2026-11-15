@@ -517,6 +517,7 @@ from db.speakers import (  # noqa: F401
     save_voice_bank_entry,
     list_voice_bank_entries,
     get_voice_bank_entry,
+    voice_bank_clip_path,
     apply_voice_bank_entry,
     rename_voice_bank_entry,
     delete_voice_bank_entry,

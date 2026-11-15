@@ -245,6 +245,21 @@ class TestVoiceBankHardening:
         with pytest.raises(NotFoundError):
             cs.apply_voice_bank_entry(did, "A", eid)
 
+    def test_clip_outside_the_bank_folder_is_clean_not_found(self, isolated_db, tmp_path):
+        import sqlite3
+        outside = tmp_path / "outside.wav"
+        outside.write_bytes(b"RIFF")
+        did = _drama(isolated_db)
+        for name in ("../outside.wav", str(outside)):
+            eid = self._entry(isolated_db, tmp_path)
+            conn = sqlite3.connect(isolated_db.DB_PATH)
+            conn.execute("UPDATE voice_bank SET clip_filename = ? WHERE id = ?", (name, eid))
+            conn.commit()
+            conn.close()
+            with pytest.raises(NotFoundError):
+                cs.apply_voice_bank_entry(did, "A", eid)
+        assert _by_label(cs.list_characters(did), "A")["has_ref_audio"] is False
+
     def test_entry_engine_language_rule(self, isolated_db, tmp_path):
         eid = self._entry(isolated_db, tmp_path, engine="omnivoice")
         did = _drama(isolated_db, source_language="en")

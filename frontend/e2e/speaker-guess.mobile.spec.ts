@@ -52,7 +52,7 @@ test('a flagged phone card says what is left after its speaker is tapped, withou
   await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', JSON.stringify('simple')))
   await page.goto('/#/drama/3/review')
   await guesses(page, 3).getByRole('button', { name: /^Anok/ }).tap()
-  await expect(page.getByTestId('speaker-note')).toHaveText('Speaker set to Anok. This line is still listed: fast to read, 25 characters a second.')
+  await expect(page.getByTestId('speaker-note')).toHaveText('Speaker set to Anok. This line is still listed: too fast to read, 25 characters a second.')
   await expect(page.getByTestId('queue-position')).toHaveText('1 of 3 to look at')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })

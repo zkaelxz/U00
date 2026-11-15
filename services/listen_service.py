@@ -59,6 +59,18 @@ def _narration_language(drama: dict) -> str:
     return language if language in NARRATION_LANGUAGE_OPTIONS else "translation"
 
 
+UNLABELLED_SPEAKER_NAME = "Lines with no speaker"
+
+
+def _speakers_without_voice(characters, lines, engine: str, text_field: str, drama_path: str) -> list:
+    """Display names of the speakers with text to speak that `engine` has no voice for. Only
+    OmniVoice fills a bare speaker with a default voice; the other engines need a clip."""
+    spoken = {ln.speaker or None for ln in lines if (getattr(ln, text_field) or "").strip()}
+    clone_map = dub.clone_map_from_characters(characters, drama_path, default_engine=engine, speaker_labels=spoken)
+    names = {c["speaker_label"]: c.get("character_name") or c["speaker_label"] for c in characters}
+    return sorted(names.get(s) or s or UNLABELLED_SPEAKER_NAME for s in spoken if s not in clone_map)
+
+
 def _no_voice_message(names: list, engine: str) -> str:
     return (f"{', '.join(names)} {'has' if len(names) == 1 else 'have'} no voice yet. "
             f"{dub.engine_label(engine)} needs a reference clip or a voice description for every speaker; "
@@ -87,7 +99,8 @@ def get_listen_config(drama_id: int) -> dict:
         "narration_language": narration_language,
         "narration_language_options": list(NARRATION_LANGUAGE_OPTIONS),
         "tts_engines": [{**e, "unavailable_reason": _engine_unavailable_reason(e["key"], narrate_original,
-                                                                               source_language)}
+                                                                               source_language),
+                         "speakers_without_voice": _speakers_without_voice(chars, lines, e["key"], text_field, ddir)}
                         for e in TTS_ENGINES],
         "default_engine": dub.DEFAULT_CLONE_ENGINE,
         "blocker": config_blocker(chars),
@@ -221,7 +234,7 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
     """Starts the narration track as a background process job (`dub_<id>`);
     the result is applied by an on_done hook. {"job_id"}. NotFoundError (unknown
     or non-narrated title), InvalidInputError (unknown engine or language, a
-    removed engine, nothing to narrate), DependencyUnavailableError (ffmpeg or
+    removed engine, nothing to narrate, a speaker with no voice), DependencyUnavailableError (ffmpeg or
     the engine package missing), ConflictError (already running)."""
     drama = _require_narrated(drama_id)
     if not tts_engine:
@@ -245,6 +258,11 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
         raise ConflictError(f"A dub job is already running for title {drama_id}.")
     if narration_language != (drama.get("narration_language") or "translation"):
         db.update_drama(drama_id, narration_language=narration_language)
+
+    voiceless = _speakers_without_voice(chars, lines, tts_engine, "zh" if narrate_original else "en",
+                                        _drama_path(drama_id))
+    if voiceless:
+        raise InvalidInputError(_no_voice_message(voiceless, tts_engine))
 
     ddir = db.drama_dir(drama_id)
     clone_map = dub.clone_map_from_characters(

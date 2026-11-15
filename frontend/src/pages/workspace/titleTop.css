@@ -1,11 +1,21 @@
 /* Wrapping, not clipping: the header's controls, the step links and the buttons grow with their text and drop to the next line when they do not fit. */
 
-/* The title's controls stay together at the right; when they do not fit beside the title they move under it as one group.
-   The name's block starts narrow, so a long name wraps inside it before the controls give up the row. */
-.title-top-name { flex: 1 1 12rem; min-width: 0; display: grid; gap: 2px; }
-.title-top-kind { margin: 0; font-size: var(--text-sm); color: var(--muted); overflow-wrap: break-word; }
+/* One row: back, the name with its kind as a chip, then the title's controls at the right. The chip is what gives way:
+   when the name and the chip do not fit side by side the chip drops under the name, as the kind line sat before, and the
+   controls keep the row. The name's block starts narrow and grows, so a long name wraps inside it before the controls give up the row. */
+.title-top-name { flex: 1 1 12rem; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--space-2); }
+.title-top-name h1 { flex: 0 1 auto; min-width: 0; }
+.title-top-header:not(.is-phone) h1 { font-size: var(--text-lg); }
+.title-top-kind {
+  flex: 0 1 auto; width: max-content; max-width: 100%; padding: 3px 10px; border-radius: 12px;
+  background: var(--surface-2); color: var(--muted); font-size: var(--text-xs); overflow-wrap: break-word;
+}
 .title-top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; min-width: 0; }
 .title-top-actions .title-view-switch { margin-left: 0; }
+/* The drawn buttons are 11px wide on each side of their words; at the app's 16px the name no longer fits beside the chip and five buttons at 1440. */
+.title-top-actions .btn, .title-top-more-row .btn { padding-inline: 11px; }
+/* The slot is empty on a page without an audio title's lines; as a box it would still take a gap. */
+.title-top-player { display: contents; }
 .title-top-more-row:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
 .title-top-more-row .open-folder-notice { flex: 1 1 100%; min-width: 0; }
 .title-top-more-row .ws-source-add, .steps-fold-controls .ws-source-add { display: inline-flex; align-items: center; min-height: 44px; }
@@ -35,10 +45,16 @@
 .title-top-header.is-phone .title-top-name { flex: 1 1 0; }
 /* Level with the name's first line, not the middle of a name on two lines. */
 .title-top-header.is-phone > .ws-back { align-self: flex-start; }
-.title-top-header.is-phone h1 { overflow-wrap: break-word; }
+.title-top-header.is-phone h1 { overflow-wrap: break-word; font-family: var(--font-sans); font-size: var(--text-edit); }
+/* More sits at the right of the name's row, as tall as the back arrow; the steps button under it has the row to itself. */
+.title-top-header.is-phone > .title-top-more { flex: none; align-self: flex-start; min-width: 44px; min-height: 44px; padding-inline: var(--space-3); }
 /* Its own row under the name, so the steps read as a bar across the page and the first card starts at the same place
    whatever the name's length, give or take its lines. */
 .steps-fold-toggle { flex: 1 1 100%; justify-content: flex-start; min-height: 44px; margin-left: auto; padding-inline: var(--space-3); white-space: normal; text-align: left; font-size: var(--text-sm); font-weight: 600; gap: var(--space-2); }
+/* The open card's place sits at the button's right end, quieter than the step it belongs to. */
+.steps-fold-position { margin-left: auto; color: var(--muted); font-weight: normal; text-align: right; }
+.title-top-progress { flex: 1 1 100%; height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.title-top-progress-fill { height: 100%; border-radius: inherit; background: var(--accent); }
 .steps-fold-toggle::before { content: '\25B8'; flex: none; color: var(--muted); font-size: 0.85em; }
 .steps-fold-toggle[aria-expanded='true']::before { content: '\25BE'; }
 .steps-fold-body:not([hidden]) { display: grid; gap: var(--space-3); margin-top: var(--space-2); }

@@ -15,6 +15,8 @@ export function useTitleProgress(id: number, comic: boolean) {
   const [audioReady, setAudioReady] = useState(false)
   // The check queue's size names the Check step's button; null until known, and a comic has no lines to check.
   const [riskCount, setRiskCount] = useState<number | null>(null)
+  // The check queue's size has been asked for and answered (or failed): the Check button's words are final from then on.
+  const [riskAsked, setRiskAsked] = useState(false)
   const [tick, setTick] = useState(0)
   // Once started the flow keeps its button even after lines exist, or the progress text would vanish mid-run.
   const [flowOn, setFlowOn] = useState(false)
@@ -46,9 +48,13 @@ export function useTitleProgress(id: number, comic: boolean) {
     if (comic) return
     let cancelled = false
     listLines(id, 1, 1, 'risk').then(
-      (r) => !cancelled && setRiskCount(typeof r.risk_count === 'number' ? r.risk_count : null),
+      (r) => {
+        if (cancelled) return
+        setRiskCount(typeof r.risk_count === 'number' ? r.risk_count : null)
+        setRiskAsked(true)
+      },
       // Kept as it was, for the same reason as the line count; before any answer it is still null, "can't say".
-      () => undefined,
+      () => !cancelled && setRiskAsked(true),
     )
     return () => {
       cancelled = true
@@ -70,5 +76,5 @@ export function useTitleProgress(id: number, comic: boolean) {
   }, [])
   // Stable, so a stage page can refresh the counts after every write without remaking its context.
   const refresh = useCallback(() => setTick((t) => t + 1), [])
-  return { lineCount, countFailed, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress, refresh }
+  return { lineCount, countFailed, translatedCount, exported, audioReady, riskCount, riskAsked, flowOn, onFlowProgress, refresh }
 }
