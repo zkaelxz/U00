@@ -95,12 +95,39 @@ class TestOthers:
         for body in ({}, {"reviewed": "yes"}, {"reviewed": True, "x": 1}):
             assert local_client.post(f"{B}/{did}/lines/{ids[0]}/reviewed", json=body).status_code == 422, body
 
+    def test_mark_a_line(self, local_client):
+        did, ids = _seed()
+        local_client.post(f"{B}/{did}/lines/{ids[0]}/reviewed", json={"reviewed": True})
+        r = local_client.post(f"{B}/{did}/lines/{ids[0]}/mark",
+                              json={"mark": "wrong", "expected_en": "Hello"})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert set(body) == {"id", "idx", "start", "end", "zh", "en", "speaker", "speaker_manual",
+                             "sfx", "flag", "flag_note", "dub_filename", "lang", "reviewed",
+                             "confidence", "mark"}
+        assert (body["id"], body["mark"], body["reviewed"]) == (ids[0], "wrong", False)
+        r = local_client.post(f"{B}/{did}/lines/{ids[0]}/mark", json={"mark": None})
+        assert r.status_code == 200 and r.json()["mark"] is None
+        assert db.load_lines(did)[0]["mark"] is None
+
+    def test_mark_conflict_not_found_and_validation(self, local_client):
+        did, ids = _seed()
+        url = f"{B}/{did}/lines/{ids[0]}/mark"
+        r = local_client.post(url, json={"mark": "mixed", "expected_en": "Old"})
+        assert r.status_code == 409 and _error(r)["code"] == "conflict"
+        assert local_client.post(f"{B}/{did}/lines/99999/mark", json={"mark": "wrong"}).status_code == 404
+        for body in ({}, {"mark": "good"}, {"mark": ""}, {"mark": "wrong", "x": 1},
+                     {"mark": "wrong", "expected_en": "x" * 2001}):
+            r = local_client.post(url, json=body)
+            assert r.status_code == 422 and _error(r)["code"] == "validation_error", body
+        assert db.load_lines(did)[0]["mark"] is None
+
     def test_mark_episode_reviewed(self, local_client):
         did, ids = _seed()
         r = local_client.post(f"{B}/{did}/mark-reviewed")
         assert r.status_code == 200, r.text
         assert r.json() == {"reviewed": 1, "remembered": 1, "kept_existing": 0,
-                            "skipped_flagged": 1, "already_reviewed": 0}
+                            "skipped_flagged": 1, "skipped_marked": 0, "already_reviewed": 0}
         assert [row["reviewed"] for row in db.load_lines(did)] == [1, 0]
         assert local_client.post(f"{B}/99999/mark-reviewed").status_code == 404
 

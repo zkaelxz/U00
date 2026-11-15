@@ -48,7 +48,7 @@ _REPEAT_OPS = {_sre.MAX_REPEAT, _sre.MIN_REPEAT} | (
 _SLOW_PATTERN_MESSAGE = ("This pattern could take too long to run. Avoid repeating a group "
                          "that itself repeats, has alternatives (|) or refers back to a group, "
                          f"and use at most {MAX_OPEN_REPEATS} open-ended repeats (+, *, {{n,}}).")
-_ONLY_VALUES = ("all", "flagged", "untranslated", "unreviewed", "shaky", "risk")
+_ONLY_VALUES = ("all", "flagged", "untranslated", "unreviewed", "shaky", "risk", "marked")
 # Below this, Whisper's own confidence (whisper_transcribe.segment_confidence) puts a line in the
 # "shaky" view. Typical clean speech scores well above it; picked to list the worst few percent
 # of a title rather than most of it.
@@ -67,7 +67,7 @@ def line_dict(ln) -> dict:
         "zh": ln.zh, "en": ln.en, "speaker": ln.speaker,
         "speaker_manual": bool(ln.speaker_manual), "sfx": bool(ln.sfx),
         "flag": ln.flag, "flag_note": ln.flag_note, "lang": ln.lang,
-        "reviewed": bool(ln.reviewed), "confidence": ln.confidence,
+        "reviewed": bool(ln.reviewed), "confidence": ln.confidence, "mark": ln.mark,
         # bare filename only, never the relative folder layout (D2)
         "dub_filename": os.path.basename(ln.dub_filename) if ln.dub_filename else None,
     }
@@ -75,6 +75,10 @@ def line_dict(ln) -> dict:
 
 def _is_flagged(ln) -> bool:
     return bool(ln.flag)
+
+
+def _is_marked(ln) -> bool:
+    return bool(ln.mark)
 
 
 def _is_untranslated(ln) -> bool:
@@ -110,6 +114,9 @@ _RISK_FLAG_WEIGHT = {
     "timing_uncertain": 1, "timing_overlap": 1, "reading_speed": 1,
 }
 _RISK_UNKNOWN_FLAG = 2
+# A person already found the English wrong or mixed, which no stored signal outranks: above
+# the highest flag plus the most a low confidence adds.
+_RISK_MARKED = 10
 _RISK_CONFIDENCE_BELOW = 0.8  # wider than SHAKY_BELOW: a middling score still adds a little
 
 
@@ -119,6 +126,8 @@ def _risk_score(ln) -> float:
     if ln.reviewed or not (ln.en or "").strip():
         return 0.0
     score = float(_RISK_FLAG_WEIGHT.get(ln.flag, _RISK_UNKNOWN_FLAG)) if ln.flag else 0.0
+    if ln.mark:
+        score += _RISK_MARKED
     if ln.confidence is not None and ln.confidence < _RISK_CONFIDENCE_BELOW:
         score += 3 * (_RISK_CONFIDENCE_BELOW - ln.confidence) / _RISK_CONFIDENCE_BELOW
     return score
@@ -140,8 +149,9 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
                       only: str = "all") -> dict:
     """One page of lines, optionally only flagged, only untranslated, only
     unreviewed (translated but not marked checked) or only shaky (Whisper was unsure
-    and nobody has checked since), least confident first, or `risk`: unchecked lines
-    with a flag or low confidence, most worrying first. The counts are
+    and nobody has checked since), least confident first, `risk`: unchecked lines
+    with a mark, a flag or low confidence, most worrying first (marked lines lead),
+    or only marked lines, in line order. The counts are
     always over the whole drama, not the filtered view. An out-of-range
     page returns an empty `lines` list rather than an error."""
     if only not in _ONLY_VALUES:
@@ -159,6 +169,7 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
     unreviewed = sum(1 for ln in texts if _is_unreviewed(ln))
     shaky = sum(1 for ln in texts if _is_shaky(ln))
     risky = sum(1 for ln in texts if _risk_score(ln) > 0)
+    marked = sum(1 for ln in texts if _is_marked(ln))
     # A title whose lines carry no speaker at all never had speakers detected (or is a
     # novel); its lines are not waiting for one.
     no_speaker = (sum(1 for ln in texts if needs_speaker(ln))
@@ -177,6 +188,7 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
         "page": page, "page_size": page_size, "total": len(visible),
         "flagged_count": flagged, "untranslated_count": untranslated,
         "unreviewed_count": unreviewed, "shaky_count": shaky, "risk_count": risky,
+        "marked_count": marked,
         "no_speaker_count": no_speaker,
     }
 
@@ -349,6 +361,8 @@ def _visible(lines, only: str) -> list:
         return [ln for ln in lines if _is_untranslated(ln)]
     if only == "unreviewed":
         return [ln for ln in lines if _is_unreviewed(ln)]
+    if only == "marked":
+        return [ln for ln in lines if _is_marked(ln)]
     if only == "risk":
         scored = [(_risk_score(ln), ln) for ln in lines]
         # sorted() is stable, so equal scores stay in line order.
@@ -376,7 +390,9 @@ def _position(lines, ln, page_size: int, only: str) -> dict:
             "page_all": all_ids.index(ln.id) // page_size + 1}
 
 
-_STEP_KINDS = {"flagged": _is_flagged, "unreviewed": _is_unreviewed, "no_speaker": needs_speaker}
+_STEP_KINDS = {"flagged": _is_flagged, "unreviewed": _is_unreviewed, "no_speaker": needs_speaker,
+               "marked": _is_marked,
+               "flagged_or_marked": lambda ln: _is_flagged(ln) or _is_marked(ln)}
 
 
 def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int | None = None,
@@ -388,10 +404,12 @@ def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int | None = No
     line), `page_all` with no filter; every field None when there's no
     such line. `kind="unreviewed"` steps through translated lines nobody
     has checked instead (the "next line to check" button), `kind="no_speaker"`
-    through lines that still need a speaker (needs_speaker)."""
+    through lines that still need a speaker (needs_speaker), `kind="marked"`
+    through marked lines, and `kind="flagged_or_marked"` through lines with
+    either."""
     _check_view(page_size, only)
     if kind not in _STEP_KINDS:
-        raise InvalidInputError(f"Unknown kind {kind!r}; use flagged, unreviewed or no_speaker.")
+        raise InvalidInputError(f"Unknown kind {kind!r}; use one of {', '.join(_STEP_KINDS)}.")
     ownership_service.require_drama(drama_id)
     lines = db.load_line_texts(drama_id)
     if from_line_id is None:

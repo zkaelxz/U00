@@ -126,6 +126,24 @@ class TestMergeAndUndo:
         assert db.list_line_history(did)[0]["label"] == "before merge"
         _all_refs_point_to_lines(did)
 
+    def test_merge_clears_the_mark_its_new_english_replaces(self):
+        did, ids = _seed()
+        for lid in (ids[0], ids[2]):
+            assert db.update_line_fields_if(did, lid, {"mark": "wrong"}, {})
+        svc.merge_lines(did, [ids[0], ids[1]], ids)
+        assert [(r["en"], r["mark"]) for r in _rows(did)] == [
+            ("A B", None), ("C", "wrong"), ("D", None)]
+
+    def test_restore_brings_a_mark_back_with_its_english(self):
+        did, ids = _seed()
+        assert db.update_line_fields_if(did, ids[2], {"mark": "wrong"}, {})
+        after = svc.merge_lines(did, [ids[2], ids[3]], ids)["line_ids"]
+        # The merge cleared it with the old English; marked again on the new one.
+        assert db.update_line_fields_if(did, ids[2], {"mark": "wrong"}, {})
+        svc.restore_version(did, db.list_line_history(did)[0]["id"], after)
+        assert [(r["en"], r["mark"]) for r in _rows(did)] == [
+            ("A", None), ("B", None), ("C", "wrong"), ("D", None)]
+
     def test_merge_then_restore_keeps_refs_on_right_lines(self):
         did, ids = _seed()
         _decorate(did, ids)

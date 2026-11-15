@@ -80,7 +80,8 @@ _READ_TABLES = (("dramas", "lines", "series", "bubbles", "app_settings") + drs.C
 # other column is copied as is. The coverage test in
 # tests/test_api_backup_import.py fails when a column is in none of the sets.
 FORCED_COLUMNS = {"dramas": {"id", "series_id", "owner_user_id", "is_private", "updated_at"},
-                  "lines": {"id", "drama_id"},
+                  # mark: an unknown value comes in as none (db.settle_copied_marks).
+                  "lines": {"id", "drama_id", "mark"},
                   "characters": {"id", "drama_id", "series_character_id"}}
 IGNORED_COLUMNS = {"dramas": {"notion_page_id"}, "lines": set(), "characters": set()}
 # File references: copied only after sanitising (see the module docstring).
