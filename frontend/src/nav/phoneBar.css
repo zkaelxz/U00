@@ -57,3 +57,8 @@
   line-height: 18px;
   text-align: center;
 }
+
+/* On a title page, as drawn: the four words only, in a slimmer bar, so the card above keeps its room. */
+.phone-bar.is-words { padding-block: var(--space-1) calc(var(--space-1) + env(safe-area-inset-bottom, 0px)); }
+.phone-bar.is-words a, .phone-bar.is-words button { min-height: 44px; }
+.phone-bar.is-words svg { display: none; }

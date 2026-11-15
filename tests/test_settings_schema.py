@@ -33,6 +33,7 @@ STATE_KEYS = {
     "app_update.before": "the library's tables and newest backup when the last app update started (app_update_service), rewritten by each update",
     "source_update.pending": "the update-and-restart in flight (source_update_service), cleared by the next boot",
     "source_update.last_result": "the last update-and-restart's outcome sentence, rewritten on every update",
+    "resource_alert_state": "which resource alerts are active and when each last notified (services/resource_monitor_service.py), rewritten as they change",
     "benchmark_sweep": "the Benchmark Lab's latest settings sweep and its decision, written by benchmark_sweep_service",
     "benchmark_translate_sweep": "the Benchmark Lab's latest translation settings sweep and its decision, written by benchmark_translate_sweep_service",
 }

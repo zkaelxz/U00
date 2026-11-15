@@ -1,4 +1,4 @@
-/** The Wrong and Mixed buttons and the tag that shows your mark on a line; a tick is the Checked button that already exists. */
+/** The Wrong and Mixed buttons (symbols only, named by aria-label) and the tag that shows your mark on a line; a tick is the Checked button that already exists. */
 import { Badge } from '../../../../components/Badge'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { LineMark, ReviewLine } from '../../../../types/review'
@@ -20,9 +20,9 @@ export function LineMarkButtons({ line, onMark, variant = 'secondary' }: {
   return (
     <>
       {(['wrong', 'mixed'] as const).map((m) => (
-        <button key={m} type="button" className={buttonClass(variant, 'sm', `review-mark review-mark-${m}`)} disabled={!line.en} aria-pressed={line.mark === m}
+        <button key={m} type="button" className={buttonClass(variant, 'sm', `review-mark review-mark-${m}`)} disabled={!line.en} aria-pressed={line.mark === m} aria-label={MARK_LABEL[m]}
                 title={line.mark === m ? `Clear the ${m} mark` : MARK_HELP[m]} onClick={() => onMark(line.id, line.mark === m ? null : m)}>
-          <span aria-hidden="true">{MARK_GLYPH[m]}</span> {MARK_LABEL[m]}
+          <span aria-hidden="true">{MARK_GLYPH[m]}</span>
         </button>
       ))}
     </>
