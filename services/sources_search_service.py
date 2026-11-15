@@ -330,6 +330,8 @@ def _series_job(job_id: str, name: str, series_id: str, local: bool = True):
         },
         "chapters": [{"chapter_id": str(c.chapter_id), "title": scrub(c.title),
                       "group": scrub(c.group or ""), "url": safe_url(c.url)} for c in chapters],
+        # Set by an adapter whose list had to leave something out.
+        "notice": scrub(getattr(adapter, "chapter_notice", "") or ""),
     })
 
 
