@@ -650,6 +650,8 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-queue-row .check-queue-undo { flex: 1 1 100%; }
   .review-editbar.is-queue button { white-space: normal; line-height: 1.2; }
   .review-queue-actions .btn, .check-queue-footer .btn, .check-queue-undo .btn { min-height: var(--touch); }
+  /* Simple's only control in the filter row's More: a full-height target, as the other buttons of its page. */
+  .review-extras .btn.review-replace-simple { min-height: var(--touch); }
   /* Its (i) stays beside it: a phone's confirm button otherwise takes the whole row, pushed right. */
   .check-queue-mark .confirm-button { flex: 0 1 auto; justify-content: flex-start; }
 }
@@ -780,8 +782,8 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 }
 /* A phone's open card, as drawn: one white card with a hairline edge and no coloured edge, its first line the line's place
    and the way to the lines around it, its Next line at the bottom, tall enough to reach the bottom bar when its content is short. */
-/* Nothing in it (a phone's queue has no switch row) or only a folded player: no box, no padding. */
-.review-toolbar.is-bare:empty, .review-editor.is-media-folded .review-toolbar.is-bare { display: none; }
+/* Nothing in it (a phone's queue has no switch row) or only a folded player: no box, no padding. A phone's first row, which carries the Undo notice, lives in this box and keeps it. */
+.review-toolbar.is-bare:empty, .review-editor.is-media-folded .review-toolbar.is-bare:not(:has(.review-queue-row)) { display: none; }
 @media (max-width: 640px) {
   .review-line.is-queue.is-active {
     display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-1) var(--space-4) var(--space-4);

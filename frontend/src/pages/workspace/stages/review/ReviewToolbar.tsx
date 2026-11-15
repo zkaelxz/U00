@@ -207,7 +207,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
   )
 
   const replace = (
-    <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={p.replaceOpen} onClick={p.onToggleReplace}>
+    <button type="button" className={buttonClass('ghost', 'sm', simple ? 'review-replace-simple' : undefined)} aria-expanded={p.replaceOpen} onClick={p.onToggleReplace}>
       Replace…
     </button>
   )

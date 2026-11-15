@@ -354,6 +354,20 @@ test.describe(() => {
     await expectNoSidewaysScroll(page)
   })
 
+  test('on an audio title with the player folded, the Undo notice after Looks right, next can be seen and tapped', async ({ page }) => {
+    seedCheckLines({ audio: true })
+    await mockPeaks(page)
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/review')
+    await expect(page.getByRole('group', { name: 'Player' })).toBeHidden()
+    await expect(page.locator('.review-line .review-idx')).toHaveText('Line 24')
+    await page.getByRole('toolbar', { name: 'Line actions' }).getByRole('button', { name: 'Looks right, next' }).tap()
+    const notice = page.getByTestId('checked-undo')
+    await expect(notice).toContainText('Line #24 marked checked.')
+    await expect(notice).toBeVisible()
+    await expectTall(notice.getByRole('button', { name: 'Undo' }), 'Undo')
+  })
+
   test('Search in More\'s panel shows All and opens the lines\' search box with the cursor in it', async ({ page }) => {
     seedCheckLines()
     await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
@@ -509,7 +523,9 @@ test.describe(() => {
     await expect(page.getByRole('group', { name: 'Lines to show' })).toHaveCount(0)
     await page.locator('.review-more-toggle').tap()
     const row = page.locator('.review-extras')
-    await expect(row.getByRole('button', { name: 'Replace…', exact: true })).toBeVisible()
+    const replace = row.getByRole('button', { name: 'Replace…', exact: true })
+    await expect(replace).toBeVisible()
+    expect((await replace.boundingBox())!.height, 'Replace… is tall enough to tap').toBeGreaterThanOrEqual(44)
     await expect(row.getByRole('button', { name: 'Player', exact: true })).toHaveCount(0)
     await headerMore(page).tap()
     const panel = page.locator('.steps-fold-controls')
