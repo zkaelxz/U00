@@ -284,8 +284,8 @@ def _checkout_stamp(conn):
         stored = json.loads(row[0]) if row else None
     except (ValueError, TypeError):
         stored = None
-    stored_v = _version_tuple(stored)
-    if stored_v and stored_v >= _version_tuple(portable.SOURCE_VERSION):
+    stored_v, source_v = _version_tuple(stored), _version_tuple(portable.SOURCE_VERSION)
+    if stored_v and source_v and stored_v >= source_v:
         return None
     return portable.SOURCE_VERSION
 
