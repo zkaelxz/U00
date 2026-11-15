@@ -198,11 +198,13 @@ test('Alerts: the name with and without new rows, and the panel heading', async 
 })
 
 // Heights of the same header on the commit before the words, at the same widths (docked menu); with Back the base wrapped the row to a line of its own.
+// These are cells where the commit before the words did not scroll sideways either; where it did (the longest header from 700 to 900), the row may still.
 const NARROW = [
   { width: 640, header: 'plain' as const, back: false, tallest: 69 },
-  { width: 900, header: 'longest' as const, back: false, tallest: 80 },
-  { width: 700, header: 'plain' as const, back: true, tallest: 124 },
-  { width: 800, header: 'longest' as const, back: true, tallest: 124 },
+  { width: 1000, header: 'longest' as const, back: false, tallest: 66 },
+  { width: 800, header: 'plain' as const, back: true, tallest: 107 },
+  { width: 1000, header: 'longest' as const, back: true, tallest: 110 },
+  { width: 800, header: 'longest' as const, back: true, tallest: 124, mode: 'float' as const },
 ]
 
 /** Pairs of visible header controls (or a control and the Back button) whose boxes cross. */
@@ -221,9 +223,9 @@ async function overlaps(page: Page): Promise<string[]> {
   })
 }
 
-for (const { width, header, back, tallest } of NARROW) {
-  test(`at ${width}px${back ? ' with Back' : ''}, ${header} header: no taller than before the words, nothing overlaps or scrolls sideways, and nothing says Connected`, async ({ page }) => {
-    await dock(page)
+for (const { width, header, back, tallest, mode } of NARROW) {
+  test(`at ${width}px${mode ? ' floating' : ''}${back ? ' with Back' : ''}, ${header} header: no taller than before the words, nothing overlaps or scrolls sideways, and nothing says Connected`, async ({ page }) => {
+    await dock(page, mode)
     if (header === 'longest') await longestHeader(page)
     else await quietHeader(page)
     await page.setViewportSize({ width, height: 800 })
@@ -264,8 +266,8 @@ for (const [name, shown] of [[NAME_24, NAME_24], [`${NAME_24}!`, 'Account']]) {
   })
 }
 
-test('a 24-character account name asks for more room before the words show, and the bar stays one line', async ({ page }) => {
-  const name = 'Wolfgang Amadeus Mozarts'
+// Twelve kanji are as wide as 24 Latin letters, so they take the same room.
+for (const name of ['Wolfgang Amadeus Mozarts', '白'.repeat(12)]) test(`a ${name.length}-character account name (${name.slice(0, 6)}…) asks for more room before the words show, and the bar stays one line`, async ({ page }) => {
   await longestHeader(page, name)
   await dock(page)
   // The 12-letter header has Jobs, Alerts, Shortcuts and Theme in words from about 1390px; this one needs about 6rem (90px) more.
@@ -322,4 +324,15 @@ test('Can\'t reach Baihe is wider than Connected: just above each words step the
     }), `${width}px`).toBeLessThanOrEqual(1)
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${width}px sideways`).toBeLessThanOrEqual(0)
   }
+})
+
+test('where the longest header cannot fit beside the docked menu its controls run off to the right, never in under the menu', async ({ page }) => {
+  await longestHeader(page)
+  await dock(page)
+  await page.setViewportSize({ width: 800, height: 800 })
+  await page.goto('/#/library')
+  await expect(page.getByTestId('jobs-count')).toHaveText('1')
+  const rail = (await page.locator('.app-rail').boundingBox())!
+  const first = (await page.locator('.header-end > *').evaluateAll((els) => els.filter((e) => e.getClientRects().length > 0).map((e) => e.getBoundingClientRect().left)))[0]
+  expect(first).toBeGreaterThanOrEqual(rail.x + rail.width)
 })

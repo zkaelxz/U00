@@ -24,3 +24,13 @@ test('phone: icons only, no Connected word, and a failed check still shows the b
   }).toPass()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
+
+test('a touch screen wide enough for words: the search button hides its key hint, and its dot with it', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/#/library')
+  const search = page.locator('.header-end button.palette-btn')
+  await expect(search.locator('.hb-words')).toBeVisible()
+  await expect(search.locator('kbd')).toBeHidden()
+  const text = await search.evaluate((el) => (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim())
+  expect(text).toBe('Search pages and titles')
+})

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
-import { accountWords, loginHref, type AuthUser } from './api/auth'
+import { accountWords, loginHref, nameWidth, type AuthUser } from './api/auth'
 import { api } from './api/client'
 import { featureOn } from './api/features'
 import { useFeatures } from './hooks/useFeatures'
@@ -109,7 +109,7 @@ function ApiStatus({ showConnected }: { showConnected: boolean }) {
   )
 }
 
-// The header's words steps are sized for a name this long; a longer one asks for more room (index.css, .has-long-name).
+// The header's words steps are sized for a name this wide (Latin-letter units, see nameWidth); a wider one asks for more room (index.css, .has-long-name).
 const LONG_ACCOUNT_NAME = 12
 
 // The display name wins over the email: an address's first letter is rarely the person's.
@@ -151,7 +151,7 @@ function UserMenu({ user }: { user: AuthUser | null }) {
             </svg>
           )}
         </span>
-        <span className="hb-words user-menu-name" aria-hidden="true">
+        <span className="hb-words" aria-hidden="true">
           {shownName} ▾
         </span>
       </summary>
@@ -321,7 +321,7 @@ export default function App() {
 
   // Wide windows and pop-outs have room for the controls' words. The PIN profile button and the account use up some of it, so their steps come earlier (index.css).
   const room = wide || popOut
-  const longName = canSignOut(session) && [...accountWords(user?.display_name)].length > LONG_ACCOUNT_NAME
+  const longName = canSignOut(session) && nameWidth(accountWords(user?.display_name)) > LONG_ACCOUNT_NAME
   const headerEndClass = ['header-end', room && 'has-room', room && (profile.status?.pin_set || canSignOut(session)) && 'has-extras', room && longName && 'has-long-name'].filter(Boolean).join(' ')
 
   const headerEnd = (

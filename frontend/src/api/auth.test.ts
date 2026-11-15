@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { accountWords, loginErrorMessage, loginHref, logout, me, readLoginError, safeReturnTo } from './auth'
+import { accountWords, loginErrorMessage, nameWidth, loginHref, logout, me, readLoginError, safeReturnTo } from './auth'
 
 interface Call {
   url: string
@@ -88,9 +88,24 @@ describe('accountWords', () => {
     expect(accountWords(undefined)).toBe('Account')
   })
 
-  it('counts characters, not UTF-16 units, so 24 kanji still show', () => {
-    expect(accountWords('白'.repeat(24))).toBe('白'.repeat(24))
-    expect(accountWords('𠮷'.repeat(24))).toBe('𠮷'.repeat(24))
-    expect(accountWords('𠮷'.repeat(25))).toBe('Account')
+  it('counts wide characters as two: 12 kanji fit, 13 give Account', () => {
+    expect(accountWords('白'.repeat(12))).toBe('白'.repeat(12))
+    expect(accountWords('白'.repeat(13))).toBe('Account')
+    expect(accountWords('𠮷'.repeat(12))).toBe('𠮷'.repeat(12))
+    expect(accountWords('Ab' + 'あ'.repeat(11))).toBe('Ab' + 'あ'.repeat(11))
+    expect(accountWords('Abc' + 'あ'.repeat(11))).toBe('Account')
+  })
+})
+
+describe('nameWidth', () => {
+  it('is one for Latin letters, two for kanji, kana, Hangul, fullwidth forms and emoji, none for joiners', () => {
+    expect(nameWidth('Kae')).toBe(3)
+    expect(nameWidth('白'.repeat(12))).toBe(24)
+    expect(nameWidth('かな')).toBe(4)
+    expect(nameWidth('한글')).toBe(4)
+    expect(nameWidth('ＡＢ')).toBe(4)
+    expect(nameWidth('😀')).toBe(2)
+    expect(nameWidth('👩‍💻')).toBe(4)
+    expect(nameWidth('')).toBe(0)
   })
 })

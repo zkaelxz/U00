@@ -27,12 +27,23 @@ export interface AuthMe {
 }
 
 // Past this the name would crowd the header's other controls, so the button says "Account" and the name shows in the open panel.
-export const ACCOUNT_WORDS_MAX = 24
+const ACCOUNT_WORDS_MAX = 24
+
+// Kanji, kana, Hangul, fullwidth forms and emoji are about twice as wide as a Latin letter; combining joiners add nothing.
+const WIDE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Extended_Pictographic}\u3000-\u303f\uff01-\uff60\uffe0-\uffe6]/u
+const JOINER = /[\u200d\ufe0e\ufe0f]/u
+
+/** A name's width in Latin-letter units: wide characters count as two. */
+export function nameWidth(name: string): number {
+  let width = 0
+  for (const ch of name) width += JOINER.test(ch) ? 0 : WIDE.test(ch) ? 2 : 1
+  return width
+}
 
 /** What the header's account button says: the display name when it is short enough to show whole, never a cut-off one. */
 export function accountWords(displayName: string | null | undefined): string {
   const name = displayName?.trim() ?? ''
-  return name !== '' && [...name].length <= ACCOUNT_WORDS_MAX ? name : 'Account'
+  return name !== '' && nameWidth(name) <= ACCOUNT_WORDS_MAX ? name : 'Account'
 }
 
 export const me = (f?: Fetch) => getJson<AuthMe>('/api/auth/me', f)
