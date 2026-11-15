@@ -4,7 +4,6 @@
  * injected into the React DOM. Without ?page it resumes at the saved page.
  * Folded Sections below: Watch / listen, Words, Vocabulary, Glossary,
  * Story tools and My notes; Sections with no data are not rendered.
- * ?watch=1 opens Watch / listen on arrival.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 
@@ -174,7 +173,7 @@ function NotesSection({ dramaId }: { dramaId: number }) {
   )
 }
 
-export default function ReaderPage({ id, page: routePage, watch = false }: { id: number; page: number | null; watch?: boolean }) {
+export default function ReaderPage({ id, page: routePage }: { id: number; page: number | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
   // The Reader's "auto" theme follows the app theme (the header theme button).
   const appLook = resolveTheme(useThemePref(), useMediaQuery('(prefers-color-scheme: dark)'))
@@ -481,7 +480,7 @@ export default function ReaderPage({ id, page: routePage, watch = false }: { id:
         </section>
       ) : (
         <>
-          <ListenWatch dramaId={id} media={media} setMedia={setMedia} sourceLanguage={sourceLanguage} openPlayer={watch} />
+          <ListenWatch dramaId={id} media={media} setMedia={setMedia} sourceLanguage={sourceLanguage} />
           {!phone && page !== null && (
             <div className="reader-bar">
               <Pager page={page} count={count} loading={pageLoading} onGo={onGo} goTo chapters={<ChapterJump dramaId={id} page={page} pageSize={prefs.chapterSize} onGo={onGo} />} />
