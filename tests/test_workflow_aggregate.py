@@ -2,11 +2,13 @@
 
 A job missing from its `needs` is invisible to it: a red `guards` once left `test` green.
 Read as text because the CI test environments do not install a YAML parser.
-Also pins the workflow's concurrency block, which nothing but GitHub evaluates."""
+Also pins the concurrency blocks of tests.yml and windows-bootstrap.yml, which nothing but GitHub evaluates."""
 import re
 from pathlib import Path
 
-WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "tests.yml"
+WORKFLOWS = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+WORKFLOW = WORKFLOWS / "tests.yml"
+BOOTSTRAP = WORKFLOWS / "windows-bootstrap.yml"
 
 
 def _job_blocks():
@@ -39,8 +41,8 @@ def test_the_aggregate_refuses_a_failed_or_cancelled_job():
             assert f'[ "${name}" = success ] || [ "${name}" = skipped ] || exit 1' in block
 
 
-def _concurrency():
-    text = WORKFLOW.read_text(encoding="utf-8")
+def _concurrency(path=WORKFLOW):
+    text = path.read_text(encoding="utf-8")
     block = re.search(r"^concurrency:\n((?:  .*\n)+)", text, re.M).group(1)
     lines = [line.strip() for line in block.splitlines() if not line.strip().startswith("#")]
     return dict(line.split(": ", 1) for line in lines)
@@ -62,3 +64,12 @@ def test_pushes_to_the_base_share_one_group_that_never_cancels_a_running_run():
                               "${{ github.event_name == 'push' && 'push-' || '' }}${{ github.ref }}")
     assert block["cancel-in-progress"] == "${{ github.event_name != 'push' }}"
     assert set(block) == {"group", "cancel-in-progress"}
+
+
+def test_the_windows_bootstrap_shares_its_pushes_the_same_way():
+    """A group per commit gave every merge that touches the launcher its own run on a Windows runner, which
+    bills at twice the Linux rate. It takes the group of tests.yml so a burst of merges costs one run going
+    and one waiting; the block equals that one, whose parts are pinned above.
+
+    Retire this when GitHub's merge queue tests each merge before it lands on the base branch."""
+    assert _concurrency(BOOTSTRAP) == _concurrency(WORKFLOW)

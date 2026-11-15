@@ -164,7 +164,8 @@ run's place, and GitHub cancels the run it replaced before any of its jobs start
 newest tree, which holds every merge before it, and it is shortened only by a green PR run of that same tree on that same
 base, so the merges it stands in for lose no job. The push run that **covers** a merge is the first one, at its commit or a
 later one, that ran to the end, green or red: a cancelled push run at a merge commit means a later run covers it, not that
-something failed.
+something failed. `windows-bootstrap.yml` shares its pushes the same way, so a burst of merges costs it one run going and one
+waiting instead of one per merge (it only validates the launcher, and the `test` check does not depend on it).
 
 The newest commit is the exception, because nothing later can cover it. GitHub does not promise the order in which runs reach
 the group, so when two merges land seconds apart the newer one's run can be the one that is cancelled. A cancelled push run
@@ -475,7 +476,7 @@ The real-model check in Diagnostics ships two samples in `assets/smoke/`: `clip.
 ## GitHub Actions minutes
 
 - Iterate locally; push once per PR for the merge-required checks, and batch related commits into one push.
-- Workflows cancel superseded runs (`concurrency:` with `cancel-in-progress: true`, grouped by workflow and ref). In `tests.yml` pushes to the base branch share one group that never cancels a run in progress; a newer merge only takes the place of a run that is still waiting ("After a merge" above). Don't rely on cancelling for a run something else depends on (a release).
+- Workflows cancel superseded runs (`concurrency:` with `cancel-in-progress: true`, grouped by workflow and ref). In `tests.yml` and `windows-bootstrap.yml` pushes to the base branch share one group that never cancels a run in progress; a newer merge only takes the place of a run that is still waiting ("After a merge" above). Don't rely on cancelling for a run something else depends on (a release).
 - Never weaken a check to save minutes.
 - Set each job's `timeout-minutes` from observed run durations (roughly 2-3x the slowest), not a guess.
 - Before changing triggers, matrices, concurrency or caching, check the billing usage page's per-job breakdown and state the trade-off.
