@@ -12,6 +12,7 @@ import pytest
 import background_jobs
 from jobs import job_launch
 import db
+from db.dramas import EDIT_LOG_TABLES
 from services import auto_backup_service as abs_
 from services import drama_restore_service as drs
 from services import library_admin_service as las
@@ -314,6 +315,29 @@ class TestRestoreRoundTrip:
         assert first["drama_id"] == a and not first["restored_as_new"]
         assert second["drama_id"] not in (a,) and second["restored_as_new"]
 
+    def test_deleted_titles_edit_log_is_kept_and_rejoins_on_restore(self, isolated_db):
+        from core import Line
+        from services import edit_log_service
+        a = db.create_drama(title_en="A")
+        db.save_lines(a, [Line(idx=0, start=0.0, end=1.0, zh="甲", en="a")])
+        [line] = db.load_line_objects(a)
+        db.record_edit_sample(a, "甲", "a", "A1", line_id=line.id)
+        _snap()
+        db.record_edit_sample(a, "甲", "A1", "A2", line_id=line.id)   # after the snapshot
+        _delete_drama(a)
+        kept = db.list_edit_samples(limit=-1)
+        assert {(s["drama_id"], s["line_id"], s["deleted_drama_id"], s["deleted_title"])
+                for s in kept} == {(None, None, a, "A")}
+        assert edit_log_service.corrections_report()["english"]["corrections"] == 2
+        _restore(a)
+        back = sorted(db.list_edit_samples(a), key=lambda s: s["user_version"])
+        # The snapshot's copy comes back linked to the restored line, never twice; the
+        # later edit rejoins without a line.
+        [restored] = db.load_line_objects(a)
+        assert [(s["user_version"], s["line_id"], s["deleted_drama_id"]) for s in back] == [
+            ("A1", restored.id, None), ("A2", None, None)]
+        assert len(db.list_edit_samples(limit=-1)) == 2
+
     def test_unowned_user_cleared(self, isolated_db):
         from services import auth_service
         u = auth_service.add_user("kid@example.com")
@@ -435,7 +459,8 @@ class TestRestoreRoundTrip:
 
 
 def _assert_only_restored_rows_added(before, after, live_id):
-    """Every row that existed before is still there, unchanged; the new
+    """Every row that existed before is still there, unchanged, except the edit-log
+    rows kept when the restored drama was deleted, which rejoin it; the new
     rows belong to the restored drama (or its recreated series, bubbles on
     its pages, its audit entry)."""
     with contextlib.closing(_conn()) as c:
@@ -444,6 +469,9 @@ def _assert_only_restored_rows_added(before, after, live_id):
         cols = {t: [r[1] for r in c.execute(f'PRAGMA table_info("{t}")')] for t in after}
     for t, rows in before.items():
         missing = rows - after.get(t, collections.Counter())
+        if t in EDIT_LOG_TABLES:
+            missing = [r for r in missing if dict(zip(cols[t], eval(r)))  # noqa: S307
+                       .get("deleted_drama_id") != live_id]
         assert not missing, f"{t}: rows changed or removed: {list(missing)[:3]}"
     for t, rows in after.items():
         added = rows - before.get(t, collections.Counter())

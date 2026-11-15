@@ -577,6 +577,7 @@ def _create_review_tables(conn):
         -- fixes aren't counted as a person's corrections. engine/model name the
         -- transcription that heard `before_zh`, NULL when it wasn't that run's text;
         -- confidence, flag and mark are the line's before the edit, which clears them.
+        -- Deleting a title keeps its rows here and in edit_samples (db.delete_drama).
         CREATE TABLE IF NOT EXISTS source_edits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             drama_id INTEGER,
@@ -590,6 +591,8 @@ def _create_review_tables(conn):
             flag TEXT,
             mark TEXT,
             created_at TEXT,
+            deleted_drama_id INTEGER,
+            deleted_title TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
     """)

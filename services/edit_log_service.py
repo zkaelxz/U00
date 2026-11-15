@@ -96,10 +96,12 @@ def corrections_report() -> dict:
     return {"line_count": total_lines,
            "english": {"corrections": len(english),
                        "linked_to_a_line": sum(r.get("line_id") is not None for r in english),
+                       "from_deleted_titles": sum(r.get("drama_id") is None for r in english),
                        **{f"by_{k}": _counts(english, k)
                           for k in ("engine", "model", "prompt_version", "flag", "mark")},
                        "flag_rates": _flag_rates(english, flagged_now)},
            "source": {"corrections": len(source),
+                      "from_deleted_titles": sum(r.get("drama_id") is None for r in source),
                       **{f"by_{k}": _counts(source, k) for k in ("engine", "model", "flag", "mark")},
                       "by_confidence": dict(Counter(_confidence_band(r.get("confidence"))
                                                     for r in source).most_common()),

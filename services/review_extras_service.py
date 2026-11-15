@@ -251,8 +251,9 @@ def _visible_edit_samples(principal) -> list:
     # No row limit: filtering the newest 100 would let other users' private
     # edits push this user's own out of the window.
     samples = db.list_edit_samples(limit=-1)
+    # A deleted title's kept edits (drama_id NULL) belong to no one now.
     visible = set(ownership_service.filter_visible_drama_ids(
-        principal, {s["drama_id"] for s in samples}))
+        principal, {s["drama_id"] for s in samples if s["drama_id"] is not None}))
     return [s for s in samples if s["drama_id"] in visible]
 
 

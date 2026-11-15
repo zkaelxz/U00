@@ -42,8 +42,22 @@ def test_counts_per_engine_flag_and_flagged_against_unflagged(isolated_db):
     assert src["flag_rates"] == {"flagged_lines": 2, "flagged_corrected": 1,
                                  "unflagged_corrected": 0}
     text = corrections_report.render(report)
-    assert "Source-text corrections: 1" in text and "machine fixes by path: compare 1" in text
+    assert "Source-text corrections: 1 (0 from deleted titles)" in text and "machine fixes by path: compare 1" in text
     assert "flagged lines corrected:   1 of 2 (50.0%)" in text
+
+
+def test_a_deleted_titles_corrections_are_still_counted(isolated_db):
+    did, ids = _title()
+    db.record_edit_sample(did, "甲", "a", "A", line_id=ids[0], engine="claude")
+    db.record_source_edits(did, [{"line_id": ids[0], "path": "person", "before_zh": "甲",
+                                  "after_zh": "申", "engine": "whisper"}])
+    db.delete_drama(did)
+    report = svc.corrections_report()
+    assert (report["english"]["corrections"], report["english"]["from_deleted_titles"],
+            report["english"]["by_engine"]) == (1, 1, {"claude": 1})
+    assert (report["source"]["corrections"], report["source"]["from_deleted_titles"],
+            report["source"]["by_engine"]) == (1, 1, {"whisper": 1})
+    assert [r["deleted_title"] for r in db.list_source_edits(limit=-1)] == ["D"]
 
 
 def test_empty_library_reports_zeroes(isolated_db):

@@ -4,9 +4,11 @@ Reads the library's edit log (read-only) and prints how many corrections were ma
 engine, model, prompt version, flag and mark, for English and for source text, and how
 often a flagged line was corrected against an unflagged one.
 
-Not counted: a translation made off-peak records no engine, so its corrections show
-under "(none)"; an accepted line-AI rewrite is logged as a person's English correction;
-edits saved before the edit log existed have no line, engine or flag.
+A deleted title's corrections are kept and counted, but no longer have a line, so the
+flagged/unflagged rates leave them out. Not counted: a translation made off-peak records
+no engine, so its corrections show under "(none)"; an accepted line-AI rewrite is logged
+as a person's English correction; edits saved before the edit log existed have no line,
+engine or flag.
 """
 import argparse
 import json
@@ -36,7 +38,8 @@ def render(report: dict) -> str:
     out = [f"Lines in the library: {report['line_count']}", ""]
     for kind, title in (("english", "English corrections"), ("source", "Source-text corrections")):
         part = report[kind]
-        out.append(f"{title}: {part['corrections']}")
+        out.append(f"{title}: {part['corrections']} "
+                   f"({part['from_deleted_titles']} from deleted titles)")
         for key, counts in part.items():
             if key.startswith("by_") or key == "machine_fixes_by_path":
                 label = key.replace("_", " ")
