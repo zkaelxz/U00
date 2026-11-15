@@ -608,7 +608,10 @@ def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
     with open(path, encoding="utf-8", errors="replace") as f:
         raw = f.read(MAX_TEXT_CHARS + 1)
     if len(raw) > MAX_TEXT_CHARS:     # checked before cleaning, so it never truncates
-        raise InvalidInputError("The imported chapters are too large.")
+        # Raw text may be stored up to novel_files_service.MAX_TEXT_CHARS, so a
+        # book saved there can still be too long to narrate.
+        raise InvalidInputError(
+            f"The imported chapters are too long to narrate (at most {MAX_TEXT_CHARS:,} characters).")
     text = _clean(raw)
     if not text:
         raise InvalidInputError("The imported chapters are empty.")

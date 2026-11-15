@@ -3461,6 +3461,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/{drama_id}/settings-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where each of a title's settings gets its value: the title, its series default or the Settings default */
+        get: operations["get_settings_sources_api_dramas__drama_id__settings_sources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/{drama_id}/source-link": {
         parameters: {
             query?: never;
@@ -30407,6 +30424,46 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** TitleSettingSource */
+        TitleSettingSource: {
+            /** Differs From Series */
+            differs_from_series: boolean;
+            /**
+             * Group
+             * @description translate or transcribe
+             */
+            group: string;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Series Value
+             * @description The series default, when it has one
+             */
+            series_value: unknown;
+            /**
+             * Source
+             * @description title (its own value), series (equal to the series default) or settings_default (the title has none)
+             */
+            source: string;
+            /**
+             * Value
+             * @description What a run uses
+             */
+            value: unknown;
+        };
+        /** TitleSettingSources */
+        TitleSettingSources: {
+            /** Drama Id */
+            drama_id: number;
+            /** Series Id */
+            series_id: number | null;
+            /** Series Name */
+            series_name: string | null;
+            /** Settings */
+            settings: components["schemas"]["TitleSettingSource"][];
+        };
         /** TitleVdbNames */
         TitleVdbNames: {
             /** Downloaded */
@@ -41842,6 +41899,46 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_settings_sources_api_dramas__drama_id__settings_sources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleSettingSources"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

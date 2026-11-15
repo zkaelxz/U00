@@ -91,3 +91,10 @@ def test_locked_proposal_and_last_good_are_dropped(short_timeout):
         holder.rollback()
         holder.close()
     assert store.last_good_domain("src") is None
+
+
+def test_leaving_a_with_block_closes_the_connection(isolated_db):
+    with store.connect() as conn:
+        conn.execute("SELECT 1")
+    with pytest.raises(sqlite3.ProgrammingError):
+        conn.execute("SELECT 1")
