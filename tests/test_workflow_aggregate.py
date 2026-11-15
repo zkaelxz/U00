@@ -1,7 +1,8 @@
 """The `test` job is the one required check, so it must fail when any other job in tests.yml fails.
 
 A job missing from its `needs` is invisible to it: a red `guards` once left `test` green.
-Read as text because the CI test environments do not install a YAML parser."""
+Read as text because the CI test environments do not install a YAML parser.
+Also pins the workflow's concurrency block, which nothing but GitHub evaluates."""
 import re
 from pathlib import Path
 
@@ -36,3 +37,28 @@ def test_the_aggregate_refuses_a_failed_or_cancelled_job():
             assert f'[ "${name}" = success ] || exit 1' in block
         else:
             assert f'[ "${name}" = success ] || [ "${name}" = skipped ] || exit 1' in block
+
+
+def _concurrency():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    block = re.search(r"^concurrency:\n((?:  .*\n)+)", text, re.M).group(1)
+    lines = [line.strip() for line in block.splitlines() if not line.strip().startswith("#")]
+    return dict(line.split(": ", 1) for line in lines)
+
+
+def test_pushes_to_the_base_share_one_group_that_never_cancels_a_running_run():
+    """Merges that land back to back share a push run: every push to the base branch is in one group,
+    where a newer push takes the place of a run still waiting but never stops the one that is going.
+
+    Each part carries weight. A group per commit brings back a full run for every merge. Cancelling
+    the run in progress leaves the base with no finished run while merges keep landing, and a dev copy
+    moves only to a commit whose run passed. `queue: max` keeps every waiting run: a full run per merge
+    again, each behind the last. Without the `push-` prefix the nightly run, which has the same ref and
+    cancels what it supersedes, would share the group with the merges.
+
+    Retire this when GitHub's merge queue tests each merge before it lands on the base branch."""
+    block = _concurrency()
+    assert block["group"] == ("${{ github.workflow }}-"
+                              "${{ github.event_name == 'push' && 'push-' || '' }}${{ github.ref }}")
+    assert block["cancel-in-progress"] == "${{ github.event_name != 'push' }}"
+    assert set(block) == {"group", "cancel-in-progress"}

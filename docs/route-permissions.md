@@ -547,6 +547,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/review/dramas/{drama_id}/pacing-flags` | lines.read |
 | `GET /api/review/dramas/{drama_id}/search` | lines.read |
 | `GET /api/review/dramas/{drama_id}/source-changed` | lines.read |
+| `GET /api/review/dramas/{drama_id}/speaker-suggestions` | lines.read |
 | `GET /api/review/dramas/{drama_id}/tendencies` | review.use |
 | `GET /api/review/dramas/{drama_id}/tm-suggestions` | review.use + lines.read |
 | `GET /api/review/dramas/{drama_id}/versions` | review.use |

@@ -282,6 +282,10 @@ export function undoHandleOf(r: { history_id?: number | null; lines_fingerprint?
   return r.history_id && r.lines_fingerprint ? { historyId: r.history_id, fingerprint: r.lines_fingerprint } : null
 }
 
+// The words every Review message uses for the saved versions; a message with them gets a button that opens them.
+export const LINE_HISTORY_WORDS = 'Records → Line history'
+export const mentionsLineHistory = (text: string | null): boolean => !!text && text.includes(LINE_HISTORY_WORDS)
+
 export const UNDO_CHANGED_MESSAGE = 'The lines changed since. Restore from Records → Line history instead.'
 export const UNDO_GONE_MESSAGE = 'This change can no longer be undone here. Records → Line history has the saved versions.'
 // Not "use Records instead": a Records restore would delete that note or tag without asking.
@@ -362,6 +366,17 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   if (filter === 'shaky') return short ? `Shaky${n}` : `Least confident${n}`
   if (filter === 'risk') return short ? `Risk${n}` : `Riskiest${n}`
   return short ? `Untr.${n}` : `Untranslated${n}`
+}
+
+/** Has words but no speaker, and nobody cleared it on purpose or marked it a sound cue (review_lines_service.needs_speaker). */
+export const needsSpeaker = (line: Pick<ReviewLine, 'speaker' | 'speaker_manual' | 'sfx' | 'zh' | 'en'>) =>
+  !line.speaker && !line.speaker_manual && !line.sfx && !!(line.zh.trim() || line.en.trim())
+
+/** Next/previous line still needing a speaker in search results after `fromIndex` (-1 = from the edge). */
+export function nextNeedingSpeakerId(lines: ReviewLine[], fromIndex: number, delta: 1 | -1): number | null {
+  const start = fromIndex === -1 ? (delta > 0 ? 0 : lines.length - 1) : fromIndex + delta
+  for (let j = start; j >= 0 && j < lines.length; j += delta) if (needsSpeaker(lines[j])) return lines[j].id
+  return null
 }
 
 /** A translated line nobody has marked checked (review_lines_service._is_unreviewed). */

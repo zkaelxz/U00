@@ -69,6 +69,8 @@ const PAIRS: [string, string][] = [
   ['--muted', '--bg'],
   ['--muted', '--surface'],
   ['--on-accent', '--accent'],
+  // The green Looks right, next button (.btn-ok).
+  ['--on-accent', '--ok'],
   ['--text', '--highlight'],
   ['--muted', '--highlight'],
   ['--muted', '--surface-2'],
@@ -224,6 +226,15 @@ describe('accent text on the page wash', () => {
       })
     }
   }
+  // The kind line under a title's name (titleTop.css .title-top-kind) is --muted straight on the page too.
+  for (const [name, wash] of [['light', light], ['sepia', sepia]] as const) {
+    for (const key of ['--wash-1', '--wash-2']) {
+      it(`${name}: --muted on ${key} at 60% over the page`, () => {
+        const page = over(wash[key], 60, resolve(THEMES[name], '--bg'))
+        expect(contrast(resolve(THEMES[name], '--muted'), page)).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
   // Darkest points sampled from the rendered pages (review of 2026-10-18).
   it.each([['light', '#c8e7fd'], ['sepia', '#eadcb7']])('%s: --accent-text on the sampled wash %s', (name, sampled) => {
     expect(contrast(resolve(THEMES[name], '--accent-text'), sampled)).toBeGreaterThanOrEqual(4.5)
@@ -246,6 +257,54 @@ function over(top: string, pct: number, base: string): string {
   const mix = t.map((c, i) => Math.round(c * (pct / 100) + b[i] * (1 - pct / 100)))
   return `#${mix.map((c) => c.toString(16).padStart(2, '0')).join('')}`
 }
+
+// The open line in This line's Around it: its source and English, and a neighbour's muted "Not translated", on the tint.
+describe('This line: the open line on its tint', () => {
+  const m = reviewCss.match(/\.this-line-near\.is-open \{[^}]*color-mix\(in srgb, var\((--[\w-]+)\) (\d+)%, var\((--[\w-]+)\)\)/)
+  for (const [name, theme] of Object.entries(THEMES)) {
+    for (const fg of ['--text', '--muted']) {
+      it(`${name}: ${fg} on the open line's tint`, () => {
+        expect(m).toBeTruthy()
+        const tint = over(resolve(theme, m![1]), +m![2], resolve(theme, m![3]))
+        expect(contrast(resolve(theme, fg), tint)).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
+})
+
+// The outlined step in the Simple step row: its name, a step still to do and the word "Done" on the step's tint over the row.
+describe('the outlined step on its tint', () => {
+  const titleTopCss = readFileSync(new URL('./pages/workspace/titleTop.css', import.meta.url), 'utf8')
+  const fill = titleTopCss.match(/\.title-step\.is-marked \.title-step-link \{[^}]*background: var\((--[\w-]+)\)/)
+  const row = titleTopCss.match(/\n\.title-steps \{[^}]*background: var\((--[\w-]+)\)/)
+  for (const [name, theme] of Object.entries(THEMES)) {
+    for (const fg of ['--text', '--muted', '--ok']) {
+      it(`${name}: ${fg} on the outlined step`, () => {
+        expect(fill).toBeTruthy()
+        expect(row).toBeTruthy()
+        const soft = css.match(new RegExp(`${fill![1]}: color-mix\\(in srgb, var\\((--[\\w-]+)\\) (\\d+)%, transparent\\)`))
+        expect(soft, fill![1]).toBeTruthy()
+        const under = over(resolve(theme, soft![1]), +soft![2], resolve(theme, row![1]))
+        expect(contrast(resolve(theme, fg), under)).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
+})
+
+// The open title in the Episodes list: its bold name and its muted state on the row's tint.
+describe('Episodes: the open title on its tint', () => {
+  const chaptersCss = readFileSync(new URL('./pages/workspace/stages/novelChapters.css', import.meta.url), 'utf8')
+  const m = chaptersCss.match(/\.episodes-row\[aria-current='page'\] \{[^}]*color-mix\(in srgb, var\((--[\w-]+)\) (\d+)%, var\((--[\w-]+)\)\)/)
+  for (const [name, theme] of Object.entries(THEMES)) {
+    for (const fg of ['--text', '--muted']) {
+      it(`${name}: ${fg} on the open title's tint`, () => {
+        expect(m).toBeTruthy()
+        const tint = over(resolve(theme, m![1]), +m![2], resolve(theme, m![3]))
+        expect(contrast(resolve(theme, fg), tint)).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
+})
 
 describe('split dialog cut shading', () => {
   for (const [name, theme] of Object.entries(THEMES)) {
@@ -357,7 +416,7 @@ describe('disabled buttons (3:1)', () => {
     expect(m, selector).toBeTruthy()
     return { token: m![1], pct: +m![2], base: m![3] }
   }
-  const generic = mixOf('.btn.btn-primary:disabled,\n.btn.btn-secondary:disabled,\n.btn.btn-ghost:disabled,\n.btn.btn-danger:disabled')
+  const generic = mixOf('.btn.btn-primary:disabled,\n.btn.btn-secondary:disabled,\n.btn.btn-ghost:disabled,\n.btn.btn-danger:disabled,\n.btn.btn-ok:disabled')
   const primary = mixOf('.btn.btn-primary:disabled')
   const legacyPrimary = mixOf('button.primary:disabled')
 

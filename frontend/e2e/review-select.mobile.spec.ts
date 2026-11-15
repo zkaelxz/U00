@@ -105,8 +105,9 @@ test("phone: Copy line numbers from the sheet copies, also through the page's fa
 
 test("phone, Simple view: the selection bar sits above the check queue's taller line bar", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
-  await page.setViewportSize({ width: 360, height: 780 })
-  // With audio the player sits above the queue's card, so the card and its selection bar reach the bottom of the screen.
+  // A small phone: the queue bar's Looks right, next takes two lines, and the page is longer than the screen, so the selection bar sticks.
+  await page.setViewportSize({ width: 320, height: 568 })
+  // With audio the queue's bar has its Play button too.
   const code = `import db, os, wave
 db.configure_library_dir(${JSON.stringify(libraryDir)})
 from core import Line
@@ -117,10 +118,18 @@ db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句',
 `
   execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot })
   await page.goto('/#/drama/3/review')
+  // The queue's cards have no tick box: a line ticked under All stays ticked when the queue is shown again.
+  await page.locator('label').filter({ hasText: /^All 40$/ }).tap()
   await page.locator('.review-line input[type=checkbox]').first().tap()
+  await page.locator('label').filter({ hasText: /^Need a look 14$/ }).tap()
+  await expect(page.getByTestId('queue-position')).toHaveText('1 of 14 to look at')
   const bar = page.getByTestId('selection-bar')
   await expect(bar).toContainText('1 selected')
   const sel = (await bar.boundingBox())!
   const lineBar = (await page.getByRole('toolbar', { name: 'Line actions' }).boundingBox())!
+  // Taller than the plain line bar's 56px, which is what the selection bar would clear without the queue bar's own height.
+  expect(lineBar.height).toBeGreaterThan(56)
   expect(sel.y + sel.height).toBeLessThanOrEqual(lineBar.y + 0.5)
+  // Stuck right above it, not further up the page where any bar would clear it.
+  expect(sel.y + sel.height).toBeGreaterThan(lineBar.y - 2)
 })

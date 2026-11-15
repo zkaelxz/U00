@@ -70,3 +70,24 @@ test('a video title with nothing left to translate keeps its Translate button be
   await expect(run.getByRole('button', { name: /^Translate/ })).toBeVisible()
   await expect(run.getByRole('link', { name: 'Next: Review' })).toBeVisible()
 })
+
+// Simple leaves the Characters tab and the run settings out of the Translate stage, but links elsewhere still
+// name them; each must open what it names rather than land on a page without it.
+const simpleView = (page: Page) => page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+
+for (const link of ['focus=characters', 'tab=characters']) test(`Simple: a link to the Characters tab (${link}) opens it`, async ({ page }) => {
+  await simpleView(page)
+  await setup(page, 3, { line_count: 4, untranslated_count: 4 })
+  await page.goto(`/#/drama/3/translate?${link}`)
+  await expect(page.getByRole('tab', { name: 'Characters', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('region', { name: 'Characters', exact: true })).toBeInViewport()
+})
+
+test('Simple: the title page\'s Estimate cost opens Translate with Estimate cost on screen', async ({ page }) => {
+  await simpleView(page)
+  await setup(page, 3, { line_count: 4, untranslated_count: 4 })
+  await page.goto('/#/drama/3')
+  await page.getByRole('complementary', { name: 'Title panel' }).getByRole('link', { name: 'Estimate cost' }).click()
+  await expect(page).toHaveURL(/#\/drama\/3\/translate/)
+  await expect(page.getByRole('button', { name: 'Estimate cost' })).toBeInViewport()
+})
