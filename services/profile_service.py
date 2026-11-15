@@ -26,7 +26,7 @@ import json
 import math
 
 import db
-from engine_backends import engine_registry, local
+from engine_backends import engine_registry
 import translation_guide
 from services import series_defaults_service, settings_service
 from lib.errors import InvalidInputError, NotFoundError
@@ -195,9 +195,9 @@ def title_run_defaults(drama: dict, engine_name: str, title_engine: str) -> dict
                                  "context_window", "context_window_ahead") if k in start}
     model = start.get("engine_model")
     # A cloud tag is paid work the request's own gate only sees when the client sends it,
-    # so a run that was handed no model never picks one up here.
+    # so a run that was handed no model picks one up only when the owner allowed hosted defaults.
     if (engine_name == title_engine and model
-            and not (engine_name == "ollama" and local.is_ollama_cloud_model(model))):
+            and not engine_registry.hosted_default_blocked(engine_name, model)):
         out["model"] = model
     return out
 
