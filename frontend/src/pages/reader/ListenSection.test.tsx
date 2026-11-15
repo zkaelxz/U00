@@ -2,9 +2,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { CharacterEntry } from '../../types/translateStage'
-import { chooseEngine } from '../../types/listen'
+import { chooseEngine, listenBlocker, skippedLines } from '../../types/listen'
 import type { ListenConfig } from '../../types/listen'
-import { ListenPicker, listenBlocker, skippedLines } from './ListenSection'
+import { ListenPicker } from './ListenSection'
 
 const voice = (extra: Partial<CharacterEntry>): CharacterEntry =>
   ({ speaker_label: 'Narrator', character_name: 'Narrator', pronouns: '', clone_engine: '', voice_design: '',
