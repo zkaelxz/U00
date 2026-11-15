@@ -1,10 +1,11 @@
 // The Watch page's "now" card: the line being spoken, large, and the in-place fix of its English.
-import type { Ref } from 'react'
+import type { MouseEvent, Ref } from 'react'
 
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import type { ReviewLine } from '../../types/review'
-import { CONFLICT_TEXT, CONFLICT_UNREAD_TEXT, fieldKey, lineHeading, type LineFix } from './watchLogic'
+import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
+import { CONFLICT_TEXT, CONFLICT_UNREAD_TEXT, fieldKey, lineHeading, type LineFix, type Verdict } from './watchLogic'
 
 const NOW_HINT = 'Press play. The line being spoken shows here.'
 const NO_ENGLISH = 'No English yet'
@@ -24,14 +25,25 @@ export interface NowCardProps {
   onSave: () => void
   onCancel: () => void
   onAgain: () => void
+  /** Good, Wrong or Mixed on this line; absent for someone who may not edit lines. */
+  onMark?: (verdict: Verdict) => void
+  onJump?: (direction: 1 | -1) => void
+  markBusy?: boolean
   fixButtonRef?: Ref<HTMLButtonElement>
   fieldRef?: Ref<HTMLTextAreaElement>
   /** The card itself takes focus after Save and play, so Space goes to the player rather than to a button. */
   cardRef?: Ref<HTMLElement>
 }
 
+// A press with the pointer leaves focus on the button, where the next Space would press it again instead of playing or
+// pausing. A press from the keyboard (detail 0) keeps focus, as a button does.
+const press = (e: MouseEvent<HTMLButtonElement>, act: () => void) => {
+  act()
+  if (e.detail !== 0) e.currentTarget.blur()
+}
+
 // No hooks here, so a test can call it and press what it returns without a browser.
-export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
+export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, onMark, onJump, markBusy = false, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
   const again = (
     <button type="button" className={buttonClass()} onClick={onAgain} disabled={busy}>Hear it again</button>
   )
@@ -40,7 +52,12 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
     <section className="card watch-now" aria-label="Line being spoken" tabIndex={-1} ref={cardRef}>
       {line ? (
         <>
-          <p className="watch-now-meta" data-testid="watch-now-meta">{lineHeading(line)}</p>
+          <p className="watch-now-meta" data-testid="watch-now-meta">
+            {lineHeading(line)}
+            <LineMarkBadge line={line} />
+            {line.reviewed && <span className="watch-now-checked" data-testid="watch-now-checked">✓ Looks right</span>}
+            {line.flag && <span className="watch-now-flag" title="A check flagged this line">⚑ Flagged</span>}
+          </p>
           {line.zh && <p className="watch-now-zh" lang={line.lang || sourceLanguage}>{line.zh}</p>}
           {fix ? (
             <form
@@ -99,6 +116,26 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
                 <p className={english ? 'watch-now-en' : 'watch-now-en is-empty'} data-testid="watch-now-en" lang={english ? 'en' : undefined}>
                   {english || NO_ENGLISH}
                 </p>
+              )}
+              {(onMark || onJump) && (
+                <div className="watch-now-marks" role="group" aria-label="Your mark on this line">
+                  {onMark && (
+                    <>
+                      <button type="button" className={buttonClass('secondary', 'md', 'watch-mark watch-mark-good')} aria-pressed={!!line.reviewed} disabled={busy || markBusy || !line.en}
+                              aria-keyshortcuts="G" title="Looks right: mark it checked (G)" onClick={(e) => press(e, () => onMark('good'))}><span aria-hidden="true">✓</span> Looks right</button>
+                      <button type="button" className={buttonClass('secondary', 'md', 'watch-mark watch-mark-wrong')} aria-pressed={line.mark === 'wrong'} disabled={busy || markBusy || !line.en}
+                              aria-keyshortcuts="X" title="Mark this English wrong (X)" onClick={(e) => press(e, () => onMark('wrong'))}><span aria-hidden="true">✗</span> Wrong</button>
+                      <button type="button" className={buttonClass('secondary', 'md', 'watch-mark watch-mark-mixed')} aria-pressed={line.mark === 'mixed'} disabled={busy || markBusy || !line.en}
+                              aria-keyshortcuts="M" title="Mark this English as partly right (M)" onClick={(e) => press(e, () => onMark('mixed'))}><span aria-hidden="true">〰</span> Mixed</button>
+                    </>
+                  )}
+                  {onJump && (
+                    <>
+                      <button type="button" className={buttonClass()} aria-keyshortcuts="P" title="Go to the line before this that is marked or flagged (P)" onClick={(e) => press(e, () => onJump(-1))}>‹ Previous marked or flagged</button>
+                      <button type="button" className={buttonClass()} aria-keyshortcuts="N" title="Go to the next line that is marked or flagged (N)" onClick={(e) => press(e, () => onJump(1))}>Next marked or flagged ›</button>
+                    </>
+                  )}
+                </div>
               )}
               <div className="watch-now-actions">
                 {canEdit && (

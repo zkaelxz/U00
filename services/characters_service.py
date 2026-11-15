@@ -296,9 +296,7 @@ def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int
     entry = get_voice_bank_entry(voice_bank_id)
     if entry is None:
         raise NotFoundError(f"No voice bank entry with id {voice_bank_id}.")
-    clip = entry.get("clip_filename") or ""
-    # db.VOICE_BANK_DIR is re-read each call (it's reassigned when the library moves).
-    if not clip or not os.path.isfile(os.path.join(db.VOICE_BANK_DIR, clip)):
+    if db.voice_bank_clip_path(entry.get("clip_filename") or "") is None:
         raise NotFoundError("That voice bank entry's audio clip is missing.")
     engine = entry.get("clone_engine") or ""
     if engine and not dub.clone_engine_supports_language(engine, _source_language(drama)):

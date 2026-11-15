@@ -3,7 +3,7 @@
 import { ApiError } from '../../api/client'
 import { languageLabel, mediaTypeLabel } from '../../labels'
 import { lineNumber } from '../../lineNumber'
-import type { LinePatch, ReviewLine } from '../../types/review'
+import type { LineMark, LinePatch, ReviewLine } from '../../types/review'
 import type { TitleKind } from '../workspace/titleKind'
 import { activeIndex, START_SLACK_S } from '../reader/readAlongLogic'
 import { lineEditPatch } from '../reader/readerLineEdit'
@@ -72,6 +72,27 @@ export function clockTenths(seconds: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
 }
 
+/** A spot to come back to: a line you marked, or one a check flagged. */
+export const needsAttention = (l: Pick<ReviewLine, 'flag' | 'mark'>) => !!l.flag || !!l.mark
+
+/** The nearest such line after (1) or before (-1) the one at `from`, in the order the lines are spoken; null when there is
+ *  none that way. With no line yet (null), after means from the start and before means from the end. */
+export function attentionIndex(ordered: Pick<ReviewLine, 'flag' | 'mark'>[], from: number | null, direction: 1 | -1): number | null {
+  for (let i = from === null ? (direction === 1 ? 0 : ordered.length - 1) : from + direction; i >= 0 && i < ordered.length; i += direction) {
+    if (needsAttention(ordered[i])) return i
+  }
+  return null
+}
+
+export type Verdict = 'good' | 'wrong' | 'mixed'
+
+/** What pressing a verdict on a line does: Good checks the line (pressed again, unchecks it); Wrong and Mixed set that
+ *  mark (pressed again, clear it). Checking clears a mark and marking unchecks, both on the server. */
+export function verdictChange(line: Pick<ReviewLine, 'reviewed' | 'mark'>, verdict: Verdict): { kind: 'reviewed'; to: boolean } | { kind: 'mark'; to: LineMark | null } {
+  if (verdict === 'good') return { kind: 'reviewed', to: !line.reviewed }
+  return { kind: 'mark', to: line.mark === verdict ? null : verdict }
+}
+
 export const lineHeading = (l: Timed) => `Line #${lineNumber(l.idx)} · ${clockTenths(l.start)}`
 export const rowMeta = (l: Timed) => `#${lineNumber(l.idx)} · ${clockTenths(l.start)}`
 
@@ -98,16 +119,21 @@ const OWN_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditabl
 // A slider (the seek bar) answers the arrows, Home, End and Page Up/Down but no letters, so E and L still work there.
 const OWN_LETTERS = 'input:not([type="range"]), textarea, select, [contenteditable]:not([contenteditable="false"]), [role="listbox"], [role="combobox"]'
 
-export type WatchKey = 'fix' | 'prev' | 'next' | 'play' | 'loop'
+export type WatchKey = 'fix' | 'prev' | 'next' | 'play' | 'loop' | 'good' | 'wrong' | 'mixed' | 'nextmarked' | 'prevmarked'
 
 /** The page's own keys, from a useShortcut combo: E fixes the line, Up and Down move between lines, L turns Loop line
  *  on or off, and Alt+Space plays or pauses from anywhere, a button or the fix field included, as in Review. */
 export function watchKey(combo: string, target: { closest?: (selector: string) => unknown } | null): WatchKey | null {
   if (combo === 'alt+ ') return 'play'
-  const letter = combo === 'e' || combo === 'l'
+  const letter = combo.length === 1 && 'elgxmnp'.includes(combo)
   if (target?.closest?.(letter ? OWN_LETTERS : OWN_KEYS)) return null
   if (combo === 'e') return 'fix'
   if (combo === 'l') return 'loop'
+  if (combo === 'g') return 'good'
+  if (combo === 'x') return 'wrong'
+  if (combo === 'm') return 'mixed'
+  if (combo === 'n') return 'nextmarked'
+  if (combo === 'p') return 'prevmarked'
   if (combo === 'arrowup') return 'prev'
   if (combo === 'arrowdown') return 'next'
   return null

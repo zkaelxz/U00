@@ -11,11 +11,12 @@ import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { alsoUnsureText, aroundFrom, queueAction, queueReason, type Around } from './checkQueueModel'
 import type { PlayerHandle } from './Player'
 import { sourceTextLang } from './reviewDraft'
-import { formatTime, PAGE_SIZE, pageForPosition } from './reviewLogic'
+import { formatTenths, PAGE_SIZE, pageForPosition } from './reviewLogic'
 
 // Half a second either side shows where the speech starts and stops around the line.
 const SOUND_PAD_S = 0.5
-const SOUND_BARS = 140
+// 4px of the 338px the sound card's picture has in the tools column: a bar and the gap after it.
+const SOUND_BARS = 84
 
 interface Props {
   dramaId: number
@@ -77,13 +78,13 @@ export function LineSound({ dramaId, line, player }: { dramaId: number; line: Re
       <div className="this-line-head">
         <h3 id={headId} className="this-line-title">Line {lineNumber(line.idx)} sound</h3>
         <button type="button" className={buttonClass('secondary', 'sm')} title="Play the line (Space)" onClick={() => player.current?.toggleLine(line)}>
-          ▶ Play
+          Play
         </button>
       </div>
       {picture && <SoundPicture picture={picture} line={line} player={player} />}
       <div className="this-line-times">
-        <span className="review-time"><span className="sr-only">Start </span>{formatTime(line.start)}</span>
-        <span className="review-time"><span className="sr-only">End </span>{formatTime(line.end)}</span>
+        <span className="review-time"><span className="sr-only">Start </span>{formatTenths(line.start)}</span>
+        <span className="review-time"><span className="sr-only">End </span>{formatTenths(line.end)}</span>
       </div>
     </section>
   )
@@ -134,11 +135,11 @@ function SoundPicture({ picture, line, player }: { picture: Peaks; line: ReviewL
   const step = (to - from) / peaks.length
   return (
     <div className="this-line-wave" aria-hidden="true" data-testid="this-line-wave">
-      <svg viewBox={`0 0 ${peaks.length} 100`} preserveAspectRatio="none">
+      <svg viewBox={`0 0 ${peaks.length * 4} 100`} preserveAspectRatio="none">
         {peaks.map((p, i) => {
           const at = from + (i + 0.5) * step
           const h = Math.max(4, (Math.min(255, Math.max(0, p)) / 255) * 100)
-          return <rect key={i} x={i + 0.2} width={0.6} y={(100 - h) / 2} height={h} className={at >= line.start && at <= line.end ? 'is-in' : undefined} />
+          return <rect key={i} x={i * 4} width={3} rx={1.5} ry={2.8} y={(100 - h) / 2} height={h} className={at >= line.start && at <= line.end ? 'is-in' : undefined} />
         })}
       </svg>
       <div ref={head} className="this-line-playhead" style={{ visibility: 'hidden' }} />

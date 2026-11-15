@@ -4,9 +4,9 @@ import { ApiError } from '../../api/client'
 import type { ReviewLine } from '../../types/review'
 import { START_SLACK_S } from '../reader/readAlongLogic'
 import {
-  clockTenths, currentLine, fieldKey, fixIsDirty, focusAfterFix, FOLLOW_AT, FOLLOW_PAUSE_MS, followPaused, followScroll,
+  attentionIndex, clockTenths, currentLine, fieldKey, fixIsDirty, focusAfterFix, FOLLOW_AT, FOLLOW_PAUSE_MS, followPaused, followScroll,
   lineHeading, lineToFix, loopLineAt, openFix, OWN_SCROLL_MS, ownScrollUntil, parkedOutcome, parkFix, positionKey, readParkedFix,
-  resumePoint, rowMeta, saveFix, spokenOrder, stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey,
+  resumePoint, rowMeta, saveFix, spokenOrder, stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, verdictChange, watchKey,
   watchVerb, type LineFix,
 } from './watchLogic'
 
@@ -372,5 +372,52 @@ describe('following the sound', () => {
     expect(ownScrollUntil(10_000, true)).toBe(Infinity)
     expect(OWN_SCROLL_MS).toBe(1000)
     expect(ownScrollUntil(10_000, false)).toBe(11_000)
+  })
+})
+
+describe('the jump to a marked or flagged line', () => {
+  const spots = [line(1, 1, 2), line(2, 3, 4, { mark: 'wrong' }), line(3, 5, 6), line(4, 7, 8, { flag: 'long' }), line(5, 9, 10)]
+
+  it('finds the nearest marked or flagged line either way, and none past the ends', () => {
+    expect(attentionIndex(spots, 0, 1)).toBe(1)
+    expect(attentionIndex(spots, 1, 1)).toBe(3)
+    expect(attentionIndex(spots, 3, -1)).toBe(1)
+    expect(attentionIndex(spots, 3, 1)).toBeNull()
+    expect(attentionIndex(spots, 1, -1)).toBeNull()
+  })
+
+  it('starts from the first line going on and the last going back when no line is current', () => {
+    expect(attentionIndex(spots, null, 1)).toBe(1)
+    expect(attentionIndex(spots, null, -1)).toBe(3)
+  })
+
+  it('finds nothing when no line is marked or flagged', () => {
+    expect(attentionIndex([line(1, 1, 2), line(2, 3, 4)], null, 1)).toBeNull()
+  })
+})
+
+describe('what a verdict does to a line', () => {
+  it('checks an unchecked line and takes the check off a checked one', () => {
+    expect(verdictChange(line(1, 1, 2), 'good')).toEqual({ kind: 'reviewed', to: true })
+    expect(verdictChange(line(1, 1, 2, { reviewed: true }), 'good')).toEqual({ kind: 'reviewed', to: false })
+  })
+
+  it('sets Wrong or Mixed, and clears it when pressed again', () => {
+    expect(verdictChange(line(1, 1, 2), 'wrong')).toEqual({ kind: 'mark', to: 'wrong' })
+    expect(verdictChange(line(1, 1, 2, { mark: 'wrong' }), 'wrong')).toEqual({ kind: 'mark', to: null })
+    expect(verdictChange(line(1, 1, 2, { mark: 'wrong' }), 'mixed')).toEqual({ kind: 'mark', to: 'mixed' })
+  })
+})
+
+describe('the mark and jump keys', () => {
+  const body = { closest: () => null }
+  const field = { closest: () => ({}) }
+
+  it('maps G, X, M and N, P to the verdicts and the jump', () => {
+    expect(['g', 'x', 'm', 'n', 'p'].map((k) => watchKey(k, body))).toEqual(['good', 'wrong', 'mixed', 'nextmarked', 'prevmarked'])
+  })
+
+  it('leaves the letters to a field being typed in', () => {
+    expect(['g', 'x', 'm', 'n', 'p'].map((k) => watchKey(k, field))).toEqual([null, null, null, null, null])
   })
 })

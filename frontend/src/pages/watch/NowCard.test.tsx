@@ -161,3 +161,22 @@ describe('NowCard', () => {
     expect(out).toContain('Hear it again')
   })
 })
+
+describe('NowCard marks and jump', () => {
+  it('offers no marks when the page gives it no handlers', () => {
+    expect(html(props())).not.toContain('Your mark on this line')
+  })
+
+  it('shows the three verdicts and the jump, with the current mark pressed', () => {
+    const out = html(props({ line: line(2, 4, { mark: 'wrong' }), onMark: vi.fn(), onJump: vi.fn() }))
+    expect(out).toContain('aria-label="Your mark on this line"')
+    expect(out).toMatch(/aria-pressed="true"[^>]*>(?:<span[^>]*>✗<\/span>) Wrong</)
+    expect(out).toMatch(/aria-pressed="false"[^>]*>(?:<span[^>]*>✓<\/span>) Looks right</)
+    expect(out).toContain('Previous marked or flagged')
+    expect(out).toContain('Next marked or flagged')
+  })
+
+  it('does not offer a verdict on a line with no English to judge', () => {
+    expect(html(props({ line: line(2, 4, { en: '' }), onMark: vi.fn() }))).toMatch(/watch-mark-good[^>]*disabled/)
+  })
+})

@@ -1,4 +1,4 @@
-import { clearCheckLines, GLOSSARY_SENTENCE, joinSeries, leaveSeries, mockPeaks, seedCheckLines, seedLines } from './compareSelectedHelpers'
+import { clearCheckLines, GLOSSARY_SENTENCE, joinSeries, leaveSeries, mockPeaks, seedCheckLines, seedLines, seedOneFlaggedLine } from './compareSelectedHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
 import { clearLines } from './resegmentLlmMocks'
 import { serveJobs } from './workspaceJobPillMocks'
@@ -8,6 +8,11 @@ import { expect, test } from './fixtures'
 
 // Audio and video titles have a Simple view (#/drama/1, no stage) beside today's workspace; the choice is
 // remembered in the browser. Title 1 is the seeded audio drama, 3 the seeded video, 2 the novel.
+
+// The Player button of an audio title's lines is drawn in More's row, which starts closed.
+const headerMore = (page: Page) => page.locator('.workspace-header').getByRole('button', { name: 'More', exact: true })
+// Found by its class, not its name: while the row is closed its buttons have no accessible name.
+const playerButton = (page: Page) => page.locator('.title-top-more-row button', { hasText: /^Player/ })
 
 const progress = (id: number, lines: number, untranslated: number) => ({
   drama_id: id, stage_index: 1, stage: 'translate', line_count: lines, untranslated_count: untranslated,
@@ -364,6 +369,22 @@ test.describe('the check queue', () => {
     await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   }
 
+  test('an open card that is the card\'s last row follows its rounded corners where the list card ends at it', async ({ page }) => {
+    seedOneFlaggedLine()
+    await page.setViewportSize({ width: 1100, height: 900 })
+    await simple(page)
+    const open = page.locator('.review-line.is-active')
+    await expect(open).toBeVisible()
+    const radii = () => open.evaluate((el) => {
+      const [list, row] = [getComputedStyle(el.closest('.review-list-card')!), getComputedStyle(el)]
+      return { card: parseFloat(list.borderBottomLeftRadius), left: parseFloat(row.borderBottomLeftRadius), right: parseFloat(row.borderBottomRightRadius) }
+    })
+    const r = await radii()
+    expect(r.card, 'the list card has rounded corners').toBeGreaterThan(8)
+    expect(r.left, 'the open card\'s bottom left follows the list card\'s corner').toBeCloseTo(r.card - 1, 0)
+    expect(r.right, 'the open card\'s bottom right follows the list card\'s corner').toBeCloseTo(r.card - 1, 0)
+  })
+
   test('opens on the lines that need a look, says why, and moves on as each one is checked', async ({ page }) => {
     seedCheckLines({ untranslated: true })
     await simple(page)
@@ -374,11 +395,23 @@ test.describe('the check queue', () => {
     await expect(page.getByTestId('queue-fine')).toHaveText('20 of 24 look fine')
     // Riskiest first: the glossary name, then the line Whisper was unsure of, then the fast one.
     await expect(page.locator('.review-line .review-idx')).toHaveText(['#24', '#7', '#12'])
-    // The open card says why in a plain sentence; the closed ones in a few words, as a chip in their meta line.
+    // The open card says why in a plain sentence; the closed ones in a chip at the end of their row.
     await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
     await expect(card(page, 24).getByTestId('queue-reason')).toHaveText(GLOSSARY_SENTENCE)
-    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure (50% sure)')
-    await expect(card(page, 12).getByTestId('queue-reason')).toHaveText('Fast to read, 25 characters a second')
+    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure of this line (50% sure)')
+    await expect(card(page, 12).getByTestId('queue-reason')).toHaveText('Too fast to read: 25 characters a second')
+    // The number and the time read as part of the sentence: the body font, to the tenth, with digits of one width.
+    for (const n of [24, 12]) {
+      const look = await card(page, n).evaluate((el) => {
+        const num = getComputedStyle(el.querySelector('.review-idx')!)
+        const time = getComputedStyle(el.querySelector('.review-time')!)
+        return { body: getComputedStyle(document.body).fontFamily, numFont: num.fontFamily, timeFont: time.fontFamily, digits: time.fontVariantNumeric }
+      })
+      expect(look.numFont, `#${n}'s number is in the body font`).toBe(look.body)
+      expect(look.timeFont, `#${n}'s time is in the body font`).toBe(look.body)
+      expect(look.digits).toContain('tabular-nums')
+    }
+    await expect(card(page, 12).locator('.review-time')).toHaveText('0:22.0')
     await expect(page.locator('.review-line').getByTestId('line-flag')).toHaveCount(0)
     await expect(card(page, 24).getByRole('link', { name: 'Open glossary' })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
     // The English under its label, boxed like a field; the fitting action first, with the green finishing step last.
@@ -412,8 +445,15 @@ test.describe('the check queue', () => {
     const footer = page.getByTestId('queue-footer')
     await expect(footer).toContainText('The other 20 lines have no warnings.')
     await expect(footer).toContainText('1 line has no English yet.')
-    await expect(footer.getByRole('button', { name: 'Mark the rest as checked', exact: true })).toBeDisabled()
+    // Held back, it is still a link: the reason shows only once it is pressed, and the press does not ask to confirm.
+    const markRest = footer.getByRole('button', { name: 'Mark the rest as checked', exact: true })
+    await expect(markRest).toBeEnabled()
+    await expect(page.getByTestId('mark-rest-reason')).toHaveCount(0)
+    await markRest.click()
     await expect(page.getByTestId('mark-rest-reason')).toHaveText('Look at the lines Whisper was unsure of first: this would mark them checked too.')
+    await expect(page.getByTestId('mark-rest-reason')).toHaveAttribute('role', 'status')
+    await expect(markRest).toHaveAccessibleDescription('Look at the lines Whisper was unsure of first: this would mark them checked too.')
+    await expect(footer.getByRole('button', { name: 'Confirm: record untouched lines as approved' })).toHaveCount(0)
 
     // Looks right, next checks the line and opens the next card; Undo brings the line back into the queue, open.
     await card(page, 24).getByRole('button', { name: 'Looks right, next' }).click()
@@ -520,7 +560,10 @@ test.describe('the check queue', () => {
     await expect(page.getByTestId('queue-footer')).toHaveCount(0)
     arrive()
     await expect(page.locator('.review-line .review-idx')).toHaveText(['#24', '#7', '#12'])
-    await expect(page.getByTestId('queue-footer').getByRole('button', { name: 'Mark the rest as checked', exact: true })).toBeDisabled()
+    const markRest = page.getByTestId('queue-footer').getByRole('button', { name: 'Mark the rest as checked', exact: true })
+    await expect(markRest).toBeEnabled()
+    await expect(page.getByTestId('mark-rest-reason')).toHaveCount(0)
+    await markRest.click()
     await expect(page.getByTestId('mark-rest-reason')).toHaveText('Look at the lines Whisper was unsure of first: this would mark them checked too.')
   })
 
@@ -570,26 +613,35 @@ test.describe('the check queue', () => {
     await expectNoSidewaysScroll(page)
   })
 
-  test('the header holds Add media, Redo transcription, Glossary, the switch and More, with no second row of links', async ({ page }) => {
+  test('the header holds Add media, Redo transcription, Glossary, Search, the switch and More; More holds the title\'s files and the source link', async ({ page }) => {
     seedCheckLines()
     await simple(page)
     const header = page.locator('.workspace-header')
     await expect(header.getByRole('link', { name: 'Add media', exact: true })).toHaveAttribute('href', '#/drama/3/source?tab=add')
     await expect(header.getByRole('link', { name: 'Redo transcription', exact: true })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
     await expect(header.getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
+    await expect(header.getByRole('button', { name: 'Search', exact: true })).toBeVisible()
     await expect(header.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
     for (const name of ['Add media', 'Redo transcription', 'Glossary']) await expect(page.getByRole('link', { name, exact: true })).toHaveCount(1)
+    await expect(page.locator('.title-top-actions').getByRole('link').or(page.locator('.title-top-actions').getByRole('button')))
+      .toHaveText(['Add media', 'Redo transcription', 'Glossary', 'Search', 'More'])
+    // The switch sits after Search and before More, in the header's one row.
+    const order = await page.locator('.title-top-actions').evaluate((row) => [...row.children].map((el) => el.matches('.title-view-switch') ? 'switch' : el.textContent))
+    expect(order).toEqual(['Add media', 'Redo transcription', 'Glossary', 'Search', 'switch', 'More'])
     // The main button is under the steps, first in the lines' Need a look row.
     const main = page.getByRole('button', { name: 'Check the 3 lines', exact: true })
     await expect(main).toHaveCount(1)
     expect((await main.boundingBox())!.y).toBeGreaterThan((await page.getByRole('list', { name: 'Steps' }).boundingBox())!.y)
     const more = header.getByRole('button', { name: 'More', exact: true })
+    const row = page.locator('.title-top-more-row')
     await expect(page.getByRole('button', { name: 'Open folder' })).toBeHidden()
     await more.click()
     await expect(more).toHaveAttribute('aria-expanded', 'true')
     await expect(page.getByRole('button', { name: 'Open folder' })).toBeVisible()
     // The source page link, or the way to add one when the title has none.
-    await expect(page.locator('.title-top-more-row').locator('.ws-source, .ws-source-add')).toBeVisible()
+    await expect(row.locator('.ws-source, .ws-source-add')).toBeVisible()
+    // The switch is not repeated in More's row.
+    await expect(row.getByRole('radio')).toHaveCount(0)
     await more.click()
     await expect(page.getByRole('button', { name: 'Open folder' })).toBeHidden()
     // The stage pages share the header.
@@ -597,6 +649,43 @@ test.describe('the check queue', () => {
     await expect(header.getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
     await expect(header.getByRole('button', { name: 'More', exact: true })).toBeVisible()
     await expectNoSidewaysScroll(page)
+  })
+
+  test('Search shows All with the lines\' search box focused, from the title page and from another step\'s page', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    const search = page.locator('.workspace-header').getByRole('button', { name: 'Search', exact: true })
+    const box = page.getByRole('searchbox', { name: 'Search lines' })
+    await expect(queueRadio(page)).toBeChecked()
+    await expect(box).toHaveCount(0)
+    // A draft being edited is saved first, as a switch to All does.
+    await card(page, 24).getByTestId('line-en').click()
+    await card(page, 24).getByRole('textbox', { name: 'Translation' }).fill('Typed before Search.')
+    await search.click()
+    await expect(allRadio(page)).toBeChecked()
+    await expect(box).toBeFocused()
+    const saved = await (await page.request.get('/api/review/dramas/3/lines?page=1&page_size=40&only=all')).json()
+    expect(saved.lines[23].en).toBe('Typed before Search.')
+    // Pressed again with something typed, it keeps the text and the focus.
+    await box.fill('Line 5')
+    await page.getByRole('heading', { level: 1 }).click()
+    await search.click()
+    await expect(box).toHaveValue('Line 5')
+    await expect(box).toBeFocused()
+    // The typed text is kept by the page, so it is cleared before the lines are left.
+    await box.fill('')
+    // From the Translate step's page it goes to the Check step's page and does the same there.
+    await page.goto('/#/drama/3/translate')
+    await expect(box).toHaveCount(0)
+    await search.click()
+    await expect(page).toHaveURL(/#\/drama\/3\/review$/)
+    await expect(allRadio(page)).toBeChecked()
+    await expect(box).toBeFocused()
+    // A request that was answered is not asked again when the lines mount later.
+    await page.goto('/#/drama/3/export')
+    await page.goto('/#/drama/3/review')
+    await expect(queueRadio(page)).toBeChecked()
+    await expect(box).toHaveCount(0)
   })
 
   test('on Review the main button leads the Need a look row, and without lines it keeps its own row', async ({ page }) => {
@@ -637,15 +726,17 @@ test.describe('the check queue', () => {
     const player = page.getByRole('group', { name: 'Player' })
     await expect(player).toBeHidden()
     await expect(page.getByRole('button', { name: /Show waveform|Hide waveform/ })).toBeHidden()
-    const toolbar = (await page.locator('.review-toolbar').boundingBox())!
+    const firstRow = (await page.locator('.review-queue-row').boundingBox())!
+    const list = (await page.locator('.review-list-card').boundingBox())!
     const first = (await page.locator('.review-line').first().boundingBox())!
-    expect(first.y - (toolbar.y + toolbar.height), 'the first card sits right under the switch row').toBeLessThanOrEqual(16)
-    expect(first.y).toBeGreaterThanOrEqual(toolbar.y + toolbar.height)
+    expect(list.y - (firstRow.y + firstRow.height), 'the list card sits right under the first row').toBeLessThanOrEqual(16)
+    expect(list.y).toBeGreaterThanOrEqual(firstRow.y + firstRow.height)
+    expect(first.y, 'the first card is the card\'s first row').toBeLessThanOrEqual(list.y + 2)
     // The open card: no tick box, a short reason (the panel has the rest), and its four buttons.
     await expect(card(page, 24).locator('.review-select')).toBeHidden()
-    await expect(card(page, 24).getByTestId('queue-reason')).toHaveText('Glossary name not used: 夷陵老祖')
+    await expect(card(page, 24).getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
-      .toHaveText(['▶ Play', 'Open glossary', 'Improve translation', '✗ Wrong', '〰 Mixed', 'Looks right, next'])
+      .toHaveText(['Play line', 'Open glossary', 'Improve translation', '✗ Wrong', '〰 Mixed', 'Looks right, next'])
 
     // This line is the open tab, with the sound, the reason and the lines around it.
     const lineTab = page.getByRole('tab', { name: 'This line' })
@@ -659,7 +750,7 @@ test.describe('the check queue', () => {
     // #24 is the last line: the line before it and itself.
     await expect(panel.getByTestId('this-line-around').locator('.this-line-near-idx')).toHaveText(['#23', '#24'])
     expect(await page.evaluate(() => localStorage.getItem('baihe.pref.review.tools.tab.3'))).toBeNull()
-    await panel.getByRole('button', { name: '▶ Play' }).click()
+    await panel.getByRole('button', { name: 'Play', exact: true }).click()
     await expect.poll(() => page.locator('audio').evaluate((a: HTMLAudioElement) => !a.paused)).toBe(true)
     await expect(panel.locator('.this-line-playhead'), 'the playhead shows on the line\'s sound while it plays').toBeVisible()
     await page.keyboard.press('Alt+Space')
@@ -677,8 +768,12 @@ test.describe('the check queue', () => {
     await expect(lineTab).toHaveAttribute('aria-selected', 'true')
     await expect(player).toBeHidden()
 
-    // The Player button brings the strip and the waveform back, and is remembered.
-    const toggle = page.locator('.review-queue-row').getByRole('button', { name: 'Player', exact: true })
+    // The Player button is in the header's More row, not in the lines' first row; it brings the strip and the waveform back, and is remembered.
+    await expect(page.locator('.review-queue-row').getByRole('button', { name: 'Player', exact: true })).toHaveCount(0)
+    await expect(page.locator('button', { hasText: /^Player/ })).toHaveCount(1)
+    const toggle = playerButton(page)
+    await headerMore(page).click()
+    await expect(toggle).toBeVisible()
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
     await expect(toggle).toHaveAttribute('title', 'Seek bar, speed, subtitles and the waveform')
     await toggle.click()
@@ -687,6 +782,7 @@ test.describe('the check queue', () => {
     await page.reload()
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     await expect(player).toBeVisible()
+    await headerMore(page).click()
     await toggle.click()
     await expect(player).toBeHidden()
 
@@ -709,8 +805,9 @@ test.describe('the check queue', () => {
     await page.goto('/#/drama/3/review')
     const panel = page.getByTestId('this-line')
     await expect(panel.getByRole('heading', { name: 'Line 24 sound' })).toBeVisible()
-    await expect(panel.getByRole('button', { name: '▶ Play' })).toBeVisible()
-    await expect(panel).toContainText('0:46.00')
+    await expect(panel.getByRole('button', { name: 'Play', exact: true })).toBeVisible()
+    await expect(panel).toContainText('0:46.0')
+    await expect(panel).not.toContainText('0:46.00')
     await expect(panel.getByTestId('this-line-wave')).toHaveCount(0)
     await expect(panel.getByRole('alert')).toHaveCount(0)
   })
@@ -739,6 +836,7 @@ test.describe('the check queue', () => {
   test('with lines that need a look, the title page is the check queue, and Review shows the same page', async ({ page }) => {
     seedCheckLines({ audio: true })
     await mockPeaks(page)
+    await page.addInitScript(() => localStorage.setItem('baihe.navDock', 'docked'))
     await page.setViewportSize({ width: 1440, height: 900 })
     await simple(page)
     for (const path of ['#/drama/3', '#/drama/3/review']) {
@@ -749,6 +847,12 @@ test.describe('the check queue', () => {
       await expect(back).toHaveAttribute('href', '#/library')
       await expect(back).toHaveText('‹Library')
       await expect(page.locator('.workspace-header').getByTestId('title-kind')).toHaveText('Video drama · Korean to English')
+      // A short name keeps its chip beside it: the name, the chip and the buttons share one row, with the menu docked.
+      const [name, chip, buttons] = await Promise.all([page.getByTestId('drama-title'), page.getByTestId('title-kind'), page.locator('.title-top-actions')].map(async (l) => (await l.boundingBox())!))
+      const sameRow = (a: { y: number; height: number }, b: { y: number; height: number }) => a.y < b.y + b.height && b.y < a.y + a.height
+      expect(sameRow(name, chip) && sameRow(name, buttons), 'the name, the chip and the buttons share a row').toBe(true)
+      expect(name.x + name.width, 'the chip follows the name').toBeLessThanOrEqual(chip.x)
+      expect(chip.x + chip.width, 'the buttons follow the chip').toBeLessThanOrEqual(buttons.x)
       // The main button is drawn once, as the first thing in the Need a look row.
       const main = page.getByRole('button', { name: 'Check the 3 lines', exact: true })
       await expect(main).toHaveCount(1)
@@ -919,14 +1023,14 @@ test.describe('the check queue', () => {
       for (const [what, loc] of [['source', zh], ['English', en], ['chip', chip]] as const) {
         expect(await loc.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `the ${what} is not cut at ${width}px`).toBe(true)
       }
-      await expect(chip).toHaveText('Fast to read, 25 characters a second')
+      await expect(chip).toHaveText('Too fast to read: 25 characters a second')
       await expect(closed.locator('.review-speaker')).toBeHidden()
       await expect(closed.getByTestId('line-cps')).toBeHidden()
       await expect(closed.getByText(/^Shaky/)).toBeHidden()
       await expect(card(page, 24).locator('.review-speaker')).toHaveText('Wei Wuxian')
     }
-    // The line only Whisper doubted keeps its score in the few words, as its badge is not shown.
-    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure (50% sure)')
+    // The line only Whisper doubted keeps its score in the chip, as its badge is not shown.
+    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure of this line (50% sure)')
     await expectNoSidewaysScroll(page)
   })
 
@@ -965,7 +1069,7 @@ test.describe('the check queue', () => {
     await page.goto('/#/drama/3/review')
     const open = card(page, 24)
     await expect(page.getByRole('tab', { name: 'This line' })).toHaveAttribute('aria-selected', 'true')
-    await expect(open.getByTestId('queue-reason')).toHaveText('Glossary name not used: 夷陵老祖')
+    await expect(open.getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
     await expect(open.getByRole('button', { name: 'See the lines around it' })).toHaveCount(0)
     await page.getByRole('tab', { name: 'Look for problems' }).click()
     await expect(open.getByTestId('queue-reason')).toHaveText(GLOSSARY_SENTENCE)
@@ -973,7 +1077,7 @@ test.describe('the check queue', () => {
     // The hidden panel is not drawn at all, so nothing in it runs.
     await expect(page.getByTestId('this-line')).toHaveCount(0)
     await page.getByRole('tab', { name: 'This line' }).click()
-    await expect(open.getByTestId('queue-reason')).toHaveText('Glossary name not used: 夷陵老祖')
+    await expect(open.getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
     await expect(open.getByRole('button', { name: 'See the lines around it' })).toHaveCount(0)
     await expect(page.getByTestId('this-line')).toBeVisible()
   })
@@ -1041,7 +1145,10 @@ test.describe('the check queue', () => {
     await expect(card(page, 1)).toBeVisible()
     const first = (await card(page, 1).boundingBox())!
     expect(first.y + (await page.evaluate(() => window.scrollY)), 'the first line\'s top').toBeLessThan(420)
-    const toggle = page.locator('.review-queue-row').getByRole('button', { name: 'Player', exact: true })
+    // One Player button on the page, in the header's More row, whichever view the lines are on.
+    const toggle = playerButton(page)
+    await expect(page.locator('button', { hasText: /^Player/ })).toHaveCount(1)
+    await headerMore(page).click()
     // It names the strip it shows; the strip is hidden, so it is found by its class, not its role.
     const strip = page.locator('.review-player')
     await expect(toggle).toHaveAttribute('aria-controls', (await strip.getAttribute('id'))!)
@@ -1052,7 +1159,8 @@ test.describe('the check queue', () => {
     await expect(player).toBeVisible()
     await queueRadio(page).check({ force: true })
     await expect(player).toBeVisible()
-    await page.locator('.review-queue-row').getByRole('button', { name: 'Player', exact: true }).click()
+    await headerMore(page).click()
+    await toggle.click()
     await expect(player).toBeHidden()
     await allRadio(page).check({ force: true })
     await expect(player).toBeHidden()
@@ -1065,6 +1173,7 @@ test.describe('the check queue', () => {
     await expect(player).toBeVisible()
     // The button reads as open, and one press folds the player again; the choice it remembers stays "folded".
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await headerMore(page).click()
     await toggle.click()
     await expect(player).toBeHidden()
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
@@ -1080,7 +1189,7 @@ test.describe('the check queue', () => {
   test.describe('on title 1, with its long name', () => {
     test.afterAll(() => clearCheckLines(1))
 
-    test('the header is one row at 1440 with the menu docked: the kind under the name, the controls beside it', async ({ page }) => {
+    test('the header is one row at 1440 with the menu docked, with the switch among the buttons and the kind chip under the long name', async ({ page }) => {
       seedCheckLines({ drama: 1 })
       await page.addInitScript(() => localStorage.setItem('baihe.navDock', 'docked'))
       await page.setViewportSize({ width: 1440, height: 900 })
@@ -1089,17 +1198,38 @@ test.describe('the check queue', () => {
       const header = page.locator('.workspace-header')
       const name = page.getByTestId('drama-title')
       await expect(name).toHaveText('Grandmaster of Demonic Cultivation')
-      await expect(header.getByTestId('title-kind')).toHaveText('Audio drama · Chinese to English')
+      const kind = header.getByTestId('title-kind')
+      await expect(kind).toHaveText('Audio drama · Chinese to English')
       const controls = page.locator('.title-top-actions')
       await expect(controls.getByRole('link')).toHaveText(['Add media', 'Redo transcription', 'Glossary'])
-      const [n, c, h] = [(await name.boundingBox())!, (await controls.boundingBox())!, (await header.boundingBox())!]
-      expect(c.y < n.y + n.height && n.y < c.y + c.height, 'the name and the controls share a row').toBe(true)
-      expect(h.height, 'the header\'s height').toBeLessThan(70)
+      await expect(controls.getByRole('link').or(controls.getByRole('button'))).toHaveText(['Add media', 'Redo transcription', 'Glossary', 'Search', 'More'])
+      const switchBox = controls.getByRole('group', { name: 'Title view' })
+      await expect(switchBox.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
+      const back = (await header.getByRole('link', { name: 'Back to Library' }).boundingBox())!
+      const [n, k, c, h, sw] = [(await name.boundingBox())!, (await kind.boundingBox())!, (await controls.boundingBox())!, (await header.boundingBox())!, (await switchBox.boundingBox())!]
+      const search = (await controls.getByRole('button', { name: 'Search', exact: true }).boundingBox())!
+      const more = (await controls.getByRole('button', { name: 'More', exact: true }).boundingBox())!
+      const sameRow = (a: { y: number; height: number }, b: { y: number; height: number }) => a.y < b.y + b.height && b.y < a.y + a.height
+      expect(sameRow(n, c) && sameRow(n, back) && sameRow(sw, search) && sameRow(sw, more), 'the back link, the name, the buttons and the switch share a row').toBe(true)
+      expect(search.x + search.width, 'the switch follows Search').toBeLessThanOrEqual(sw.x)
+      expect(sw.x + sw.width, 'More follows the switch').toBeLessThanOrEqual(more.x)
+      // The chip is what gives way: under the name, left-aligned with it, whole.
+      expect(k.y, 'the chip is under the name').toBeGreaterThanOrEqual(n.y + n.height - 1)
+      expect(Math.abs(k.x - n.x), 'the chip starts where the name starts').toBeLessThanOrEqual(1)
+      expect(h.height, 'the header\'s height: the name and its chip, one row of buttons').toBeLessThan(70)
+      expect(k.height, 'the chip is one line').toBeLessThan(30)
+      await page.setViewportSize({ width: 1280, height: 800 })
+      await expectNoSidewaysScroll(page)
       await page.setViewportSize({ width: 1100, height: 800 })
-      const cut = await controls.evaluate((row) => [...row.querySelectorAll('a, button, label')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent))
-      expect(cut, 'controls cut at 1100px').toEqual([])
+      const cut = await header.evaluate((row) => [...row.querySelectorAll('a, button, label, h1, [data-testid="title-kind"]')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent))
+      expect(cut, 'header text cut at 1100px').toEqual([])
       for (const name of ['Add media', 'Redo transcription', 'Glossary']) await expect(controls.getByRole('link', { name, exact: true })).toBeInViewport()
+      await expect(controls.getByRole('button', { name: 'Search', exact: true })).toBeInViewport()
+      await expect(switchBox).toBeInViewport()
       await expect(controls.getByRole('button', { name: 'More', exact: true })).toBeInViewport()
+      // Where the group no longer fits beside the name it moves under it whole, not button by button.
+      const tops = await controls.evaluate((row) => [...row.children].map((el) => Math.round(el.getBoundingClientRect().y)))
+      expect(Math.max(...tops) - Math.min(...tops), 'the buttons and the switch stay on one line at 1100px').toBeLessThanOrEqual(2)
       await expectNoSidewaysScroll(page)
     })
   })
@@ -1163,5 +1293,333 @@ test.describe('the check queue', () => {
       await expect(tablist.getByRole('tab').first()).toBeVisible()
       await expect(tablist.getByRole('tab', { name: 'Episodes' })).toHaveCount(0)
     })
+  })
+  // The lines as drawn on a wide screen: the first row, the list card, the open card and the closed rows.
+  const accentColour = (page: Page) => page.evaluate(() => {
+    const probe = document.createElement('i')
+    probe.style.color = 'var(--accent)'
+    document.body.append(probe)
+    const colour = getComputedStyle(probe).color
+    probe.remove()
+    return colour
+  })
+  const edge = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => {
+    const s = getComputedStyle(el)
+    return { width: s.borderLeftWidth, colour: s.borderLeftColor }
+  })
+
+  test('the first row has no card, its pills are separate and the same height as the main button, and "look fine" ends at the list card', async ({ page }) => {
+    seedCheckLines()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    const row = page.locator('.review-queue-row')
+    const main = row.getByRole('button', { name: 'Check the 3 lines', exact: true })
+    await expect(main).toBeVisible()
+    const style = await row.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { bg: s.backgroundColor, border: s.borderTopWidth + s.borderBottomWidth + s.borderLeftWidth + s.borderRightWidth, shadow: s.boxShadow }
+    })
+    expect(style, 'the row has no fill, border or shadow of its own').toEqual({ bg: 'rgba(0, 0, 0, 0)', border: '0px0px0px0px', shadow: 'none' })
+    // Order: the main button, then the pills, then "look fine" at the far end.
+    const [mainBox, queueLabel, allLabel] = [(await main.boundingBox())!, queueRadio(page).locator('xpath=..'), allRadio(page).locator('xpath=..')]
+    const [queueBox, allBox] = [(await queueLabel.boundingBox())!, (await allLabel.boundingBox())!]
+    expect(mainBox.x + mainBox.width).toBeLessThan(queueBox.x)
+    expect(queueBox.x + queueBox.width, 'two separate pills, with a gap between them').toBeLessThan(allBox.x)
+    for (const b of [queueBox, allBox]) expect(Math.abs(b.height - mainBox.height), 'a pill is as high as the main button').toBeLessThanOrEqual(1)
+    // The pill that is on has the heavier accent edge; the other a hairline.
+    const accent = await accentColour(page)
+    expect(await edge(queueLabel)).toEqual({ width: '2px', colour: accent })
+    expect((await edge(allLabel)).width).toBe('1px')
+    const list = (await page.locator('.review-list-card').boundingBox())!
+    const fine = (await row.locator('.check-queue-fine-group').boundingBox())!
+    expect(Math.abs(fine.x + fine.width - (list.x + list.width)), '"look fine" ends at the list card\'s right edge').toBeLessThanOrEqual(2)
+    await expect(row.getByTestId('queue-fine')).toHaveText('21 of 24 look fine')
+  })
+
+  test('nothing in the first row moves when the main button arrives', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    let release = () => {}
+    const held = new Promise<void>((resolve) => { release = resolve })
+    await page.route('**/api/workflow/dramas/3/progress', async (route) => {
+      await held
+      await route.continue()
+    })
+    await page.goto('about:blank')
+    await page.goto('/#/drama/3/review')
+    await expect(page.locator('.review-line').first()).toBeVisible()
+    // One reading per frame of the All pill's place and the first row of the list, from before the button to after it.
+    await page.evaluate(() => {
+      const w = window as unknown as { rec: { all: number | null; row: number | null; first: number | null }[]; stop: boolean }
+      w.rec = []
+      w.stop = false
+      const frame = () => {
+        const all = document.querySelectorAll('.check-queue-switch label')[1]
+        const row = document.querySelector('.review-line')
+        // The first row's own height is read from before the button, while it holds only its place.
+        const first = document.querySelector('.review-queue-row')
+        w.rec.push({ all: all ? all.getBoundingClientRect().x : null, row: row ? row.getBoundingClientRect().y : null, first: first ? first.getBoundingClientRect().height : null })
+        if (!w.stop) requestAnimationFrame(frame)
+      }
+      frame()
+    })
+    await page.waitForTimeout(600)
+    release()
+    await expect(page.getByRole('button', { name: 'Check the 3 lines', exact: true })).toBeVisible()
+    await page.waitForTimeout(400)
+    const rec = await page.evaluate(() => {
+      const w = window as unknown as { rec: { all: number | null; row: number | null; first: number | null }[]; stop: boolean }
+      w.stop = true
+      return w.rec
+    })
+    const alls = rec.map((r) => r.all).filter((x): x is number => x !== null)
+    const rows = rec.map((r) => r.row).filter((y): y is number => y !== null)
+    const heights = rec.map((r) => r.first).filter((h): h is number => h !== null)
+    expect(alls.length, 'the pills were drawn').toBeGreaterThan(3)
+    expect(Math.max(...alls) - Math.min(...alls), 'the All pill never moved once drawn').toBeLessThanOrEqual(1)
+    expect(Math.max(...rows) - Math.min(...rows), 'the list never moved under the row').toBeLessThanOrEqual(1)
+    expect(heights.length, 'the first row was drawn before the button arrived').toBeGreaterThan(30)
+    expect(Math.max(...heights) - Math.min(...heights), 'the first row kept its height when the button arrived').toBeLessThanOrEqual(1)
+  })
+
+  test('the list is one white card: the open card has an accent edge, a closed row a clear one, no ⋯, and the footer is its last line', async ({ page }) => {
+    seedCheckLines()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    const list = page.locator('.review-list-card')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    const listBox = (await list.boundingBox())!
+    const listStyle = await list.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { bg: s.backgroundColor, border: s.borderTopWidth, radius: s.borderTopLeftRadius }
+    })
+    expect(listStyle).toEqual({ bg: 'rgb(255, 255, 255)', border: '1px', radius: '14px' })
+    for (const n of [24, 12, 7]) {
+      const b = (await card(page, n).boundingBox())!
+      expect(b.x).toBeGreaterThanOrEqual(listBox.x)
+      expect(b.x + b.width).toBeLessThanOrEqual(listBox.x + listBox.width)
+    }
+    // The open card: an accent edge 4px wide, and no menu button but ⋯.
+    expect(await edge(card(page, 24))).toEqual({ width: '4px', colour: await accentColour(page) })
+    await expect(card(page, 24).getByRole('button', { name: 'More actions for line 24' })).toHaveText('⋯')
+    // A closed row: a transparent edge, no ⋯, a divider above.
+    for (const n of [12, 7]) {
+      expect((await edge(card(page, n))).colour, 'a closed row has no colour on its left edge').toBe('rgba(0, 0, 0, 0)')
+      await expect(card(page, n).locator('.review-more')).toHaveCount(0)
+      expect(await card(page, n).evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('1px')
+    }
+    // The footer lies inside the card, under the rows, and its sentence and links are one line.
+    const footer = (await page.getByTestId('queue-footer').boundingBox())!
+    const last = (await card(page, 7).boundingBox())!
+    expect(footer.y).toBeGreaterThanOrEqual(last.y + last.height - 1)
+    expect(footer.x).toBeGreaterThanOrEqual(listBox.x)
+    expect(footer.x + footer.width).toBeLessThanOrEqual(listBox.x + listBox.width)
+    expect(footer.y + footer.height).toBeLessThanOrEqual(listBox.y + listBox.height)
+    const line = (await page.locator('.check-queue-line').boundingBox())!
+    expect(line.height, 'the sentence and the two links share one line').toBeLessThan(28)
+    await expect(page.locator('.check-queue-footer .check-queue-link')).toHaveText(['Read them all', 'Mark the rest as checked…'])
+  })
+
+  test('each reason chip is one line high with the drawn words, and drops under the texts only when the row is too narrow', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    const words = { 24: 'The English does not use the glossary name for 夷陵老祖', 12: 'Too fast to read: 25 characters a second', 7: 'Whisper was unsure of this line (50% sure)' }
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    for (const [n, text] of Object.entries(words)) {
+      const chip = card(page, Number(n)).getByTestId('queue-reason')
+      await expect(chip).toHaveText(text)
+      expect((await chip.boundingBox())!.height, `the chip of line ${n} is one line`).toBeLessThan(32)
+    }
+    for (const n of [12, 7]) {
+      const [chip, body] = [(await card(page, n).getByTestId('queue-reason').boundingBox())!, (await card(page, n).locator('.review-body').boundingBox())!]
+      expect(chip.y, `with room, the chip of line ${n} stays on the texts' line`).toBeLessThan(body.y + body.height - 4)
+    }
+    // A narrow wide screen: the chip goes under the texts, may wrap between words, and the texts keep 10rem each.
+    await page.setViewportSize({ width: 700, height: 900 })
+    for (const n of [12, 7]) {
+      const [row, chip, body] = [card(page, n), card(page, n).getByTestId('queue-reason'), card(page, n).locator('.review-body')]
+      const [rowBox, chipBox, bodyBox] = [(await row.boundingBox())!, (await chip.boundingBox())!, (await body.boundingBox())!]
+      expect(chipBox.y, `the chip of line ${n} is under the texts`).toBeGreaterThanOrEqual(bodyBox.y + bodyBox.height - 1)
+      expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width)
+      expect(await chip.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'no text of the chip is cut').toBe(true)
+      for (const text of [row.locator('.review-zh'), row.getByTestId('line-en')]) expect((await text.boundingBox())!.width).toBeGreaterThanOrEqual(149)
+    }
+    await expectNoSidewaysScroll(page)
+  })
+
+  test('a closed row opens on a click or on Enter', async ({ page }) => {
+    seedCheckLines()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await card(page, 12).locator('.review-line-ref').click()
+    await expect(card(page, 12)).toHaveAttribute('aria-current', 'true')
+    await card(page, 7).focus()
+    await page.keyboard.press('Enter')
+    await expect(card(page, 7)).toHaveAttribute('aria-current', 'true')
+  })
+
+  test('no sideways scroll at 1440, 1280 and 1100', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    for (const width of [1440, 1280, 1100]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto('about:blank')
+      await page.goto('/#/drama/3/review')
+      await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+      await expectNoSidewaysScroll(page)
+      // Nothing overlaps or is cut: the first row's parts keep their order, and every reason chip and the tabs are whole and inside the window.
+      const [main, pills, fine] = [
+        (await page.locator('.review-queue-row').getByRole('button', { name: 'Check the 3 lines' }).boundingBox())!,
+        (await page.getByRole('group', { name: 'Lines to show' }).boundingBox())!,
+        (await page.locator('.check-queue-fine-group').boundingBox())!,
+      ]
+      expect(main.x + main.width, `at ${width}: the main button is left of the pills`).toBeLessThanOrEqual(pills.x)
+      expect(pills.x + pills.width, `at ${width}: the pills are left of "look fine"`).toBeLessThanOrEqual(fine.x)
+      for (const n of [12, 7]) expect(await card(page, n).getByTestId('queue-reason').evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `at ${width}: chip ${n} is whole`).toBe(true)
+      const tabsBox = (await page.getByRole('tablist', { name: 'Review tools' }).boundingBox())!
+      expect(tabsBox.x + tabsBox.width, `at ${width}: the tabs are inside the window`).toBeLessThanOrEqual(width)
+      await allRadio(page).check({ force: true })
+      await expect(allRadio(page)).toBeChecked()
+      await expect(page.locator('.review-line').nth(5)).toBeVisible()
+      await expectNoSidewaysScroll(page)
+    }
+  })
+
+  test('a Marked pill joins Need a look and All once a line is marked, shows the marked lines, and goes when the mark is cleared', async ({ page }) => {
+    seedCheckLines()
+    await page.setViewportSize({ width: 1100, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    const pills = page.getByRole('group', { name: 'Lines to show' })
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await expect(pills.getByRole('radio')).toHaveCount(2)
+    await card(page, 24).getByRole('button', { name: /Wrong/ }).click()
+    await expect(pills.locator('label')).toHaveText(['Need a look 3', 'Marked 1', 'All 24'])
+    for (const pill of await pills.locator('label span').all()) {
+      expect(await pill.evaluate((el) => el.scrollWidth <= el.clientWidth), 'no pill\'s words are cut').toBe(true)
+    }
+    await expectNoSidewaysScroll(page)
+
+    await pills.getByRole('radio', { name: 'Marked 1' }).check({ force: true })
+    await expect(page.locator('.review-line')).toHaveCount(1)
+    await expect(pills.getByRole('radio', { name: 'Marked 1' })).toBeChecked()
+    await expect(queueRadio(page)).not.toBeChecked()
+    await expect(allRadio(page)).not.toBeChecked()
+
+    await page.locator('.review-line .review-idx').click()
+    await page.locator('.review-line').getByRole('button', { name: /Wrong/ }).click()
+    await expect(page.getByText('No lines marked wrong or mixed.')).toBeVisible()
+    await queueRadio(page).check({ force: true })
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await expect(pills.getByRole('radio')).toHaveCount(2)
+  })
+
+  test('Read them all brings the first line of All into view when the page was scrolled past the start of the list', async ({ page }) => {
+    seedCheckLines()
+    // A short window, so reaching the footer's link scrolls the page past the first card.
+    await page.setViewportSize({ width: 1280, height: 500 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await page.getByRole('button', { name: 'Read them all' }).scrollIntoViewIfNeeded()
+    expect(await page.evaluate(() => window.scrollY), 'the page is scrolled past the start of the list').toBeGreaterThan(0)
+    await page.getByRole('button', { name: 'Read them all' }).click()
+    await expect(allRadio(page)).toBeChecked()
+    await expect(page.locator('.review-line').nth(5)).toBeVisible()
+    const first = await page.locator('.review-line').first().evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      const bar = document.querySelector('.review-toolbar')
+      const stuck = bar && getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().bottom : 0
+      return { top: r.top, bottom: r.bottom, height: window.innerHeight, under: stuck }
+    })
+    expect(first.top, 'the first line is not above the window or under the sticky bar').toBeGreaterThanOrEqual(Math.max(0, first.under) - 1)
+    expect(first.bottom, 'the first line ends inside the window').toBeLessThanOrEqual(first.height)
+  })
+  test('with the tools beside it, the queue\'s card reaches the bottom of the window without making the page scroll', async ({ page }) => {
+    seedCheckLines()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    const { bottom, scroll, inner } = await page.locator('.review-list-card').evaluate((el) => ({
+      bottom: el.getBoundingClientRect().bottom, scroll: document.documentElement.scrollHeight, inner: window.innerHeight,
+    }))
+    expect(inner - bottom, 'the card ends one page gap above the window\'s bottom').toBeLessThanOrEqual(30)
+    expect(scroll, 'the card does not make the page scroll').toBeLessThanOrEqual(inner)
+  })
+  test('the tools column is 372px wide with its tabs in a card of pills and This line as three white cards with a 3px-bar sound picture', async ({ page }) => {
+    seedCheckLines({ audio: true })
+    await mockPeaks(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    const column = (await page.locator('.review-ai').boundingBox())!
+    const list = (await page.locator('.review-list-card').boundingBox())!
+    expect(Math.abs(column.width - 372), 'the column is 372px wide').toBeLessThanOrEqual(2)
+    expect(Math.abs(column.x - (list.x + list.width) - 20), 'and 20px from the list').toBeLessThanOrEqual(2)
+    // The tabs: pills in a bordered card; the selected one is filled and bold, with no underline.
+    const tabs = page.getByRole('tablist', { name: 'Review tools' })
+    const card3 = await tabs.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { border: s.borderTopWidth, radius: s.borderTopLeftRadius, padding: s.paddingTop, bg: s.backgroundColor }
+    })
+    expect(card3).toEqual({ border: '1px', radius: '14px', padding: '3px', bg: 'rgb(255, 255, 255)' })
+    const pill = (name: string) => page.getByRole('tab', { name }).evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { padding: `${s.paddingTop} ${s.paddingRight}`, radius: s.borderTopLeftRadius, weight: s.fontWeight, underline: s.borderBottomWidth, bg: s.backgroundColor }
+    })
+    expect(await pill('This line')).toMatchObject({ padding: '5px 8px', radius: '6px', weight: '600', underline: '0px' })
+    expect((await pill('This line')).bg, 'the selected tab is filled').not.toBe('rgba(0, 0, 0, 0)')
+    // Retried: the tab that was selected before the open card's This line took over fades out for a moment.
+    await expect(page.getByRole('tab', { name: 'Look for problems' }), 'the others are not').toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    // This line: three white cards with an edge.
+    const cards = page.getByTestId('this-line').locator('.this-line-card')
+    await expect(cards).toHaveCount(3)
+    for (let i = 0; i < 3; i++) {
+      expect(await cards.nth(i).evaluate((el) => {
+        const s = getComputedStyle(el)
+        return { border: s.borderTopWidth, radius: s.borderTopLeftRadius, bg: s.backgroundColor }
+      })).toEqual({ border: '1px', radius: '14px', bg: 'rgb(255, 255, 255)' })
+    }
+    // The picture is 54px high, with about 85 bars each 3px wide.
+    const picture = page.getByTestId('this-line-wave')
+    await expect(picture.locator('rect').first()).toBeVisible()
+    expect(Math.abs((await picture.boundingBox())!.height - 54)).toBeLessThanOrEqual(1)
+    const bars = await picture.locator('rect').evaluateAll((rs) => rs.map((r) => r.getBoundingClientRect().width))
+    expect(bars.length).toBeGreaterThanOrEqual(80)
+    expect(bars.length).toBeLessThanOrEqual(90)
+    for (const w of bars) expect(Math.abs(w - 3), 'each bar is 3px wide').toBeLessThanOrEqual(0.5)
+    await expect(page.getByTestId('this-line').getByRole('button', { name: 'Play', exact: true })).toHaveAttribute('title', 'Play the line (Space)')
+    await expectNoSidewaysScroll(page)
+  })
+
+  test('another tab\'s panel is one white card, and the tabs are the same pills under the list', async ({ page }) => {
+    seedCheckLines()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await page.getByRole('tab', { name: 'Look for problems' }).click()
+    const panel = page.getByRole('tabpanel', { name: 'Look for problems' })
+    await expect(panel).toBeVisible()
+    expect(await panel.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { border: s.borderTopWidth, radius: s.borderTopLeftRadius, bg: s.backgroundColor }
+    })).toEqual({ border: '1px', radius: '14px', bg: 'rgb(255, 255, 255)' })
+    await page.setViewportSize({ width: 1280, height: 900 })
+    const tab = page.getByRole('tab', { name: 'Look for problems' })
+    await expect(tab).toBeVisible()
+    expect(await tab.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { padding: `${s.paddingTop} ${s.paddingRight}`, radius: s.borderTopLeftRadius, underline: s.borderBottomWidth }
+    })).toEqual({ padding: '5px 8px', radius: '6px', underline: '0px' })
+    await expectNoSidewaysScroll(page)
   })
 })
