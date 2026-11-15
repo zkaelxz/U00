@@ -600,7 +600,7 @@ export interface paths {
         put?: never;
         /**
          * Import chosen dramas from an uploaded backup file as new dramas (confirm=true, confirm_text=RESTORE)
-         * @description Multipart: file, drama_ids (repeat the field; ids as listed by /import/list), confirm (the string "true"), confirm_text.
+         * @description Multipart: file, drama_ids (repeat the field; ids as listed by /import/list), confirm (the string "true"), confirm_text, join_series ("true" merges each series into one of the same name here; otherwise it comes in as a new series).
          */
         post: operations["post_import_api_backups_import_post"];
         delete?: never;
@@ -20050,6 +20050,11 @@ export interface components {
             media_imported: number;
             /** Series Created */
             series_created: number;
+            /**
+             * Series Joined
+             * @default 0
+             */
+            series_joined: number;
         };
         /** ImportedDrama */
         ImportedDrama: {
@@ -33526,6 +33531,7 @@ export interface operations {
                     drama_ids: number[];
                     /** Format: binary */
                     file: string;
+                    join_series?: string;
                 };
             };
         };

@@ -301,14 +301,39 @@ def _live_titles() -> set:
             for d in db.list_dramas()}
 
 
-def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=None) -> dict:
+def _joinable_series(src, ids, principal, owner_user_id) -> dict:
+    """{series name: live series id} for each series of the chosen dramas
+    whose name a live series has and that the importer may put a title in
+    (ownership_service.check_series_assignment); any other comes in new."""
+    marks = ",".join("?" for _ in ids)
+    names = {r[0] for r in src.execute(
+        f"SELECT s.name FROM series s JOIN dramas d ON d.series_id = s.id "
+        f"WHERE d.id IN ({marks})", ids) if isinstance(r[0], str) and r[0]}
+    out = {}
+    for name in names:
+        live_id = db.get_series_id_by_name(name)
+        if live_id is None:
+            continue
+        try:
+            out[name] = ownership_service.check_series_assignment(principal, live_id,
+                                                                  owner_user_id)
+        except ServiceError:
+            continue
+    return out
+
+
+def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=None,
+                  join_series=False) -> dict:
     """Imports the chosen dramas (ids inside the file, as listed by
     list_backup_dramas) as new dramas. Needs confirm=True and confirm_text
     "RESTORE"; refused while a backup, export, restore or cleanup holds the
     library. All chosen dramas are imported or none. A drama whose title
     matches one already here is titled "... (restored <date>)".
+    join_series: a series whose name a series here has (and that the
+    importer may use) is merged into that one instead of coming back as
+    "... (imported <date>)" (drama_restore_service._merge_into_series).
     Returns {imported: [{source_id, drama_id, title, media_imported}],
-    series_created, media_imported, counts}."""
+    series_created, series_joined, media_imported, counts}."""
     ids = _check_ids(drama_ids)
     las.require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Importing titles")
     if abs_.job_running():
@@ -326,6 +351,8 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
                     if any(i not in present for i in ids):
                         raise NotFoundError("A chosen title isn't in that file.")
                     _check_row_limits(src, ids)
+                    join = (_joinable_series(src, ids, principal, _import_owner(principal))
+                            if join_series else {})
             except sqlite3.Error:
                 raise InvalidInputError(_BAD_FILE) from None
             if backup.zip_path is not None:
@@ -339,13 +366,22 @@ def import_dramas(stream, drama_ids, confirm=False, confirm_text="", principal=N
                                 stagings[did] = drs.stage_media(zf, did, staging)
                 except (OSError, zipfile.BadZipFile):
                     raise InvalidInputError(_BAD_FILE) from None
-            return _import_from(backup.db_path, ids, stagings, staging, principal)
+            return _import_from(backup.db_path, ids, stagings, staging, principal, join)
         finally:
             if staging is not None:
                 drs.end_media_staging(staging)
 
 
-def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
+def _import_owner(principal):
+    """The owner an imported title gets: the importer, or the PC owner (None)
+    when that account isn't in this library."""
+    owner = ownership_service.new_item_defaults(principal)["owner_user_id"]
+    with contextlib.closing(db.get_conn()) as conn:
+        known = conn.execute("SELECT 1 FROM users WHERE id = ?", (owner,)).fetchone()
+    return owner if known else None
+
+
+def _import_from(snap_db, ids, stagings, staging, principal, join=None) -> dict:
     """Inserts the dramas in one transaction, then moves their staged
     folders (in `staging`) into dramas/<new id>, then commits: the commit is
     the commit point (see db's media journal)."""
@@ -355,10 +391,9 @@ def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
     titles = _live_titles()   # before dst opens: db helpers close the connection they use
     with contextlib.closing(_open_db(snap_db, _IMPORT_TIME_LIMIT_S)) as src, \
             contextlib.closing(db.get_conn()) as dst:
-        users = {r[0] for r in dst.execute("SELECT id FROM users")}
-        owner = defaults["owner_user_id"]
-        import_as = {"owner_user_id": owner if owner in users else None,
-                     "is_private": defaults["is_private"], "series": {}, "media_dir": None}
+        import_as = {"owner_user_id": _import_owner(principal),
+                     "is_private": defaults["is_private"], "series": {}, "media_dir": None,
+                     "join": join or {}}
         try:
             dst.execute("BEGIN IMMEDIATE")
             drs.refuse_newer_copy(src)
@@ -402,6 +437,8 @@ def _import_from(snap_db, ids, stagings, staging, principal) -> dict:
             + ",".join(str(i["drama_id"]) for i in imported))
     except Exception:
         log.warning("Could not write the audit entry for a drama import")
-    return {"imported": imported, "series_created": len(import_as["series"]),
+    joined = len(import_as.get("joined", ()))
+    return {"imported": imported, "series_created": len(import_as["series"]) - joined,
+            "series_joined": joined,
             "media_imported": sum(1 for i in imported if i["media_imported"]),
             "counts": totals}
