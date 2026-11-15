@@ -16,6 +16,7 @@ import shutil
 import sys
 import threading
 import time
+from typing import Any
 
 import db
 from engine_backends.shared import redact_secrets
@@ -37,7 +38,7 @@ THROTTLE_ALERT_MASK = 0x8 | 0x20 | 0x40 | 0x80
 
 # `low` rules alert when the value is under the limit. `margin` is how far
 # back from the limit a value must be to count as recovered.
-METRICS = {
+METRICS: dict[str, dict[str, Any]] = {
     "gpu_temp": {"label": "GPU temperature", "unit": " °C", "limit": 85, "minutes": 5, "enabled": True,
                  "margin": 3, "range": (40, 120)},
     "gpu_throttle": {"label": "GPU throttling", "unit": "", "limit": None, "minutes": 10, "enabled": True,
@@ -56,7 +57,7 @@ MINUTES_RANGE = (1, 1440)
 
 # --- rules -------------------------------------------------------------------
 
-def _number(value, low, high, default):
+def _number(value, low, high, default) -> Any:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
         return default
     return value
@@ -67,15 +68,16 @@ def get_rules() -> dict:
     stored value that is valid laid over them. A bad stored value falls back
     to the default for that one field."""
     from services import settings_service
-    stored = settings_service.get(RULES_SETTING)
-    stored = stored if isinstance(stored, dict) else {}
-    rules = {}
+    raw = settings_service.get(RULES_SETTING)
+    stored: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    rules: dict[str, dict[str, Any]] = {}
     for name, meta in METRICS.items():
-        own = stored.get(name) if isinstance(stored.get(name), dict) else {}
+        own: dict[str, Any] = stored[name] if isinstance(stored.get(name), dict) else {}
         enabled = own.get("enabled")
         limit = meta["limit"]
         if limit is not None:
-            limit = _number(own.get("limit"), *meta["range"], limit)
+            low, high = meta["range"]
+            limit = _number(own.get("limit"), low, high, limit)
         rules[name] = {"enabled": enabled if isinstance(enabled, bool) else meta["enabled"],
                        "limit": limit,
                        "minutes": _number(own.get("minutes"), *MINUTES_RANGE, meta["minutes"])}
@@ -102,7 +104,7 @@ def _nvidia_smi(query: str):
 def _read_gpu() -> dict:
     """gpu_temp, gpu_memory and gpu_throttle of the worst card (the hottest,
     the fullest); each None when nvidia-smi does not report it."""
-    out = {"gpu_temp": None, "gpu_memory": None, "gpu_throttle": None}
+    out: dict[str, float | None] = {"gpu_temp": None, "gpu_memory": None, "gpu_throttle": None}
     if not shutil.which("nvidia-smi"):
         return out
     rows = _nvidia_smi("temperature.gpu,memory.used,memory.total")
@@ -258,13 +260,13 @@ _last_cpu = None
 
 def _load_state() -> dict:
     try:
-        stored = db.get_app_setting(STATE_SETTING, None)
+        raw = db.get_app_setting(STATE_SETTING, None)
     except Exception:
-        stored = None
-    stored = stored if isinstance(stored, dict) else {}
-    out = {}
+        raw = None
+    stored: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    out: dict[str, dict[str, Any]] = {}
     for name in METRICS:
-        saved = stored.get(name) if isinstance(stored.get(name), dict) else {}
+        saved: dict[str, Any] = stored[name] if isinstance(stored.get(name), dict) else {}
         out[name] = {"alerting": saved.get("alerting") is True,
                      "notified_at": _number(saved.get("notified_at"), 0, 1e12, None),
                      "alert_since": _number(saved.get("alert_since"), 0, 1e12, None),
@@ -281,7 +283,7 @@ def _save_state(states) -> None:
 def sample() -> dict:
     """The current readings, None where one is unavailable. Never raises."""
     global _last_cpu
-    readings = {name: None for name in METRICS}
+    readings: dict[str, float | None] = {name: None for name in METRICS}
     for reader in (_read_gpu,):
         try:
             readings.update(reader())
