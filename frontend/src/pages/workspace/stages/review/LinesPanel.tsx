@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import type { PlayerMediaKind } from '../../../../api/media'
 import { listAllLines } from '../../../../api/restructure'
@@ -8,7 +8,7 @@ import { readSectionOpen, writeSectionOpen } from '../../../../components/sectio
 import { buttonClass } from '../../../../components/uiClasses'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
-import type { LineFilter } from '../../../../types/review'
+import type { LineFilter, ReviewLine } from '../../../../types/review'
 import { FindReplacePanel } from './FindReplacePanel'
 import { HiddenEditBanner } from './HiddenEditBanner'
 import { LineActionsSheet, type SheetState } from './LineActionsSheet'
@@ -16,7 +16,8 @@ import { useLineSelectionContext } from './LineSelectionContext'
 import { SelectionBar } from './SelectionBar'
 import { selectionContext } from './selectionActions'
 import { useSimple } from '../../StageContext'
-import { useCheckQueue, useInitialLinesFilter } from './useCheckQueue'
+import { useCheckQueue, useInitialLinesFilter, useLineTab, useQueueMedia } from './useCheckQueue'
+import { ThisLineDock } from './ThisLinePanel'
 import { LineRow, type EditState, type RowIssue } from './LineRow'
 import { LinesEmpty } from './LinesEmpty'
 import { buildLinesNavigation } from './linesNavigation'
@@ -32,9 +33,9 @@ import { useLinesLoad } from './useLinesLoad'
 import { useLinkedFind } from './useLinkedFind'
 import { useClearAfter, useScrollCollapse, useToolbarHeight } from './useLinesChrome'
 import { useWaveformGaps } from './useWaveformGaps'
-import { mentionsLineHistory, pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
+import { pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
 import { useSetSpeakerPanel } from './useSetSpeakerPanel'
-import { LineHistoryButton, UndoNotice } from './UndoNotice'
+import { ReviewStatus, UndoNotice } from './UndoNotice'
 import { useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
@@ -80,6 +81,11 @@ interface Props {
   // Opens Records → Line history, which the Undo notice and its refusals point to.
   onOpenHistory?: () => void
   goTo?: { target: LineTarget; seq: number; resolve: (message: string | null) => void } | null
+  // Whether Simple's check queue is showing, and whether it has a card open beside the tools (the This line tab).
+  onQueue?: (on: boolean) => void
+  onLineTab?: (shown: boolean) => void
+  // The This line tab's empty panel, once the tools have drawn it: the open card's panel goes in there.
+  lineDock?: HTMLElement | null
 }
 
 const PHONE = '(max-width: 640px)'
@@ -95,7 +101,7 @@ const STATUS_MS = 8000
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, onOpenHistory, goTo }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, onOpenHistory, goTo, onQueue, onLineTab, lineDock = null }: Props) {
   const isPhone = useMediaQuery(PHONE)
   const simple = useSimple()
   const isWide = useMediaQuery(WIDE) // tablets and wider: a source video gets its own sticky card beside the lines
@@ -274,7 +280,10 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   useEffect(() => {
     if (goTo) void goToRef.current(goTo.target).then(goTo.resolve)
   }, [goTo])
-  const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, data, dataFilter, settled, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError })
+  const playerId = useId()
+  const media = useQueueMedia(mediaKind === 'audio' && !emptyDrama, isPhone, sectionRef, playerId)
+  const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, canRetranscribeLine, retranscribeNeed, data, dataFilter, settled, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError, mediaToggle: media.toggle })
+  const mediaFolded = queue.foldsMedia && media.folds
   const toggleReplace = () => {
     const next = !replaceOpen
     setReplaceOpen(next)
@@ -288,6 +297,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
 
   // ---- shortcuts ----
   const active = activeId !== null ? shown.find((l) => l.id === activeId) ?? null : null
+  const linePanel = useLineTab(queue, active !== null, lineDock, onQueue, onLineTab)
   useReviewShortcuts({
     ctl, actions, selection, player, listRef, searchRef, mediaKind, isPhone,
     sheetOpen: sheet !== null, keysOpen, page, pages, searching, limited, active, edit, ai,
@@ -304,12 +314,11 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     openSetSpeaker: setSpeaker.open,
     openRetranscribe: (lineIds: number[]) => onRetranscribeLines?.(lineIds),
   })
-  const allShownSelected = shown.length > 0 && shown.every((l) => selection.selectedSet.has(l.id))
   const loading = !searching && data === null && !error
   const showPager = !searching && !!data && pages > 1
   const editingActive = edit !== null && edit.lineId === activeId
   // Phones: the pager shares the player's row so the sticky toolbar stays short.
-  const pagerInPlayer = isPhone && mediaKind !== null && showPager && !collapsed
+  const pagerInPlayer = isPhone && mediaKind !== null && showPager && !collapsed && !mediaFolded
   const sideVideo = isWide && !isPhone && mediaKind === 'video' && !emptyDrama
   const looseMedia = isPhone || (isShort && !sideVideo) // pinned, they left one list line visible on a short screen
 
@@ -321,7 +330,11 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     onChanged,
     onTranscribe: (ids) => onRetranscribeLines?.(ids, true),
   })
-  const { gapFocus, gapIndex, sortedGaps, focusGap, jumpToGap } = useGapFocus({ gaps: gaps.gaps, player, setWaveOpen, setStatus })
+  const openWave = (open: boolean) => {
+    setWaveOpen(open)
+    if (open) media.show()
+  }
+  const { gapFocus, gapIndex, sortedGaps, focusGap, jumpToGap } = useGapFocus({ gaps: gaps.gaps, player, setWaveOpen: openWave, setStatus })
   // The read goes in as an unsaved edit of the source text, so the usual Save,
   // Undo and conflict check still apply.
   const readIntoLine = async (patch: { zh: string; en?: string }) => {
@@ -352,8 +365,13 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       />
     ) : null
 
+  const stepButtons = !searching && !queue.on
+    ? <LineStepButtons flaggedCount={data?.flagged_count ?? 0} unreviewedCount={data?.unreviewed_count ?? 0} onMove={(d, k) => void ctl.moveFlagged(d, k)} />
+    : null
+  const selectAll = shown.length > 0 && !queue.on ? <SelectAllShown shown={shown} /> : null
+
   return (
-    <section className={['review-editor', sideVideo && 'has-side', replaceOpen && 'is-replacing'].filter(Boolean).join(' ')} aria-label="Lines" ref={sectionRef}>
+    <section className={['review-editor', sideVideo && 'has-side', replaceOpen && 'is-replacing', mediaFolded && 'is-media-folded'].filter(Boolean).join(' ')} aria-label="Lines" ref={sectionRef}>
       <div className="review-main">
         {!emptyDrama && (
         <ReviewToolbar
@@ -390,6 +408,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               <>
                 <Player
                   ref={player}
+                  id={playerId}
+                  onFailed={media.show}
                   dramaId={dramaId}
                   kind={mediaKind}
                   lines={shown}
@@ -417,11 +437,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         )}
         {setSpeaker.node}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
-        {!searching && !queue.on && <LineStepButtons flaggedCount={data?.flagged_count ?? 0} unreviewedCount={data?.unreviewed_count ?? 0} onMove={(d, k) => void ctl.moveFlagged(d, k)} />}
-        <p className="review-status" role="status">
-          {status}
-          {onOpenHistory && mentionsLineHistory(status) && <> <LineHistoryButton onOpen={onOpenHistory} /></>}
-        </p>
+        {!simple && stepButtons}
+        <ReviewStatus text={status} onOpenHistory={onOpenHistory} />
         {undo && <UndoNotice message={undo.message} busy={busy} onUndo={() => void edits.doUndo()} onDismiss={() => setUndo(null)} onOpenHistory={onOpenHistory} />}
         {data === null && found === null ? (
           <RetryBanner error={error} what="the lines" onRetry={retry} />
@@ -456,19 +473,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             onAllLines={() => void changeFilter('all')}
           />
         )}
-        {shown.length > 0 && !queue.on && (
-          <div className="review-selectall" role="group" aria-label="Select lines">
-            <button type="button" className={buttonClass('ghost', 'sm')} disabled={allShownSelected} onClick={() => selection.selectMany(shown.map((l) => l.id))}>
-              Select all shown
-            </button>
-            {selection.count > 0 && (
-              <>
-                <button type="button" className={buttonClass('ghost', 'sm')} onClick={selection.clear}>Clear</button>
-                <span role="status" data-testid="selection-count">{selection.count} selected</span>
-              </>
-            )}
-          </div>
-        )}
+        {/* Simple puts the step buttons and Select all shown on one row, so the first line is on the first screen. */}
+        {simple ? (stepButtons || selectAll) && <div className="review-list-head">{selectAll}{stepButtons}</div> : selectAll}
         <ul className={['review-lines', compact && 'is-compact', selection.count > 0 && 'has-selection'].filter(Boolean).join(' ')} ref={listRef}>
           {queue.rows.map((l) => (
             <LineRow
@@ -491,6 +497,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               actions={actions}
               simple={simple}
               queue={queue.on}
+              linePanel={linePanel}
+              retranscribe={queue.retranscribe}
               searchHit={searching}
               jumped={jumpedId === l.id}
               focusRetranscribe={retranscribeFocusId === l.id}
@@ -542,10 +550,14 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           retranscribeNeed={retranscribeNeed}
           timingSnap={sheetLine ? timingByLine.get(sheetLine.id) ?? null : null}
           sourceLanguage={sourceLanguage}
-          actions={buildSheetActions({ sheetLine, ctl, edits, player, setSheet, setStructError, setSheetNote, setRetranscribeFocusId })}
+          actions={buildSheetActions({ sheetLine, ctl, edits, player, setSheet, setStructError, setSheetNote })}
         />
         <ShortcutSheet open={keysOpen} onClose={() => setKeysOpen(false)} />
       </div>
+      {linePanel && active && lineDock && (
+        <ThisLineDock dock={lineDock} dramaId={dramaId} line={active} sound={mediaKind === 'audio'} player={player} reloads={reloads}
+                      sourceLanguage={sourceLanguage} onShowLine={actions.showOnPage} />
+      )}
       {sideVideo && (
         <aside className="card review-watch" aria-label="Video with subtitles">
           <h2 className="card-title">Video with subtitles</h2>
@@ -559,5 +571,23 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         </aside>
       )}
     </section>
+  )
+}
+
+function SelectAllShown({ shown }: { shown: ReviewLine[] }) {
+  const selection = useLineSelectionContext()
+  const allShownSelected = shown.every((l) => selection.selectedSet.has(l.id))
+  return (
+    <div className="review-selectall" role="group" aria-label="Select lines">
+      <button type="button" className={buttonClass('ghost', 'sm')} disabled={allShownSelected} onClick={() => selection.selectMany(shown.map((l) => l.id))}>
+        Select all shown
+      </button>
+      {selection.count > 0 && (
+        <>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={selection.clear}>Clear</button>
+          <span role="status" data-testid="selection-count">{selection.count} selected</span>
+        </>
+      )}
+    </div>
   )
 }

@@ -30,9 +30,10 @@ import type { LineTarget } from './review/reviewResults'
 import { useDramaJobRunning } from './review/useDramaJobRunning'
 import './review/review.css'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
+import { useMediaQuery } from '../../../hooks/useMediaQuery'
 
 export default function ReviewStage() {
-  const { dramaId, drama, refetchDrama } = useStage()
+  const { dramaId, drama, refetchDrama, episodes } = useStage()
   // Bumped after any write or finished job; every panel refetches on it.
   const [reloads, setReloads] = useState(0)
   // The header and tab counts come from the shell's workflow progress, which only
@@ -107,6 +108,14 @@ export default function ReviewStage() {
     [],
   )
   const [flaggedCount, setFlaggedCount] = useState<number | null>(null)
+  // The check queue's state, reported by the line list. Only these two flags live here (not the open line), so moving
+  // between cards never redraws the tools: the list fills the This line panel through the dock element.
+  const [queueOn, setQueueOn] = useState(false)
+  const [lineTab, setLineTab] = useState(false)
+  const [lineDock, setLineDock] = useState<HTMLDivElement | null>(null)
+  // The panel is drawn only while its tab is the one showing; under another tab the card carries what it would say.
+  const [lineShown, setLineShown] = useState(false)
+  const phone = useMediaQuery('(max-width: 640px)')
   // Not loaded yet counts as no lines: showing the panel first would flash it on a title that has none.
   // A ?tools= link or a running job still opens the panel with no lines.
   const hideTools = !lineCount && !jobRunning && !(route.name === 'drama' && route.id === dramaId && route.tools)
@@ -140,6 +149,9 @@ export default function ReviewStage() {
         onRetranscribeLines={openRetranscribe}
         onOpenHistory={openHistory}
         goTo={goTo}
+        onQueue={setQueueOn}
+        onLineTab={setLineTab}
+        lineDock={lineTab && lineShown ? lineDock : null}
       />
       <ReviewChecks
         enabled={!!lineCount}
@@ -155,6 +167,10 @@ export default function ReviewStage() {
                 dramaId={dramaId}
                 status={jobs.status}
                 request={toolsRequest}
+                lineDock={lineTab ? setLineDock : null}
+                onLineShown={setLineShown}
+                folded={queueOn && phone}
+                episodes={episodes}
                 attention={{ coverage: parts.coverageCount }}
                 tools={{
                   checks: jobs.check,

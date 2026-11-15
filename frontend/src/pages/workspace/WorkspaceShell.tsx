@@ -157,11 +157,14 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   // The phone stepper drops the counts and shows only a marker, so the open stage's state is spelled out below it.
   const activeState = active ? states[active] : undefined
   const activeDesc = active ? [activeState && STAGE_STATE_WORDS[activeState], stageCount(active, progress)].filter(Boolean).join(' · ') : ''
+  // The keys keep the title page and the stage pages apart, so opening the title page from a step reads its counts afresh.
   if (stage === null && drama && twoViews && view === 'simple') {
-    return kind === 'novel' ? <NovelTitlePage id={id} drama={drama} onView={chooseView} /> : <SimpleTitlePage id={id} drama={drama} comic={kind === 'comic'} onView={chooseView} />
+    if (kind === 'novel') return <NovelTitlePage id={id} drama={drama} onView={chooseView} />
+    if (kind === 'comic') return <SimpleTitlePage id={id} drama={drama} onView={chooseView} />
+    return <SimpleStagePage key="title" id={id} drama={drama} title={title} error={error} refetch={refetch} simple={simple} stage={null} onView={chooseView} />
   }
   if (stage !== null && drama && twoViews && view === 'simple' && slimStage) {
-    return <SimpleStagePage id={id} drama={drama} title={title} error={error} refetch={refetch} simple={simple} stage={active} onView={chooseView} />
+    return <SimpleStagePage key="stage" id={id} drama={drama} title={title} error={error} refetch={refetch} simple={simple} stage={active} onView={chooseView} />
   }
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
