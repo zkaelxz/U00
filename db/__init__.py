@@ -269,9 +269,25 @@ def _version_tuple(text):
 
 
 def _running_app_version():
-    """None for a source checkout, which has no version and so is neither
-    checked nor recorded."""
+    """None for a source checkout, which is not checked: a developer moving
+    between branches must not be locked out of their own library."""
     return portable.installed_app_version()
+
+
+def _checkout_stamp(conn):
+    """The version a source checkout records, or None to keep the stored one.
+    A checkout never lowers the stamp: a library a newer installed copy opened
+    must still be refused by an older one after a checkout opened it."""
+    try:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?",
+                           (APP_VERSION_SETTING,)).fetchone()
+        stored = json.loads(row[0]) if row else None
+    except (ValueError, TypeError):
+        stored = None
+    stored_v, source_v = _version_tuple(stored), _version_tuple(portable.SOURCE_VERSION)
+    if stored_v and source_v and stored_v >= source_v:
+        return None
+    return portable.SOURCE_VERSION
 
 
 def _refuse_newer_database(conn, running):
@@ -335,11 +351,12 @@ def init_db():
         import member_keys     # owns its table; imports db, so not at the top
         member_keys.create_tables(conn)
         _migrate_off_removed_test_engine(conn)
-        if running:
+        stamp = running or _checkout_stamp(conn)
+        if stamp:
             conn.execute("""
                 INSERT INTO app_settings (key, value) VALUES (?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
-            """, (APP_VERSION_SETTING, json.dumps(running)))
+            """, (APP_VERSION_SETTING, json.dumps(stamp)))
         conn.commit()
     _init_benchmark_lab_schema()
     _migrate_gpu_lock_slots()
