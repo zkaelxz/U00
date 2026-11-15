@@ -1431,3 +1431,117 @@ def test_new_drama_never_inherits_a_stale_folder(local_client, monkeypatch):
     _no_leak(r)
     assert [d[1] for d in _dramas()][-1] == "Next"
     assert _read(os.path.join(stray, "mine.txt")) == b"mine"
+
+
+# ---- voice bank and settings -------------------------------------------------
+
+def _bank_clip(tmp_path, name, data):
+    path = tmp_path / name
+    path.write_bytes(data)
+    return str(path)
+
+
+def test_voice_bank_comes_in_when_asked_and_a_same_entry_is_skipped(local_client, tmp_path):
+    a, b, g = _world()
+    db.save_voice_bank_entry("Narrator", _bank_clip(tmp_path, "n.wav", b"narrator"), ref_text="hi")
+    db.save_voice_bank_entry("Hero", _bank_clip(tmp_path, "h.wav", b"hero"), notes="calm")
+    data = _manual_zip()
+    for entry in db.list_voice_bank_entries():
+        if entry["name"] == "Hero":
+            db.delete_voice_bank_entry(entry["id"])
+    listed = _post_list(local_client, data).json()
+    assert listed["voice_bank_entries"] == 2
+    r = _post_import(local_client, data, [g])
+    assert r.json()["voice_bank_imported"] == 0
+    assert [e["name"] for e in db.list_voice_bank_entries()] == ["Narrator"]
+    r = _post_import(local_client, data, [g], voice_bank="true")
+    assert r.status_code == 200, r.text
+    _no_leak(r)
+    assert r.json()["voice_bank_imported"] == 1   # Narrator is already here with the same clip
+    entries = {e["name"]: e for e in db.list_voice_bank_entries()}
+    assert sorted(entries) == ["Hero", "Narrator"]
+    hero = entries["Hero"]
+    assert hero["notes"] == "calm"
+    with open(db.voice_bank_clip_path(hero["clip_filename"]), "rb") as fh:
+        assert fh.read() == b"hero"
+
+
+def test_a_database_only_file_offers_no_voice_bank(local_client, tmp_path):
+    _world()
+    db.save_voice_bank_entry("Narrator", _bank_clip(tmp_path, "n.wav", b"narrator"))
+    dest = os.path.join(db.LIBRARY_DIR, "x.db")
+    lbs._sanitized_snapshot(dest)
+    with open(dest, "rb") as fh:
+        assert _post_list(local_client, fh.read(), "library.db").json()["voice_bank_entries"] == 0
+
+
+def test_a_failed_import_leaves_no_voice_bank_clip_behind(local_client, tmp_path, monkeypatch):
+    a, b, g = _world()
+    db.save_voice_bank_entry("Hero", _bank_clip(tmp_path, "h.wav", b"hero"))
+    data = _manual_zip()
+    for entry in db.list_voice_bank_entries():
+        db.delete_voice_bank_entry(entry["id"])
+    before = set(os.listdir(db.VOICE_BANK_DIR))
+    real = bis._import_voice_bank
+
+    def then_fail(*args):
+        assert real(*args) == 1
+        raise OSError("disk")
+
+    monkeypatch.setattr(bis, "_import_voice_bank", then_fail)
+    r = _post_import(local_client, data, [g], voice_bank="true")
+    assert r.status_code >= 400
+    assert set(os.listdir(db.VOICE_BANK_DIR)) == before
+    assert db.list_voice_bank_entries() == []
+    assert len(_dramas()) == 3
+
+
+def test_settings_come_in_when_asked_without_system_update_or_kept_settings(local_client):
+    from services import settings_service
+    a, b, g = _world()
+    settings_service.set_settings({"default_locale": "en-GB", "monthly_cap_usd": 25.0,
+                                   "notify_on_completion": True, "use_gpu": False})
+    db.set_app_setting("update.auto_check", True)
+    data = _manual_zip()
+    settings_service.set_settings({"default_locale": "en-US", "monthly_cap_usd": 5.0,
+                                   "notify_on_completion": False, "use_gpu": True})
+    db.set_app_setting("update.auto_check", False)
+    assert _post_list(local_client, data).json()["settings_available"]
+    r = _post_import(local_client, data, [g])
+    assert r.json()["settings_imported"] == 0 and r.json()["notes"] == []
+    assert settings_service.get("default_locale") == "en-US"
+    r = _post_import(local_client, data, [g], settings="true")
+    assert r.status_code == 200, r.text
+    assert r.json()["settings_imported"] >= 3
+    assert r.json()["notes"] == [bis.KEYS_NOT_IMPORTED]
+    assert settings_service.get("default_locale") == "en-GB"
+    assert settings_service.get("monthly_cap_usd") == 25.0
+    assert settings_service.get("notify_on_completion") is True
+    assert settings_service.get("use_gpu") is True              # System page: this PC's
+    assert db.get_app_setting("update.auto_check") is False   # how this PC updates
+
+
+def test_importable_settings_are_never_secret_path_kept_or_system(isolated_db):
+    from lib import settings_schema
+    from services import library_restore_service as lrs
+    chosen = bis._importable_settings()
+    assert chosen
+    for store_key, key in chosen.items():
+        s = settings_schema.BY_KEY[key]
+        assert s.store == "db" and not s.secret and s.type != "path" and not s.dev_only
+        assert s.tab in ("translation", "preferences") and s.section != "App updates"
+        assert store_key not in lrs._RESTORE_KEPT_APP_SETTINGS
+
+
+def test_a_setting_the_file_holds_badly_is_left_as_it_is(local_client):
+    from services import settings_service
+    a, b, g = _world()
+    data = _db_bytes(lambda c: c.executescript(
+        "INSERT OR REPLACE INTO app_settings (key, value) VALUES "
+        "('pref.default_locale', '\"xx-XX\"'), ('pref.monthly_cap_usd', '12.5'), "
+        "('notify_on_completion', 'not json')"))
+    settings_service.set_settings({"default_locale": "en-AU"})
+    r = _post_import(local_client, data, [g], settings="true")
+    assert r.status_code == 200, r.text
+    assert settings_service.get("default_locale") == "en-AU"
+    assert settings_service.get("monthly_cap_usd") == 12.5
