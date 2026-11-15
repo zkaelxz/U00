@@ -14,6 +14,7 @@ from services import remote_setup_service as rss
 from tests.api_helpers import loopback_client
 
 SECRET = "GOCSPX-never-shown"
+_REAL_FIREWALL_RULE_VISIBLE = rss._firewall_rule_visible
 
 
 def _settings(**kw):
@@ -24,6 +25,15 @@ def _settings(**kw):
 
 def _states(status):
     return {s["id"]: s["state"] for s in status["steps"]}
+
+
+@pytest.fixture(autouse=True)
+def _network(monkeypatch):
+    """The name resolves to a public address; no address check is set."""
+    import ipaddress
+    monkeypatch.setattr(rhs, "_resolve", lambda host, stop=None: {ipaddress.ip_address("93.184.216.34")})
+    monkeypatch.setattr(rhs, "_ip_check_url", lambda env_path=None: "")
+    monkeypatch.setattr(rss, "_firewall_rule_visible", lambda: None)
 
 
 @pytest.fixture(autouse=True)
@@ -160,3 +170,61 @@ def test_sign_in_route_needs_key_writes_and_confirm(isolated_db, tmp_path, monke
     assert ok.json()["restart_needed"] is True
     bad = client.post("/api/diagnostics/remote-setup/sign-in", json={"public_url": "10.0.0.1", "confirm": True})
     assert bad.status_code == 422 and "10.0.0.1" not in bad.text
+
+
+# --- DNS and firewall ---------------------------------------------------------
+
+def _step_of(status, step_id):
+    return next(s for s in status["steps"] if s["id"] == step_id)
+
+
+def test_a_name_that_does_not_resolve_is_a_problem(isolated_db, monkeypatch):
+    def fail(host, stop=None):
+        raise OSError("not resolved")
+    monkeypatch.setattr(rhs, "_resolve", fail)
+    step = _step_of(rss.get_setup_status(_settings(public_url="https://baihe.example.com")), "name")
+    assert step["state"] == "problem" and "doesn't resolve" in step["message"]
+    assert "baihe.example.com" not in step["message"]
+
+
+def test_a_name_that_resolves_to_a_private_address_is_a_problem(isolated_db, monkeypatch):
+    import ipaddress
+    monkeypatch.setattr(rhs, "_resolve", lambda host, stop=None: {ipaddress.ip_address("192.168.1.9")})
+    step = _step_of(rss.get_setup_status(_settings(public_url="https://baihe.example.com")), "name")
+    assert step["state"] == "problem" and "private address" in step["message"]
+
+
+def test_a_resolving_name_is_done_and_a_stale_record_is_a_problem(isolated_db, monkeypatch):
+    on = _settings(public_url="https://baihe.example.com")
+    assert _step_of(rss.get_setup_status(on), "name")["state"] == "done"
+    monkeypatch.setattr(rhs, "check_ddns", lambda host: {"state": "warn", "message": "The public name points to an old address. Check the dynamic DNS updater."})
+    stale = _step_of(rss.get_setup_status(on), "name")
+    assert stale["state"] == "problem" and "old address" in stale["message"]
+
+
+@pytest.mark.parametrize("seen,state", [(True, "done"), (False, "todo"), (None, "manual")])
+def test_firewall_step_follows_the_rule_once_remote_access_is_on(isolated_db, monkeypatch, seen, state):
+    monkeypatch.setattr(rss, "_firewall_rule_visible", lambda: seen)
+    on = _settings(public_url="https://baihe.example.com", household_port=8610)
+    assert _step_of(rss.get_setup_status(on), "firewall")["state"] == state
+    off = _settings(public_url="https://baihe.example.com")
+    assert _step_of(rss.get_setup_status(off), "firewall")["state"] == "manual"
+
+
+def test_firewall_rule_is_only_asked_for_with_a_fixed_read_only_command(monkeypatch):
+    seen = {}
+
+    class Run:
+        returncode, timed_out = 1, False
+
+    def fake(cmd, timeout):
+        seen["cmd"] = cmd
+        return Run()
+
+    monkeypatch.setattr(rss.sys, "platform", "win32")
+    monkeypatch.setattr(rss.proc_run, "run_captured", fake)
+    assert _REAL_FIREWALL_RULE_VISIBLE() is False
+    assert seen["cmd"][1:5] == ["advfirewall", "firewall", "show", "rule"]
+    assert "add" not in seen["cmd"] and "delete" not in seen["cmd"]
+    monkeypatch.setattr(rss.sys, "platform", "linux")
+    assert _REAL_FIREWALL_RULE_VISIBLE() is None
