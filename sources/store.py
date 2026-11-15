@@ -296,12 +296,17 @@ class _Connection(sqlite3.Connection):
         return self._guard("commit")
 
     def __exit__(self, exc_type, exc, tb):
+        # sqlite3's own __exit__ only commits; every caller opens a fresh
+        # connection per `with`, and a handle left to the garbage collector
+        # can block the folder rename of a library restore on Windows.
         try:
             return super().__exit__(exc_type, exc, tb)
         except sqlite3.OperationalError as e:
             if _is_busy(e):
                 raise SourcesDatabaseBusy() from None
             raise
+        finally:
+            self.close()
 
 
 def log_dropped(what: str) -> None:
