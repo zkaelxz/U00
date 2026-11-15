@@ -67,7 +67,7 @@ export const REVIEW_TOOLS: { id: ReviewTool; group: ReviewToolsGroup; simple?: t
   { id: 'cleanup', group: 'change' },
   { id: 'retime', group: 'change' },
   { id: 'retranscribe', group: 'change' },
-  { id: 'voices', group: 'change' },
+  { id: 'voices', group: 'change', simple: true },
   { id: 'records', group: 'records' },
   { id: 'versionsAndNotes', group: 'records' },
   { id: 'style', group: 'records' },
@@ -110,6 +110,8 @@ export function asReviewToolsGroup(v: unknown): ReviewToolsGroup | null {
 // Compare transcription is no longer with the records, so the focus decides the group.
 export function reviewToolsGroupForLink(tools: string | null, focus: string | null): ReviewToolsGroup | null {
   const group = asReviewToolsGroup(tools)
+  // Listen's Change voice link names only the focus: Voices is in the group Change many lines.
+  if (focus === 'voices') return groupOfTool('voices')
   return group && focus === 'compare' ? groupOfTool('compareTranscription') : group
 }
 
