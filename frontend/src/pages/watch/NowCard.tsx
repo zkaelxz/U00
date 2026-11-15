@@ -131,8 +131,8 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
                   )}
                   {onJump && (
                     <>
-                      <button type="button" className={buttonClass()} aria-keyshortcuts="P" onClick={(e) => press(e, () => onJump(-1))}>‹ Prev. Flag</button>
-                      <button type="button" className={buttonClass()} aria-keyshortcuts="N" onClick={(e) => press(e, () => onJump(1))}>Next Flag ›</button>
+                      <button type="button" className={buttonClass()} aria-keyshortcuts="P" title="Prev. flag (P)" onClick={(e) => press(e, () => onJump(-1))}>‹ Prev. Flag</button>
+                      <button type="button" className={buttonClass()} aria-keyshortcuts="N" title="Next flag (N)" onClick={(e) => press(e, () => onJump(1))}>Next Flag ›</button>
                     </>
                   )}
                 </div>
