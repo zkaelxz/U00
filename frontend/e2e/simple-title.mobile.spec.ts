@@ -321,6 +321,22 @@ test.describe(() => {
     await expectNoSidewaysScroll(page)
   })
 
+  test('Search in the steps panel shows All and opens the lines\' search box with the cursor in it', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/review')
+    await expect(page.locator('.review-line .review-idx')).toHaveText('#24')
+    const box = page.getByRole('searchbox', { name: 'Search lines' })
+    await expect(box).toHaveCount(0)
+    await stepsButton(page).tap()
+    await page.locator('.steps-fold-controls').getByRole('button', { name: 'Search', exact: true }).tap()
+    await expect(page.getByRole('group', { name: 'Lines to show' }).getByRole('radio', { name: /^All/ })).toBeChecked()
+    await expect(box).toBeFocused()
+    // The panel closed with the press, so the box is not under it.
+    await expect(stepsButton(page)).toHaveAttribute('aria-expanded', 'false')
+    await expectNoSidewaysScroll(page)
+  })
+
   test('the title page on the Check step: the card first, then the footer and the tools, all clear of the bottom bar', async ({ page }) => {
     seedCheckLines({ audio: true })
     await mockPeaks(page)
