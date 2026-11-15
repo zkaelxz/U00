@@ -1,6 +1,7 @@
 """Ollama cloud tags need `engines.paid` on every route that takes a
 client-chosen model, not only the translate run. Mocked: nothing is sent."""
 import ast
+import json
 import inspect
 import textwrap
 import typing
@@ -238,3 +239,20 @@ def test_an_unreadable_own_key_is_refused_even_with_engines_paid(remote, drama, 
     r = remote.post(f"/api/line-ai/dramas/{drama}/lines/1/alternatives",
                     json={"engine": "ollama", "model": "gemma4:12b"}, headers=h)
     assert r.status_code != 403
+
+
+def test_hosted_default_is_used_only_after_the_owner_opts_in(isolated_db, monkeypatch):
+    from engine_backends import engine_registry
+    from services import model_registry_service, profile_service
+    db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": CLOUD})
+    drama = {"id": 1, "translate_start_json": json.dumps({"engine_model": CLOUD})}
+    monkeypatch.setattr(model_registry_service, "_listed_extras", lambda engine: {CLOUD})
+    assert engine_registry.model_override_for_default("ollama") is None
+    assert "can't be the default" in model_registry_service._override_error("ollama", CLOUD)
+    assert "model" not in profile_service.title_run_defaults(drama, "ollama", "ollama")
+    db.set_app_setting("pref.ollama_cloud_default", True)
+    assert engine_registry.effective_default_model("ollama") == CLOUD
+    assert model_registry_service._override_error("ollama", CLOUD) is None
+    assert profile_service.title_run_defaults(drama, "ollama", "ollama")["model"] == CLOUD
+    db.set_app_setting("pref.ollama_cloud_default", False)
+    assert engine_registry.model_override_for_default("ollama") is None
