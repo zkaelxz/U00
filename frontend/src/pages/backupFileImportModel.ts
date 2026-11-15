@@ -12,12 +12,16 @@ export function toggleBackupDrama(list: readonly BackupFileDrama[], chosen: Read
 }
 
 /** The notes shown before the RESTORE confirm. */
-export function importNotes(list: BackupFileDramaList, chosen: readonly BackupFileDrama[], today: string = isoDay()): string[] {
+export function importNotes(list: BackupFileDramaList, chosen: readonly BackupFileDrama[], today: string = isoDay(), joinSeries = false): string[] {
   const notes = [
-    'Each title is added as a new title; nothing you have is replaced or merged.',
+    joinSeries
+      ? 'Each title is added as a new title; no title you have is replaced.'
+      : 'Each title is added as a new title; nothing you have is replaced or merged.',
     `If a title is already in your library, '(restored ${today})' is added to the new one.`,
     'They belong to you and follow your sharing setting (private unless you share new items).',
-    `A series comes back as a new series named '… (imported ${today})', with its glossary and characters.`,
+    joinSeries
+      ? `A series with the same name as one here is added to that series: new characters and glossary terms are added, a character with the same name keeps yours with the two voice prints combined, and a term you already have keeps yours. A title added to a series is shared the way that series is. Any other series comes back as a new series named '… (imported ${today})'.`
+      : `A series comes back as a new series named '… (imported ${today})', with its glossary and characters.`,
     'Reading progress and personal notes from the file are not imported.',
   ]
   if (list.kind === 'database' || !list.media_available) {
@@ -39,6 +43,7 @@ export function describeImport(r: ImportDramasDone): string {
   const lines = r.counts?.lines
   if (typeof lines === 'number') parts.push(`${pluralLocale(lines, 'line')}.`)
   if (r.series_created) parts.push(`${r.series_created} new series.`)
+  if (r.series_joined) parts.push(`Added to ${r.series_joined} existing series.`)
   parts.push(r.media_imported ? `Files for ${pluralLocale(r.media_imported, 'title')}.` : 'No files were imported.')
   return parts.join(' ')
 }

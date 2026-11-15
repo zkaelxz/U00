@@ -54,11 +54,13 @@ export function listBackupFileDramas(file: File | Blob, f?: Fetch) {
   return postMultipart<BackupFileDramaList>(`${BASE}/import/list`, form, pcOnlyFetch(f))
 }
 
-/** Imports the chosen dramas (ids as listed) as new dramas. The file is sent again: the server keeps nothing between the two calls. */
-export function importBackupFileDramas(file: File | Blob, dramaIds: readonly number[], f?: Fetch) {
+/** Imports the chosen dramas (ids as listed) as new dramas. The file is sent again: the server keeps nothing between the two calls.
+ * `joinSeries` merges each series into one of the same name here instead of adding a new series. */
+export function importBackupFileDramas(file: File | Blob, dramaIds: readonly number[], f?: Fetch, joinSeries = false) {
   const form = new FormData()
   form.append('file', file)
   for (const id of dramaIds) form.append('drama_ids', String(id))
+  if (joinSeries) form.append('join_series', 'true')
   form.append('confirm', 'true')
   form.append('confirm_text', RESTORE_SNAPSHOT_WORD)
   return postMultipart<ImportDramasDone>(`${BASE}/import`, form, pcOnlyFetch(f))
