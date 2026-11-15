@@ -147,5 +147,6 @@ test('A second block keeps the flag, updates its note in place and shows the rea
   await retry.getByRole('button', { name: 'Retry line' }).click()
   await expect(retry.getByTestId('blocked-again')).toHaveText('Gemini also blocked this line: SAFETY')
   await expect(row).toHaveAttribute('data-flagged', 'true')
-  await expect(row.getByTestId('line-flag')).toContainText('gemini: SAFETY')
+  await expect(row.getByTestId('line-flag')).toContainText(
+    'The translation engine’s content filter refused this line, so it was not translated. Gemini gave this reason: “SAFETY”. Retry the line with another engine.')
 })
