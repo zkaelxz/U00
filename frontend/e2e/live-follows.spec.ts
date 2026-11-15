@@ -107,7 +107,7 @@ test('the bell shows a scheduled start and starts Live from a notification', asy
     { id: 1, at: Date.now() / 1000 - 60, kind: 'live', text: 'Channel 9 scheduled a stream', follow_id: 9, action: null, starts_at: 1_900_000_000 },
   ] } }))
   await page.goto('/#/jobs')
-  await page.getByRole('button', { name: /Notifications/ }).click()
+  await page.getByRole('button', { name: /Alerts/ }).click()
   await expect(page.getByText(/^Starts at \d/)).toBeVisible()
   await page.screenshot({ path: `${SCREENS}/follows-bell.png` })
   await page.getByRole('button', { name: 'Start Live' }).click()
