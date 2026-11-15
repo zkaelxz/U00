@@ -98,12 +98,12 @@ describe('the tools fold', () => {
 describe('the This line panel', () => {
   const player = createRef<PlayerHandle>()
 
-  it('says why the line is listed, with Open glossary for a glossary flag', () => {
+  it('says why the line is listed, with Glossary for a glossary flag', () => {
     const html = renderToStaticMarkup(<LineWhy dramaId={3} line={GLOSSARY} />)
     expect(html).toContain('Why it is listed')
     expect(html).toContain('The glossary writes 夷陵老祖 as “Yiling Patriarch”')
-    expect(html).toContain('<a class="this-line-link" href="#/drama/3/translate?tab=glossary">Open glossary</a>')
-    expect(renderToStaticMarkup(<LineWhy dramaId={3} line={line(7, { confidence: 0.5 })} />)).not.toContain('Open glossary')
+    expect(html).toContain('<a class="this-line-link" href="#/drama/3/translate?tab=glossary">Glossary</a>')
+    expect(renderToStaticMarkup(<LineWhy dramaId={3} line={line(7, { confidence: 0.5 })} />)).not.toContain('Glossary')
   })
 
   it('adds that Whisper was also unsure of a flagged line', () => {

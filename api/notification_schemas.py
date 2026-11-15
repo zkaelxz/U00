@@ -17,6 +17,7 @@ class NotificationSettingsStatus(NotificationStatus):
     send_jobs: bool
     send_chapters: bool
     send_remote: bool
+    show_private_titles: bool
 
 
 class NotificationCategoriesRequest(BaseModel):
@@ -25,6 +26,7 @@ class NotificationCategoriesRequest(BaseModel):
     jobs: Optional[StrictBool] = None
     chapters: Optional[StrictBool] = None
     remote: Optional[StrictBool] = None
+    private_titles: Optional[StrictBool] = None
 
 
 class NotificationEvent(BaseModel):

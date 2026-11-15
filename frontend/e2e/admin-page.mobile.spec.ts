@@ -27,6 +27,9 @@ for (const scheme of ['light', 'dark'] as const) {
       { id: 1, ts: '2026-09-30T12:01:00Z', user_id: 2, action: 'login.success', detail: `user 2 ip 203.0.113 ${'y'.repeat(120)}` },
     ], next_before_id: null, actions: ['login.success'] } }))
     await page.route('**/api/diagnostics/remote-health/ip-check', (r) => r.fulfill({ json: { configured: true } }))
+    await page.route('**/api/diagnostics/remote-setup', (r) => r.fulfill({ json: {
+      steps: [{ id: 'name', title: 'Choose the public name', state: 'todo', message: 'Pick a name such as baihe.your-domain, point its DNS record at your home, then enter it below.', who: 'you' }],
+      next: 'name', fields: { public_url: false, google_client_id: false, google_client_secret: false }, restart_needed: false } }))
     await page.goto('/#/admin')
     await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
     const cards = page.locator('details.section')

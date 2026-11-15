@@ -339,7 +339,7 @@ const improveOut = (en: string) => ({
   line_id: 1, current_en: en, suggestion: 'Hi there', changed: true, engine: 'x', model: null,
 })
 
-async function openAi(page: Page, n: number, item: 'Improve translation' | 'Why this?') {
+async function openAi(page: Page, n: number, item: 'Re-write' | 'Why this?') {
   const row = await activate(page, n)
   await row.getByRole('button', { name: item, exact: true }).click()
   return row
@@ -351,9 +351,9 @@ test('improve, use this, and the row shows the saved value', async ({ page }) =>
     await route.fulfill({ json: { ...improveOut('Hello there'), line_id: Number(route.request().url().split('/lines/')[1].split('/')[0]) } })
   })
   await open(page)
-  const row = await openAi(page, 0, 'Improve translation')
+  const row = await openAi(page, 0, 'Re-write')
   await row.getByLabel('What to fix (optional)').fill('too stiff')
-  await row.getByRole('button', { name: 'Suggest' }).click()
+  await row.getByRole('button', { name: 'Suggest', exact: true }).click()
   await expect(row.getByTestId('line-ai-suggestion')).toHaveText('Hi there')
   await expect(row.getByTestId('line-en')).toContainText('Hello there')
   await row.getByRole('button', { name: 'Use this' }).click()
@@ -368,10 +368,10 @@ test('improve needs a translation; a kept line says so; why-this explains', asyn
     route.fulfill({ json: { line_id: 1, explanation: 'Friendly register.', engine: 'x', model: null } }))
   await open(page)
   const untranslated = await activate(page, 1)
-  await expect(untranslated.getByRole('button', { name: 'Improve (needs a translation first)' })).toBeDisabled()
+  await expect(untranslated.getByRole('button', { name: 'Re-write (needs a translation first)' })).toBeDisabled()
 
-  const row = await openAi(page, 2, 'Improve translation')
-  await row.getByRole('button', { name: 'Suggest' }).click()
+  const row = await openAi(page, 2, 'Re-write')
+  await row.getByRole('button', { name: 'Suggest', exact: true }).click()
   await expect(row.getByTestId('line-ai-result')).toContainText('kept this line')
   await expect(row.getByRole('button', { name: 'Use this' })).toHaveCount(0)
   await row.getByRole('button', { name: 'Close' }).click()
@@ -417,8 +417,8 @@ test('applying a suggestion over a concurrent edit shows the conflict', async ({
     })
   })
   await open(page)
-  const row = await openAi(page, 2, 'Improve translation')
-  await row.getByRole('button', { name: 'Suggest' }).click()
+  const row = await openAi(page, 2, 'Re-write')
+  await row.getByRole('button', { name: 'Suggest', exact: true }).click()
   await row.getByRole('button', { name: 'Use this' }).click()
   await expect(row.getByTestId('line-conflict')).toContainText('changed elsewhere')
 })

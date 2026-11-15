@@ -7,6 +7,7 @@ import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
+import { useWantsPhoneBar } from '../../nav/phoneBarRequest'
 import { routeHref, useRoute } from '../../router'
 import { safeHref } from '../discover/discoverFormat'
 import { SourceLink } from '../discover/ExternalLink'
@@ -80,6 +81,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   // The Player button is drawn by the lines and shown in the header, so it sits with the title's other controls.
   const [playerDock, setPlayerDock] = useState<HTMLElement | null>(null)
   const phone = useMediaQuery(TITLE_TOP_PHONE)
+  useWantsPhoneBar(simple && review && phone)
   // The open card's place in the check queue, for the steps button's "1 of 3 to look at" and its progress bar.
   const [position, setPosition] = useState<QueuePlace | null>(null)
   // Where the lines are, a desktop shows the main button first in the Need a look row, which says when it has drawn it, so the button

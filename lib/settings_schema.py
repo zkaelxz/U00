@@ -244,6 +244,7 @@ SETTINGS = (
          section="Browser extension", label="Browser extension engine"),
     _own("grounded_search_usage", "json", {}),
     _own("remote_health", "json", None),
+    _own("resource_alert_rules", "json", None),
 
     # --- System
     _own("use_gpu", "bool", True, label="Use the GPU", tab="system", section="Performance"),
