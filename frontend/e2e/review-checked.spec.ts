@@ -42,3 +42,25 @@ test('Mark checked badges the line, the Unreviewed filter drops it, and an edit 
   await expect(page.getByRole('radio', { name: 'Unreviewed 3' })).toBeVisible()
 })
 
+
+test('Wrong marks the line and unchecks it, the Marked chip lists it, and pressing it again clears it', async ({ page }) => {
+  await page.goto('/#/drama/3/review')
+  await expect(rows(page)).toHaveCount(3)
+  const row = await activate(page, 0)
+  await row.getByRole('button', { name: 'Mark checked' }).click()
+  await expect(row.getByTestId('line-checked')).toHaveText('Checked')
+
+  await row.getByRole('button', { name: /Wrong/ }).click()
+  await expect(row.getByTestId('line-mark')).toContainText('Wrong')
+  await expect(row.getByRole('button', { name: /Wrong/ })).toHaveAttribute('aria-pressed', 'true')
+  // A marked line is not checked: the mark and the check displace each other.
+  await expect(row.getByTestId('line-checked')).toHaveCount(0)
+
+  await page.getByRole('radio', { name: 'Marked 1' }).check()
+  await expect(rows(page)).toHaveCount(1)
+
+  await rows(page).first().locator('.review-idx').click()
+  await rows(page).first().getByRole('button', { name: /Wrong/ }).click()
+  await expect(rows(page)).toHaveCount(0)
+  await expect(page.getByText('No lines marked wrong or mixed.')).toBeVisible()
+})

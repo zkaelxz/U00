@@ -150,13 +150,13 @@ test('the bell shows a pushed notification without polling', async ({ page }) =>
     await page.route('**/api/events?*', (route) => route.continue({ url: stream.url }))
     await page.goto('/#/')
     await expect.poll(() => stream.clients.length).toBe(1)
-    const bell = page.getByRole('button', { name: /^Notifications/ })
-    await expect(bell).toHaveAccessibleName('Notifications')
+    const bell = page.getByRole('button', { name: /^Alerts/ })
+    await expect(bell).toHaveAccessibleName('Alerts')
     const reads = listGets
     stream.push('notifications', {
       items: [{ id: Date.now(), at: Date.now() / 1000, kind: 'job_done', text: 'Finished: Translation (pushed)' }],
     })
-    await expect(bell).toHaveAccessibleName('Notifications (1 new)')
+    await expect(bell).toHaveAccessibleName('Alerts (1 new)')
     await bell.click()
     await expect(page.getByText('Finished: Translation (pushed)')).toBeVisible()
     expect(listGets).toBe(reads)

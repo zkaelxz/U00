@@ -13,7 +13,7 @@ import { globalShortcut } from './palette'
 import './palette.css'
 
 const PAGE_KEYS: [string, string][] = [
-  ['Ctrl/⌘+K', 'Quick search'],
+  ['Ctrl/⌘+K', 'Search pages and titles'],
   ['/', 'Search this page (Library, Settings, Sources, Discover)'],
   ['?', 'This list'],
 ]
@@ -43,12 +43,13 @@ export function KeyboardHelpButton() {
   return (
     <button
       type="button"
-      className="keys-btn"
+      className="keys-btn hb-box"
       aria-label="Keyboard shortcuts"
       aria-haspopup="dialog"
       onClick={() => window.dispatchEvent(new Event(OPEN_EVENT))}
     >
-      ?
+      <span className="hb-icon" aria-hidden="true">?</span>
+      <span className="hb-words" aria-hidden="true">Shortcuts</span>
     </button>
   )
 }

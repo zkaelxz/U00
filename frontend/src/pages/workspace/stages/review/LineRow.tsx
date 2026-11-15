@@ -2,6 +2,7 @@ import { memo, useEffect, useState, type FocusEvent, type KeyboardEvent, type Mo
 
 import { retryBlockedLine } from '../../../../api/review'
 import { translateApi } from '../../../../api/translate'
+import { LineMarkBadge, LineMarkButtons } from './LineMarkButtons'
 import { Badge } from '../../../../components/Badge'
 import { ButtonLink } from '../../../../components/Button'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
@@ -11,7 +12,7 @@ import { humanize } from '../../../../components/labels'
 import { languageLabel } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
-import type { ReviewLine, SpeakerGuess, TmSuggestion } from '../../../../types/review'
+import type { LineMark, ReviewLine, SpeakerGuess, TmSuggestion } from '../../../../types/review'
 import type { TimingSuggestion } from '../../../../types/timingCheck'
 import type { TranslateEngine } from '../../../../types/translate'
 import { LineAi } from './LineAi'
@@ -88,6 +89,8 @@ export interface RowActions {
   useSuggestion: (id: number, text: string) => Promise<boolean>
   dismissFlag: (id: number) => void
   setReviewed: (id: number, reviewed: boolean) => void
+  // Your wrong / mixed verdict on the line; null clears it.
+  setMark: (id: number, mark: LineMark | null) => void
   // The check queue's "Looks right, next": marks the line checked and opens the next card.
   reviewAndNext: (id: number) => void
   // The line menu's "Re-transcribe…": opens the line's details on its re-transcribe step.
@@ -399,6 +402,7 @@ function QueueTools({ line, hasMedia, ai, linePanel, fit, actions, ...fitProps }
       <FitAction line={line} fit={fit} actions={actions} {...fitProps} />
       <ImproveButton line={line} ai={ai} actions={actions} />
       {!linePanel && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.showOnPage(line.id)}>See the lines around it</button>}
+      <LineMarkButtons line={line} onMark={actions.setMark} />
       {line.reviewed && (
         <button type="button" className={buttonClass('secondary', 'sm')} disabled={!line.en} aria-pressed onClick={() => actions.setReviewed(line.id, false)} title="Mark unchecked (R)">
           Checked
@@ -422,6 +426,7 @@ function QueuePhoneActions({ line, ai, actions, ...fitProps }: FitProps & { ai: 
       <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.showOnPage(line.id)}>See the lines around it</button>
       <FitAction line={line} actions={actions} {...fitProps} />
       <ImproveButton line={line} ai={ai} actions={actions} />
+      <LineMarkButtons line={line} onMark={actions.setMark} />
     </div>
   )
 }
@@ -564,6 +569,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
         {line.reviewed && <span data-testid="line-checked"><Badge tone="ok">Checked</Badge></span>}
+        <LineMarkBadge line={line} />
         <ShakyBadge line={line} help={badgeHelp} />
         {isSourceChanged(line) && (
           <>
@@ -695,6 +701,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
               Snap to speech
             </button>
           )}
+          <LineMarkButtons line={line} onMark={actions.setMark} variant="ghost" />
           <button
             type="button"
             className={buttonClass('ghost', 'sm')}
