@@ -65,8 +65,7 @@ AMBIGUOUS_FLAGS = {"ambiguous_reference", "name_uncertain"}
 
 
 def _glossary(drama: dict) -> list:
-    series_id = drama.get("series_id")
-    return db.list_effective_glossary_terms(series_id) if series_id else []
+    return db.list_run_glossary_terms(drama)
 
 
 def _current_engine(drama: dict) -> str:
