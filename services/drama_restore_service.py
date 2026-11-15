@@ -101,6 +101,11 @@ def _storable_words(value) -> bool:
     return isinstance(value, str) and len(value) <= segment_splitting.MAX_STORED_WORD_BYTES
 
 
+def _drop_unstorable_words(table: str, row: dict):
+    if table == "lines" and not _storable_words(row.get("word_timings")):
+        row.pop("word_timings", None)
+
+
 def _insert(dst, table: str, row: dict, live_cols) -> int:
     cols = [c for c in row if c in live_cols]
     names = ", ".join(f'"{c}"' for c in cols)
@@ -387,8 +392,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
             if table in _LINE_JSON:
                 col = _LINE_JSON[table]
                 child[col] = _remap_json_lines(child.get(col), line_map, import_as)
-            if table == "lines" and not _storable_words(child.get("word_timings")):
-                child.pop("word_timings", None)
+            _drop_unstorable_words(table, child)
             new = _insert(dst, table, child, live_cols)
             if table == "lines":
                 _note_copied_line(line_map, line_by_idx, child, old, new)
@@ -396,6 +400,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
                 page_map[old] = new
             n += 1
         counts[table] = n
+    db.settle_copied_marks(dst, live_id)
     if page_map and has_table(src, "bubbles"):
         live_cols = columns(dst, "bubbles")
         n = 0

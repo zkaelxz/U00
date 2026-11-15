@@ -301,6 +301,176 @@ class TestReviewedClearsWithNewEnglish:
         assert isolated_db.load_lines(did)[0]["reviewed"] == 1
 
 
+class TestLineMarks:
+    """A person's mark (lines.mark) follows the rules db/lines.py applies to every
+    write: a new English clears it unless the write sets it, setting it unchecks the
+    line, checking clears it, and a write storing both is refused."""
+
+    def _seed(self, db_, mark="wrong", reviewed=False):
+        did = db_.create_drama(title_en="Test")
+        db_.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="Hello", mark=mark,
+                                  reviewed=reviewed),
+                             Line(idx=1, start=1, end=2, zh="再见", en="Bye", mark=mark,
+                                  reviewed=reviewed)])
+        return did, db_.load_line_objects(did)
+
+    def _state(self, db_, did):
+        return [(r["en"], r["reviewed"], r["mark"]) for r in db_.load_lines(did)]
+
+    def test_a_fresh_database_has_the_column_and_stores_no_mark_as_null(self, isolated_db):
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            assert "mark" in {r[1] for r in conn.execute("PRAGMA table_info(lines)")}
+        did, rows = self._seed(isolated_db, mark="")
+        assert [r["mark"] for r in isolated_db.load_lines(did)] == [None, None]
+        assert [ln.mark for ln in rows] == [None, None]
+
+    def test_a_write_of_an_unknown_mark_is_refused(self, isolated_db):
+        did, rows = self._seed(isolated_db, mark=None)
+        rows[0].mark = "maybe"
+        with pytest.raises(ValueError):
+            isolated_db.save_lines(did, rows, fields=("mark",))
+        with pytest.raises(ValueError):
+            isolated_db.update_line_fields_if(did, rows[1].id, {"mark": "maybe"}, {})
+        assert [r["mark"] for r in isolated_db.load_lines(did)] == [None, None]
+
+    def test_an_unknown_stored_mark_reads_as_none_everywhere(self, isolated_db):
+        did, rows = self._seed(isolated_db, mark=None)
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            conn.execute("UPDATE lines SET mark = 'Bogus' WHERE id = ?", (rows[0].id,))
+            conn.commit()
+        assert isolated_db.load_line_objects(did)[0].mark is None
+        assert isolated_db.load_line_texts(did)[0].mark is None
+        assert isolated_db.update_line_fields_if(did, rows[0].id, {"en": "Hi"}, {"mark": ""})
+
+    # Rule 1: a new English clears the mark, in each write path.
+
+    def test_compare_and_set_clears_the_mark_on_a_new_english_only(self, isolated_db):
+        did, rows = self._seed(isolated_db)
+        assert isolated_db.update_line_fields_if(did, rows[0].id, {"en": "Hello"}, {"en": "Hello"})
+        assert isolated_db.update_line_fields_if(did, rows[1].id, {"en": "Later"}, {"en": "Bye"})
+        assert self._state(isolated_db, did) == [("Hello", 0, "wrong"), ("Later", 0, None)]
+
+    def test_compare_and_set_that_sets_the_mark_itself_keeps_it(self, isolated_db):
+        did, rows = self._seed(isolated_db)
+        assert isolated_db.update_line_fields_if(did, rows[0].id, {"en": "Hi", "mark": "mixed"},
+                                                 {"en": "Hello"})
+        assert self._state(isolated_db, did)[0] == ("Hi", 0, "mixed")
+
+    def test_a_field_scoped_en_save_clears_it_and_the_object_follows(self, isolated_db):
+        did, rows = self._seed(isolated_db)
+        rows[0].en = "Hi"
+        isolated_db.save_lines(did, rows, fields=("en", "flag", "flag_note"))
+        assert self._state(isolated_db, did) == [("Hi", 0, None), ("Bye", 0, "wrong")]
+        assert (rows[0].mark, rows[0].orig["mark"]) == (None, None)
+        assert (rows[1].mark, rows[1].orig["mark"]) == ("wrong", "wrong")
+        # The object follows the row, so a later full sync of it can't put the mark back.
+        isolated_db.save_lines(did, rows)
+        assert self._state(isolated_db, did)[0] == ("Hi", 0, None)
+
+    def test_a_field_scoped_save_naming_mark_keeps_the_writers_value(self, isolated_db):
+        did, rows = self._seed(isolated_db)
+        rows[0].en = "Hi"
+        isolated_db.save_lines(did, rows[:1], fields=("en", "mark"))
+        assert self._state(isolated_db, did)[0] == ("Hi", 0, "wrong")
+
+    def test_only_if_unchanged_clears_it_too(self, isolated_db):
+        did, rows = self._seed(isolated_db)
+        rows[0].en = "Hi"
+        isolated_db.save_lines(did, rows[:1], fields=("en",), only_if_unchanged=True)
+        assert self._state(isolated_db, did)[0] == ("Hi", 0, None)
+
+    def test_a_full_sync_clears_it_and_the_object_follows(self, isolated_db):
+        did, rows = self._seed(isolated_db)
+        rows[1].en = "Goodbye"
+        isolated_db.save_lines(did, rows)
+        assert self._state(isolated_db, did) == [("Hello", 0, "wrong"), ("Goodbye", 0, None)]
+        assert (rows[1].mark, rows[1].orig["mark"]) == (None, None)
+
+    def test_a_full_sync_that_sets_a_new_mark_with_the_english_keeps_it(self, isolated_db):
+        did, rows = self._seed(isolated_db)
+        rows[1].en, rows[1].mark = "Goodbye", "mixed"
+        isolated_db.save_lines(did, rows)
+        assert self._state(isolated_db, did)[1] == ("Goodbye", 0, "mixed")
+
+    # Rule 2: a marked line is not checked.
+
+    def test_compare_and_set_mark_unchecks_and_check_unmarks(self, isolated_db):
+        did, rows = self._seed(isolated_db, mark=None, reviewed=True)
+        assert isolated_db.update_line_fields_if(did, rows[0].id, {"mark": "wrong"}, {"en": "Hello"})
+        assert self._state(isolated_db, did)[0] == ("Hello", 0, "wrong")
+        assert isolated_db.update_line_fields_if(did, rows[0].id, {"reviewed": 1}, {"en": "Hello"})
+        assert self._state(isolated_db, did)[0] == ("Hello", 1, None)
+        # Clearing a mark or unchecking says nothing about the other.
+        assert isolated_db.update_line_fields_if(did, rows[1].id, {"mark": None}, {})
+        assert self._state(isolated_db, did)[1] == ("Bye", 1, None)
+
+    def test_a_field_scoped_mark_save_unchecks_and_the_object_follows(self, isolated_db):
+        did, rows = self._seed(isolated_db, mark=None, reviewed=True)
+        rows[0].mark = "mixed"
+        isolated_db.save_lines(did, rows[:1], fields=("mark",))
+        assert self._state(isolated_db, did)[0] == ("Hello", 0, "mixed")
+        assert (rows[0].reviewed, rows[0].orig["reviewed"]) == (False, False)
+
+    def test_a_field_scoped_check_unmarks_and_the_object_follows(self, isolated_db):
+        did, rows = self._seed(isolated_db)
+        rows[0].reviewed = True
+        isolated_db.save_lines(did, rows[:1], fields=("reviewed",))
+        assert self._state(isolated_db, did)[0] == ("Hello", 1, None)
+        assert (rows[0].mark, rows[0].orig["mark"]) == (None, None)
+
+    def test_a_full_sync_mark_unchecks_and_a_check_unmarks(self, isolated_db):
+        did, rows = self._seed(isolated_db, mark=None, reviewed=True)
+        rows[0].mark = "wrong"
+        isolated_db.save_lines(did, rows)
+        assert self._state(isolated_db, did)[0] == ("Hello", 0, "wrong")
+        assert (rows[0].reviewed, rows[0].orig["reviewed"]) == (False, False)
+        rows[0].reviewed = True
+        isolated_db.save_lines(did, rows)
+        assert self._state(isolated_db, did)[0] == ("Hello", 1, None)
+        assert (rows[0].mark, rows[0].orig["mark"]) == (None, None)
+
+    def test_a_write_storing_both_is_refused_and_writes_nothing(self, isolated_db):
+        did, rows = self._seed(isolated_db, mark=None)
+        with pytest.raises(ValueError):
+            isolated_db.update_line_fields_if(did, rows[0].id, {"reviewed": 1, "mark": "wrong"}, {})
+        with pytest.raises(ValueError):
+            isolated_db.update_lines_fields_if_many(
+                did, [(rows[1].id, {"en": "x"}, {}), (rows[0].id, {"reviewed": 1, "mark": "wrong"}, {})])
+        rows[0].reviewed, rows[0].mark = True, "wrong"
+        rows[1].en = "Edited"
+        for fields in (("en", "reviewed", "mark"), None):
+            with pytest.raises(ValueError):
+                # The other line's edit comes first: the refusal rolls it back.
+                isolated_db.save_lines(did, rows[::-1], fields=fields)
+        with pytest.raises(ValueError):
+            isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", en="A", reviewed=True,
+                                              mark="mixed")])
+        assert self._state(isolated_db, did) == [("Hello", 0, None), ("Bye", 0, None)]
+
+    # Rule 3: only a person sets a mark; a job only clears one through rule 1.
+
+    def test_a_job_may_not_declare_or_write_the_mark(self, isolated_db):
+        did, rows = self._seed(isolated_db, mark=None)
+        with pytest.raises(ValueError):
+            isolated_db.check_line_fields(("en", "mark"))
+        rows[0].mark = "wrong"
+        with isolated_db.job_line_fields("job1", ("en", "flag", "flag_note")):
+            with pytest.raises(isolated_db.UndeclaredLineWrite):
+                isolated_db.save_lines(did, rows[:1], fields=("mark",))
+            with pytest.raises(isolated_db.UndeclaredLineWrite):
+                isolated_db.update_line_fields_if(did, rows[0].id, {"mark": "wrong"}, {})
+        assert self._state(isolated_db, did)[0] == ("Hello", 0, None)
+
+    def test_a_flag_only_job_save_keeps_the_mark(self, isolated_db):
+        from services import export_service
+        did, rows = self._seed(isolated_db)
+        rows[0].flag, rows[0].flag_note = "timing_overlap", "overlaps"
+        with isolated_db.job_line_fields("timing", ("flag", "flag_note")):
+            assert not export_service.save_flags(did, rows, ("start", "end"))
+        assert [(r["flag"], r["mark"]) for r in isolated_db.load_lines(did)] == [
+            ("timing_overlap", "wrong"), (None, "wrong")]
+
+
 class TestSaveLinesExpectUnchanged:
     """A full sync computed from an earlier read refuses, inside its own
     transaction, when the lines or a removed line's notes changed since."""
@@ -2279,7 +2449,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
                     "owner_instance", "cancel_requested_at", "detail_state", "sync_error"),
     "gpu_lock": ("owner_pid", "owner_instance", "job_id"),
     "lines": ("speaker", "dub_filename", "flag", "flag_note", "speaker_manual", "sfx", "lang",
-              "word_timings", "reviewed", "ass_event", "confidence"),
+              "word_timings", "reviewed", "ass_event", "confidence", "mark"),
     "dramas": (
         "translation_engine", "content_mode", "narration_language", "source_video_filename",
         "source_language", "chinese_script", "media_type", "series_id", "episode_number",
