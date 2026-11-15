@@ -37,6 +37,7 @@ __all__ = [
     "NotificationChannelClearRequest",
     "NotificationChannelResult",
     "NotificationTestResult",
+    "NotificationTarget",
 ]
 
 
@@ -204,3 +205,13 @@ class NotificationChannelResult(BaseModel):
 
 class NotificationTestResult(BaseModel):
     results: Dict[NotificationChannel, NotificationOutcome]
+
+
+class NotificationTarget(BaseModel):
+    """Where a "waiting" bell entry's Open goes: a page and the one id it needs
+    (notification_service.clean_target). Never a URL or path; the app builds
+    the link."""
+    model_config = ConfigDict(extra="forbid")
+    page: Literal["glossary", "review", "series", "jobs"]
+    drama_id: Optional[StrictInt] = Field(None, ge=1)
+    series_id: Optional[StrictInt] = Field(None, ge=1)

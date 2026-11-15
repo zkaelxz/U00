@@ -372,6 +372,74 @@ class TestLinesGlossaryService:
         assert gs.get_lines_glossary_status(did)["run_id"] is None
 
 
+@pytest.fixture
+def bell(monkeypatch):
+    """The real job-end hook, with an Event per finished job id."""
+    import threading
+    from jobs import job_runner, job_settings
+    from services import notification_service as ns
+    ns.reset_for_tests()
+    told = {}
+
+    def hook(description, status, **kw):
+        job_settings._notify_job_finished(description, status, **kw)
+        told.setdefault(kw.get("job_id"), threading.Event()).set()
+    monkeypatch.setattr(job_runner, "_notify_job_finished", hook)
+
+    def entry(job_id):
+        assert told.setdefault(job_id, threading.Event()).wait(10)
+        return ns.list_recent(None)[0]
+    yield entry
+    ns.reset_for_tests()
+
+
+class TestGlossaryWaitingMessage:
+    """A run that found names to review says so in the bell (and the push),
+    instead of a plain "Finished"."""
+
+    NAMES = [{"term": "青云宗", "suggested_translation": "Qingyun Sect"},
+             {"term": "沈清", "suggested_translation": "Shen Qing"},
+             {"term": "师尊", "suggested_translation": "Teacher"}]
+
+    def test_lines_run_with_names_waits_for_you(self, isolated_db, monkeypatch, fake_engine, bell):
+        did, sid = _lines_drama(isolated_db)
+        isolated_db.upsert_glossary_term(sid, "师尊", "Master")   # already known: not to review
+        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: self.NAMES)
+        job_id = gs.start_lines_glossary_run(did)["job_id"]
+        e = bell(job_id)
+        assert e["kind"] == "waiting"
+        assert e["text"] == "Waiting for you: 2 glossary names to review - L"
+        assert e["target"] == {"page": "glossary", "drama_id": did}
+        assert background_jobs.get_status(job_id)["status"] == "done"
+
+    def test_one_name_left_after_ignored_ones(self, isolated_db, monkeypatch, fake_engine, bell):
+        did, sid = _lines_drama(isolated_db)
+        isolated_db.add_glossary_dismissals(sid, ["沈清"])
+        isolated_db.upsert_glossary_term(sid, "师尊", "Master")
+        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: self.NAMES)
+        e = bell(gs.start_lines_glossary_run(did)["job_id"])
+        assert e["text"] == "Waiting for you: 1 glossary name to review - L"
+
+    def test_no_new_names_stays_finished(self, isolated_db, monkeypatch, fake_engine, bell):
+        did, sid = _lines_drama(isolated_db)
+        isolated_db.upsert_glossary_term(sid, "师尊", "Master")
+        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: self.NAMES[2:])
+        e = bell(gs.start_lines_glossary_run(did)["job_id"])
+        assert (e["kind"], e["text"]) == ("job_done", "Finished: Glossary from lines - L")
+        assert "target" not in e
+
+    def test_novel_run_with_names_waits_for_you(self, isolated_db, monkeypatch, fake_engine, bell):
+        import os
+        did, _ = _lines_drama(isolated_db)
+        with open(os.path.join(isolated_db.drama_dir(did), gs.RAW_NOVEL_FILENAME), "w",
+                  encoding="utf-8") as f:
+            f.write("沈清来了。青云宗的师尊。")
+        monkeypatch.setattr(tguide, "extract_glossary_from_novel", lambda *a, **kw: self.NAMES[:1])
+        e = bell(gs.start_novel_glossary_run(did)["job_id"])
+        assert (e["kind"], e["text"]) == ("waiting", "Waiting for you: 1 glossary name to review - L")
+        assert e["target"] == {"page": "glossary", "drama_id": did}
+
+
 # ----- routes -------------------------------------------------------------------
 
 def _gl(did, tail=""):

@@ -109,6 +109,21 @@ describe('parseRoute', () => {
     expect(routeHref({ name: 'read', id: 3, page: null })).toBe('#/read/3')
   })
 
+  it('carries the reader route watch flag with or without a page, and ignores any other value', () => {
+    expect(parseRoute('#/read/3?watch=1')).toEqual({ name: 'read', id: 3, page: null, watch: true })
+    expect(parseRoute('#/read/3?page=2&watch=1')).toEqual({ name: 'read', id: 3, page: 2, watch: true })
+    expect(parseRoute('#/read/3?watch=1&page=2')).toEqual({ name: 'read', id: 3, page: 2, watch: true })
+    for (const bad of ['0', 'true', 'yes', '', '11']) {
+      expect(parseRoute(`#/read/3?page=2&watch=${bad}`)).toEqual({ name: 'read', id: 3, page: 2 })
+    }
+    // The comic reader has no Watch / listen fold.
+    expect(parseRoute('#/comic/3?watch=1')).toEqual({ name: 'comic', id: 3, page: null })
+    expect(routeHref({ name: 'read', id: 3, page: null, watch: true })).toBe('#/read/3?watch=1')
+    expect(routeHref({ name: 'read', id: 3, page: 2, watch: true })).toBe('#/read/3?page=2&watch=1')
+    const both = { name: 'read', id: 3, page: 2, watch: true } as const
+    expect(parseRoute(routeHref(both))).toEqual(both)
+  })
+
   it('parses the saved manga routes, names %-encoded', () => {
     expect(parseRoute('#/manga')).toEqual({ name: 'manga' })
     expect(parseRoute('#/manga/MangaK/Test%20Camp')).toEqual({ name: 'manga-series', source: 'MangaK', series: 'Test Camp' })

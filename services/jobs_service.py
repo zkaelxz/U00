@@ -358,6 +358,45 @@ def speaker_skip_text(result):
     return f"Speaker detection did not run: {why}." if why else None
 
 
+# Repeated: paid_calls.stop_reason_for prefixes an error that may already start with it.
+_STOPPED_PREFIX = re.compile(r"^(?:Stopped:\s*)+")
+_LEADING_COUNT = re.compile(r"^Stopped: (\d+) ")
+
+
+def waiting_note(result):
+    """What a job that ended `done` leaves the person to do, for the bell and
+    the push (notification_service.notify_job_finished), or None. A result may
+    carry its own {"text", "target"} under "waiting" (names to review); a stop
+    at a spending cap or by another run limit is read here, because the Jobs
+    page names it (_summary_outcome) while a plain "Finished" would hide it.
+    Only the sentence forms of "stopped" ("Stopped...", from
+    engine_backends.paid_calls, bulk_poll and the bulk runner) count: other
+    jobs use the key for their own words ("cancelled"). `own_reason` is True
+    only for Baihe's own fixed sentences (a failure streak, the rate limit):
+    the push quotes no other reason, since one may carry a provider's error
+    text."""
+    if not isinstance(result, dict):
+        return None
+    own = result.get("waiting")
+    if isinstance(own, dict) and isinstance(own.get("text"), str) and own["text"].strip():
+        return {"text": own["text"], "target": own.get("target")}
+    jobs_page = {"page": "jobs"}
+    cap = result.get("cap_reached")
+    stopped = result.get("stopped")
+    from engine_backends import paid_calls, run_limits
+    if (isinstance(cap, (int, float)) and not isinstance(cap, bool)) \
+            or stopped == paid_calls.CAP_STOP_REASON:
+        return {"cap": True, "target": jobs_page}
+    if isinstance(stopped, str) and stopped.startswith("Stopped"):
+        reason = scrub_text(_STOPPED_PREFIX.sub("", stopped)).strip()
+        count = _LEADING_COUNT.match(stopped)
+        fixed = stopped == run_limits.RATE_LIMIT_STOP_REASON or (
+            count is not None and stopped == paid_calls.failure_stop_reason(int(count.group(1))))
+        return {"reason": reason[:1].upper() + reason[1:], "own_reason": fixed,
+                "target": jobs_page}
+    return None
+
+
 def derive_outcome(status, error, result, detail_state=None, job_id=None):
     """(outcome, outcome_message) for a finished job, normalised from its
     status and projected result so a client never has to know each job's

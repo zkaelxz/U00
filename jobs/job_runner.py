@@ -99,19 +99,23 @@ def _done_note(result):
 
 
 def _judge_result(result, job_id):
-    """(failure error, soft-failure reason, done note) for a returned result.
-    Never raises: it runs after the work is done, and a result shape it
-    cannot read must not leave the job "running" in job_records forever.
-    Such a result counts as plain success."""
+    """(failure error, soft-failure reason, done note, waiting note) for a
+    returned result; the waiting note (jobs_service.waiting_note) only for
+    a job that did not fail. Never raises: it runs after the work is done,
+    and a result shape it cannot read must not leave the job "running" in
+    job_records forever. Such a result counts as plain success."""
     try:
         failed = _failed_outcome_error(result, job_id)
         if failed:
-            return failed, None, None
+            return failed, None, None, None
         soft = _soft_failure_text(result)
-        return None, soft, None if soft else _done_note(result)
+        if soft:
+            return None, soft, None, None
+        from services import jobs_service
+        return None, None, _done_note(result), jobs_service.waiting_note(result)
     except Exception as exc:
         _warn(f"job {job_id}: could not read its result", exc)
-        return None, None, None
+        return None, None, None, None
 
 
 def _line_fields(run):
@@ -134,7 +138,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             with db.job_line_fields(job_id, _line_fields(run)), \
                     db.spending_for((run or {}).get("owner_user_id"), job_id):
                 target(*args, **kwargs)
-            _description = _owner = _reason = None
+            _description = _owner = _reason = _waiting = None
             _with_errors = False
             _outcome = "done"
             _recorded = False
@@ -143,7 +147,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                     _recorded = True
                     _result = _jobs[job_id].get("result")
                     _with_errors = isinstance(_result, dict) and bool(_result.get("errors"))
-                    _failed, _soft, _note = _judge_result(_result, job_id)
+                    _failed, _soft, _note, _waiting = _judge_result(_result, job_id)
                     _jobs[job_id]["status"] = "error" if _failed else "done"
                     if _failed:
                         _outcome = "error"
@@ -164,7 +168,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             # A run that was cleared, or replaced by a new one, tells no one.
             if _recorded:
                 _notify_job_finished(_description, _outcome, job_id=job_id, owner_user_id=_owner,
-                                     with_errors=_with_errors, reason=_reason)
+                                     with_errors=_with_errors, reason=_reason, waiting=_waiting)
         except JobCancelled:
             with _lock:
                 _mark_cancelled_locked(job_id, run)
@@ -605,9 +609,9 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
         finished = _record_final_status(job_id, run, proc, outcome, result, hook_error, logger)
         if finished is None:
             return
-        _description, _status, _owner, _reason = finished
+        _description, _status, _owner, _reason, _waiting = finished
         _notify_job_finished(_description, _status, job_id=job_id, owner_user_id=_owner,
-                             reason=_reason)
+                             reason=_reason, waiting=_waiting)
     except Exception as exc:
         _record_watcher_failure(job_id, proc, run, exc, logger)
     finally:
@@ -778,9 +782,9 @@ def _run_completion_hook(job_id, run, on_done, payload, logger):
 
 def _record_final_status(job_id, run, proc, outcome, result, hook_error, logger):
     """Records how the run ended, if it is still this run and "running".
-    Returns (description, status to notify, owner, reason) for the finish
-    notification, or None when nothing was recorded."""
-    _jobs_reason = None
+    Returns (description, status to notify, owner, reason, waiting note)
+    for the finish notification, or None when nothing was recorded."""
+    _jobs_reason = _waiting = None
     _notify_failed = False
     with _lock:
         if not _still_running_locked(job_id, run):
@@ -791,7 +795,7 @@ def _record_final_status(job_id, run, proc, outcome, result, hook_error, logger)
             job["error"] = f"Completion hook failed: {hook_error}"
             job["finished_at"] = time.time()
         elif outcome and outcome[0] == "ok":
-            _jobs_reason, _notify_failed = _record_ok_locked(job_id, job, result, logger)
+            _jobs_reason, _notify_failed, _waiting = _record_ok_locked(job_id, job, result, logger)
         elif outcome and outcome[0] == "error":
             # process_worker.error_item adds the worker's traceback; older
             # three-item workers have none.
@@ -819,27 +823,27 @@ def _record_final_status(job_id, run, proc, outcome, result, hook_error, logger)
         _mirror_locked(job_id)
         _final_status = job["status"]
         return (job.get("description"), "error" if _notify_failed else _final_status,
-                job.get("owner_user_id"), _jobs_reason)
+                job.get("owner_user_id"), _jobs_reason, _waiting)
 
 
 def _record_ok_locked(job_id, job, result, logger):
     """Caller holds _lock. The worker returned a result: `error` when it
     reports a failure, else `done`. Returns (notification reason,
-    whether the notification says failed)."""
+    whether the notification says failed, waiting note)."""
     job["result"] = result
     job["finished_at"] = time.time()
-    _failed, _soft, _note = _judge_result(result, job_id)
+    _failed, _soft, _note, _waiting = _judge_result(result, job_id)
     if _failed:
         job["status"] = "error"
         job["error"] = _failed
         job["message"] = ""
         logger.error(f"job {job_id} failed: {_failed}")
-        return _failed, False
+        return _failed, False, None
     job["status"] = "done"
     job["progress"] = 1.0
     _finish_message_locked(job)
     logger.info(f"job {job_id} finished")
-    return _soft or _note, bool(_soft)
+    return _soft or _note, bool(_soft), _waiting
 
 
 def _record_watcher_failure(job_id, proc, run, exc, logger):
