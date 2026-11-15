@@ -8,12 +8,12 @@ import {
 
 const line = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start: id, end: id + 1, zh: '你好', en: 'Hello', speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, ...over,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
 })
 
 const page = (lines: ReviewLine[], over: Partial<ReviewLinesPage> = {}): ReviewLinesPage => ({
   lines, page: 1, page_size: 40, total: lines.length, flagged_count: 0, untranslated_count: 0,
-  unreviewed_count: 0, shaky_count: 0, risk_count: lines.length, ...over,
+  unreviewed_count: 0, shaky_count: 0, risk_count: lines.length, marked_count: 0, ...over,
 })
 
 describe('initialLinesFilter', () => {

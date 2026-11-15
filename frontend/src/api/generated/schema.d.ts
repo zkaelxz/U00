@@ -5627,6 +5627,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lines/dramas/{drama_id}/lines/{line_id}/mark": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark one line's translation wrong or mixed, or clear its mark (409 if `expected_en` differs) */
+        post: operations["post_set_mark_api_lines_dramas__drama_id__lines__line_id__mark_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lines/dramas/{drama_id}/lines/{line_id}/retry-blocked": {
         parameters: {
             query?: never;
@@ -8273,7 +8290,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The nearest flagged (or unreviewed) line before/after a line, across pages */
+        /** The nearest flagged (or unreviewed, or marked) line before/after a line, across pages */
         get: operations["get_review_flagged_adjacent_api_review_dramas__drama_id__flagged_adjacent_get"];
         put?: never;
         post?: never;
@@ -8324,7 +8341,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** One page of a drama's lines, optionally only flagged/untranslated/unreviewed/shaky/risk */
+        /** One page of a drama's lines, optionally only flagged/untranslated/unreviewed/shaky/risk/marked */
         get: operations["get_review_lines_api_review_dramas__drama_id__lines_get"];
         put?: never;
         post?: never;
@@ -21171,6 +21188,11 @@ export interface components {
              * @description Unchecked lines left alone because they carry a flag.
              */
             skipped_flagged: number;
+            /**
+             * Skipped Marked
+             * @description Unchecked lines left alone because they are marked wrong or mixed (a line both flagged and marked counts here too).
+             */
+            skipped_marked: number;
         };
         /** LinesFindReplaceApplyRequest */
         LinesFindReplaceApplyRequest: {
@@ -21243,6 +21265,13 @@ export interface components {
              * @description Requested ids not flagged source_changed (any more).
              */
             skipped_ids: number[];
+        };
+        /** LinesMarkRequest */
+        LinesMarkRequest: {
+            /** Expected En */
+            expected_en?: string | null;
+            /** Mark */
+            mark: ("wrong" | "mixed") | null;
         };
         /** LinesMatchIn */
         LinesMatchIn: {
@@ -25752,6 +25781,11 @@ export interface components {
              */
             lang: string | null;
             /**
+             * Mark
+             * @description A person's mark on the English: wrong, mixed, or null for none. Editing `en` clears it; a marked line is never `reviewed`.
+             */
+            mark: ("wrong" | "mixed") | null;
+            /**
              * Reviewed
              * @description True once a reviewer marked the translation checked; editing `en` clears it.
              * @default false
@@ -25823,13 +25857,19 @@ export interface components {
             flagged_count: number;
             /** Lines */
             lines: components["schemas"]["ReviewLinesLine"][];
+            /**
+             * Marked Count
+             * @description Lines marked wrong or mixed (the `marked` filter), in the whole drama.
+             * @default 0
+             */
+            marked_count: number;
             /** Page */
             page: number;
             /** Page Size */
             page_size: number;
             /**
              * Risk Count
-             * @description Unchecked translated lines with a flag or low confidence (the `risk` filter), in the whole drama.
+             * @description Unchecked translated lines with a mark, a flag or low confidence (the `risk` filter), in the whole drama.
              * @default 0
              */
             risk_count: number;
@@ -47679,6 +47719,60 @@ export interface operations {
             };
         };
     };
+    post_set_mark_api_lines_dramas__drama_id__lines__line_id__mark_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinesMarkRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewLinesLine"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_retry_blocked_api_lines_dramas__drama_id__lines__line_id__retry_blocked_post: {
         parameters: {
             query?: never;
@@ -56355,7 +56449,7 @@ export interface operations {
                 from_line_id?: number | null;
                 page_size?: number;
                 only?: string;
-                kind?: "flagged" | "unreviewed";
+                kind?: "flagged" | "unreviewed" | "marked" | "flagged_or_marked";
             };
             header?: never;
             path: {
