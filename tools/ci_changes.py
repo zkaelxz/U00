@@ -13,7 +13,6 @@ import json
 import os
 import sys
 
-NOTES_PREFIXES = ("docs/archive/research/",)
 FULL_CI_LABEL = "full-ci"
 # Changes to CI itself, test plumbing or dependencies can break any job, so they run all of them.
 EVERYTHING_PREFIXES = (".github/",)
@@ -50,7 +49,7 @@ SOURCES_TEST_FILES = (
     "test_installer_service.py", "test_installer_payload.py", "test_page_server.py", "test_db.py",
     "test_library_isolation_guard.py", "test_ci_changes.py",
 )
-OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest", "run_windows_scripts", "run_caddy", "run_app_checks",
+OUTPUTS = ("run_e2e", "run_full_pytest", "run_windows_scripts", "run_caddy", "run_app_checks",
            "run_sources_subset")
 
 
@@ -85,7 +84,6 @@ def classify(files, event, labels=()):
     if FULL_CI_LABEL in labels or any(_forces_everything(f) for f in files):
         return everything
     return {
-        "notes_only": all(_starts(f, NOTES_PREFIXES) for f in files),
         "run_e2e": any(_starts(f, ("frontend/", "api/")) for f in files),
         "run_full_pytest": not all(_starts(f, ("frontend/", "docs/")) for f in files),
         "run_windows_scripts": any(_touches_windows_scripts(f) for f in files),
@@ -117,7 +115,7 @@ def sources_tests(root):
 
 
 def _all_true():
-    return {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True,
+    return {"run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True,
             "run_caddy": True, "run_app_checks": True, "run_sources_subset": False}
 
 

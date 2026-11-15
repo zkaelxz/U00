@@ -44,5 +44,5 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 
 ## Plans, research and history
 
-- **`specs/`**: `gpu-worker-plan.md` (deferred), `accuracy-tuning-plan.md`.
+- **`specs/`**: `accuracy-tuning-plan.md`.
 - **`research/`**: dated surveys (`oss-gap-report.md`, `timing-constants-inventory.md`, `twmanga-vetting.md`, `vtuber-terminology-zh-ja.md`). Each states the commit it was checked against; the code wins over them.
