@@ -126,6 +126,9 @@ db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句',
     await expect(page.getByTestId('queue-position')).toHaveText('1 of 14 to look at')
     const bar = page.getByTestId('selection-bar')
     await expect(bar).toContainText('1 selected')
+    // From the page's top the bar's own place is below the screen at both widths, so it has to stick; where the page
+    // comes to rest after the change of view varies, and at 390px it can rest with the bar's own place on screen.
+    await page.evaluate(() => window.scrollTo(0, 0))
     const sel = (await bar.boundingBox())!
     const lineBar = (await page.getByRole('toolbar', { name: 'Line actions' }).boundingBox())!
     // Taller than the plain line bar's 56px, which is what the selection bar would clear without the queue bar's own height.
