@@ -206,9 +206,14 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 .review-line {
   padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+/* Its own rule, with `.review-lines` for weight: workspace.css gives every control with a tabindex a scroll-margin of
+   one class' worth, which beat this one and let K/J leave the active row under the sticky toolbar. Raising the rule
+   above would also outrank the later `.review-line` padding overrides, so only the margins move. */
+.review-lines .review-line {
   scroll-margin-top: calc(var(--bar-h, 0px) + var(--review-toolbar-h, 9rem) + var(--space-2));
   scroll-margin-bottom: 5rem;
-  min-width: 0;
 }
 .review-lines.is-compact .review-line { padding-block: 2px; font-size: var(--text-sm); line-height: 1.3; }
 .review-lines.is-compact .review-body { margin-top: 0; }
