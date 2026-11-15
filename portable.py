@@ -87,6 +87,15 @@ def is_installed() -> bool:
     return os.path.isfile(_INSTALLED_MARKER_PATH)
 
 
+# What a source checkout records in its library instead of an installed
+# version: the release being worked towards, as a pre-release. Older installed
+# copies compare only major.minor.patch, so they refuse a checkout library
+# made after their release, while that release itself opens it. Bump it to the
+# next version right after tagging (release/CHECKLIST.md); a test fails if a
+# newer release note exists.
+SOURCE_VERSION = "0.1.5-dev"
+
+
 def installed_app_version():
     """The version in `<install dir>/manifest.json` (written by
     installer/build_installer.py), or None for a source checkout or a
