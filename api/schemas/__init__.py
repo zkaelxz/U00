@@ -58,3 +58,4 @@ from api.schemas.inbox import *  # noqa: F401,F403
 from api.schemas.shared_glossary import *  # noqa: F401,F403
 from api.schemas.quick_video import *  # noqa: F401,F403
 from api.schemas.comic_editor import *  # noqa: F401,F403
+from api.schemas.resource_monitor import *  # noqa: F401,F403

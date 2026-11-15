@@ -259,3 +259,48 @@ def test_both_gpu_memory_rules_read_the_same_sample(monkeypatch):
     monkeypatch.setattr(rms, "_cpu_times", lambda: None)
     readings = rms.sample()
     assert readings["gpu_memory"] == readings["gpu_memory_warn"] == 91
+
+
+def test_the_snapshot_before_any_sample_has_every_rule_and_no_values(isolated_db):
+    snap = rms.snapshot(now=T0)
+    assert snap["sampled_seconds_ago"] is None
+    assert [m["name"] for m in snap["metrics"]] == list(rms.METRICS)
+    assert all(m["value"] is None and not m["alerting"] and m["past_seconds"] is None
+               for m in snap["metrics"])
+
+
+def test_the_snapshot_shows_the_last_cycle_without_sampling_again(isolated_db, monkeypatch):
+    for i in range(11):
+        rms.run_cycle(notify=lambda e: None, now=T0 + i * 30, readings={"gpu_temp": 90, "ram": 50})
+    monkeypatch.setattr(rms, "sample", lambda: pytest.fail("the snapshot sampled"))
+    by = {m["name"]: m for m in rms.snapshot(now=T0 + 330)["metrics"]}
+    assert by["gpu_temp"]["value"] == 90 and by["gpu_temp"]["alerting"]
+    assert by["gpu_temp"]["past_seconds"] == 330 and by["gpu_temp"]["unit"] == "°C"
+    assert by["ram"]["value"] == 50 and by["ram"]["past_seconds"] is None
+    assert by["disk_free"]["low"] and by["gpu_throttle"]["limit"] is None
+    assert by["cpu"]["enabled"] is False
+
+
+def test_the_snapshot_after_a_restart_still_times_a_running_alert(isolated_db):
+    for i in range(11):
+        rms.run_cycle(notify=lambda e: None, now=T0 + i * 30, readings={"gpu_temp": 90})
+    rms.reset_for_tests()
+    rms.run_cycle(notify=lambda e: None, now=T0 + 600, readings={"gpu_temp": 90})
+    gpu = next(m for m in rms.snapshot(now=T0 + 600)["metrics"] if m["name"] == "gpu_temp")
+    assert gpu["alerting"] and gpu["past_seconds"] == 600
+
+
+def test_the_resources_route_returns_the_snapshot(isolated_db):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    rms.run_cycle(notify=lambda e: None, now=T0, readings={"ram": 42})
+    client = TestClient(create_app(ApiSettings(serve_frontend=False)), base_url="http://127.0.0.1:8600",
+                        client=("127.0.0.1", 5000))
+    r = client.get("/api/diagnostics/resources")
+    assert r.status_code == 200
+    by = {m["name"]: m for m in r.json()["metrics"]}
+    assert by["ram"]["value"] == 42 and r.json()["sample_seconds"] == 30

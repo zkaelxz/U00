@@ -98,6 +98,10 @@ export type PortEntry = Schemas['PortEntry']
 
 export type PortsOverview = Schemas['PortsOverview']
 
+export type ResourceMetric = Schemas['ResourceMetric']
+
+export type ResourceReadings = Schemas['ResourceReadings']
+
 export type RemoteHealth = Schemas['RemoteHealth']
 
 export type RemoteSetup = Schemas['RemoteSetup']
