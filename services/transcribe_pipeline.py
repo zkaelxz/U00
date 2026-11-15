@@ -124,7 +124,8 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
         result_queue.put(("ok", lev.annotate(outcome)))
     except memory_headroom.HeadroomError as exc:
         # Its message is written for the user; the type name in front of it is not.
-        result_queue.put(("ok", {"failed_reason": "headroom", "detail": redact_secrets(str(exc))}))
+        result_queue.put(("ok", {"failed_reason": "headroom", "detail": redact_secrets(str(exc)),
+                                 "vram_need_mb": exc.vram_need_mb}))
     except ImportError as exc:
         # The user sees the fixed sentence; the server log keeps which import
         # failed, since a broken install (a DLL that won't load) reads the same.

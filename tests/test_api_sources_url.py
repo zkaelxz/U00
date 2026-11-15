@@ -334,3 +334,34 @@ def test_auth_on(env, monkeypatch):
     _no_leak(r)
     assert c.post("/api/sources/url/import", json={"url": PAGE, "drama_id": did},
                   headers=h).status_code == 200
+
+
+def test_bilibili_preview_reads_the_title_in_the_guarded_child(client, env, monkeypatch):
+    """The Bilibili adapter's title comes from the killable yt-dlp child
+    behind the egress proxy, never from yt-dlp inside the app process."""
+    import contextlib
+    import sys
+    from services import egress_proxy, ytdlp_child
+    from sources.adapters.bilibili import BilibiliSource
+    monkeypatch.setattr(registry, "adapter_classes", lambda: {"bilibili": BilibiliSource})
+    monkeypatch.setitem(sys.modules, "yt_dlp", None)  # an in-process import would raise
+
+    @contextlib.contextmanager
+    def proxy():
+        yield SimpleNamespace(url="http://u:p@127.0.0.1:1")
+    monkeypatch.setattr(egress_proxy, "GuardedProxy", proxy)
+    calls = []
+
+    def fake_probe(tmp_dir, spec, timeout, cancel, max_output_chars, mode="live_status"):
+        calls.append((spec, timeout, max_output_chars, mode))
+        link = {"status": "not_live", "title": "A Real Bilibili Video", "channel": "", "upload_date": "",
+                "release_timestamp": None, "duration": 60, "has_thumbnail": False, "is_playlist": False}
+        yield {"event": {"link": link}}
+        yield {"returncode": 0, "timed_out": False, "cancelled": False}
+    monkeypatch.setattr(ytdlp_child, "run_live_probe", fake_probe)
+    res = _preview(client, "https://www.bilibili.com/video/BV1xx411c7mD?spm_id_from=1").json()["result"]
+    assert res["adapter"] == "bilibili" and res["title"] == "A Real Bilibili Video"
+    [(spec, timeout, cap, mode)] = calls
+    assert spec == {"url": "https://www.bilibili.com/video/BV1xx411c7mD",
+                    "proxy": "http://u:p@127.0.0.1:1"}
+    assert mode == "link_info" and timeout and cap

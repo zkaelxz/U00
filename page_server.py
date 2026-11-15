@@ -379,8 +379,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
         notes.append(_no_engine_note(config, "read"))
         return 0.0
     started = time.monotonic()
-    glossary = (db.list_effective_glossary_terms(drama["series_id"])
-                if drama and drama.get("series_id") else None)
+    glossary = (db.list_run_glossary_terms(drama) or None) if drama else None
     usage = _usage_cb(drama, config, engine)
     extras = _page_extras(drama, config, engine, image)
     try:
@@ -417,8 +416,7 @@ def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, 
     engine = _build_engine(config)
     if engine is None:
         return [["warning", "already in the library; translate it in Scanlate"]]
-    glossary = (db.list_effective_glossary_terms(drama["series_id"])
-                if drama and drama.get("series_id") else None)
+    glossary = (db.list_run_glossary_terms(drama) or None) if drama else None
     originals = page_capture_checks.snapshot_texts(missing)
     try:
         page_turns.translate_in_chain(drama_id, source_url, missing, engine, drama, glossary,

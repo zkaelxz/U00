@@ -278,10 +278,10 @@ def load_translation_guide(drama: dict) -> tuple:
     and the series cast's pronouns and voice notes, built as the subtitle path builds them
     (translation_guide.build_character_guidance). A title with no series has neither."""
     series_id = (drama or {}).get("series_id")
+    terms = db.list_run_glossary_terms(drama or {})
     if not series_id:
-        return None, ""
-    return (db.list_effective_glossary_terms(series_id),
-            tguide.build_character_guidance(db.list_series_characters(series_id)))
+        return (terms or None), ""
+    return (terms, tguide.build_character_guidance(db.list_series_characters(series_id)))
 
 
 def _page_image(drama_id: int, page_id: int, engine_name: str):
