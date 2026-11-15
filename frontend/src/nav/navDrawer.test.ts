@@ -95,4 +95,19 @@ describe('NavGroups', () => {
     expect(html).toContain('data-testid="rail-jobs-count"')
     expect(renderToStaticMarkup(withJobs(0, createElement(NavGroups, { route: { name: 'jobs' }, context: ctx })))).not.toContain('rail-jobs-count')
   })
+
+  it('puts the current mark on the title row, not Library, while a title shows under Library', () => {
+    const html = renderToStaticMarkup(withJobs(0, createElement(NavGroups, { route: { name: 'drama', id: 2, stage: null } as Route, context: ctx })))
+    expect(html.match(/aria-current="page"/g)).toHaveLength(1)
+    expect(html).toMatch(/<a class="rail-title"[^>]*aria-current="page"/)
+  })
+
+  it('shows 0 beside Jobs only in the listed menu, never with the running-count test id, and hides it from the name', () => {
+    const at = (running: number, listed: boolean) => renderToStaticMarkup(withJobs(running, createElement(NavGroups, { route: library, context: ctx, listed })))
+    expect(at(0, true)).toMatch(/<span class="rail-zero" data-testid="rail-jobs-zero" aria-hidden="true">0<\/span>/)
+    expect(at(0, true)).not.toContain('rail-jobs-count')
+    expect(at(0, false)).not.toContain('rail-zero')
+    expect(at(2, true)).not.toContain('rail-zero')
+    expect(at(2, true)).toContain('data-testid="rail-jobs-count"')
+  })
 })
