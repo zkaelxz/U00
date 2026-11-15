@@ -268,6 +268,7 @@ export function SeriesPanel({
         <p className="muted">Importing chapters is PC only for now.</p>
       )}
 
+      {result?.notice && <p className="warn" role="status">{result.notice}</p>}
       {result && chapters.length > 0 && (
         <Section title="Chapters" count={chapters.length} defaultOpen storageKey="sources.chapters">
           {importing && (
