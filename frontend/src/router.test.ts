@@ -22,6 +22,7 @@ describe('parseRoute', () => {
     expect(parseRoute('#/settings?section=developer-mode')).toEqual({ name: 'settings', section: 'developer-mode' })
     expect(parseRoute('#/drama/3/translate?focus=glossary')).toEqual({ name: 'drama', id: 3, stage: 'translate', focus: 'glossary' })
     expect(parseRoute('#/drama/3/translate?focus=nope')).toEqual({ name: 'drama', id: 3, stage: 'translate' })
+    expect(parseRoute('#/drama/3/translate?focus=estimate')).toEqual({ name: 'drama', id: 3, stage: 'translate', focus: 'estimate' })
     expect(parseRoute('#/drama/3/review?focus=flagged')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'flagged' })
     expect(routeHref({ name: 'drama', id: 3, stage: 'review', focus: 'flagged' })).toBe('#/drama/3/review?focus=flagged')
     expect(parseRoute('#/drama/3/review?focus=all')).toEqual({ name: 'drama', id: 3, stage: 'review', focus: 'all' })
@@ -106,6 +107,21 @@ describe('parseRoute', () => {
     }
     expect(routeHref({ name: 'read', id: 3, page: 2 })).toBe('#/read/3?page=2')
     expect(routeHref({ name: 'read', id: 3, page: null })).toBe('#/read/3')
+  })
+
+  it('carries the reader route watch flag with or without a page, and ignores any other value', () => {
+    expect(parseRoute('#/read/3?watch=1')).toEqual({ name: 'read', id: 3, page: null, watch: true })
+    expect(parseRoute('#/read/3?page=2&watch=1')).toEqual({ name: 'read', id: 3, page: 2, watch: true })
+    expect(parseRoute('#/read/3?watch=1&page=2')).toEqual({ name: 'read', id: 3, page: 2, watch: true })
+    for (const bad of ['0', 'true', 'yes', '', '11']) {
+      expect(parseRoute(`#/read/3?page=2&watch=${bad}`)).toEqual({ name: 'read', id: 3, page: 2 })
+    }
+    // The comic reader has no Watch / listen fold.
+    expect(parseRoute('#/comic/3?watch=1')).toEqual({ name: 'comic', id: 3, page: null })
+    expect(routeHref({ name: 'read', id: 3, page: null, watch: true })).toBe('#/read/3?watch=1')
+    expect(routeHref({ name: 'read', id: 3, page: 2, watch: true })).toBe('#/read/3?page=2&watch=1')
+    const both = { name: 'read', id: 3, page: 2, watch: true } as const
+    expect(parseRoute(routeHref(both))).toEqual(both)
   })
 
   it('parses the saved manga routes, names %-encoded', () => {

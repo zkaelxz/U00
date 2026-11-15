@@ -65,7 +65,9 @@ test('Continue resumes reading at the saved page (GET /api/library/continue)', a
   const shelf = page.getByRole('region', { name: 'Continue' })
   await expect(shelf.getByRole('listitem')).toHaveCount(1)
   await expect(shelf).toContainText('Reading · page 2 · 42%')
-  await expect(shelf.getByRole('link', { name: "Resume reading Heaven Official's Blessing" })).toHaveAttribute('href', '#/read/2')
+  const read = shelf.getByRole('link', { name: "Read from page 2: Heaven Official's Blessing", exact: true })
+  await expect(read).toHaveText('Read from page 2')
+  await expect(read).toHaveAttribute('href', '#/read/2')
 })
 
 test('Reading history Clear is a two-step PC-only action inside Library tools', async ({ page }) => {

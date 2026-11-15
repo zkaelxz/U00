@@ -49,7 +49,8 @@ export type Route =
   | { name: 'assistant' }
   // tab: "#/series/3?tab=glossary" opens that tab of a series' page.
   | { name: 'series'; id: number; tab?: SeriesTab }
-  | { name: 'read'; id: number; page: number | null }
+  // watch: "#/read/3?watch=1" opens the Watch / listen fold (a card's Watch or Listen link).
+  | { name: 'read'; id: number; page: number | null; watch?: true }
   // "#/follow/3": a title's lines on their own clock, for audio played in another app.
   | { name: 'follow'; id: number }
   | { name: 'comic'; id: number; page: number | null }
@@ -63,7 +64,7 @@ export type Route =
 // A package key from diagnostics.OPTIONAL_DEPENDENCIES ("audio-separator", "pyannote.audio"): nothing else is read from a link.
 const PACKAGE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/
 
-export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare' | 'all'
+export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare' | 'all' | 'estimate'
 
 export const MAX_FIND_LENGTH = 200
 
@@ -130,8 +131,10 @@ export function parseRoute(hash: string): Route {
   if (head === 'follow' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) return { name: 'follow', id: Number(a) }
   if ((head === 'read' || head === 'comic') && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
     // "#/read/3?page=2", "#/comic/3?page=2"; a missing or bad page means "resume where I left off".
-    const p = new URLSearchParams(qs).get('page')
+    const q = new URLSearchParams(qs)
+    const p = q.get('page')
     const page = p && /^\d+$/.test(p) && Number(p) >= 1 ? Number(p) : null
+    if (head === 'read' && q.get('watch') === '1') return { name: head, id: Number(a), page, watch: true }
     return { name: head, id: Number(a), page }
   }
   if (head === 'comic' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 3 && parts[2] === 'edit') {
@@ -174,7 +177,7 @@ export function parseRoute(hash: string): Route {
       name: 'drama',
       id: Number(a),
       stage,
-      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' || focus === 'all' ? { focus } : {}),
+      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' || focus === 'all' || focus === 'estimate' ? { focus } : {}),
       ...(find && stage === 'review' ? { find } : {}),
       ...(tools ? { tools } : {}),
       ...(stage === 'translate' ? (isTranslateTab(tab) ? { tab } : {}) : asMediaTab(tab) ? { tab: asMediaTab(tab) as MediaTab } : {}),
@@ -192,7 +195,11 @@ export function routeHref(r: Route): string {
   if (r.name === 'series') return `#/series/${r.id}${r.tab ? `?tab=${r.tab}` : ''}`
   if (r.name === 'comic-edit') return `#/comic/${r.id}/edit${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'follow') return `#/follow/${r.id}`
-  if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
+  if (r.name === 'read') {
+    const query = [r.page && `page=${r.page}`, r.watch && 'watch=1'].filter(Boolean).join('&')
+    return query ? `#/read/${r.id}?${query}` : `#/read/${r.id}`
+  }
+  if (r.name === 'comic') return `#/comic/${r.id}${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'manga-series') return `#/manga/${encodeURIComponent(r.source)}/${encodeURIComponent(r.series)}`
   if (r.name === 'manga-read') {
     const base = `#/manga/${[r.source, r.series, r.chapter].map(encodeURIComponent).join('/')}`

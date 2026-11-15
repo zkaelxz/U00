@@ -34,3 +34,26 @@ test('folded by default, opens on demand, no sideways scroll', async ({ page }) 
   await expect(page.getByRole('group', { name: 'Waveform' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
+
+test('the waveform buttons are 44px targets that their neighbours do not cut', async ({ page }) => {
+  await page.route('**/api/media/dramas/3/peaks*', (route) => {
+    const n = Number(new URL(route.request().url()).searchParams.get('buckets'))
+    return route.fulfill({ json: { start: 0, end: 20, buckets: n, peaks: Array(n).fill(100) } })
+  })
+  await page.goto('/#/drama/3/review')
+  await page.getByRole('button', { name: 'Show waveform' }).click()
+  const tools = page.getByRole('group', { name: 'Waveform' }).locator('.review-wave-tools')
+  await expect(tools.getByRole('button', { name: 'Zoom in' })).toBeVisible()
+  const hits = await tools.getByRole('button').evaluateAll((els) =>
+    els.map((el) => {
+      el.scrollIntoView({ block: 'center' })
+      const r = el.getBoundingClientRect()
+      const cx = r.left + r.width / 2
+      const cy = r.top + r.height / 2
+      const mine = (x: number, y: number) => el.contains(document.elementFromPoint(x, y))
+      return { name: el.getAttribute('aria-label') ?? el.textContent, tall: mine(cx, cy - 21) && mine(cx, cy + 21), wide: mine(cx - 21, cy) && mine(cx + 21, cy) }
+    }),
+  )
+  expect(hits.length).toBeGreaterThanOrEqual(4)
+  expect(hits.filter((h) => !h.tall || !h.wide)).toEqual([])
+})
