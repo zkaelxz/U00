@@ -64,6 +64,8 @@ REM                            never touches edited files, other branches,
 REM                            or a copy whose app is already running).
 
 cd /d "%~dp0"
+REM shift in the loop below moves %0 too, so the relaunch after an update needs this.
+set "SELF=%~f0"
 
 :parse_args
 if "%~1"=="" goto :args_done
@@ -274,7 +276,7 @@ set "UPD_NEW=!UPD_WHY!"
 
 set "BAIHE_UPDATE_OLD=%UPD_OLD%"
 set "UPD_WHY="
-(for /f "delims=" %%L in ('git merge --ff-only --quiet %UPD_NEW% 2^>^&1') do set "UPD_WHY=!UPD_WHY! %%L") & git merge-base --is-ancestor %UPD_NEW% HEAD >nul 2>nul && (call "%~f0" %* & exit /b !errorlevel!)
+(for /f "delims=" %%L in ('git merge --ff-only --quiet %UPD_NEW% 2^>^&1') do set "UPD_WHY=!UPD_WHY! %%L") & git merge-base --is-ancestor %UPD_NEW% HEAD >nul 2>nul && (call "%SELF%" %* & exit /b !errorlevel!)
 set "BAIHE_UPDATE_OLD="
 if exist ".git\index.lock" (
     echo Not updated: git is busy, or an earlier git command was cut off and left ".git\index.lock" behind. Close other git programs; if none is running, delete that file. Starting the version on this PC.

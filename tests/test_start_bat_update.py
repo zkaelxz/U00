@@ -126,7 +126,7 @@ class TestUpdateIsFastForwardOnly:
 
     def test_relaunch_is_one_line_and_exits(self):
         line = next(ln for ln in _code() if "git merge " in ln)
-        assert 'call "%~f0" %*' in line
+        assert 'call "%SELF%" %*' in line
         assert "exit /b" in line
 
 
@@ -169,6 +169,12 @@ class TestAfterUpdate:
         stop = block[block.index(":frontend_missing_stop"):]
         assert "Node.js 22" in stop and "start.bat again" in stop and "exit /b 1" in stop
         assert block.index("BAIHE_CI") < block.index("set BAIHE_BUILD_FRONTEND=1")
+
+    def test_relaunch_after_an_update_uses_the_path_saved_before_the_args_are_shifted(self):
+        text = "\n".join(_lines(False))
+        assert text.index('set "SELF=%~f0"') < text.index(":parse_args")
+        assert 'call "%SELF%" %*' in text
+        assert 'call "%~f0"' not in text
 
     def test_auto_rebuild_failure_does_not_stop_the_launch(self):
         text = "\n".join(_lines(False))
