@@ -210,6 +210,9 @@ def release_gpu_models():
         module = sys.modules.get(module_name)
         if module is not None:
             getattr(module, cache_name).clear()
+    detect_module = sys.modules.get("scanlate_detect")
+    if detect_module is not None:
+        detect_module.release_bubble_model()
     ocr_module = sys.modules.get("ocr")
     if ocr_module is not None:
         ocr_module.release_models(empty_cuda=False)
