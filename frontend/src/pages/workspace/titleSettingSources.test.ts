@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { sourceText } from './settingSources'
+import { sourceText } from './titleSettingSources'
 
 const row = { key: 'beam_size', label: 'Beam size', group: 'transcribe', value: 5, series_value: null, differs_from_series: false }
 

@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 
 import { getTitleSettingSources, type TitleSettingSources } from '../../api/series'
-import { sourceRows } from './settingSources'
+import { sourceRows } from './titleSettingSources'
 
 export function SettingSources({ id }: { id: number }) {
   const [open, setOpen] = useState(false)
