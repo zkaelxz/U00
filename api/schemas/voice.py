@@ -15,6 +15,7 @@ __all__ = [
     "DubRunStarted",
     "ListenConfig",
     "ListenRunRequest",
+    "ListenTestVoiceRequest",
     "VoiceCloneExtractRequest",
     "VoiceCloneJobStarted",
     "VoiceCloneCandidate",
@@ -84,6 +85,13 @@ class ListenConfig(BaseModel):
 
 class ListenRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    tts_engine: str = Field(default="omnivoice", max_length=40)
+    narration_language: Optional[str] = Field(default=None, max_length=20)
+
+
+class ListenTestVoiceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
     tts_engine: str = Field(default="omnivoice", max_length=40)
     narration_language: Optional[str] = Field(default=None, max_length=20)
 

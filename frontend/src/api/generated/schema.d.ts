@@ -5814,6 +5814,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/listen/dramas/{drama_id}/test-voice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Play the last voice test sentence (WAV) */
+        get: operations["download_test_voice_api_listen_dramas__drama_id__test_voice_get"];
+        put?: never;
+        /** Speak one short sentence in a speaker's voice (poll GET /api/jobs/{job_id}) */
+        post: operations["start_test_voice_api_listen_dramas__drama_id__test_voice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/listen/dramas/{drama_id}/track": {
         parameters: {
             query?: never;
@@ -21567,6 +21585,18 @@ export interface components {
         ListenRunRequest: {
             /** Narration Language */
             narration_language?: string | null;
+            /**
+             * Tts Engine
+             * @default omnivoice
+             */
+            tts_engine?: string;
+        };
+        /** ListenTestVoiceRequest */
+        ListenTestVoiceRequest: {
+            /** Narration Language */
+            narration_language?: string | null;
+            /** Speaker Label */
+            speaker_label: string;
             /**
              * Tts Engine
              * @default omnivoice
@@ -48375,6 +48405,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    download_test_voice_api_listen_dramas__drama_id__test_voice_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_test_voice_api_listen_dramas__drama_id__test_voice_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ListenTestVoiceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DubRunStarted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Service Unavailable */
