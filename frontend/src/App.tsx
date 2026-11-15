@@ -216,7 +216,7 @@ function SignInOverlay({ configured }: { configured: boolean }) {
           <>
             <p className="muted">Your unsaved work is still here. Sign in in a new tab, then come back to this one.</p>
             <a className="login-button" href={loginHref(returnTo)} target="_blank" rel="noopener noreferrer">
-              Sign in with Google (new tab)
+              Sign in with Google
             </a>
           </>
         ) : (

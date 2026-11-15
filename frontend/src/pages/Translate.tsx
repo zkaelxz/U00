@@ -343,7 +343,7 @@ export default function TranslatePage() {
                   ) : (
                     <>
                       Still needed: an API key for {engineShortName(selected)}.{' '}
-                      {canAddKey ? <a href="#/settings">Add it in Settings</a> : 'Ask the PC owner to add it.'}
+                      {canAddKey ? <a href="#/settings">Add a key in Settings</a> : 'Ask the PC owner to add it.'}
                     </>
                   )}
                 </p>

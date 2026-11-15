@@ -9,7 +9,7 @@ import { isActiveStatus, novelGlossaryStartErrorText } from './autotuneGlossary'
 import { bumpGlossaryTerms } from './useGlossaryRun'
 import { useRunStatus } from './useRunStatus'
 
-const TIP = 'One scan per chapter, in order. Terms found are added to the glossary; ones you already have are kept. Uses the title’s translation engine (one paid call per chapter on a paid engine).'
+const TIP = 'Scans each chapter in turn and adds new terms. One paid call per chapter on a paid engine.'
 
 export function ScanAllChapters({ dramaId }: { dramaId: number }) {
   const [chapters, setChapters] = useState(0)

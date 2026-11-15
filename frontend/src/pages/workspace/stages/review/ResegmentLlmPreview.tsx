@@ -74,13 +74,13 @@ export function ResegmentLlmPreview({ preview, needsConfirm, blocked, busy, onAp
                 {droppedText(preview)}
               </p>
               <TypedConfirm word="resegment" action="Apply" blocked={blocked} busy={busy} onConfirm={() => onApply(true)}>
-                <p className="muted">Your current lines are saved as a snapshot first (Records → Line history).</p>
+                <p className="muted">Saved to Line history first.</p>
               </TypedConfirm>
               <div className="actions">{discard}</div>
             </>
           ) : (
             <>
-              <p className="muted">Your current lines are saved as a snapshot first (Records → Line history).</p>
+              <p className="muted">Saved to Line history first.</p>
               {blocked && <p className="muted">{blocked}</p>}
               <div className="actions">
                 <button type="button" className={buttonClass('primary')} disabled={busy || !!blocked} onClick={() => onApply(false)}>

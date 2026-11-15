@@ -190,7 +190,7 @@ export function LanguagePacks({ glossarySources, hasSeries, onAdded }: {
           <div className="lp-actions">
             {pc !== 'remote' && (
               <button type="button" className={buttonClass('secondary')} onClick={makeDefault}>
-                Use this choice for {langName} titles
+                Apply to {langName} titles
               </button>
             )}
             <span className="muted">

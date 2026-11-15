@@ -33,7 +33,7 @@ test('dashboard, costs and series fit a phone', async ({ page }) => {
   await expectNoSidewaysScroll(page)
 })
 
-test('New drama: Summary and Create and fill details with AI fit a phone', async ({ page }) => {
+test('New drama: Summary and Create + fill with AI fit a phone', async ({ page }) => {
   await page.goto('/')
   await page.locator('.page-head').getByRole('link', { name: 'Add', exact: true }).click()
   await page.getByRole('button', { name: 'Add a title by hand' }).click()
@@ -42,7 +42,7 @@ test('New drama: Summary and Create and fill details with AI fit a phone', async
   const summary = sheet.getByRole('textbox', { name: 'Summary' })
   await expect(summary).toBeVisible()
   expect((await hitHeight(summary))).toBeGreaterThanOrEqual(44)
-  const autofill = sheet.getByRole('button', { name: 'Create and fill details with AI' })
+  const autofill = sheet.getByRole('button', { name: 'Create + fill with AI' })
   expect((await hitHeight(autofill))).toBeGreaterThanOrEqual(44)
   await expectNoSidewaysScroll(page)
 })

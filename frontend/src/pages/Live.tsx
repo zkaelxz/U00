@@ -287,7 +287,7 @@ export default function LivePage() {
           </div>
           {engines && !usable.length && (
             <p className="muted" data-testid="live-no-engine-note">
-              <a href={routeHref({ name: 'settings' })}>Add an engine key in Settings</a>
+              <a href={routeHref({ name: 'settings' })}>Add a key in Settings</a>
             </p>
           )}
           {engines && !usable.length && developerMode && (

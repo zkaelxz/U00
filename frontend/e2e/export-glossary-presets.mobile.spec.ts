@@ -82,7 +82,7 @@ test('glossary import and preset picker on a phone', async ({ page }) => {
   await pickTab(glossary, /^Find terms/, 'Glossary')
   await glossary.getByText('Import or export').click()
   await expectTall(glossary.getByRole('button', { name: 'Import', exact: true }))
-  await expectTall(glossary.getByRole('link', { name: 'Download glossary as CSV' }))
+  await expectTall(glossary.getByRole('link', { name: 'Download CSV' }))
   await expectSwitchTarget(glossary.locator('.glossary-import').getByRole('switch'))
   await expectNoSidewaysScroll(page)
   await glossary.getByText('Import or export').scrollIntoViewIfNeeded()

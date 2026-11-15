@@ -561,7 +561,7 @@ export default function TranscribeStage({
           <p className="muted" role="note" data-testid="transcript-no-audio">
             The transcript is matched to the audio, and this title has none yet. If it is text to translate, not speech:{' '}
             <button type="button" className={buttonClass('secondary', 'sm')} disabled={adopting || !transcriptText.trim()} onClick={asNovel}>
-              Translate this text as a novel
+              Set up as novel
             </button>
           </p>
         )}

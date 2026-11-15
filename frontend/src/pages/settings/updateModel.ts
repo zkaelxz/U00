@@ -10,7 +10,7 @@ export const SMARTSCREEN_NOTE =
 export const HASH_NOTE =
   'The download is checked against the release’s SHA-256. That catches a broken download; it is not a signature.'
 export const INSTALL_NOTE =
-  'Opens Setup. Baihe keeps running until you click Install there. Then Setup stops Baihe (running jobs are cancelled), updates it and can restart it. Cancelling Setup changes nothing.'
+  'Opens Setup. Nothing changes until you click Install there; that stops Baihe (running jobs are cancelled), updates it and can restart it.'
 export const PRERELEASES_HELP = 'Also offers beta versions. Only a version newer than this one is ever offered.'
 export const SERVICE_AUTO_APPLY_HELP =
   'After a check finds an app update, downloads it, checks its signature and switches the background service to it when no job is running. ' +

@@ -31,7 +31,7 @@ export function CheckLeadAction({ lead }: { lead: CheckLead }) {
 export function QueueMediaToggle({ open, controls, onToggle }: { open: boolean; controls: string; onToggle: () => void }) {
   return (
     <button type="button" className={buttonClass('secondary', 'md', 'check-queue-media')} aria-expanded={open} aria-controls={controls}
-            title="Seek bar, speed, subtitles and the waveform" onClick={onToggle}>
+            onClick={onToggle}>
       Player <span aria-hidden="true">{open ? '▴' : '▾'}</span>
     </button>
   )
@@ -167,7 +167,7 @@ export function CheckQueueFooter({ dramaId, queuePage, counts, jobRunning, settl
       {untranslated && (
         <p className="check-queue-untranslated">
           {untranslated}{' '}
-          <button type="button" className="check-queue-link" onClick={onUntranslated}>Show the untranslated lines</button>
+          <button type="button" className="check-queue-link" onClick={onUntranslated}>Show untranslated</button>
         </p>
       )}
       {note && <p className="muted" role="status">{note}</p>}
