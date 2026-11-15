@@ -39,9 +39,10 @@ out of it.
      `baihe-subtitler` since the PR last merged the base, and changes none of the files under "Always the overlap lane" below.
      Squash-merge on the run it has: don't merge the base in again, and don't wait for the base's push run.
    - **Overlap lane.** Anything else. Merge the base in, wait for a new full green run at the new head, then squash-merge.
-4. **After the merge** the owner reads the push run at the merge commit ("After a merge" below) and reports its result with
-   the merge.
-5. **A red push run or nightly run stops merging** until the base is green again. The owner of the PR merged last looks first.
+4. **After the merge** the owner reads the push run that covers the merge commit ("After a merge" below: its own, or a
+   later one when another merge landed while it waited) and reports its result with the merge.
+5. **A red push run or nightly run stops merging** until the base is green again. The owner of the PR merged last looks first;
+   a red run that covers several merges is narrowed down as "After a merge" says.
 
 Always the overlap lane (Alex, 2026-11-14): a database schema change, which is any diff that adds or edits a `CREATE TABLE` or
 `ALTER TABLE` statement or a migration list (today in `db/migrations.py`, `db/schema.py`, `db/schema_system.py`,
@@ -65,10 +66,10 @@ than the base its green run tested, so a mistake here can only send a PR to the 
 commit: deepen it until `git merge-base` prints one.
 
 Two PRs that share no file can still break each other, and the clear lane finds that out after the merge, not before it. When
-the base has moved since the PR's run, a clear-lane merge lands a tree no PR run tested, so its push run runs everything
-("After a merge" below), and the nightly run is the second net. The clear lane is on trial (Alex, 2026-11-14): until she calls
-it routine, a thread that merges by it says so in its merge report and gives the push run's result, so that the first ones can
-be reviewed.
+the base has moved since the PR's run, a clear-lane merge lands a tree no PR run tested, so it is tested whole only after the
+merge ("After a merge" below), and the nightly run is the second net. The clear lane is on trial (Alex, 2026-11-14): until she
+calls it routine, a thread that merges by it says so in its merge report and gives the result of the push run that covers the
+merge, so that the first ones can be reviewed.
 
 ## CI layout
 
@@ -133,6 +134,31 @@ nightly `schedule` run (03:23 UTC) runs everything on the newest commit, as the 
 still moves only to a commit whose push run passed (`lib/github_checks.py`); a shortened push run passes because the PR run of the
 same tree did.
 
+Merges that land back to back share a push run (Alex, 2026-11-15: a full run for every merge had left the base's results 67 to
+123 minutes behind a burst of merges). Pushes to `baihe-subtitler` are one concurrency group that never cancels a run in
+progress, so one push run is going and at most one waits behind it. A merge that lands while a run already waits takes that
+run's place, and GitHub cancels the run it replaced before any of its jobs start. The run that waits therefore tests the
+newest tree, which holds every merge before it, and it is shortened only by a green PR run of that same tree on that same
+base, so the merges it stands in for lose no job. The push run that **covers** a merge is the first one, at its commit or a
+later one, that ran to the end, green or red: a cancelled push run at a merge commit means a later run covers it, not that
+something failed.
+
+The newest commit is the exception, because nothing later can cover it. GitHub does not promise the order in which runs reach
+the group, so when two merges land seconds apart the newer one's run can be the one that is cancelled. A cancelled push run
+at the newest commit of the base is re-run by the owner of that merge.
+
+What sharing costs:
+
+- A red run names every merge it covers, not one: its own commit and the ones just before it whose runs were cancelled. Read
+  the failure against what each of them changed. If that does not settle it, run the failed test at those commits
+  (`git bisect` between the last green commit and the red one); only a job that cannot run off CI needs the cancelled runs
+  re-run.
+- A dev copy and a release tag still need a push run that passed at the exact commit, so a commit whose run was cancelled is
+  passed over by the dev copy and refused for a tag (`docs/runbook.md`, section 1, step 5).
+- Re-run an older commit's push run (a cancelled one, or the failed jobs of a red one) only when no push run is waiting.
+  GitHub's docs do not say that a re-run stays out of the group, and inside it a re-run would take the waiting run's place,
+  which leaves the newest merge with no run. Re-running the newest commit's own run is always safe.
+
 ### Which jobs a change runs
 
 `tools/ci_changes.py` (tested by `tests/test_ci_changes.py`) classifies the changed files of a PR. A job that is skipped
@@ -167,8 +193,9 @@ A sixth output, `run_app_checks` (the `smoke` and `frontend` jobs), is true unle
 A seventh output, `run_sources_subset`, is true when every changed file on a pull request is under `sources/adapters/` or is a
 `tests/test_sources_*.py` / `tests/test_api_sources_*.py` file. `test-shard` then runs one shard with only the adapter tests and the
 tests of rules every adapter must obey (`tools/ci_changes.py --sources-tests`; the lists are `SOURCES_TEST_GLOBS` and
-`SOURCES_TEST_FILES`) instead of four shards of the whole suite. `guards` still runs, and the push after the merge runs the whole
-suite (a sources subset does not count as having run it), so a break outside the subset shows there. Add a test to `SOURCES_TEST_FILES` when it checks a rule every adapter must obey.
+`SOURCES_TEST_FILES`) instead of four shards of the whole suite. `guards` still runs, and the whole suite runs after the merge,
+in the push run that covers it or in the green PR run of that same tree that shortened it (a sources subset does not count as
+having run it), so a break outside the subset shows there. Add a test to `SOURCES_TEST_FILES` when it checks a rule every adapter must obey.
 
 A fifth output, `run_caddy` (the `caddy` job), is true for every row that says "everything", and otherwise only when a changed
 file is under `deploy/caddy/` or `installer/caddy/`, or is `installer/service_config.py` or `tools/caddy_check.py`.
@@ -425,7 +452,7 @@ The real-model check in Diagnostics ships two samples in `assets/smoke/`: `clip.
 ## GitHub Actions minutes
 
 - Iterate locally; push once per PR for the merge-required checks, and batch related commits into one push.
-- Workflows cancel superseded runs (`concurrency:` with `cancel-in-progress: true`, grouped by workflow and ref; in `tests.yml` a push gets its own group keyed on the commit). Don't rely on that for a run something else depends on (a release).
+- Workflows cancel superseded runs (`concurrency:` with `cancel-in-progress: true`, grouped by workflow and ref). In `tests.yml` pushes to the base branch share one group that never cancels a run in progress; a newer merge only takes the place of a run that is still waiting ("After a merge" above). Don't rely on cancelling for a run something else depends on (a release).
 - Never weaken a check to save minutes.
 - Set each job's `timeout-minutes` from observed run durations (roughly 2-3x the slowest), not a guess.
 - Before changing triggers, matrices, concurrency or caching, check the billing usage page's per-job breakdown and state the trade-off.
