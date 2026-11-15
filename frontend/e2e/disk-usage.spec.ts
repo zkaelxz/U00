@@ -153,7 +153,7 @@ test('Delete permanently needs the typed word DELETE exactly and shows the size'
   const sec = await openSection(page, 'storage')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await trash.getByRole('button', { name: 'Delete library/tmp permanently' }).click()
-  await expect(trash).toContainText('Permanently deletes library/tmp (2.4 GB · 80 files) from this PC.')
+  await expect(trash).toContainText('Delete library/tmp (2.4 GB · 80 files) forever?')
   const go = trash.getByRole('button', { name: 'Delete library/tmp permanently' }).last()
   const input = trash.getByLabel(/Type DELETE to confirm/)
   await expect(go).toBeDisabled()
