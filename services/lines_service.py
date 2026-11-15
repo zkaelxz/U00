@@ -30,6 +30,7 @@ import subtitle_formats
 import timing_drift
 import translation_guide
 from services import (
+    line_provenance_service,
     ownership_service,
     reading_speed_dismissal_service,
     timing_check_service,
@@ -143,6 +144,7 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
         raise InvalidInputError("end must be after start.")
 
     before_en, before_zh = ln.en or "", ln.zh or ""
+    before_flag, before_mark = ln.flag, ln.mark
     fields = []
     for k in ("start", "end", "zh", "en", "sfx", "lang"):
         if k in passed:
@@ -179,7 +181,11 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
         translate_service.sync_translation_status(drama_id)
     if en_changed:
         if before_en and ln.en:
-            db.record_edit_sample(drama_id, ln.zh, before_en, ln.en)
+            prov = line_provenance_service.get(drama_id, line_id, current_en=before_en) or {}
+            db.record_edit_sample(drama_id, ln.zh, before_en, ln.en, line_id=line_id,
+                                  engine=prov.get("engine"), model=prov.get("model"),
+                                  prompt_version=prov.get("prompt_version"),
+                                  flag=before_flag, mark=before_mark)
         if drama.get("series_id") and ln.en.strip():
             db.record_translation_memory(drama["series_id"], ln.zh, ln.en)
     return _reload_dict(drama_id, line_id)
