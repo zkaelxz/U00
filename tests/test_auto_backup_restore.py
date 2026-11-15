@@ -32,7 +32,7 @@ LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_jso
 
 
 LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports",
-                   "edit_samples")
+                   "edit_samples", "source_edits")
 
 
 PROFILE_TABLES = ("progress", "personal_notes", "reading_history")

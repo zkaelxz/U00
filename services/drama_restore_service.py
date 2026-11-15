@@ -50,7 +50,7 @@ _MAX_MEMBER_BYTES = lrs.MAX_RESTORE_MEMBER_BYTES
 # until it is listed in one or the other.
 CHILD_TABLES = ("lines", "pages", "characters", "translation_notes", "line_emotions",
                  "consistency_issues", "vocab_lookups", "line_history", "translation_versions",
-                 "bug_reports", "wiki_entries", "edit_samples", "voice_suggestion_dismissals",
+                 "bug_reports", "wiki_entries", "edit_samples", "source_edits", "voice_suggestion_dismissals",
                  "progress", "personal_notes", "reading_history", "metadata_field_provenance")
 _SKIPPED_TABLES = {
     "usage_log": "ON DELETE SET NULL: the spending rows survive a delete, so restoring them "
@@ -67,7 +67,7 @@ _SKIPPED_TABLES = {
                                  "restored",
 }
 _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports",
-                    "edit_samples")
+                    "edit_samples", "source_edits")
 _FIRST_SEEN_TABLES = ("vocab_lookups", "wiki_entries")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}

@@ -123,6 +123,40 @@ class TestPatch:
         [s] = db.list_edit_samples(did)
         assert (s["line_id"], s["user_version"]) == (None, "Hi there")
 
+    def test_source_edit_records_who_heard_it_and_the_line_before(self, isolated_db):
+        import raw_transcript
+        did, ids = _seed()
+        raw_transcript.write_raw_transcript(db.drama_dir(did), [], db.load_line_objects(did),
+                                            backend="whisper", model="large-v3")
+        db.update_line_fields_if(did, ids[1], {"confidence": 0.4, "mark": "wrong"}, {})
+        svc.patch_line(did, ids[1], zh="在见")
+        [s] = db.list_source_edits(did)
+        assert (s["line_id"], s["path"], s["before_zh"], s["after_zh"], s["engine"], s["model"],
+                s["confidence"], s["flag"], s["mark"]) == (
+            ids[1], "person", "再见", "在见", "whisper", "large-v3", 0.4, "uncertain", "wrong")
+        # The second correction is of a person's text, not the transcription's.
+        svc.patch_line(did, ids[1], zh="再见了")
+        newest = db.list_source_edits(did)[0]
+        assert (newest["before_zh"], newest["engine"], newest["model"]) == ("在见", None, None)
+        # Source rows stay out of the English pairs learned style reads.
+        assert db.list_edit_samples(did) == []
+
+    def test_unchanged_or_english_only_patch_logs_no_source_edit(self, isolated_db):
+        did, ids = _seed()
+        svc.patch_line(did, ids[0], zh="你好")
+        svc.patch_line(did, ids[0], en="Hi there")
+        assert db.list_source_edits(did) == []
+
+    def test_source_edit_follows_a_merge_and_outlives_its_line(self, isolated_db):
+        did, ids = _seed()
+        svc.patch_line(did, ids[1], zh="在见")
+        a, b, c = db.load_line_objects(did)
+        a.merged_ids = [b.id]
+        _real_save(did, [a, c])
+        assert [s["line_id"] for s in db.list_source_edits(did)] == [ids[0]]
+        _real_save(did, [c])
+        assert [s["line_id"] for s in db.list_source_edits(did)] == [None]
+
     def test_no_tm_without_series_and_no_sample_when_unchanged(self, isolated_db):
         did, ids = _seed()
         svc.patch_line(did, ids[0], en="Hi there")

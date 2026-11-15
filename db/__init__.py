@@ -643,7 +643,8 @@ from db.wiki import (  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 
 from db.style import (  # noqa: E402,F401
-    STYLE_HISTORY_KEEP, get_style_profile, list_edit_samples, record_edit_sample,
+    STYLE_HISTORY_KEEP, get_style_profile, list_edit_samples, list_source_edits,
+    record_edit_sample, record_source_edits,
     replace_style_profile, restore_style_profile, save_style_profile)
 
 

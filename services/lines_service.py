@@ -21,6 +21,7 @@ LLM tools, bulk modes other than setting lines' language. No FastAPI
 import: plain dicts in and out.
 Error messages never echo user text, and no path or key is returned.
 """
+import copy
 import math
 
 import core as core_module
@@ -30,6 +31,7 @@ import subtitle_formats
 import timing_drift
 import translation_guide
 from services import (
+    edit_log_service,
     line_provenance_service,
     ownership_service,
     reading_speed_dismissal_service,
@@ -145,6 +147,7 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
 
     before_en, before_zh = ln.en or "", ln.zh or ""
     before_flag, before_mark = ln.flag, ln.mark
+    before_line = copy.copy(ln)
     fields = []
     for k in ("start", "end", "zh", "en", "sfx", "lang"):
         if k in passed:
@@ -179,6 +182,9 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
     # Filling in a blank line's source text opens a new untranslated line too.
     if en_changed or "zh" in passed:
         translate_service.sync_translation_status(drama_id)
+    if "zh" in passed:
+        edit_log_service.record_source_edits(drama_id, [(before_line, ln.zh)],
+                                             edit_log_service.PERSON)
     if en_changed:
         if before_en and ln.en:
             prov = line_provenance_service.get(drama_id, line_id, current_en=before_en) or {}

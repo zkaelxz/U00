@@ -502,6 +502,11 @@ class TestApply:
         assert now[ids[1]].speaker == before[ids[1]].speaker
         history = db.list_line_history(did)
         assert [h["label"] for h in history] == ["before compare-transcription apply"]
+        # Logged as the comparison's change, so it isn't counted as a person's correction.
+        assert sorted((r["line_id"], r["path"], r["before_zh"], r["after_zh"])
+                      for r in db.list_source_edits(did)) == [
+            (ids[0], "compare", before[ids[0]].zh, "新的1"),
+            (ids[1], "compare", before[ids[1]].zh, "新的2")]
 
     def test_edited_line_is_skipped_not_overwritten(self):
         did, ids = _drama(3)
