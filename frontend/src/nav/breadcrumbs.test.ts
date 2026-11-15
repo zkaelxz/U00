@@ -10,6 +10,13 @@ describe('routeCrumbs', () => {
     expect(crumbs('#/comic/4', { title: 'A' }).map((c) => c.label)).toEqual(['Library', 'A', 'Comic'])
   })
 
+  it('names the Watch page by how the title is taken in, under the title', () => {
+    expect(crumbs('#/watch/4', { title: 'A' })).toEqual([
+      { label: 'Library', href: '#/library' }, { label: 'A', href: '#/drama/4' }, { label: 'Watch' },
+    ])
+    expect(crumbs('#/watch/4', { title: 'A', verb: 'Listen' }).map((c) => c.label)).toEqual(['Library', 'A', 'Listen'])
+  })
+
   it('covers nested pages from the registry labels', () => {
     expect(crumbs('#/library-tools')).toEqual([{ label: 'Library', href: '#/library' }, { label: 'Library tools' }])
     expect(crumbs('#/sources/manage?tab=network')).toEqual([])
