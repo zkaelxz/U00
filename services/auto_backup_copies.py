@@ -26,15 +26,15 @@ that keeps a few, and picking one to restore from.
   numbered above the stored counter (a clone, or a library.db restored by
   hand), that run prunes nothing and logs a warning.
 - Retention (deterministic, applied after each successful run, under
-  _snapshot_lock): one copy per day for the last 2 days, plus the first
-  copy of each of the last 2 weeks. Precisely, among the managed copies
+  _snapshot_lock): one copy per day for the last 7 days, plus the first
+  copy of each of the last 4 weeks. Precisely, among the managed copies
   dated no later than the copy just written (and, for this library's own,
   with a lower sequence number): "daily" = the new copy, plus
   the newest copy of the most recent earlier UTC day that has one (so extra
   runs on one day replace that day's earlier copy, never yesterday's);
   "weekly" = among the remaining copies, the FIRST (oldest) copy of each ISO
-  week (UTC), keeping the 2 most recent such weeks. Every other such copy
-  is deleted, so at most 4 remain. The copy just written is always kept and
+  week (UTC), keeping the 4 most recent such weeks. Every other such copy
+  is deleted, so at most 11 remain. The copy just written is always kept and
   is the anchor: a copy dated after it (a future-dated name, a legacy file
   with a future time, a clock set back) takes no slot and is never deleted.
   Two runs within one second get names one second apart. A copy's date is
@@ -121,10 +121,10 @@ _COPY_NAME_RE = re.compile(r"baihe_snapshot-([0-9]{8})-([0-9]{6})\.zip", re.ASCI
 LEGACY_SNAPSHOT_NAME = "baihe_snapshot.zip"
 
 
-KEEP_DAILY = 2
+KEEP_DAILY = 7
 
 
-KEEP_WEEKLY = 2
+KEEP_WEEKLY = 4
 
 
 _MAX_COPY_NAME_LEN = 64

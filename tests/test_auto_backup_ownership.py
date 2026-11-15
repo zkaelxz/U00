@@ -31,6 +31,14 @@ from services import library_restore_service as lrs
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 
+@pytest.fixture(autouse=True)
+def _two_daily_two_weekly(monkeypatch):
+    """These tests pin the rotation rule itself with a small, easy-to-count
+    window; the shipped sizes are checked in test_auto_backup_rotation."""
+    monkeypatch.setattr(abc_, "KEEP_DAILY", 2)
+    monkeypatch.setattr(abc_, "KEEP_WEEKLY", 2)
+
+
 def _patch_now(monkeypatch, fn):
     for mod in (abs_, abt_, abc_, abf_):
         monkeypatch.setattr(mod, "_now", fn)

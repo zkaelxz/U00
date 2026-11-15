@@ -1,7 +1,7 @@
 /*
- * Library tools > Backup > Automatic backups : an opt-in scheduled backup
- * that keeps rotating copies (one a day for the last 2 days, plus the first
- * of each of the last 2 weeks), plus "Back up now", which adds a copy. The copies are listed newest first; restoring a
+ * Library tools > Backup > Automatic backups : a scheduled backup (on unless
+ * the owner turns it off) that keeps rotating copies (one a day for the last
+ * 7 days, plus the first of each of the last 4 weeks), plus "Back up now", which adds a copy. The copies are listed newest first; restoring a
  * drama from one, or deleting one, is the card below (SnapshotBlock).
  * PC only: the Backup tab is left out away from the PC, and nothing is
  * fetched until /api/meta has answered.
@@ -24,7 +24,7 @@ import {
 } from '../../types/backups'
 import { jobFailed, jobSucceeded } from '../../types/jobs'
 import {
-  DEFAULT_FOLDER_TEXT, FOLDER_RULES, FREQUENCY_OPTIONS, ROTATION_NOTE, UNMANAGED_LABEL, UNMANAGED_NOTE, changedSettings,
+  DEFAULT_FOLDER_TEXT, FOLDER_RULES, FREQUENCY_OPTIONS, ROTATION_NOTE, SAME_DRIVE_NOTE, UNMANAGED_LABEL, UNMANAGED_NOTE, changedSettings,
   describeCopy, describeSnapshot, folderChange, formatWhen, nextRunText, serverSentence, splitCopies,
 } from '../backupsFormat'
 import { adminPercent } from '../libraryAdmin/libraryAdmin'
@@ -155,6 +155,11 @@ export function AutoBackupBlock() {
   return (
     <div className="auto-backup">
       <p className="settings-note">{ROTATION_NOTE}</p>
+      {settings?.same_drive_as_library && (
+        <p className="settings-note" role="status" data-testid="auto-backup-same-drive">
+          {SAME_DRIVE_NOTE}
+        </p>
+      )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={SERVER} />
       {!settings ? (
         !error && <p className="muted">Loading…</p>
