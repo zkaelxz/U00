@@ -163,8 +163,8 @@ function TermRow({ t, checked, editing, catalogues, onToggle, onEdit, onSave, on
                 <td role="cell" data-label="Banned" className="card-meta">{t.banned_translations.join(', ')}</td>
                 <td role="cell" data-label="Exact" className="card-meta">{t.enforce_exact ? 'Yes' : 'No'}</td>
                 <td role="cell" className="card-action"><button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Edit ${t.term_original}`} onClick={onEdit}>Edit</button>
-                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Find similar spellings of ${t.term_original}`} title="Look in the source lines for other ways this name was written" onClick={onSimilar}>Find similar</button>
-                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Suggest spellings of ${t.term_original}`} title="Ask the engine how this name may have been written, then check it against the lines" onClick={onSuggest}>Suggest spellings</button></td>
+                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Find similar spellings of ${t.term_original}`} onClick={onSimilar}>Find similar</button>
+                  <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Suggest spellings of ${t.term_original}`} onClick={onSuggest}>Suggest spellings</button></td>
               </tr>
               {editing && (
                 <tr role="row" className="term-edit-row">
@@ -560,7 +560,6 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
           <button
             type="button"
             className={buttonClass('secondary')}
-            title="Find a name that is heard or written differently across all your titles"
             onClick={() => setShowNameReport(true)}
           >
             Check names across all titles

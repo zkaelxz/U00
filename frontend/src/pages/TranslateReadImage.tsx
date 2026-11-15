@@ -345,7 +345,7 @@ export function TranslateReadImage({
       )}
       {!allowed && <p className="translate-warning">Reading pictures isn't allowed for this account. Ask the PC owner.</p>}
       {allowed && noKey && selected && (
-        <p className="translate-warning">That engine is not set up yet. Add its key in Settings, or pick another.</p>
+        <p className="translate-warning">No key for that engine. Add a key in Settings or pick another.</p>
       )}
       {selected?.name === 'ollama' && (
         <p className="muted translate-read-hint">A local model must support pictures (Gemma 4 does). It is free but slower.</p>

@@ -19,7 +19,7 @@ const headerMore = (page: Page) => page.locator('.workspace-header').getByRole('
 // Under All a phone has no switch row: the queue is reached by the first row's main button, and All by the card's link or the footer's.
 const backToQueue = (page: Page) => page.locator('.review-queue-row').getByRole('button', { name: 'Check the 3 lines', exact: true })
 async function openAll(page: Page) {
-  await page.getByRole('button', { name: 'See the lines around it' }).tap()
+  await page.getByRole('button', { name: 'In context' }).tap()
   await expect(backToQueue(page)).toBeVisible()
 }
 // Its name starts with the ▸ marker its CSS draws, so the pattern is not anchored.
@@ -288,7 +288,7 @@ test.describe(() => {
     await expect(page.getByText('Next: line 7, Whisper was unsure · line 12, too fast to read', { exact: true })).toBeVisible()
     // The Next line and the way to the lines around it are inside the card, and the link is a full-size target.
     await expectInside(page.getByText(/^Next: line/), cards, 'the Next line')
-    await expectInside(cards.getByRole('button', { name: 'See the lines around it' }), cards, 'See the lines around it')
+    await expectInside(cards.getByRole('button', { name: 'In context' }), cards, 'In context')
     // The bar under the steps button fills a third of its track for the first of three cards.
     const first = await progressShare(page)
     expect(Math.abs(first.fill - first.track / 3), 'the progress fill is a third of its track').toBeLessThanOrEqual(2)
@@ -298,7 +298,7 @@ test.describe(() => {
     await expect(cards.locator('.review-queue-label')).toHaveText('English')
     expect(await cards.getByTestId('line-en').evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
     await expect(cards.getByRole('link', { name: 'Glossary', exact: true })).toBeVisible()
-    for (const target of [cards.getByRole('button', { name: 'See the lines around it' }), cards.getByRole('link', { name: 'Glossary', exact: true }),
+    for (const target of [cards.getByRole('button', { name: 'In context' }), cards.getByRole('link', { name: 'Glossary', exact: true }),
       cards.getByRole('button', { name: 'Re-write' }), cards.getByTestId('line-en')]) await expectTall(target, (await target.textContent()) ?? '')
     await expect(bar.getByRole('button')).toHaveText(['Skip', 'Next'])
     const fill = await bar.getByRole('button', { name: 'Looks right, next' }).evaluate((el) => {
@@ -701,7 +701,7 @@ test.describe(() => {
     await page.setViewportSize({ width: 320, height: 844 })
     await page.goto('/#/drama/3/review')
     await openAll(page)
-    const speed = 'This subtitle is too fast to read: 25.2 characters a second, and more than about 17 is hard to read in time. Shorten the text.'
+    const speed = 'Too fast to read: 25.2 characters a second (over 17 is hard). Shorten the text.'
     for (const [n, short, sentence] of [[12, 'Too fast to read, 25 characters a second', speed], [24, 'Glossary name not used: 夷陵老祖', GLOSSARY_SENTENCE]] as const) {
       const row = page.locator('.review-line').filter({ has: page.locator('.review-idx', { hasText: new RegExp(`^#${n}$`) }) })
       const more = row.getByRole('button', { name: `More actions for line ${n}` })

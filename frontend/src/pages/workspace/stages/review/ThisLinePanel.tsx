@@ -77,7 +77,7 @@ export function LineSound({ dramaId, line, player }: { dramaId: number; line: Re
     <section className="card this-line-card" aria-labelledby={headId}>
       <div className="this-line-head">
         <h3 id={headId} className="this-line-title">Line {lineNumber(line.idx)} sound</h3>
-        <button type="button" className={buttonClass('secondary', 'sm')} title="Play the line (Space)" onClick={() => player.current?.toggleLine(line)}>
+        <button type="button" className={buttonClass('secondary', 'sm')} title="Key: Space" onClick={() => player.current?.toggleLine(line)}>
           Play
         </button>
       </div>
@@ -176,7 +176,7 @@ function NearText({ line, sourceLanguage }: { line: ReviewLine; sourceLanguage: 
 
 export function NearLine({ line, sourceLanguage, onShowLine }: { line: ReviewLine; sourceLanguage: string | null; onShowLine: (id: number) => void }) {
   return (
-    <button type="button" className="this-line-near" title="Open this line in the full list" onClick={() => onShowLine(line.id)}>
+    <button type="button" className="this-line-near" title="Open in full list" onClick={() => onShowLine(line.id)}>
       <NearText line={line} sourceLanguage={sourceLanguage} />
     </button>
   )

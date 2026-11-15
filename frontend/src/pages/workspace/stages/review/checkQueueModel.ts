@@ -109,7 +109,7 @@ const readSpeed: ReadNote = (note) => {
     : room ? `Shorten the text, or show the line ${room[1]} s longer: the next line leaves room.` : null
   if (!fix) return null
   return {
-    text: `This subtitle is too fast to read: ${m[1]} characters a second, and more than about ${m[2]} is hard to read in time. ${fix}`,
+    text: `Too fast to read: ${m[1]} characters a second (over ${m[2]} is hard). ${fix}`,
     short: `Too fast to read, ${Math.round(Number(m[1]))} characters a second`,
     chip: `Too fast to read: ${Math.round(Number(m[1]))} characters a second`,
   }
@@ -145,7 +145,7 @@ const readDrift: ReadNote = (note) => {
   // "it starts … and ends …": the subject is said once.
   const said = (parts as string[]).map((p, i) => (i > 0 && parts[0]?.startsWith('it ') && p.startsWith('it ') ? p.slice(3) : p))
   return {
-    text: `The times of this line don’t match the speech in the audio: ${joinAnd(said)}. Play it and move its start or end to the speech.` +
+    text: `Timing doesn’t match the audio: ${joinAnd(said)}. Play it and move the start or end.` +
       (music ? ' Music can be taken for speech in this audio, so check by ear.' : ''),
   }
 }
@@ -165,7 +165,7 @@ const readQc: ReadNote = (note) => {
     return kind && part.endsWith('.') ? kind[1] + part.slice(kind[0].length) : null
   })
   if (said.some((s) => s === null)) return null
-  return { text: `The source and the English don’t agree on a number, date, name, amount or unit. ${said.join(' ')} Make the English say the same thing as the source.` }
+  return { text: `English and source disagree on a number, date, name, amount or unit. ${said.join(' ')} Make them match.` }
 }
 
 // compare_transcription_service._disagreement_note, with its engine labels.
@@ -225,7 +225,7 @@ const readBlocked: ReadNote = (note) => {
 const readBulk: ReadNote = (note) => {
   const lost = /^Bulk result not applied: ([\s\S]+)$/.exec(note)
   if (lost) {
-    return { text: `The source text changed while a batch translation was waiting, so its English was not used. Translate this line again. The unused English was “${lost[1]}”.` }
+    return { text: `Source changed while the batch waited, so its English was dropped. Translate again. Dropped English: “${lost[1]}”.` }
   }
   return fixedNotes({
     'Source text changed while a bulk Reflect job was pending':
@@ -294,7 +294,7 @@ const FLAG_KINDS: Record<string, FlagKind> = {
     read: readTranslationCheck,
   },
   ambiguous_reference: {
-    text: 'It isn’t clear who or what a word like “she” or “that place” means here. Check the English points to the right person or thing.',
+    text: 'Unclear who or what “she” or “that place” means. Check the English.',
     short: 'Unclear who or what',
   },
   name_uncertain: {
@@ -328,17 +328,17 @@ const FLAG_KINDS: Record<string, FlagKind> = {
     read: readOverlap,
   },
   timing_drift: {
-    text: 'The times of this line don’t match the speech in the audio. Play it and move its start or end to the speech.',
+    text: 'Timing doesn’t match the audio. Play it and move the start or end.',
     short: 'Times off the speech',
     read: readDrift,
   },
   reading_speed: {
-    text: 'This subtitle is too fast to read: too many characters for the time it is shown. Shorten the text.',
+    text: 'Too fast to read: too many characters for the time shown. Shorten the text.',
     short: 'Too fast to read',
     read: readSpeed,
   },
   factual_detail: {
-    text: 'The source and the English don’t agree on a number, date, name, amount or unit. Make the English say the same thing as the source.',
+    text: 'English and source disagree on a number, date, name, amount or unit. Make them match.',
     short: 'A number or name differs',
     read: readQc,
   },
@@ -348,7 +348,7 @@ const FLAG_KINDS: Record<string, FlagKind> = {
     read: readDisagree,
   },
   gap_untranscribed: {
-    text: 'This line was added for a stretch of audio that had no subtitle. Play it and check the text matches what is said.',
+    text: 'Added for audio with no subtitle. Play it and check the text.',
     short: 'Added for a gap',
     read: saidByKind((note) => note === 'Added for a stretch with no subtitle line; check the text'),
   },
@@ -358,7 +358,7 @@ const FLAG_KINDS: Record<string, FlagKind> = {
     read: readBulk,
   },
   source_changed: {
-    text: 'The source text was changed after this line was translated, so the English may no longer match. Keep the English if it still fits, or improve it.',
+    text: 'Source changed after translation, so the English may not match. Keep it if it fits, or improve it.',
     short: 'Source changed',
   },
   pronoun_check: {
@@ -367,7 +367,7 @@ const FLAG_KINDS: Record<string, FlagKind> = {
     read: saidByKind((note) => note === 'Says he/him but no he/him character is set for this speaker; check the pronoun'),
   },
   glossary_missing: {
-    text: 'The English doesn’t use a name the glossary sets for this line. Put the glossary’s name in the English, or change the glossary if it is wrong.',
+    text: 'The English doesn’t use the glossary’s name. Use it, or fix the glossary.',
     short: 'Glossary name not used',
     chip: 'The English does not use a glossary name',
     read: readGlossary,

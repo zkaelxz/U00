@@ -42,7 +42,7 @@ export function GlossaryTitleTerms({ onCopied }: { onCopied: () => void }) {
         type="button"
         className={buttonClass('secondary')}
         disabled={busy}
-        title="Adds these terms to the series glossary. Terms the series already has are left as they are; the title keeps all of its own."
+        title="Add to series glossary. Existing series terms stay."
         onClick={() => {
           setBusy(true)
           setError(null)

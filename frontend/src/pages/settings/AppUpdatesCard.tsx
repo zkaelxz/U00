@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import {
-  applyAppUpdate, checkForUpdates, downloadAppUpdate, downloadUpdate, fetchPhoneApp, getUpdateStatus, installUpdate, setUpdateAutoCheck,
+  applyAppUpdate, checkForUpdates, downloadAppUpdate, downloadUpdate, getUpdateStatus, installUpdate, setUpdateAutoCheck,
   setUpdatePrereleases,
   setUpdateServiceAutoApply,
 } from '../../api/update'
@@ -26,8 +26,8 @@ import { usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { UpdateStatus } from '../../types/update'
 import {
   APP_APPLY_NOTE, APP_RESTARTING_LINE, AUTO_CHECK_HELP, CUSTOM_SOURCE_NOTE, PRERELEASES_HELP, SERVICE_AUTO_APPLY_HELP, HASH_NOTE, INSTALL_NOTE, SMARTSCREEN_NOTE,
-  PHONE_APP_NOTE, appApplyTarget, appDownloadLine, appUpdateLine, canDownload, canDownloadApp, checkLine,
-  downloadLine, installTarget, isDownloading, phoneAppLine, rollbackBackupLine, signatureLine, versionLine,
+  appApplyTarget, appDownloadLine, appUpdateLine, canDownload, canDownloadApp, checkLine,
+  downloadLine, installTarget, isDownloading, rollbackBackupLine, signatureLine, versionLine,
 } from './updateModel'
 import { useInterval } from '../../hooks/useInterval'
 
@@ -54,7 +54,6 @@ function AppUpdatesControls() {
   const [busy, setBusy] = useState(false)
   const [launched, setLaunched] = useState<string | null>(null)
   const [restarting, setRestarting] = useState(false)
-  const [phoneLine, setPhoneLine] = useState<string | null>(null)
 
   const run = useCallback(async (action: () => Promise<UpdateStatus>) => {
     setBusy(true)
@@ -106,19 +105,6 @@ function AppUpdatesControls() {
     }
   }
 
-  async function getPhoneApp() {
-    setBusy(true)
-    setError(null)
-    setPhoneLine(null)
-    try {
-      setPhoneLine(phoneAppLine(await fetchPhoneApp()))
-    } catch (e) {
-      setError(e)
-    } finally {
-      setBusy(false)
-    }
-  }
-
   // A git copy updates through Update Baihe; this card is for releases.
   if (status && !status.installed) return null
   const progress = status ? downloadLine(status) : null
@@ -158,7 +144,7 @@ function AppUpdatesControls() {
             <p data-testid="update-app-rollback-backup">
               {rollbackBackupLine(status.app_rollback_backup_at)}
               {status.app_rollback_backup_at && (
-                <>{' '}<a href="#/library-tools?tab=backup">Open Backup to restore it</a></>
+                <>{' '}<a href="#/library-tools?tab=backup">Open Backup</a></>
               )}
             </p>
           )}
@@ -198,14 +184,6 @@ function AppUpdatesControls() {
               <p className="muted">{HASH_NOTE}</p>
             </>
           )}
-          <div className="settings-actions">
-            <button type="button" className={buttonClass('secondary')} disabled={busy || downloading}
-              onClick={() => void getPhoneApp()}>
-              Get the newest phone app
-            </button>
-          </div>
-          {phoneLine && <p role="status" data-testid="update-phone-line">{phoneLine}</p>}
-          <p className="muted">{PHONE_APP_NOTE}</p>
           <div className="setting-list">
             <Field label="Check once a day" help={AUTO_CHECK_HELP}>
               <Toggle checked={status.auto_check} disabled={busy}

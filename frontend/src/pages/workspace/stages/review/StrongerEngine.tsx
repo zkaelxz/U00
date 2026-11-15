@@ -86,7 +86,7 @@ export function StrongerEngine({ dramaId, line, offer, active, onUse }: Props) {
               className={buttonClass('secondary', 'sm')}
               disabled={busy}
               aria-busy={busy || undefined}
-              title="One line, one paid call. Nothing changes until you choose Use this."
+              title="One paid call. Nothing changes until you press Use this."
               onClick={run}
             >
               {busy ? `Translating with ${offer.engineLabel}…` : tryLabel(offer)}

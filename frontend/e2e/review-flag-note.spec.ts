@@ -7,7 +7,7 @@ import { guardWrites } from './mockHelpers'
 
 const NOTE = 'Reading speed · 11.5 characters/second -- more than ~8.5/s is hard to read in time. Shorten the line or extend its time. Splitting it at a pause also works, and so does giving the cue a longer window on screen so the viewer can finish reading it before the next one.'
 // The note is not in a shape the app reads, so it follows the flag's own sentence.
-const SENTENCE = `This subtitle is too fast to read: too many characters for the time it is shown. Shorten the text. Note: ${NOTE.split(' · ')[1]}`
+const SENTENCE = `Too fast to read: too many characters for the time shown. Shorten the text. Note: ${NOTE.split(' · ')[1]}`
 
 const line = (id: number, flagged: boolean) => ({
   id, idx: id - 1, start: id, end: id + 1, zh: `句${id}`, en: `Line ${id}`, speaker: null,

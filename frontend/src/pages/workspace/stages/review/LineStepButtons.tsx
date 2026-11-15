@@ -15,21 +15,21 @@ export function LineStepButtons({ flaggedCount, unreviewedCount, noSpeakerCount 
     <div className="review-flagnav" role="group" aria-label="Move between lines">
       {!!flaggedCount && (
         <>
-          <button type="button" className={buttonClass('secondary', 'sm')} title="Previous flagged line (Alt+↑)" onClick={() => onMove(-1)}>
+          <button type="button" className={buttonClass('secondary', 'sm')} title="Key: Alt+↑" onClick={() => onMove(-1)}>
             ‹ Previous flagged
           </button>
-          <button type="button" className={buttonClass('secondary', 'sm')} title="Next flagged line (Alt+↓)" onClick={() => onMove(1)}>
+          <button type="button" className={buttonClass('secondary', 'sm')} title="Key: Alt+↓" onClick={() => onMove(1)}>
             Next flagged ›
           </button>
         </>
       )}
       {!!unreviewedCount && (
-        <button type="button" className={buttonClass('secondary', 'sm')} title="Next translated line nobody has marked checked" onClick={() => onMove(1, 'unreviewed')}>
+        <button type="button" className={buttonClass('secondary', 'sm')} title="Not marked checked yet" onClick={() => onMove(1, 'unreviewed')}>
           Next line to check ›
         </button>
       )}
       {!!noSpeakerCount && (
-        <button type="button" className={buttonClass('secondary', 'sm')} title="Next line with no speaker (N; Shift+N goes back)" onClick={() => onMove(1, 'no_speaker')}>
+        <button type="button" className={buttonClass('secondary', 'sm')} title="Key: N (Shift+N goes back)" onClick={() => onMove(1, 'no_speaker')}>
           Next with no speaker ({noSpeakerCount}) ›
         </button>
       )}

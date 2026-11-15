@@ -19,19 +19,19 @@ const waitForStored = (page: Page, keyPart: string, value: '0' | '1') =>
 test('Settings: one card open per tab on a fresh browser, and a fold made by hand stays', async ({ page }) => {
   await page.goto('/#/settings')
   const tabs = page.getByRole('tab')
-  await expect(tabs).toHaveCount(6)
-  for (const name of ['Translation and keys', 'Costs', 'Notifications and backups', 'Account and display', 'Integrations', 'Performance and advanced']) {
+  await expect(tabs).toHaveCount(7)
+  for (const name of ['Engines and keys', 'Costs', 'Transcription and jobs', 'Connections', 'Updates', 'My account and look', 'Advanced']) {
     await page.getByRole('tab', { name, exact: true }).click()
     await page.locator('.settings-panel:not([hidden])').waitFor()
     expect(await openTitles(page, '.settings-panel')).toHaveLength(1)
   }
-  await page.getByRole('tab', { name: 'Translation and keys', exact: true }).click()
+  await page.getByRole('tab', { name: 'Engines and keys', exact: true }).click()
   const first = topLevel(page, '.settings-panel').first()
   await first.locator('> summary').click()
   await expect(first).not.toHaveAttribute('open', '')
   await waitForStored(page, 'settings.card.engine-routing', '0')
   await page.reload()
-  await page.getByRole('tab', { name: 'Translation and keys', exact: true }).click()
+  await page.getByRole('tab', { name: 'Engines and keys', exact: true }).click()
   expect(await openTitles(page, '.settings-panel')).toHaveLength(0)
 })
 
@@ -40,7 +40,7 @@ test('Settings: an all-collapsed state saved by an earlier version does not beco
     for (const id of ['engine-routing', 'defaults', 'language-packs']) window.localStorage.setItem(`baihe.section.settings.card.${id}`, '0')
   })
   await page.goto('/#/settings')
-  await page.getByRole('tab', { name: 'Translation and keys', exact: true }).click()
+  await page.getByRole('tab', { name: 'Engines and keys', exact: true }).click()
   await page.locator('.settings-panel:not([hidden])').waitFor()
   expect(await openTitles(page, '.settings-panel')).toHaveLength(1)
 })

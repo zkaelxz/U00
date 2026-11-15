@@ -222,7 +222,7 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
         {review && runNo === 0 && !reviewing && (
           <div className="review-actions">
             <p className="muted">Only {review.runs_done} of {RUNS} runs were recorded, so there is nothing to compare.</p>
-            <button type="button" className={buttonClass('secondary', 'sm')} onClick={restoreAll}>Put back the earlier English</button>
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={restoreAll}>Restore earlier English</button>
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={close}>Close</button>
           </div>
         )}
@@ -262,7 +262,7 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
             )}
             <div className="review-actions">
               <button type="button" onClick={close} data-testid="three-run-done">Done</button>
-              <button type="button" className={buttonClass('secondary', 'sm')} onClick={restoreAll}>Put back the English from before the review</button>
+              <button type="button" className={buttonClass('secondary', 'sm')} onClick={restoreAll}>Restore earlier English</button>
             </div>
           </div>
         )}

@@ -134,7 +134,7 @@ export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
         </Section>
       )}
       <div className="actions">
-        <button type="button" className={buttonClass(canRun ? 'ghost' : 'primary')} onClick={onOnlyAdd}>Only add it, don&apos;t start</button>
+        <button type="button" className={buttonClass(canRun ? 'ghost' : 'primary')} onClick={onOnlyAdd}>Add only</button>
         <button type="button" className={buttonClass('ghost')} onClick={onClear}>Clear</button>
       </div>
     </div>

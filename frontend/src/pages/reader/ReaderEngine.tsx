@@ -53,7 +53,7 @@ export function OffEngineHelp({ off }: { off: TranslateEngine[] }) {
   return (
     <p className="muted" data-testid="engines-off">
       {off.map((e) => `${engineShortName(e)} (${engineOffReason(e)})`).join(', ')} can't be used yet.{' '}
-      {needsPackage && <a href={routeHref({ name: 'diagnostics', card: 'packages' })}>Install the package in Diagnostics</a>}
+      {needsPackage && <a href={routeHref({ name: 'diagnostics', card: 'packages' })}>Install in Diagnostics</a>}
       {needsPackage && (needsKey || needsOllama) && ' · '}
       {needsKey && <a href={routeHref({ name: 'settings' })}>Add a key in Settings</a>}
       {needsKey && needsOllama && ' · '}

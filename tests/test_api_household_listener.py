@@ -584,20 +584,19 @@ class TestAdminOverrideIsPcOnly:
 
 # --- admin uploads from away (media.upload) ---------------------------------------
 
-def _remote_uploads(on=True, developer_mode=True, on_at=None):
+def _remote_uploads(on=True, on_at=None):
     from services import settings_service
-    db.set_app_setting("assistant.developer_mode", developer_mode)
-    if on and developer_mode:
+    if on:
         settings_service.set_settings({"remote_uploads": True})
     else:
         db.set_app_setting("remote_uploads", on)
     if on_at is not None:
-        db.set_app_setting("remote_uploads.on_at", on_at)
+        db.set_app_setting("remote_uploads.since", on_at)
 
 
 class TestRemoteUploads:
     """An admin may upload from away only while the PC's switch is on
-    (Developer Mode, turned on in the last 7 days); members never may, and
+    (turned on in the last 7 days); members never may, and
     a refused upload is refused before its body is read."""
 
     @pytest.fixture
@@ -653,12 +652,11 @@ class TestRemoteUploads:
         assert auth_service.UPLOAD_PERMISSION in me["permissions"]
 
     @pytest.mark.parametrize("state", [
-        dict(developer_mode=False),
         dict(on=False),
         dict(on_at=time.time() - 8 * 86400),
         dict(on_at=0.0),
-    ], ids=["no-developer-mode", "switch-off", "lapsed", "never-stamped"])
-    def test_switch_needs_developer_mode_and_lapses(self, isolated_db, state):
+    ], ids=["switch-off", "lapsed", "never-stamped"])
+    def test_switch_off_or_lapsed_refuses(self, isolated_db, state):
         _remote_uploads(**state)
         assert self._paste(_admin_session()).status_code == 403
 
