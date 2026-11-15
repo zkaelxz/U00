@@ -16,7 +16,7 @@ export function PopOutButton({ supported, floating, boxed, onPop, onReturn, onTo
       type="button"
       className={buttonClass('ghost', 'sm')}
       onClick={supported ? (floating ? onReturn : onPop) : onToggleBox}
-      title={supported ? 'Keep the player in a small window that stays on top' : 'Keep the player floating over the page; drag to move, resize from its corner'}
+      title={supported ? 'Floating player' : 'Floating player (drag to move)'}
     >
       {floating || boxed ? 'Return player' : 'Pop out'}
     </button>

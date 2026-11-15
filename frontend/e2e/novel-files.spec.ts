@@ -159,7 +159,7 @@ test('raw novel saved from the optional novel row shows the glossary link', asyn
   await mockNovelFiles(page)
   await page.goto('/#/drama/1/source')
   await page.locator('.section-title', { hasText: /^Attach novel text \(optional\)$/ }).click()
-  const link = page.getByRole('link', { name: 'Build the glossary from this novel in Translate →' })
+  const link = page.getByRole('link', { name: 'Build glossary in Translate →' })
   await expect(page.getByTestId('novel-status')).toBeVisible()
   await expect(link).toHaveCount(0)
   const panel = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })

@@ -74,7 +74,7 @@ test('select all in a grouped Library never takes titles hidden in a collapsed g
   // Alpha (1) + No series (2); Saga's two titles are collapsed away.
   await expect(bar.getByTestId('selected-count')).toHaveText('3 selected')
   await bar.getByRole('button', { name: 'Delete…' }).click()
-  await expect(bar).toContainText('Permanently deletes 3 titles with their lines and files. No undo.')
+  await expect(bar).toContainText('Delete 3 titles with lines and files. Can’t be undone.')
   await expect(bar.getByRole('button', { name: 'Delete 3' })).toBeVisible()
 })
 

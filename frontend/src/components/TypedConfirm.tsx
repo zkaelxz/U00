@@ -4,7 +4,7 @@
  *
  *   <TypedConfirm word="restore" action="Restore snapshot" busy={busy}
  *                 onConfirm={run} onCancel={close}>
- *     Your current lines are saved as a snapshot first.
+ *     Saved to Line history first.
  *   </TypedConfirm>
  */
 import { useId, useState, type ReactNode } from 'react'

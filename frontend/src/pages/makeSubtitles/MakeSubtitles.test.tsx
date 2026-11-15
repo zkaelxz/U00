@@ -33,9 +33,9 @@ describe('MakeSubtitles first paint', () => {
 describe('a chosen file in the Add box', () => {
   const html = renderToStaticMarkup(<Plan file={new File(['abc'], 'My Show.mp3')} />)
 
-  it('says what was found and offers Only add it and Clear side by side', () => {
+  it('says what was found and offers Add only and Clear side by side', () => {
     expect(html).toContain('an audio file, “My Show.mp3”, 3 B.')
-    expect(html).toMatch(/>Only add it, don&#x27;t start<\/button><button type="button" class="[^"]*">Clear<\/button>/)
+    expect(html).toMatch(/>Add only<\/button><button type="button" class="[^"]*">Clear<\/button>/)
   })
 
   it('offers no Clear before a file is given', () => {
