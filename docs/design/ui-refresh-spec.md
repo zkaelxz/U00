@@ -266,20 +266,6 @@ Tasks:
 
 The click counts don't change. Line rows with real data were **not seen**.
 
-### 3.7 Dub stage (`stages/DubStage.tsx`)
-
-Evidence:
-- The option label reads "edge-tts (free, online, more natural) (online)" (`:97-100` appends "(online)" to a label that already says it; `ws-dub-desktop.png`).
-- "Keep background music" is a checkbox (`:169-174`).
-
-Tasks:
-- Append "(online)" only when the label lacks it, or move it into a Badge next to the select.
-- "Keep background music" becomes a Toggle. When it is disabled, the reason is visible, not only in help.
-- A "GPU" Badge `info` in the Card header (`:88`).
-- Hide "Voices and cloning" while there are 0 speakers **(inferred: it has nothing actionable then; check the body first)**.
-
-Clicks: 1 (Generate dub), unchanged. Phone: the reason sits under the primary, which already works (screenshot).
-
 ### 3.8 Export stage (`stages/ExportStage.tsx`, `ExportSubtitles.tsx`, `ExportAss.tsx`)
 
 Evidence:
@@ -405,7 +391,7 @@ Layout:
 2. **Rule-2 fixes**: disable with reason "Translate 0 lines" and "Export" at 0 lines. Files: `stages/TranslateStage.tsx`, `stages/ExportSubtitles.tsx`, `stages/ExportStage.tsx`.
 3. **Workspace shell**: the progress client (`api/workflow.ts`, new), stage-less route and redirect, stepper, header. Files: `router.ts`, `WorkspaceShell.tsx`, `stages.ts`, plus link sites `DramaCards.tsx:27`, `DramaDetailPanel.tsx:87`, `Reader.tsx:330`. **Structural** (the tab look changes): take before/after screenshots.
 4. **Library and detail** (after the concurrent Library and DramaDetailPanel work merges): §3.1–3.2. Files: `pages/Library.tsx`, `components/LibraryList.tsx`, `components/DramaCards.tsx`, `components/DramaDetailPanel.tsx`, `index.css`. **Structural**; split into 4a (header, New drama Sheet, Continue shelf, toolbar) and 4b (grid cards, List view, detail Sheet) if it runs large.
-5. **Toggles and labels in the stages**: `TranslateStage.tsx`, `TranscribeStage.tsx`, `SourceStage.tsx` (segmented control), `DubStage.tsx`, `ExportSubtitles.tsx`, `ExportAss.tsx`, `GlossaryPanel.tsx`, `UrlDownload.tsx`. Localized.
+5. **Toggles and labels in the stages**: `TranslateStage.tsx`, `TranscribeStage.tsx`, `SourceStage.tsx` (segmented control), `ExportSubtitles.tsx`, `ExportAss.tsx`, `GlossaryPanel.tsx`, `UrlDownload.tsx`. Localized.
 6. **Settings** (§3.12): `pages/Settings.tsx`, `SettingsKeyForm.tsx`, `settings/NotificationsSection.tsx`; `ExtensionSection.tsx` after its builder finishes.
 7. **Diagnostics** (§3.13): `pages/Diagnostics.tsx`, `diagnostics/SupportReportSection.tsx`, `diagnostics/SetupSection.tsx`, `LogSection.tsx` (`CopyBlock`). **Structural.**
 8. **Translate page** (§3.9): `pages/Translate.tsx`, `TranslateFileControls.tsx`, `translate.css`. **Structural** on desktop.
