@@ -140,7 +140,7 @@ describe('check queue card', () => {
         actions={{
           onView: noop, onClose: noop, onPlay: noop, onEditDetails: noop, onRetranscribe: noop, onImprove: noop, onWhy: noop,
           onTool: noop, onDismissFlag: noop, onAddNote: noop, onSplit: noop, onMerge: noop, onAdd: noop, onDelete: noop,
-          onSetLanguage: noop, onSnapToSpeech: noop, onSetReviewed: noop,
+          onSetLanguage: noop, onSnapToSpeech: noop, onSetReviewed: noop, onSetMark: noop,
         }}
       />,
     )

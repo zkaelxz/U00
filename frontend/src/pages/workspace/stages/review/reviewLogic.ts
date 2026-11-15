@@ -365,6 +365,7 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   if (filter === 'unreviewed') return short ? `Unrev.${n}` : `Unreviewed${n}`
   if (filter === 'shaky') return short ? `Shaky${n}` : `Least confident${n}`
   if (filter === 'risk') return short ? `Risk${n}` : `Riskiest${n}`
+  if (filter === 'marked') return `Marked${n}`
   return short ? `Untr.${n}` : `Untranslated${n}`
 }
 
@@ -399,6 +400,7 @@ export function inFilter(line: ReviewLine, filter: LineFilter): boolean {
   if (filter === 'unreviewed') return isUnreviewed(line)
   if (filter === 'shaky') return isShaky(line)
   if (filter === 'risk') return isRisky(line)
+  if (filter === 'marked') return !!line.mark
   return true
 }
 
@@ -410,6 +412,7 @@ export function emptyMessage(filter: LineFilter, term: string, sourceStage: stri
   if (filter === 'unreviewed') return 'Every translated line is checked.'
   if (filter === 'shaky') return 'No unchecked lines Whisper was unsure of.'
   if (filter === 'risk') return 'No unchecked line has a flag or low confidence.'
+  if (filter === 'marked') return 'No lines marked wrong or mixed.'
   return `No lines yet. Add them on ${sourceStage} first.`
 }
 

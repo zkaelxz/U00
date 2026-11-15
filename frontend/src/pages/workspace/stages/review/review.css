@@ -745,3 +745,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 
 @property --chips-fade { syntax: '<length>'; inherits: false; initial-value: 0px; }
 @keyframes review-chips-fade { from { --chips-fade: 32px; } 99% { --chips-fade: 32px; } to { --chips-fade: 0px; } }
+
+/* Your marks. The desktop buttons are ordinary small buttons; a pressed one takes its mark's colour. */
+.review-mark[aria-pressed='true'].review-mark-wrong { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, var(--surface)); }
+.review-mark[aria-pressed='true'].review-mark-mixed { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, var(--surface)); }
