@@ -31,7 +31,10 @@ export interface StageContextValue {
 }
 
 export interface CheckLead {
+  // Null when there is no button to lead with (no lines, or the title's answer failed).
   action: ReactNode
+  // False until the button is known: the row stays empty, so nothing in it moves when the button arrives.
+  ready: boolean
   onShown: (shown: boolean) => void
 }
 

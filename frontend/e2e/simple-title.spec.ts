@@ -439,8 +439,15 @@ test.describe('the check queue', () => {
     const footer = page.getByTestId('queue-footer')
     await expect(footer).toContainText('The other 20 lines have no warnings.')
     await expect(footer).toContainText('1 line has no English yet.')
-    await expect(footer.getByRole('button', { name: 'Mark the rest as checked', exact: true })).toBeDisabled()
+    // Held back, it is still a link: the reason shows only once it is pressed, and the press does not ask to confirm.
+    const markRest = footer.getByRole('button', { name: 'Mark the rest as checked', exact: true })
+    await expect(markRest).toBeEnabled()
+    await expect(page.getByTestId('mark-rest-reason')).toHaveCount(0)
+    await markRest.click()
     await expect(page.getByTestId('mark-rest-reason')).toHaveText('Look at the lines Whisper was unsure of first: this would mark them checked too.')
+    await expect(page.getByTestId('mark-rest-reason')).toHaveAttribute('role', 'status')
+    await expect(markRest).toHaveAccessibleDescription('Look at the lines Whisper was unsure of first: this would mark them checked too.')
+    await expect(footer.getByRole('button', { name: 'Confirm: record untouched lines as approved' })).toHaveCount(0)
 
     // Looks right, next checks the line and opens the next card; Undo brings the line back into the queue, open.
     await card(page, 24).getByRole('button', { name: 'Looks right, next' }).click()
@@ -547,7 +554,10 @@ test.describe('the check queue', () => {
     await expect(page.getByTestId('queue-footer')).toHaveCount(0)
     arrive()
     await expect(page.locator('.review-line .review-idx')).toHaveText(['#24', '#7', '#12'])
-    await expect(page.getByTestId('queue-footer').getByRole('button', { name: 'Mark the rest as checked', exact: true })).toBeDisabled()
+    const markRest = page.getByTestId('queue-footer').getByRole('button', { name: 'Mark the rest as checked', exact: true })
+    await expect(markRest).toBeEnabled()
+    await expect(page.getByTestId('mark-rest-reason')).toHaveCount(0)
+    await markRest.click()
     await expect(page.getByTestId('mark-rest-reason')).toHaveText('Look at the lines Whisper was unsure of first: this would mark them checked too.')
   })
 
@@ -717,15 +727,17 @@ test.describe('the check queue', () => {
     const player = page.getByRole('group', { name: 'Player' })
     await expect(player).toBeHidden()
     await expect(page.getByRole('button', { name: /Show waveform|Hide waveform/ })).toBeHidden()
-    const toolbar = (await page.locator('.review-toolbar').boundingBox())!
+    const firstRow = (await page.locator('.review-queue-row').boundingBox())!
+    const list = (await page.locator('.review-list-card').boundingBox())!
     const first = (await page.locator('.review-line').first().boundingBox())!
-    expect(first.y - (toolbar.y + toolbar.height), 'the first card sits right under the switch row').toBeLessThanOrEqual(16)
-    expect(first.y).toBeGreaterThanOrEqual(toolbar.y + toolbar.height)
+    expect(list.y - (firstRow.y + firstRow.height), 'the list card sits right under the first row').toBeLessThanOrEqual(16)
+    expect(list.y).toBeGreaterThanOrEqual(firstRow.y + firstRow.height)
+    expect(first.y, 'the first card is the card\'s first row').toBeLessThanOrEqual(list.y + 2)
     // The open card: no tick box, a short reason (the panel has the rest), and its four buttons.
     await expect(card(page, 24).locator('.review-select')).toBeHidden()
     await expect(card(page, 24).getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
-      .toHaveText(['▶ Play', 'Open glossary', 'Improve translation', 'Looks right, next'])
+      .toHaveText(['Play line', 'Open glossary', 'Improve translation', 'Looks right, next'])
 
     // This line is the open tab, with the sound, the reason and the lines around it.
     const lineTab = page.getByRole('tab', { name: 'This line' })
@@ -1265,5 +1277,215 @@ test.describe('the check queue', () => {
       await expect(tablist.getByRole('tab').first()).toBeVisible()
       await expect(tablist.getByRole('tab', { name: 'Episodes' })).toHaveCount(0)
     })
+  })
+  // The lines as drawn on a wide screen: the first row, the list card, the open card and the closed rows.
+  const accentColour = (page: Page) => page.evaluate(() => {
+    const probe = document.createElement('i')
+    probe.style.color = 'var(--accent)'
+    document.body.append(probe)
+    const colour = getComputedStyle(probe).color
+    probe.remove()
+    return colour
+  })
+  const edge = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => {
+    const s = getComputedStyle(el)
+    return { width: s.borderLeftWidth, colour: s.borderLeftColor }
+  })
+
+  test('the first row has no card, its pills are separate and the same height as the main button, and "look fine" ends at the list card', async ({ page }) => {
+    seedCheckLines()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    const row = page.locator('.review-queue-row')
+    const main = row.getByRole('button', { name: 'Check the 3 lines', exact: true })
+    await expect(main).toBeVisible()
+    const style = await row.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { bg: s.backgroundColor, border: s.borderTopWidth + s.borderBottomWidth + s.borderLeftWidth + s.borderRightWidth, shadow: s.boxShadow }
+    })
+    expect(style, 'the row has no fill, border or shadow of its own').toEqual({ bg: 'rgba(0, 0, 0, 0)', border: '0px0px0px0px', shadow: 'none' })
+    // Order: the main button, then the pills, then "look fine" at the far end.
+    const [mainBox, queueLabel, allLabel] = [(await main.boundingBox())!, queueRadio(page).locator('xpath=..'), allRadio(page).locator('xpath=..')]
+    const [queueBox, allBox] = [(await queueLabel.boundingBox())!, (await allLabel.boundingBox())!]
+    expect(mainBox.x + mainBox.width).toBeLessThan(queueBox.x)
+    expect(queueBox.x + queueBox.width, 'two separate pills, with a gap between them').toBeLessThan(allBox.x)
+    for (const b of [queueBox, allBox]) expect(Math.abs(b.height - mainBox.height), 'a pill is as high as the main button').toBeLessThanOrEqual(1)
+    // The pill that is on has the heavier accent edge; the other a hairline.
+    const accent = await accentColour(page)
+    expect(await edge(queueLabel)).toEqual({ width: '2px', colour: accent })
+    expect((await edge(allLabel)).width).toBe('1px')
+    const list = (await page.locator('.review-list-card').boundingBox())!
+    const fine = (await row.locator('.check-queue-fine-group').boundingBox())!
+    expect(Math.abs(fine.x + fine.width - (list.x + list.width)), '"look fine" ends at the list card\'s right edge').toBeLessThanOrEqual(2)
+    await expect(row.getByTestId('queue-fine')).toHaveText('21 of 24 look fine')
+  })
+
+  test('nothing in the first row moves when the main button arrives', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    let release = () => {}
+    const held = new Promise<void>((resolve) => { release = resolve })
+    await page.route('**/api/workflow/dramas/3/progress', async (route) => {
+      await held
+      await route.continue()
+    })
+    await page.goto('about:blank')
+    await page.goto('/#/drama/3/review')
+    await expect(page.locator('.review-line').first()).toBeVisible()
+    // One reading per frame of the All pill's place and the first row of the list, from before the button to after it.
+    await page.evaluate(() => {
+      const w = window as unknown as { rec: { all: number | null; row: number | null }[]; stop: boolean }
+      w.rec = []
+      w.stop = false
+      const frame = () => {
+        const all = document.querySelectorAll('.check-queue-switch label')[1]
+        const row = document.querySelector('.review-line')
+        w.rec.push({ all: all ? all.getBoundingClientRect().x : null, row: row ? row.getBoundingClientRect().y : null })
+        if (!w.stop) requestAnimationFrame(frame)
+      }
+      frame()
+    })
+    await page.waitForTimeout(600)
+    release()
+    await expect(page.getByRole('button', { name: 'Check the 3 lines', exact: true })).toBeVisible()
+    await page.waitForTimeout(400)
+    const rec = await page.evaluate(() => {
+      const w = window as unknown as { rec: { all: number | null; row: number | null }[]; stop: boolean }
+      w.stop = true
+      return w.rec
+    })
+    const alls = rec.map((r) => r.all).filter((x): x is number => x !== null)
+    const rows = rec.map((r) => r.row).filter((y): y is number => y !== null)
+    expect(alls.length, 'the pills were drawn').toBeGreaterThan(3)
+    expect(Math.max(...alls) - Math.min(...alls), 'the All pill never moved once drawn').toBeLessThanOrEqual(1)
+    expect(Math.max(...rows) - Math.min(...rows), 'the list never moved under the row').toBeLessThanOrEqual(1)
+  })
+
+  test('the list is one white card: the open card has an accent edge, a closed row a clear one, no ⋯, and the footer is its last line', async ({ page }) => {
+    seedCheckLines()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    const list = page.locator('.review-list-card')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    const listBox = (await list.boundingBox())!
+    const listStyle = await list.evaluate((el) => {
+      const s = getComputedStyle(el)
+      return { bg: s.backgroundColor, border: s.borderTopWidth, radius: s.borderTopLeftRadius }
+    })
+    expect(listStyle).toEqual({ bg: 'rgb(255, 255, 255)', border: '1px', radius: '14px' })
+    for (const n of [24, 12, 7]) {
+      const b = (await card(page, n).boundingBox())!
+      expect(b.x).toBeGreaterThanOrEqual(listBox.x)
+      expect(b.x + b.width).toBeLessThanOrEqual(listBox.x + listBox.width)
+    }
+    // The open card: an accent edge 4px wide, and no menu button but ⋯.
+    expect(await edge(card(page, 24))).toEqual({ width: '4px', colour: await accentColour(page) })
+    await expect(card(page, 24).getByRole('button', { name: 'More actions for line 24' })).toHaveText('⋯')
+    // A closed row: a transparent edge, no ⋯, a divider above.
+    for (const n of [12, 7]) {
+      expect((await edge(card(page, n))).colour, 'a closed row has no colour on its left edge').toBe('rgba(0, 0, 0, 0)')
+      await expect(card(page, n).locator('.review-more')).toHaveCount(0)
+      expect(await card(page, n).evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('1px')
+    }
+    // The footer lies inside the card, under the rows, and its sentence and links are one line.
+    const footer = (await page.getByTestId('queue-footer').boundingBox())!
+    const last = (await card(page, 7).boundingBox())!
+    expect(footer.y).toBeGreaterThanOrEqual(last.y + last.height - 1)
+    expect(footer.x).toBeGreaterThanOrEqual(listBox.x)
+    expect(footer.x + footer.width).toBeLessThanOrEqual(listBox.x + listBox.width)
+    expect(footer.y + footer.height).toBeLessThanOrEqual(listBox.y + listBox.height)
+    const line = (await page.locator('.check-queue-line').boundingBox())!
+    expect(line.height, 'the sentence and the two links share one line').toBeLessThan(28)
+    await expect(page.locator('.check-queue-footer .check-queue-link')).toHaveText(['Read them all', 'Mark the rest as checked…'])
+  })
+
+  test('each reason chip is one line high with the drawn words, and drops under the texts only when the row is too narrow', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    const words = { 24: 'The English does not use the glossary name for 夷陵老祖', 12: 'Too fast to read: 25 characters a second', 7: 'Whisper was unsure of this line (50% sure)' }
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    for (const [n, text] of Object.entries(words)) {
+      const chip = card(page, Number(n)).getByTestId('queue-reason')
+      await expect(chip).toHaveText(text)
+      expect((await chip.boundingBox())!.height, `the chip of line ${n} is one line`).toBeLessThan(32)
+    }
+    for (const n of [12, 7]) {
+      const [chip, body] = [(await card(page, n).getByTestId('queue-reason').boundingBox())!, (await card(page, n).locator('.review-body').boundingBox())!]
+      expect(chip.y, `with room, the chip of line ${n} stays on the texts' line`).toBeLessThan(body.y + body.height - 4)
+    }
+    // A narrow wide screen: the chip goes under the texts, may wrap between words, and the texts keep 10rem each.
+    await page.setViewportSize({ width: 700, height: 900 })
+    for (const n of [12, 7]) {
+      const [row, chip, body] = [card(page, n), card(page, n).getByTestId('queue-reason'), card(page, n).locator('.review-body')]
+      const [rowBox, chipBox, bodyBox] = [(await row.boundingBox())!, (await chip.boundingBox())!, (await body.boundingBox())!]
+      expect(chipBox.y, `the chip of line ${n} is under the texts`).toBeGreaterThanOrEqual(bodyBox.y + bodyBox.height - 1)
+      expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width)
+      expect(await chip.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'no text of the chip is cut').toBe(true)
+      for (const text of [row.locator('.review-zh'), row.getByTestId('line-en')]) expect((await text.boundingBox())!.width).toBeGreaterThanOrEqual(149)
+    }
+    await expectNoSidewaysScroll(page)
+  })
+
+  test('a closed row opens on a click or on Enter', async ({ page }) => {
+    seedCheckLines()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await card(page, 12).locator('.review-line-ref').click()
+    await expect(card(page, 12)).toHaveAttribute('aria-current', 'true')
+    await card(page, 7).focus()
+    await page.keyboard.press('Enter')
+    await expect(card(page, 7)).toHaveAttribute('aria-current', 'true')
+  })
+
+  test('no sideways scroll at 1440, 1280 and 1100', async ({ page }) => {
+    seedCheckLines()
+    await simple(page)
+    for (const width of [1440, 1280, 1100]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto('about:blank')
+      await page.goto('/#/drama/3/review')
+      await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+      await expectNoSidewaysScroll(page)
+      await allRadio(page).check({ force: true })
+      await expect(allRadio(page)).toBeChecked()
+      await expect(page.locator('.review-line').nth(5)).toBeVisible()
+      await expectNoSidewaysScroll(page)
+    }
+  })
+
+  test('Read them all brings the first line of All into view when the page was scrolled past the start of the list', async ({ page }) => {
+    seedCheckLines()
+    // A short window, so reaching the footer's link scrolls the page past the first card.
+    await page.setViewportSize({ width: 1280, height: 500 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    await page.getByRole('button', { name: 'Read them all' }).click()
+    await expect(allRadio(page)).toBeChecked()
+    await expect(page.locator('.review-line').nth(5)).toBeVisible()
+    const first = await page.locator('.review-line').first().evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      return { top: r.top, bottom: r.bottom, height: window.innerHeight }
+    })
+    expect(first.top, 'the first line is not above the window').toBeGreaterThanOrEqual(0)
+    expect(first.bottom).toBeLessThanOrEqual(first.height)
+  })
+  test('with the tools beside it, the queue\'s card reaches the bottom of the window without making the page scroll', async ({ page }) => {
+    seedCheckLines()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simple(page)
+    await page.goto('/#/drama/3/review')
+    await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
+    const { bottom, scroll, inner } = await page.locator('.review-list-card').evaluate((el) => ({
+      bottom: el.getBoundingClientRect().bottom, scroll: document.documentElement.scrollHeight, inner: window.innerHeight,
+    }))
+    expect(inner - bottom, 'the card ends one page gap above the window\'s bottom').toBeLessThanOrEqual(30)
+    expect(scroll, 'the card does not make the page scroll').toBeLessThanOrEqual(inner)
   })
 })

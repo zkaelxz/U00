@@ -230,6 +230,8 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 .review-line-meta { font-size: var(--text-sm); color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: center; min-width: 0; }
 .review-idx { color: var(--text); font-weight: 600; font-family: var(--font-mono); font-size: 0.92em; font-variant-numeric: tabular-nums; }
 /* In the nowrap meta row the flag chip is the only item that may shrink; otherwise a long note squeezes "#2 3" onto two lines. */
+/* Adds no box of its own: the number and time are items of the meta line, except in a wide closed queue row. */
+.review-line-ref { display: contents; }
 .review-idx, .review-time { flex: none; white-space: nowrap; }
 .review-time { font-family: var(--font-mono); font-size: 0.92em; font-variant-numeric: tabular-nums; }
 /* The check queue and its This line column read as a sentence, so their numbers are in the body font; tabular, so a list of times lines up. */
@@ -255,7 +257,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 }
 @media (hover: none) {
   .stage-review button:hover:not(:disabled):not(.primary):not(.btn):not(.toggle) { background: var(--surface); border-color: var(--border); }
-  .stage-review button.review-en:hover, .stage-review button.review-more:hover { background: none; border-color: transparent; }
+  .stage-review button.review-en:hover, .stage-review button.review-more:hover, .stage-review button.check-queue-link:hover { background: none; border-color: transparent; }
 }
 .review-en-edit { display: grid; gap: var(--space-1); min-width: 0; }
 .review-en-edit textarea { width: 100%; font: inherit; font-size: var(--text-edit); field-sizing: content; min-height: 3.2lh; }
@@ -611,7 +613,7 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   border: 1px solid var(--border); border-radius: var(--radius, 8px); background: var(--surface); overflow-wrap: anywhere;
 }
 .check-queue-footer p { margin: 0; }
-.check-queue-actions, .check-queue-mark, .review-queue-actions, .check-queue-undo { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.check-queue-mark, .review-queue-actions, .check-queue-undo { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .review-queue-actions { margin-top: var(--space-2); }
 .check-queue-undo { font-size: var(--text-sm); overflow-wrap: anywhere; }
 @media (max-width: 640px) {
@@ -633,12 +635,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* Opaque over the surface: the soft tint alone turned grey on the open card's blue. */
   background: color-mix(in srgb, var(--warn) 16%, var(--surface));
 }
-/* A closed card's chip sits at the end of its line, beside ⋯, where the eye ends each row of the list. */
-.review-line.is-queue:not(.is-active) .review-queue-reason { margin-left: auto; }
 .review-queue-sentence { display: block; margin: var(--space-2) 0; padding: var(--space-1) var(--space-2); }
 /* A name wraps only at its spaces; the line list's body text may still break anywhere. */
 .review-speaker { overflow-wrap: normal; }
-.review-line.is-queue:not(.is-active) .review-queue-reason + .review-more { margin-left: 0; }
 .review-line.is-queue.is-active { border-radius: var(--radius); padding-block: var(--space-3); }
 .review-line.is-queue.is-active .review-zh { font-size: var(--text-lg); }
 .review-queue-en { display: grid; gap: var(--space-1); min-width: 0; }
@@ -681,22 +680,89 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-line.is-queue { padding-left: var(--space-3); }
 }
 
-/* A closed queue card on a wide screen is one row: number, time, the source and English in two equal columns, then the
-   reason chip and ⋯. Anything else the row holds (a memory suggestion) wraps under it. The texts get the room: the
-   speaker, reading speed and badges wait for the open card, and the chip wraps inside its own narrow column. */
-@media (min-width: 1100px) {
-  .review-line.is-queue:not(.is-active) > .review-line-meta > :not(.review-idx, .review-time, .review-queue-reason, .review-more) { display: none; }
-  .review-line.is-queue:not(.is-active) { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-3); row-gap: var(--space-1); }
+/* Where the wide card is not drawn the wrapper adds no box, so the grid spaces the lines as it always did. */
+.review-list-plain, .review-list-card { display: contents; }
+
+/* Simple's wide screens (the phone draws its own card): the first row with no box, one white card for the lines and the
+   queue's footer, the open card with an accent edge, and a closed row as one line of number, source, English and reason. */
+@media (min-width: 641px) {
+  /* The row keeps its height while its controls wait for the title's answer, so the list under it does not jump. */
+  .review-queue-row.is-wide { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6667rem; min-height: var(--control-h); min-width: 0; }
+  .review-queue-row.is-wide .check-queue-fine-group { display: inline-flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+  /* The check queue has nothing else in the toolbar's box unless the player is unfolded. */
+  .review-toolbar.is-bare:empty, .review-editor.is-media-folded .review-toolbar.is-bare { display: none; }
+
+  /* Two separate pills, not a segmented control: the checked one has the heavier accent edge in the same outer size. */
+  .segmented.check-queue-switch { display: inline-flex; gap: 0.6667rem; padding: 0; border: 0; border-radius: 0; background: none; }
+  .segmented.check-queue-switch label {
+    flex: none; min-height: var(--control-h); padding: 9px 14px; border: 1px solid var(--border); border-radius: var(--radius-pill);
+    background: var(--surface); color: var(--text); font-size: var(--text-md); font-weight: var(--weight-medium); white-space: nowrap;
+  }
+  .segmented.check-queue-switch label:has(input:checked) { padding: 8px 13px; border: 2px solid var(--accent); background: var(--accent-soft); color: var(--text); box-shadow: none; font-weight: var(--weight-bold); }
+
+  .review-list-card { display: flex; flex-direction: column; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-panel); }
+  .review-list-card:not(:has(.review-line, .check-queue-footer, .review-bottom-pager)) { display: none; }
+  /* The card's own edge replaces the list's hairlines, and each row's divider is its top edge. */
+  .review-list-card .review-lines { box-shadow: none; }
+  .review-list-card .review-line { border-bottom: 0; border-top: 1px solid var(--border); }
+  .review-list-card .review-line:first-child { border-top: 0; }
+  .review-list-card .review-lines > .review-line:first-child { border-top-left-radius: calc(var(--radius-panel) - 1px); border-top-right-radius: calc(var(--radius-panel) - 1px); }
+  .review-list-card .review-bottom-pager { padding: var(--space-2); border-top: 1px solid var(--border); }
+
+  .review-line.is-queue.is-active {
+    display: grid; gap: 0.6667rem; padding: 0.9333rem 1.0667rem; border-radius: 0; border-left: 4px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 5%, var(--surface)); box-shadow: none;
+  }
+  .review-line.is-queue.is-active:focus-visible { box-shadow: inset 0 0 0 3px var(--focus); }
+  /* The grid's gap spaces the card's lines. */
+  .review-line.is-queue.is-active > * { margin: 0; }
+  .review-line.is-queue.is-active .review-line-meta { gap: var(--space-1) 12px; font-size: 0.8667rem; }
+  .review-line.is-queue.is-active button.review-more { border-color: transparent; color: var(--muted); }
+  .review-line.is-queue.is-active .review-zh { font-size: var(--text-edit); }
+  .review-line.is-queue .review-queue-label { font-size: 0.8667rem; }
+  .stage-review .review-queue-en button.review-en { font-size: 1.0667rem; }
+  .review-queue-tools .btn.btn-sm { min-height: var(--control-h); padding: 8px 14px; font-size: var(--text-md); }
+
+  /* A closed row: [number and time] [source and English] [reason]. The reason stays on the line while the row has room for
+     both texts at 10rem each, else it drops under them. The speaker, reading speed and badges wait for the open card. */
+  .review-line.is-queue:not(.is-active) {
+    display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--space-4); row-gap: var(--space-1);
+    padding: 0.8rem 1.0667rem 0.8rem 0.8rem; border-left: 4px solid transparent; cursor: pointer;
+  }
   .review-line.is-queue:not(.is-active) > * { order: 7; flex: 1 1 100%; min-width: 0; }
   .review-line.is-queue:not(.is-active) > .review-line-meta { display: contents; }
-  .review-line.is-queue:not(.is-active) > .review-line-meta > * { order: 3; flex: none; }
-  .review-line.is-queue:not(.is-active) > .review-line-meta > .review-idx { order: 1; }
-  .review-line.is-queue:not(.is-active) > .review-line-meta > .review-time { order: 2; }
-  .review-line.is-queue:not(.is-active) > .review-body { order: 4; flex: 1 1 0; margin-top: 0; }
-  .review-line.is-queue:not(.is-active) > .review-line-meta > .review-queue-reason { order: 5; flex: 0 1 auto; max-width: 13rem; margin-left: 0; }
-  .review-line.is-queue:not(.is-active) > .review-line-meta > .review-more { order: 6; align-self: center; }
-}
+  .review-line.is-queue:not(.is-active) > .review-line-meta > :not(.review-line-ref, .review-queue-reason) { display: none; }
+  .review-line.is-queue:not(.is-active) > .review-line-meta > .review-line-ref {
+    order: 1; flex: none; display: flex; gap: 0.4rem; width: 5.75rem; font-size: 0.8667rem; color: var(--muted); white-space: nowrap;
+  }
+  .review-line.is-queue:not(.is-active) > .review-body { order: 2; flex: 1 1 21rem; min-width: min(21rem, 100%); margin-top: 0; }
+  .review-line.is-queue:not(.is-active) :is(.review-zh, button.review-en) { font-size: var(--text-md); }
+  .review-line.is-queue:not(.is-active) > .review-line-meta > .review-queue-reason {
+    order: 3; flex: 0 1 auto; max-width: 100%; margin-left: auto; padding: 2px 9px; border-radius: 10px; font-size: 0.8667rem;
+  }
 
+  /* The card of the queue reaches the window's bottom when its rows are few, as drawn; its top is measured (useToolbarHeight),
+     and the page's own bottom space stays under it, so it never makes the page scroll. */
+  @media (min-width: 1400px) {
+    .review-list-card:has(.review-line.is-queue) { min-height: calc(100vh - var(--review-card-top, 0px) - var(--page-gap)); }
+  }
+
+  /* The footer is the card's last line, as sentence and links. */
+  .review-list-card .check-queue-footer {
+    margin: 0; padding: 0.9333rem 1.0667rem; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: none;
+    font-size: var(--text-sm); color: var(--muted);
+  }
+  .review-list-card > .check-queue-footer:first-child { border-top: 0; }
+}
+.check-queue-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.check-queue-link {
+  display: inline-flex; align-items: center; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: var(--radius-sm); background: none;
+  color: var(--accent-text); font: inherit; text-decoration: underline; cursor: pointer;
+}
+.check-queue-link:disabled { color: var(--muted); text-decoration: none; cursor: default; }
+@media (max-width: 640px) {
+  .check-queue-link { min-height: var(--touch); }
+}
 /* The tools behind one Checks and tools button (ReviewTools' folded): the wrapper adds no box while open. */
 .review-toolbox-body { display: contents; }
 .review-toolbox-body[hidden] { display: none; }

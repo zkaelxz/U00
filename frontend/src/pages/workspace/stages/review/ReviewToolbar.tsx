@@ -247,10 +247,14 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
     ) : null
 
   // Phones: Search and More are buttons on the chip row; each opens its own
-  // row inside the toolbar box.
+  // row inside the toolbar box. A wider screen draws Simple's first row above the box, with no box of its own; the box
+  // stays mounted, empty and unshown, in the check queue, because the place-keeping code measures it.
+  const leadRow = p.lead && <div className={p.isPhone ? 'review-toolbar-row review-queue-row' : 'review-queue-row is-wide'}>{p.lead}</div>
   return (
-    <div className={['review-toolbar', p.collapsed && 'is-collapsed', replaceInRow && 'has-replace-in-row'].filter(Boolean).join(' ')}>
-      {p.lead && <div className="review-toolbar-row review-queue-row">{p.lead}</div>}
+    <>
+    {!p.isPhone && leadRow}
+    <div className={['review-toolbar', p.collapsed && 'is-collapsed', p.bare && 'is-bare', replaceInRow && 'has-replace-in-row'].filter(Boolean).join(' ')}>
+      {p.isPhone && leadRow}
       {!p.bare && <div className="review-toolbar-row">
         {chips}
         {p.gapCount > 0 && (
@@ -303,5 +307,6 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
       {!p.bare && (p.isPhone ? moreOpen : !replaceInRow) && extras}
       {p.player}
     </div>
+    </>
   )
 }

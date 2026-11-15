@@ -45,7 +45,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   const home = stage === null
   const steps = useTitleProgress(id, false)
   const { refresh } = steps
-  const { lineCount, countFailed, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress } = steps
+  const { lineCount, countFailed, translatedCount, exported, audioReady, riskCount, riskAsked, flowOn, onFlowProgress } = steps
   // The title page waits for the line count before it picks the lines or the title panel, so neither flashes; a count
   // that cannot be read shows the lines, which say for themselves whether there are any.
   const waiting = home && lineCount === null && !countFailed
@@ -81,16 +81,22 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   // Where the lines are, a desktop shows the main button first in the Need a look row, which says when it has drawn it, so the button
   // is never missing and never drawn twice. Without lines it stays here: the one-button flow it may be would restart if moved mid-run.
   const [mainInLead, setMainInLead] = useState(false)
-  const leadsMain = simple && review && !phone && !flowOn && (lineCount ?? 0) > 0
+  const leads = simple && review && !phone && !flowOn
+  const leadsMain = leads && (lineCount ?? 0) > 0
+  // The row's controls are drawn only once the button is final: its place, its words (the Check button counts the lines that
+  // need a look, which the queue's size answers on its own) and the pills' position all follow from what is known by then.
+  const answered = lineCount !== null || countFailed
+  const leadReady = answered && (!leadsMain || riskAsked)
   const route = useRoute()
   const open = stage === 'source' ? sourceStep(route.name === 'drama' ? route.tab : undefined) : openStep(stage)
   const onCheck = review ? openQueue : undefined
   // Built from the counts, not the hook's object, so the stage's context changes only when the button does.
   const checkLead = useMemo(() => {
-    if (!leadsMain) return undefined
+    if (!leads) return undefined
     const progress = { lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress }
-    return { action: <TitleMainAction id={id} progress={progress} onCheck={onCheck} />, onShown: setMainInLead }
-  }, [leadsMain, id, lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress, onCheck])
+    const action = leadsMain ? <TitleMainAction id={id} progress={progress} onCheck={onCheck} /> : null
+    return { action, ready: leadReady, onShown: setMainInLead }
+  }, [leads, leadsMain, leadReady, id, lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress, onCheck])
   const linesOnAll = linesOpenOnAll(home, { lineCount, translatedCount, exported, audioReady, riskCount })
   const seriesId = drama.series_id
   const episodes = useMemo(

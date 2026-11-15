@@ -386,7 +386,7 @@ function QueueTools({ line, hasMedia, ai, linePanel, fit, actions, ...fitProps }
     <div className="review-tools review-queue-tools" role="toolbar" aria-label={`Line ${lineNumber(line.idx)} actions`}>
       {hasMedia && (
         <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.playLine(line)} title="Play the line (Space)">
-          ▶ Play
+          Play line
         </button>
       )}
       <FitAction line={line} fit={fit} actions={actions} {...fitProps} />
@@ -512,6 +512,10 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
     if ((e.target as Element).closest(INTERACTIVE)) return
     actions.activate(line.id)
   }
+  // A wide closed queue row has no button to open it, so Enter on the focused row does.
+  const onRowKey = (e: KeyboardEvent<HTMLLIElement>) => {
+    if (e.key === 'Enter' && e.target === e.currentTarget && queue && !active && !isPhone) actions.activate(line.id)
+  }
 
   const className = ['review-line', queue && 'is-queue', active && 'is-active', draft && 'is-editing', jumped && 'is-jumped', selected && 'is-selected'].filter(Boolean).join(' ')
   const english = <LineEnglish line={line} draft={draft} discardWarning={!!edit?.discardWarning} isPhone={isPhone} active={active} actions={actions} onKey={onKey} />
@@ -525,6 +529,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       aria-current={active ? 'true' : undefined}
       tabIndex={active ? 0 : -1}
       onClick={onRowClick}
+      onKeyDown={onRowKey}
       onBlur={onRowBlur}
     >
       <label className="review-select">
@@ -540,13 +545,16 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         />
       </label>
       <div className="review-line-meta">
-        <span className="review-idx">#{lineNumber(line.idx)}</span>
-        {!prose && (
-          <span className="review-time">
-            {queue ? formatTenths(line.start) : formatTime(line.start)}
-            {!isPhone && !simple && <>–{formatTime(line.end)}</>}
-          </span>
-        )}
+        {/* One cell, so a closed queue row can hold the number and time in a fixed-width column; elsewhere it adds no box. */}
+        <span className="review-line-ref">
+          <span className="review-idx">#{lineNumber(line.idx)}</span>
+          {!prose && (
+            <span className="review-time">
+              {queue ? formatTenths(line.start) : formatTime(line.start)}
+              {!isPhone && !simple && <>–{formatTime(line.end)}</>}
+            </span>
+          )}
+        </span>
         {!prose && !isPhone && (!simple || line.flag === READING_SPEED_FLAG) && <LineCps line={line} />}
         {!prose && line.speaker && <span className="review-speaker">{line.speaker}</span>}
         {langChip && (
@@ -575,16 +583,19 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
             <span className="sr-only"> Flagged: {flagReason.text}</span>
           </span>
         )}
-        <button
-          type="button"
-          className={buttonClass('ghost', 'sm', 'review-more')}
-          aria-label={`More actions for line ${lineNumber(line.idx)}`}
-          aria-haspopup="dialog"
-          tabIndex={active ? undefined : -1}
-          onClick={() => actions.openSheet(line.id)}
-        >
-          {active && !isPhone ? 'More' : '⋯'}
-        </button>
+        {/* A wide closed queue row opens with a click or Enter and has no menu of its own; its open card has ⋯. */}
+        {(!queue || isPhone || active) && (
+          <button
+            type="button"
+            className={buttonClass('ghost', 'sm', 'review-more')}
+            aria-label={`More actions for line ${lineNumber(line.idx)}`}
+            aria-haspopup="dialog"
+            tabIndex={active ? undefined : -1}
+            onClick={() => actions.openSheet(line.id)}
+          >
+            {active && !isPhone && !queue ? 'More' : '⋯'}
+          </button>
+        )}
       </div>
       {flagReason && !isPhone && <FlagNote text={flagReason.text} />}
       {/* Its own line under the top one, so the sentence never squeezes the number, time, speaker and More beside it. */}

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import {
-  alsoUnsureText, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, nextAfterCheck, nextText, otherFineText,
+  alsoUnsureText, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, markRestView, nextAfterCheck, nextText, otherFineText,
   positionText, queueAction, queueCounts, queueReason, QUEUE_FLAG_KINDS, restUnchecked, UNSURE_FIRST, untranslatedText, WHOLE_LIST_FIRST,
 } from './checkQueueModel'
 
@@ -364,5 +364,22 @@ describe('markRestBlocker', () => {
 
   it('waits for a running job', () => {
     expect(markRestBlocker(page([]), true)).toBe(JOB_RUNNING_TEXT)
+  })
+})
+
+describe('markRestView', () => {
+  it('stays a link that says nothing until it is pressed while a reason blocks it, then gives that reason and no confirm step', () => {
+    expect(markRestView(UNSURE_FIRST, false, true)).toEqual({ control: 'say-why', disabled: false, reason: null })
+    expect(markRestView(UNSURE_FIRST, true, true)).toEqual({ control: 'say-why', disabled: false, reason: UNSURE_FIRST })
+  })
+
+  it('is the two-step button with no reason once nothing blocks it, even if it was pressed while blocked', () => {
+    expect(markRestView(null, false, true)).toEqual({ control: 'confirm', disabled: false, reason: null })
+    expect(markRestView(null, true, true)).toEqual({ control: 'confirm', disabled: false, reason: null })
+  })
+
+  it('is disabled while the list is still loading, blocked or not', () => {
+    expect(markRestView(null, false, false).disabled).toBe(true)
+    expect(markRestView(JOB_RUNNING_TEXT, true, false).disabled).toBe(true)
   })
 })

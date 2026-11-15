@@ -515,6 +515,15 @@ export function markRestBlocker(queuePage: ReviewLinesPage, jobRunning: boolean)
   return null
 }
 
+/**
+ * What the footer's Mark the rest as checked… draws. While `blocker` holds it stays a link that does nothing but say why,
+ * once pressed (`asked`); a reason nobody asked for is not shown. Unblocked, it is the two-step button. Still loading
+ * (`!settled`) it is disabled either way: the page shown may miss a line that now needs a look.
+ */
+export function markRestView(blocker: string | null, asked: boolean, settled: boolean): { control: 'say-why' | 'confirm'; disabled: boolean; reason: string | null } {
+  return { control: blocker ? 'say-why' : 'confirm', disabled: !settled, reason: blocker && asked ? blocker : null }
+}
+
 export const checkedText = (line: Pick<ReviewLine, 'idx'>) => `Line #${lineNumber(line.idx)} marked checked.`
 
 /** The lines either side of an open card in the title's own order; null where the title starts or ends. */

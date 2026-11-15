@@ -126,9 +126,26 @@ describe('check queue card', () => {
     expect(row(false, glossary)).not.toContain('review-queue-label')
   })
 
+  it('gives the open card a quiet ⋯ for its menu and a wide closed row none, since the row opens on a click', () => {
+    const more = '<button type="button" class="btn btn-ghost btn-sm review-more" aria-label="More actions for line 7" aria-haspopup="dialog">⋯</button>'
+    expect(row(true, glossary, { queue: true })).toContain(more)
+    expect(row(true, glossary, { queue: true })).not.toContain('>More<')
+    const closed = row(true, glossary, { queue: true, active: false })
+    expect(closed).not.toContain('More actions for line 7')
+    expect(closed).not.toContain('⋯')
+    // Outside the queue the row keeps its menu button, and the open row's says More.
+    expect(row(true, glossary, { active: false })).toContain('⋯')
+    expect(row(true, glossary)).toContain('>More<')
+    expect(row(true, glossary, { queue: true, isPhone: true })).toContain('⋯')
+  })
+
+  it('keeps the number and the time in one cell, so a closed row can give them a column', () => {
+    expect(row(true, glossary, { queue: true, active: false })).toContain('<span class="review-line-ref"><span class="review-idx">#7</span><span class="review-time">0:01.0</span></span>')
+  })
+
   it('orders the open card\'s buttons as drawn: Play, the fitting action, Improve, then a green Looks right, next', () => {
     const html = row(true, glossary, { queue: true, linePanel: true })
-    const at = ['▶ Play', 'Open glossary', 'Improve translation', 'Looks right, next'].map((t) => html.indexOf(t))
+    const at = ['Play line', 'Open glossary', 'Improve translation', 'Looks right, next'].map((t) => html.indexOf(t))
     expect(at.every((n) => n > 0)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)
     expect(html).toMatch(/class="btn btn-ok btn-sm review-queue-done"[^>]*>Looks right, next/)

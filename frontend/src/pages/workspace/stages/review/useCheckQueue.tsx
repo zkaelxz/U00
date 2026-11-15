@@ -8,7 +8,7 @@ import { useRoute } from '../../../../router'
 import { useCheckLead, useCheckSignal, useLinesOnAll, usePlayerDock, useSearchRequest } from '../../StageContext'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
-import { CheckedUndo, CheckLeadAction, CheckQueueFooter, CheckQueueSwitch, QueueMediaToggle } from './CheckQueue'
+import { CheckedUndo, CheckLeadAction, CheckQueueFooter, CheckQueueSwitch, QueueFine, QueueMediaToggle } from './CheckQueue'
 import { initialLinesFilter, nextText, positionText, QUEUE_FILTER, queueCounts } from './checkQueueModel'
 import type { LinesController, LinesState, Pending } from './linesController'
 import { PAGE_SIZE } from './reviewLogic'
@@ -37,6 +37,8 @@ interface Deps {
   // The view `data` was loaded for, and whether it is the answer to the latest view and reload asked for.
   dataFilter: LineFilter | null
   settled: boolean
+  // The first page of lines is on its way.
+  loading: boolean
   allTotal: number | null
   shown: ReviewLine[]
   activeId: number | null
@@ -44,6 +46,7 @@ interface Deps {
   pages: number
   ctl: LinesController
   pending: MutableRefObject<Pending | null>
+  listRef: RefObject<HTMLUListElement | null>
   st: MutableRefObject<LinesState>
   changeFilter: (f: LineFilter) => Promise<boolean>
   onChanged: () => void
@@ -106,6 +109,18 @@ export function useCheckQueue(d: Deps) {
     void searchRef.current()
   }, [searchSignal])
 
+  // A switch between the queue and All that nothing reopens (the kept place's own move holds its row in view) leaves the page where
+  // it was, which can put the new view's first row above the window or under the sticky bar: it is brought into view once drawn.
+  const reveal = useRef(false)
+  const toView = async (f: LineFilter) => {
+    if (await d.changeFilter(f)) reveal.current = pending.current === null
+  }
+  useEffect(() => {
+    if (!reveal.current || d.dataFilter !== d.filter || !d.settled) return
+    reveal.current = false
+    d.listRef.current?.querySelector('.review-line')?.scrollIntoView?.({ block: 'nearest', behavior: 'instant' })
+  })
+
   const undo = async () => {
     if (!checked || !(await ctl.leaveEdit())) return
     setUndoing(true)
@@ -141,13 +156,20 @@ export function useCheckQueue(d: Deps) {
     else if (d.shown[0]) ctl.actions.activate(d.shown[0].id)
   }
 
+  // The row waits for the main button and for the counts that name the pills, so nothing in it moves once it is drawn.
+  const drawn = !checkLead || (checkLead.ready && !d.loading)
   const lead: ReactNode = d.simple ? (
     <>
-      {checkLead && <CheckLeadAction lead={checkLead} />}
-      {/* The phone's card view leaves "F of M look fine" to the footer's "The other F lines…", so the switch row stays one line. */}
-      <CheckQueueSwitch queue={on} counts={counts} showFine={!(cardOnly && (counts?.risk ?? 0) > 0)} onPick={(q) => void d.changeFilter(q ? QUEUE_FILTER : 'all')} />
-      {checked && <CheckedUndo line={checked} busy={undoing} onUndo={() => void undo()} onDismiss={() => setChecked(null)} />}
-      {position && <p className="check-queue-position" data-testid="queue-position">{position}</p>}
+      {checkLead && <CheckLeadAction lead={{ ...checkLead, ready: drawn }} />}
+      {drawn && (
+        <>
+          <CheckQueueSwitch queue={on} counts={counts} onPick={(q) => void toView(q ? QUEUE_FILTER : 'all')} />
+          {checked && <CheckedUndo line={checked} busy={undoing} onUndo={() => void undo()} onDismiss={() => setChecked(null)} />}
+          {position && <p className="check-queue-position" data-testid="queue-position">{position}</p>}
+          {/* The phone's card view leaves "F of M look fine" to the footer's "The other F lines…", so the switch row stays one line. */}
+          <QueueFine counts={counts} showFine={!(cardOnly && (counts?.risk ?? 0) > 0)} />
+        </>
+      )}
       {foldsMedia && d.mediaToggle}
     </>
   ) : undefined
@@ -161,7 +183,7 @@ export function useCheckQueue(d: Deps) {
         counts={counts}
         jobRunning={d.jobRunning}
         settled={d.settled}
-        onReadAll={() => void d.changeFilter('all')}
+        onReadAll={() => void toView('all')}
         onUntranslated={() => void d.changeFilter('untranslated')}
         onChanged={d.onChanged}
       />
