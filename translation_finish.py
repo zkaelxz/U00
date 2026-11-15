@@ -6,7 +6,9 @@ finish step shared by the translate jobs.
 import contextlib
 import json
 import logging
+import time
 
+import applog
 import db
 import sentence_groups
 import source_change
@@ -89,11 +91,47 @@ def own_lines_callbacks(drama_id: int, lines, on_saved):
     return save_cb, pending.extend, skipped
 
 
+def _log_finish_step(drama_id: int, step: str, started: float, n_lines: int,
+                     engine: str = "", outcome: str = "") -> None:
+    """One log line per slow finish step. The job's "Finish" stage is a single
+    number, so this is the only record of which step (the summary call runs on
+    an engine that can differ from the translation's) made it long."""
+    applog.get_logger().info(
+        "finish step %s for title %s: %.1fs, %d lines%s%s", step, drama_id,
+        time.monotonic() - started, n_lines, f", engine {engine}" if engine else "",
+        f", {outcome}" if outcome else "")
+
+
+def _save_version_logged(drama_id: int, lines, label: str, engine_choice: str, engine) -> None:
+    started = time.monotonic()
+    db.save_translation_version(drama_id, lines, label=label, engine=engine_choice,
+                                model=getattr(engine, "model", ""), make_active=True)
+    _log_finish_step(drama_id, "translation version", started, len(lines))
+
+
+def _store_episode_summary(drama_id: int, summary_engine, summary_engine_choice) -> None:
+    engine_name = summary_engine_choice or getattr(summary_engine, "name", "")
+    model = getattr(summary_engine, "model", "")
+    fresh = db.load_line_objects(drama_id)
+    started = time.monotonic()
+    summary = llm_tasks.generate_episode_summary(
+        fresh, summary_engine,
+        usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
+            drama_id, engine_name, model, "episode_summary", inp, out,
+            pricing.estimate_cost_for_engine(summary_engine, inp, out, cache_read, cache_write),
+            cache_read_tokens=cache_read))
+    _log_finish_step(drama_id, "episode summary", started, len(fresh), f"{engine_name}/{model}",
+                     "ok" if summary else "no summary")
+    if summary:
+        db.update_drama(drama_id, episode_summary=summary)
+
+
 def _flag_for_review(drama_id: int, lines, landed: set, embed_texts) -> None:
     """Review flags computed from the run's English: reading speed on every line,
     and the optional source-match check (embed_texts, None skips it) only on the
     lines this run's English landed on."""
     from services import reading_speed_dismissal_service as dismissals
+    started = time.monotonic()
     dismissals.flag_dense_lines(drama_id, lines)
     if embed_texts is not None:
         from engine_backends import alignment_check
@@ -102,6 +140,8 @@ def _flag_for_review(drama_id: int, lines, landed: set, embed_texts) -> None:
         except Exception:
             # An optional extra check must not fail a finished translation.
             logging.getLogger(__name__).exception("source-match check failed")
+    _log_finish_step(drama_id, "review flags", started, len(lines),
+                     "with source-match" if embed_texts is not None else "")
 
 
 def _still_the_runs(fresh, lines, enforce_ids) -> list:
@@ -251,8 +291,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         label = f"{engine_choice} · {style_preset}"
         if engine_choice in engine_registry.FREE_ENGINES or getattr(engine, "free_tier", False):
             label = f"[testing: {engine_choice}] {label}"
-        db.save_translation_version(drama_id, lines, label=label, engine=engine_choice,
-                                    model=getattr(engine, "model", ""), make_active=True)
+        _save_version_logged(drama_id, lines, label, engine_choice, engine)
     # Persisted, not just shown once: if the app restarts, the record of
     # what failed (and why some lines are untranslated) must not vanish.
     fields = {}
@@ -271,15 +310,5 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         if refusal:
             summary_engine = None
     if fields.get("status") == "translated" and not cancelled and summary_engine is not None:
-        _fresh_for_summary = db.load_line_objects(drama_id)
-        summary = llm_tasks.generate_episode_summary(
-            _fresh_for_summary, summary_engine,
-            usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
-                drama_id, summary_engine_choice or getattr(summary_engine, "name", ""),
-                getattr(summary_engine, "model", ""), "episode_summary", inp, out,
-                pricing.estimate_cost_for_engine(
-                    summary_engine, inp, out, cache_read, cache_write),
-                cache_read_tokens=cache_read))
-        if summary:
-            db.update_drama(drama_id, episode_summary=summary)
+        _store_episode_summary(drama_id, summary_engine, summary_engine_choice)
     return True
