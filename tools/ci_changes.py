@@ -50,6 +50,9 @@ SOURCES_TEST_FILES = (
     "test_installer_service.py", "test_installer_payload.py", "test_page_server.py", "test_db.py",
     "test_library_isolation_guard.py", "test_ci_changes.py",
 )
+# What the browser tests can exercise through the running app; a backend-only change used to skip them
+# and show a broken screen only in the push run after the merge.
+BROWSER_PREFIXES = ("frontend/", "api/", "services/", "db/")
 OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest", "run_windows_scripts", "run_caddy", "run_app_checks",
            "run_sources_subset")
 
@@ -64,6 +67,12 @@ def _is_sources_only_file(path):
 
 def _starts(path, prefixes):
     return path.startswith(prefixes)
+
+
+def _reaches_browser(path):
+    """The Playwright specs drive the real API, which runs services and db. The restore code is
+    left out: the Windows script checks run it, and no spec does."""
+    return _starts(path, BROWSER_PREFIXES) and path not in WINDOWS_SCRIPT_FILES
 
 
 def _forces_everything(path):
@@ -86,7 +95,7 @@ def classify(files, event, labels=()):
         return everything
     return {
         "notes_only": all(_starts(f, NOTES_PREFIXES) for f in files),
-        "run_e2e": any(_starts(f, ("frontend/", "api/")) for f in files),
+        "run_e2e": any(_reaches_browser(f) for f in files),
         "run_full_pytest": not all(_starts(f, ("frontend/", "docs/")) for f in files),
         "run_windows_scripts": any(_touches_windows_scripts(f) for f in files),
         "run_caddy": any(_starts(f, CADDY_PREFIXES) or f in CADDY_FILES for f in files),
