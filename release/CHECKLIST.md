@@ -1,12 +1,12 @@
 # Release checklist
 
-The one list to run before a release is called good. It replaces the old owner test checklist, the "Known limits" prose in each release note and anything kept only in memory. Tick a flow only after you ran it on a real PC; if you skip one, write "skipped" and say why in the release note.
+The one list to run before a release is called good. It replaces the old owner test checklist, the "Known limits" prose in each release note and anything kept only in memory. Tick a flow only after you ran it on a real PC; if you skip one, write "skipped" and say why in the release thread, not in the release note.
 
-Run order is cheapest and most likely to fail first. Flows 1 to 4 are the installer and update path and must pass for every release. Flows 5 to 12 only need a re-run when the release touched that area (the release note says so).
+Run order is cheapest and most likely to fail first. Flows 1 to 4 are the installer and update path and must pass for every release. Flows 5 to 12 only need a re-run when the release touched that area.
 
 ## Before the tag (not a flow, a gate)
 - CI is green at the exact commit to be tagged (the Tests workflow on that commit, not an older one).
-- `release/vX.Y.Z-notes.md` exists. Its "Known limits" lists only what this release changed and was not run for real; older limits live here in the flows, not in the note.
+- `release/vX.Y.Z-notes.md` exists. It is a short user-facing changelog (New, Changed, Fixed, Security): no site or source names, no hardware, no test details or known-limits lists (Alex, 2026-11-15). What was not run for real goes in the release thread.
 - If anything under `extension/` changed, `extension/manifest.json` has a new version.
 - The tag needs the owner's typed yes.
 - Right after tagging, set `SOURCE_VERSION` in `portable.py` to the next version with `-dev` (after v0.1.5, `0.1.6-dev`). It is what a library made by a source checkout records, so the release you just tagged refuses checkout libraries made after it.
