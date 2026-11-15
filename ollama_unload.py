@@ -204,6 +204,20 @@ def _free_ollama_gpu_memory():
     return _notice(loaded, setting_on)
 
 
+def unload_loaded_models() -> int:
+    """Asks a local Ollama to unload every model it has loaded, without
+    waiting for it; returns how many it was asked to unload. For the GPU
+    guard (jobs/gpu_guard.py), which calls it only while no Baihe job runs.
+    Never raises."""
+    base = _local_base_url()
+    if base is None:
+        return 0
+    loaded = _loaded_models(base, REQUEST_TIMEOUT_SECONDS) or []
+    for name in loaded:
+        _unload(base, name, REQUEST_TIMEOUT_SECONDS)
+    return len(loaded)
+
+
 def prepare_gpu_for_transcription(use_gpu) -> None:
     """Called by each GPU model loader before it loads. Does nothing for a CPU
     run. Never raises."""

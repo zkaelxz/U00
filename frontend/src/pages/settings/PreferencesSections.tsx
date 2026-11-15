@@ -164,8 +164,8 @@ const ADVANCED_FOLDS: { title: string; keys: string[] }[] = [
   { title: 'Uploads', keys: ['max_upload_mb'] },
 ]
 
-// These two live in the Jobs and GPU card, so the generic "Other" fold must not pick them up here.
-const KEEP_FREE_KEYS = ['keep_free_vram_gb', 'keep_free_ram_gb']
+// These live in the Jobs and GPU card, so the generic "Other" fold must not pick them up here.
+const KEEP_FREE_KEYS = ['keep_free_vram_gb', 'keep_free_ram_gb', 'gpu_guard', 'gpu_guard_temp_c', 'gpu_guard_stop_minutes']
 
 export function KeepFreeMemory({ schema, settings, onSettings }: Props) {
   const p = settings.preferences
@@ -177,7 +177,7 @@ export function KeepFreeMemory({ schema, settings, onSettings }: Props) {
       section="Advanced"
       keys={KEEP_FREE_KEYS}
       title="Keep free memory"
-      summary={p.keep_free_vram_gb || p.keep_free_ram_gb ? 'Memory kept free' : 'No memory reserve'}
+      summary={[p.keep_free_vram_gb || p.keep_free_ram_gb ? 'Memory kept free' : 'No memory reserve', p.gpu_guard ? 'pauses when short or hot' : 'never pauses'].join(' · ')}
     />
   )
 }

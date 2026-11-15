@@ -31,6 +31,9 @@ const PREFS = {
   ollama_num_ctx_override: 0,
   keep_free_vram_gb: 0,
   keep_free_ram_gb: 0,
+  gpu_guard: true,
+  gpu_guard_temp_c: 85,
+  gpu_guard_stop_minutes: 2,
   whisper_model_path: '',
   ocr_backend: 'auto',
   speaker_model: 'pyannote',
@@ -169,6 +172,11 @@ test('spending, offline and OCR fields check input before saving', async ({ page
   await keepFree.getByRole('button', { name: 'Save' }).click()
   await expect(keepFree.getByRole('status')).toHaveText('Saved.')
   await expect(page.getByLabel('Keep free graphics memory', { exact: true })).toHaveCount(1)
+  // So do the pause-when-short-or-hot rows.
+  await keepFree.getByLabel('Stop a running job after', { exact: true }).fill('5')
+  await keepFree.getByRole('button', { name: 'Save' }).click()
+  await expect(keepFree.getByRole('status')).toHaveText('Saved.')
+  await expect(keepFree.getByRole('switch', { name: 'Pause GPU jobs when the card is short or hot' })).toBeChecked()
 
   const ocr = await open(page, 'OCR')
   await ocr.getByLabel('Default backend', { exact: true }).selectOption('manga_ocr')
@@ -190,6 +198,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
     { monthly_cap_usd: 12.5 },
     { whisper_model_path: 'D:\\models\\whisper-small', ollama_num_ctx_override: 16384 },
     { keep_free_vram_gb: 4 },
+    { gpu_guard_stop_minutes: 5 },
     { ocr_backend: 'manga_ocr', ocr_prefer_paddle_vl_manga: true },
     { tesseract_cmd: 'C:\\Tess\\tesseract.exe' },
     { cookies_browser: 'firefox' },

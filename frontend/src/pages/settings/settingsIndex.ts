@@ -129,7 +129,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   e('performance', 'Jobs and GPU', 'performance gpu use gpu limit jobs at once parallel free local-model memory unload ollama graphics'),
   e('performance', 'Resume interrupted batches', 'batch resume bulk auto resume startup translation batches'),
-  e('performance', 'Keep free memory', 'vram ram graphics reserve other programs'),
+  e('performance', 'Keep free memory', 'vram ram graphics reserve other programs pause hot temperature stop jellyfin'),
   e('advanced', 'Offline, paths and limits', 'advanced ocr offline models downloads uploads server addresses'),
   e('advanced', 'Ollama URL', 'ollama server address endpoint local model'),
   e('advanced', 'Ollama context window', 'num_ctx tokens offline'),

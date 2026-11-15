@@ -892,10 +892,9 @@ def _end_watch(job_id, proc, result_queue, gpu_touching, on_finish, kill_whole_t
 
 def recheck_gpu_queue():
     """Public entry point for _promote_next_queued_gpu_job(), for callers
-    outside this module. Nothing here polls the GPU queue on its own (see
-    _gpu_slot_available_locked's own docstring) -- a job queued because
-    nvidia-smi showed the GPU busy with something Baihe didn't start
-    otherwise only gets re-checked the next time some *other* GPU-touching
-    job finishes. The Running Jobs panel's auto-refresh calls this on every
-    tick specifically to close that gap while it's open."""
+    outside this module. Nothing here polls the GPU queue on its own: a job
+    queued because the GPU was busy with something Baihe didn't start, or
+    held by the GPU guard, is otherwise re-checked only when another
+    GPU-touching job finishes. The API's GPU-queue poller (api/background.py)
+    calls this on a timer to close that gap."""
     _promote_next_queued_gpu_job()

@@ -10,7 +10,7 @@ def external_gpu_wait_message(load: dict):
     free_mb = load.get("memory_free_mb")
     total_mb = load.get("memory_total_mb") or 0
     busy_util = util >= diagnostics_torch.EXTERNAL_GPU_BUSY_UTIL_PERCENT
-    busy_mem = free_mb is not None and free_mb < diagnostics_torch.EXTERNAL_GPU_BUSY_MIN_FREE_MB
+    busy_mem = free_mb is not None and free_mb < diagnostics_torch.external_busy_min_free_mb()
     if not (busy_util or busy_mem):
         return None
     used_gb = (total_mb - (free_mb or 0)) / 1024

@@ -96,6 +96,20 @@ class TestStartRun:
         names = list(inspect.signature(transcribe_pipeline._transcribe_worker).parameters)
         assert names[-4:] == ["timing", "checkpoint", "scratch_dir", "result_queue"]
 
+    def test_registers_a_restart_that_repeats_the_call(self, isolated_db, monkeypatch):
+        """The GPU guard may stop a transcription to free the card and start it
+        again with this same call (jobs/gpu_guard.py)."""
+        from jobs import gpu_guard
+        did = _title(isolated_db)
+        _capture_worker_start(monkeypatch)
+        seen = {}
+        monkeypatch.setattr(gpu_guard, "allow_restart", lambda jid, fn: seen.update({jid: fn}))
+        transcribe_service.start_transcribe_run(did, expected_speakers=2, overrides={"beam_size": 3})
+        again = seen[f"transcribe_{did}"]
+        assert again.func is transcribe_service.start_transcribe_run
+        assert again.keywords["drama_id"] == did and again.keywords["expected_speakers"] == 2
+        assert again.keywords["overrides"] == {"beam_size": 3}
+
     def test_the_option_uses_the_sensitive_preset_and_marks_the_run(self, isolated_db, monkeypatch):
         did = _title(isolated_db, difficult_audio=1)
         captured = _capture_worker_start(monkeypatch)
