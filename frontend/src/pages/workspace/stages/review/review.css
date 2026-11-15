@@ -331,12 +331,12 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-line { padding: var(--space-1) var(--space-2); }
   .review-line-meta { flex-wrap: nowrap; }
   .review-speaker { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* ⋯ sits in the row's top-right corner, out of the meta line's height; its 44px box overlaps only padding.
-     `.stage-review` outweighs index.css's phone `.btn.btn-sm { position: relative }`, which otherwise left ⋯ after the
-     last item, over the source text and past the edge of a 320px screen. The box is already 44px, so the small
-     button's extra tap area (::after) goes. ⚑ keeps its width: the speaker is what gives way. */
-  .review-line { position: relative; }
-  .review-line-meta { padding-right: calc(var(--touch) - var(--space-2)); }
+  /* ⋯ sits in the row's top-right corner, out of the meta line's height, so the line stays short enough for 8 rows on a
+     phone; its 44px box reaches a few px into the top of the first text line. `.stage-review` outweighs index.css's phone
+     `.btn.btn-sm { position: relative }`, which otherwise left ⋯ after the last item, over the source text and past the
+     edge of a 320px screen. The box is already 44px, so the small button's extra tap area (::after) goes. ⚑ keeps its
+     width: the speaker is what gives way. */
+  .review-line-meta { padding-right: calc(var(--touch) - var(--space-2)); min-height: calc(var(--touch) - var(--space-1) - var(--space-2)); }
   .review-line-meta > .review-flag { flex: none; }
   .stage-review button.review-more { position: absolute; top: 0; right: 0; min-width: var(--touch); min-height: var(--touch); padding: 0; margin: 0; }
   .stage-review button.review-more::after { content: none; }

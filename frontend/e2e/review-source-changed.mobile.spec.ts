@@ -40,7 +40,7 @@ test("phone at 320 px: ⋯ stays in the row's top-right corner, nothing scrolls 
 db.configure_library_dir(${JSON.stringify(libraryDir)})
 from core import Line
 db.update_drama(3, audio_filename=None, source_video_filename=None)
-db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh='一二三', en='Line %d' % i, speaker='Narrator', flag='source_changed' if i == 0 else '') for i in range(6)])
+db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh='这是一个很长的中文句子用来测试第一行文字会不会被右上角的按钮盖住' * 2, en='Line %d' % i, speaker='Narrator', flag='source_changed' if i == 0 else '') for i in range(6)])
 `], { cwd: repoRoot })
   await page.setViewportSize({ width: 320, height: 700 })
   await page.goto('/#/drama/3/review')
@@ -55,8 +55,12 @@ db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh='一二三', 
   expect(Math.abs(moreBox.x + moreBox.width - (rowBox.x + rowBox.width))).toBeLessThanOrEqual(1)
   expect(Math.abs(moreBox.y - rowBox.y)).toBeLessThanOrEqual(1)
 
-  // A tap on the source text picks the row; it must not reach ⋯ and open the More sheet.
-  await row.locator('.review-zh').tap()
-  await expect(row).toHaveAttribute('aria-current', 'true')
+  // A tap in the middle of the right end of a row's first text line picks the row; it must not reach ⋯ and open the More sheet.
+  await page.getByRole('radio', { name: /^All/ }).check({ force: true })
+  const second = page.locator('.review-line').nth(1)
+  const zh = second.locator('.review-zh')
+  const zhBox = (await zh.boundingBox())!
+  await zh.tap({ position: { x: zhBox.width - 6, y: 20 } })
+  await expect(second).toHaveAttribute('aria-current', 'true')
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })
