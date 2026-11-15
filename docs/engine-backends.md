@@ -195,8 +195,7 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
 
 ### Cost caps and bulk batches
 
-- `pricing.estimate_translation_cost` and `estimate_reflect_mode_cost` (3x a
-  normal run) are shown before a run starts. `resolve_cost_cap(job_cap,
+- `pricing.estimate_translation_cost` is shown before a run starts. `resolve_cost_cap(job_cap,
   monthly_cap, month_spend)` returns the tighter of the per-job cap and what is
   left of the monthly cap, or a refusal when the month is already spent.
 - A cap applies only to `translate_run_service._CAP_ENGINES` (`claude`,
