@@ -13,7 +13,7 @@ Baihe enforces the household rules itself: the household listener refuses every 
 
 ## Set up remote access (installed service)
 
-People and access > Set up remote access, at the PC, shows these steps with what the app can see about each (it changes nothing yet). Do the steps in this order. Steps 1 to 4 change nothing on the internet side; step 5 starts Caddy; steps 6 and 7 are what actually let traffic in.
+People and access > Set up remote access, at the PC, shows these steps with what the app can see about each (its form also saves step 3's three settings in `.env` for you, at the PC). Do the steps in this order. Steps 1 to 4 change nothing on the internet side; step 5 starts Caddy; steps 6 and 7 are what actually let traffic in.
 
 1. **Domain and dynamic DNS.** Pick a name such as `baihe.<your-domain>`. Create an A record (and an AAAA record if your ISP gives the PC a public IPv6 address) pointing at your home IP, and set up a dynamic DNS updater (the router's built-in client or your DNS provider's) so the record follows IP changes. Use the public record only: don't add a LAN DNS entry pointing the name at the PC's private address (split DNS). `BAIHE_PUBLIC_URL` must be an ASCII DNS name: not an IP address, not `localhost` (a non-ASCII name in its `xn--` form).
 2. **Google OAuth client.** In Google Cloud Console: set up the OAuth consent screen (External, Testing; add each household member as a test user), then Credentials > Create OAuth client ID > Web application, with the authorised redirect URI `https://<domain>/api/auth/callback`. Never paste the client secret into a chat, an issue or a PR.

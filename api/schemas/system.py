@@ -31,6 +31,8 @@ __all__ = [
     "RemoteHealth",
     "RemoteSetup",
     "RemoteSetupStep",
+    "RemoteSetupFields",
+    "RemoteSetupSignInRequest",
     "RemoteIpCheckStatus",
     "RemoteIpCheckSetRequest",
     "RemoteIpCheckClearRequest",
@@ -198,12 +200,32 @@ class RemoteSetupStep(BaseModel):
     who: Literal["app", "you", "menu"]
 
 
+class RemoteSetupFields(BaseModel):
+    public_url: bool
+    google_client_id: bool
+    google_client_secret: bool
+
+
 class RemoteSetup(BaseModel):
     """GET /api/diagnostics/remote-setup (PC only): one state per setup step
     and fixed sentences. Never the public name, the Google id or secret, an
     address or a path."""
     steps: list[RemoteSetupStep]
     next: Optional[str] = None
+    # Whether each sign-in setting is in .env or loaded (booleans, never the values).
+    fields: RemoteSetupFields
+    # .env holds a sign-in setting Baihe hasn't loaded: it reads them at start-up.
+    restart_needed: bool = False
+
+
+class RemoteSetupSignInRequest(BaseModel):
+    """Write-only: the secret never comes back and errors never echo it. A
+    field left out (or null) keeps what .env already holds."""
+    model_config = ConfigDict(extra="forbid")
+    public_url: Optional[str] = Field(None, repr=False)
+    google_client_id: Optional[str] = Field(None, repr=False)
+    google_client_secret: Optional[str] = Field(None, repr=False)
+    confirm: StrictBool = False
 
 
 class RemoteIpCheckStatus(BaseModel):

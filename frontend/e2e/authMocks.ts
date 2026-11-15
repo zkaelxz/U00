@@ -82,7 +82,7 @@ export const GET_FIXTURES: Record<string, unknown> = {
   '/api/diagnostics/remote-health': REMOTE_HEALTH_OFF,
   // Settings > Remote access (PC only, so not asked by these remote specs).
   '/api/diagnostics/remote-health/ip-check': { configured: false },
-  '/api/diagnostics/remote-setup': { steps: [], next: null },
+  '/api/diagnostics/remote-setup': { steps: [], next: null, fields: { public_url: false, google_client_id: false, google_client_secret: false }, restart_needed: false },
   // The Library admin panel's per-person backup picker.
   '/api/admin/users': { users: [] },
   // Settings > App updates (PC only): a source checkout, never checked.

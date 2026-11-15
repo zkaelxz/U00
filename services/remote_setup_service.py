@@ -10,8 +10,13 @@ Some steps (the router forward, the firewall rule) can't be seen from the
 app; they are `manual` so the page can say "yours to do" instead of
 guessing. `docs/household-access.md` holds the full steps.
 """
+import ipaddress
+import re
+from urllib.parse import urlsplit
+
 import db
-from services import remote_health_service
+from lib.errors import InvalidInputError
+from services import remote_health_service, settings_service
 
 # Tells the page who acts: the app can do it, or the owner has to.
 WHO_APP = "app"
@@ -20,24 +25,57 @@ WHO_MENU = "menu"   # the Start-menu item "Baihe Studio service", which asks for
 
 LISTENER_HOST = "127.0.0.1"
 
+PUBLIC_URL_ENV = "BAIHE_PUBLIC_URL"
+CLIENT_ID_ENV = "BAIHE_GOOGLE_CLIENT_ID"
+CLIENT_SECRET_ENV = "BAIHE_GOOGLE_CLIENT_SECRET"
+MAX_VALUE = 256
+# Google gives every Web application client an id ending like this; a
+# different shape is nearly always the secret pasted in the wrong box.
+_CLIENT_ID_SUFFIX = ".apps.googleusercontent.com"
+_BAD_NAME = ("The name must be a DNS name like baihe.your-domain: https only, no port, path, "
+             "IP address or localhost. A non-ASCII name goes in its xn-- form.")
+_SAFE_VALUE = re.compile(r"[A-Za-z0-9._~+/=-]+")
+
 
 def _step(step_id, title, state, message, who):
     return {"id": step_id, "title": title, "state": state, "message": message, "who": who}
+
+
+def _file_value(file_env, name):
+    return (file_env.get(name) or "").strip()
+
+
+def _fields_and_restart(settings, file_env) -> tuple:
+    """Which settings exist (in .env or loaded) and whether .env holds one that
+    isn't loaded: Baihe reads them at start-up. Booleans only."""
+    loaded = {PUBLIC_URL_ENV: settings.public_url, CLIENT_ID_ENV: settings.google_client_id,
+              CLIENT_SECRET_ENV: settings.google_client_secret}
+    restart = False
+    for name, now in loaded.items():
+        saved = _file_value(file_env, name)
+        if name == PUBLIC_URL_ENV:
+            saved = saved.rstrip("/")
+        if saved and saved != now:
+            restart = True
+    fields = {"public_url": bool(loaded[PUBLIC_URL_ENV] or _file_value(file_env, PUBLIC_URL_ENV)),
+              "google_client_id": bool(loaded[CLIENT_ID_ENV] or _file_value(file_env, CLIENT_ID_ENV)),
+              "google_client_secret": bool(loaded[CLIENT_SECRET_ENV]
+                                           or _file_value(file_env, CLIENT_SECRET_ENV))}
+    return fields, restart
 
 
 def _name_step(settings):
     title = "Choose the public name"
     if settings.public_url_error:
         return _step("name", title, "problem",
-                     f"{settings.public_url_error} Fix it in the data folder's .env, "
-                     "then restart Baihe.", WHO_YOU)
+                     f"{settings.public_url_error} Enter a valid name below, then restart Baihe.", WHO_YOU)
     if settings.public_url:
         return _step("name", title, "done",
                      "A public name is set. Keep its DNS record pointing at your home "
                      "(dynamic DNS).", WHO_YOU)
     return _step("name", title, "todo",
                  "Pick a name such as baihe.your-domain, point its DNS record at your "
-                 "home, then set BAIHE_PUBLIC_URL in the data folder's .env.", WHO_YOU)
+                 "home, then enter it below.", WHO_YOU)
 
 
 def _google_step(settings):
@@ -50,8 +88,8 @@ def _google_step(settings):
                      "Only one of the client id and secret is set. Both are needed.", WHO_YOU)
     return _step("google", title, "todo",
                  "In Google Cloud Console, create a Web application OAuth client whose "
-                 "redirect address is https://your-name/api/auth/callback, then put its id "
-                 "and secret in the data folder's .env. Never paste the secret in a chat.",
+                 "redirect address is https://your-name/api/auth/callback, then enter its id "
+                 "and secret below. Never paste the secret in a chat.",
                  WHO_YOU)
 
 
@@ -112,12 +150,74 @@ def _outside_step(settings):
                  "and sign in with an allowed account.", WHO_YOU)
 
 
-def get_setup_status(settings) -> dict:
-    """{steps: [{id, title, state, message, who}], next}. `state` is done,
-    todo, problem or manual (not visible from here); `next` is the first step
-    not done."""
+def get_setup_status(settings, env_path=None) -> dict:
+    """{steps, next, fields, restart_needed}. `state` is done, todo, problem
+    or manual (not visible from here); `next` is the first step not done."""
     listener = remote_health_service.check_listener(LISTENER_HOST, settings.household_port)
     steps = [_name_step(settings), _google_step(settings), _people_step(db.auth_list_users()),
              _turn_on_step(settings, listener), *_manual_steps(), _outside_step(settings)]
     pending = next((s["id"] for s in steps if s["state"] != "done"), None)
-    return {"steps": steps, "next": pending}
+    fields, restart = _fields_and_restart(settings, settings_service.read_env_file(env_path))
+    return {"steps": steps, "next": pending, "fields": fields, "restart_needed": restart}
+
+
+# --- saving the sign-in settings (PC only) ---------------------------------
+
+def _clean(value, what):
+    """Fixed messages only: the value may be the Google secret."""
+    value = (value or "").strip()
+    if not value or len(value) > MAX_VALUE or not _SAFE_VALUE.fullmatch(value):
+        raise InvalidInputError(f"The {what} is empty, too long or has characters that "
+                                "aren't allowed. Paste it again without spaces.")
+    return value
+
+
+def _clean_public_url(value) -> str:
+    """Just https://name, as Baihe's start-up check wants it (api.api_config
+    holds that rule but services may not import the api layer)."""
+    text = (value or "").strip()
+    if text and "://" not in text:
+        text = f"https://{text}"
+    try:
+        parts = urlsplit(text)
+        port = parts.port
+    except ValueError:
+        raise InvalidInputError(_BAD_NAME) from None
+    host = parts.hostname or ""
+    try:
+        ipaddress.ip_address(host)
+        is_ip = True
+    except ValueError:
+        is_ip = False
+    if (parts.scheme != "https" or "@" in parts.netloc or port is not None
+            or parts.path.strip("/") or parts.query or parts.fragment or is_ip
+            or "." not in host or not host.isascii()):
+        raise InvalidInputError(_BAD_NAME)
+    return f"https://{host.lower()}"
+
+
+def save_sign_in(settings, public_url, client_id, client_secret, env_path=None) -> dict:
+    """Validates every given value first, then writes them to .env; a field
+    that is None keeps what .env holds. Returns the new setup status, where
+    `restart_needed` says Baihe hasn't loaded them yet. Nothing here logs or
+    returns a value."""
+    updates = {}
+    if public_url is not None:
+        updates[PUBLIC_URL_ENV] = _clean_public_url(public_url)
+    if client_id is not None:
+        value = _clean(client_id, "client id")
+        if not value.endswith(_CLIENT_ID_SUFFIX):
+            raise InvalidInputError("A Google client id ends with .apps.googleusercontent.com. "
+                                    "The secret goes in the other box.")
+        updates[CLIENT_ID_ENV] = value
+    if client_secret is not None:
+        value = _clean(client_secret, "client secret")
+        if len(value) < 10 or value.endswith(_CLIENT_ID_SUFFIX):
+            raise InvalidInputError("That doesn't look like a client secret. The id goes in "
+                                    "the other box.")
+        updates[CLIENT_SECRET_ENV] = value
+    if not updates:
+        raise InvalidInputError("Nothing to save.")
+    for name, value in updates.items():
+        settings_service.write_env_var(name, value, env_path)
+    return get_setup_status(settings, env_path)

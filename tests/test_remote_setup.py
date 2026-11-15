@@ -87,3 +87,76 @@ def test_route_is_pc_only_and_leaks_nothing(isolated_db):
     text = body.text
     for private in (SECRET, "client-id-123", "baihe.example.com"):
         assert private not in text
+
+
+# --- saving the sign-in settings -------------------------------------------
+
+GOOD_ID = "123-abc.apps.googleusercontent.com"
+GOOD_SECRET = "GOCSPX-abcdefghij123456"
+
+
+@pytest.fixture
+def env_file(tmp_path):
+    path = tmp_path / ".env"
+    path.write_text("KEEP=1\n")
+    return str(path)
+
+
+def test_save_writes_all_three_and_asks_for_a_restart(isolated_db, env_file):
+    status = rss.save_sign_in(_settings(), "Baihe.Example.com", GOOD_ID, GOOD_SECRET, env_file)
+    text = open(env_file).read()
+    assert "BAIHE_PUBLIC_URL=https://baihe.example.com\n" in text
+    assert f"BAIHE_GOOGLE_CLIENT_ID={GOOD_ID}\n" in text and "KEEP=1" in text
+    assert status["restart_needed"] is True
+    assert status["fields"] == {"public_url": True, "google_client_id": True, "google_client_secret": True}
+    assert GOOD_SECRET not in str(status)
+
+
+def test_no_restart_needed_once_the_values_are_loaded(isolated_db, env_file):
+    rss.save_sign_in(_settings(), "baihe.example.com", GOOD_ID, GOOD_SECRET, env_file)
+    loaded = _settings(public_url="https://baihe.example.com", google_client_id=GOOD_ID,
+                       google_client_secret=GOOD_SECRET)
+    assert rss.get_setup_status(loaded, env_file)["restart_needed"] is False
+
+
+@pytest.mark.parametrize("name", ["192.168.1.5", "localhost", "https://baihe.example.com:8443",
+                                  "https://baihe.example.com/path", "nodots"])
+def test_bad_public_names_are_refused_and_nothing_is_written(isolated_db, env_file, name):
+    with pytest.raises(rss.InvalidInputError):
+        rss.save_sign_in(_settings(), name, GOOD_ID, GOOD_SECRET, env_file)
+    assert open(env_file).read() == "KEEP=1\n"
+
+
+def test_id_and_secret_in_the_wrong_boxes_are_refused_without_echo(isolated_db, env_file):
+    with pytest.raises(rss.InvalidInputError) as swapped:
+        rss.save_sign_in(_settings(), None, GOOD_SECRET, None, env_file)
+    assert GOOD_SECRET not in str(swapped.value)
+    with pytest.raises(rss.InvalidInputError) as other:
+        rss.save_sign_in(_settings(), None, None, GOOD_ID, env_file)
+    assert GOOD_ID not in str(other.value)
+    with pytest.raises(rss.InvalidInputError):
+        rss.save_sign_in(_settings(), None, None, "has space 12345678", env_file)
+
+
+def test_one_bad_field_writes_none_of_them(isolated_db, env_file):
+    with pytest.raises(rss.InvalidInputError):
+        rss.save_sign_in(_settings(), "baihe.example.com", "wrong", GOOD_SECRET, env_file)
+    assert open(env_file).read() == "KEEP=1\n"
+
+
+def test_sign_in_route_needs_key_writes_and_confirm(isolated_db, tmp_path, monkeypatch):
+    from services import settings_service
+    path = tmp_path / ".env"
+    path.write_text("")
+    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
+    body = {"public_url": "baihe.example.com", "google_client_id": GOOD_ID,
+            "google_client_secret": GOOD_SECRET, "confirm": True}
+    off = loopback_client(create_app(_settings()))
+    assert off.post("/api/diagnostics/remote-setup/sign-in", json=body).status_code == 403
+    client = loopback_client(create_app(_settings(allow_key_writes=True)))
+    assert client.post("/api/diagnostics/remote-setup/sign-in", json={**body, "confirm": False}).status_code == 422
+    ok = client.post("/api/diagnostics/remote-setup/sign-in", json=body)
+    assert ok.status_code == 200 and GOOD_SECRET not in ok.text and GOOD_ID not in ok.text
+    assert ok.json()["restart_needed"] is True
+    bad = client.post("/api/diagnostics/remote-setup/sign-in", json={"public_url": "10.0.0.1", "confirm": True})
+    assert bad.status_code == 422 and "10.0.0.1" not in bad.text

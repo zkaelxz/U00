@@ -20,6 +20,7 @@ import type {
   RemoteIpCheckStatus,
   RemoteIpCheckTestResult,
   RemoteSetup,
+  RemoteSignInDraft,
 } from '../types/diagnostics'
 import type { DiagnosticsJobStarted } from '../types/diagnosticsInstalls'
 import type { PendingInstallPlan } from '../types/pendingInstall'
@@ -44,6 +45,11 @@ export const getInstallPresets = (f?: Fetch) => getJson<DiagnosticsInstallPreset
 // PC only (local_only on the server): a remote tab gets a 403.
 // PC only: where the remote-access setup stands, one state per step.
 export const getRemoteSetup = (f?: Fetch) => getJson<RemoteSetup>(`${BASE}/remote-setup`, pcOnlyFetch(f))
+
+// Write-only: the Google secret goes in the body and never comes back. Plain fetch, like the
+// public address check: a 403 on the PC means key writes are off, not "away from the PC".
+export const saveRemoteSignIn = (body: RemoteSignInDraft, f?: Fetch) =>
+  postJson<RemoteSetup>(`${BASE}/remote-setup/sign-in`, { ...body, confirm: true }, f)
 
 export const getPorts = (f?: Fetch) => getJson<PortsOverview>(`${BASE}/ports`, f)
 

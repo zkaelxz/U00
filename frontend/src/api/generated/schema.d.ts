@@ -2829,6 +2829,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/remote-setup/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: save the public name and the Google client id and secret in .env (write-only; key writes must be on) */
+        post: operations["save_remote_sign_in_api_diagnostics_remote_setup_sign_in_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/reset-library": {
         parameters: {
             query?: never;
@@ -24876,10 +24893,25 @@ export interface components {
          *     address or a path.
          */
         RemoteSetup: {
+            fields: components["schemas"]["RemoteSetupFields"];
             /** Next */
             next: string | null;
+            /**
+             * Restart Needed
+             * @default false
+             */
+            restart_needed: boolean;
             /** Steps */
             steps: components["schemas"]["RemoteSetupStep"][];
+        };
+        /** RemoteSetupFields */
+        RemoteSetupFields: {
+            /** Google Client Id */
+            google_client_id: boolean;
+            /** Google Client Secret */
+            google_client_secret: boolean;
+            /** Public Url */
+            public_url: boolean;
         };
         /** RemoteSetupStep */
         RemoteSetupStep: {
@@ -39620,6 +39652,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RemoteSetup"];
+                };
+            };
+        };
+    };
+    save_remote_sign_in_api_diagnostics_remote_setup_sign_in_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteSetup"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
