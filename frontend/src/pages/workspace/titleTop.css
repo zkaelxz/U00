@@ -4,10 +4,10 @@
    the name they move under it as one group, and the chip stays with the name. The name's block starts narrow and grows, so
    a long name wraps inside it before the controls give up the row. */
 .title-top-name { flex: 1 1 12rem; min-width: 0; }
-.title-top-header:not(.is-phone) h1 { font-size: 1.2667rem; }
+.title-top-header:not(.is-phone) h1 { font-size: var(--text-lg); }
 .title-top-kind {
   flex: 0 1 auto; width: max-content; max-width: 100%; padding: 3px 10px; border-radius: 12px;
-  background: var(--surface-2); color: var(--muted); font-size: 0.8667rem; overflow-wrap: break-word;
+  background: var(--surface-2); color: var(--muted); font-size: var(--text-xs); overflow-wrap: break-word;
 }
 .title-top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; min-width: 0; }
 /* The drawn buttons are 11px wide on each side of their words; at the app's 16px the name no longer fits beside the chip and five buttons at 1440. */
