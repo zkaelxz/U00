@@ -258,3 +258,45 @@ def test_bulk_emotion_flags_a_line_whose_source_changed_while_pending(monkeypatc
     assert rows[edited]["zh"] == "改了" and rows[edited]["flag"] == "bulk_source_changed"
     assert rows[ids[0]]["flag"] is None
     assert db.load_emotions(did)[0]["emotion"] == "sad"
+
+
+def _priced(monkeypatch):
+    monkeypatch.setattr(FakeEngine, "model", "claude-sonnet-5-5")
+
+
+def test_bulk_review_estimate_counts_every_request_at_the_batch_price(monkeypatch):
+    _priced(monkeypatch)
+    did = _seed(8)
+    lines = db.load_line_objects(did)
+    one = bulk_translate.estimate_generic_bulk_usd("flag", lines[:1], FakeEngine())
+    eight = bulk_translate.estimate_generic_bulk_usd("flag", lines, FakeEngine(), batch_size=1)
+    assert 0 < one and eight == pytest.approx(one * 8, rel=0.3)
+    for kind in ("consistency", "emotion", "translation_notes"):
+        assert bulk_translate.estimate_generic_bulk_usd(kind, lines, FakeEngine()) > 0
+
+
+@pytest.mark.parametrize("starter", ["start_flag_review", "start_consistency_check",
+                                     "start_emotion_tagging", "start_translation_notes"])
+def test_bulk_review_over_what_the_cap_leaves_is_refused(monkeypatch, starter):
+    # Cap $50: another title's unbilled batch holds all but a hair of it.
+    _priced(monkeypatch)
+    did = _seed()
+    other = _seed(1)
+    db.create_bulk_job(other, "claude", "m", "submitted", [], estimated_usd=49.99999)
+    prov = _provider(monkeypatch, lambda r: "[]")
+    with pytest.raises(UnsupportedOperationError, match="other pending bulk jobs"):
+        getattr(svc, starter)(did, engine_name="claude", bulk=True)
+    assert db.list_bulk_jobs(did) == [] and prov.requests == []
+
+
+def test_bulk_review_records_its_estimate_and_releases_its_hold(monkeypatch):
+    from services import paid_job_service
+    _priced(monkeypatch)
+    did = _seed()
+    _provider(monkeypatch, lambda r: "[]")
+    expected = bulk_translate.estimate_generic_bulk_usd(
+        "consistency", db.load_line_objects(did), FakeEngine(), source_language="zh")
+    wait_for_job(svc.start_consistency_check(did, engine_name="claude", bulk=True)["job_id"])
+    row = db.list_bulk_jobs(did)[0]
+    assert row["estimated_usd"] == pytest.approx(expected) and expected > 0
+    assert paid_job_service._bulk_holds == {}

@@ -2518,7 +2518,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "bubbles": ("font_category", "kind", "kind_confidence", "confidence", "language",
                 "orientation", "panel_id", "include_sfx", "text_color"),
     "pages": ("rev", "context_summary", "run_notes", "edit_history"),
-    "bulk_jobs": ("kind", "stage", "pipeline_id"),
+    "bulk_jobs": ("kind", "stage", "pipeline_id", "estimated_usd"),
     "bulk_job_lines": ("result_text", "state_at_submit"),
     "vocab_lookups": ("export_rich", "first_seen_line_id"),
     "wiki_entries": ("first_seen_line_id", "known_through_line_id"),
