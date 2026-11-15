@@ -33,9 +33,6 @@ interface Props {
   hasAudio: boolean
   // Another job for this drama (transcribe, diarize, upload) is running.
   busy: boolean
-  // A transcription was started from this screen: check its result when the job ends.
-  autoCheck: boolean
-  onAutoChecked: () => void
 }
 
 // Transcribe → "Speech coverage": lists stretches of the audio where the
