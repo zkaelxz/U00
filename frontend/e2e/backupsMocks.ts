@@ -141,7 +141,7 @@ export function mockBackups(page: Page, opts: { snapshot?: SnapshotBody; jobPoll
       const ids = form.drama_ids as number[]
       return json(route, {
         imported: ids.map((id, i) => ({ source_id: id, drama_id: 50 + i, title: FILE_DRAMAS.find((d) => d.id === id)?.title ?? '', media_imported: id === 7 })),
-        series_created: 1, media_imported: ids.includes(7) ? 1 : 0, counts: { lines: 20 },
+        series_created: 1, series_joined: 0, media_imported: ids.includes(7) ? 1 : 0, counts: { lines: 20 },
       })
     }
     const body = (req.postDataJSON() ?? {}) as Record<string, unknown>

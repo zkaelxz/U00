@@ -235,6 +235,140 @@ def test_owner_and_privacy_forced_and_series_never_merged(isolated_db):
                          ).fetchone()[0] is None
 
 
+def _set_print(c, sid, name, vec, samples):
+    c.execute("UPDATE series_characters SET voice_fingerprint = ?, voice_fingerprint_samples = ? "
+              "WHERE series_id = ? AND character_name = ?",
+              (json.dumps(vec) if vec is not None else None, samples, sid, name))
+
+
+def test_join_series_merges_into_the_series_of_the_same_name(local_client):
+    a, b, g = _world()
+    with _conn() as c:
+        sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (a,)).fetchone()[0]
+        _set_print(c, sid, "Lin", [0.0, 2.0], 3)
+        mei = _ins(c, "series_characters", series_id=sid, character_name="Mei", created_at="x",
+                   notes="from the file")
+        _ins(c, "glossary_terms", series_id=sid, term_original="刀", term_translation="blade")
+        _ins(c, "characters", drama_id=a, speaker_label="S1", character_name="Mei",
+             series_character_id=mei)
+        c.commit()
+    data = _manual_zip()
+    with _conn() as c:   # this library moves on after the backup
+        c.execute("DELETE FROM series_characters WHERE id = ?", (mei,))
+        c.execute("DELETE FROM glossary_terms WHERE term_original = '刀'")
+        c.execute("UPDATE glossary_terms SET term_translation = 'mine' WHERE term_original = '剑'")
+        _set_print(c, sid, "Lin", [4.0, 0.0], 1)
+        c.commit()
+    r = _post_import(local_client, data, [a, b], join_series="true")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["series_joined"] == 1 and body["series_created"] == 0
+    new_a, new_b = (i["drama_id"] for i in body["imported"])
+    with _conn() as c:
+        assert c.execute("SELECT COUNT(*) FROM series").fetchone()[0] == 1
+        assert {r[0] for r in c.execute("SELECT series_id FROM dramas WHERE id IN (?, ?)",
+                                        (new_a, new_b))} == {sid}
+        chars = {r[0]: r[1:] for r in c.execute(
+            "SELECT character_name, id, voice_fingerprint, voice_fingerprint_samples, notes "
+            "FROM series_characters WHERE series_id = ?", (sid,))}
+        assert set(chars) == {"Lin", "Mei"}
+        lin_id, lin_print, lin_n, _ = chars["Lin"]
+        assert json.loads(lin_print) == [1.0, 1.5] and lin_n == 4   # (4*1 + 0*3)/4, (0*1 + 2*3)/4
+        assert chars["Mei"][3] == "from the file"
+        links = dict(c.execute("SELECT speaker_label, series_character_id FROM characters "
+                               "WHERE drama_id = ?", (new_a,)))
+        assert links == {"S0": lin_id, "S1": chars["Mei"][0]}
+        terms = dict(c.execute("SELECT term_original, term_translation FROM glossary_terms "
+                               "WHERE series_id = ?", (sid,)))
+        assert terms == {"剑": "mine", "刀": "blade"}   # what this library has wins
+
+
+def test_without_join_series_the_import_still_adds_a_new_series(local_client):
+    a, b, g = _world()
+    r = _post_import(local_client, _manual_zip(), [a])
+    assert r.json()["series_created"] == 1 and r.json()["series_joined"] == 0
+    with _conn() as c:
+        assert c.execute("SELECT COUNT(*) FROM series").fetchone()[0] == 2
+
+
+def test_join_series_takes_the_file_s_print_when_this_series_has_none(local_client):
+    a, b, g = _world()
+    with _conn() as c:
+        sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (a,)).fetchone()[0]
+        _set_print(c, sid, "Lin", [0.5, 0.5], 2)
+        c.commit()
+    data = _manual_zip()
+    with _conn() as c:
+        _set_print(c, sid, "Lin", None, 0)
+        c.commit()
+    assert _post_import(local_client, data, [a], join_series="true").status_code == 200
+    with _conn() as c:
+        row = c.execute("SELECT voice_fingerprint, voice_fingerprint_samples FROM series_characters "
+                        "WHERE series_id = ? AND character_name = 'Lin'", (sid,)).fetchone()
+    assert json.loads(row[0]) == [0.5, 0.5] and row[1] == 2
+
+
+@pytest.mark.parametrize("incoming", [[1.0, 2.0, 3.0], "not a print", ["x", "y"]])
+def test_join_series_keeps_this_print_when_the_file_s_cannot_be_blended(local_client, incoming):
+    a, b, g = _world()
+    with _conn() as c:
+        sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (a,)).fetchone()[0]
+        c.execute("UPDATE series_characters SET voice_fingerprint = ?, voice_fingerprint_samples = 5 "
+                  "WHERE series_id = ?", (incoming if isinstance(incoming, str)
+                                          else json.dumps(incoming), sid))
+        c.commit()
+    data = _manual_zip()
+    with _conn() as c:
+        _set_print(c, sid, "Lin", [4.0, 0.0], 1)
+        c.commit()
+    assert _post_import(local_client, data, [a], join_series="true").status_code == 200
+    with _conn() as c:
+        row = c.execute("SELECT voice_fingerprint, voice_fingerprint_samples FROM series_characters "
+                        "WHERE series_id = ?", (sid,)).fetchone()
+    assert json.loads(row[0]) == [4.0, 0.0] and row[1] == 1
+
+
+def test_join_series_never_joins_someone_else_s_private_series(isolated_db):
+    other = db.auth_create_user("other@example.com")
+    me = db.auth_create_user("me@example.com")
+    a, b, g = _world(owner=other)
+    data = _manual_zip()
+    with _conn() as c:
+        c.execute("UPDATE series SET is_private = 1")
+        live_series = {r[0] for r in c.execute("SELECT id FROM series")}
+        c.commit()
+    res = bis.import_dramas(io.BytesIO(data), [a], confirm=True, confirm_text="RESTORE",
+                            principal={"user_id": me, "is_local_owner": False}, join_series=True)
+    assert res["series_joined"] == 0 and res["series_created"] == 1
+    with _conn() as c:
+        sid = c.execute("SELECT series_id FROM dramas WHERE id = ?",
+                        (res["imported"][0]["drama_id"],)).fetchone()[0]
+        assert sid not in live_series
+        assert c.execute("SELECT COUNT(*) FROM series_characters WHERE series_id IN (%s)"
+                         % ",".join("?" * len(live_series)), list(live_series)).fetchone()[0] == 1
+
+
+def test_join_series_rechecks_privacy_inside_the_import(isolated_db, monkeypatch):
+    # The series can go private between the ownership check and the write.
+    other = db.auth_create_user("other@example.com")
+    me = db.auth_create_user("me@example.com")
+    a, b, g = _world(owner=other)
+    data = _manual_zip()
+    real = bis._joinable_series
+
+    def then_private(*args):
+        out = real(*args)
+        with _conn() as c:
+            c.execute("UPDATE series SET is_private = 1")
+            c.commit()
+        return out
+
+    monkeypatch.setattr(bis, "_joinable_series", then_private)
+    res = bis.import_dramas(io.BytesIO(data), [a], confirm=True, confirm_text="RESTORE",
+                            principal={"user_id": me, "is_local_owner": False}, join_series=True)
+    assert res["series_joined"] == 0 and res["series_created"] == 1
+
+
 def test_share_by_default_makes_imports_shared(isolated_db):
     me = db.auth_create_user("me@example.com")
     db.auth_update_user(me, share_by_default=1)

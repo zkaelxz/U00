@@ -190,5 +190,6 @@ class ImportedDrama(BaseModel):
 class ImportDramasDone(BaseModel):
     imported: List[ImportedDrama]
     series_created: int
+    series_joined: int = 0
     media_imported: int
     counts: Dict[str, int]

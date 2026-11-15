@@ -30,7 +30,16 @@ describe('backup file import model', () => {
   })
 
   it('describes the result', () => {
-    expect(describeImport({ imported: [{ source_id: 1, drama_id: 5, title: 'A', media_imported: false }], series_created: 0, media_imported: 0, counts: { lines: 1 } }))
+    expect(describeImport({ imported: [{ source_id: 1, drama_id: 5, title: 'A', media_imported: false }], series_created: 0, series_joined: 0, media_imported: 0, counts: { lines: 1 } }))
       .toBe('Imported 1 title. 1 line. No files were imported.')
+    expect(describeImport({ imported: [{ source_id: 1, drama_id: 5, title: 'A', media_imported: false }], series_created: 1, series_joined: 2, media_imported: 0, counts: {} }))
+      .toBe('Imported 1 title. 1 new series. Added to 2 existing series. No files were imported.')
+  })
+
+  it('the series note follows the join choice', () => {
+    expect(importNotes(list(), [A], '2026-09-30').join(' ')).toContain("new series named '… (imported 2026-09-30)'")
+    const joined = importNotes(list(), [A], '2026-09-30', true).join(' ')
+    expect(joined).toContain('is added to that series')
+    expect(joined).toContain('voice prints combined')
   })
 })

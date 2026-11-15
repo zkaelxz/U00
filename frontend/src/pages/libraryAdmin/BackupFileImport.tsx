@@ -26,6 +26,7 @@ export function BackupFileImport({ onDone, onCancel }: {
   const [file, setFile] = useState<File | null>(null)
   const [list, setList] = useState<BackupFileDramaList | null>(null)
   const [chosen, setChosen] = useState<Set<number>>(new Set())
+  const [joinSeries, setJoinSeries] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -54,7 +55,7 @@ export function BackupFileImport({ onDone, onCancel }: {
     if (!file) return
     setBusy(true)
     setError(null)
-    importBackupFileDramas(file, [...chosen]).then(
+    importBackupFileDramas(file, [...chosen], undefined, joinSeries).then(
       (r) => {
         setBusy(false)
         onDone(r)
@@ -108,6 +109,14 @@ export function BackupFileImport({ onDone, onCancel }: {
               </ul>
             </>
           )}
+          {list.dramas.length > 0 && (
+            <p>
+              <label className="muted">
+                <input type="checkbox" checked={joinSeries} onChange={(e) => setJoinSeries(e.target.checked)} />{' '}
+                Add each series to the one of the same name here, with its characters, voice prints and glossary
+              </label>
+            </p>
+          )}
           <div className="actions">
             <button type="button" disabled={!picked.length} onClick={() => setConfirming(true)}>
               Import {picked.length ? `${picked.length} selected` : 'selected'}…
@@ -125,7 +134,7 @@ export function BackupFileImport({ onDone, onCancel }: {
           onCancel={() => setConfirming(false)}
         >
           <ul className="restore-notes" data-testid="import-notes">
-            {importNotes(list, picked).map((n) => <li key={n}>{n}</li>)}
+            {importNotes(list, picked, undefined, joinSeries).map((n) => <li key={n}>{n}</li>)}
           </ul>
         </TypedConfirm>
       )}
