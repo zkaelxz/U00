@@ -408,7 +408,7 @@ class TestGlossaryWaitingMessage:
         job_id = gs.start_lines_glossary_run(did)["job_id"]
         e = bell(job_id)
         assert e["kind"] == "waiting"
-        assert e["text"] == "Waiting for you: 2 glossary names to review - L"
+        assert e["text"] == "Waiting for you: 2 glossary names to review - L (S)"
         assert e["target"] == {"page": "glossary", "drama_id": did}
         assert background_jobs.get_status(job_id)["status"] == "done"
 
@@ -418,14 +418,14 @@ class TestGlossaryWaitingMessage:
         isolated_db.upsert_glossary_term(sid, "师尊", "Master")
         monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: self.NAMES)
         e = bell(gs.start_lines_glossary_run(did)["job_id"])
-        assert e["text"] == "Waiting for you: 1 glossary name to review - L"
+        assert e["text"] == "Waiting for you: 1 glossary name to review - L (S)"
 
     def test_no_new_names_stays_finished(self, isolated_db, monkeypatch, fake_engine, bell):
         did, sid = _lines_drama(isolated_db)
         isolated_db.upsert_glossary_term(sid, "师尊", "Master")
         monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: self.NAMES[2:])
         e = bell(gs.start_lines_glossary_run(did)["job_id"])
-        assert (e["kind"], e["text"]) == ("job_done", "Finished: Glossary from lines - L")
+        assert (e["kind"], e["text"]) == ("job_done", "Finished: Glossary from lines - L (S)")
         assert "target" not in e
 
     def test_novel_run_with_names_waits_for_you(self, isolated_db, monkeypatch, fake_engine, bell):
@@ -436,7 +436,7 @@ class TestGlossaryWaitingMessage:
             f.write("沈清来了。青云宗的师尊。")
         monkeypatch.setattr(tguide, "extract_glossary_from_novel", lambda *a, **kw: self.NAMES[:1])
         e = bell(gs.start_novel_glossary_run(did)["job_id"])
-        assert (e["kind"], e["text"]) == ("waiting", "Waiting for you: 1 glossary name to review - L")
+        assert (e["kind"], e["text"]) == ("waiting", "Waiting for you: 1 glossary name to review - L (S)")
         assert e["target"] == {"page": "glossary", "drama_id": did}
 
 

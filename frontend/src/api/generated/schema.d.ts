@@ -23023,6 +23023,8 @@ export interface components {
             chapters?: boolean | null;
             /** Jobs */
             jobs?: boolean | null;
+            /** Private Titles */
+            private_titles?: boolean | null;
             /** Remote */
             remote?: boolean | null;
         };
@@ -23079,6 +23081,8 @@ export interface components {
             send_jobs: boolean;
             /** Send Remote */
             send_remote: boolean;
+            /** Show Private Titles */
+            show_private_titles: boolean;
         };
         /**
          * NotificationTarget
