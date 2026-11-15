@@ -16,7 +16,7 @@ import { buttonClass } from '../../components/uiClasses'
 import type { PcMode } from '../../hooks/usePcOnly'
 import type { RemoteSetup } from '../../types/diagnostics'
 import { ApiError } from '../../api/client'
-import { keyWritesRefused } from '../../components/errorMessages'
+import { describeError, keyWritesRefused } from '../../components/errorMessages'
 import { redirectAddress, setupSummary, signInProblem, stepBadge } from './remoteSetupModel'
 
 export function RemoteSetupSection({ pc }: { pc: PcMode }) {
@@ -78,7 +78,7 @@ function RemoteSetupBody() {
       },
       (e: unknown) => {
         // A 422 text is fixed and never echoes a value; a 403 on the PC means key writes are off.
-        setFormError(e instanceof ApiError && e.status === 403 ? keyWritesRefused() : e instanceof ApiError && e.status === 422 ? e.message : 'Could not save. Try again.')
+        setFormError(e instanceof ApiError && e.status === 403 ? keyWritesRefused() : e instanceof ApiError && e.status === 422 ? e.message : `Could not save. ${describeError(e).title}`)
         setSaving(false)
       },
     )
