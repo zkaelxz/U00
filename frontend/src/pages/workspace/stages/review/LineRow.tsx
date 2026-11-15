@@ -19,6 +19,7 @@ import { LineAi } from './LineAi'
 import { LineOrigin } from './LineOrigin'
 import { LineTools } from './LineTools'
 import { RowSpeakerGuesses } from './SpeakerGuesses'
+import { SpeakerChip } from './SpeakerChip'
 import { SpeakerSelect } from './SpeakerSelect'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
@@ -560,7 +561,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
           </span>
         )}
         {!prose && !isPhone && (!simple || line.flag === READING_SPEED_FLAG) && <LineCps line={line} />}
-        {!prose && line.speaker && <span className="review-speaker">{line.speaker}</span>}
+        {!prose && line.speaker && <SpeakerChip dramaId={dramaId} line={line} actions={actions} />}
         {langChip && (
           <span data-testid="line-lang" title={`Spoken in ${languageLabel(line.lang)}`}>
             <span aria-hidden="true"><Badge>{langChip}</Badge></span>

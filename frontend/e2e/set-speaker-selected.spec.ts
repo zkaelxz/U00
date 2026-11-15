@@ -41,10 +41,9 @@ test('tick lines low on the page, Set speaker opens in view and changes them all
   const panel = page.getByTestId('set-speaker')
   await expect(panel).toBeVisible()
   await expect(panel).toBeInViewport()
-  // The field is a text box until the title's speakers load, then a list.
-  await expect(panel.getByRole('combobox', { name: 'Speaker for 5 lines' })).toBeVisible()
-  await panel.getByRole('combobox', { name: 'Speaker for 5 lines' }).selectOption('Anvil')
-  await panel.getByRole('button', { name: 'Set speaker', exact: true }).click()
+  // One button per speaker the title has: pressing one sets it on every ticked line.
+  await expect(panel).toContainText('Speaker for 5 lines')
+  await panel.getByRole('button', { name: 'Anvil', exact: true }).click()
   await expect(panel.getByRole('status')).toContainText('Set the speaker of 5 lines to Anvil.')
   for (const n of [35, 36, 37, 38, 39]) {
     const row = page.locator('.review-line').filter({ has: tickBox(page, n) })
@@ -66,4 +65,25 @@ test('tick lines low on the page, Set speaker opens in view and changes them all
   await tickBox(page, 39).check()
   await expect(panel).toBeAttached()
   await expect(tickBox(page, 39)).toBeInViewport()
+})
+
+test('the speaker name on a line is a button: pick another speaker and it is saved at once, or type a new one', async ({ page }) => {
+  seedSpokenLines(6)
+  await page.goto('/#/drama/3/review')
+  const row = (n: number) => page.locator('.review-line').filter({ has: tickBox(page, n) })
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(6)
+
+  // Line 2 is Anvil; its name opens the title's speakers.
+  await row(2).getByRole('button', { name: /Change it/ }).click()
+  const list = page.getByRole('group', { name: 'Choose a speaker' })
+  await expect(list.getByRole('button', { name: 'Yamizuki Fuyu' })).toBeVisible()
+  await list.getByRole('button', { name: 'Yamizuki Fuyu' }).click()
+  await expect(list).toHaveCount(0)
+  await expect(row(2).getByRole('button', { name: /Change it/ })).toHaveText('Yamizuki Fuyu')
+  await expect(row(4).getByRole('button', { name: /Change it/ })).toHaveText('Anvil')
+
+  await row(2).getByRole('button', { name: /Change it/ }).click()
+  await page.getByLabel('New speaker').fill('Sensei')
+  await page.keyboard.press('Enter')
+  await expect(row(2).getByRole('button', { name: /Change it/ })).toHaveText('Sensei')
 })
