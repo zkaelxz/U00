@@ -40,6 +40,11 @@ def _trusted(drama: dict, cut) -> List[Tuple[str, str]]:
     return out
 
 
+def _in_dictionary(word: str) -> bool:
+    # jieba's frequency table holds only words it knows; a zero entry is a prefix placeholder.
+    return bool(segment._load_jieba().dt.FREQ.get(word))
+
+
 def find_for_title(drama_id: int) -> dict:
     """{available, reason, lines_scanned, truncated, suggestions[]}. Chinese titles only."""
     drama = ownership_service.require_drama(drama_id)
@@ -66,5 +71,6 @@ def find_for_title(drama_id: int) -> dict:
         canon = segment.opencc_t2s().convert
     except ImportError:
         canon = lambda w: w  # noqa: E731
-    result = find_misheard(lines, _trusted(drama, cut), cut, canon)
+    result = find_misheard(lines, _trusted(drama, cut), cut, canon,
+                           lambda w: _in_dictionary(canon(w)))
     return {"available": True, "reason": "", "lines_scanned": len(lines), **result}

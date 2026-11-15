@@ -78,3 +78,15 @@ def test_service_reports_missing_jieba(isolated_db, monkeypatch):
     monkeypatch.setattr(misheard_service.segment, "missing_word_segmenters", lambda lang: ["jieba"])
     out = misheard_service.find_for_title(did)
     assert not out["available"] and "jieba" in out["reason"]
+
+
+def test_a_dictionary_word_is_not_a_slip_of_a_merely_frequent_word():
+    lines = _lines("書院", "書院", "書院", "數院")
+    kept = mf.find_misheard(lines, [], cut)
+    dropped = mf.find_misheard(lines, [], cut, is_dictionary_word=lambda w: w == "數院")
+    assert kept["suggestions"] and dropped["suggestions"] == []
+
+
+def test_a_dictionary_word_can_still_be_a_slip_of_a_glossary_word():
+    out = mf.find_misheard(_lines("亞羅"), [("亞洛", "glossary")], cut, is_dictionary_word=lambda w: True)
+    assert out["suggestions"][0]["suggested"] == "亞洛"
