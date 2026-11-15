@@ -27339,6 +27339,11 @@ export interface components {
             ocr_backend: string;
             /** Ocr Prefer Paddle Vl Manga */
             ocr_prefer_paddle_vl_manga: boolean;
+            /**
+             * Ollama Cloud Default
+             * @default false
+             */
+            ollama_cloud_default: boolean;
             /** Ollama Num Ctx Override */
             ollama_num_ctx_override: number;
             /**
@@ -27702,6 +27707,8 @@ export interface components {
             ocr_prefer_paddle_vl_manga?: boolean | null;
             /** Offer Provider Models */
             offer_provider_models?: boolean | null;
+            /** Ollama Cloud Default */
+            ollama_cloud_default?: boolean | null;
             /** Ollama Num Ctx Override */
             ollama_num_ctx_override?: number | null;
             /** Openai Reasoning */
