@@ -94,3 +94,11 @@ export async function mockPeaks(page: Page, fail = false): Promise<void> {
     return route.fulfill({ json: { start: Number(q.get('start')), end: Number(q.get('end')), buckets, peaks } })
   })
 }
+
+/** On a phone the selection bar lists its actions in a sheet: opens it and returns the named action there. */
+export async function phoneBarAction(page: Page, name: string) {
+  const bar = page.getByTestId('selection-bar')
+  const count = (await bar.locator('.review-selbar-count').textContent()) ?? ''
+  await bar.getByRole('button', { name: 'Actions…' }).tap()
+  return page.getByRole('dialog', { name: count.trim() }).getByRole('button', { name })
+}

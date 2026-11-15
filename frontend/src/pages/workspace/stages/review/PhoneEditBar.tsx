@@ -1,3 +1,5 @@
+import { useCallback, useRef } from 'react'
+
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
 import { DISCARD_WARNING } from './LineRow'
@@ -21,8 +23,9 @@ interface Props {
 
 // The phone action bar for the active line.
 export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCancel, onSave, onSaveAndNext, onPlay, onMove, onEdit, queue }: Props) {
+  const barRef = usePublishedHeight('--editbar-h')
   return (
-    <div className={queue ? 'review-editbar is-queue' : 'review-editbar'} role="toolbar" aria-label="Line actions" onMouseDown={editing ? (e) => e.preventDefault() : undefined}>
+    <div ref={barRef} className={queue ? 'review-editbar is-queue' : 'review-editbar'} role="toolbar" aria-label="Line actions" onMouseDown={editing ? (e) => e.preventDefault() : undefined}>
       {editing ? (
         <>
           {discardWarning && <span role="status">{DISCARD_WARNING}</span>}
@@ -57,4 +60,25 @@ export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCanc
       )}
     </div>
   )
+}
+
+// The selection bar and the floating player sit just above this bar, which is taller in the check queue (two-line
+// buttons) and while editing. Its live height goes on the page as a CSS variable they both read, and is gone while
+// the bar is not shown.
+function usePublishedHeight(name: string) {
+  const observer = useRef<ResizeObserver | null>(null)
+  return useCallback((el: HTMLElement | null) => {
+    const root = document.documentElement.style
+    observer.current?.disconnect()
+    observer.current = null
+    if (!el) {
+      root.removeProperty(name)
+      return
+    }
+    const publish = () => root.setProperty(name, `${el.getBoundingClientRect().height}px`)
+    publish()
+    if (typeof ResizeObserver === 'undefined') return
+    observer.current = new ResizeObserver(publish)
+    observer.current.observe(el)
+  }, [name])
 }
