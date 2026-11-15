@@ -53,7 +53,12 @@ MAX_ITEMS_PER_MEMBER = 50
 STEPS = ("transcribe", "translate", "export")
 # Added only by Quick video translate; never a step to pick.
 DOWNLOAD = "download"
-_ALL_STEPS = (DOWNLOAD,) + STEPS
+# The glossary scan of a title's lines; added only by a title page's one-button start.
+NAMES = "names"
+_ALL_STEPS = (DOWNLOAD,) + STEPS + (NAMES,)
+# A chain saved before items recorded the steps they wait for is a Quick video run, in this order.
+_LEGACY_CHAIN = (DOWNLOAD,) + STEPS
+_UNFINISHED = "An earlier step of this run did not finish."
 POLL_SECONDS = 5.0
 # A start time first seen this late was slept through (the PC was asleep, so
 # nothing ticked) and becomes "missed", like one that passed while Baihe was
@@ -71,6 +76,7 @@ _MAX_REASON = 300
 _STOPPED_AFTER_FAILURE = "Stopped because an item failed. Start the queue to go on."
 _STOPPED_MESSAGE = "The queue stopped because an item failed. Start the queue to go on."
 _INTERRUPTED = "Interrupted: Baihe stopped while this ran. Press Retry to run it again."
+_NOT_STARTED = "Not started: Baihe stopped before it ran. Press Retry to run it."
 _WAITING_FOR_CAP = ("Waiting for other jobs of the account that added it to finish; it "
                     "starts when one of them ends.")
 # Marks the document as this process's. A document without it came from an
@@ -95,7 +101,7 @@ def _empty() -> dict:
 
 
 _SETTING_KEYS = {"transcribe": transcribe_options_service.QUEUE_SETTING_KEYS,
-                 "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS, DOWNLOAD: ("url",)}
+                 "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS, DOWNLOAD: ("url",), NAMES: ()}
 
 
 def _clean_settings(raw, step: str) -> dict:
@@ -121,11 +127,21 @@ def _clean_item(raw) -> Optional[dict]:
     if raw.get("step") not in _ALL_STEPS or raw.get("status") not in (WAITING, RUNNING) + FINISHED:
         return None
     uid = raw.get("user_id")
+    chain = raw["chain"] if isinstance(raw.get("chain"), str) and raw["chain"] else None
+    needs = raw.get("needs")
+    if isinstance(needs, list):
+        needs = [n for n in needs if n in _ALL_STEPS]
+    elif chain and raw["step"] in _LEGACY_CHAIN:
+        needs = list(_LEGACY_CHAIN[:_LEGACY_CHAIN.index(raw["step"])])
+    else:
+        needs = []
     return {"id": item_id, "drama_id": drama_id, "step": raw["step"], "status": raw["status"],
             "reason": _short(raw.get("reason")), "job_id": raw.get("job_id") or None,
             "user_id": uid if isinstance(uid, int) else None,
             "override": bool(raw.get("override")),
-            "chain": raw["chain"] if isinstance(raw.get("chain"), str) and raw["chain"] else None,
+            "chain": chain, "needs": needs if chain else [],
+            # Started by a button, not by the queue's Start: runs without the queue running.
+            "now": bool(raw.get("now")),
             "auto_series": raw["auto_series"] if type(raw.get("auto_series")) is int else None,
             "settings": _clean_settings(raw.get("settings"), raw["step"]),
             # Items saved before "at_pc" was recorded count as away from the PC:
@@ -166,6 +182,9 @@ def _settle(doc: dict, now: float) -> None:
     for item in doc["items"]:
         if item["status"] == RUNNING:
             _finish(item, INTERRUPTED, _INTERRUPTED, now)
+        elif item["status"] == WAITING and item["now"]:
+            # It would otherwise start on its own in the new process, which the queue never does.
+            _finish(item, INTERRUPTED, _NOT_STARTED, now)
     doc["state"] = IDLE
     if doc["schedule"] and now >= doc["schedule"]["start_at"]:
         doc["schedule"]["missed"] = True
@@ -404,8 +423,9 @@ def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc:
 
 
 def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: Optional[str] = None,
-                  auto_series: Optional[int] = None) -> None:
-    """Appends `entries` (step, settings) in order, all or none, under one lock."""
+                  auto_series: Optional[int] = None, now: bool = False) -> None:
+    """Appends `entries` (step, settings) in order, all or none, under one lock. In a `chain` each
+    item waits for the steps before it. `now` items start without the queue's Start."""
     with _lock:
         doc = _load()
         if len(doc["items"]) + len(entries) > MAX_ITEMS:
@@ -416,12 +436,13 @@ def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: O
                 1 for i in doc["items"] if i["user_id"] == uid) + len(entries) > MAX_ITEMS_PER_MEMBER:
             raise ConflictError(f"You can have at most {MAX_ITEMS_PER_MEMBER} items in the "
                                 "queue. Clear your finished items first.")
-        for step, settings in entries:
+        for n, (step, settings) in enumerate(entries):
             doc["items"].append({
                 "id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
                 "reason": "", "job_id": None, "user_id": uid,
                 "override": _overrides(principal), "at_pc": at_pc, "added_at": _clock(),
                 "chain": chain, "auto_series": auto_series, "settings": settings,
+                "needs": [s for s, _ in entries[:n]] if chain else [], "now": now,
                 "started_at": None, "finished_at": None})
             doc["next_id"] += 1
         _save(doc)
@@ -701,6 +722,25 @@ def _start_translate(principal, drama: dict, settings: Optional[dict] = None,
         **({"job_cost_cap_usd": left} if left is not None else {}))["job_id"]
 
 
+def _require_chain_finished(item: dict, items: list) -> None:
+    """Raises unless every step this item waits for has a done item in its chain, whatever their
+    positions in the queue: moving or removing an item must not run a step on a title that did not get
+    its media or lines."""
+    done = {other["step"] for other in items if other.get("chain") == item["chain"] and other["status"] == DONE}
+    if not set(item.get("needs") or ()) <= done:
+        raise ConflictError(_UNFINISHED)
+
+
+def _start_names(principal, drama: dict) -> str:
+    from services import glossary_extract_service
+    engine = glossary_extract_service.lines_glossary_engine(drama["id"])
+    # Checked again at start, as for Translate: the adder's permission and the title's engine may have changed.
+    if engine not in engine_registry.FREE_ENGINES and not _holds(principal, "engines.paid"):
+        raise ForbiddenError("This title finds names with a paid engine, which the account "
+                             "that added it can't use.")
+    return glossary_extract_service.start_lines_glossary_run(drama["id"], engine_name=engine)["job_id"]
+
+
 def _start_item(item: dict) -> Optional[str]:
     """Starts the item as its adder; returns the job id, or None for a step
     that finished inline. Raises ServiceError with the reason to skip it."""
@@ -710,7 +750,7 @@ def _start_item(item: dict) -> Optional[str]:
     if item.get("chain"):
         with _lock:
             items = _load()["items"]
-        quick_video_service.require_chain_finished(item, items)
+        _require_chain_finished(item, items)
     principal = _run_principal(item)
     if not _owns_title(principal, item["drama_id"]):
         raise ForbiddenError("The account that added this item no longer owns the title.")
@@ -737,6 +777,8 @@ def _start_item(item: dict) -> Optional[str]:
             return _start_transcribe(principal, drama, item.get("settings") or {})
         if item["step"] == "translate":
             return _start_translate(principal, drama, item.get("settings") or {}, item.get("auto_series"))
+        if item["step"] == NAMES:
+            return _start_names(principal, drama)
         if item.get("auto_series") is not None:
             export_service.run_auto_qc_flagging(drama["id"])
         run_export(drama, item.get("settings") or {})
@@ -753,6 +795,10 @@ def _job_outcome(job_id: str):
     The in-memory state is checked first: it is the authority while the job
     runs here, and the record can lag when a status write failed."""
     import background_jobs
+    from jobs import gpu_guard
+    if gpu_guard.restart_pending(job_id):
+        # Stopped by the GPU guard, which starts it again under the same id once the GPU is clear.
+        return False, RUNNING, ""
     live = background_jobs.get_status(job_id)
     if live and live.get("status") in ("queued", "running"):
         return False, RUNNING, ""
@@ -820,7 +866,8 @@ def tick(now: float | None = None) -> None:
             item = next((i for i in doc["items"] if i["id"] == running["id"]), None)
             if item is not None and item["status"] == RUNNING:
                 _finish(item, status, reason, now)
-                if status == FAILED and doc["stop_on_failure"]:
+                # A button's start failing is that title's business, not a reason to stop everyone's queue.
+                if status == FAILED and doc["stop_on_failure"] and not item["now"]:
                     doc["state"] = IDLE
                     doc["notice"] = _STOPPED_AFTER_FAILURE
                     stopped_for = item
@@ -850,12 +897,15 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         return     # a restore or cleanup holds the library: wait rather than skip everything
     with _lock:
         doc = _load(now)
-        if doc["state"] != ACTIVE or any(i["status"] == RUNNING for i in doc["items"]):
+        if any(i["status"] == RUNNING for i in doc["items"]):
             return
-        item = next((i for i in doc["items"]
-                     if i["status"] == WAITING and i["id"] not in deferred), None)
+        waiting = [i for i in doc["items"] if i["status"] == WAITING and i["id"] not in deferred]
+        # A start pressed on a page goes ahead of the items waiting for the queue's Start.
+        item = next((i for i in waiting if i["now"]), None)
+        if item is None and doc["state"] == ACTIVE:
+            item = next(iter(waiting), None)
         if item is None:
-            if not deferred:
+            if not deferred and doc["state"] == ACTIVE and not waiting:
                 doc["state"] = IDLE
                 _save(doc)
             return

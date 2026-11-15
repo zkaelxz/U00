@@ -12,11 +12,12 @@ from api.schemas.common import QueueSettingRow
 
 __all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueAddBulk", "QueueBulkAdded", "QueueBulkSkip", "QueueMove",
            "QueueScheduleSet", "QueuePolicy", "QueueSettingOption",
-           "QueueSettingField", "QueueStepSettings"]
+           "QueueSettingField", "QueueStepSettings", "TitleFlowRun"]
 
 _QueueStep = Literal["transcribe", "translate", "export"]
-# The download step exists only in the chain Quick video translate adds; it is shown, never picked.
-_QueueItemStep = Literal["download", "transcribe", "translate", "export"]
+# The download step exists only in the chain Quick video translate adds, and names (the glossary scan)
+# only in a title page's one-button run; both are shown, never picked.
+_QueueItemStep = Literal["download", "transcribe", "translate", "export", "names"]
 
 
 class QueueItem(BaseModel):
@@ -122,3 +123,10 @@ class QueueStepSettings(BaseModel):
     title: str
     rows: List[QueueSettingRow]
     fields: List[QueueSettingField] = []
+
+
+class TitleFlowRun(BaseModel):
+    """How far a title's audio or video one-button run got (services/page_run_service.py)."""
+    state: Literal["idle", "waiting", "running", "stopped", "review"]
+    step: Optional[_QueueItemStep] = None
+    reason: Optional[str] = None

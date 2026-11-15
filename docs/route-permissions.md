@@ -481,6 +481,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/queue/schedule` | jobs.start |
 | `GET /api/queue/settings` | jobs.start |
 | `POST /api/queue/start` | jobs.start |
+| `GET /api/queue/title-flow/{drama_id}` | jobs.start |
+| `POST /api/queue/title-flow/{drama_id}` | jobs.start |
 | `GET /api/quick-video/runs` | jobs.start |
 | `GET /api/quick-video/settings` | library.read |
 | `POST /api/quick-video/settings` | admin.library |

@@ -290,6 +290,9 @@ While held:
   with it off it waits for the card to clear first. A restart refused as busy (a stopped
   translation's last Ollama request still running) is retried for 15 min. After
   `MAX_RESTARTS` (3) restarts in a row a further stop is final, and the job says so.
+  Until it starts again, `gpu_guard.restart_pending(job_id)` is true and the job queue
+  (`queue_service._job_outcome`) keeps the item that started it running, so a run on the
+  queue goes on with its next step instead of ending as cancelled.
 
 Which jobs register (checked per type, 2026-11-15):
 

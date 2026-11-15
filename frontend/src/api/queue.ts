@@ -1,4 +1,4 @@
-import type { QueueBulkAdded, QueueSettingEdits, QueueState, QueueStep, QueueStepSettings } from '../types/queue'
+import type { QueueBulkAdded, QueueSettingEdits, QueueState, QueueStep, QueueStepSettings, TitleFlowRun } from '../types/queue'
 import { getJson, postJson, type Fetch } from './client'
 
 export const getQueue = (f?: Fetch) => getJson<QueueState>('/api/queue', f)
@@ -30,3 +30,7 @@ export const setQueueSchedule = (time: string | null, f?: Fetch) =>
   postJson<QueueState>('/api/queue/schedule', { time }, f)
 export const setQueuePolicy = (stopOnFailure: boolean, f?: Fetch) =>
   postJson<QueueState>('/api/queue/policy', { stop_on_failure: stopOnFailure }, f)
+
+// A title's one-button run (transcribe, then find names), carried on by the PC with the page closed.
+export const getTitleFlow = (dramaId: number, f?: Fetch) => getJson<TitleFlowRun>(`/api/queue/title-flow/${dramaId}`, f)
+export const startTitleFlow = (dramaId: number, f?: Fetch) => postJson<TitleFlowRun>(`/api/queue/title-flow/${dramaId}`, undefined, f)

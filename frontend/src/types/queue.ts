@@ -4,8 +4,9 @@ import type { components } from '../api/generated/schema'
 type Schemas = components['schemas']
 
 export type QueueStep = 'transcribe' | 'translate' | 'export'
-// The download item exists only in a Quick video translate run; it is shown, never picked.
-export type QueueItemStep = 'download' | QueueStep
+// The download item exists only in a Quick video translate run, and names (the glossary scan) only in a
+// title page's one-button run; both are shown, never picked.
+export type QueueItemStep = 'download' | 'names' | QueueStep
 export type QueueItemStatus = 'waiting' | 'running' | 'done' | 'failed' | 'skipped' | 'interrupted' | 'cancelled'
 export type QueueItem = Schemas['QueueItem']
 
@@ -26,3 +27,6 @@ export type QueueSettingField = Schemas['QueueSettingField']
 export type QueueSettingEdits = Record<string, QueueSettingValue>
 
 export type QueueStepSettings = Schemas['QueueStepSettings']
+
+// GET/POST /api/queue/title-flow/{id}: how far a title's one-button run got.
+export type TitleFlowRun = Schemas['TitleFlowRun']
