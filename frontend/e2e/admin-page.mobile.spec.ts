@@ -27,13 +27,16 @@ for (const scheme of ['light', 'dark'] as const) {
       { id: 1, ts: '2026-09-30T12:01:00Z', user_id: 2, action: 'login.success', detail: `user 2 ip 203.0.113 ${'y'.repeat(120)}` },
     ], next_before_id: null, actions: ['login.success'] } }))
     await page.route('**/api/diagnostics/remote-health/ip-check', (r) => r.fulfill({ json: { configured: true } }))
+    await page.route('**/api/diagnostics/remote-setup', (r) => r.fulfill({ json: {
+      steps: [{ id: 'name', title: 'Choose the public name', state: 'todo', message: 'Pick a name such as baihe.your-domain, point its DNS record at your home, then enter it below.', who: 'you' }],
+      next: 'name', fields: { public_url: false, google_client_id: false, google_client_secret: false }, restart_needed: false } }))
     await page.goto('/#/admin')
     await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
     const cards = page.locator('details.section')
-    await expect(cards).toHaveCount(3)
-    for (let n = 1; n < 3; n++) await cards.nth(n).locator('summary').tap()
+    await expect(cards).toHaveCount(4)
+    for (let n = 1; n < 4; n++) await cards.nth(n).locator('summary').tap()
     await expect(page.getByRole('table', { name: 'Activity log' })).toBeVisible()
-    for (let n = 0; n < 3; n++) {
+    for (let n = 0; n < 4; n++) {
       const box = await cards.nth(n).locator('summary').boundingBox()
       expect(box!.height).toBeGreaterThanOrEqual(44)
     }
