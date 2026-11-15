@@ -604,7 +604,7 @@ def _payload(channel, text, embed=None):
     if channel == "discord":
         import json
         # allowed_mentions: a drama title can never ping @everyone/@here.
-        body = {"allowed_mentions": {"parse": []}}
+        body: dict = {"allowed_mentions": {"parse": []}}
         if embed:
             body["embeds"] = [embed]
         else:
@@ -906,7 +906,9 @@ def _job_embed(description, status, with_errors, reason, job_id, owner_user_id):
     started, finished = job.get("started_at"), job.get("finished_at")
     if started is not None and finished is not None and finished >= started:
         fields.append(("Duration", _duration_text(finished - started)))
-    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    result = job.get("result") or {}
+    if not isinstance(result, dict):
+        result = {}
     for key, label in RESULT_COUNTS:
         value = result.get(key)
         if isinstance(value, int) and not isinstance(value, bool) and value > 0:
