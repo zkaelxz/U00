@@ -327,6 +327,18 @@ FAILED_REASON_MESSAGES = {
 }
 
 
+# Reasons a job reports in its result while its status stays `done` (the stage panels read the
+# result for their own wording). Only the Jobs list and the bell read these, so a reason with no
+# sentence of its own does not fall back to "The job did not finish." with nothing after it.
+RESULT_ONLY_REASON_MESSAGES = {
+    "timeout": "The job took too long and was stopped.",
+    "unreadable": "The audio's length couldn't be read.",
+    "decode": "The audio check failed.",
+    "audio_slice": "Re-hearing the line failed.",
+    "not_applied": "Nothing was changed.",
+}
+
+
 _MODEL_DOWNLOAD_BY_KIND = (
     (("transcribe_",), "The speech model could not be downloaded."),
     (("retime_", "resegment_", "resplit_", "resegpreview_"), "The aligner model could not be downloaded."),
@@ -445,7 +457,7 @@ def _failed_reason_outcome(result: dict) -> tuple:
         skipped = speaker_skip_text(result)
         return "partial", f"{NO_LINES_MESSAGE} {skipped}" if skipped else NO_LINES_MESSAGE
     detail = result.get("detail")
-    msg = FAILED_REASON_MESSAGES.get(reason, "The job did not finish.")
+    msg = FAILED_REASON_MESSAGES.get(reason) or RESULT_ONLY_REASON_MESSAGES.get(reason, "The job did not finish.")
     msg = f"{msg} {detail}" if detail else msg
     if result.get("gpu_fallback"):
         # A CPU rerun after a GPU crash that then failed: the crash is the first cause.
