@@ -15,7 +15,7 @@ table) is in `archive/asr-experiments-history.md`.
 |---|---|---|---|
 | Whisper model | per title (Workspace) | `large-v3-turbo`, same on CPU and GPU | `whisper_models.DEFAULT_WHISPER_SIZE`. A model saved on a title is never replaced. |
 | Japanese Whisper fine-tune `ja-1.5b` | per title (Workspace) and Live, Japanese only | not offered | Opt-in, never a default or part of a preset. See "whisper-ja 1.5B" below. |
-| Chinese Whisper model `breeze-asr-25` | per title (Workspace), Chinese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "Breeze-ASR-25 in the app" below. |
+| Chinese Whisper model `breeze-asr-25` | per title (Workspace), Chinese titles only | not offered | Default for Chinese titles with no saved model and for Chinese Live streams, once downloaded (otherwise large-v3 / small); not part of a preset. See "Breeze-ASR-25 in the app" below. |
 | Japanese Whisper model `kotoba-v2` | per title (Workspace), Japanese titles only | not offered | Opt-in, never a default or part of a preset; not in Live. See "kotoba-whisper v2.0 in the app" below. |
 | ASR backend | per title | `whisper` | `whisper`, `qwen3_asr`, `qwen3_asr_vad`, `qwen3_asr_long`, and the opt-in Japanese-only `anime_whisper` (see "anime-whisper in the app"). |
 | Qwen3-ASR batch size | Settings > Performance and advanced > Advanced transcription (PC only; shown only while Developer Mode is on) | 1 | Range 1-16. |
@@ -334,8 +334,10 @@ No benchmark of `kotoba-v2` in this app exists yet; the speed and accuracy claim
 
 #### Breeze-ASR-25 in the app
 
-`breeze-asr-25` is MediaTek Research's Taiwanese Mandarin fine-tune of whisper-large-v2 (Apache-2.0). Opt-in for
-Chinese titles only (`WHISPER_LANGUAGE_RULES`), never the default, not in Live.
+`breeze-asr-25` is MediaTek Research's Taiwanese Mandarin fine-tune of whisper-large-v2 (Apache-2.0). The default for
+Chinese titles with no saved model and for Chinese Live streams once it is downloaded
+(`whisper_models.default_whisper_size_for`, `live_service._language_whisper_defaults`); Chinese only
+(`WHISPER_LANGUAGE_RULES`).
 
 | | |
 |---|---|

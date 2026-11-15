@@ -21838,6 +21838,13 @@ export interface components {
             /** Default Model */
             default_model: string | null;
             defaults: components["schemas"]["LiveFormDefaults"];
+            /**
+             * Language Whisper Defaults
+             * @default {}
+             */
+            language_whisper_defaults: {
+                [key: string]: string;
+            };
             /** Languages */
             languages: components["schemas"]["LiveLanguage"][];
             /** Max Minutes Range */
@@ -27942,6 +27949,8 @@ export interface components {
             uroman: boolean;
             /** Whisper Cached Base */
             whisper_cached_base: boolean;
+            /** Whisper Cached Breeze Asr 25 */
+            whisper_cached_breeze_asr_25: boolean;
             /** Whisper Cached Ja 15B */
             whisper_cached_ja_15b: boolean;
             /** Whisper Cached Large V3 */
