@@ -2,7 +2,10 @@
 
 Runs a private set of golden clips (kept outside the repo, which is public) through the app's own
 transcription, speaker detection and translation code on this PC, and writes one markdown results
-table plus a JSON file. Scores: 1 - CER (1 - WER for spaced languages), diarization error rate,
+table plus a JSON file. A transcription clip with "title_settings" runs the app's whole
+transcription pipeline with those stored title settings; one without runs plain Whisper.
+--repeats runs each transcription clip several times and scores the median, because Whisper's
+default decoding differs from run to run. Scores: 1 - CER (1 - WER for spaced languages), diarization error rate,
 translation chrF against a reference, speed as a multiple of real time, and peak GPU memory.
 With --previous it flags every score that got worse than the last run. Nothing is saved to the library.
 
@@ -12,9 +15,14 @@ Paid translation engines also need --allow-paid; a run stops adding paid lines o
 import argparse
 import datetime
 import json
+import multiprocessing
 import os
 import platform
+import queue
+import shutil
+import statistics
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -27,13 +35,15 @@ if str(REPO_ROOT) not in sys.path:
 import portable
 portable.activate_portable_mode()
 
+import diarize
+import job_process_kill
 import media_inspect
 import subtitle_parse
 import whisper_models
 from engine_backends import engine_registry, pricing
 from engine_backends import shared as engine_shared
 from lib.errors import ServiceError
-from services import benchmark_scoring_service, settings_service, translate_service
+from services import benchmark_scoring_service, settings_service, transcribe_service, translate_service
 from tools import self_test
 from tools.asr_bench import Refusal, gpu_guard
 
@@ -44,6 +54,14 @@ REGRESSION_MARGIN = 0.02
 DIARIZATION_FRAME_S = 0.01
 TRANSLATE_BATCH = 20
 MAX_CELL_CHARS = 120
+# The dramas columns a transcription run reads; a clip's "title_settings" may hold only these,
+# so a misspelt one is refused instead of silently running on the default.
+TITLE_SETTING_KEYS = frozenset((
+    "source_language", "chinese_script", "content_mode", "media_type", "transcript_mode",
+    "asr_backend_choice", "alignment_method", "whisper_size", "beam_size", "min_silence_ms",
+    "vad_threshold", "sensitivity_preset", "difficult_audio", "hallucination_silence_sec",
+    "min_pause_sec", "separation_backend", "separate_vocals_first", "realign_long_segments",
+    "whisper_fast_mode", "whisper_repeat_guard", "split_by_sentences", "use_groq"))
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +103,11 @@ def load_manifest(path: str) -> dict:
                 raise Refusal(f'Clip "{cid}": the {key} file was not found.')
         if clip["kind"] == "transcription" and not (clip.get("reference_srt") or clip.get("reference_text")):
             raise Refusal(f'Clip "{cid}" needs "reference_srt" or "reference_text".')
+        settings = clip.get("title_settings")
+        if settings is not None and (not isinstance(settings, dict) or set(settings) - TITLE_SETTING_KEYS):
+            raise Refusal(f'Clip "{cid}": "title_settings" may only hold {", ".join(sorted(TITLE_SETTING_KEYS))}.')
+        if clip.get("backend") is not None and clip["backend"] not in diarize.SPEAKER_MODELS:
+            raise Refusal(f'Clip "{cid}": "backend" must be one of {", ".join(diarize.SPEAKER_MODELS)}.')
     return data
 
 
@@ -220,6 +243,8 @@ def peak_vram_mb():
 # ---------------------------------------------------------------------------
 
 def run_transcription(clip: dict, opts) -> dict:
+    if clip.get("title_settings") is not None:
+        return run_app_transcription(clip, opts)
     import whisper_transcribe
 
     audio_s = media_inspect.duration_seconds(clip["audio"]) or 0.0
@@ -238,11 +263,64 @@ def run_transcription(clip: dict, opts) -> dict:
             "vram_mb": vram, "detail": f"{len(segments)} lines, model {opts.whisper_model}"}
 
 
-def run_diarization(clip: dict, opts) -> dict:
-    import diarize
+def _transcribe_in_child(args: tuple) -> dict:
+    """The worker's outcome, run in a spawned process as the app runs it: a fresh process gets a
+    clean GPU each time, which matters when one clip runs several times."""
+    from services import transcribe_pipeline
 
-    token = settings_service.resolve_key("hf_token")
-    if not token:
+    context = multiprocessing.get_context("spawn")
+    results = context.Queue()
+    # Not a daemon: the pipeline starts processes of its own (vocal separation, ffmpeg), which a
+    # daemonic process may not.
+    proc = context.Process(target=transcribe_pipeline._transcribe_worker, args=(*args, results))
+    proc.start()
+    try:
+        while True:
+            try:
+                item = results.get(timeout=5)
+            except queue.Empty:
+                if not proc.is_alive():
+                    raise RuntimeError(f"The transcription process ended without a result (exit code {proc.exitcode}).")
+                continue
+            if item[0] == "ok":
+                return item[1]
+            if item[0] == "error":
+                raise RuntimeError(f"{item[1]}: {item[2]}")
+    finally:
+        proc.join(timeout=30)
+        if proc.is_alive():
+            job_process_kill.kill_tree(proc)
+
+
+def run_app_transcription(clip: dict, opts) -> dict:
+    audio_s = media_inspect.duration_seconds(clip["audio"]) or 0.0
+    language = clip["language"]
+    scratch = tempfile.mkdtemp(prefix="release-check-")
+    try:
+        args = transcribe_service.worker_args_for_settings(
+            {**clip["title_settings"], "source_language": language}, clip["audio"], scratch,
+            opts.use_gpu, clip.get("initial_prompt") or "")
+        started = time.monotonic()
+        outcome = _transcribe_in_child(args)
+        wall = time.monotonic() - started
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    if outcome.get("failed_reason"):
+        raise RuntimeError(f"The transcription stopped: {outcome['failed_reason']}")
+    lines = outcome.get("lines") or []
+    reference = clip.get("reference_text") or "".join(read_cues(clip["reference_srt"], language))
+    score, metric, _ = benchmark_scoring_service.score_output(
+        "transcription", "".join(line.zh for line in lines), reference, language)
+    return {"score": score, "metric": metric, "speed_x": audio_s / wall if wall and audio_s else None,
+            "vram_mb": None,
+            "detail": (f"{len(lines)} lines, app pipeline ({outcome.get('raw_backend')} {outcome.get('raw_model')}); "
+                       "VRAM not measured, it ran in its own process")}
+
+
+def run_diarization(clip: dict, opts) -> dict:
+    backend = clip.get("backend") or settings_service.get("speaker_model")
+    token = "" if backend == "nemotron" else settings_service.resolve_key("hf_token")
+    if token is None or (backend != "nemotron" and not token):
         raise RuntimeError("No Hugging Face token is set up, so speaker detection can't load.")
     audio_s = media_inspect.duration_seconds(clip["audio"]) or 0.0
     with open(clip["reference_rttm"], "r", encoding="utf-8") as fh:
@@ -250,7 +328,13 @@ def run_diarization(clip: dict, opts) -> dict:
     info = {}
     reset_peak_vram()
     started = time.monotonic()
-    turns = diarize.diarize(clip["audio"], token, clip.get("num_speakers"), use_gpu=opts.use_gpu, run_info=info)
+    if backend == "nemotron":
+        import diarize_nemotron
+        # No speaker-count hint here: Nemotron takes none, and the app falls back to pyannote when one is typed.
+        turns, _ = diarize_nemotron.diarize(clip["audio"], use_gpu=opts.use_gpu)
+        info["device"] = "cuda" if opts.use_gpu else "cpu"
+    else:
+        turns = diarize.diarize(clip["audio"], token, clip.get("num_speakers"), use_gpu=opts.use_gpu, run_info=info)
     wall = time.monotonic() - started
     vram = peak_vram_mb()
     der, miss, false_alarm, confusion = diarization_error_rate(reference, turns)
@@ -258,7 +342,7 @@ def run_diarization(clip: dict, opts) -> dict:
     return {"score": der, "metric": "der", "speed_x": audio_s / wall if wall and audio_s else None,
             "vram_mb": vram,
             "detail": (f"found {found} of {len({t['speaker'] for t in reference})} speakers; miss {miss:.1%}, "
-                       f"false alarm {false_alarm:.1%}, confusion {confusion:.1%}; ran on {info.get('device', '?')}")}
+                       f"false alarm {false_alarm:.1%}, confusion {confusion:.1%}; {backend} on {info.get('device', '?')}")}
 
 
 class Spend:
@@ -309,6 +393,15 @@ def worse(kind_metric: str, now, before) -> bool:
     return now > before + REGRESSION_MARGIN if kind_metric == "der" else now < before - REGRESSION_MARGIN
 
 
+def _baseline(row: dict):
+    """The previous run's score to compare with: for a repeated clip its worst run, so a new median
+    is flagged only when it falls below everything the last run's spread already showed."""
+    scores = [s for s in row.get("scores") or [] if s is not None]
+    if len(scores) < 2:
+        return row.get("score")
+    return max(scores) if row.get("metric") == "der" else min(scores)
+
+
 def _fmt(value, digits=3) -> str:
     return "-" if value is None else f"{value:.{digits}f}"
 
@@ -336,7 +429,7 @@ def format_report(run: dict, previous: dict | None) -> str:
         prev_score = prev.get("score") if prev else None
         if r.get("error"):
             result = "FAILED: " + _cell(r["error"])
-        elif prev and worse(r["metric"], r["score"], prev_score):
+        elif prev and worse(r["metric"], r["score"], _baseline(prev)):
             result, flagged = "WORSE", flagged + 1
         else:
             result = "ok"
@@ -356,16 +449,33 @@ def default_out_dir() -> str:
     return portable.data_dir()
 
 
+def run_repeated(run, clip: dict, opts, times: int) -> dict:
+    """run(clip, opts) `times` times: the median score and speed, every score in "scores", the
+    highest VRAM."""
+    rows = [run(clip, opts) for _ in range(times)]
+    if times == 1:
+        return rows[0]
+    scores = [r["score"] for r in rows]
+    known = [s for s in scores if s is not None]
+    speeds = [r["speed_x"] for r in rows if r.get("speed_x") is not None]
+    vrams = [r["vram_mb"] for r in rows if r.get("vram_mb") is not None]
+    spread = f"; {times} runs, scores {min(known):.3f} to {max(known):.3f}" if known else f"; {times} runs"
+    return {"score": statistics.median(known) if known else None, "metric": rows[0]["metric"], "scores": scores,
+            "speed_x": statistics.median(speeds) if speeds else None, "vram_mb": max(vrams) if vrams else None,
+            "detail": (rows[0].get("detail") or "") + spread}
+
+
 def run_all(manifest: dict, opts) -> dict:
     spend = Spend(opts.max_usd)
     results = []
+    repeats = getattr(opts, "repeats", 1)
     with gpu_guard(opts.use_gpu, "Release check"):
         for n, clip in enumerate(manifest["clips"]):
             print(f"[{n + 1}/{len(manifest['clips'])}] {clip['id']} ({clip['kind']}) ...", flush=True)
             row = {"id": clip["id"], "kind": clip["kind"]}
             try:
                 if clip["kind"] == "transcription":
-                    row.update(run_transcription(clip, opts))
+                    row.update(run_repeated(run_transcription, clip, opts, repeats))
                 elif clip["kind"] == "diarization":
                     row.update(run_diarization(clip, opts))
                 else:
@@ -378,7 +488,7 @@ def run_all(manifest: dict, opts) -> dict:
             results.append(row)
     return {"when": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "machine": platform.node() or "unknown",
             "gpu": gpu_name() if opts.use_gpu else None, "whisper_model": opts.whisper_model,
-            "paid_usd": round(spend.used, 4), "results": results}
+            "repeats": repeats, "paid_usd": round(spend.used, 4), "results": results}
 
 
 def main(argv=None) -> int:
@@ -387,6 +497,8 @@ def main(argv=None) -> int:
     parser.add_argument("--previous", metavar="RESULTS.json", help="the JSON of the last run, to flag regressions")
     parser.add_argument("--whisper-model", default="large-v3", help="transcription model (default large-v3)")
     parser.add_argument("--engine", default="ollama", help="translation engine for clips that name none (default: free local)")
+    parser.add_argument("--repeats", type=int, default=1,
+                        help="run each transcription clip this many times and score the median (default 1)")
     parser.add_argument("--cpu", action="store_true", help="run on the CPU instead of the GPU")
     parser.add_argument("--allow-paid", action="store_true", help="let translation use a paid engine")
     parser.add_argument("--max-usd", type=float, default=1.0, help="stop paid translation past this spend (default 1.00)")
@@ -394,6 +506,8 @@ def main(argv=None) -> int:
     parser.add_argument("--out", metavar="DIR", help="folder for the report and JSON (default: the data folder)")
     opts = parser.parse_args(argv)
     opts.use_gpu = not opts.cpu
+    if opts.repeats < 1:
+        parser.error("--repeats must be 1 or more")
     self_test._console_safe()
     try:
         manifest = load_manifest(opts.manifest)

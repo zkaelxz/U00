@@ -1,6 +1,7 @@
 """tools/release_check.py: manifest refusals, DER and chrF scoring, regression flags, dry run, paid-engine
 gate, one failed clip not stopping the run, report holds no paths. No models, no GPU, no network."""
 import json
+import os
 
 import pytest
 
@@ -146,3 +147,81 @@ def test_translation_scores_with_a_fake_engine(tmp_path, monkeypatch):
     opts = rc.argparse.Namespace(engine="ollama", allow_paid=False, max_usd=1.0)
     row = rc.run_translation(manifest["clips"][0], opts, rc.Spend(1.0))
     assert row["score"] == pytest.approx(1.0)
+
+
+def test_manifest_refuses_an_unknown_title_setting_or_backend(tmp_path):
+    clip = {"id": "a", "kind": "transcription", "audio": "a.wav", "language": "zh", "reference_srt": "r.srt",
+            "title_settings": {"min_silence_ms": 300, "min_silense_ms": 300}}
+    with pytest.raises(rc.Refusal, match="title_settings"):
+        rc.load_manifest(_write(tmp_path, [clip]))
+    (tmp_path / "r.rttm").write_text("", encoding="utf-8")
+    speakers = {"id": "d", "kind": "diarization", "audio": "a.wav", "reference_rttm": "r.rttm", "backend": "other"}
+    with pytest.raises(rc.Refusal, match="backend"):
+        rc.load_manifest(_write(tmp_path, [speakers]))
+
+
+def _app_clip(tmp_path):
+    clip = {"id": "a", "kind": "transcription", "audio": "a.wav", "language": "zh", "reference_srt": "r.srt",
+            "title_settings": {"transcript_mode": "whisper", "min_silence_ms": 300}, "initial_prompt": "名字。"}
+    return rc.load_manifest(_write(tmp_path, [clip]))["clips"][0]
+
+
+def test_title_settings_run_the_app_pipeline_and_score_its_lines(tmp_path, monkeypatch):
+    import core
+    clip = _app_clip(tmp_path)
+    built = {}
+
+    def fake_args(settings, audio, scratch, use_gpu, prompt):
+        built.update(settings=settings, audio=audio, use_gpu=use_gpu, prompt=prompt, scratch=scratch)
+        return ("args",)
+
+    monkeypatch.setattr(rc.transcribe_service, "worker_args_for_settings", fake_args)
+    monkeypatch.setattr(rc, "_transcribe_in_child", lambda args: {
+        "lines": [core.Line(idx=0, start=1, end=2, zh="hello"), core.Line(idx=1, start=3, end=4, zh="world")],
+        "raw_backend": "whisper", "raw_model": "large-v3"})
+    row = rc.run_transcription(clip, rc.argparse.Namespace(use_gpu=False, whisper_model="large-v3"))
+    assert row["score"] == pytest.approx(1.0)
+    assert built["settings"] == {"transcript_mode": "whisper", "min_silence_ms": 300, "source_language": "zh"}
+    assert built["prompt"] == "名字。" and built["audio"] == clip["audio"] and built["use_gpu"] is False
+    assert not os.path.exists(built["scratch"])
+    assert "2 lines, app pipeline" in row["detail"]
+
+
+def test_a_stopped_app_run_is_a_failure_not_a_zero(tmp_path, monkeypatch):
+    clip = _app_clip(tmp_path)
+    monkeypatch.setattr(rc.transcribe_service, "worker_args_for_settings", lambda *a: ())
+    monkeypatch.setattr(rc, "_transcribe_in_child", lambda args: {"failed_reason": "no_lines"})
+    with pytest.raises(RuntimeError, match="no_lines"):
+        rc.run_transcription(clip, rc.argparse.Namespace(use_gpu=False, whisper_model="large-v3"))
+
+
+def test_repeats_score_the_median_and_keep_every_run():
+    scores = iter([0.5, 0.9, 0.7])
+    row = rc.run_repeated(lambda clip, opts: {"score": next(scores), "metric": "cer", "speed_x": 2.0,
+                                              "vram_mb": None, "detail": "x"}, {}, None, 3)
+    assert row["score"] == 0.7 and row["scores"] == [0.5, 0.9, 0.7]
+    assert "3 runs, scores 0.500 to 0.900" in row["detail"]
+
+
+def test_a_repeated_previous_run_is_compared_by_its_worst_score():
+    prev = _run([{"id": "t1", "kind": "transcription", "metric": "cer", "score": 0.7, "scores": [0.6, 0.7, 0.8]},
+                 {"id": "d1", "kind": "diarization", "metric": "der", "score": 0.2, "scores": [0.1, 0.2, 0.3]}])
+
+    def report(cer, der):
+        return rc.format_report(_run([{"id": "t1", "kind": "transcription", "metric": "cer", "score": cer},
+                                      {"id": "d1", "kind": "diarization", "metric": "der", "score": der}]), prev)
+
+    assert "0 worse" in report(0.59, 0.31)
+    assert "2 worse" in report(0.57, 0.33)
+
+
+def test_nemotron_speakers_need_no_hugging_face_token(tmp_path, monkeypatch):
+    import diarize_nemotron
+    (tmp_path / "r.rttm").write_text("SPEAKER f 1 0.00 2.00 <NA> <NA> A <NA> <NA>\n", encoding="utf-8")
+    clip = rc.load_manifest(_write(tmp_path, [{"id": "d", "kind": "diarization", "audio": "a.wav",
+                                               "reference_rttm": "r.rttm", "backend": "nemotron"}]))["clips"][0]
+    monkeypatch.setattr(rc.settings_service, "resolve_key", lambda name: pytest.fail("no key is needed"))
+    monkeypatch.setattr(diarize_nemotron, "diarize",
+                        lambda audio, use_gpu=False: ([{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"}], {}))
+    row = rc.run_diarization(clip, rc.argparse.Namespace(use_gpu=False))
+    assert row["score"] == 0 and "nemotron" in row["detail"]
