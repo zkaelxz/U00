@@ -733,7 +733,7 @@ const WatchRow = memo(function WatchRow({ line: l, current, sourceLanguage, canP
       <span className="watch-row-meta">
         {rowMeta(l)}
         <LineMarkBadge line={l} />
-        {l.flag && <span className="watch-row-flag" role="img" aria-label="Flagged" title="A check flagged this line">⚑</span>}
+        {l.flag && <span className="watch-row-flag" role="img" aria-label="Flagged" title="Flagged">⚑</span>}
       </span>
       {l.zh && <span className="watch-row-zh" lang={l.lang || sourceLanguage}>{l.zh}</span>}
       <span className={l.en ? 'watch-row-en' : 'watch-row-en is-empty'} lang={l.en ? 'en' : undefined}>{l.en || 'No English yet'}</span>
