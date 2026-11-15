@@ -34,19 +34,20 @@ def _clean(text) -> str:
     return " ".join(str(text or "").split())
 
 
-def _candidates(drama_id: int, series_id) -> list:
+def _candidates(drama_id: int, drama: dict) -> list:
     """Character names first (what the speech says most), then glossary terms,
     each followed by its aliases."""
     out = []
+    series_id = drama.get("series_id")
     for character in db.list_characters(drama_id):
         out.append(character.get("character_name"))
     if series_id:
         for sc in db.list_series_characters(series_id):
             out.append(sc.get("character_name"))
             out.extend(_ALIAS_SPLIT.split(sc.get("aliases") or ""))
-        for term in db.list_effective_glossary_terms(series_id):
-            out.append(term.get("term_original"))
-            out.extend(_ALIAS_SPLIT.split(term.get("aliases") or ""))
+    for term in db.list_run_glossary_terms(drama):
+        out.append(term.get("term_original"))
+        out.extend(_ALIAS_SPLIT.split(term.get("aliases") or ""))
     return out
 
 
@@ -57,7 +58,7 @@ def build_vocabulary_hint(drama_id: int) -> str:
     if drama is None:
         return ""
     seen, kept, used = set(), [], len(PREFIX)
-    for raw in _candidates(drama_id, drama.get("series_id")):
+    for raw in _candidates(drama_id, drama):
         term = _clean(raw)
         key = term.casefold()
         if (not term or len(term) > MAX_TERM_CHARS or key in seen
