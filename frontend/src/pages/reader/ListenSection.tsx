@@ -20,11 +20,25 @@ interface Props {
 }
 
 // Null when narration can be started, otherwise the plain reason it cannot.
-function listenBlocker(cfg: ListenConfig, engine: string): string | null {
+export function listenBlocker(cfg: ListenConfig, engine: string): string | null {
   if (cfg.speakable_line_count === 0) return 'There is no text to speak yet.'
   if (cfg.blocker) return cfg.blocker
   if (!engine) return 'No voice engine is available.'
-  return cfg.tts_engines.find((t) => t.key === engine)?.unavailable_reason ?? null
+  const picked = cfg.tts_engines.find((t) => t.key === engine)
+  return picked?.unavailable_reason ?? missingVoices(picked) ?? null
+}
+
+// Only OmniVoice picks voices on its own; the server lists, per engine, the speakers it would have to skip.
+function missingVoices(engine: ListenConfig['tts_engines'][number] | undefined): string | null {
+  const names = engine?.speakers_without_voice ?? []
+  if (names.length === 0) return null
+  return `${names.join(', ')} ${names.length === 1 ? 'has' : 'have'} no voice yet. ${engine!.label} needs a reference clip or a voice description for every speaker; only OmniVoice picks voices on its own.`
+}
+
+// What a finished run left out: the server lists each skipped line ("line 5: ...") in the job result.
+export function skippedLines(job: { result?: { [key: string]: unknown } | null } | null): string[] {
+  const errors = job?.result?.errors
+  return Array.isArray(errors) ? errors.filter((e): e is string => typeof e === 'string') : []
 }
 
 // How a speaker's voice is set up, in words.
@@ -130,7 +144,18 @@ function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfi
 
   const busy = jobId !== null && !done && !pollError
   // This run just made the track: the player in Watch / listen takes over.
-  if (!busy && done && jobSucceeded(job)) return remake ? <p className="muted" role="status">The new narration is in the player below.</p> : null
+  if (!busy && done && jobSucceeded(job)) {
+    const skipped = skippedLines(job)
+    if (skipped.length > 0) {
+      return (
+        <div className="muted" role="status">
+          <p>The narration is in the player below, but {skipped.length === 1 ? '1 line was' : `${skipped.length} lines were`} left silent:</p>
+          <ul>{skipped.map((s) => <li key={s}>{s}</li>)}</ul>
+        </div>
+      )
+    }
+    return remake ? <p className="muted" role="status">The new narration is in the player below.</p> : null
+  }
   const engine = chooseEngine(cfg.tts_engines, cfg.default_engine, pickedEngine)
   const narrationLanguage = cfg.narration_language_options.includes(pickedLanguage) ? pickedLanguage : cfg.narration_language
   const blocker = listenBlocker(cfg, engine)

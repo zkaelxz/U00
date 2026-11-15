@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 
 import type { CharacterEntry } from '../../types/translateStage'
 import { chooseEngine } from '../../types/listen'
-import { ListenPicker } from './ListenSection'
+import type { ListenConfig } from '../../types/listen'
+import { ListenPicker, listenBlocker, skippedLines } from './ListenSection'
 
 const voice = (extra: Partial<CharacterEntry>): CharacterEntry =>
   ({ speaker_label: 'Narrator', character_name: 'Narrator', pronouns: '', clone_engine: '', voice_design: '',
@@ -11,8 +12,8 @@ const voice = (extra: Partial<CharacterEntry>): CharacterEntry =>
     line_count: 3, ...extra })
 
 const engines = [
-  { key: 'omnivoice', label: 'OmniVoice', unavailable_reason: 'OmniVoice is not installed. Install it in Diagnostics.' },
-  { key: 'qwen3_tts', label: 'Qwen3-TTS', unavailable_reason: null },
+  { key: 'omnivoice', label: 'OmniVoice', unavailable_reason: 'OmniVoice is not installed. Install it in Diagnostics.', speakers_without_voice: [] },
+  { key: 'qwen3_tts', label: 'Qwen3-TTS', unavailable_reason: null, speakers_without_voice: [] },
 ]
 
 describe('ListenPicker', () => {
@@ -74,5 +75,39 @@ describe('chooseEngine', () => {
     const none = engines.map((e) => ({ ...e, unavailable_reason: 'not installed' }))
     expect(chooseEngine(none, 'omnivoice', '')).toBe('omnivoice')
     expect(chooseEngine([], 'omnivoice', '')).toBe('')
+  })
+})
+
+describe('skippedLines', () => {
+  it('lists what the job result says was left silent', () => {
+    expect(skippedLines({ result: { errors: ['line 5: This speaker has no voice set up.', 'line 9: failed'] } }))
+      .toEqual(['line 5: This speaker has no voice set up.', 'line 9: failed'])
+  })
+
+  it('is empty when nothing was skipped or the job has no result', () => {
+    expect(skippedLines({ result: { errors: [] } })).toEqual([])
+    expect(skippedLines({ result: null })).toEqual([])
+    expect(skippedLines(null)).toEqual([])
+  })
+})
+
+describe('listenBlocker', () => {
+  const cfg = (names: string[]): ListenConfig => ({
+    drama_id: 1, narration_language: 'translation', narration_language_options: ['translation'], default_engine: 'omnivoice',
+    blocker: null, gpu_required: false, speakable_line_count: 4, track_available: false,
+    tts_engines: [
+      { key: 'omnivoice', label: 'OmniVoice', unavailable_reason: null, speakers_without_voice: [] },
+      { key: 'qwen3_tts', label: 'Qwen3-TTS', unavailable_reason: null, speakers_without_voice: names },
+    ],
+  })
+
+  it('names the speakers an engine has no voice for, and says only OmniVoice fills them in', () => {
+    expect(listenBlocker(cfg(['Wei']), 'qwen3_tts')).toBe(
+      'Wei has no voice yet. Qwen3-TTS needs a reference clip or a voice description for every speaker; only OmniVoice picks voices on its own.')
+    expect(listenBlocker(cfg(['Wei', 'Lin']), 'qwen3_tts')).toContain('Wei, Lin have no voice yet.')
+  })
+
+  it('does not block an engine that has a voice for everyone', () => {
+    expect(listenBlocker(cfg(['Wei']), 'omnivoice')).toBeNull()
   })
 })
