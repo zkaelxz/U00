@@ -26,6 +26,15 @@ export interface AuthMe {
   paid_limit_reached?: boolean
 }
 
+// Past this the name would crowd the header's other controls, so the button says "Account" and the name shows in the open panel.
+export const ACCOUNT_WORDS_MAX = 24
+
+/** What the header's account button says: the display name when it is short enough to show whole, never a cut-off one. */
+export function accountWords(displayName: string | null | undefined): string {
+  const name = displayName?.trim() ?? ''
+  return name !== '' && [...name].length <= ACCOUNT_WORDS_MAX ? name : 'Account'
+}
+
 export const me = (f?: Fetch) => getJson<AuthMe>('/api/auth/me', f)
 
 export const logout = (f?: Fetch) => postJson<unknown>('/api/auth/logout', undefined, f)

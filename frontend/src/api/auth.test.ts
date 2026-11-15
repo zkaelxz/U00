@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { loginErrorMessage, loginHref, logout, me, readLoginError, safeReturnTo } from './auth'
+import { accountWords, loginErrorMessage, loginHref, logout, me, readLoginError, safeReturnTo } from './auth'
 
 interface Call {
   url: string
@@ -73,5 +73,24 @@ describe('login_error', () => {
     const generic = "Sign-in didn't work. Please try again."
     expect(loginErrorMessage('toString')).toBe(generic)
     expect(loginErrorMessage('<script>')).toBe(generic)
+  })
+})
+
+describe('accountWords', () => {
+  it('shows a name of up to 24 characters whole and anything longer, blank or missing as Account', () => {
+    const name24 = 'A'.repeat(24)
+    expect(accountWords(name24)).toBe(name24)
+    expect(accountWords('A'.repeat(25))).toBe('Account')
+    expect(accountWords('  Kae  ')).toBe('Kae')
+    expect(accountWords('   ')).toBe('Account')
+    expect(accountWords('')).toBe('Account')
+    expect(accountWords(null)).toBe('Account')
+    expect(accountWords(undefined)).toBe('Account')
+  })
+
+  it('counts characters, not UTF-16 units, so 24 kanji still show', () => {
+    expect(accountWords('白'.repeat(24))).toBe('白'.repeat(24))
+    expect(accountWords('𠮷'.repeat(24))).toBe('𠮷'.repeat(24))
+    expect(accountWords('𠮷'.repeat(25))).toBe('Account')
   })
 })

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
-import { loginHref, type AuthUser } from './api/auth'
+import { accountWords, loginHref, type AuthUser } from './api/auth'
 import { api } from './api/client'
 import { featureOn } from './api/features'
 import { useFeatures } from './hooks/useFeatures'
@@ -109,6 +109,9 @@ function ApiStatus({ showConnected }: { showConnected: boolean }) {
   )
 }
 
+// The header's words steps are sized for a name this long; a longer one asks for more room (index.css, .has-long-name).
+const LONG_ACCOUNT_NAME = 12
+
 // The display name wins over the email: an address's first letter is rarely the person's.
 function accountInitial(user: AuthUser | null): string | null {
   const first = (user?.display_name || user?.email || '').trim().charAt(0)
@@ -124,7 +127,7 @@ function UserMenu({ user }: { user: AuthUser | null }) {
   const label = user ? (user.email ?? user.display_name ?? 'Signed in') : 'Account'
   const initial = accountInitial(user)
   // Never the address: it is long and private enough that it only shows inside the open panel.
-  const shownName = user?.display_name?.trim() || 'Account'
+  const shownName = accountWords(user?.display_name)
 
   async function onSignOut() {
     setBusy(true)
@@ -149,13 +152,14 @@ function UserMenu({ user }: { user: AuthUser | null }) {
           )}
         </span>
         <span className="hb-words user-menu-name" aria-hidden="true">
-          <span className="user-menu-name-text">{shownName}</span> ▾
+          {shownName} ▾
         </span>
       </summary>
       <div className="user-menu-panel">
         {user ? (
           <>
             <p className="muted">Signed in as</p>
+            {user.email && user.display_name?.trim() && <p className="user-menu-fullname" data-testid="user-name">{user.display_name.trim()}</p>}
             <p className="user-menu-email" data-testid="user-email">{label}</p>
           </>
         ) : (
@@ -317,7 +321,8 @@ export default function App() {
 
   // Wide windows and pop-outs have room for the controls' words. The PIN profile button and the account use up some of it, so their steps come earlier (index.css).
   const room = wide || popOut
-  const headerEndClass = ['header-end', room && 'has-room', room && (profile.status?.pin_set || canSignOut(session)) && 'has-extras'].filter(Boolean).join(' ')
+  const longName = canSignOut(session) && [...accountWords(user?.display_name)].length > LONG_ACCOUNT_NAME
+  const headerEndClass = ['header-end', room && 'has-room', room && (profile.status?.pin_set || canSignOut(session)) && 'has-extras', room && longName && 'has-long-name'].filter(Boolean).join(' ')
 
   const headerEnd = (
     <div className={headerEndClass}>

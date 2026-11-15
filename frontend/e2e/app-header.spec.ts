@@ -19,10 +19,10 @@ async function quietHeader(page: Page) {
   await page.route((u) => u.pathname === '/api/notifications', (r) => json(r, { items: [] }))
 }
 
-/** Signed in as a 12-letter name, the PIN profile button on, one job running and three new alerts. */
-async function longestHeader(page: Page) {
+/** Signed in as a 12-letter name (or the one given), the PIN profile button on, one job running and three new alerts. */
+async function longestHeader(page: Page, name = 'Wolfgangmaxi') {
   const running = { job_id: 'r1', status: 'running', description: 'Transcribe Episode 12', progress: null, message: '', error: null, gpu_touching: false, updated_at: NOW(), owned_by_me: true, started_at: NOW() - 60, finished_at: null }
-  const s = await mockAuth(page, { ...ME.signedIn, user: { ...USER, display_name: 'Wolfgangmaxi' } })
+  const s = await mockAuth(page, { ...ME.signedIn, user: { ...USER, display_name: name } })
   await page.route((u) => u.pathname === '/api/meta', (r) => json(r, { ...(GET_FIXTURES['/api/meta'] as object), pc_profile: { pin_set: true, guest: false } }))
   await page.route((u) => u.pathname === '/api/jobs', (r) => json(r, { items: [running] }))
   await page.route((u) => u.pathname === '/api/notifications', (r) => json(r, { items: [1, 2, 3].map((id) => ({ id, at: NOW() - id, kind: 'job_done', text: `Export finished ${id}` })) }))
@@ -215,3 +215,47 @@ for (const { width, header, tallest } of NARROW) {
     expect(Math.round(s.rowHeight)).toBeLessThanOrEqual(tallest)
   })
 }
+
+// 24 characters is the longest name the button shows whole; one more and it says Account.
+const NAME_24 = 'Wolfgang Amadeus Mozarts'
+for (const [name, shown] of [[NAME_24, NAME_24], [`${NAME_24}!`, 'Account']]) {
+  test(`the account button for a ${name.length}-character name says ${shown === name ? 'the name' : 'Account'}, and the panel has the whole name`, async ({ page }) => {
+    await dock(page)
+    await page.setViewportSize({ width: 1680, height: 900 })
+    await mockAuth(page, { ...ME.signedIn, user: { ...USER, display_name: name } })
+    await quietHeader(page)
+    await page.goto('/#/library')
+    const account = page.locator(`summary[aria-label="Account: ${name}"]`)
+    await expect(account).toBeVisible()
+    await expect.poll(() => account.evaluate((el) => (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim())).toBe(`${shown} ▾`)
+    const s = await headerState(page)
+    expect(s.clipped).toEqual([])
+    expect(s.sideways).toBe(false)
+    await account.click()
+    await expect(page.getByTestId('user-name')).toHaveText(name)
+  })
+}
+
+test('a 24-character account name asks for more room before the words show, and the bar stays one line', async ({ page }) => {
+  const name = 'Wolfgang Amadeus Mozarts'
+  await longestHeader(page, name)
+  await dock(page)
+  // The 12-letter header has Jobs, Alerts, Shortcuts and Theme in words from about 1390px; this one needs about 6rem (90px) more.
+  const widths = [
+    { width: 1440, five: false },
+    { width: 1480, five: true },
+    { width: 1750, five: true },
+  ]
+  for (const { width, five } of widths) {
+    await page.setViewportSize({ width, height: 800 })
+    await page.goto('about:blank')
+    await page.goto('/#/library')
+    await expect(page.getByTestId('jobs-count')).toHaveText('1')
+    await expect(page.getByTestId('notify-count')).toHaveText('3')
+    const s = await headerState(page)
+    expect(s.words.includes(`${name} ▾`), `${width}px shows the name`).toBe(five)
+    expect(s.rowHeight - s.tallest, `${width}px is one line`).toBeLessThanOrEqual(HEADER_FRAME)
+    expect(s.clipped, `${width}px`).toEqual([])
+    expect(s.sideways, `${width}px`).toBe(false)
+  }
+})
