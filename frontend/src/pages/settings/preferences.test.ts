@@ -23,6 +23,7 @@ const saved: SettingsPreferences = {
   scanlate_rect_layout: false,
   episode_brief: true,
   stream_plain_prompt: true,
+  ollama_cloud_default: false,
   translate_reply_guard: 'auto',
   claude_reasoning: 'default',
   openai_reasoning: 'default',

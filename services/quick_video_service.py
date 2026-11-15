@@ -18,7 +18,7 @@ import uuid
 from typing import Optional
 
 import db
-from engine_backends import engine_registry, local, shared
+from engine_backends import engine_registry, shared
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError
 from services import drama_service, language_pack_service, profile_service, url_media_service
 
@@ -57,8 +57,8 @@ def describe_profile(preset: dict) -> list:
     if engine not in engine_registry.ENGINES:
         engine = engine_routing_service.resolve_capability("translation.cheap")
     model = preset.get("engine_model")
-    # A run that was handed no model never picks up an Ollama cloud tag (paid work its own gate cannot see).
-    if not model or (engine == "ollama" and local.is_ollama_cloud_model(model)) or preset.get("translation_engine") != engine:
+    # A run that was handed no model picks up an Ollama cloud tag (paid work its own gate cannot see) only when hosted defaults are allowed.
+    if not model or engine_registry.hosted_default_blocked(engine, model) or preset.get("translation_engine") != engine:
         model = engine_registry.effective_default_model(engine)
     defaults = engine_registry.default_translate_options(engine, model)
     style_key = preset.get("style_preset")
