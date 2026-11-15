@@ -24,9 +24,10 @@ export function CheckLeadAction({ lead }: { lead: CheckLead }) {
 }
 
 // Simple folds an audio title's player away, in Need a look and under All, so the first line sits under the switch; this brings it back.
+// It sits in the header's More row beside buttons of the same kind, so it is one of them in size.
 export function QueueMediaToggle({ open, controls, onToggle }: { open: boolean; controls: string; onToggle: () => void }) {
   return (
-    <button type="button" className={buttonClass('ghost', 'sm', 'check-queue-media')} aria-expanded={open} aria-controls={controls}
+    <button type="button" className={buttonClass('secondary', 'md', 'check-queue-media')} aria-expanded={open} aria-controls={controls}
             title="Seek bar, speed, subtitles and the waveform" onClick={onToggle}>
       Player <span aria-hidden="true">{open ? '▴' : '▾'}</span>
     </button>

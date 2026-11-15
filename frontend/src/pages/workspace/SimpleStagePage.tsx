@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { openDramaFolder } from '../../api/library'
@@ -58,6 +58,25 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   // Pressed where the lines are, the Check button opens the queue there and moves to its first line.
   const [checkSignal, setCheckSignal] = useState(0)
   const openQueue = useCallback(() => setCheckSignal((n) => n + 1), [])
+  // The header's Search: where the lines are it asks them to show their search box. Elsewhere it goes to Review and leaves
+  // a one-shot request there, because a counter would reach the lines already counted as seen when they mount.
+  const [searchSignal, setSearchSignal] = useState(0)
+  const searchPending = useRef(false)
+  const takeSearch = useCallback(() => {
+    const asked = searchPending.current
+    searchPending.current = false
+    return asked
+  }, [])
+  const onSearch = useCallback(() => {
+    if (review) {
+      setSearchSignal((n) => n + 1)
+      return
+    }
+    searchPending.current = true
+    window.location.hash = routeHref({ name: 'drama', id, stage: 'review' })
+  }, [review, id])
+  // The Player button is drawn by the lines and shown in the header, so it sits with the title's other controls.
+  const [playerDock, setPlayerDock] = useState<HTMLElement | null>(null)
   const phone = useMediaQuery(TITLE_TOP_PHONE)
   // Where the lines are, a desktop shows the main button first in the Need a look row, which says when it has drawn it, so the button
   // is never missing and never drawn twice. Without lines it stays here: the one-button flow it may be would restart if moved mid-run.
@@ -79,8 +98,8 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
     [simple, review, seriesId, id, drama, lineCount, translatedCount],
   )
   const ctx = useMemo<StageContextValue>(
-    () => ({ dramaId: id, drama, refetchDrama, onJobDone, simple, checkSignal, checkLead, linesOnAll, episodes }),
-    [id, drama, refetchDrama, onJobDone, simple, checkSignal, checkLead, linesOnAll, episodes],
+    () => ({ dramaId: id, drama, refetchDrama, onJobDone, simple, checkSignal, searchSignal, takeSearch, playerDock, checkLead, linesOnAll, episodes }),
+    [id, drama, refetchDrama, onJobDone, simple, checkSignal, searchSignal, takeSearch, playerDock, checkLead, linesOnAll, episodes],
   )
   // `simple` is true only for audio and video, the only kinds whose Simple pages link to Review.
   const Stage = shown ? STAGE_COMPONENTS[shown] : null
@@ -103,6 +122,8 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
           progress={steps}
           openStep={open}
           onCheck={onCheck}
+          onSearch={onSearch}
+          playerSlot={setPlayerDock}
           mainElsewhere={leadsMain && mainInLead}
         />
       ) : (

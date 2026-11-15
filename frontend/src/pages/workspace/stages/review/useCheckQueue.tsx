@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObjec
 import { setReviewed } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { useRoute } from '../../../../router'
-import { useCheckLead, useCheckSignal, useLinesOnAll } from '../../StageContext'
+import { createPortal } from 'react-dom'
+
+import { useCheckLead, useCheckSignal, useLinesOnAll, usePlayerDock, useSearchRequest } from '../../StageContext'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import { CheckedUndo, CheckLeadAction, CheckQueueFooter, CheckQueueSwitch, QueueMediaToggle } from './CheckQueue'
@@ -47,7 +49,7 @@ interface Deps {
   changeFilter: (f: LineFilter) => Promise<void>
   onChanged: () => void
   setError: (e: unknown) => void
-  // The Player toggle of an audio title: in the switch row, or on a phone under the card (queue) or in the toolbar's More (All).
+  // The Player toggle of an audio title: drawn in the header's More row (see useQueueMedia), so it is only placed here.
   mediaToggle?: ReactNode
 }
 
@@ -81,6 +83,31 @@ export function useCheckQueue(d: Deps) {
     seenSignal.current = signal
     void openRef.current()
   }, [signal])
+
+  // The header's Search: All, then the search box with the focus. A search typed already stays, so All is asked for only
+  // when the lines are not on it. From another step's page the request is waiting when the lines mount.
+  const { searchSignal = 0, takeSearch } = useSearchRequest()
+  const seenSearch = useRef(searchSignal)
+  const [searchAsk, setSearchAsk] = useState(0)
+  const searchRef = useRef<() => Promise<void>>(async () => {})
+  useEffect(() => {
+    searchRef.current = async () => {
+      const { filter, searching } = st.current
+      if (!searching && filter !== 'all') {
+        if (!(await ctl.leaveEdit())) return
+        await d.changeFilter('all')
+      }
+      setSearchAsk((n) => n + 1)
+    }
+  })
+  useEffect(() => {
+    if (takeSearch?.()) void searchRef.current()
+  }, [takeSearch])
+  useEffect(() => {
+    if (searchSignal === seenSearch.current) return
+    seenSearch.current = searchSignal
+    void searchRef.current()
+  }, [searchSignal])
 
   const undo = async () => {
     if (!checked || !(await ctl.leaveEdit())) return
@@ -124,14 +151,13 @@ export function useCheckQueue(d: Deps) {
       <CheckQueueSwitch queue={on} counts={counts} showFine={!(cardOnly && (counts?.risk ?? 0) > 0)} onPick={(q) => void d.changeFilter(q ? QUEUE_FILTER : 'all')} />
       {checked && <CheckedUndo line={checked} busy={undoing} onUndo={() => void undo()} onDismiss={() => setChecked(null)} />}
       {position && <p className="check-queue-position" data-testid="queue-position">{position}</p>}
-      {foldsMedia && !d.isPhone && d.mediaToggle}
+      {foldsMedia && d.mediaToggle}
     </>
   ) : undefined
   // Just after the switch is pressed, `data` is still the page of the view before: the footer waits for the queue's own.
   const after: ReactNode = on && d.data && counts && d.dataFilter === QUEUE_FILTER ? (
     <>
       {upNext && <p className="muted check-queue-next">{upNext}</p>}
-      {foldsMedia && d.isPhone && d.mediaToggle}
       <CheckQueueFooter
         dramaId={dramaId}
         queuePage={d.data}
@@ -152,7 +178,7 @@ export function useCheckQueue(d: Deps) {
     foldsMedia,
     // A phone shows one card at a time.
     rows: cardOnly ? d.shown.filter((l) => l.id === d.activeId) : d.shown,
-    toolbar: { lead, bare: on, more: foldsMedia && d.isPhone && !on ? d.mediaToggle : undefined },
+    toolbar: { lead, bare: on, searchAsk },
     retranscribe,
     after,
     bar: (line: ReviewLine) => (on ? { onSkip: skip, onLooksRight: () => ctl.actions.reviewAndNext(line.id) } : undefined),
@@ -183,7 +209,9 @@ export function useQueueMedia(audio: boolean, isPhone: boolean, sectionRef: RefO
   }, [open, sectionRef])
   // The button says what is on screen: a player that came out by itself reads as open, and one press folds it again.
   const shown = open || needed
-  const toggle = audio ? (
+  const dock = usePlayerDock()
+  // Drawn in the header's More row, beside the title's other controls; the state stays here, with the player it opens.
+  const toggle = audio && dock ? createPortal(
     <QueueMediaToggle
       open={shown}
       controls={playerId}
@@ -192,7 +220,8 @@ export function useQueueMedia(audio: boolean, isPhone: boolean, sectionRef: RefO
         setNeeded(false)
         setOpen(!shown)
       }}
-    />
+    />,
+    dock,
   ) : null
   return { toggle, folds: audio && !shown, show }
 }

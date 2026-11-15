@@ -70,15 +70,16 @@ test('Simple fits a phone: one steps button opens the steps and the title contro
     await expect(tabs).toHaveText(['Done · Add', 'Done · Transcribe, 10 lines', 'Now · Translate, 10 of 10 left', /^Next · Check(, .+)?$/, 'Export'])
     for (let n = 0; n < 5; n++) await expectTall(tabs.nth(n), `step ${n + 1} at ${width}px`)
     for (const name of more) await expectTall(panel.getByRole('link', { name, exact: true }), `${name} at ${width}px`)
+    await expectTall(panel.getByRole('button', { name: 'Search', exact: true }), `Search at ${width}px`)
     // The radios are visually hidden; the visible control is their label.
     for (const name of ['Simple', 'Full']) {
       await expectTall(panel.locator('label').filter({ hasText: new RegExp(`^${name}$`) }).first(), `${name} switch at ${width}px`)
     }
     await expectTall(panel.getByRole('button', { name: 'Open folder' }), `Open folder at ${width}px`)
-    // In this order: the steps, the three links, the switch, Open folder, then the source link or the way to add one.
+    // In this order: the steps, the three links, Search, the switch, Open folder, then the source link or the way to add one.
     const order = [
       panel.getByRole('list', { name: 'Steps' }), ...more.map((name) => panel.getByRole('link', { name, exact: true })),
-      panel.getByRole('group', { name: 'Title view' }), panel.getByRole('button', { name: 'Open folder' }), panel.locator('.ws-source, .ws-source-add'),
+      panel.getByRole('button', { name: 'Search', exact: true }), panel.getByRole('group', { name: 'Title view' }), panel.getByRole('button', { name: 'Open folder' }), panel.locator('.ws-source, .ws-source-add'),
     ]
     const handles = await Promise.all(order.map((l) => l.elementHandle()))
     for (let n = 1; n < handles.length; n++) {
@@ -304,13 +305,14 @@ test.describe(() => {
     await expect(page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')).toHaveText(['Look for problems', 'Change many lines', 'Finish'])
     await expectNoSidewaysScroll(page)
 
-    // Player sits under the card, after the Next line and before the footer; it opens the player above the card and shows it.
-    const toggle = page.getByRole('button', { name: 'Player', exact: true })
+    // Player is not under the card any more: it is with the title's other controls in the panel the steps button opens, and
+    // it opens the player above the card and shows it.
+    await expect(page.locator('.review-editor button', { hasText: /^Player/ })).toHaveCount(0)
+    // A page scrolled past the collapse point hides the header, steps button and all, until it is back near the top.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await stepsButton(page).tap()
+    const toggle = page.locator('.steps-fold-controls').getByRole('button', { name: 'Player', exact: true })
     await expectTall(toggle, 'Player')
-    const [next, footer, t] = await Promise.all([page.locator('.check-queue-next').boundingBox(), page.getByTestId('queue-footer').boundingBox(), toggle.boundingBox()])
-    expect(t!.y).toBeGreaterThan(next!.y)
-    expect(t!.y).toBeLessThan(footer!.y)
-    expect(t!.width, 'Player is full width').toBeGreaterThan(300)
     await toggle.tap()
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     await expect(player).toBeInViewport()
@@ -319,7 +321,7 @@ test.describe(() => {
     await expectNoSidewaysScroll(page)
   })
 
-  test('the title page on the Check step: the card first, then Player, the footer and the tools, all clear of the bottom bar', async ({ page }) => {
+  test('the title page on the Check step: the card first, then the footer and the tools, all clear of the bottom bar', async ({ page }) => {
     seedCheckLines({ audio: true })
     await mockPeaks(page)
     await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
@@ -338,7 +340,7 @@ test.describe(() => {
       const top = await cards.evaluate((el) => el.getBoundingClientRect().top + window.scrollY)
       expect(top, `the first card's top at ${width}px`).toBeLessThanOrEqual(cardTopAtMost[width])
       await expectOrder([
-        ['the header', page.locator('.workspace-header')], ['the card', cards], ['Player', page.getByRole('button', { name: 'Player', exact: true })],
+        ['the header', page.locator('.workspace-header')], ['the card', cards],
         ['the footer', page.getByTestId('queue-footer')], ['Checks and tools', tools],
       ], width)
       await expectNoSidewaysScroll(page)
@@ -431,11 +433,11 @@ test.describe(() => {
       expect(lineBottom, `the first line ends above the bottom bar at ${width}px`).toBeLessThanOrEqual(await barTop(page))
       await expectEndClearOfBars(page, tools, `the tools at ${width}px`)
     }
-    // Player is in the filter row's More, so it costs the first screen nothing; it brings the player back, as in Need a look.
+    // Player is in the panel the steps button opens, so it costs the first screen nothing; it brings the player back, as in Need a look.
     await page.evaluate(() => window.scrollTo(0, 0))
-    await page.locator('.review-more-toggle').tap()
-    const toggle = page.locator('.review-extras').getByRole('button', { name: 'Player', exact: true })
-    await expectTall(toggle, 'Player in More')
+    await stepsButton(page).tap()
+    const toggle = page.locator('.steps-fold-controls').getByRole('button', { name: 'Player', exact: true })
+    await expectTall(toggle, 'Player in the steps panel')
     await toggle.tap()
     await expect(page.getByRole('group', { name: 'Player' })).toBeVisible()
     await toggle.tap()
@@ -445,7 +447,7 @@ test.describe(() => {
     await expectNoSidewaysScroll(page)
   })
 
-  test('under All, Replace… and Player in More are the same height, side by side, each its own width', async ({ page }) => {
+  test('under All the filter row\'s More holds Replace… only; the one Player button is in the steps panel, as tall as the buttons beside it', async ({ page }) => {
     seedCheckLines({ untranslated: true, audio: true })
     await mockPeaks(page)
     await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
@@ -454,13 +456,13 @@ test.describe(() => {
     await expect(page.getByRole('group', { name: 'Lines to show' }).getByRole('radio', { name: /^All/ })).toBeChecked()
     await page.locator('.review-more-toggle').tap()
     const row = page.locator('.review-extras')
-    const [replace, player] = [row.getByRole('button', { name: 'Replace…', exact: true }), row.getByRole('button', { name: 'Player', exact: true })]
-    await expect(player).toBeVisible()
-    const [r, p] = [(await replace.boundingBox())!, (await player.boundingBox())!]
-    expect(r.height, 'Replace… is tall enough to tap').toBeGreaterThanOrEqual(44)
-    expect(p.height, 'Player is the height of Replace…').toBeCloseTo(r.height, 0)
-    expect(Math.abs(p.y - r.y), 'Player and Replace… share a row at 390px').toBeLessThan(1)
-    expect(p.width, 'Player keeps its own width').toBeLessThan(200)
+    await expect(row.getByRole('button', { name: 'Replace…', exact: true })).toBeVisible()
+    await expect(row.getByRole('button', { name: 'Player', exact: true })).toHaveCount(0)
+    await stepsButton(page).tap()
+    const panel = page.locator('.steps-fold-controls')
+    const [player, folder] = [(await panel.getByRole('button', { name: 'Player', exact: true }).boundingBox())!, (await panel.getByRole('button', { name: 'Open folder' }).boundingBox())!]
+    expect(player.height, 'Player is tall enough to tap').toBeGreaterThanOrEqual(44)
+    expect(player.height, 'Player is the height of Open folder').toBeCloseTo(folder.height, 0)
     await expectNoSidewaysScroll(page)
     await page.setViewportSize({ width: 320, height: 844 })
     await expectNoSidewaysScroll(page)

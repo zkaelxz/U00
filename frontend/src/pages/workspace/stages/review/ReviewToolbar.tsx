@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import { buttonClass } from '../../../../components/uiClasses'
 import { useSimple } from '../../StageContext'
@@ -52,8 +52,8 @@ interface Props {
   lead?: ReactNode
   // The check queue: only that switch and the player; the chips, search and extras are under All.
   bare?: boolean
-  // A phone's extra control at the end of the row More opens.
-  more?: ReactNode
+  // Each new value is a press of the header's Search: show the search box, open behind its toggle on a phone, and focus it.
+  searchAsk?: number
 }
 
 // The shaky and risk chips only appear for a title that has lines they would list, so other titles keep the four chips a phone's row fits.
@@ -146,6 +146,19 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
   const [moreOpen, setMoreOpen] = useState(false)
   const [goTo, setGoTo] = useState('')
   const showSearch = !p.isPhone || searchOpen || p.search !== ''
+  // The box is not drawn until the list shows All, which a press of Search asks for first; so the focus waits for it.
+  const ask = p.searchAsk ?? 0
+  const [askSeen, setAskSeen] = useState(ask)
+  if (ask !== askSeen) {
+    setAskSeen(ask)
+    if (p.isPhone) setSearchOpen(true)
+  }
+  const askFocused = useRef(ask)
+  useEffect(() => {
+    if (askFocused.current === ask || !searchRef.current) return
+    askFocused.current = ask
+    searchRef.current.focus()
+  })
 
   const chips = (
     <div className="review-chips" role="radiogroup" aria-label="Show">
@@ -222,7 +235,6 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
       {!simple && <button type="button" className={buttonClass('ghost', 'sm')} aria-haspopup="dialog" onClick={p.onKeys}>
         Shortcuts
       </button>}
-      {p.isPhone && p.more}
     </div>
   )
   const count =

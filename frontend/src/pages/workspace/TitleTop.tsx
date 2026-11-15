@@ -102,11 +102,15 @@ interface Props {
   /** The step whose page is open; null on the title page. */
   openStep?: StepKey | null
   onCheck?: () => void
+  /** Search pressed: the lines show All and their search box, from this page or from Review. Absent, no Search button. */
+  onSearch?: () => void
+  /** Where the lines draw the Player button of an audio title, in More's row (the steps panel on a phone). */
+  playerSlot?: (el: HTMLElement | null) => void
   /** The lines' Need a look row shows the main button instead, so it is never drawn twice. */
   mainElsewhere?: boolean
 }
 
-export function TitleTop({ id, drama, title, back, badge = false, home = false, onJobFinished, onView, progress, openStep = null, onCheck, mainElsewhere = false }: Props) {
+export function TitleTop({ id, drama, title, back, badge = false, home = false, onJobFinished, onView, progress, openStep = null, onCheck, onSearch, playerSlot, mainElsewhere = false }: Props) {
   const phone = useMediaQuery(TITLE_TOP_PHONE)
   const [moreOpen, setMoreOpen] = useState(false)
   const [foldOpen, setFoldOpen] = useState(false)
@@ -123,9 +127,14 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
       {current?.key !== 'add' && <ButtonLink href={to.add}>Add media</ButtonLink>}
       {hasLines && <ButtonLink href={to.transcribe}>Redo transcription</ButtonLink>}
       <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>Glossary</ButtonLink>
+      {hasLines && onSearch && (
+        <button type="button" className={buttonClass('secondary')} onClick={() => { setFoldOpen(false); onSearch() }}>Search</button>
+      )}
     </>
   )
   const switchView = <TitleViewSwitch view="simple" onChange={onView} />
+  // Drawn by the lines (a portal), so it is only there on a page that shows an audio title's lines; display: contents keeps an empty slot from taking a gap.
+  const playerButton = <span className="title-top-player" ref={playerSlot} />
   const source = (
     <>
       <OpenFolderButton open={() => openDramaFolder(id)} className="ws-folder" title="Show this title's files on the PC" />
@@ -148,9 +157,9 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
         </ButtonLink>
         <div className="title-top-name">
           <h1 data-testid="drama-title" title={title}>{title}</h1>
-          {/* Under the name, not beside it, so the controls fit on the name's row; a phone's header leaves it out. */}
-          {badge && !phone && <p className="title-top-kind" data-testid="title-kind">{kindBadgeText(drama.media_type, drama.source_language)}</p>}
         </div>
+        {/* A phone's header leaves the kind out: its row is the back arrow, the name and the steps button. */}
+        {badge && !phone && <span className="title-top-kind" data-testid="title-kind">{kindBadgeText(drama.media_type, drama.source_language)}</span>}
         <JobPill dramaId={id} onFinished={onJobFinished} />
         {phone ? (
           <button type="button" className={buttonClass('secondary', undefined, 'steps-fold-toggle')} aria-expanded={foldOpen} aria-controls={foldId} onClick={() => setFoldOpen((o) => !o)}>
@@ -159,7 +168,6 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
         ) : (
           <div className="title-top-actions">
             {secondary}
-            {switchView}
             <button type="button" className={buttonClass('secondary', undefined, 'title-top-more')} aria-expanded={moreOpen} aria-controls={moreId} onClick={() => setMoreOpen((o) => !o)}>
               More
             </button>
@@ -175,13 +183,18 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
             <div className="steps-fold-controls">
               {switchView}
               {source}
+              {playerButton}
             </div>
           </div>
           {current && !mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
         </>
       ) : (
         <>
-          <div id={moreId} className="title-top-more-row" hidden={!moreOpen}>{source}</div>
+          <div id={moreId} className="title-top-more-row" hidden={!moreOpen}>
+            <button type="button" className={buttonClass('secondary', 'md')} onClick={() => onView('full')}>Full view</button>
+            {source}
+            {playerButton}
+          </div>
           <StepRow id={id} input={progress} openStep={openStep} />
           {current && !mainElsewhere && <TitleMainRow>{main}</TitleMainRow>}
         </>

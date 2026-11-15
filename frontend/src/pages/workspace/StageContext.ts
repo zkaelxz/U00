@@ -15,6 +15,12 @@ export interface StageContextValue {
   simple: boolean
   // Simple's Check button, pressed on the Review page: each new value opens the check queue at its first line.
   checkSignal?: number
+  // The header's Search button pressed where the lines are: each new value shows All and focuses the lines' search box.
+  searchSignal?: number
+  // Search pressed on a page without the lines goes to Review first; the lines take that request once when they mount.
+  takeSearch?: () => boolean
+  // Where the header draws the Player button of an audio title's lines (its More row); null until the header has drawn it.
+  playerDock?: HTMLElement | null
   // Simple's main button on a desktop wherever the lines are (Review and the title page), for the Need a look row to show first;
   // onShown tells the page whether that row drew it.
   checkLead?: CheckLead
@@ -41,6 +47,13 @@ export function useStage(): StageContextValue {
 export const useSimple = (): boolean => useContext(StageContext)?.simple ?? false
 
 export const useCheckSignal = (): number => useContext(StageContext)?.checkSignal ?? 0
+
+export const useSearchRequest = (): Pick<StageContextValue, 'searchSignal' | 'takeSearch'> => {
+  const ctx = useContext(StageContext)
+  return { searchSignal: ctx?.searchSignal, takeSearch: ctx?.takeSearch }
+}
+
+export const usePlayerDock = (): HTMLElement | null => useContext(StageContext)?.playerDock ?? null
 
 export const useCheckLead = (): CheckLead | undefined => useContext(StageContext)?.checkLead
 

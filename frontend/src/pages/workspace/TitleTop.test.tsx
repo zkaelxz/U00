@@ -27,10 +27,10 @@ const AT: Record<Exclude<StepKey, 'export'>, TitleProgressInput> = {
 
 const withJobs = (el: ReactElement) =>
   renderToStaticMarkup(<JobsContext.Provider value={{ jobs: [], error: null, polling: false, reload: () => {} }}>{el}</JobsContext.Provider>)
-const render = (progress: TitleProgressInput, page: { home?: boolean; openStep?: StepKey | null; badge?: boolean; drama?: DramaDetail; onCheck?: () => void } = {}) =>
+const render = (progress: TitleProgressInput, page: { home?: boolean; openStep?: StepKey | null; badge?: boolean; drama?: DramaDetail; onCheck?: () => void; onSearch?: () => void } = {}) =>
   withJobs(
     <TitleTop id={3} drama={page.drama ?? drama} title="Signal" back={{ href: '#/library', label: 'Back to Library', text: 'Library' }}
-      badge={page.badge} home={page.home} openStep={page.openStep ?? null} onCheck={page.onCheck} onJobFinished={() => {}} onView={() => {}} progress={progress} />,
+      badge={page.badge} home={page.home} openStep={page.openStep ?? null} onCheck={page.onCheck} onSearch={page.onSearch} onJobFinished={() => {}} onView={() => {}} progress={progress} />,
   )
 
 // Where the phone draws the main button: in the panel the steps button opens, or on the page under the header.
@@ -77,10 +77,12 @@ describe('the kind badge', () => {
     expect(kindBadgeText('audio_drama', undefined)).toBe('Audio drama')
   })
 
-  it('is a quiet line under the title\'s name on a desktop, and not on a phone', () => {
+  it('is a chip after the title\'s name and before its buttons on a desktop, and not on a phone', () => {
     browser(false)
-    expect(render(AT.check, { home: true, badge: true })).toContain('<h1 data-testid="drama-title" title="Signal">Signal</h1><p class="title-top-kind" data-testid="title-kind">Audio drama · Chinese to English</p>')
-    expect(render(AT.check, { home: true, badge: true, drama: { ...drama, source_language: 'th' } })).toContain('data-testid="title-kind">Audio drama</p>')
+    const html = render(AT.check, { home: true, badge: true })
+    expect(html).toContain('<h1 data-testid="drama-title" title="Signal">Signal</h1></div><span class="title-top-kind" data-testid="title-kind">Audio drama · Chinese to English</span>')
+    expect(html.indexOf('data-testid="title-kind"')).toBeLessThan(html.indexOf('class="title-top-actions"'))
+    expect(render(AT.check, { home: true, badge: true, drama: { ...drama, source_language: 'th' } })).toContain('data-testid="title-kind">Audio drama</span>')
     expect(render(AT.check, { openStep: 'translate' })).not.toContain('title-kind')
     browser(true)
     expect(render(AT.check, { home: true, badge: true })).not.toContain('title-kind')
@@ -99,5 +101,35 @@ describe('the main button where the lines are', () => {
     browser(false)
     expect(render({ ...AT.translate, flowOn: true }, { home: true })).toMatch(/<button type="button" class="[^"]*">Transcribe and translate<\/button>/)
     expect(render(AT.translate, { home: true })).toContain('>Translate 1 line</a>')
+  })
+})
+
+describe('the header\'s buttons on a desktop', () => {
+  const actions = (html: string) => html.slice(html.indexOf('class="title-top-actions"'), html.indexOf('class="title-top-more-row"'))
+  const names = (html: string) => [...html.matchAll(/<(?:a|button)\b[^>]*>([^<]+)</g)].map((m) => m[1])
+
+  it('are Add media, Redo transcription, Glossary, Search and More, in that order', () => {
+    browser(false)
+    expect(names(actions(render(AT.check, { home: true, onSearch: () => {} })))).toEqual(['Add media', 'Redo transcription', 'Glossary', 'Search', 'More'])
+  })
+
+  it('offer Search only for a title with lines, and only where something can answer it', () => {
+    browser(false)
+    expect(names(actions(render(AT.transcribe, { home: true, onSearch: () => {} })))).not.toContain('Search')
+    expect(names(actions(render(AT.check, { home: true })))).not.toContain('Search')
+  })
+
+  it('leave the Simple | Full switch to More\'s row, which has a Full view button beside Open folder', () => {
+    browser(false)
+    const html = render(AT.check, { home: true, onSearch: () => {} })
+    expect(actions(html)).not.toContain('Title view')
+    const more = html.slice(html.indexOf('class="title-top-more-row"'), html.indexOf('class="title-steps"'))
+    expect(more).not.toContain('Title view')
+    expect(names(more)).toEqual(['Full view', 'Open folder', 'Add a source link'])
+  })
+
+  it('leave a slot in More\'s row where an audio title\'s Player button is drawn', () => {
+    browser(false)
+    expect(render(AT.check, { home: true })).toContain('class="title-top-player"')
   })
 })

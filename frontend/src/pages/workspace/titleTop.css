@@ -1,11 +1,17 @@
 /* Wrapping, not clipping: the header's controls, the step links and the buttons grow with their text and drop to the next line when they do not fit. */
 
-/* The title's controls stay together at the right; when they do not fit beside the title they move under it as one group.
-   The name's block starts narrow, so a long name wraps inside it before the controls give up the row. */
-.title-top-name { flex: 1 1 12rem; min-width: 0; display: grid; gap: 2px; }
-.title-top-kind { margin: 0; font-size: var(--text-sm); color: var(--muted); overflow-wrap: break-word; }
+/* One row: back, the name, its kind as a chip, then the title's controls at the right. When the controls do not fit beside
+   the name they move under it as one group, and the chip stays with the name. The name's block starts narrow and grows, so
+   a long name wraps inside it before the controls give up the row. */
+.title-top-name { flex: 1 1 12rem; min-width: 0; }
+.title-top-header:not(.is-phone) h1 { font-size: 1.2667rem; }
+.title-top-kind {
+  flex: 0 1 auto; width: max-content; max-width: 100%; padding: 3px 10px; border-radius: 12px;
+  background: var(--surface-2); color: var(--muted); font-size: 0.8667rem; overflow-wrap: break-word;
+}
 .title-top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; min-width: 0; }
-.title-top-actions .title-view-switch { margin-left: 0; }
+/* The slot is empty on a page without an audio title's lines; as a box it would still take a gap. */
+.title-top-player { display: contents; }
 .title-top-more-row:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
 .title-top-more-row .open-folder-notice { flex: 1 1 100%; min-width: 0; }
 .title-top-more-row .ws-source-add, .steps-fold-controls .ws-source-add { display: inline-flex; align-items: center; min-height: 44px; }

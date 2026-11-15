@@ -218,7 +218,7 @@ describe('accent text on the page wash', () => {
       })
     }
   }
-  // The kind line under a title's name (titleTop.css .title-top-kind) is --muted straight on the page too.
+  // The kind chip beside a title's name is --muted on --surface-2 (the pair list above); --muted text elsewhere on the title page is straight on the page.
   for (const [name, wash] of [['light', light], ['sepia', sepia]] as const) {
     for (const key of ['--wash-1', '--wash-2']) {
       it(`${name}: --muted on ${key} at 60% over the page`, () => {
