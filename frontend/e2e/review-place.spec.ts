@@ -64,15 +64,16 @@ function countPages(page: Page): Map<number, number> {
   return seen
 }
 
-// Holds the first request for the lines that `which` picks until the returned function is called, so the person can act
-// while a restore is still waiting for its answer. Later requests go through at once.
-async function holdFirst(page: Page, which: (pageSize: number) => boolean): Promise<() => void> {
+// Holds one request for the lines that `which` picks (the first, or the one after `skip` others) until the returned
+// function is called, so the person can act while a restore is still waiting for its answer. The rest go through at once.
+async function holdFirst(page: Page, which: (pageSize: number) => boolean, skip = 0): Promise<() => void> {
   let release = () => {}
   const gate = new Promise<void>((resolve) => (release = resolve))
+  let seen = 0
   let held = false
   await page.route('**/api/review/dramas/3/lines?*', async (route) => {
     const url = new URL(route.request().url())
-    if (!held && which(Number(url.searchParams.get('page_size')))) {
+    if (!held && which(Number(url.searchParams.get('page_size'))) && seen++ === skip) {
       held = true
       await gate
     }
@@ -80,6 +81,12 @@ async function holdFirst(page: Page, which: (pageSize: number) => boolean): Prom
   })
   return release
 }
+// The same lines with their places moved on by `by`, ids kept: the kept line keeps its id and is found on another page.
+const shiftLines = (by: number) =>
+  inLibrary(`ls = db.load_line_objects(3)
+for l in ls:
+    l.idx = (l.idx + ${by}) % len(ls)
+db.save_lines(3, ls)`)
 const listPage = (size: number) => size === 40
 const wholeTitle = (size: number) => size > 40
 // Reading the whole title, by the requests made from here on.
@@ -331,6 +338,62 @@ test.describe('a restore still on its way gives way to the person', () => {
     await expect(pageNumber(page)).toHaveValue('2')
     await expect(status(page)).toHaveText('')
     expect(reads.n, 'reads of the whole title').toBe(1)
+  })
+
+  test('a kept line found on another page is not moved to after the person clicked a line on this one', async ({ page }) => {
+    seedPlaceLines()
+    await keepLine55(page)
+    await leave(page)
+    // The kept line is now #95, on page 3, and page 2 shows other lines.
+    shiftLines(40)
+    const release = await holdFirst(page, listPage, 1)
+    const third = page.waitForRequest((r) => new URL(r.url()).searchParams.get('page') === '3' && new URL(r.url()).searchParams.get('page_size') === '40')
+    await page.goto('/#/drama/3/review')
+    await expect(realRow(page)).toBeVisible()
+    await third
+    await row(page, 60).locator('.review-idx').click()
+    await expect(row(page, 60)).toHaveAttribute('aria-current', 'true')
+    release()
+    await settle(page)
+    await expect(row(page, 60)).toHaveAttribute('aria-current', 'true')
+    await expect(pageNumber(page)).toHaveValue('2')
+    await expect(status(page)).toHaveText('')
+  })
+
+  test('an edit opened on the line the page picked is not saved and left by a restore', async ({ page }) => {
+    seedPlaceLines()
+    await keepLine55(page)
+    await leave(page)
+    seedPlaceLines()
+    const release = await holdFirst(page, wholeTitle)
+    await page.goto('/#/drama/3/review')
+    const active = page.locator('.review-line[aria-current="true"]')
+    await expect(active).toHaveCount(1)
+    const label = await active.locator('.review-idx').innerText()
+    await active.getByTestId('line-en').click()
+    await expect(active.getByLabel('Translation')).toBeVisible()
+    release()
+    await settle(page)
+    await expect(active.locator('.review-idx')).toHaveText(label)
+    await expect(active.getByLabel('Translation')).toBeVisible()
+    await expect(pageNumber(page)).toHaveValue('2')
+    await expect(status(page)).toHaveText('')
+  })
+
+  test('a ?find= link that arrives while the kept line is on its way wins', async ({ page }) => {
+    seedPlaceLines()
+    await keepLine55(page)
+    await leave(page)
+    const release = await holdFirst(page, listPage)
+    await page.goto('/#/drama/3/review')
+    await page.goto(`/#/drama/3/review?find=${encodeURIComponent('Line 77')}`)
+    await expect(row(page, 77)).toBeVisible()
+    release()
+    await settle(page)
+    await expect(page.getByRole('searchbox', { name: 'Search lines' })).toHaveValue('Line 77')
+    await expect(page.locator('.review-line')).toHaveCount(1)
+    await expect(row(page, 77)).toHaveAttribute('aria-current', 'true')
+    await expect(status(page)).toHaveText('')
   })
 
   test('a view picked before the kept line arrives is not taken back to All', async ({ page }) => {

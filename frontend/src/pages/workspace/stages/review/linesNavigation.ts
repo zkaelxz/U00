@@ -31,7 +31,13 @@ interface LinesNavigationDeps {
 export interface Restore {
   all: ReviewLine[]
   stillHere: () => boolean
+  // Told once the page has landed on the line. It is also the pending move's `landed`, which is how the kept place
+  // recognises that move as the restore's and drops it when the person moves first.
+  landed: NonNullable<Pending['landed']>
 }
+
+// goToLine's answer is for the person to read; a restore that stops has nothing to tell them.
+export const RESTORE_STOPPED = ''
 
 // Filter, search and go-to-line: the moves that change which lines are shown.
 // Each first saves (or keeps) a dirty draft. Rebuilt every render.
@@ -67,20 +73,23 @@ const goToLine = async (t: LineTarget, restore?: Restore): Promise<string | null
         ? all.findIndex((l) => l.id === t.lineId)
         : all.findIndex((l) => l.idx === idxFromLineNumber(t.lineNumber))
     if (pos === -1) return 'lineId' in t ? 'That line no longer exists.' : `No line #${t.lineNumber}.`
+    // Leaving an edit saves it, which a restore must never do on the person's behalf.
+    if (restore && st.current.edit) return RESTORE_STOPPED
     const draft = st.current.edit
     if (!(await ctl.leaveEdit())) {
       // The draft could not be saved: bring it into view so it can be fixed.
       if (draft) listRef.current?.querySelector<HTMLElement>(`[data-line-id="${draft.lineId}"]`)?.scrollIntoView?.({ block: 'center' })
       return `Could not open ${label}: your edit to #${draft ? lineNumber(draft.base.idx) : '?'} is not saved yet.`
     }
-    // Only the restore reads this message, and it says nothing of it.
-    if (restore && !restore.stillHere()) return 'The person moved first.'
+    if (restore && !restore.stillHere()) return RESTORE_STOPPED
     const id = all[pos].id
     const pg = pageForPosition(pos)
-    if (!searching && filter === 'all' && page === pg) ctl.focusTo(id)
-    else {
+    if (!searching && filter === 'all' && page === pg) {
+      ctl.focusTo(id)
+      restore?.landed(st.current.shown, true)
+    } else {
       if (searching || filter !== 'all') setStatus(`Showing all lines to open #${lineNumber(all[pos].idx)}.`)
-      pending.current = { target: id }
+      pending.current = { target: id, landed: restore?.landed }
       setFilter('all')
       setInput('')
       setTerm('')

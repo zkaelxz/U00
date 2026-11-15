@@ -21,6 +21,7 @@ interface Live {
   shown: ReviewLine[]
   filter: LineFilter
   searching: boolean
+  term: string
   queue: boolean
   page: number
   listRef: RefObject<HTMLUListElement | null>
@@ -38,11 +39,15 @@ interface Kept {
   // The view is kept so that leaving it can take the sentence down.
   said: { text: string; view: PlaceView } | null
   live: Live | null
-  // The restore still waiting for its page. The person's own moves share the pending slot, so identity tells them apart.
-  reopening: Pending | null
+  // The `landed` of the restore still waiting for its page. The person's own moves share the pending slot, so this
+  // tells them apart.
+  restoreLanded: Pending['landed'] | null
+  // Puts the page back when the person moves while a restore's page is loading: that page change is already made.
+  undoMove: (() => void) | null
   // The line a restore moves to: its landing is not the person's move.
   restoreId: number | null
-  // Bumped by whatever the person does (view, search, go-to, line), so a restore that awaits the whole title can tell.
+  // Bumped by what the person does, so a restore that awaits the whole title can tell. A page change counts, even one
+  // that returns to the page it started on.
   acts: number
 }
 
@@ -100,14 +105,21 @@ async function recover(kept: KeptRef, setPage: SetPage, spot: Spot, wouldOpen: n
     if (page !== 1) setPage(1)
     return
   }
-  kept.current.holdId = line.id
-  kept.current.restoreId = line.id
-  const message = await kept.current.live?.goToLine({ lineId: line.id }, { all, stillHere })
-  if (message !== null) {
-    kept.current.holdId = null
-    return
+  // The line may be on another page, so the sentence and the hold wait for the page to land on it.
+  const landed: NonNullable<Pending['landed']> = (_lines, hit) => {
+    kept.current.undoMove = null
+    if (!hit) return
+    kept.current.holdId = line.id
+    kept.current.restoreId = line.id
+    sayBack(kept, 'lines', line, wouldOpen)
   }
-  sayBack(kept, 'lines', line, wouldOpen)
+  kept.current.restoreLanded = landed
+  kept.current.undoMove = () => setPage(page)
+  const message = await kept.current.live?.goToLine({ lineId: line.id }, { all, stillHere, landed })
+  if (message !== null) {
+    kept.current.restoreLanded = null
+    kept.current.undoMove = null
+  }
 }
 
 // Opens a view's kept line on the page it was on, focused as a go-to does. `cur` and `first` are what the load would
@@ -135,7 +147,7 @@ function reopen(kept: KeptRef, setPage: SetPage, view: PlaceView, spot: Spot, cu
       }
     },
   }
-  kept.current.reopening = move
+  kept.current.restoreLanded = move.landed
   return move
 }
 
@@ -188,7 +200,7 @@ export function useReviewPlace(dramaId: number, simple: boolean, pendingRef: Mut
     return spotToOpen(readKept(dramaId), filter, simple, link)
   })
   const [page, setPage] = useState(opening?.spot.page ?? 1)
-  const kept = useRef<Kept>({ holdId: null, held: null, said: null, live: null, reopening: null, restoreId: null, acts: 0 })
+  const kept = useRef<Kept>({ holdId: null, held: null, said: null, live: null, restoreLanded: null, undoMove: null, restoreId: null, acts: 0 })
   // Runs before the list's first load, which is an effect of a later hook: that load settles on the kept line.
   useEffect(() => {
     if (opening) pendingRef.current = reopen(kept, setPage, opening.view, opening.spot, null, true)
@@ -197,9 +209,16 @@ export function useReviewPlace(dramaId: number, simple: boolean, pendingRef: Mut
     kept,
     /** The person has moved: a restore not yet landed is dropped, and so is a hold not yet placed. */
     abandon: () => {
-      kept.current.acts += 1
-      if (kept.current.reopening !== null && pendingRef.current === kept.current.reopening) pendingRef.current = null
-      kept.current.holdId = null
+      const k = kept.current
+      k.acts += 1
+      k.holdId = null
+      k.restoreId = null
+      if (pendingRef.current !== null && k.restoreLanded !== null && pendingRef.current.landed === k.restoreLanded) {
+        pendingRef.current = null
+        k.restoreLanded = null
+        k.undoMove?.()
+        k.undoMove = null
+      }
     },
     /** The page a switch to `f` opens on: its view's kept line's, read now (with the move to it), else 1. */
     pageFor: (f: LineFilter): number => {
@@ -229,7 +248,8 @@ export function useKeepPlace(place: { kept: KeptRef; abandon: () => void }, live
       kept.current.held.release()
       kept.current.held = null
     }
-    if (!own && live.activeId !== kept.current.restoreId) place.abandon()
+    if (live.activeId === kept.current.restoreId) kept.current.restoreId = null
+    else if (!own) place.abandon()
     const line = live.activeId !== null ? live.shown.find((l) => l.id === live.activeId) : undefined
     if (own || !line) return
     const { view, spot } = spotForMove(line, { queue: live.queue, all: live.filter === 'all' && !live.searching, page: live.page })
@@ -260,5 +280,24 @@ export function useKeepPlace(place: { kept: KeptRef; abandon: () => void }, live
     kept.current.held?.release()
     kept.current.held = { id, release: holdInView(row, list) }
   })
-  useEffect(() => () => kept.current.held?.release(), [kept])
+  // A restore that finishes after the list is gone must find nothing to act on.
+  useEffect(() => () => {
+    kept.current.held?.release()
+    kept.current.live = null
+  }, [kept])
+
+  // A link that names a search can arrive while the list is open, outside the search box; it is the person's choice.
+  const seenTerm = useRef(live.term)
+  useEffect(() => {
+    if (seenTerm.current === live.term) return
+    seenTerm.current = live.term
+    place.abandon()
+    // Only a change of term counts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live.term])
+
+  // Comparing pages cannot tell a page the person went to and came back from.
+  useEffect(() => {
+    kept.current.acts += 1
+  }, [live.page, kept])
 }
