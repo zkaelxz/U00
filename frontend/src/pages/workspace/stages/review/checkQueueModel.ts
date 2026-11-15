@@ -245,7 +245,7 @@ const readTranslationCheck: ReadNote = (note) => {
     const reply = unusable[2]?.trim()
     return {
       text: `The translation engine’s answer for this line could not be used (${unusable[1]}), so the English may be missing or wrong. ` +
-        `${reply ? `Its answer was “${reply}”. ` : ''}Fix the English, or use Improve translation.`,
+        `${reply ? `Its answer was “${reply}”. ` : ''}Fix the English, or use Re-write.`,
     }
   }
   return fixedNotes({

@@ -157,7 +157,7 @@ export function LineWhy({ dramaId, line }: { dramaId: number; line: ReviewLine }
       <h3 id={headId} className="this-line-title">Why it is listed</h3>
       <p className="this-line-why" data-testid="this-line-why">{also ? `${reason.text} ${also}` : reason.text}</p>
       {queueAction(line) === 'glossary' && (
-        <a className="this-line-link" href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })}>Open glossary</a>
+        <a className="this-line-link" href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })}>Glossary</a>
       )}
     </section>
   )
