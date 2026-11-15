@@ -12,6 +12,10 @@ library/
 .env.*
 !.env.example
 *.key
+# Extension signing key (Chrome's extension.pem) and other private-key containers
+*.pem
+*.p12
+*.pfx
 
 # Python
 __pycache__/
