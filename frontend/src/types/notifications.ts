@@ -21,7 +21,7 @@ export type NotificationTestResult = Schemas['NotificationTestResult']
 
 // GET /api/notifications: the header bell's list (in memory on the server,
 // lost on restart). Newest first, at most 50. No job id, link or path.
-export type NotificationKind = 'job_done' | 'job_failed' | 'chapters' | 'remote' | 'live' | 'waiting'
+export type NotificationKind = 'job_done' | 'job_failed' | 'chapters' | 'remote' | 'resource' | 'live' | 'waiting'
 
 // A "waiting" entry's place to open: a page and the id it needs; the bell builds the link.
 export type NotificationTarget = Schemas['NotificationTarget']
