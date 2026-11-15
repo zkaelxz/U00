@@ -21797,7 +21797,7 @@ export interface components {
              * Language Whisper Defaults
              * @default {}
              */
-            language_whisper_defaults?: {
+            language_whisper_defaults: {
                 [key: string]: string;
             };
             /** Languages */
