@@ -391,7 +391,7 @@ def _title_term_hints(principal, drama_id, source_language):
     drama = db.get_drama(int(drama_id))
     if drama is None:
         raise NotFoundError("Title not found.")
-    return _hint_function(drama.get("series_id"), drama, source_language)
+    return _hint_function(drama.get("series_id"), drama, source_language, glossary_title=drama)
 
 
 def _series_term_hints(principal, series_id, source_language):
@@ -408,9 +408,12 @@ def _series_term_hints(principal, series_id, source_language):
     return _hint_function(int(series_id), pack_title, source_language)
 
 
-def _hint_function(series_id, pack_title, source_language):
-    """`pack_title`: the title whose packs apply, or None for glossary only."""
-    glossary = [t for t in (db.list_effective_glossary_terms(series_id) if series_id else [])
+def _hint_function(series_id, pack_title, source_language, glossary_title=None):
+    """`pack_title`: the title whose packs apply, or None for glossary only.
+    `glossary_title`: set when the hints are for one title, so its own terms count too."""
+    terms = (db.list_run_glossary_terms(glossary_title) if glossary_title
+             else db.list_effective_glossary_terms(series_id) if series_id else [])
+    glossary = [t for t in terms
                 if t.get("term_original") and t.get("term_translation")]
     # A pack is written for its own source language; a stream in another one
     # would match nothing meaningful.
