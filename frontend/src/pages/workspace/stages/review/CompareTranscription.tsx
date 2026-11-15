@@ -492,7 +492,7 @@ export function CompareTranscription({
           <div data-testid="compare-results">
             <div className="review-actions">
               <span className="muted" data-testid="compare-last-run">{compareRunText(result, finishedAt)}</span>
-              <button type="button" onClick={flagDifferences} disabled={applying}>Flag lines that differ</button>
+              <button type="button" onClick={flagDifferences} disabled={applying}>Flag differences</button>
               <button type="button" onClick={clearResult}>Clear</button>
             </div>
             {usedPrompt && (usedPrompt.hint || usedPrompt.names) && (

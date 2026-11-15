@@ -18,13 +18,13 @@ type Filter = { action: string; userId: number | null }
  * one page when opened; "Show older" pages back. Hidden from anyone
  * without admin.users.read.
  */
-export function AuditLogSection() {
+export function AuditLogSection({ openSignal }: { openSignal?: number }) {
   const session = useSession()
   if (!canViewUsers(session)) return null
-  return <AuditBody />
+  return <AuditBody openSignal={openSignal} />
 }
 
-function AuditBody() {
+function AuditBody({ openSignal }: { openSignal?: number }) {
   const [events, setEvents] = useState<AuditEvent[] | null>(null)
   const [next, setNext] = useState<number | null>(null)
   const [actions, setActions] = useState<string[]>([])
@@ -72,7 +72,7 @@ function AuditBody() {
   }
 
   return (
-    <Section title="Activity log" storageKey="admin.activity" summary="Sign-ins and admin actions">
+    <Section title="Activity log" storageKey="admin.activity" openSignal={openSignal} summary="Sign-ins and admin actions">
       <div ref={openRef} className="diag-stack" data-testid="audit-log">
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         <div className="actions audit-filters">

@@ -43,7 +43,7 @@ const refusedFix = (now: string | null): LineFix => ({ ...openFix(lines[1]), see
 describe('NowCard', () => {
   it('asks for play before the first line, with no box', () => {
     const out = html(props({ line: null }))
-    expect(out).toContain('Press play. The line being spoken shows here.')
+    expect(out).toContain('Press play to see lines here.')
     expect(out).not.toContain('watch-now-box')
     expect(out).not.toContain('Fix Line')
   })
@@ -123,7 +123,7 @@ describe('NowCard', () => {
   it('a refused save keeps the draft in the field and shows under the alert what the line says now', () => {
     const out = html(props({ line: line(2, 4, { en: 'Theirs' }), fix: refusedFix('Theirs') }))
     expect(out).toContain('>Mine</textarea>')
-    expect(CONFLICT_TEXT).toBe('This line was changed while you were fixing it. What it says now is shown below, and your text is still in the box. Save again if it still needs your fix.')
+    expect(CONFLICT_TEXT).toBe('This line changed. The new text is below; yours is still in the box. Save again if you still want it.')
     expect(out).toContain(`<p class="error" role="alert">${CONFLICT_TEXT}</p><div class="watch-now-theirs"><span class="watch-now-label">It now says</span><p class="watch-now-theirs-en" lang="en">Theirs</p></div>`)
   })
 
@@ -134,7 +134,7 @@ describe('NowCard', () => {
   it('a refused save whose new text could not be read says so and shows nothing below', () => {
     const out = html(props({ fix: refusedFix(null) }))
     expect(out).toContain('>Mine</textarea>')
-    expect(CONFLICT_UNREAD_TEXT).toBe('This line was changed while you were fixing it, and its new text could not be loaded. Your text is still in the box. Try Save again in a moment.')
+    expect(CONFLICT_UNREAD_TEXT).toBe('This line changed and its new text could not load. Yours is still in the box. Try Save again soon.')
     expect(out).toContain(`<p class="error" role="alert">${CONFLICT_UNREAD_TEXT}</p>`)
     expect(out).not.toContain('It now says')
     expect(out).not.toContain(CONFLICT_TEXT)

@@ -107,7 +107,7 @@ export function SuggestSpellings({ term, initialEnglish, onEnglish, onAdded, onC
           type="button"
           className={buttonClass('secondary', 'sm')}
           disabled={!english.trim() || checking}
-          title="Lists lines where this name is not written as above in the English. Free; nothing is changed."
+          title="List lines spelling this name differently. Free; changes nothing."
           onClick={runCheck}
         >
           {checking ? 'Checking…' : 'Check English names'}
@@ -146,7 +146,7 @@ export function SuggestSpellings({ term, initialEnglish, onEnglish, onAdded, onC
                     <button
                       type="button"
                       className={buttonClass('secondary', 'sm')}
-                      title="Future glossary matches will count this spelling as the same term"
+                      title="Count this spelling as the same term"
                       aria-label={`Add ${c.text} as alias`}
                       onClick={() => setConfirming(c.text)}
                     >

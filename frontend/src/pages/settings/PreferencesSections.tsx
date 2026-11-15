@@ -20,7 +20,6 @@ import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { humanize, humanizeValue } from '../../components/labels'
-import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type { EndpointName, SettingsOverview, SettingsSchemaRow } from '../../types/settings'
@@ -202,7 +201,7 @@ export function AdvancedCard(props: AdvancedProps) {
     Uploads: `Limit ${formatSizeMb(settings.effective_upload_max_mb)}${settings.upload_max_mb_from_env ? ' · set by the environment' : ''}`,
   }
   return (
-    <Card title={ADVANCED_TITLE} meta="OCR, offline models, downloads, program locations, uploads, server addresses" aria-label={ADVANCED_TITLE}>
+    <Card title={ADVANCED_TITLE} meta="OCR, offline models, downloads, program locations, uploads" aria-label={ADVANCED_TITLE}>
       {ADVANCED_FOLDS.map((fold) => (
         <SchemaCard
           key={fold.title}
@@ -219,7 +218,6 @@ export function AdvancedCard(props: AdvancedProps) {
       {other.length > 0 && (
         <SchemaCard {...common} keys={other} title="Other" summary={`${other.length} setting${other.length === 1 ? '' : 's'}`} openSignal={openSignal} />
       )}
-      <EndpointsSection settings={settings} onSettings={onSettings} openSignal={openSignal} />
     </Card>
   )
 }
@@ -309,11 +307,13 @@ function uploadsEnv(settings: SettingsOverview) {
   }
 }
 
-function EndpointsSection({ settings, onSettings, openSignal }: { settings: SettingsOverview; onSettings: OnSettings; openSignal: number }) {
+const ENDPOINTS_TITLE = 'Server addresses'
+
+/** Beside the engine keys: an engine's address is set with its key, not among the rarely used paths. */
+export function EndpointsCard({ settings, onSettings }: { settings: SettingsOverview; onSettings: OnSettings }) {
   const set = ENDPOINTS.filter((e) => settings.endpoints[e.name]).length
-  const title = 'Server addresses'
   return (
-    <Section title={title} openSignal={openSignal} summary={`${set} of ${ENDPOINTS.length} set`}>
+    <Card title={ENDPOINTS_TITLE} meta={`${set} of ${ENDPOINTS.length} set`} aria-label={ENDPOINTS_TITLE}>
       <div style={grid}>
         <p className="settings-note">
           Addresses of local servers Baihe talks to. {SAVED_ON_PC_NOTE}
@@ -337,7 +337,7 @@ function EndpointsSection({ settings, onSettings, openSignal }: { settings: Sett
           />
         ))}
       </div>
-    </Section>
+    </Card>
   )
 }
 

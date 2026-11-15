@@ -111,11 +111,11 @@ test('Edit in Translate links (?focus=) open the tab that holds the panel', asyn
   await expect(translateTab(page, 'novel')).toHaveAttribute('aria-selected', 'true')
 })
 
-test('"Build the glossary from this novel in Translate" opens the Glossary tab', async ({ page }) => {
+test('"Build glossary in Translate" opens the Glossary tab', async ({ page }) => {
   await page.route('**/api/novel/dramas/2/status', (r) =>
     r.fulfill({ json: { drama_id: 2, has_novel_text: true, char_count: 1200, chapters: 3, ocr_running: false } }))
   await page.goto('/#/drama/2/source')
-  await page.getByRole('link', { name: /Build the glossary from this novel in Translate/ }).click()
+  await page.getByRole('link', { name: /Build glossary in Translate/ }).click()
   await expect(page).toHaveURL(/#\/drama\/2\/translate\?tab=glossary/)
   await expect(translateTab(page, 'glossary')).toHaveAttribute('aria-selected', 'true')
 })

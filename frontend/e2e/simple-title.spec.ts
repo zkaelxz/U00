@@ -420,7 +420,7 @@ test.describe('the check queue', () => {
     expect(await box.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
     // Edit details and Dismiss flag are in the card's More sheet (and on D and F), not its row.
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
-      .toHaveText(['Glossary', 'Re-write', 'See the lines around it', '✗', '〰', 'Looks right, next'])
+      .toHaveText(['Glossary', 'Re-write', 'In context', '✗', '〰', '✓ Next'])
     await card(page, 24).getByRole('button', { name: 'More actions for line 24' }).click()
     for (const name of ['Edit details', 'Dismiss flag']) await expect(page.getByRole('dialog').getByRole('button', { name, exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
@@ -736,7 +736,7 @@ test.describe('the check queue', () => {
     await expect(card(page, 24).locator('.review-select')).toBeHidden()
     await expect(card(page, 24).getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
-      .toHaveText(['Play line', 'Glossary', 'Re-write', '✗', '〰', 'Looks right, next'])
+      .toHaveText(['Play line', 'Glossary', 'Re-write', '✗', '〰', '✓ Next'])
 
     // This line is the open tab, with the sound, the reason and the lines around it.
     const lineTab = page.getByRole('tab', { name: 'This line' })
@@ -775,7 +775,6 @@ test.describe('the check queue', () => {
     await headerMore(page).click()
     await expect(toggle).toBeVisible()
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    await expect(toggle).toHaveAttribute('title', 'Seek bar, speed, subtitles and the waveform')
     await toggle.click()
     await expect(player).toBeVisible()
     await expect(page.getByRole('button', { name: /Show waveform|Hide waveform/ })).toBeVisible()
@@ -821,7 +820,7 @@ test.describe('the check queue', () => {
     await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
     await expect(page.getByRole('tab', { name: 'This line' })).toHaveCount(0)
     await expect(card(page, 24).getByTestId('queue-reason')).toHaveText(GLOSSARY_SENTENCE)
-    await expect(card(page, 24).getByRole('button', { name: 'See the lines around it' })).toBeVisible()
+    await expect(card(page, 24).getByRole('button', { name: 'In context' })).toBeVisible()
     // A closed card is one row: its number, source, English and reason chip share a line.
     const closed = card(page, 12)
     const tops = await Promise.all(['.review-idx', '.review-zh', '[data-testid="line-en"]', '[data-testid="queue-reason"]'].map(async (sel) => (await closed.locator(sel).boundingBox())!.y))
@@ -1070,15 +1069,15 @@ test.describe('the check queue', () => {
     const open = card(page, 24)
     await expect(page.getByRole('tab', { name: 'This line' })).toHaveAttribute('aria-selected', 'true')
     await expect(open.getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
-    await expect(open.getByRole('button', { name: 'See the lines around it' })).toHaveCount(0)
+    await expect(open.getByRole('button', { name: 'In context' })).toHaveCount(0)
     await page.getByRole('tab', { name: 'Look for problems' }).click()
     await expect(open.getByTestId('queue-reason')).toHaveText(GLOSSARY_SENTENCE)
-    await expect(open.getByRole('button', { name: 'See the lines around it' })).toBeVisible()
+    await expect(open.getByRole('button', { name: 'In context' })).toBeVisible()
     // The hidden panel is not drawn at all, so nothing in it runs.
     await expect(page.getByTestId('this-line')).toHaveCount(0)
     await page.getByRole('tab', { name: 'This line' }).click()
     await expect(open.getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
-    await expect(open.getByRole('button', { name: 'See the lines around it' })).toHaveCount(0)
+    await expect(open.getByRole('button', { name: 'In context' })).toHaveCount(0)
     await expect(page.getByTestId('this-line')).toBeVisible()
   })
 
@@ -1596,7 +1595,7 @@ test.describe('the check queue', () => {
     expect(bars.length).toBeGreaterThanOrEqual(80)
     expect(bars.length).toBeLessThanOrEqual(90)
     for (const w of bars) expect(Math.abs(w - 3), 'each bar is 3px wide').toBeLessThanOrEqual(0.5)
-    await expect(page.getByTestId('this-line').getByRole('button', { name: 'Play', exact: true })).toHaveAttribute('title', 'Play the line (Space)')
+    await expect(page.getByTestId('this-line').getByRole('button', { name: 'Play', exact: true })).toHaveAttribute('title', 'Key: Space')
     await expectNoSidewaysScroll(page)
   })
 
