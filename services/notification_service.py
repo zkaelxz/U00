@@ -1069,6 +1069,26 @@ def notify_remote_access(text) -> None:
             pass
 
 
+def notify_resource_alert(text, recovered=False) -> None:
+    """A resource alert or recovery (resource_monitor_service): the in-app
+    list (PC owner and admins, like remote access) and, whenever a Discord or
+    ntfy channel is set up, a push. It has no category switch: a hot or full
+    PC is a warning, and warnings always push. Never raises, never blocks on
+    the network."""
+    try:
+        message = redact_secrets(_tidy(f"This PC: {text}", 200))
+        _record("resource", message, None, None)
+        if os.environ.get(DISABLED_ENV) == "1" or not configured_channels():
+            return
+        card = {"description": message, "color": COLOR_OK if recovered else COLOR_WARN}
+        _enqueue(("resource", message, "resource", None, card))
+    except Exception as exc:
+        try:
+            _log().warning(f"notification: could not queue ({type(exc).__name__})")
+        except Exception:
+            pass
+
+
 def notify_waiting(text, *, push_text, owner_user_id=None, job_id=None, target=None,
                    names_drama_id=None) -> None:
     """A run stopped and waits for the person: "Waiting for you: <text>" in
