@@ -63,8 +63,8 @@
   --radius-lg: var(--radius);
   --radius-pill: 999px;
   --radius-panel: 14px;
-  /* One type scale, "Comfortable": the root is 15px and everything is rem, so browser zoom scales it.
-     --text-xs (12px) is for badges and tiny marks only; running text is --text-sm (14px) or larger. */
+  /* One type scale, "Comfortable": the root is 16px and everything is rem, so browser zoom scales it.
+     --text-xs (about 13px) is for badges and tiny marks only; running text is --text-sm (15px) or larger. */
   --text-xs: 0.8rem;
   --text-sm: 0.9333rem;
   --text-md: 1rem;
@@ -261,7 +261,7 @@ select:not(:focus), textarea:not(:focus) { border-color: var(--field-edge); }
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html { font-size: 93.75%; }
+html { font-size: 100%; }
 /* Keeps pages from shifting when a scrollbar appears, but only where a bar takes room: a phone-width window reserved 15px as a dead strip beside the page. */
 @media (min-width: 641px) { html { scrollbar-gutter: stable; } }
 /* Display preferences (src/display.ts). Overriding the tokens on html reaches PageShell's --page-* aliases and the dock's cap. */
