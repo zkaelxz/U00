@@ -1,4 +1,5 @@
 """Tests for services/review_lines_service.py (Review stage read-only views)."""
+import contextlib
 import json
 import os
 
@@ -528,3 +529,56 @@ class TestShakyView:
         worst = svc.list_review_lines(did, only="shaky")["lines"][0]
         edited = lines_service.patch_line(did, worst["id"], en="New English")
         assert edited["confidence"] == 0.1
+
+
+class TestMarks:
+    def _seeded(self, db):
+        lines = _flag_lines(6)
+        lines[0].flag = "factual_detail"
+        lines[0].confidence = 0.1              # the highest an unmarked line can score
+        lines[2].mark = "mixed"
+        lines[4].mark = "wrong"
+        lines[4].flag = "reading_speed"
+        lines[5].reviewed = True
+        return _seed(db, lines)
+
+    def test_counts_filter_and_line_shape(self, isolated_db):
+        did = self._seeded(isolated_db)
+        page = svc.list_review_lines(did)
+        assert page["marked_count"] == 2
+        assert [ln["mark"] for ln in page["lines"]] == [None, None, "mixed", None, "wrong", None]
+        page = svc.list_review_lines(did, only="marked")
+        assert [ln["idx"] for ln in page["lines"]] == [2, 4] and page["total"] == 2
+
+    def test_marked_lines_lead_the_risk_view_and_count_in_it(self, isolated_db):
+        did = self._seeded(isolated_db)
+        page = svc.list_review_lines(did, only="risk")
+        assert [ln["idx"] for ln in page["lines"]] == [4, 2, 0]
+        assert page["risk_count"] == 3
+
+    def test_an_unknown_stored_mark_reads_as_none(self, isolated_db):
+        did = self._seeded(isolated_db)
+        lid = isolated_db.load_line_texts(did)[1].id
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            conn.execute("UPDATE lines SET mark = 'later' WHERE id = ?", (lid,))
+            conn.commit()
+        page = svc.list_review_lines(did)
+        assert page["marked_count"] == 2 and page["lines"][1]["mark"] is None
+        assert svc.list_review_lines(did, only="marked")["total"] == 2
+
+    def test_adjacent_marked_and_flagged_or_marked(self, isolated_db):
+        did = self._seeded(isolated_db)
+        ids = {ln.idx: ln.id for ln in isolated_db.load_line_texts(did)}
+
+        def step(forward, from_idx, kind):
+            frm = None if from_idx is None else ids[from_idx]
+            return svc.adjacent_flagged(did, forward, frm, 40, "all", kind)["idx"]
+
+        assert [step(True, None, "marked"), step(True, 2, "marked"), step(True, 4, "marked")] == [
+            2, 4, None]
+        assert step(False, 4, "marked") == 2
+        assert [step(True, None, "flagged_or_marked"), step(True, 0, "flagged_or_marked"),
+                step(True, 2, "flagged_or_marked")] == [0, 2, 4]
+        assert step(False, 2, "flagged_or_marked") == 0
+        # The older kinds don't see marks.
+        assert [step(True, 0, "flagged"), step(True, 1, "unreviewed")] == [4, 2]

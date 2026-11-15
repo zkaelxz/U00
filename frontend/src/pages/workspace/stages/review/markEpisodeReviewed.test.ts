@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { markEpisodeReviewedText as resultText } from './markEpisodeReviewedText'
 
-const result = { reviewed: 0, remembered: 0, kept_existing: 0, skipped_flagged: 0, already_reviewed: 0 }
+const result = { reviewed: 0, remembered: 0, kept_existing: 0, skipped_flagged: 0, skipped_marked: 0, already_reviewed: 0 }
 
 describe('resultText', () => {
   it('says so when nothing needed marking', () => {
