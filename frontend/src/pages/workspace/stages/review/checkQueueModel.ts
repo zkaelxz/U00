@@ -3,9 +3,10 @@ import { humanize, humanizeValue } from '../../../../components/labels'
 import { lineNumber } from '../../../../lineNumber'
 import { capFirst, plural } from '../../../../labels'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
-import { formatTime, RISK_CONFIDENCE_BELOW } from './reviewLogic'
+import { formatTime, needsSpeaker, RISK_CONFIDENCE_BELOW } from './reviewLogic'
 
-// The queue is the server's risk view: translated, unchecked lines with a flag or a low Whisper score, riskiest first.
+// The queue is the server's risk view: translated, unchecked lines with a flag, a low Whisper score or no speaker (in a
+// title that has speakers), riskiest first.
 export const QUEUE_FILTER: LineFilter = 'risk'
 
 /**
@@ -25,14 +26,23 @@ export function confidenceReason(line: Pick<ReviewLine, 'flag' | 'confidence'>):
   return `Whisper was unsure of this line (${Math.round(line.confidence * 100)}% sure)`
 }
 
+type SpeakerFields = Pick<ReviewLine, 'speaker' | 'speaker_manual' | 'sfx' | 'zh' | 'en'>
+
+/** Why an unflagged, confidently heard line is in the queue: it is the lowest-ranked reason, a speaker still to pick. */
+export const NO_SPEAKER_REASON: QueueReason = { text: 'This line has no speaker yet.', short: 'No speaker yet' }
+
+/** Listed for no speaker alone: taking one is what takes it out of the queue. */
+export const onlyNeedsSpeaker = (line: Pick<ReviewLine, 'flag' | 'confidence'> & SpeakerFields) =>
+  !line.flag && !confidenceReason(line) && needsSpeaker(line)
+
 /** The sentence added after a flagged line's reason when Whisper's score would have listed it too; null otherwise. */
 export function alsoUnsureText(line: Pick<ReviewLine, 'flag' | 'confidence'>): string | null {
   if (!line.flag || line.confidence == null || line.confidence >= RISK_CONFIDENCE_BELOW) return null
   return `Whisper was also unsure of this line (${Math.round(line.confidence * 100)}% sure).`
 }
 
-/** The flag as the line list has always written it: "Content blocked · gemini: SAFETY". */
-export function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
+/** A flag with no words of its own: its tidied name and the note as stored, "Uncertain · Check". */
+function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
   return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${capFirst(line.flag_note)}` : ''}`
 }
 
@@ -382,15 +392,17 @@ const FLAG_KINDS: Record<string, FlagKind> = {
 export const QUEUE_FLAG_KINDS = Object.keys(FLAG_KINDS)
 
 /**
- * Why a queue card is listed, in everyday words. A note the server writes in a known shape gives the specifics; any
- * other note is shown as it is after the plain sentence. An unknown flag keeps the line list's own text. Null for a
- * line with no flag that Whisper was sure of.
+ * Why a queue card is listed, in everyday words; a flagged line says the same wherever Review writes its flag out.
+ * A note the server writes in a known shape gives the specifics; any other note is shown as it is after the plain
+ * sentence. An unknown flag keeps the line list's own text. Null for a line with no flag that Whisper was sure of and
+ * that has a speaker.
  */
-export function queueReason(line: Pick<ReviewLine, 'flag' | 'flag_note' | 'confidence'>): QueueReason | null {
+export function queueReason(line: Pick<ReviewLine, 'flag' | 'flag_note' | 'confidence'> & Partial<SpeakerFields>): QueueReason | null {
   if (!line.flag) {
     const unsure = confidenceReason(line)
     // The score goes in the few words too: a closed card on a wide screen leaves out the Shaky badge that also says it.
-    return unsure ? { text: unsure, short: `Whisper was unsure (${Math.round((line.confidence ?? 0) * 100)}% sure)` } : null
+    if (unsure) return { text: unsure, short: `Whisper was unsure (${Math.round((line.confidence ?? 0) * 100)}% sure)` }
+    return line.zh !== undefined && line.en !== undefined && needsSpeaker(line as SpeakerFields) ? NO_SPEAKER_REASON : null
   }
   const kind = FLAG_KINDS[line.flag]
   if (!kind) return { text: flagText(line), short: humanizeValue(line.flag) }
@@ -487,19 +499,22 @@ export const untranslatedText = (n: number): string | null =>
 // The words Mark episode reviewed already uses for the same wait.
 export const JOB_RUNNING_TEXT = 'Another job is running on this title. Try again when it finishes.'
 export const UNSURE_FIRST = 'Look at the lines Whisper was unsure of first: this would mark them checked too.'
+export const NO_SPEAKER_FIRST = 'Give the lines with no speaker a speaker first, or check them: this would mark them checked too.'
 export const WHOLE_LIST_FIRST =
   'Work through the list until it fits on one page. Until then the app can’t tell whether this would also mark lines that still need a look.'
 
 /**
  * Why Mark the rest can't run now, or null when it can. Mark episode reviewed skips flagged lines only, so an
- * unflagged low-score line in the queue would be marked unseen. The list counts can't tell those lines apart
+ * unflagged low-score or no-speaker line in the queue would be marked unseen. The list counts can't tell those lines apart
  * (flagged_count also holds checked and untranslated lines), so the queue page itself is read: it must hold the
  * whole queue, every line flagged.
  */
 export function markRestBlocker(queuePage: ReviewLinesPage, jobRunning: boolean): string | null {
   if (jobRunning) return JOB_RUNNING_TEXT
   if (queuePage.lines.length < queuePage.total) return WHOLE_LIST_FIRST
-  if (queuePage.lines.some((l) => !l.flag)) return UNSURE_FIRST
+  const unflagged = queuePage.lines.filter((l) => !l.flag)
+  if (unflagged.some((l) => !onlyNeedsSpeaker(l))) return UNSURE_FIRST
+  if (unflagged.length > 0) return NO_SPEAKER_FIRST
   return null
 }
 
