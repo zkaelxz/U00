@@ -409,3 +409,41 @@ class TestSiteNamedSeriesJoin:
         after = db.get_drama(d)
         assert after["default_female_pronouns"] == before["default_female_pronouns"]
         assert after["beam_size"] == before["beam_size"]
+
+
+# --- where a title's settings come from ------------------------------------
+
+class TestTitleSources:
+    def _by_key(self, result):
+        return {r["key"]: r for r in result["settings"]}
+
+    def test_unset_own_and_series_values(self, people):
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        svc.set_defaults(people["a"], s, {"beam_size": 8, "vad_threshold": 0.4})
+        d = db.create_drama(title_en="T", source_language="ko", series_id=s, owner_user_id=people["a_id"])
+        db.update_drama(d, beam_size=8, vad_threshold=0.2)
+        rows = self._by_key(svc.title_sources(people["a"], d))
+        assert rows["beam_size"]["source"] == "series"
+        assert rows["vad_threshold"]["source"] == "title"
+        assert rows["vad_threshold"]["series_value"] == 0.4
+        assert rows["vad_threshold"]["differs_from_series"] is True
+        assert rows["min_silence_ms"]["source"] == "settings_default"
+        assert rows["min_silence_ms"]["value"] == 300
+
+    def test_series_default_is_not_applied_to_an_unset_title(self, people):
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        svc.set_defaults(people["a"], s, {"beam_size": 8})
+        d = db.create_drama(title_en="T", source_language="ko", series_id=s, owner_user_id=people["a_id"])
+        db.update_drama(d, beam_size=None)
+        row = self._by_key(svc.title_sources(people["a"], d))["beam_size"]
+        assert row["source"] == "settings_default" and row["value"] == 5
+        assert row["series_value"] == 8
+
+    def test_title_outside_a_series(self, people):
+        d = db.create_drama(title_en="T", source_language="ko")
+        result = svc.title_sources(LOCAL, d)
+        assert result["series_id"] is None and result["series_name"] is None
+
+    def test_unknown_title(self, people):
+        with pytest.raises(NotFoundError):
+            svc.title_sources(LOCAL, 9999)

@@ -8,16 +8,23 @@ import json
 import db
 
 
-def record_edit_sample(drama_id: int, zh: str, ai_version: str, user_version: str):
+def record_edit_sample(drama_id: int, zh: str, ai_version: str, user_version: str, *,
+                       line_id=None, engine=None, model=None, prompt_version=None,
+                       flag=None, mark=None):
     """Records a line you rewrote, so the system can learn what you
-    consistently change. Only stores genuine edits, not untouched lines."""
+    consistently change. Only stores genuine edits, not untouched lines.
+    engine, model and prompt_version name what produced `ai_version` (None
+    when it wasn't machine output); flag and mark are the line's before the
+    edit, which clears both."""
     if not user_version or ai_version.strip() == user_version.strip():
         return
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute(
-            "INSERT INTO edit_samples (drama_id, zh, ai_version, user_version, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (drama_id, zh, ai_version, user_version, clock.utcnow().isoformat()))
+            "INSERT INTO edit_samples (drama_id, zh, ai_version, user_version, created_at, "
+            "line_id, engine, model, prompt_version, flag, mark) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (drama_id, zh, ai_version, user_version, clock.utcnow().isoformat(),
+             line_id, engine, model, prompt_version, flag or None, mark or None))
         conn.commit()
 
 

@@ -228,6 +228,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/dramas/{drama_id}/restructure` | local_only() |
 | `POST /api/dramas/{drama_id}/restructure/preview` | local_only() |
 | `POST /api/dramas/{drama_id}/series` | library.create |
+| `GET /api/dramas/{drama_id}/settings-sources` | library.read |
 | `GET /api/dramas/{drama_id}/source-link` | local_only() |
 | `GET /api/events` | library.read |
 | `GET /api/export/ass-style-options` | library.read |

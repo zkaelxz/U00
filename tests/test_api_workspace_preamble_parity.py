@@ -372,7 +372,7 @@ class TestFromSources:
         with open(os.path.join(db.drama_dir(did), "raw_novel_context.txt"), "w", encoding="utf-8") as f:
             f.write("0123456789\n")      # 11 chars; cleaning would drop the newline
         r = client.post(f"/api/novel/dramas/{did}/attach-from-sources", json={})
-        assert r.status_code == 422
+        assert r.status_code == 422 and "at most 10 characters" in r.json()["error"]["message"]
         assert not os.path.exists(os.path.join(db.drama_dir(did), "novel_narration_source.txt"))
 
     def test_pc_only(self, isolated_db):
