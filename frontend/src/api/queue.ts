@@ -34,3 +34,7 @@ export const setQueuePolicy = (stopOnFailure: boolean, f?: Fetch) =>
 // A title's one-button run (transcribe, then find names), carried on by the PC with the page closed.
 export const getTitleFlow = (dramaId: number, f?: Fetch) => getJson<TitleFlowRun>(`/api/queue/title-flow/${dramaId}`, f)
 export const startTitleFlow = (dramaId: number, f?: Fetch) => postJson<TitleFlowRun>(`/api/queue/title-flow/${dramaId}`, undefined, f)
+// A novel's link run (import, text, lines, then find names); the link is read only while no chapter is saved.
+export const getNovelFlow = (dramaId: number, f?: Fetch) => getJson<TitleFlowRun>(`/api/queue/novel-flow/${dramaId}`, f)
+export const startNovelFlow = (dramaId: number, url: string, f?: Fetch) =>
+  postJson<TitleFlowRun>(`/api/queue/novel-flow/${dramaId}`, { url }, f)

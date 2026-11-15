@@ -12,6 +12,9 @@ export const STEP_LABELS: Record<QueueItemStep, string> = {
   translate: 'Translate',
   export: 'Export subtitles',
   names: 'Find names',
+  import: 'Import chapters',
+  text: 'Prepare the text',
+  lines: 'Make lines',
 }
 
 // What the Step choice offers: one step, or the whole chain for the title.

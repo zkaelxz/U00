@@ -53,9 +53,12 @@ MAX_ITEMS_PER_MEMBER = 50
 STEPS = ("transcribe", "translate", "export")
 # Added only by Quick video translate; never a step to pick.
 DOWNLOAD = "download"
-# The glossary scan of a title's lines; added only by a title page's one-button start.
+# The glossary scan of a title's lines (or, with source "novel", its novel text); added only by a
+# title page's one-button start, as are a novel's link import, its text and its lines.
 NAMES = "names"
-_ALL_STEPS = (DOWNLOAD,) + STEPS + (NAMES,)
+IMPORT, TEXT, LINES = "import", "text", "lines"
+_PAGE_STEPS = (IMPORT, TEXT, LINES, NAMES)
+_ALL_STEPS = (DOWNLOAD,) + STEPS + _PAGE_STEPS
 # A chain saved before items recorded the steps they wait for is a Quick video run, in this order.
 _LEGACY_CHAIN = (DOWNLOAD,) + STEPS
 _UNFINISHED = "An earlier step of this run did not finish."
@@ -101,7 +104,8 @@ def _empty() -> dict:
 
 
 _SETTING_KEYS = {"transcribe": transcribe_options_service.QUEUE_SETTING_KEYS,
-                 "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS, DOWNLOAD: ("url",), NAMES: ()}
+                 "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS, DOWNLOAD: ("url",), NAMES: ("source",),
+                 IMPORT: ("url", "local"), TEXT: (), LINES: ("engine",)}
 
 
 def _clean_settings(raw, step: str) -> dict:
@@ -268,8 +272,8 @@ def _translate_engine(drama: dict) -> str:
 
 
 def _item_changed_rows(item: dict, drama: Optional[dict]) -> list:
-    if not item["settings"] or not drama or item["step"] == DOWNLOAD:
-        return []   # the link is not shown
+    if not item["settings"] or not drama or item["step"] in (DOWNLOAD,) + _PAGE_STEPS:
+        return []   # the link is not shown, and a page's run changes nothing of the title's options
     step_rows = {"translate": translate_changed_rows, "export": _export_changed_rows}.get(item["step"])
     return step_rows(item["settings"]) if step_rows else _changed_rows(item, drama)
 
@@ -731,16 +735,6 @@ def _require_chain_finished(item: dict, items: list) -> None:
         raise ConflictError(_UNFINISHED)
 
 
-def _start_names(principal, drama: dict) -> str:
-    from services import glossary_extract_service
-    engine = glossary_extract_service.lines_glossary_engine(drama["id"])
-    # Checked again at start, as for Translate: the adder's permission and the title's engine may have changed.
-    if engine not in engine_registry.FREE_ENGINES and not _holds(principal, "engines.paid"):
-        raise ForbiddenError("This title finds names with a paid engine, which the account "
-                             "that added it can't use.")
-    return glossary_extract_service.start_lines_glossary_run(drama["id"], engine_name=engine)["job_id"]
-
-
 def _start_item(item: dict) -> Optional[str]:
     """Starts the item as its adder; returns the job id, or None for a step
     that finished inline. Raises ServiceError with the reason to skip it."""
@@ -777,8 +771,9 @@ def _start_item(item: dict) -> Optional[str]:
             return _start_transcribe(principal, drama, item.get("settings") or {})
         if item["step"] == "translate":
             return _start_translate(principal, drama, item.get("settings") or {}, item.get("auto_series"))
-        if item["step"] == NAMES:
-            return _start_names(principal, drama)
+        if item["step"] in _PAGE_STEPS:
+            from services import page_run_service
+            return page_run_service.start_step(principal, drama, item["step"], item.get("settings") or {})
         if item.get("auto_series") is not None:
             export_service.run_auto_qc_flagging(drama["id"])
         run_export(drama, item.get("settings") or {})

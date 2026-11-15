@@ -4,7 +4,7 @@ import pytest
 import background_jobs
 import db
 from jobs import gpu_guard
-from lib.errors import ConflictError, NotFoundError, UnsupportedOperationError
+from lib.errors import ConflictError, ForbiddenError, NotFoundError, UnsupportedOperationError
 from services import auth_service, glossary_extract_service, page_run_service as runs, queue_service as q
 from tests.test_queue_service import _drama, _items, jobs  # noqa: F401  (fixture)
 
@@ -160,3 +160,76 @@ def test_a_member_cannot_see_or_start_another_members_title(names):
     with pytest.raises(NotFoundError):
         runs.start_title_flow(pa, theirs, False, at_pc=True)
     assert db.get_drama(theirs) is not None and _flow(theirs) == []
+
+
+@pytest.fixture
+def novel(names, monkeypatch):
+    from services import narration_service, novel_attach_service, sources_import_service
+    calls = {"import": [], "text": 0, "state": {"chapters": 0, "text": False, "lines": False}}
+
+    def start_import(url, drama_id, local=True, principal=None, **kw):
+        calls["import"].append((url, local))
+        return names._start(f"sourceimport_{drama_id}")
+
+    def attach(drama_id, mode="replace"):
+        calls["text"] += 1
+        return {"char_count": 10}
+
+    monkeypatch.setattr(sources_import_service, "start_url_import", start_import)
+    monkeypatch.setattr(novel_attach_service, "attach_from_sources", attach)
+    monkeypatch.setattr(narration_service, "start_narration_run",
+                        lambda drama_id, engine_name=None, **kw: names._start(f"narration_{drama_id}"))
+    monkeypatch.setattr(glossary_extract_service, "start_novel_glossary_run",
+                        lambda drama_id, engine_name=None: names._start(f"novel_glossary_{drama_id}"))
+    monkeypatch.setattr(runs, "_novel_state", lambda drama_id: dict(calls["state"]))
+    monkeypatch.setattr(runs, "lines_engine", lambda drama_id: "ollama")
+    names.calls = calls
+    return names
+
+
+def _novel_start(did, **kw):
+    args = {"at_pc": True, "local": True, "text_allowed": True, "holds_import": True, **kw}
+    return runs.start_novel_flow(None, did, kw.pop("url", "https://example.com/ch1"), **{
+        k: v for k, v in args.items() if k != "url"})
+
+
+def test_a_novel_link_run_imports_makes_the_text_and_lines_then_finds_names(novel, monkeypatch):
+    from services import sources_url_service
+    monkeypatch.setattr(sources_url_service, "check_public_url", lambda url: url)
+    did = _drama("Novel", lines=(), media_type="novel")
+    view = _novel_start(did)
+    assert view["state"] == "waiting" and view["step"] == "import"
+    assert [s for s, _ in _flow(did)] == ["import", "text", "lines", "names"]
+    q.tick()
+    assert novel.calls["import"] == [("https://example.com/ch1", True)]
+    novel.finish(f"sourceimport_{did}")
+    q.tick()                       # the text is made inline; the next pass starts the lines
+    assert novel.calls["text"] == 1
+    q.tick()
+    assert novel.started[-1] == f"narration_{did}"
+    novel.finish(f"narration_{did}")
+    q.tick()
+    assert novel.started[-1] == f"novel_glossary_{did}"
+    novel.finish(f"novel_glossary_{did}")
+    q.tick()
+    assert runs.novel_flow(None, did)["state"] == "review"
+    # The link is never shown back.
+    assert "example.com" not in str(q.get_queue(None)) + str(runs.novel_flow(None, did))
+
+
+def test_a_novel_with_saved_chapters_and_text_starts_at_its_lines(novel):
+    novel.calls["state"] = {"chapters": 3, "text": True, "lines": False}
+    did = _drama("Novel", lines=(), media_type="novel")
+    _novel_start(did, url="")
+    assert [s for s, _ in _flow(did)] == ["lines", "names"]
+
+
+def test_the_text_step_stays_at_the_pc_and_the_import_needs_its_permission(novel):
+    novel.calls["state"] = {"chapters": 3, "text": False, "lines": False}
+    did = _drama("Novel", lines=(), media_type="novel")
+    with pytest.raises(ForbiddenError):
+        _novel_start(did, text_allowed=False)
+    novel.calls["state"] = {"chapters": 0, "text": False, "lines": False}
+    with pytest.raises(ForbiddenError):
+        _novel_start(did, holds_import=False)
+    assert _flow(did) == []

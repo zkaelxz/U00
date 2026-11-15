@@ -4,9 +4,9 @@ import type { components } from '../api/generated/schema'
 type Schemas = components['schemas']
 
 export type QueueStep = 'transcribe' | 'translate' | 'export'
-// The download item exists only in a Quick video translate run, and names (the glossary scan) only in a
-// title page's one-button run; both are shown, never picked.
-export type QueueItemStep = 'download' | 'names' | QueueStep
+// The download item exists only in a Quick video translate run, and names (the glossary scan), import (a
+// novel link), text and lines only in a title page's one-button run; all are shown, never picked.
+export type QueueItemStep = 'download' | 'names' | 'import' | 'text' | 'lines' | QueueStep
 export type QueueItemStatus = 'waiting' | 'running' | 'done' | 'failed' | 'skipped' | 'interrupted' | 'cancelled'
 export type QueueItem = Schemas['QueueItem']
 

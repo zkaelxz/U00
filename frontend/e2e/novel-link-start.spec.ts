@@ -3,24 +3,19 @@ import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
 import { listBody, row } from './novelChaptersMocks'
 
-// The link box on a novel title with no lines (#/drama/2): import, attach, tag, glossary scan, then a stop at the
-// glossary review. The fake server changes state only when a step's call arrives, as the real jobs do.
+// The link box on a novel title with no lines (#/drama/2) puts a run on the PC queue that imports, makes the
+// text and lines and finds names, then stops at the glossary review. The fake server answers the run's reads as
+// the queue would: a press starts it, and the next read finds it at the review (or stopped, for a failing run).
 
 test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
-interface Server { chapters: number; text: boolean; lines: number; glossary: string; calls: string[] }
+type Run = { state: string; step: string | null; reason: string | null }
+interface Server { chapters: number; text: boolean; lines: number; run: Run; posts: { url: string }[] }
 
-async function mockServer(page: Page, start: Partial<Server> = {}, failAt?: string): Promise<Server> {
-  const s: Server = { chapters: 0, text: false, lines: 0, glossary: 'idle', calls: [], ...start }
-  const done = (jobId: string) => ({ job_id: jobId, status: 'done', progress: 1, message: '', error: null, description: null, gpu_touching: false, started_at: 1, finished_at: 2, updated_at: 2 })
-  const step = (name: string, route: import('@playwright/test').Route, effect: () => void, body: unknown) => {
-    s.calls.push(name)
-    if (name === failAt) return route.fulfill({ status: 422, json: { detail: `${name} refused` } })
-    effect()
-    return route.fulfill({ json: body })
-  }
+async function mockServer(page: Page, start: Partial<Server> = {}, end: Run = { state: 'review', step: null, reason: null }): Promise<Server> {
+  const s: Server = { chapters: 0, text: false, lines: 0, run: { state: 'idle', step: null, reason: null }, posts: [], ...start }
   await page.route('**/api/novel/dramas/2/raw-novel/chapters?*', (r) =>
     r.fulfill({ json: listBody(s.chapters ? [row(1)] : [], { total: s.chapters }) }))
   await page.route('**/api/novel/dramas/2/status', (r) =>
@@ -28,67 +23,83 @@ async function mockServer(page: Page, start: Partial<Server> = {}, failAt?: stri
   await page.route('**/api/workflow/dramas/2/progress', (r) => r.fulfill({ json: {
     drama_id: 2, stage_index: 1, stage: 'translate', line_count: s.lines, untranslated_count: s.lines,
     flagged_count: 0, has_audio: false, has_dub_track: false, exported: false, stages: [] } }))
-  await page.route('**/api/glossary/dramas/2/from-novel', (r) => r.request().method() === 'POST'
-    ? step('extract', r, () => { s.glossary = 'done' }, { job_id: 'g', engine: 'x', paired: false })
-    : r.fulfill({ json: { job_id: 'g', status: s.glossary, progress: null, message: '', proposals: null, run_id: null } }))
-  await page.route('**/api/sources/url/import', (r) => step('import', r, () => { s.chapters = 1 }, { job_id: 'sourceimport_2' }))
-  await page.route('**/api/jobs/**', (r) => r.fulfill({ json: done('x') }))
-  await page.route('**/api/novel/dramas/2/attach-from-sources', (r) => step('attach', r, () => { s.text = true }, { char_count: 10 }))
-  await page.route('**/api/narration/dramas/2/config', (r) => r.fulfill({ json: {
-    drama_id: 2, is_narration: true, has_novel_source: true, engines: [{ key: 'gemini', key_configured: true }],
-    default_engine: 'gemini', max_chunk_chars: 1000, existing_line_count: 0, replaces_existing_lines: false, job_running: false } }))
-  await page.route('**/api/narration/dramas/2/run*', (r) => step('tag', r, () => { s.lines = 40 }, { job_id: 'narration_2' }))
+  await page.route('**/api/queue/novel-flow/2', (r) => {
+    if (r.request().method() === 'POST') {
+      s.posts.push(r.request().postDataJSON() as { url: string })
+      const first = { state: 'running', step: s.chapters ? 'lines' : 'import', reason: null }
+      const answer = s.run.state === 'running' ? s.run : first
+      s.run = end
+      return r.fulfill({ json: answer })
+    }
+    return r.fulfill({ json: s.run })
+  })
   return s
 }
 
-test('the link runs every step and stops at the glossary review', async ({ page }) => {
+test('the link starts the run, which stops at the glossary review', async ({ page }) => {
   const s = await mockServer(page)
   await page.goto('/#/drama/2')
   await page.getByLabel('Link to the novel').fill('https://example.com/book/1')
   await page.getByRole('button', { name: 'Import from link' }).click()
   const review = page.getByRole('link', { name: 'Review glossary and translate' })
   await expect(review).toHaveAttribute('href', '#/drama/2/translate?tab=translate')
-  expect(s.calls).toEqual(['import', 'attach', 'tag', 'extract'])
+  expect(s.posts).toEqual([{ url: 'https://example.com/book/1' }])
 })
 
-for (const failing of ['import', 'attach', 'tag', 'extract']) {
-  test(`a refused ${failing} step shows its error, stops there and offers Continue`, async ({ page }) => {
-    const s = await mockServer(page, {}, failing)
-    await page.goto('/#/drama/2')
-    await page.getByLabel('Link to the novel').fill('https://example.com/book/1')
-    await page.getByRole('button', { name: 'Import from link' }).click()
-    await expect(page.getByRole('alert')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled()
-    expect(s.calls.at(-1)).toBe(failing)
-    await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toHaveCount(0)
-  })
-}
+test('a run that stopped says why and offers Continue', async ({ page }) => {
+  await mockServer(page, {}, { state: 'stopped', step: 'import', reason: 'Skipped: the page has no novel text.' })
+  await page.goto('/#/drama/2')
+  await page.getByLabel('Link to the novel').fill('https://example.com/book/1')
+  await page.getByRole('button', { name: 'Import from link' }).click()
+  await expect(page.getByRole('status')).toHaveText('Stopped: Skipped: the page has no novel text.')
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toHaveCount(0)
+})
 
-test('a reload mid-chain continues from the chapters the server already holds', async ({ page }) => {
+test('a refused start shows its error and offers Continue', async ({ page }) => {
+  await mockServer(page)
+  await page.route('**/api/queue/novel-flow/2', (r) => r.request().method() === 'POST'
+    ? r.fulfill({ status: 403, json: { detail: 'Preparing the imported chapters as the text works only at the PC.' } })
+    : r.fulfill({ json: { state: 'idle', step: null, reason: null } }))
+  await page.goto('/#/drama/2')
+  await page.getByLabel('Link to the novel').fill('https://example.com/book/1')
+  await page.getByRole('button', { name: 'Import from link' }).click()
+  await expect(page.getByRole('alert')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled()
+})
+
+test('opening the title mid-run shows the run, not a button to start it again', async ({ page }) => {
+  await mockServer(page, { chapters: 3, text: true, run: { state: 'running', step: 'names', reason: null } })
+  await page.goto('/#/drama/2')
+  await expect(page.getByRole('status')).toHaveText('Finding names for the glossary')
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled()
+})
+
+test('with chapters saved, Continue starts the run without a link', async ({ page }) => {
   const s = await mockServer(page, { chapters: 3, text: true })
   await page.goto('/#/drama/2')
   await expect(page.getByLabel('Link to the novel')).toHaveCount(0)
   await page.getByRole('button', { name: 'Continue' }).click()
   await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toBeVisible()
-  expect(s.calls).toEqual(['tag', 'extract'])
+  expect(s.posts).toEqual([{ url: '' }])
 })
 
-test('Translate on a novel with chapters and no lines runs the chain to the glossary review', async ({ page }) => {
+test('Translate on a novel with chapters and no lines starts the run to the glossary review', async ({ page }) => {
   const s = await mockServer(page, { chapters: 3, text: true })
   await page.goto('/#/drama/2')
   await expect(page.getByRole('link', { name: 'Translate', exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toBeVisible()
-  expect(s.calls).toEqual(['tag', 'extract'])
+  expect(s.posts).toHaveLength(1)
 })
 
-test('Enter in the link box starts the chain', async ({ page }) => {
+test('Enter in the link box starts the run', async ({ page }) => {
   const s = await mockServer(page)
   await page.goto('/#/drama/2')
   await page.getByLabel('Link to the novel').fill('https://example.com/book/1')
   await page.getByLabel('Link to the novel').press('Enter')
   await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toBeVisible()
-  expect(s.calls[0]).toBe('import')
+  expect(s.posts[0]).toEqual({ url: 'https://example.com/book/1' })
 })
 
 test('Import from link stays disabled until a link is typed', async ({ page }) => {

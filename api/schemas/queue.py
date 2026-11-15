@@ -6,18 +6,18 @@ out). Everything else comes from the title's saved choices.
 
 from typing import Annotated, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
 
 from api.schemas.common import QueueSettingRow
 
 __all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueAddBulk", "QueueBulkAdded", "QueueBulkSkip", "QueueMove",
            "QueueScheduleSet", "QueuePolicy", "QueueSettingOption",
-           "QueueSettingField", "QueueStepSettings", "TitleFlowRun"]
+           "QueueSettingField", "QueueStepSettings", "TitleFlowRun", "NovelFlowStart"]
 
 _QueueStep = Literal["transcribe", "translate", "export"]
-# The download step exists only in the chain Quick video translate adds, and names (the glossary scan)
-# only in a title page's one-button run; both are shown, never picked.
-_QueueItemStep = Literal["download", "transcribe", "translate", "export", "names"]
+# The download step exists only in the chain Quick video translate adds, and names (the glossary scan),
+# import (a novel link), text and lines only in a title page's one-button run; all are shown, never picked.
+_QueueItemStep = Literal["download", "transcribe", "translate", "export", "names", "import", "text", "lines"]
 
 
 class QueueItem(BaseModel):
@@ -126,7 +126,13 @@ class QueueStepSettings(BaseModel):
 
 
 class TitleFlowRun(BaseModel):
-    """How far a title's audio or video one-button run got (services/page_run_service.py)."""
+    """How far a title's one-button run got, audio and video or a novel's link (services/page_run_service.py)."""
     state: Literal["idle", "waiting", "running", "stopped", "review"]
     step: Optional[_QueueItemStep] = None
     reason: Optional[str] = None
+
+
+class NovelFlowStart(BaseModel):
+    """POST /api/queue/novel-flow/{id}. `url` is read only when no chapter is saved yet."""
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field(default="", max_length=2000)
