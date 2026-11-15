@@ -26,13 +26,18 @@ async function openAdmin(page: Page) {
 }
 
 test.describe('Automatic backups card (real API)', () => {
+  // The default is on; the flow below starts from off.
+  test.beforeAll(async ({ request }) => {
+    await request.post('/api/backups/settings', { data: { enabled: false } })
+  })
+
   test.afterAll(async ({ request }) => {
     await request.post('/api/backups/settings', { data: { enabled: false, frequency: 'daily', folder: '' } })
   })
 
   test('the toggle and frequency persist; a bad folder is refused in plain words', async ({ page }) => {
     const c = await openAuto(page)
-    await expect(c).toContainText('Keeps one copy a day for the last 2 days, plus the first copy of each of the last 2 weeks')
+    await expect(c).toContainText('Keeps one copy a day for the last 7 days, plus the first copy of each of the last 4 weeks')
     const auto = c.getByRole('switch', { name: 'Back up automatically' })
     await expect(auto).not.toBeChecked()
     // Daily is the default.

@@ -45,7 +45,8 @@ from services.auto_backup_files import (_fsync_file, _manifest_bytes, _move_copi
                                         _place_copy, _verify_snapshot)
 from services.auto_backup_settings import (FREQUENCIES, SETTINGS_KEY, _check_folder, _get_state,
                                            _iso, _now, _parse, _target_dir, _update_state,
-                                           folder_path, get_settings, is_due, next_run_at)
+                                           folder_path, get_settings, is_due, next_run_at, problem,
+                                           same_drive_as_library)
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 log = logging.getLogger(__name__)
@@ -136,6 +137,8 @@ def settings_overview() -> dict:
             "last_note": SOURCES_LEFT_OUT if state.get("last_sources_left_out") else None,
             "next_run_at": _iso(nxt) if nxt else None,
             "running": job_running(),
+            "same_drive_as_library": same_drive_as_library(settings["folder"]),
+            "problem": problem(settings, state),
             "copies": snapshot_info()["copies"]}
 
 

@@ -2,13 +2,16 @@
 services/auto_backup_settings.py -- the automatic backup's saved settings, its
 run bookkeeping and when the next run is due.
 
-- Settings (app_settings): enabled (off by default), frequency
+- Settings (app_settings): enabled (on by default, so a library nobody
+  configured still has copies; the owner can turn it off), frequency
   (daily/weekly/monthly, daily by default), include_media (off: database
   only) and folder ("" = <library>/backups/auto, which every backup already
   skips because backups/ is an excluded top-level entry; a custom folder
   must be outside the library or inside its backups/ folder, and not
   inside another library's folder). A value the owner already saved is
-  kept; the defaults only fill in what was never saved.
+  kept; the defaults only fill in what was never saved, so an install that
+  never saved a choice starts backing up after the upgrade, while one whose
+  owner turned it off stays off.
 - State (STATE_KEY): when the last run was tried and succeeded and its
   last error or cancel. The due-check reads it; the backup job writes it
   (auto_backup_service).
@@ -33,7 +36,7 @@ STATE_KEY = "auto_backup.state"
 FREQUENCIES = {"daily": 1, "weekly": 7, "monthly": 30}  # days between runs
 
 
-DEFAULT_SETTINGS = {"enabled": False, "frequency": "daily", "include_media": False,
+DEFAULT_SETTINGS = {"enabled": True, "frequency": "daily", "include_media": False,
                     "folder": ""}
 
 
@@ -189,6 +192,50 @@ def is_due(now=None, settings=None, state=None) -> bool:
     if last is None or last > now:     # a future date: the clock was wrong then
         return True
     return now - last >= datetime.timedelta(days=FREQUENCIES[settings["frequency"]])
+
+
+# A run is "stale" only after this many missed intervals plus a day, so a PC
+# that was off over a weekend doesn't raise an alarm that the next hourly
+# check would clear.
+STALE_AFTER_INTERVALS = 2
+STALE_GRACE = datetime.timedelta(days=1)
+
+
+def same_drive_as_library(folder: str = "") -> bool:
+    """True when the backup folder is on the same drive as the library, so
+    one drive failure takes the copies with it. The default folder always is."""
+    def volume(path):
+        # The folder may not exist yet (or the drive may be unplugged):
+        # judge by the nearest ancestor that does.
+        probe = os.path.abspath(path)
+        while not os.path.exists(probe):
+            parent = os.path.dirname(probe)
+            if parent == probe:
+                break
+            probe = parent
+        try:
+            return os.stat(probe).st_dev
+        except OSError:
+            return os.path.splitdrive(probe)[0].upper()
+    return volume(folder_path(folder)) == volume(db.LIBRARY_DIR)
+
+
+def problem(settings: dict, state: dict, now=None):
+    """Why the owner should look at the backups, or None: "failing" (the last
+    run failed) or "stale" (no success for a long while). Backups turned off
+    are not a problem: the default is on, so off is the owner's own choice."""
+    if not settings["enabled"]:
+        return None
+    if state.get("last_error"):
+        return "failing"
+    last = _parse(state.get("last_success_at"))
+    now = now or _now()
+    if last is not None and last <= now:
+        limit = datetime.timedelta(days=FREQUENCIES[settings["frequency"]]
+                                   * STALE_AFTER_INTERVALS) + STALE_GRACE
+        if now - last > limit:
+            return "stale"
+    return None
 
 
 def _target_dir(create: bool) -> str:

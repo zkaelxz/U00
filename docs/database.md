@@ -387,8 +387,8 @@ What they skip or keep:
   Drama, series, user and file-column references are remapped or cleared; file
   names are kept only when they point inside the new drama's folder
   (`IMPORT_FILE_COLUMNS`, `_import_file_ref`).
-- **Auto-backup retention:** one copy per day for the last 2 days plus the first
-  copy of each of the last 2 ISO weeks (at most 4); only copies this library
+- **Auto-backup retention:** one copy per day for the last 7 days plus the first
+  copy of each of the last 4 ISO weeks (at most 11); only copies this library
   manages are rotated (`KEEP_DAILY`, `KEEP_WEEKLY`).
 
 ## 7. On disk beside the database
