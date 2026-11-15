@@ -153,7 +153,7 @@ test('Delete permanently needs the typed word DELETE exactly and shows the size'
   const sec = await openSection(page, 'storage')
   const trash = sec.getByRole('region', { name: 'Trash' })
   await trash.getByRole('button', { name: 'Delete library/tmp permanently' }).click()
-  await expect(trash).toContainText('Permanently deletes library/tmp (2.4 GB · 80 files) from this PC.')
+  await expect(trash).toContainText('Delete library/tmp (2.4 GB · 80 files) forever?')
   const go = trash.getByRole('button', { name: 'Delete library/tmp permanently' }).last()
   const input = trash.getByLabel(/Type DELETE to confirm/)
   await expect(go).toBeDisabled()
@@ -384,7 +384,7 @@ test('Empty Trash after the list changed is refused and the list is reloaded', a
   const trash = sec.getByRole('region', { name: 'Trash' })
   await expect(trash).toContainText('library/tmp')
   await trash.getByRole('button', { name: 'Empty Trash…' }).click()
-  await expect(trash).toContainText('If anything in Trash changed since this list loaded, nothing is deleted.')
+  await expect(trash).toContainText('If Trash changed since this list loaded, nothing is deleted.')
   mock.trash.push({ id: '20261003-100000-abcdef99', parent: 'model_cache', trashed_at: '2026-10-03T10:00:00+00:00', restorable: true,
     node: { name: 'old', kind: 'folder', size: 9, files: 1 } })
   await trash.getByLabel(/Type DELETE to confirm/).fill('DELETE')

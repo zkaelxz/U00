@@ -98,7 +98,7 @@ export function ApplyForm({ group, onDone }: { group: NameReportGroup; onDone: (
             type="button"
             className={buttonClass('secondary', 'sm')}
             disabled={!picked.length}
-            title={picked.length ? 'Shows what will be added before anything is saved' : 'Pick at least one title'}
+            title={picked.length ? 'Preview before saving' : 'Pick at least one title'}
             onClick={() => setConfirming(true)}
           >
             Add to {picked.length} title{picked.length === 1 ? '' : 's'}…
@@ -169,7 +169,7 @@ export function GroupCard({ group, busy, onMark, onApplied }: {
           </button>
         ))}
         {group.mark && (
-          <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} title="Remove the mark so it shows under To check again" onClick={() => onMark('clear')}>
+          <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={() => onMark('clear')}>
             Undo mark
           </button>
         )}
@@ -178,7 +178,7 @@ export function GroupCard({ group, busy, onMark, onApplied }: {
           className={buttonClass('secondary', 'sm')}
           disabled={group.mark !== 'right'}
           aria-describedby={group.mark !== 'right' ? `name-report-apply-${group.key}` : undefined}
-          title="Add this name and its spellings to the glossaries of the titles you pick"
+          title="Add to other titles’ glossaries"
           aria-expanded={applying}
           onClick={() => setApplying((v) => !v)}
         >
@@ -246,7 +246,7 @@ export function NameReportPanel({ onClose }: { onClose: () => void }) {
           className={buttonClass('primary', 'sm')}
           disabled={busy || active || noRead}
           aria-describedby={active || noRead ? 'name-report-run-reason' : undefined}
-          title="Reads every title's source lines; nothing is saved"
+          title="Reads all titles; saves nothing"
           onClick={start}
         >
           {report || failed ? 'Check again' : 'Check names'}
@@ -257,7 +257,6 @@ export function NameReportPanel({ onClose }: { onClose: () => void }) {
           className={buttonClass('secondary', 'sm')}
           disabled={busy || !report || report.counts.unresolved === 0}
           aria-describedby={!report || report.counts.unresolved === 0 ? 'name-report-copy-reason' : undefined}
-          title="Copy the names still to check, with counts and example lines"
           onClick={copy}
         >
           Copy report
