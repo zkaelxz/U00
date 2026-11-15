@@ -28,8 +28,13 @@ SUCCESS_PUSH_MIN_SECONDS or longer (a short one stays in the bell). A failure,
 a finish with errors, "Waiting for you" and every event (chapters, live,
 remote access) always push. A job whose run time is unknown counts as long.
 
-Rate limit: events arriving within BURST_WINDOW seconds of the first one
-are collapsed into one message ("3 background jobs finished."), and at most
+Grouping: a clean success waits GROUP_WINDOW seconds for repeats and goes
+out with them as "14 \u00d7 Re-transcribe line \u00b7 Title \u00b7 all finished",
+one sentence per (job kind, title) with the names kept. Anything else is sent
+after BURST_WINDOW seconds, carrying the waiting successes with it; identical
+failure or hold sentences are shown once with a count.
+
+Rate limit: events arriving within one wait are collapsed into one message, and at most
 MAX_PER_MINUTE messages (tests included) go out in any 60 s. Only clean
 successes are dropped (with a log line) over the cap: anything the person
 must act on or learn about is sent anyway, and a failure is never folded
@@ -110,6 +115,8 @@ HTTP_TIMEOUT = (3.05, 5)
 SEND_DEADLINE = 10.0          # wall clock for one POST, however slowly the server replies
 BURST_WINDOW = 5.0
 SUCCESS_PUSH_MIN_SECONDS = 120.0
+GROUP_WINDOW = 60.0           # a lone clean success waits this long for repeats
+MAX_GROUPS_NAMED = 5
 MAX_PER_MINUTE = 5
 MAX_URL_LEN = 512
 _KIND_MAX = 60
@@ -410,19 +417,40 @@ def _folds_into_count(event) -> bool:
     return event[0] == "done" and (event[2] if len(event) > 2 else "jobs") == "jobs"
 
 
+def _group_sentence(group, n) -> str:
+    kind, title = group
+    return f"{n} \u00d7 {kind}" + (f" \u00b7 {title}" if title else "") + " \u00b7 all finished"
+
+
 def _summarize(events) -> str:
-    """events: (status, message) or (status, message, category) tuples.
-    Status "partial" is a job that finished with errors."""
+    """events: (status, message[, category[, group]]) tuples. Status
+    "partial" is a job that finished with errors. A clean success's `group`
+    is (job kind, title or None): repeats of one group become "14 \u00d7
+    Re-transcribe line \u00b7 Title \u00b7 all finished", keeping their names. A
+    message repeated word for word by a failure or a hold is shown once with
+    its count."""
     if len(events) == 1:
         return events[0][1]
     folded = [e for e in events if _folds_into_count(e)]
     parts = []
-    if len(folded) == 1:
-        parts.append(f"{folded[0][1]}.")
-    elif folded:
-        parts.append(f"{len(folded)} background jobs finished.")
-    # A hold's text is already a sentence ("... press Continue to run the rest.").
-    parts.extend(f"{e[1].rstrip('.')}." for e in events if e not in folded)
+    groups = collections.OrderedDict()
+    for e in folded:
+        groups.setdefault(e[3] if len(e) > 3 else None, []).append(e)
+    named = list(groups.items())[:MAX_GROUPS_NAMED]
+    for group, members in named:
+        if len(members) == 1:
+            parts.append(f"{members[0][1]}.")
+        elif group is not None:
+            parts.append(f"{_group_sentence(group, len(members))}.")
+        else:
+            parts.append(f"{len(members)} background jobs finished.")
+    rest = sum(len(m) for g, m in list(groups.items())[MAX_GROUPS_NAMED:])
+    if rest:
+        parts.append(f"{rest} more finished.")
+    repeats = collections.Counter(e[1] for e in events if e not in folded)
+    for text, n in repeats.items():
+        # A hold's text is already a sentence ("... press Continue to run the rest.").
+        parts.append(f"{text.rstrip('.')}" + (f" (\u00d7{n})" if n > 1 else "") + ".")
     return " ".join(parts)
 
 
@@ -622,13 +650,33 @@ def _take_slot_locked(now=None) -> bool:
     return True
 
 
-def _schedule_flush():
-    """Starts the burst timer; it calls flush() BURST_WINDOW seconds later."""
-    timer = threading.Timer(BURST_WINDOW, flush)
+def _schedule_flush(delay=BURST_WINDOW):
+    """Starts the burst timer; it calls flush() `delay` seconds later."""
+    timer = threading.Timer(delay, flush)
     timer.daemon = True
     timer.name = "notify-flush"
     timer.start()
     return timer
+
+
+_timer_is_short = False
+
+
+def _enqueue(event) -> None:
+    """Queues one event. A clean success waits GROUP_WINDOW so repeats of the
+    same job can be grouped; anything else is sent after BURST_WINDOW, and
+    takes the waiting successes with it rather than being held for them."""
+    global _timer, _timer_is_short
+    urgent = not _folds_into_count(event)
+    with _lock:
+        _pending.append(event)
+        if _timer is None:
+            _timer = _schedule_flush(BURST_WINDOW if urgent else GROUP_WINDOW)
+            _timer_is_short = urgent
+        elif urgent and not _timer_is_short:
+            _timer.cancel()
+            _timer = _schedule_flush(BURST_WINDOW)
+            _timer_is_short = True
 
 
 # --- in-app list ------------------------------------------------------------
@@ -830,7 +878,6 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None,
     configured channels. `waiting`: the waiting note a done job's result
     left (jobs_service.waiting_note); the job then says "Waiting for you"
     instead of "Finished". Never raises, never blocks on the network."""
-    global _timer
     try:
         if status not in ("done", "error"):
             return
@@ -856,16 +903,17 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None,
             # The in-app list is filtered per viewer; a push channel is not.
             message = build_message(description, status, shared_only=True,
                                     with_errors=with_errors, reason=reason)
+            group = None
+            if status == "done" and not with_errors:
+                group = (_job_kind(description), _drama_title(description, True))
             if with_errors:
                 status = "partial"
         if os.environ.get(DISABLED_ENV) == "1" or not get_categories()[category]:
             return
         if not configured_channels():
             return
-        with _lock:
-            _pending.append((status, message, category))
-            if _timer is None:
-                _timer = _schedule_flush()
+        _enqueue((status, message, category, group) if category == "jobs"
+                 else (status, message, category))
     except Exception as exc:
         try:
             _log().warning(f"notification: could not queue ({type(exc).__name__})")
@@ -877,7 +925,6 @@ def notify_remote_access(text) -> None:
     """A remote-access health change (remote_health_service, once per
     change): the in-app list, and Discord/ntfy when the "remote" category is
     on. Never raises, never blocks on the network."""
-    global _timer
     try:
         message = redact_secrets(_tidy(text, 200))
         _record("remote", message, None, None)
@@ -885,10 +932,7 @@ def notify_remote_access(text) -> None:
             return
         if not configured_channels():
             return
-        with _lock:
-            _pending.append(("remote", message, "remote"))
-            if _timer is None:
-                _timer = _schedule_flush()
+        _enqueue(("remote", message, "remote"))
     except Exception as exc:
         try:
             _log().warning(f"notification: could not queue ({type(exc).__name__})")
@@ -910,7 +954,6 @@ def notify_waiting(text, *, push_text, owner_user_id=None, job_id=None, target=N
     then also needs that title visible (_sees_target). Only a positive int
     is kept.
     Never raises, never blocks on the network."""
-    global _timer
     try:
         clean = clean_target(target)
         named = names_drama_id if type(names_drama_id) is int and names_drama_id > 0 else None
@@ -920,10 +963,7 @@ def notify_waiting(text, *, push_text, owner_user_id=None, job_id=None, target=N
             return
         if not configured_channels():
             return
-        with _lock:
-            _pending.append(("waiting", _waiting_text(push_text), "jobs"))
-            if _timer is None:
-                _timer = _schedule_flush()
+        _enqueue(("waiting", _waiting_text(push_text), "jobs"))
     except Exception as exc:
         try:
             _log().warning(f"notification: could not queue ({type(exc).__name__})")
@@ -941,7 +981,6 @@ def notify_live_follow(text, owner_user_id, follow_id, starts_at=None, start_act
     channel the household may share; `push_text` replaces the text there
     (a push has no viewer's clock to show a start time in). Never raises,
     never blocks."""
-    global _timer
     try:
         message = redact_secrets(_tidy(text, 200))
         extra: dict = {"follow_id": int(follow_id)}
@@ -952,10 +991,7 @@ def notify_live_follow(text, owner_user_id, follow_id, starts_at=None, start_act
         _record("live", message, None, owner_user_id, extra)
         if not push or os.environ.get(DISABLED_ENV) == "1" or not configured_channels():
             return
-        with _lock:
-            _pending.append(("live", redact_secrets(_tidy(push_text or text, 200)), "live"))
-            if _timer is None:
-                _timer = _schedule_flush()
+        _enqueue(("live", redact_secrets(_tidy(push_text or text, 200)), "live"))
     except Exception as exc:
         try:
             _log().warning(f"notification: could not queue ({type(exc).__name__})")

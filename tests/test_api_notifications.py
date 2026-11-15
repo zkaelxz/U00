@@ -120,7 +120,8 @@ def no_timer(monkeypatch):
         def cancel(self):
             pass
 
-    monkeypatch.setattr(ns, "_schedule_flush", lambda: started.append(1) or T())
+    monkeypatch.setattr(ns, "_schedule_flush",
+                        lambda delay=ns.BURST_WINDOW: started.append(delay) or T())
     return started
 
 
@@ -483,13 +484,48 @@ def test_burst_collapses_into_one_message(env, dns, posts, no_timer):
     ns.notify_job_finished("Dub generation (drama #2)", "error")
     ns.notify_job_finished("Library backup", "done")
     ns.notify_job_finished("Cancelled thing", "cancelled")   # not an ending we push
-    assert len(no_timer) == 1          # one timer for the whole burst
+    # The first success waits for repeats; the failure cuts the wait to the burst window.
+    assert no_timer == [ns.GROUP_WINDOW, ns.BURST_WINDOW]
     assert posts.calls == []           # nothing sent from the job thread
     assert ns.flush() == {"discord": "sent", "ntfy": "not_configured"}
     import json
     assert json.loads(posts.calls[0]["data"])["content"].endswith(
-        "2 background jobs finished. Failed: Dub generation.")
+        "Finished: Translation. Finished: Library backup. Failed: Dub generation.")
     assert ns.flush() == {}
+
+
+def test_repeats_are_grouped_by_kind_and_title_and_keep_their_names(env, dns, posts, no_timer):
+    _write(env, discord=DISCORD)
+    a = db.create_drama(title_en="Title A")
+    b = db.create_drama(title_en="Title B")
+    for _ in range(14):
+        ns.notify_job_finished(f"Re-transcribe line (drama #{a})", "done")
+    ns.notify_job_finished(f"Re-transcribe line (drama #{b})", "done")
+    ns.notify_job_finished(f"Translation (drama #{a})", "done")
+    assert no_timer == [ns.GROUP_WINDOW]   # only clean successes: they wait for repeats
+    assert ns.flush()["discord"] == "sent"
+    import json
+    assert json.loads(posts.calls[0]["data"])["content"].endswith(
+        "14 \u00d7 Re-transcribe line \u00b7 Title A \u00b7 all finished. "
+        "Finished: Re-transcribe line - Title B. Finished: Translation - Title A.")
+
+
+def test_many_groups_are_capped_and_repeated_failures_show_a_count():
+    many = [("done", f"Finished: K{i}", "jobs", (f"K{i}", None)) for i in range(ns.MAX_GROUPS_NAMED + 2)]
+    text = ns._summarize(many)
+    assert text.endswith("2 more finished.") and "K5" not in text
+    failed = [("error", "Failed: Export - T: Disk full", "jobs")] * 3
+    assert ns._summarize(failed) == "Failed: Export - T: Disk full (\u00d73)."
+    assert ns._summarize(failed + [("done", "Finished: A", "jobs", ("A", None))]) == \
+        "Finished: A. Failed: Export - T: Disk full (\u00d73)."
+
+
+def test_a_failure_does_not_wait_for_the_group_window(env, dns, posts, no_timer):
+    _write(env, discord=DISCORD)
+    ns.notify_job_finished("Export", "error", reason="Disk full")
+    assert no_timer == [ns.BURST_WINDOW]
+    ns.notify_job_finished("Translation", "done")      # joins the live short timer
+    assert no_timer == [ns.BURST_WINDOW]
 
 
 def test_per_minute_cap(env, dns, posts, no_timer):
@@ -608,7 +644,8 @@ def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, job_h
               if msg in ("Finished: Translation", "Failed: Dub generation")]
     assert sorted(queued) == [("done", "Finished: Translation"),
                               ("error", "Failed: Dub generation")]
-    assert len(no_timer) == 1
+    # The two jobs end in either order: the failure always leaves the short wait running.
+    assert no_timer[-1] == ns.BURST_WINDOW and len(no_timer) <= 2
     assert ns.flush() == {"discord": "failed", "ntfy": "not_configured"}
 
 
@@ -840,7 +877,7 @@ def test_chapter_check_pushes_only_when_it_finds_new_chapters(env, no_timer):
     assert ns._pending == [] and _texts() == [] and no_timer == []
     _chapter_check({"checked": 3, "new": 1, "errors": {}, "queued": []})
     _chapter_check({"checked": 3, "new": 4, "errors": {}, "queued": []})
-    assert [m for _s, m, _c in ns._pending] == ["1 new chapter found", "4 new chapters found"]
+    assert [m for _s, m, *_ in ns._pending] == ["1 new chapter found", "4 new chapters found"]
     assert _texts() == ["4 new chapters found", "1 new chapter found"]
     _chapter_check(None, status="error")
     assert ns._pending[-1][:2] == ("error", "Failed: Checking tracked series for new chapters")
@@ -852,12 +889,12 @@ def test_categories_switch_external_pushes_but_not_the_in_app_list(env, no_timer
     ns.set_categories(jobs=False)
     ns.notify_job_finished("Translation", "done", job_id="translate_1")
     _chapter_check({"new": 2})
-    assert [c for _s, _m, c in ns._pending] == ["chapters"]
+    assert [c for _s, _m, c, *_ in ns._pending] == ["chapters"]
     ns.set_categories(jobs=True, chapters=False)
     assert ns.get_categories() == {"jobs": True, "chapters": False, "remote": True}
     _chapter_check({"new": 3})
     ns.notify_job_finished("Dub generation", "error", job_id="dub_1")
-    assert [c for _s, _m, c in ns._pending] == ["chapters", "jobs"]
+    assert [c for _s, _m, c, *_ in ns._pending] == ["chapters", "jobs"]
     assert _texts() == ["Failed: Dub generation", "3 new chapters found",
                         "2 new chapters found", "Finished: Translation"]
 
@@ -937,7 +974,7 @@ def test_push_leaves_out_a_private_drama_title_but_the_in_app_list_keeps_it(env,
     ns.notify_job_finished(f"Translation (drama #{shared})", "done", job_id=f"translate_{shared}")
     ns.notify_job_finished(f"Translation (drama #{private})", "done",
                            job_id=f"translate_{private}", owner_user_id=5)
-    assert [m for _s, m, _c in ns._pending] == ["Finished: Translation - Open Garden",
+    assert [m for _s, m, *_ in ns._pending] == ["Finished: Translation - Open Garden",
                                                 "Finished: Translation"]
     assert _texts() == ["Finished: Translation - Secret Garden",
                         "Finished: Translation - Open Garden"]
@@ -955,7 +992,7 @@ def test_messages_name_the_series_and_the_private_switch_lifts_the_household_rul
         ns._pending.clear()
         for did in (shared, in_secret, private):
             ns.notify_job_finished(f"Translation (drama #{did})", "done", job_id=f"translate_{did}")
-        return [m for _s, m, _c in ns._pending]
+        return [m for _s, m, *_ in ns._pending]
 
     assert ns.get_status()["show_private_titles"] is False
     assert pushes() == ["Finished: Translation - Open Garden (Willow Lane)",
@@ -1166,7 +1203,7 @@ def test_a_done_job_with_a_waiting_note_says_waiting_and_hides_a_private_title(e
     ns.notify_job_finished(f"Glossary from lines (title #{private})", "done",
                            job_id=f"lines_glossary_{private}", owner_user_id=5,
                            waiting={**note, "target": {"page": "glossary", "drama_id": private}})
-    assert [m for _s, m, _c in ns._pending] == [
+    assert [m for _s, m, *_ in ns._pending] == [
         "Waiting for you: 2 glossary names to review - Open Garden",
         "Waiting for you: 2 glossary names to review"]
     items = ns.list_recent(None)
@@ -1401,7 +1438,7 @@ def test_a_done_job_with_errors_and_a_waiting_note_says_waiting(env, no_timer):
     _write(env, discord=DISCORD)
     ns.notify_job_finished("Translation", "done", with_errors=True, waiting={"cap": True})
     assert _texts() == ["Waiting for you: Translation stopped at the spending cap"]
-    assert [m for _s, m, _c in ns._pending] == \
+    assert [m for _s, m, *_ in ns._pending] == \
         ["Waiting for you: Translation stopped at the spending cap"]
 
 

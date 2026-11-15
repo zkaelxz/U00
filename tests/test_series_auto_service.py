@@ -403,10 +403,10 @@ def pushes(monkeypatch):
                        "https://discord.com/api/webhooks/123456789012345678/"
                        "SECRETtokenABCDEFGHIJKLMNOPQRSTUVWXYZ_-0123")
     monkeypatch.delenv(ns.DISABLED_ENV, raising=False)
-    monkeypatch.setattr(ns, "_schedule_flush", lambda: type("T", (), {"cancel": lambda self: None})())
+    monkeypatch.setattr(ns, "_schedule_flush", lambda *_: type("T", (), {"cancel": lambda self: None})())
     ns.reset_for_tests()
     yield (lambda: [e["text"] for e in ns.list_recent(None) if e["kind"] == "waiting"],
-           lambda: [m for st, m, _c in ns._pending if st == "waiting"])
+           lambda: [m for st, m, *_ in ns._pending if st == "waiting"])
     ns.reset_for_tests()
 
 
