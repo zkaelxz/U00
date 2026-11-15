@@ -586,6 +586,7 @@ class _PipelineRun:
         """Timing stays Whisper's VAD segments; only the text is replaced
         (asr_backend.py's module docstring explains why)."""
         o, rep = self.o, self.rep
+        whisper_models.release_whisper_models()
         qwen_ticker = rep.stage(
             "Re-transcribing with Qwen3-ASR (step 2 of 2; no percent until "
             "the first batch finishes)", frac=QWEN_SPLIT).start()
@@ -658,6 +659,7 @@ class _PipelineRun:
 
     def _force_align(self, user_lines):
         o, rep = self.o, self.rep
+        whisper_models.release_whisper_models()
         rep.progress(RUNNING_MAX,
                      "Aligning with Qwen3-ForcedAligner (true forced alignment)...")
 
