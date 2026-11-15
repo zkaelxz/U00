@@ -57,7 +57,9 @@ DOWNLOAD = "download"
 # title page's one-button start, as are a novel's link import, its text and its lines.
 NAMES = "names"
 IMPORT, TEXT, LINES = "import", "text", "lines"
-_PAGE_STEPS = (IMPORT, TEXT, LINES, NAMES)
+# The Add box's run: follow the transcription its upload started, then translate with the box's choices.
+FOLLOW, RUN_TRANSLATE = "follow", "run_translate"
+_PAGE_STEPS = (IMPORT, TEXT, LINES, NAMES, FOLLOW, RUN_TRANSLATE)
 _ALL_STEPS = (DOWNLOAD,) + STEPS + _PAGE_STEPS
 # A chain saved before items recorded the steps they wait for is a Quick video run, in this order.
 _LEGACY_CHAIN = (DOWNLOAD,) + STEPS
@@ -105,7 +107,8 @@ def _empty() -> dict:
 
 _SETTING_KEYS = {"transcribe": transcribe_options_service.QUEUE_SETTING_KEYS,
                  "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS, DOWNLOAD: ("url",), NAMES: ("source",),
-                 IMPORT: ("url", "local"), TEXT: (), LINES: ("engine",)}
+                 IMPORT: ("url", "local"), TEXT: (), LINES: ("engine",), FOLLOW: ("job_id",),
+                 RUN_TRANSLATE: ("engine", "locale")}
 
 
 def _clean_settings(raw, step: str) -> dict:

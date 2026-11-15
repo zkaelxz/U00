@@ -6,8 +6,8 @@ import { getSubtitleText, markExported } from '../../api/export'
 import { getSettings } from '../../api/settings'
 import { cancelJob, probeJob } from '../../api/jobs'
 import { createDrama } from '../../api/library'
+import { getFileRun, startFileRun } from '../../api/queue'
 import { translateApi } from '../../api/translate'
-import { getTranslateConfig, startTranslateRun } from '../../api/translateStage'
 import { uploadAndTranscribe } from '../../api/workspace'
 import { downloadText } from '../../components/downloadBlob'
 import { JOB_FAILED } from '../../components/errorMessages'
@@ -18,7 +18,6 @@ import { useReattachJob } from '../../hooks/useReattachJob'
 import { isTerminalStatus, type JobRecord } from '../../types/jobs'
 import type { PreflightRow } from '../preflight/preflightModel'
 import { checkUploadFile } from '../workspace/sourceForm'
-import { buildRunBody, initialForm } from '../workspace/translateForm'
 import { exportFilename, srtFileText } from '../workspace/exportForm'
 import type { FileRunRequest } from './addBoxModel'
 import {
@@ -30,6 +29,7 @@ const SRT_MIME = 'application/x-subrip'
 
 // A transcription that found no lines ends "done" with a failed_reason; translating it would only be refused.
 const failed = (job: JobRecord) => job.status === 'error' || job.outcome === 'failed' || !!job.result?.failed_reason
+const RUN_POLL_MS = 2000
 const lostRun = () =>
   new ApiError(404, { code: 'not_found', message: 'Lost track of this run while the page was closed. Open the title to see how far it got.' })
 
@@ -51,9 +51,6 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   const [language, setLanguage] = usePersistedState('makeSubtitles.language', 'zh')
   // The box remembers the translator for the next file, like the language.
   const [pickedEngine, setPickedEngine] = usePersistedState('makeSubtitles.engine', '')
-  // The translator a run was started with, kept beside the saved run: a run resumed after the page was
-  // closed translates with it, whatever the box (here or in the Library) has picked since.
-  const [runEngine, setRunEngine] = usePersistedState('makeSubtitles.runEngine', '')
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [variant, setVariant] = useState('')
@@ -83,9 +80,9 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   const engine = pickedEngine && (!list.length || list.some((e) => e.name === pickedEngine)) ? pickedEngine : defaultEngine
 
   // Read inside job callbacks, which outlive the render that created them.
-  const run = useRef<{ title: string; runEngine: string; defaultEngine: string; variant: string; dramaId: number | null }>({ title: '', runEngine: '', defaultEngine: '', variant: '', dramaId: null })
+  const run = useRef<{ title: string; dramaId: number | null }>({ title: '', dramaId: null })
   const dramaId = flow.phase === 'idle' ? null : flow.dramaId
-  useEffect(() => { run.current = { title: file ? titleFor(file.name, title) : title, runEngine, defaultEngine, variant, dramaId } })
+  useEffect(() => { run.current = { title: file ? titleFor(file.name, title) : title, dramaId } })
   const stepNow = flow.phase === 'running' ? flow.step : null
 
   useEffect(() => { if (runs) setSaved(savedFor(flow)) }, [flow]) // setSaved is a fresh function each render
@@ -101,16 +98,20 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
     } catch (e) { fail(e) }
   }, [fail])
 
+  // The PC queue starts the translation once the transcription ends, with the box's choices sent at the
+  // start, so a run carries on with the page closed. This waits for that job, or for the run's end.
   const translateStep = useCallback(async (id: number) => {
     try {
-      const config = await getTranslateConfig(id)
-      // A run saved before its translator was kept takes the default, not a pick made since for another file.
-      const form = { ...initialForm(config), engine: run.current.runEngine || run.current.defaultEngine }
-      if (run.current.variant) form.locale = run.current.variant
-      const started = await startTranslateRun(id, buildRunBody(form))
-      setJobId(started.job_id)
+      for (;;) {
+        const r = await getFileRun(id)
+        if (r.state === 'done') { void exportStep(id); return }
+        if (r.state === 'stopped') throw new ApiError(0, { code: JOB_FAILED, message: r.reason || 'The run stopped.' })
+        if (r.state === 'idle') throw lostRun()
+        if (r.step === 'run_translate' && r.job_id) { setJobId(r.job_id); return }
+        await new Promise((resolve) => setTimeout(resolve, RUN_POLL_MS))
+      }
     } catch (e) { fail(e) }
-  }, [fail, setJobId])
+  }, [fail, setJobId, exportStep])
 
   const onJobDone = useCallback((job: JobRecord) => {
     if (job.status === 'cancelled' || job.outcome === 'cancelled') { setJobId(null); setNote({ kind: 'cancelled', dramaId: run.current.dramaId }); dispatch({ type: 'reset' }); return }
@@ -177,7 +178,6 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
     let created: number | null = null
     seen.current = { settled: 0, live: false, finished: new Map() }
     resumedFrom.current = null
-    setRunEngine(r.engine || engine)
     setResuming(false)
     dispatch({ type: 'start' })
     try {
@@ -188,6 +188,7 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
       dispatch({ type: 'created', dramaId: d.id })
       if (abort.signal.aborted) throw new DOMException('Cancelled', 'AbortError')
       const u = await uploadAndTranscribe(d.id, r.file, { source_language: r.language }, false, withSignal(abort.signal))
+      await startFileRun(d.id, { job_id: u.job_id, engine: r.engine || engine, locale: r.variant || null })
       dispatch({ type: 'advance' })
       setJobId(u.job_id)
     } catch (e) {

@@ -4,8 +4,9 @@ import pytest
 import background_jobs
 import db
 from jobs import gpu_guard
-from lib.errors import ConflictError, ForbiddenError, NotFoundError, UnsupportedOperationError
-from services import auth_service, glossary_extract_service, page_run_service as runs, queue_service as q
+from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnsupportedOperationError
+from services import (auth_service, glossary_extract_service, page_run_service as runs, queue_service as q,
+                      settings_service)
 from tests.test_queue_service import _drama, _items, jobs  # noqa: F401  (fixture)
 
 
@@ -34,7 +35,8 @@ def test_the_run_transcribes_then_finds_names_without_the_queue_being_started(na
 
     q.tick()
     assert names.started == [f"transcribe_{did}"]
-    assert runs.title_flow(None, did) == {"state": "running", "step": "transcribe", "reason": None}
+    assert runs.title_flow(None, did) == {"state": "running", "step": "transcribe", "reason": None,
+                                         "job_id": f"transcribe_{did}"}
     names.finish(f"transcribe_{did}")
     q.tick()
     assert names.started[-1] == f"lines_glossary_{did}"
@@ -233,3 +235,50 @@ def test_the_text_step_stays_at_the_pc_and_the_import_needs_its_permission(novel
     with pytest.raises(ForbiddenError):
         _novel_start(did, holds_import=False)
     assert _flow(did) == []
+
+
+def test_an_add_box_run_follows_the_uploads_transcription_then_translates_with_the_boxs_choices(jobs, monkeypatch):  # noqa: F811
+    from services import translate_run_service
+    seen = []
+
+    def translate(drama_id, **kw):
+        seen.append(kw)
+        return jobs._start(f"translate_{drama_id}")
+    monkeypatch.setattr(translate_run_service, "start_translate_run", translate)
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 0)
+    did = _bare("File")
+    jobs._start(f"transcribe_{did}")            # as the upload started it
+    view = runs.start_file_run(None, did, f"transcribe_{did}", "deepseek", "en-GB", at_pc=True)
+    assert view["state"] == "waiting"
+    q.tick()
+    assert runs.file_run(None, did) == {"state": "running", "step": "follow", "reason": None,
+                                        "job_id": f"transcribe_{did}"}
+    assert jobs.started == [f"transcribe_{did}"]     # following starts nothing
+    jobs.finish(f"transcribe_{did}")
+    q.tick()
+    q.tick()
+    # A paid engine with no monthly cap set still translates, as the box did before.
+    assert seen and seen[0]["engine_name"] == "deepseek" and seen[0]["locale"] == "en-GB"
+    assert runs.file_run(None, did)["job_id"] == f"translate_{did}"
+    jobs.finish(f"translate_{did}")
+    q.tick()
+    assert runs.file_run(None, did)["state"] == "done"
+
+
+def test_an_add_box_run_follows_only_its_own_titles_upload(jobs):  # noqa: F811
+    did = _bare("File")
+    other = _bare("Other")
+    with pytest.raises(InvalidInputError):
+        runs.start_file_run(None, did, f"transcribe_{other}", "ollama", None, at_pc=True)
+    with pytest.raises(InvalidInputError):
+        runs.start_file_run(None, did, f"transcribe_{did}", "nope", None, at_pc=True)
+    assert runs.file_run(None, did)["state"] == "idle"
+
+
+def test_a_lost_upload_job_stops_the_add_box_run_with_a_reason(jobs):  # noqa: F811
+    did = _bare("File")
+    runs.start_file_run(None, did, f"transcribe_{did}", "ollama", None, at_pc=True)
+    q.tick()
+    q.tick()
+    view = runs.file_run(None, did)
+    assert view["state"] == "stopped" and "Lost track" in view["reason"]

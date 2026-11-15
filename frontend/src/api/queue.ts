@@ -38,3 +38,7 @@ export const startTitleFlow = (dramaId: number, f?: Fetch) => postJson<TitleFlow
 export const getNovelFlow = (dramaId: number, f?: Fetch) => getJson<TitleFlowRun>(`/api/queue/novel-flow/${dramaId}`, f)
 export const startNovelFlow = (dramaId: number, url: string, f?: Fetch) =>
   postJson<TitleFlowRun>(`/api/queue/novel-flow/${dramaId}`, { url }, f)
+// The Add box's run after its upload: follow the upload's transcription, then translate with the box's choices.
+export const getFileRun = (dramaId: number, f?: Fetch) => getJson<TitleFlowRun>(`/api/queue/file-run/${dramaId}`, f)
+export const startFileRun = (dramaId: number, body: { job_id: string; engine: string; locale: string | null }, f?: Fetch) =>
+  postJson<TitleFlowRun>(`/api/queue/file-run/${dramaId}`, body, f)

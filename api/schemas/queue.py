@@ -12,12 +12,14 @@ from api.schemas.common import QueueSettingRow
 
 __all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueAddBulk", "QueueBulkAdded", "QueueBulkSkip", "QueueMove",
            "QueueScheduleSet", "QueuePolicy", "QueueSettingOption",
-           "QueueSettingField", "QueueStepSettings", "TitleFlowRun", "NovelFlowStart"]
+           "QueueSettingField", "QueueStepSettings", "TitleFlowRun", "NovelFlowStart", "FileRunStart"]
 
 _QueueStep = Literal["transcribe", "translate", "export"]
 # The download step exists only in the chain Quick video translate adds, and names (the glossary scan),
-# import (a novel link), text and lines only in a title page's one-button run; all are shown, never picked.
-_QueueItemStep = Literal["download", "transcribe", "translate", "export", "names", "import", "text", "lines"]
+# import (a novel link), text and lines only in a title page's one-button run, and follow and run_translate
+# only in the Add box's run; all are shown, never picked.
+_QueueItemStep = Literal["download", "transcribe", "translate", "export", "names", "import", "text", "lines",
+                         "follow", "run_translate"]
 
 
 class QueueItem(BaseModel):
@@ -127,12 +129,23 @@ class QueueStepSettings(BaseModel):
 
 class TitleFlowRun(BaseModel):
     """How far a title's one-button run got, audio and video or a novel's link (services/page_run_service.py)."""
-    state: Literal["idle", "waiting", "running", "stopped", "review"]
+    # done: the Add box's run translated (the other runs end at review instead).
+    state: Literal["idle", "waiting", "running", "stopped", "review", "done"]
     step: Optional[_QueueItemStep] = None
     reason: Optional[str] = None
+    # The step's job while it waits or runs, so a page can show its progress and cancel it.
+    job_id: Optional[str] = None
 
 
 class NovelFlowStart(BaseModel):
     """POST /api/queue/novel-flow/{id}. `url` is read only when no chapter is saved yet."""
     model_config = ConfigDict(extra="forbid")
     url: StrictStr = Field(default="", max_length=2000)
+
+
+class FileRunStart(BaseModel):
+    """POST /api/queue/file-run/{id}: the job the upload started, and the box's engine and English variant."""
+    model_config = ConfigDict(extra="forbid")
+    job_id: StrictStr = Field(min_length=1, max_length=100)
+    engine: StrictStr = Field(min_length=1, max_length=40)
+    locale: Optional[StrictStr] = Field(default=None, max_length=10)

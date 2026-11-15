@@ -7180,6 +7180,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/queue/file-run/{drama_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How far the Add box run (the upload's transcription, then translate) got */
+        get: operations["get_file_run_api_queue_file_run__drama_id__get"];
+        put?: never;
+        /** Queue the Add box run after its upload, to start now; a run already in line is returned */
+        post: operations["start_file_run_api_queue_file_run__drama_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/queue/items": {
         parameters: {
             query?: never;
@@ -19401,6 +19419,18 @@ export interface components {
             /** Missing Top Level */
             missing_top_level: string[];
         };
+        /**
+         * FileRunStart
+         * @description POST /api/queue/file-run/{id}: the job the upload started, and the box's engine and English variant.
+         */
+        FileRunStart: {
+            /** Engine */
+            engine: string;
+            /** Job Id */
+            job_id: string;
+            /** Locale */
+            locale?: string | null;
+        };
         /** FixFlaggedJobStart */
         FixFlaggedJobStart: {
             /**
@@ -24077,7 +24107,7 @@ export interface components {
              * Step
              * @enum {string}
              */
-            step: "download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines";
+            step: "download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines" | "follow" | "run_translate";
             /** Title */
             title: string;
         };
@@ -30245,15 +30275,17 @@ export interface components {
          * @description How far a title's one-button run got, audio and video or a novel's link (services/page_run_service.py).
          */
         TitleFlowRun: {
+            /** Job Id */
+            job_id: string | null;
             /** Reason */
             reason: string | null;
             /**
              * State
              * @enum {string}
              */
-            state: "idle" | "waiting" | "running" | "stopped" | "review";
+            state: "idle" | "waiting" | "running" | "stopped" | "review" | "done";
             /** Step */
-            step: ("download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines") | null;
+            step: ("download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines" | "follow" | "run_translate") | null;
         };
         /** TitleLanguagePack */
         TitleLanguagePack: {
@@ -52726,6 +52758,135 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QueueState"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_file_run_api_queue_file_run__drama_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_file_run_api_queue_file_run__drama_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileRunStart"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Forbidden */

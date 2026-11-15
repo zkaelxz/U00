@@ -15,7 +15,7 @@ from fastapi import APIRouter, Path, Query, Request
 from api.auth import (holds, holds_paid_engines, is_at_pc, is_auth_enabled, is_local_request,
                       require_cloud_model_allowed, require_engines_allowed, require_permission)
 from api.schemas import (QueueAddAllSteps, QueueAddBulk, QueueAddItem, QueueBulkAdded, QueueMove, QueuePolicy,
-                         NovelFlowStart, QueueScheduleSet, QueueState, QueueStepSettings, TitleFlowRun, error_responses)
+                         FileRunStart, NovelFlowStart, QueueScheduleSet, QueueState, QueueStepSettings, TitleFlowRun, error_responses)
 from services import glossary_extract_service, page_run_service, queue_service
 
 router = APIRouter(prefix="/api/queue", tags=["queue"])
@@ -154,3 +154,20 @@ def start_novel_flow(body: NovelFlowStart, request: Request, drama_id: int = Pat
         request.state.principal, drama_id, body.url, at_pc=is_at_pc(request), local=local,
         # The text step was local_only(): with sign-in on, only a request from the PC may add it.
         text_allowed=local or not is_auth_enabled(request.app), holds_import=holds(request, "sources.import"))
+
+
+@router.get("/file-run/{drama_id}", dependencies=[require_permission("jobs.start")], response_model=TitleFlowRun,
+            summary="How far the Add box run (the upload's transcription, then translate) got", responses=_ERRORS)
+def get_file_run(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
+    return page_run_service.file_run(request.state.principal, drama_id)
+
+
+@router.post("/file-run/{drama_id}", dependencies=[require_permission("jobs.start")], response_model=TitleFlowRun,
+             summary="Queue the Add box run after its upload, to start now; a run already in line is returned",
+             responses=error_responses(400, 403, 404, 409, 422))
+def start_file_run(body: FileRunStart, request: Request, drama_id: int = Path(ge=1, lt=2**63)):
+    # The same gates as the Translate stage's own start with this engine.
+    require_engines_allowed(request, body.engine)
+    require_cloud_model_allowed(request, (body.engine, None))
+    return page_run_service.start_file_run(request.state.principal, drama_id, body.job_id, body.engine,
+                                           body.locale, at_pc=is_at_pc(request))
