@@ -92,17 +92,19 @@ test('the longest header gives its words up in steps: Report a problem, then the
     { width: 1680, words: ['Simple | Advanced', 'Search pages and titles · Ctrl+K', 'Report a problem', 'Jobs 1', 'Alerts 3', 'Shortcuts', 'Theme', '● Connected', 'Owner · Switch profile', 'Wolfgangmaxi ▾'] },
     { width: 1560, words: ['Simple | Advanced', 'Search pages and titles · Ctrl+K', '', 'Jobs 1', 'Alerts 3', 'Shortcuts', 'Theme', '● Connected', 'Owner · Switch profile', 'Wolfgangmaxi ▾'] },
     { width: 1450, words: ['Simple | Advanced', 'Ctrl+K', '', 'Jobs 1', 'Alerts 3', 'Shortcuts', 'Theme', '● Connected', 'Owner · Switch profile', 'Wolfgangmaxi ▾'] },
-    { width: 1120, words: ['Simple | Advanced', 'Ctrl+K', '', '1', '3', '?', '', '● Connected', 'Owner · Switch profile', 'W'] },
+    { width: 1120, words: ['Simple | Advanced', 'Ctrl+K', '', '1', '3', '?', '', 'Owner · Switch profile', 'W'] },
   ]
   for (const { width, words } of widths) {
     await page.setViewportSize({ width, height: 800 })
     // A fresh load each time: a second hash visit would add the Back button, which takes room of its own.
     await page.goto('about:blank')
     await page.goto('/#/library')
-    await expect(page.getByTestId('api-connected')).toBeVisible()
     // The counts arrive from their own reads; measure only once they are in.
     await expect(page.getByTestId('jobs-count')).toHaveText('1')
     await expect(page.getByTestId('notify-count')).toHaveText('3')
+    // Connected is drawn only from the step where the five show words, so below it the row is as narrow as it always was.
+    if (words.includes('● Connected')) await expect(page.getByTestId('api-connected')).toBeVisible()
+    else await expect(page.getByTestId('api-connected')).toBeHidden()
     const state = await headerState(page)
     expect(state.words, `${width}px`).toEqual(words)
     expect(state.rowHeight - state.tallest, `${width}px is one line`).toBeLessThanOrEqual(HEADER_FRAME)
@@ -192,3 +194,24 @@ test('Alerts: the name with and without new rows, and the panel heading', async 
   await expect(bell).toHaveAccessibleName('Alerts')
   await expect(page.getByText('Recent notifications')).toHaveCount(0)
 })
+
+// Heights of the same header on the commit before the words, at the same widths (docked menu, no Back button).
+const NARROW = [
+  { width: 640, header: 'plain' as const, tallest: 69 },
+  { width: 900, header: 'longest' as const, tallest: 80 },
+]
+for (const { width, header, tallest } of NARROW) {
+  test(`at ${width}px, ${header} header: no taller than before the words, and nothing says Connected`, async ({ page }) => {
+    await dock(page)
+    if (header === 'longest') await longestHeader(page)
+    else await quietHeader(page)
+    await page.setViewportSize({ width, height: 800 })
+    await page.goto('/#/library')
+    await expect(page.locator('.header-end')).toBeVisible()
+    // The element is there once the status check has answered; it must stay out of sight below the step where the five show words.
+    await expect(page.getByTestId('api-connected')).toHaveCount(1)
+    await expect(page.getByTestId('api-connected')).toBeHidden()
+    const s = await headerState(page)
+    expect(Math.round(s.rowHeight)).toBeLessThanOrEqual(tallest)
+  })
+}

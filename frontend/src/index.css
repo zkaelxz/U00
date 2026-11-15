@@ -592,14 +592,16 @@ details.section[open] > summary::before { content: '\25BE'; }
    As room runs out: Report a problem falls back to its flag, then the search box to its icon and key, then Jobs, Alerts,
    Shortcuts, Theme and the account fall back to their icons together. The widths are the controls' own natural widths
    plus 10px gaps and a margin, in rem so a larger text size moves them; the second set is for a header that also carries
-   the PIN profile button or the account (329px more). Below the last step the controls move to a row of their own and, if that is
-   still too narrow, wrap within it, rather than overlap or push the page sideways. */
-.header-end.has-room { flex: 1 1 0; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2) 10px; min-width: min(40rem, 100%); container: header-end / inline-size; }
-.header-end.has-room.has-extras { min-width: min(55.5rem, 100%); }
-/* A control never gives up width to its neighbours: a word broken across lines is worse than the steps below being a little early. */
-.header-end.has-room > * { flex-shrink: 0; }
+   the PIN profile button or the account (329px more). */
+.header-end.has-room { flex: 1 1 0; justify-content: flex-end; gap: var(--space-2); container: header-end / inline-size; }
+/* Where no words fit, the row behaves as it always did (shrinking rather than wrapping, so the header is never taller than before);
+   the words steps widen the gaps to the drawn 10px with a margin, because the container cannot change its own gap. The header that
+   also carries the PIN button and the account starts at 6px: with 8px its icons overflow the header by 5px at some narrow widths. */
+.header-end.has-room.has-extras { gap: 6px; }
+@media (max-width: 640px) { .header-end.has-room, .header-end.has-room.has-extras { gap: var(--space-1); } }
 .header-end .hb-words { display: none; }
-.header-end .api-connected { color: var(--ok); font-size: var(--text-sm); white-space: nowrap; }
+/* "Connected" is a luxury of the same room the five controls' words need: below that step the row keeps today's width and says nothing while the server answers. */
+.header-end .api-connected { display: none; color: var(--ok); font-size: var(--text-sm); white-space: nowrap; }
 
 /* The page-view switch as drawn: a white box holding two choices, the chosen one tinted and bold. Scoped to the header; the phone
    drawer and the other segmented controls keep their own look. */
@@ -645,6 +647,8 @@ html[data-style='soft'] .header-end.has-room :is(button.keys-btn, details.user-m
   .header-end:not(.has-extras) .hb-box .hb-icon { display: none; }
   .header-end:not(.has-extras) .hb-box .hb-words { display: inline; }
   .header-end:not(.has-extras) :is(.jobs-count, .notify-count) { position: static; }
+  .header-end:not(.has-extras) .api-connected { display: inline; }
+  .header-end:not(.has-extras) > * + * { margin-left: 2px; }
 }
 @container header-end (min-width: 74rem) {
   .header-end.has-extras .hb-box { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; height: auto; min-width: 0; padding: 6px 10px; font-size: var(--text-sm); white-space: nowrap; color: var(--text); }
@@ -653,6 +657,8 @@ html[data-style='soft'] .header-end.has-room :is(button.keys-btn, details.user-m
   .header-end.has-extras .hb-box .hb-icon { display: none; }
   .header-end.has-extras .hb-box .hb-words { display: inline; }
   .header-end.has-extras :is(.jobs-count, .notify-count) { position: static; }
+  .header-end.has-extras .api-connected { display: inline; }
+  .header-end.has-extras > * + * { margin-left: 4px; }
 }
 @media (max-width: 640px) {
   .app-header .badge.ok { display: none; }
