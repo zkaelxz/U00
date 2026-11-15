@@ -100,6 +100,12 @@ class TestStartupWarning:
 
 
 class TestAutomaticBackup:
+    @pytest.fixture(autouse=True)
+    def _two_daily_two_weekly(self, monkeypatch):
+        from services import auto_backup_copies as abc_
+        monkeypatch.setattr(abc_, "KEEP_DAILY", 2)
+        monkeypatch.setattr(abc_, "KEEP_WEEKLY", 2)
+
     def _good_copy(self):
         import db
         from services import auto_backup_copies as abc_

@@ -26,13 +26,18 @@ async function openAdmin(page: Page) {
 }
 
 test.describe('Automatic backups card (real API)', () => {
+  // The default is on; the flow below starts from off.
+  test.beforeAll(async ({ request }) => {
+    await request.post('/api/backups/settings', { data: { enabled: false } })
+  })
+
   test.afterAll(async ({ request }) => {
     await request.post('/api/backups/settings', { data: { enabled: false, frequency: 'daily', folder: '' } })
   })
 
   test('the toggle and frequency persist; a bad folder is refused in plain words', async ({ page }) => {
     const c = await openAuto(page)
-    await expect(c).toContainText('Keeps one copy a day for the last 2 days, plus the first copy of each of the last 2 weeks')
+    await expect(c).toContainText('Keeps one copy a day for the last 7 days, plus the first copy of each of the last 4 weeks')
     const auto = c.getByRole('switch', { name: 'Back up automatically' })
     await expect(auto).not.toBeChecked()
     // Daily is the default.
@@ -147,9 +152,11 @@ test.describe('Back up now and the copies (mocked)', () => {
     await expect(start).toBeDisabled()
     await list.getByRole('checkbox', { name: /Manual backup title/ }).check()
     await list.getByRole('checkbox', { name: /Second title/ }).check()
+    await block.getByRole('checkbox', { name: /Add each series to the one of the same name here/ }).check()
     await start.click()
     const notes = block.getByTestId('import-notes')
-    await expect(notes).toContainText('nothing you have is replaced or merged')
+    await expect(notes).toContainText('no title you have is replaced')
+    await expect(notes).toContainText('voice prints combined')
     await expect(notes).toContainText('Files come in for the titles marked "with files".')
     const go = block.getByRole('button', { name: 'Import titles' })
     await block.getByLabel(/Type RESTORE to confirm/).fill('restore')
@@ -158,7 +165,7 @@ test.describe('Back up now and the copies (mocked)', () => {
     await go.click()
     await expect(block.getByTestId('import-result')).toContainText('Imported 2 titles. 20 lines. 1 new series. Files for 1 title.')
     expect(state.posts.map((p) => p.path)).toEqual(['/api/backups/import/list', '/api/backups/import/list', '/api/backups/import'])
-    expect(state.posts[2].body).toMatchObject({ file: 'manual.zip', drama_ids: [7, 9], confirm: 'true', confirm_text: 'RESTORE' })
+    expect(state.posts[2].body).toMatchObject({ file: 'manual.zip', drama_ids: [7, 9], join_series: 'true', confirm: 'true', confirm_text: 'RESTORE' })
   })
 
   test('Library tools deletes one chosen copy, then all of them, each with a typed DELETE', async ({ page }) => {
