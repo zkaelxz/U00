@@ -18,7 +18,8 @@ from jobs import job_launch, job_runner, job_settings, job_table
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, notification_service as ns, settings_service
+from services import auth_service, jobs_service, notification_service as ns, settings_service
+from engine_backends import paid_calls, run_limits
 from engine_backends.shared import redact_secrets
 from tests.api_helpers import session_headers
 from tests.job_helpers import wait_for_job
@@ -958,3 +959,376 @@ def test_a_reset_before_the_deadline_stays_a_connection_error(monkeypatch):
     monkeypatch.setattr(requests.Session, "post", post)
     with pytest.raises(ConnectionResetError):
         ns._pinned_post("http://slow.test:80/t", "127.0.0.1", b"x", {})
+
+
+# --- "Waiting for you" entries ---------------------------------------------------
+
+def _waiting(principal=None):
+    return [e for e in ns.list_recent(principal) if e["kind"] == "waiting"]
+
+
+def test_waiting_entry_kind_text_target_and_push(env, no_timer):
+    _write(env, discord=DISCORD)
+    ns.notify_waiting("3 glossary names to review - Garden", push_text="3 glossary names to review",
+                      target={"page": "glossary", "drama_id": 4})
+    (entry,) = _waiting()
+    assert entry["kind"] == "waiting"
+    assert entry["text"] == "Waiting for you: 3 glossary names to review - Garden"
+    assert entry["target"] == {"page": "glossary", "drama_id": 4}
+    assert ns._pending == [("waiting", "Waiting for you: 3 glossary names to review", "jobs")]
+    assert len(no_timer) == 1
+
+
+@pytest.mark.parametrize("target, kept", [
+    ({"page": "review", "drama_id": 9}, {"page": "review", "drama_id": 9}),
+    ({"page": "series", "series_id": 2}, {"page": "series", "series_id": 2}),
+    ({"page": "jobs"}, {"page": "jobs"}),
+    # Only the page's own id is kept, so nothing else can ride along.
+    ({"page": "jobs", "url": "https://evil.example/x", "drama_id": 3}, {"page": "jobs"}),
+    ({"page": "glossary", "drama_id": 4, "series_id": 2, "path": "C:\\x"},
+     {"page": "glossary", "drama_id": 4}),
+    ({"page": "settings"}, None),
+    ({"page": "glossary"}, None),
+    ({"page": "glossary", "drama_id": "4"}, None),
+    ({"page": "glossary", "drama_id": True}, None),
+    ({"page": "glossary", "drama_id": 0}, None),
+    ({"page": "series", "drama_id": 2}, None),
+    ("jobs", None),
+    (None, None),
+])
+def test_waiting_target_is_validated_where_it_enters(env, no_timer, target, kept):
+    assert ns.clean_target(target) == kept
+    ns.notify_waiting("Something", push_text="Something", target=target)
+    (entry,) = _waiting()
+    assert entry.get("target") == kept
+    if kept is None:
+        assert set(entry) == {"id", "at", "kind", "text"}
+
+
+def test_waiting_entry_follows_owner_and_job_visibility(env, no_timer, monkeypatch):
+    from services import ownership_service
+    monkeypatch.setattr(ownership_service, "can_see_drama", lambda p, d: d == 1)
+    ns.notify_waiting("Mine", push_text="Mine", owner_user_id=7)
+    ns.notify_waiting("Theirs", push_text="Theirs", owner_user_id=8)
+    ns.notify_waiting("PC only", push_text="PC only")
+    ns.notify_waiting("Title one", push_text="Title one", job_id="lines_glossary_1", owner_user_id=8)
+    ns.notify_waiting("Title two", push_text="Title two", job_id="lines_glossary_2", owner_user_id=7)
+    kid = {"user_id": 7, "is_admin": False, "is_local_owner": False}
+    assert [e["text"] for e in _waiting(kid)] == ["Waiting for you: Title one", "Waiting for you: Mine"]
+    assert len(_waiting(None)) == 5
+    assert len(_waiting({"user_id": 1, "is_admin": True})) == 5
+
+
+def test_waiting_push_is_redacted_tidy_and_carries_no_link(env, no_timer):
+    _write(env, discord=DISCORD)
+    text = ("Ep 1 stopped at translate: 401 for sk-ant-api03-SECRETSECRETSECRETSECRET\n"
+            f"see https://baihe.example.com/#/jobs and {DISCORD}\x07 Retry it.")
+    ns.notify_waiting(text, push_text=text)
+    ((_s, pushed, _c),) = ns._pending
+    (entry,) = _waiting()
+    for out in (pushed, entry["text"]):
+        assert out.startswith("Waiting for you: Ep 1 stopped at translate:")
+        assert "sk-ant" not in out and "SECRETSECRET" not in out
+        assert "http" not in out and "baihe.example.com" not in out and "discord.com" not in out
+        assert "\n" not in out and "\x07" not in out
+        _no_secret(out)
+    ns.notify_waiting("x" * 2000, push_text="x" * 2000)
+    assert len(_waiting()[0]["text"]) <= len(ns.WAITING_PREFIX) + ns._WAITING_MAX
+
+
+def test_waiting_push_off_with_the_jobs_category_or_when_disabled(env, no_timer, monkeypatch):
+    _write(env, discord=DISCORD)
+    ns.set_categories(jobs=False)
+    ns.notify_waiting("A", push_text="A")
+    assert ns._pending == [] and no_timer == []
+    ns.set_categories(jobs=True)
+    monkeypatch.setenv(ns.DISABLED_ENV, "1")
+    ns.notify_waiting("B", push_text="B")
+    assert ns._pending == [] and no_timer == []
+    monkeypatch.delenv(ns.DISABLED_ENV)
+    env.write_text("")
+    ns.notify_waiting("C", push_text="C")
+    assert ns._pending == [] and no_timer == []
+    # The bell lists every one of them.
+    assert [e["text"] for e in _waiting()] == [f"Waiting for you: {c}" for c in "CBA"]
+
+
+def test_waiting_never_raises(env, no_timer, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("down")
+    monkeypatch.setattr(ns, "_record", boom)
+    assert ns.notify_waiting("A", push_text="A") is None
+    monkeypatch.setattr(ns, "_record", lambda *a, **k: None)
+    monkeypatch.setattr(ns, "get_categories", boom)
+    assert ns.notify_waiting("A", push_text="A", target=object()) is None
+    assert ns.notify_job_finished("Translation", "done", waiting={"cap": True}) is None
+
+
+def test_waiting_messages_are_never_folded_into_the_job_count():
+    w = ("waiting", "Waiting for you: Ep 1 is done. Press Continue to run the rest.", "jobs")
+    assert ns._summarize([w]) == w[1]
+    assert ns._summarize([("done", "Finished: Translation", "jobs"), w]) == \
+        "Finished: Translation. Waiting for you: Ep 1 is done. Press Continue to run the rest."
+    assert ns._summarize([("done", "a", "jobs"), w, ("error", "b", "jobs"),
+                          ("waiting", "Waiting for you: 2 glossary names to review", "jobs"),
+                          ("done", "3 new chapters found", "chapters")]) == (
+        "2 background jobs ended: 1 finished, 1 failed. "
+        "Waiting for you: Ep 1 is done. Press Continue to run the rest. "
+        "Waiting for you: 2 glossary names to review. 3 new chapters found.")
+    assert ns._summarize([w, ("waiting", "Waiting for you: The queue stopped.", "jobs")]) == \
+        "Waiting for you: Ep 1 is done. Press Continue to run the rest. Waiting for you: The queue stopped."
+
+
+def test_a_done_job_with_a_waiting_note_says_waiting_and_hides_a_private_title(env, no_timer):
+    _write(env, discord=DISCORD)
+    shared = db.create_drama(title_en="Open Garden")
+    private = db.create_drama(title_en="Secret Garden", owner_user_id=5, is_private=1)
+    note = {"text": "2 glossary names to review", "target": {"page": "glossary", "drama_id": shared}}
+    ns.notify_job_finished(f"Glossary from lines (title #{shared})", "done",
+                           job_id=f"lines_glossary_{shared}", waiting=note)
+    ns.notify_job_finished(f"Glossary from lines (title #{private})", "done",
+                           job_id=f"lines_glossary_{private}", owner_user_id=5,
+                           waiting={**note, "target": {"page": "glossary", "drama_id": private}})
+    assert [m for _s, m, _c in ns._pending] == [
+        "Waiting for you: 2 glossary names to review - Open Garden",
+        "Waiting for you: 2 glossary names to review"]
+    items = ns.list_recent(None)
+    assert [(e["kind"], e["text"], e["target"]) for e in items] == [
+        ("waiting", "Waiting for you: 2 glossary names to review - Secret Garden",
+         {"page": "glossary", "drama_id": private}),
+        ("waiting", "Waiting for you: 2 glossary names to review - Open Garden",
+         {"page": "glossary", "drama_id": shared})]
+    # A failed job ignores a note; a note without words says what stopped.
+    ns.notify_job_finished(f"Translation (drama #{shared})", "error", waiting=note)
+    ns.notify_job_finished(f"Translation (drama #{shared})", "done", waiting={"cap": True})
+    ns.notify_job_finished(f"Translation (drama #{shared})", "done",
+                           waiting={"reason": "3 requests failed in a row"})
+    assert [e["text"] for e in ns.list_recent(None)][:3] == [
+        "Waiting for you: Translation stopped - Open Garden. 3 requests failed in a row",
+        "Waiting for you: Translation stopped at the spending cap - Open Garden",
+        "Failed: Translation - Open Garden"]
+
+
+def _finish_job(job_id, result, description):
+    """Runs a thread job that returns `result` through the real hook; waits for its notice."""
+    told = threading.Event()
+    real = ns.notify_job_finished
+
+    def recording(desc, status, **kw):
+        real(desc, status, **kw)
+        if desc == description:
+            told.set()
+    import unittest.mock
+    with unittest.mock.patch.object(ns, "notify_job_finished", recording):
+        background_jobs.clear_job(job_id)
+        job_launch.start_job(job_id, lambda: background_jobs.set_result(job_id, result),
+                             description=description)
+        assert told.wait(timeout=30)
+    background_jobs.clear_job(job_id)
+    return ns.list_recent(None)[0]
+
+
+def test_a_job_stopped_at_a_spending_cap_is_waiting_not_finished(env, job_hook, no_timer):
+    from engine_backends import paid_calls
+    did = db.create_drama(title_en="Moonlit Garden")
+    desc = f"Translation (drama #{did})"
+    cases = [
+        ({"cap_reached": 0.42, "translated_count": 3},
+         "Waiting for you: Translation stopped at the spending cap - Moonlit Garden"),
+        ({"stopped": paid_calls.CAP_STOP_REASON},
+         "Waiting for you: Translation stopped at the spending cap - Moonlit Garden"),
+        ({"stopped": paid_calls.failure_stop_reason(3)},
+         "Waiting for you: Translation stopped - Moonlit Garden. 3 requests failed in a row"),
+        ({"stopped": "cancelled"}, "Finished: Translation - Moonlit Garden"),
+        ({"translated_count": 3}, "Finished: Translation - Moonlit Garden"),
+    ]
+    for i, (result, text) in enumerate(cases):
+        entry = _finish_job(f"notify_cap_{i}", result, desc)
+        assert entry["text"] == text, result
+        assert entry.get("target") == ({"page": "jobs"} if text.startswith("Waiting") else None)
+
+
+def test_waiting_note_reads_only_what_the_result_says():
+    from engine_backends import paid_calls
+    from services import jobs_service
+    target = {"page": "glossary", "drama_id": 3}
+    assert jobs_service.waiting_note({"waiting": {"text": "1 glossary name to review",
+                                                  "target": target}}) == \
+        {"text": "1 glossary name to review", "target": target}
+    assert jobs_service.waiting_note({"cap_reached": 0}) == {"cap": True, "target": {"page": "jobs"}}
+    assert jobs_service.waiting_note({"cap_reached": True}) is None
+    assert jobs_service.waiting_note({"cap_reached": None}) is None
+    assert jobs_service.waiting_note({"stopped": paid_calls.CAP_STOP_REASON})["cap"] is True
+    assert jobs_service.waiting_note({"stopped": paid_calls.RATE_LIMIT_STOP_REASON})["reason"] == \
+        "The provider keeps rate-limiting you; try later or switch engine"
+    assert jobs_service.waiting_note(
+        {"stopped": "Stopped checking: 3 status checks in a row failed. Press Check now to try again."}
+    )["reason"].startswith("Stopped checking: 3 status checks")
+    for nothing in (None, [], {}, {"stopped": "cancelled"}, {"stopped": "cap"},
+                    {"waiting": {"text": "  "}}, {"waiting": "names"}):
+        assert jobs_service.waiting_note(nothing) is None
+
+
+def test_notification_event_schema_takes_waiting_and_its_target_only():
+    from pydantic import ValidationError
+    from api.notification_schemas import NotificationEvent
+    e = NotificationEvent(id=1, at=1.0, kind="waiting", text="Waiting for you: x",
+                          target={"page": "glossary", "drama_id": 3})
+    assert e.model_dump(exclude_none=True)["target"] == {"page": "glossary", "drama_id": 3}
+    NotificationEvent(id=1, at=1.0, kind="waiting", text="x", target={"page": "jobs"})
+    for bad in ({"kind": "nope"},
+                {"kind": "waiting", "target": {"page": "elsewhere"}},
+                {"kind": "waiting", "target": {"page": "jobs", "url": "https://x.example"}},
+                {"kind": "waiting", "target": {"page": "review", "drama_id": "3"}},
+                {"kind": "waiting", "target": {"page": "review", "drama_id": 0}}):
+        with pytest.raises(ValidationError):
+            NotificationEvent(**{"id": 1, "at": 1.0, "text": "x", **bad})
+
+
+def test_recent_route_returns_a_waiting_entry_with_its_target(env, no_timer):
+    ns.notify_waiting("The queue stopped because an item failed. Start the queue to go on.",
+                      push_text="The queue stopped because an item failed. Start the queue to go on.",
+                      target={"page": "jobs"})
+    r = _client().get("/api/notifications")
+    assert r.status_code == 200
+    assert r.json()["items"] == [{"id": r.json()["items"][0]["id"], "at": r.json()["items"][0]["at"],
+                                  "kind": "waiting", "target": {"page": "jobs"},
+                                  "text": "Waiting for you: The queue stopped because an item "
+                                          "failed. Start the queue to go on."}]
+
+
+@pytest.mark.parametrize("kept", [3, 7, 12, 16])
+def test_waiting_text_redacts_a_key_that_straddles_the_length_cut(env, no_timer, kept):
+    """`kept`: how many characters of the key would be left before the cut."""
+    _write(env, discord=DISCORD)
+    key = "sk-ant-api03-" + "K" * 40
+    text = "x" * (ns._WAITING_MAX - 2 - kept) + " " + key + " tail"
+    ns.notify_waiting(text, push_text=text)
+    ((_s, pushed, _c),) = ns._pending
+    (entry,) = _waiting()
+    for out in (pushed, entry["text"]):
+        assert "sk-" not in out and "KK" not in out
+        assert len(out) <= len(ns.WAITING_PREFIX) + ns._WAITING_MAX
+
+
+def test_waiting_job_message_is_the_bell_sentence(env):
+    assert ns.waiting_job_message("Translation", {"cap": True}) == \
+        "Waiting for you: Translation stopped at the spending cap"
+
+
+@pytest.mark.parametrize("guest", [True, False, "raises"])
+def test_the_desktop_pop_up_names_a_private_title_only_off_the_guest_profile(env, monkeypatch, guest):
+    from services import pc_profile_service
+
+    def active():
+        if guest == "raises":
+            raise RuntimeError("settings unreadable")
+        return guest
+    monkeypatch.setattr(pc_profile_service, "guest_active", active)
+    shared = db.create_drama(title_en="Open Garden")
+    private = db.create_drama(title_en="Secret Garden", owner_user_id=5, is_private=1)
+    note = {"text": "2 glossary names to review"}
+    assert ns.waiting_job_message(f"Glossary from lines (title #{shared})", note) == \
+        "Waiting for you: 2 glossary names to review - Open Garden"
+    named = "" if guest is not False else " - Secret Garden"
+    assert ns.waiting_job_message(f"Glossary from lines (title #{private})", note) == \
+        f"Waiting for you: 2 glossary names to review{named}"
+
+
+def test_a_hold_entry_that_names_a_title_follows_that_title_as_well_as_its_target(env, no_timer):
+    from services import ownership_service
+    member = auth_service.add_user("reader@example.com")
+    kid = {"user_id": member["id"], "is_admin": False, "is_local_owner": False}
+    admin = {"user_id": 999, "is_admin": True, "is_local_owner": False}
+    owner = {"user_id": None, "is_admin": False, "is_local_owner": True}
+    sid = db.get_or_create_series("Willow Lane")
+    ep = db.create_drama(title_en="Willow Lane 1", series_id=sid)
+    ns.notify_waiting("Willow Lane 1 stopped at translate: engine said no", push_text="x",
+                      owner_user_id=member["id"], target={"page": "series", "series_id": sid},
+                      names_drama_id=ep)
+    (entry,) = _waiting(kid)
+    assert set(entry) == {"id", "at", "kind", "text", "target"}
+    assert entry["target"] == {"page": "series", "series_id": sid}
+    (item,) = _client().get("/api/notifications").json()["items"]
+    assert set(item) == {"id", "at", "kind", "text", "target"}
+    db.update_drama(ep, is_private=1, owner_user_id=5)
+    assert ownership_service.can_see(kid, "series", sid)
+    assert _waiting(kid) == []
+    for viewer in (admin, owner, None):
+        assert [e["text"] for e in _waiting(viewer)] == [entry["text"]]
+
+
+def test_a_hold_entry_naming_a_deleted_title_is_hidden_and_a_bad_id_is_dropped(env, no_timer):
+    member = auth_service.add_user("reader@example.com")
+    kid = {"user_id": member["id"], "is_admin": False, "is_local_owner": False}
+    sid = db.get_or_create_series("Willow Lane")
+    gone = db.create_drama(title_en="Willow Lane 2", series_id=sid)
+    db.delete_drama(gone)
+    ns.notify_waiting("Gone", push_text="x", owner_user_id=member["id"],
+                      target={"page": "series", "series_id": sid}, names_drama_id=gone)
+    assert _waiting(kid) == []
+    for bad in ("3", True, 0, -1, 2.0, None):
+        ns.reset_for_tests()
+        ns.notify_waiting("Kept", push_text="x", owner_user_id=member["id"],
+                          target={"page": "series", "series_id": sid}, names_drama_id=bad)
+        assert [e["text"] for e in _waiting(kid)] == ["Waiting for you: Kept"], bad
+        assert "names_drama_id" not in ns._recent[-1], bad
+
+
+@pytest.mark.parametrize("stopped, push_tail", [
+    (paid_calls.failure_stop_reason(3), ". 3 requests failed in a row"),
+    (run_limits.RATE_LIMIT_STOP_REASON,
+     ". The provider keeps rate-limiting you; try later or switch engine"),
+    ("Stopped: 3 batches in a row failed (connection to 192.168.1.20:11434 refused)", ""),
+    ("Stopped: HTTPConnectionPool(host='nas.local', port=11434): Max retries exceeded", ""),
+])
+def test_a_stopped_jobs_push_gives_only_baihes_own_stop_reasons(env, no_timer, stopped, push_tail):
+    _write(env, discord=DISCORD)
+    did = db.create_drama(title_en="Open Garden")
+    note = jobs_service.waiting_note({"stopped": stopped})
+    assert note is not None
+    ns.notify_job_finished(f"Translation (drama #{did})", "done", job_id=f"translate_{did}",
+                           waiting=note)
+    ((_s, pushed, _c),) = ns._pending
+    assert pushed == "Waiting for you: Translation stopped - Open Garden" + push_tail
+    (entry,) = _waiting()
+    assert entry["text"] == f"Waiting for you: Translation stopped - Open Garden. {note['reason']}"
+    if not push_tail:
+        assert "11434" in entry["text"]
+
+
+def test_waiting_note_marks_only_baihes_own_stop_sentences():
+    for own in (paid_calls.failure_stop_reason(3), paid_calls.failure_stop_reason(12),
+                run_limits.RATE_LIMIT_STOP_REASON):
+        note = jobs_service.waiting_note({"stopped": own})
+        assert note is not None and note["own_reason"] is True, own
+    for other in ("Stopped: 3 titles in a row failed",
+                  "Stopped: 3 batches in a row failed (timed out)",
+                  "Stopped checking: 3 status checks in a row failed. Press Check now to try again.",
+                  "Stopped: engine said no",
+                  paid_calls.failure_stop_reason(3) + " (at 192.168.1.20)",
+                  "Stopped: 03 requests failed in a row",
+                  "Stopped: " + run_limits.RATE_LIMIT_STOP_REASON):
+        note = jobs_service.waiting_note({"stopped": other})
+        assert note is not None and not note.get("own_reason"), other
+    # A result's own note is rebuilt from its text and target, so it cannot set the mark.
+    assert jobs_service.waiting_note({"waiting": {"text": "1 glossary name to review",
+                                                  "own_reason": True, "reason": "x"}}) == \
+        {"text": "1 glossary name to review", "target": None}
+    note = jobs_service.waiting_note(
+        {"stopped": "Stopped: Stopped: 3 batches in a row failed (timed out)"})
+    assert note is not None and note["reason"] == "3 batches in a row failed (timed out)"
+
+
+def test_a_done_job_with_errors_and_a_waiting_note_says_waiting(env, no_timer):
+    _write(env, discord=DISCORD)
+    ns.notify_job_finished("Translation", "done", with_errors=True, waiting={"cap": True})
+    assert _texts() == ["Waiting for you: Translation stopped at the spending cap"]
+    assert [m for _s, m, _c in ns._pending] == \
+        ["Waiting for you: Translation stopped at the spending cap"]
+
+
+def test_a_names_result_that_also_stopped_early_says_the_names_sentence():
+    note = jobs_service.waiting_note({"waiting": {"text": "4 glossary names to review"},
+                                      "stopped": paid_calls.CAP_STOP_REASON})
+    assert note == {"text": "4 glossary names to review", "target": None}
