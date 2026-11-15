@@ -3,22 +3,24 @@ api/routers/review_lines_routes.py -- the Review stage's READ-ONLY line
 views for one drama: paginated/filtered line list,
 transcript search, find-and-replace PREVIEW, coverage check, pacing check,
 lines whose source changed after translation, per-line provenance and
-original-transcript text.
+original-transcript text, and speaker guesses for lines with none.
 
 Every route here only reads. The find-and-replace preview is a POST solely
 because it takes a request body; it writes nothing. Lines are addressed by
 permanent line id, never by position.
 """
 
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
 from fastapi import APIRouter, Path, Query
+from pydantic import Field
 from api.auth import require_permission
 from api.schemas import (ReviewLinesCoverage, ReviewLinesFindReplaceRequest,
                          ReviewLinesLine, ReviewLinesMatch, ReviewLinesOriginalText,
                          ReviewLinesPacing, ReviewLinesPage, ReviewLinesProvenance,
-                         ReviewLinePosition, ReviewSourceChanged, error_responses)
-from services import review_lines_service, source_change_service
+                         ReviewLinePosition, ReviewSourceChanged, ReviewSpeakerSuggestions,
+                         error_responses)
+from services import review_lines_service, source_change_service, speaker_suggest_service
 
 router = APIRouter(prefix="/api/review", tags=["review"])
 
@@ -93,12 +95,21 @@ def get_review_line_original_text(drama_id: int = Path(ge=1), line_id: int = Pat
 
 @router.get("/dramas/{drama_id}/flagged-adjacent", dependencies=[require_permission("lines.read")],
             response_model=ReviewLinePosition,
-            summary="The nearest flagged (or unreviewed) line before/after a line, across pages",
+            summary="The nearest flagged (unreviewed, or no-speaker) line before/after a line, across pages",
             responses=_404_422)
 def get_review_flagged_adjacent(drama_id: int = Path(ge=1),
                                 direction: Literal["next", "prev"] = "next",
                                 from_line_id: Optional[int] = Query(None, ge=1),
                                 page_size: int = Query(40, ge=1, le=200), only: str = "all",
-                                kind: Literal["flagged", "unreviewed"] = "flagged"):
+                                kind: Literal["flagged", "unreviewed", "no_speaker"] = "flagged"):
     return review_lines_service.adjacent_flagged(drama_id, direction == "next", from_line_id,
                                                  page_size, only, kind)
+
+
+@router.get("/dramas/{drama_id}/speaker-suggestions", dependencies=[require_permission("lines.read")],
+            response_model=ReviewSpeakerSuggestions,
+            summary="Speakers to offer for lines that have none (nothing is applied)",
+            responses=_404_422)
+def get_review_speaker_suggestions(drama_id: int = Path(ge=1),
+                                   line_id: List[Annotated[int, Field(ge=1)]] = Query(..., max_length=200)):
+    return speaker_suggest_service.suggest_speakers(drama_id, line_id)
