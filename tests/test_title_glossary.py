@@ -135,3 +135,46 @@ def test_a_partial_copy_reports_both_lists_and_a_second_copy_adds_nothing(isolat
     assert (sorted(first["copied"]), first["skipped"]) == (["丙", "甲"], ["乙"])
     again = glossary_service.copy_title_terms_to_series(d)
     assert again["copied"] == [] and sorted(again["skipped"]) == ["丙", "乙", "甲"]
+
+
+def _joined_title_with_own_term():
+    """A title that kept 'Anok' for 亞洛赫 after joining a series that has other terms."""
+    d = _title()
+    _add(d, "亞洛赫", "Anok")
+    series = db.create_series("S")
+    db.upsert_glossary_term(series, "大白", "Dabai")
+    db.assign_drama_series(d, series)
+    return d
+
+
+def test_the_readers_beside_the_run_use_the_title_terms_too(isolated_db):
+    from services import scanlate_run_service, vocabulary_hint_service, stronger_engine_service
+
+    d = _joined_title_with_own_term()
+    drama = db.get_drama(d)
+    wanted = {"亞洛赫", "大白"}
+    assert {t["term_original"] for t in scanlate_run_service.load_translation_guide(drama)[0]} == wanted
+    assert {t["term_original"] for t in stronger_engine_service._glossary(drama)} == wanted
+    hint = vocabulary_hint_service.build_vocabulary_hint(d)
+    assert "亞洛赫" in hint and "大白" in hint
+
+
+def test_a_title_with_no_series_still_gives_the_comic_its_own_terms(isolated_db):
+    from services import scanlate_run_service
+
+    d = _title()
+    _add(d, "亞洛赫", "Anok")
+    drama = db.get_drama(d)
+    drama["series_id"] = None
+    terms, notes = scanlate_run_service.load_translation_guide(drama)
+    assert [t["term_original"] for t in terms] == ["亞洛赫"] and notes == ""
+    assert scanlate_run_service.load_translation_guide({"id": 0}) == (None, "")
+
+
+def test_live_hints_for_a_title_include_its_own_terms(isolated_db):
+    from services import live_service
+
+    d = _joined_title_with_own_term()
+    hints = live_service._hint_function(db.get_drama(d)["series_id"], None, "zh",
+                                        glossary_title=db.get_drama(d))
+    assert hints(["亞洛赫"])
