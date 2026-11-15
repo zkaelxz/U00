@@ -429,3 +429,34 @@ def test_a_saved_retired_gpt5_model_still_passes_the_model_check(isolated_db):
     svc._require_offered_model("openai", "gpt-6-luna")
     with pytest.raises(InvalidInputError):
         svc._require_offered_model("openai", "gpt-4")
+
+
+def test_estimate_counts_the_title_prompt_and_the_reply(isolated_db, cap, monkeypatch):
+    patch_setting(monkeypatch, "episode_brief", False)
+    cap(0)
+    did = _drama()
+    _seed(did, [("你好世界" * 5, "")] * 40)
+    bare = svc.estimate_translate_cost(did, "claude")["estimated_usd"]
+    db.update_drama(did, project_instructions="Keep every name in pinyin. " * 400)
+    with_notes = svc.estimate_translate_cost(did, "claude")["estimated_usd"]
+    assert with_notes > bare  # the title's own instructions ride in every batch
+
+
+def test_estimate_counts_the_pre_read_and_a_paid_summary(isolated_db, cap, monkeypatch):
+    cap(0)
+    did = _drama()
+    _seed(did, [("你好世界" * 5, "")] * 40)
+    patch_setting(monkeypatch, "episode_brief", False)
+    patch_setting(monkeypatch, "episode_summary_engine", "ollama")
+    base = svc.estimate_translate_cost(did, "claude")["estimated_usd"]
+    patch_setting(monkeypatch, "episode_brief", True)
+    with_brief = svc.estimate_translate_cost(did, "claude")["estimated_usd"]
+    assert with_brief > base
+    # A saved brief is read, not written again, and a line-scoped run never writes one.
+    db.update_drama(did, episode_brief="Saved by hand.")
+    saved = svc.estimate_translate_cost(did, "claude")["estimated_usd"]
+    assert base <= saved < with_brief  # carried in each batch, but no extra call
+    db.update_drama(did, episode_brief=None)
+    patch_setting(monkeypatch, "episode_summary_engine", "claude")
+    with_summary = svc.estimate_translate_cost(did, "claude")["estimated_usd"]
+    assert with_summary > with_brief

@@ -61,10 +61,10 @@ describe('Review tools groups', () => {
     expect(REVIEW_TOOLS.map((t) => t.id).sort()).toEqual([...old].sort())
   })
 
-  it('Simple shows the same tools as before (Check and Fix) and none of the others', () => {
-    expect(shownTools(true).map((t) => t.id).sort()).toEqual([...OLD_LAYOUT.check, ...OLD_LAYOUT.fix].sort())
+  it('Simple shows Check, Fix and Voices (Listen\'s Change voice link lands there) and none of the others', () => {
+    expect(shownTools(true).map((t) => t.id).sort()).toEqual([...OLD_LAYOUT.check, ...OLD_LAYOUT.fix, ...OLD_LAYOUT.voices].sort())
     expect(inGroup('problems', true)).toEqual(['checks', 'flags'])
-    expect(inGroup('change', true)).toEqual(['fixFlagged'])
+    expect(inGroup('change', true)).toEqual(['fixFlagged', 'voices'])
     expect(inGroup('records', true)).toEqual([])
     expect(inGroup('finish', true)).toEqual(['markReviewed'])
     expect(shownGroups(true).map((g) => g.label)).toEqual(['Look for problems', 'Change many lines', 'Finish'])
@@ -73,7 +73,7 @@ describe('Review tools groups', () => {
   })
 
   it('Simple also shows a tool a button asked for, and the group that holds it', () => {
-    expect(shownTools(true, new Set(['retranscribe'])).filter((t) => t.group === 'change').map((t) => t.id)).toEqual(['fixFlagged', 'retranscribe'])
+    expect(shownTools(true, new Set(['retranscribe'])).filter((t) => t.group === 'change').map((t) => t.id)).toEqual(['fixFlagged', 'retranscribe', 'voices'])
     expect(shownGroups(true, new Set(['versionsAndNotes'])).map((g) => g.id)).toEqual(['problems', 'change', 'records', 'finish'])
   })
 
@@ -94,6 +94,7 @@ describe('Review tools groups', () => {
     expect(reviewToolsGroupForLink('history', 'compare')).toBe('problems')
     expect(reviewToolsGroupForLink('history', null)).toBe('records')
     expect(reviewToolsGroupForLink(null, 'compare')).toBeNull()
+    expect(reviewToolsGroupForLink(null, 'voices')).toBe('change')
   })
 
   it('remembers the last group for each title separately', () => {

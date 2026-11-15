@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { usePublishedHeight } from './usePublishedHeight'
 
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
@@ -17,7 +17,7 @@ interface Props {
   onMove: (delta: 1 | -1) => void
   onEdit: () => void
   // Simple's check queue: Skip for now and Looks right, next take the place of Prev, Next and Edit; the card's
-  // English box opens the editor on a tap, as Edit did.
+  // English box opens the editor on a tap, as Edit did, and Play line is on the card.
   queue?: { onSkip: () => void; onLooksRight: () => void }
 }
 
@@ -35,7 +35,7 @@ export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCanc
         </>
       ) : (
         <>
-          {hasMedia && (
+          {hasMedia && !queue && (
             <button type="button" aria-label={`Play line ${lineNumber(active.idx)}`} onClick={onPlay}>
               ▶ #{lineNumber(active.idx)}
             </button>
@@ -60,25 +60,4 @@ export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCanc
       )}
     </div>
   )
-}
-
-// The selection bar and the floating player sit just above this bar, which is taller in the check queue (two-line
-// buttons) and while editing. Its live height goes on the page as a CSS variable they both read, and is gone while
-// the bar is not shown.
-function usePublishedHeight(name: string) {
-  const observer = useRef<ResizeObserver | null>(null)
-  return useCallback((el: HTMLElement | null) => {
-    const root = document.documentElement.style
-    observer.current?.disconnect()
-    observer.current = null
-    if (!el) {
-      root.removeProperty(name)
-      return
-    }
-    const publish = () => root.setProperty(name, `${el.getBoundingClientRect().height}px`)
-    publish()
-    if (typeof ResizeObserver === 'undefined') return
-    observer.current = new ResizeObserver(publish)
-    observer.current.observe(el)
-  }, [name])
 }

@@ -20,10 +20,17 @@ The push leaves the title out for a drama a household member couldn't see
 Never line text, keys or paths; the result also goes through
 `engine_backends.shared.redact_secrets`.
 
+Success pushes: a job that finished cleanly pushes only when it ran
+SUCCESS_PUSH_MIN_SECONDS or longer (a short one stays in the bell). A failure,
+a finish with errors, "Waiting for you" and every event (chapters, live,
+remote access) always push. A job whose run time is unknown counts as long.
+
 Rate limit: events arriving within BURST_WINDOW seconds of the first one
-are collapsed into one message ("3 background jobs ended: 2 finished,
-1 failed."), and at most MAX_PER_MINUTE messages (tests included) go out
-in any 60 s; extra bursts are dropped with a log line.
+are collapsed into one message ("3 background jobs finished."), and at most
+MAX_PER_MINUTE messages (tests included) go out in any 60 s. Only clean
+successes are dropped (with a log line) over the cap: anything the person
+must act on or learn about is sent anyway, and a failure is never folded
+into the count, so its reason stays readable.
 
 SSRF: Discord URLs must be https to discord.com / discordapp.com (or the
 ptb./canary. hosts) under /api/webhooks/<id>/<token>. ntfy URLs must be
@@ -98,6 +105,7 @@ DISABLED_ENV = "BAIHE_NOTIFY_DISABLED"
 HTTP_TIMEOUT = (3.05, 5)
 SEND_DEADLINE = 10.0          # wall clock for one POST, however slowly the server replies
 BURST_WINDOW = 5.0
+SUCCESS_PUSH_MIN_SECONDS = 120.0
 MAX_PER_MINUTE = 5
 MAX_URL_LEN = 512
 _KIND_MAX = 60
@@ -354,24 +362,26 @@ def chapter_message(new_count) -> str:
     return f"{n} new chapter{'s' if n != 1 else ''} found"
 
 
+def _folds_into_count(event) -> bool:
+    """Only a clean success is folded into "N background jobs finished".
+    Failures, finishes with errors, "waiting" and events keep their own
+    sentence: each has something the person has to read or do."""
+    return event[0] == "done" and (event[2] if len(event) > 2 else "jobs") == "jobs"
+
+
 def _summarize(events) -> str:
-    """events: (status, message) or (status, message, category) tuples. A
-    "waiting" event is in the jobs category but never folded into the count:
-    the person has something to do, and the count would hide what."""
+    """events: (status, message) or (status, message, category) tuples.
+    Status "partial" is a job that finished with errors."""
     if len(events) == 1:
         return events[0][1]
-    jobs = [e for e in events
-            if (e[2] if len(e) > 2 else "jobs") == "jobs" and e[0] != "waiting"]
+    folded = [e for e in events if _folds_into_count(e)]
     parts = []
-    if len(jobs) == 1:
-        parts.append(f"{jobs[0][1]}.")
-    elif jobs:
-        done = sum(1 for e in jobs if e[0] == "done")
-        parts.append(f"{len(jobs)} background jobs ended: {done} finished, "
-                     f"{len(jobs) - done} failed.")
+    if len(folded) == 1:
+        parts.append(f"{folded[0][1]}.")
+    elif folded:
+        parts.append(f"{len(folded)} background jobs finished.")
     # A hold's text is already a sentence ("... press Continue to run the rest.").
-    parts.extend(f"{e[1].rstrip('.') if e[0] == 'waiting' else e[1]}." for e in events
-                 if e not in jobs)
+    parts.extend(f"{e[1].rstrip('.')}." for e in events if e not in folded)
     return " ".join(parts)
 
 
@@ -714,6 +724,20 @@ def list_recent(principal=None, limit=RECENT_MAX) -> list:
     return out
 
 
+def _ran_long(job_id) -> bool:
+    """Did the job run SUCCESS_PUSH_MIN_SECONDS or more? True when its times
+    are unknown: a missing record must not silence a long job."""
+    try:
+        import background_jobs
+        job = background_jobs.get_status(job_id) or {}
+        started, finished = job.get("started_at"), job.get("finished_at")
+        if started is None or finished is None:
+            return True
+        return finished - started >= SUCCESS_PUSH_MIN_SECONDS
+    except Exception:
+        return True
+
+
 def _chapter_count(job_id):
     try:
         import background_jobs
@@ -786,9 +810,13 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None,
             message = build_message(description, status, with_errors=with_errors, reason=reason)
         _record(kind, message, job_id, owner_user_id)
         if category == "jobs":
+            if status == "done" and not with_errors and not _ran_long(job_id):
+                return   # a quick success stays in the bell
             # The in-app list is filtered per viewer; a push channel is not.
             message = build_message(description, status, shared_only=True,
                                     with_errors=with_errors, reason=reason)
+            if with_errors:
+                status = "partial"
         if os.environ.get(DISABLED_ENV) == "1" or not get_categories()[category]:
             return
         if not configured_channels():
@@ -906,9 +934,12 @@ def flush() -> dict:
             if not events:
                 return {}
             if not _take_slot_locked():
-                _log().warning(f"notification: rate limit reached, {len(events)} event(s) "
-                               "not sent")
-                return {}
+                urgent = [e for e in events if not _folds_into_count(e)]
+                _log().warning(f"notification: rate limit reached, "
+                               f"{len(events) - len(urgent)} finished job(s) not sent")
+                if not urgent:
+                    return {}
+                events = urgent
         return _deliver(_summarize(events))
     except Exception as exc:
         try:

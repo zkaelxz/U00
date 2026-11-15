@@ -48,6 +48,7 @@ import re
 import sqlite3
 
 import db
+from engine_backends import engine_registry
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError)
 from services import pc_profile_service
@@ -479,6 +480,14 @@ def acting_user_id():
 
 # Paid calls made in an API request are logged for its signed-in user.
 db.set_spender_lookup(acting_user_id)
+
+
+def _acting_may_use_hosted_default() -> bool:
+    principal = acting_principal()
+    return principal is None or "engines.paid" in (principal.get("permissions") or ())
+
+
+engine_registry.set_hosted_default_caller_check(_acting_may_use_hosted_default)
 
 
 def acting_principal():

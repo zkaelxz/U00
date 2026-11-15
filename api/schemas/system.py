@@ -282,6 +282,7 @@ class SettingsPreferences(TimingPreferences):
     scanlate_rect_layout: bool = False
     episode_brief: bool = True
     stream_plain_prompt: bool = True
+    ollama_cloud_default: bool = False
     translate_reply_guard: str = "auto"
     claude_reasoning: str = "default"
     openai_reasoning: str = "less"
@@ -391,6 +392,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     scanlate_rect_layout: Optional[StrictBool] = None
     episode_brief: Optional[StrictBool] = None
     stream_plain_prompt: Optional[StrictBool] = None
+    ollama_cloud_default: Optional[StrictBool] = None
     translate_reply_guard: Optional[StrictStr] = Field(None, max_length=40)
     claude_reasoning: Optional[StrictStr] = Field(None, max_length=40)
     openai_reasoning: Optional[StrictStr] = Field(None, max_length=40)

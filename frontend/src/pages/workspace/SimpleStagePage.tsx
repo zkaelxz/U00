@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { openDramaFolder } from '../../api/library'
@@ -23,6 +23,7 @@ import { AddSourceLink } from './AddSourceLink'
 import { TITLE_TOP_PHONE, TitleMainAction, TitleTop } from './TitleTop'
 import { useTitleProgress } from './useTitleProgress'
 import { TitleViewSwitch } from './TitleViewSwitch'
+import type { QueuePlace } from './stages/review/checkQueueModel'
 import type { TitleView } from './titleView'
 
 const OPEN_STEP: Partial<Record<StageId, StepKey>> = { translate: 'translate', review: 'check', export: 'export' }
@@ -46,7 +47,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   const home = stage === null
   const steps = useTitleProgress(id, false)
   const { refresh } = steps
-  const { lineCount, countFailed, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress } = steps
+  const { lineCount, countFailed, translatedCount, exported, audioReady, riskCount, riskAsked, flowOn, onFlowProgress } = steps
   // The title page waits for the line count before it picks the lines or the title panel, so neither flashes; a count
   // that cannot be read shows the lines, which say for themselves whether there are any.
   const waiting = home && lineCount === null && !countFailed
@@ -59,20 +60,47 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   // Pressed where the lines are, the Check button opens the queue there and moves to its first line.
   const [checkSignal, setCheckSignal] = useState(0)
   const openQueue = useCallback(() => setCheckSignal((n) => n + 1), [])
+  // The header's Search: where the lines are it asks them to show their search box. Elsewhere it goes to Review and leaves
+  // a one-shot request there, because a counter would reach the lines already counted as seen when they mount.
+  const [searchSignal, setSearchSignal] = useState(0)
+  const searchPending = useRef(false)
+  const takeSearch = useCallback(() => {
+    const asked = searchPending.current
+    searchPending.current = false
+    return asked
+  }, [])
+  const onSearch = useCallback(() => {
+    if (review) {
+      setSearchSignal((n) => n + 1)
+      return
+    }
+    searchPending.current = true
+    window.location.hash = routeHref({ name: 'drama', id, stage: 'review' })
+  }, [review, id])
+  // The Player button is drawn by the lines and shown in the header, so it sits with the title's other controls.
+  const [playerDock, setPlayerDock] = useState<HTMLElement | null>(null)
   const phone = useMediaQuery(TITLE_TOP_PHONE)
+  // The open card's place in the check queue, for the steps button's "1 of 3 to look at" and its progress bar.
+  const [position, setPosition] = useState<QueuePlace | null>(null)
   // Where the lines are, a desktop shows the main button first in the Need a look row, which says when it has drawn it, so the button
   // is never missing and never drawn twice. Without lines it stays here: the one-button flow it may be would restart if moved mid-run.
   const [mainInLead, setMainInLead] = useState(false)
-  const leadsMain = simple && review && !phone && !flowOn && (lineCount ?? 0) > 0
+  const leads = simple && review && !phone && !flowOn
+  const leadsMain = leads && (lineCount ?? 0) > 0
+  // The row's controls are drawn only once the button is final: its place, its words (the Check button counts the lines that
+  // need a look, which the queue's size answers on its own) and the pills' position all follow from what is known by then.
+  const answered = lineCount !== null || countFailed
+  const leadReady = answered && (!leadsMain || riskAsked)
   const route = useRoute()
   const open = stage === 'source' ? sourceStep(route.name === 'drama' ? route.tab : undefined) : openStep(stage)
   const onCheck = review ? openQueue : undefined
   // Built from the counts, not the hook's object, so the stage's context changes only when the button does.
   const checkLead = useMemo(() => {
-    if (!leadsMain) return undefined
+    if (!leads) return undefined
     const progress = { lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress }
-    return { action: <TitleMainAction id={id} progress={progress} onCheck={onCheck} />, onShown: setMainInLead }
-  }, [leadsMain, id, lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress, onCheck])
+    const action = leadsMain ? <TitleMainAction id={id} progress={progress} onCheck={onCheck} /> : null
+    return { action, ready: leadReady, onShown: setMainInLead }
+  }, [leads, leadsMain, leadReady, id, lineCount, translatedCount, exported, audioReady, riskCount, flowOn, onFlowProgress, onCheck])
   const linesOnAll = linesOpenOnAll(home, { lineCount, translatedCount, exported, audioReady, riskCount })
   const seriesId = drama.series_id
   const episodes = useMemo(
@@ -80,8 +108,8 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
     [simple, review, seriesId, id, drama, lineCount, translatedCount],
   )
   const ctx = useMemo<StageContextValue>(
-    () => ({ dramaId: id, drama, refetchDrama, onJobDone, simple, checkSignal, checkLead, linesOnAll, episodes }),
-    [id, drama, refetchDrama, onJobDone, simple, checkSignal, checkLead, linesOnAll, episodes],
+    () => ({ dramaId: id, drama, refetchDrama, onJobDone, simple, checkSignal, searchSignal, takeSearch, playerDock, checkLead, onPosition: setPosition, linesOnAll, episodes }),
+    [id, drama, refetchDrama, onJobDone, simple, checkSignal, searchSignal, takeSearch, playerDock, checkLead, linesOnAll, episodes],
   )
   // `simple` is true only for audio and video, the only kinds whose Simple pages link to Review.
   const Stage = shown ? STAGE_COMPONENTS[shown] : null
@@ -104,6 +132,9 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
           progress={steps}
           openStep={open}
           onCheck={onCheck}
+          onSearch={onSearch}
+          playerSlot={setPlayerDock}
+          position={position}
           mainElsewhere={leadsMain && mainInLead}
         />
       ) : (

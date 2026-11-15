@@ -8,6 +8,7 @@ from lib import clock
 import json
 import os
 import time
+from pathlib import Path
 from typing import List
 
 import db
@@ -753,6 +754,31 @@ def get_voice_bank_entry(entry_id: int) -> dict | None:
     return dict(row) if row else None
 
 
+def voice_bank_clip_path(clip_filename: str) -> str | None:
+    """Absolute path of a stored clip_filename, or None unless it names a
+    regular file directly inside the voice-bank folder. The row's
+    filename is never trusted as a path: a restored or edited library.db
+    could hold "../x" or an absolute path, and the bank's apply, delete
+    and preview would otherwise copy, remove or stream a file outside it.
+    Symlinks are refused (the folder or the clip) so a link can't point
+    out of the folder either."""
+    name = clip_filename or ""
+    if not name or os.path.basename(name) != name:
+        return None
+    folder = Path(db.VOICE_BANK_DIR)
+    candidate = folder / name
+    try:
+        if folder.is_symlink() or candidate.is_symlink():
+            return None
+        root = folder.resolve(strict=True)
+        path = candidate.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+    if path.parent != root or not path.is_file():
+        return None
+    return str(path)
+
+
 def apply_voice_bank_entry(entry_id: int, drama_dir: str, drama_id: int, speaker_label: str) -> str:
     """Copies a bank entry's clip into drama_dir (a new file, not shared
     with the bank's own copy or any other drama's) and sets the matching
@@ -762,11 +788,13 @@ def apply_voice_bank_entry(entry_id: int, drama_dir: str, drama_id: int, speaker
     entry = db.get_voice_bank_entry(entry_id)
     if not entry:
         raise ValueError(f"No voice bank entry with id {entry_id}")
-    ext = os.path.splitext(entry["clip_filename"])[1]
+    src = db.voice_bank_clip_path(entry["clip_filename"])
+    if src is None:
+        raise ValueError(f"Voice bank entry {entry_id} has no clip inside the voice bank folder")
+    ext = os.path.splitext(src)[1]
     dest_filename = f"voicebank_{entry_id}_{speaker_label}{ext}"
     os.makedirs(drama_dir, exist_ok=True)
-    shutil.copyfile(os.path.join(db.VOICE_BANK_DIR, entry["clip_filename"]),
-                     os.path.join(drama_dir, dest_filename))
+    shutil.copyfile(src, os.path.join(drama_dir, dest_filename))
     db.upsert_character(drama_id, speaker_label, ref_audio_filename=dest_filename,
                      ref_text=entry["ref_text"] or "", clone_engine=entry["clone_engine"],
                      voice_design=entry["voice_design"] or "")
@@ -784,7 +812,6 @@ def delete_voice_bank_entry(entry_id: int):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("DELETE FROM voice_bank WHERE id = ?", (entry_id,))
         conn.commit()
-    if entry:
-        clip_path = os.path.join(db.VOICE_BANK_DIR, entry["clip_filename"])
-        if os.path.exists(clip_path):
-            os.remove(clip_path)
+    clip_path = db.voice_bank_clip_path(entry["clip_filename"]) if entry else None
+    if clip_path:
+        os.remove(clip_path)
