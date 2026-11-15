@@ -413,16 +413,14 @@ class TestStopAndRestart:
         t = time.time()
         for _ in range(gpu_guard.MAX_RESTARTS + 1):
             t = self._short_for(2, t)
-            _clear(t + 1)
-            t += gpu_guard.CLEAR_SECONDS + 2
+            # Each stop has ended before the card clears; a run still winding down
+            # would read as the restarted one.
+            assert _wait_for(lambda: _status("stop_a") == "cancelled")
+            t = _clear(t + 1) + 1
             job_runner.recheck_gpu_queue()
-            assert _wait_for(lambda: _status("stop_a") in ("running", "cancelled"))
             if _status("stop_a") == "cancelled":
                 break
-            # The last stop is still winding down: one more tick restarts it.
-            gpu_guard.tick(now=t, reading=(FREE, COOL))
-            job_runner.recheck_gpu_queue()
-            _wait_for(lambda: _status("stop_a") == "running")
+            assert _wait_for(lambda: _status("stop_a") == "running")
         assert len(calls) == gpu_guard.MAX_RESTARTS
         assert _status("stop_a") == "cancelled"
         assert f"Stopped {gpu_guard.MAX_RESTARTS + 1} times, so it was not started again" in _message("stop_a")
