@@ -9,20 +9,10 @@ import { expect, test } from './fixtures'
 // Audio and video titles have a Simple view (#/drama/1, no stage) beside today's workspace; the choice is
 // remembered in the browser. Title 1 is the seeded audio drama, 3 the seeded video, 2 the novel.
 
-// Simple's header has no switch: Full view is a button in More's row. The Stages tabs are Full's.
-async function fullView(page: Page) {
-  await page.locator('.workspace-header').getByRole('button', { name: 'More', exact: true }).click()
-  await page.getByRole('button', { name: 'Full view', exact: true }).click()
-}
 // The Player button of an audio title's lines is drawn in More's row, which starts closed.
 const headerMore = (page: Page) => page.locator('.workspace-header').getByRole('button', { name: 'More', exact: true })
 // Found by its class, not its name: while the row is closed its buttons have no accessible name.
 const playerButton = (page: Page) => page.locator('.title-top-more-row button', { hasText: /^Player/ })
-async function expectSimpleTitle(page: Page) {
-  await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
-  // More's row is closed, so its buttons have no accessible name yet: they are found by their text.
-  await expect(page.locator('.title-top-more-row button', { hasText: /^Full view$/ })).toHaveCount(1)
-}
 
 const progress = (id: number, lines: number, untranslated: number) => ({
   drama_id: id, stage_index: 1, stage: 'translate', line_count: lines, untranslated_count: untranslated,
@@ -51,7 +41,7 @@ test('Simple shows the five actions and the lines, and Full brings the stage tab
   await mockLines(page, 1, 10, 10)
   await page.goto('/#/drama/1')
   await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await expect(page).toHaveURL(/#\/drama\/1$/)
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
   // The step links open each stage; the current step's action is the main button, and Add media, Redo and Glossary are in the header.
@@ -71,7 +61,7 @@ test('Simple shows the five actions and the lines, and Full brings the stage tab
   await expect(page.getByRole('tablist', { name: 'Review tools' })).toBeVisible()
   await expect(page.getByRole('complementary', { name: 'Title panel' })).toHaveCount(0)
   await expect(page.getByRole('tab', { name: 'Episodes' })).toHaveCount(0)
-  await fullView(page)
+  await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
   await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
 })
 
@@ -83,7 +73,7 @@ test('the choice is remembered, and a link that names a stage still opens that s
     await route.fulfill({ response: resp, json: { ...(await resp.json()), audio_available: false } })
   })
   await page.goto('/#/drama/3')
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await expect(page.getByRole('list', { name: 'Steps' }).getByRole('link', { name: step('Transcribe') })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
   await page.getByRole('tab', { name: 'Episodes' }).click()
   await expect(page.getByRole('list', { name: 'Episodes' })).toContainText('Not transcribed')
@@ -95,16 +85,16 @@ test('the choice is remembered, and a link that names a stage still opens that s
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
   // The step tabs stay above the open stage, as on the title page.
   await expect(page.getByRole('list', { name: 'Steps' })).toBeVisible()
-  await fullView(page)
+  await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
   await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
 })
 
 test('Simple leaves the advanced controls out of the stages, and Full brings them back', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 10) }))
   await page.goto('/#/drama/1')
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await page.getByRole('list', { name: 'Steps' }).getByRole('link', { name: step('Export') }).click()
-  await expectSimpleTitle(page)
+  await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
   await expect(page.getByRole('group', { name: 'Subtitle file' })).toBeVisible()
   await expect(page.getByRole('group', { name: 'Burned-in video' })).toHaveCount(0)
   await expect(page.getByRole('group', { name: 'EPUB' })).toHaveCount(0)
@@ -112,12 +102,12 @@ test('Simple leaves the advanced controls out of the stages, and Full brings the
   await expect(page.getByRole('tab', { name: 'Glossary' })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Characters' })).toHaveCount(0)
   await expect(page.getByText('More options')).toHaveCount(0)
-  await fullView(page)
+  await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
   await expect(page.getByRole('tab', { name: 'Characters' })).toBeVisible()
   await expect(page.getByText('More options')).toBeVisible()
   await page.goto('/#/drama/1/source?tab=add')
   await expect(page.getByText('Keep original files')).toBeVisible()
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await expect(page.getByText('Keep original files')).toHaveCount(0)
 })
 
@@ -140,7 +130,7 @@ test('with audio attached and no lines, the main button starts the flow instead 
     await route.fulfill({ response: resp, json: { ...(await resp.json()), audio_available: true } })
   })
   await page.goto('/#/drama/1')
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await expect(page.getByRole('button', { name: 'Transcribe and translate' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toHaveCount(0)
 })
@@ -195,7 +185,7 @@ test('a title in a series lists its episodes in order with each state', async ({
     }),
   )
   await page.goto('/#/drama/1')
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await page.getByRole('tab', { name: 'Episodes' }).click()
   const items = page.getByRole('list', { name: 'Episodes' }).getByRole('listitem')
   await expect(items).toHaveCount(3)
@@ -212,16 +202,16 @@ test.describe('a browser that never chose a title view', () => {
 
   test('opens audio, video and comic titles on Simple', async ({ page }) => {
     await page.goto('/#/drama/1')
-    await expectSimpleTitle(page)
+    await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
     await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
     await page.goto('/#/drama/3')
-    await expectSimpleTitle(page)
+    await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
   })
 })
 
 test('Simple Translate says engine, style and variant in one line and Change opens the dropdowns', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   const line = page.getByTestId('translate-summary')
   await expect(line).toContainText('English (US)')
   await expect(page.getByLabel('AI engine', { exact: true })).toHaveCount(0)
@@ -234,7 +224,7 @@ test('Simple Translate says engine, style and variant in one line and Change ope
   await expect(change).toHaveText('Done')
   await change.click()
   await expect(page.getByLabel('AI engine', { exact: true })).toHaveCount(0)
-  await fullView(page)
+  await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
   await expect(page.getByLabel('AI engine', { exact: true })).toBeVisible()
   await expect(page.getByTestId('translate-summary')).toHaveCount(0)
 })
@@ -242,7 +232,7 @@ test('Simple Translate says engine, style and variant in one line and Change ope
 test('Simple lists the steps with the current one marked and its notes', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 4) }))
   await page.goto('/#/drama/1')
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   const steps = page.getByRole('list', { name: 'Steps' })
   await expect(steps.getByRole('listitem')).toHaveCount(5)
   await expect(steps.locator('[aria-current="step"]')).toHaveText('Now · Translate, 4 of 10 left')
@@ -255,7 +245,7 @@ test('with lines the title opens on them, with the step tabs above them and no p
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 4) }))
   await mockLines(page, 1, 10, 4)
   await page.goto('/#/drama/1')
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   const lines = page.getByRole('region', { name: 'Review' })
   await expect(lines).toBeVisible()
   // The Translate step: the lines open on All, where the lines without English are, not on the check queue.
@@ -274,7 +264,7 @@ test('with lines the title opens on them, with the step tabs above them and no p
 test('an audio or video Simple stage keeps the title page step tabs above it, so no switching back to Full is needed', async ({ page }) => {
   await page.route('**/api/workflow/dramas/1/progress', (route) => route.fulfill({ json: progress(1, 10, 4) }))
   await page.goto('/#/drama/1')
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await page.goto('/#/drama/1/translate')
   const steps = page.getByRole('list', { name: 'Steps' })
   await expect(steps.getByRole('link', { name: step('Check') })).toHaveAttribute('href', '#/drama/1/review')
@@ -293,7 +283,7 @@ test('an audio or video Simple stage keeps the title page step tabs above it, so
 test('Simple Review keeps the checks, Fix flagged lines, flags and Mark episode reviewed and the Replace button; Full keeps every tool group and the row-density, Go to and Shortcuts controls', async ({ page }) => {
   seedLines(3)
   await page.goto('/#/drama/3')
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await page.goto('/#/drama/3/review')
   const tabs = page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')
   await expect(tabs).toHaveText(['Look for problems', 'Change many lines', 'Finish'])
@@ -319,7 +309,7 @@ test('Simple Review keeps the checks, Fix flagged lines, flags and Mark episode 
   }
 
   await page.goto('/#/drama/3')
-  await fullView(page)
+  await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
   await page.goto('/#/drama/3/review')
   await expect(tabs).toHaveText(['Look for problems', 'Change many lines', 'Records', 'Finish'])
   // Full has no check queue: it opens on All lines with the whole toolbar.
@@ -331,13 +321,13 @@ test('Simple Review keeps the checks, Fix flagged lines, flags and Mark episode 
 
 test('Simple Transcribe leaves the Advanced options out and Full keeps them', async ({ page }) => {
   await page.goto('/#/drama/1')
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await page.goto('/#/drama/1/source?tab=transcribe')
   await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Advanced options' })).toHaveCount(0)
 
   await page.goto('/#/drama/1')
-  await fullView(page)
+  await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
   await page.goto('/#/drama/1/source?tab=transcribe')
   await expect(page.getByRole('heading', { name: 'Advanced options' })).toBeVisible()
 })
@@ -350,7 +340,7 @@ test('without lines the title panel has Translate, Glossary, Episodes and Export
     await route.fulfill({ response: resp, json: { ...(await resp.json()), ...status(false) } })
   })
   await page.goto('/#/drama/1')
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   const tabs = page.getByRole('tablist', { name: 'Title panel sections' }).getByRole('tab')
   await expect(tabs).toHaveText(['Translate', 'Glossary', 'Episodes', 'Export'])
   await expect(page.getByTestId('panel-translate-summary')).not.toBeEmpty()
@@ -376,7 +366,7 @@ test.describe('the check queue', () => {
   const allRadio = (page: Page) => page.getByRole('group', { name: 'Lines to show' }).getByRole('radio', { name: /^All/ })
   const simple = async (page: Page) => {
     await page.goto('/#/drama/3')
-    await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+    await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   }
 
   test('opens on the lines that need a look, says why, and moves on as each one is checked', async ({ page }) => {
@@ -607,7 +597,7 @@ test.describe('the check queue', () => {
     await expectNoSidewaysScroll(page)
   })
 
-  test('the header holds Add media, Redo transcription, Glossary, Search and More; More holds Full view, the title\'s files and the source link', async ({ page }) => {
+  test('the header holds Add media, Redo transcription, Glossary, Search, the switch and More; More holds the title\'s files and the source link', async ({ page }) => {
     seedCheckLines()
     await simple(page)
     const header = page.locator('.workspace-header')
@@ -615,11 +605,13 @@ test.describe('the check queue', () => {
     await expect(header.getByRole('link', { name: 'Redo transcription', exact: true })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
     await expect(header.getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
     await expect(header.getByRole('button', { name: 'Search', exact: true })).toBeVisible()
-    // The Simple | Full switch is not in the header any more: Full view is a button in More's row.
-    await expect(header.getByRole('radio')).toHaveCount(0)
+    await expect(header.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
     for (const name of ['Add media', 'Redo transcription', 'Glossary']) await expect(page.getByRole('link', { name, exact: true })).toHaveCount(1)
     await expect(page.locator('.title-top-actions').getByRole('link').or(page.locator('.title-top-actions').getByRole('button')))
       .toHaveText(['Add media', 'Redo transcription', 'Glossary', 'Search', 'More'])
+    // The switch sits after Search and before More, in the header's one row.
+    const order = await page.locator('.title-top-actions').evaluate((row) => [...row.children].map((el) => el.matches('.title-view-switch') ? 'switch' : el.textContent))
+    expect(order).toEqual(['Add media', 'Redo transcription', 'Glossary', 'Search', 'switch', 'More'])
     // The main button is under the steps, first in the lines' Need a look row.
     const main = page.getByRole('button', { name: 'Check the 3 lines', exact: true })
     await expect(main).toHaveCount(1)
@@ -627,17 +619,13 @@ test.describe('the check queue', () => {
     const more = header.getByRole('button', { name: 'More', exact: true })
     const row = page.locator('.title-top-more-row')
     await expect(page.getByRole('button', { name: 'Open folder' })).toBeHidden()
-    await expect(page.getByRole('button', { name: 'Full view', exact: true })).toBeHidden()
     await more.click()
     await expect(more).toHaveAttribute('aria-expanded', 'true')
     await expect(page.getByRole('button', { name: 'Open folder' })).toBeVisible()
     // The source page link, or the way to add one when the title has none.
     await expect(row.locator('.ws-source, .ws-source-add')).toBeVisible()
-    // Full view is as tall as the buttons beside it, and is the first of them.
-    const full = (await row.getByRole('button', { name: 'Full view', exact: true }).boundingBox())!
-    const folder = (await row.getByRole('button', { name: 'Open folder' }).boundingBox())!
-    expect(Math.abs(full.height - folder.height), 'Full view and Open folder are the same height').toBeLessThanOrEqual(1)
-    expect(full.x).toBeLessThan(folder.x)
+    // The switch is not repeated in More's row.
+    await expect(row.getByRole('radio')).toHaveCount(0)
     await more.click()
     await expect(page.getByRole('button', { name: 'Open folder' })).toBeHidden()
     // The stage pages share the header.
@@ -645,11 +633,6 @@ test.describe('the check queue', () => {
     await expect(header.getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
     await expect(header.getByRole('button', { name: 'More', exact: true })).toBeVisible()
     await expectNoSidewaysScroll(page)
-    // Full view does what choosing Full did: the stage tabs come back, and Full's own switch is the way back.
-    await fullView(page)
-    await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
-    await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
-    await expectSimpleTitle(page)
   })
 
   test('Search shows All with the lines\' search box focused, from the title page and from another step\'s page', async ({ page }) => {
@@ -1183,12 +1166,12 @@ test.describe('the check queue', () => {
   test.describe('on title 1, with its long name', () => {
     test.afterAll(() => clearCheckLines(1))
 
-    test('the header is one row at 1440 with the menu docked: the name, its kind chip and the five buttons share it', async ({ page }) => {
+    test('the header is one row at 1440 with the menu docked, with the switch among the buttons and the kind chip under the long name', async ({ page }) => {
       seedCheckLines({ drama: 1 })
       await page.addInitScript(() => localStorage.setItem('baihe.navDock', 'docked'))
       await page.setViewportSize({ width: 1440, height: 900 })
       await page.goto('/#/drama/1')
-      await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+      await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
       const header = page.locator('.workspace-header')
       const name = page.getByTestId('drama-title')
       await expect(name).toHaveText('Grandmaster of Demonic Cultivation')
@@ -1197,23 +1180,33 @@ test.describe('the check queue', () => {
       const controls = page.locator('.title-top-actions')
       await expect(controls.getByRole('link')).toHaveText(['Add media', 'Redo transcription', 'Glossary'])
       await expect(controls.getByRole('link').or(controls.getByRole('button'))).toHaveText(['Add media', 'Redo transcription', 'Glossary', 'Search', 'More'])
+      const switchBox = controls.getByRole('group', { name: 'Title view' })
+      await expect(switchBox.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
       const back = (await header.getByRole('link', { name: 'Back to Library' }).boundingBox())!
-      const [n, k, c, h] = [(await name.boundingBox())!, (await kind.boundingBox())!, (await controls.boundingBox())!, (await header.boundingBox())!]
+      const [n, k, c, h, sw] = [(await name.boundingBox())!, (await kind.boundingBox())!, (await controls.boundingBox())!, (await header.boundingBox())!, (await switchBox.boundingBox())!]
+      const search = (await controls.getByRole('button', { name: 'Search', exact: true }).boundingBox())!
+      const more = (await controls.getByRole('button', { name: 'More', exact: true }).boundingBox())!
       const sameRow = (a: { y: number; height: number }, b: { y: number; height: number }) => a.y < b.y + b.height && b.y < a.y + a.height
-      expect(sameRow(n, c) && sameRow(n, k) && sameRow(n, back), 'the back link, the name, the chip and the buttons share a row').toBe(true)
-      expect(n.x + n.width, 'the chip follows the name').toBeLessThanOrEqual(k.x)
-      expect(k.x + k.width, 'the buttons follow the chip').toBeLessThanOrEqual(c.x)
-      expect(h.height, 'the header\'s height').toBeLessThan(70)
-      expect((await kind.boundingBox())!.height, 'the chip is one line').toBeLessThan(30)
+      expect(sameRow(n, c) && sameRow(n, back) && sameRow(sw, search) && sameRow(sw, more), 'the back link, the name, the buttons and the switch share a row').toBe(true)
+      expect(search.x + search.width, 'the switch follows Search').toBeLessThanOrEqual(sw.x)
+      expect(sw.x + sw.width, 'More follows the switch').toBeLessThanOrEqual(more.x)
+      // The chip is what gives way: under the name, left-aligned with it, whole.
+      expect(k.y, 'the chip is under the name').toBeGreaterThanOrEqual(n.y + n.height - 1)
+      expect(Math.abs(k.x - n.x), 'the chip starts where the name starts').toBeLessThanOrEqual(1)
+      expect(h.height, 'the header\'s height: the name and its chip, one row of buttons').toBeLessThan(70)
+      expect(k.height, 'the chip is one line').toBeLessThan(30)
       await page.setViewportSize({ width: 1280, height: 800 })
       await expectNoSidewaysScroll(page)
       await page.setViewportSize({ width: 1100, height: 800 })
-      const cut = await controls.evaluate((row) => [...row.querySelectorAll('a, button, label')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent))
-      expect(cut, 'controls cut at 1100px').toEqual([])
+      const cut = await header.evaluate((row) => [...row.querySelectorAll('a, button, label, h1, [data-testid="title-kind"]')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent))
+      expect(cut, 'header text cut at 1100px').toEqual([])
       for (const name of ['Add media', 'Redo transcription', 'Glossary']) await expect(controls.getByRole('link', { name, exact: true })).toBeInViewport()
       await expect(controls.getByRole('button', { name: 'Search', exact: true })).toBeInViewport()
+      await expect(switchBox).toBeInViewport()
       await expect(controls.getByRole('button', { name: 'More', exact: true })).toBeInViewport()
-      expect(await kind.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'the chip is not cut at 1100px').toBe(true)
+      // Where the group no longer fits beside the name it moves under it whole, not button by button.
+      const tops = await controls.evaluate((row) => [...row.children].map((el) => Math.round(el.getBoundingClientRect().y)))
+      expect(Math.max(...tops) - Math.min(...tops), 'the buttons and the switch stay on one line at 1100px').toBeLessThanOrEqual(2)
       await expectNoSidewaysScroll(page)
     })
   })
@@ -1272,7 +1265,7 @@ test.describe('the check queue', () => {
       await page.goto('/#/drama/3/review?tools=episodes')
       await expect(tablist.getByRole('tab', { name: 'Episodes' })).toHaveAttribute('aria-selected', 'false')
 
-      await fullView(page)
+      await page.getByRole('radio', { name: 'Full', exact: true }).check({ force: true })
       await expect(page.getByRole('navigation', { name: 'Stages' })).toBeVisible()
       await expect(tablist.getByRole('tab').first()).toBeVisible()
       await expect(tablist.getByRole('tab', { name: 'Episodes' })).toHaveCount(0)

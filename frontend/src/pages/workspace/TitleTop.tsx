@@ -157,9 +157,9 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
         </ButtonLink>
         <div className="title-top-name">
           <h1 data-testid="drama-title" title={title}>{title}</h1>
+          {/* A phone's header leaves the kind out: its row is the back arrow, the name and the steps button. */}
+          {badge && !phone && <span className="title-top-kind" data-testid="title-kind">{kindBadgeText(drama.media_type, drama.source_language)}</span>}
         </div>
-        {/* A phone's header leaves the kind out: its row is the back arrow, the name and the steps button. */}
-        {badge && !phone && <span className="title-top-kind" data-testid="title-kind">{kindBadgeText(drama.media_type, drama.source_language)}</span>}
         <JobPill dramaId={id} onFinished={onJobFinished} />
         {phone ? (
           <button type="button" className={buttonClass('secondary', undefined, 'steps-fold-toggle')} aria-expanded={foldOpen} aria-controls={foldId} onClick={() => setFoldOpen((o) => !o)}>
@@ -168,6 +168,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
         ) : (
           <div className="title-top-actions">
             {secondary}
+            {switchView}
             <button type="button" className={buttonClass('secondary', undefined, 'title-top-more')} aria-expanded={moreOpen} aria-controls={moreId} onClick={() => setMoreOpen((o) => !o)}>
               More
             </button>
@@ -191,7 +192,6 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
       ) : (
         <>
           <div id={moreId} className="title-top-more-row" hidden={!moreOpen}>
-            <button type="button" className={buttonClass('secondary', 'md')} onClick={() => onView('full')}>Full view</button>
             {source}
             {playerButton}
           </div>

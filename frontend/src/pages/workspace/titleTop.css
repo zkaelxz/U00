@@ -1,15 +1,17 @@
 /* Wrapping, not clipping: the header's controls, the step links and the buttons grow with their text and drop to the next line when they do not fit. */
 
-/* One row: back, the name, its kind as a chip, then the title's controls at the right. When the controls do not fit beside
-   the name they move under it as one group, and the chip stays with the name. The name's block starts narrow and grows, so
-   a long name wraps inside it before the controls give up the row. */
-.title-top-name { flex: 1 1 12rem; min-width: 0; }
+/* One row: back, the name with its kind as a chip, then the title's controls at the right. The chip is what gives way:
+   when the name and the chip do not fit side by side the chip drops under the name, as the kind line sat before, and the
+   controls keep the row. The name's block starts narrow and grows, so a long name wraps inside it before the controls give up the row. */
+.title-top-name { flex: 1 1 12rem; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--space-2); }
+.title-top-name h1 { flex: 0 1 auto; min-width: 0; }
 .title-top-header:not(.is-phone) h1 { font-size: var(--text-lg); }
 .title-top-kind {
   flex: 0 1 auto; width: max-content; max-width: 100%; padding: 3px 10px; border-radius: 12px;
   background: var(--surface-2); color: var(--muted); font-size: var(--text-xs); overflow-wrap: break-word;
 }
 .title-top-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; min-width: 0; }
+.title-top-actions .title-view-switch { margin-left: 0; }
 /* The drawn buttons are 11px wide on each side of their words; at the app's 16px the name no longer fits beside the chip and five buttons at 1440. */
 .title-top-actions .btn, .title-top-more-row .btn { padding-inline: 11px; }
 /* The slot is empty on a page without an audio title's lines; as a box it would still take a gap. */

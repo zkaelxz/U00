@@ -77,10 +77,10 @@ describe('the kind badge', () => {
     expect(kindBadgeText('audio_drama', undefined)).toBe('Audio drama')
   })
 
-  it('is a chip after the title\'s name and before its buttons on a desktop, and not on a phone', () => {
+  it('is a chip inside the name\'s block, after the name and before the buttons, on a desktop, and not on a phone', () => {
     browser(false)
     const html = render(AT.check, { home: true, badge: true })
-    expect(html).toContain('<h1 data-testid="drama-title" title="Signal">Signal</h1></div><span class="title-top-kind" data-testid="title-kind">Audio drama · Chinese to English</span>')
+    expect(html).toContain('<h1 data-testid="drama-title" title="Signal">Signal</h1><span class="title-top-kind" data-testid="title-kind">Audio drama · Chinese to English</span></div>')
     expect(html.indexOf('data-testid="title-kind"')).toBeLessThan(html.indexOf('class="title-top-actions"'))
     expect(render(AT.check, { home: true, badge: true, drama: { ...drama, source_language: 'th' } })).toContain('data-testid="title-kind">Audio drama</span>')
     expect(render(AT.check, { openStep: 'translate' })).not.toContain('title-kind')
@@ -119,13 +119,15 @@ describe('the header\'s buttons on a desktop', () => {
     expect(names(actions(render(AT.check, { home: true })))).not.toContain('Search')
   })
 
-  it('leave the Simple | Full switch to More\'s row, which has a Full view button beside Open folder', () => {
+  it('have the Simple | Full switch after Search and before More, and not in More\'s row', () => {
     browser(false)
     const html = render(AT.check, { home: true, onSearch: () => {} })
-    expect(actions(html)).not.toContain('Title view')
+    const row = actions(html)
+    expect(row.indexOf('>Search<')).toBeLessThan(row.indexOf('Title view'))
+    expect(row.indexOf('Title view')).toBeLessThan(row.indexOf('>More<'))
     const more = html.slice(html.indexOf('class="title-top-more-row"'), html.indexOf('class="title-steps"'))
     expect(more).not.toContain('Title view')
-    expect(names(more)).toEqual(['Full view', 'Open folder', 'Add a source link'])
+    expect(names(more)).toEqual(['Open folder', 'Add a source link'])
   })
 
   it('leave a slot in More\'s row where an audio title\'s Player button is drawn', () => {
