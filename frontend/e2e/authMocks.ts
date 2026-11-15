@@ -53,6 +53,13 @@ export const REMOTE_HEALTH_OFF = {
   certificate: { ...OFF_CHECK, days_left: null }, ddns: { ...OFF_CHECK, configured: false }, listener: OFF_CHECK,
 }
 
+/** The app shell's backup banner (PC only) reads this; healthy here, so no banner. */
+export const BACKUP_SETTINGS_QUIET = {
+  enabled: true, frequency: 'daily', include_media: false, folder: '', frequencies: ['daily', 'weekly', 'monthly'],
+  last_run_at: null, last_attempt_at: null, last_error: null, last_note: null, next_run_at: null, running: false,
+  same_drive_as_library: true, problem: null, copies: [],
+}
+
 /** What the app shell and the Library page GET, keyed by pathname. */
 export const GET_FIXTURES: Record<string, unknown> = {
   '/api/health': { status: 'ok' },

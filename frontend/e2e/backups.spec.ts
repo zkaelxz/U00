@@ -26,6 +26,11 @@ async function openAdmin(page: Page) {
 }
 
 test.describe('Automatic backups card (real API)', () => {
+  // The default is on; the flow below starts from off.
+  test.beforeAll(async ({ request }) => {
+    await request.post('/api/backups/settings', { data: { enabled: false } })
+  })
+
   test.afterAll(async ({ request }) => {
     await request.post('/api/backups/settings', { data: { enabled: false, frequency: 'daily', folder: '' } })
   })
