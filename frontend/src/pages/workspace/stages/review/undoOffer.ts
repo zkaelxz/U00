@@ -4,7 +4,8 @@ import { useCallback, useSyncExternalStore } from 'react'
 // earlier offer stale (the server would refuse it), so the panel that made the
 // latest change owns the only offer and the others' disappear.
 
-type UndoOwner = 'lines' | 'merge-short' | 'resplit'
+// 'checked' is the check queue's last "Looks right, next"; like any offer it goes at the next change.
+type UndoOwner = 'lines' | 'merge-short' | 'resplit' | 'checked'
 
 interface Offer {
   owner: UndoOwner

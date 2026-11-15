@@ -182,7 +182,7 @@ describe('panels that keep their last result in the browser', () => {
     expect(html).toContain('Cancelled. The assistant may still finish')
   })
 
-  it('Quick translate keeps the text typed before leaving', () => {
+  it('Text keeps the text typed before leaving', () => {
     const s = memory()
     vi.stubGlobal('window', { localStorage: s })
     writeStored(s, 'translate.text', '白河的故事')

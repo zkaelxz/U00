@@ -17,11 +17,14 @@ print no tokens or hashes:
     python -m api deactivate <email>    # block sign-in and end their sessions
     python -m api revoke-admin <email>  # make an admin a normal member (not the last admin)
     python -m api grant <email> <permission>   # e.g. media.stream, engines.paid
+    python -m api clear-pc-pin          # forget a lost PC window PIN
     python -m api list-users
 """
 
 import portable
 portable.activate_portable_mode()
+import app_tools
+app_tools.activate()
 
 import argparse
 import os
@@ -275,6 +278,13 @@ def _grant_admin(email: str) -> int:
     return 0
 
 
+def _clear_pc_pin() -> int:
+    from services import pc_profile_service
+    pc_profile_service.clear_pin(None, forgot=True)
+    print("The PC window PIN is cleared; profiles are off.")
+    return 0
+
+
 def _run(fn) -> int:
     from lib.errors import ServiceError
     try:
@@ -368,6 +378,7 @@ def main(argv=None) -> int:
     grant_perm = sub.add_parser("grant", help="grant one permission to a user")
     grant_perm.add_argument("email")
     grant_perm.add_argument("permission")
+    sub.add_parser("clear-pc-pin", help="forget a lost PC window PIN and turn profiles off")
     sub.add_parser("list-users", help="list allowlisted users and their permissions")
     args = parser.parse_args(argv)
     if args.command == "grant-admin":
@@ -380,6 +391,8 @@ def main(argv=None) -> int:
         return _revoke_admin(args.email)
     if args.command == "grant":
         return _grant(args.email, args.permission)
+    if args.command == "clear-pc-pin":
+        return _clear_pc_pin()
     if args.command == "list-users":
         return _list_users()
     if os.environ.get("BAIHE_APPLY_PENDING") == "1":

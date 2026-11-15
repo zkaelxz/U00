@@ -33,6 +33,7 @@ from .shared import (
     TranslationCancelled,
 )
 from .thinking import deepseek_extra_body
+from . import stream_recipe
 from services import job_timing_service
 
 # DeepSeek's per-request bound. It is only a per-read idle timeout, so
@@ -675,7 +676,7 @@ EPISODE_BRIEF_MAX_CHARS = 1500
 
 
 def generate_episode_brief(lines, engine, drama_meta=None, character_names=None,
-                           usage_cb=None) -> str:
+                           usage_cb=None, plain_stream_prompt: bool = False) -> str:
     """One LLM call over a whole untranslated episode that returns a short brief
     for the batch translation calls to carry. Returns "" for an engine that
     cannot follow a prompt, an episode with no text, or an answer that is not the
@@ -693,7 +694,9 @@ def generate_episode_brief(lines, engine, drama_meta=None, character_names=None,
     source = "\n".join(rows)[:EPISODE_BRIEF_SOURCE_CHARS]
     if not source:
         return ""
-    prompt = build_episode_brief_prompt(source, (drama_meta or {}).get("source_language") or "zh")
+    language = (drama_meta or {}).get("source_language") or "zh"
+    prompt = (stream_recipe.build_brief_prompt(source, language)
+              if plain_stream_prompt else build_episode_brief_prompt(source, language))
     text = call_llm_json(engine, prompt, max_tokens=700, fallback=None, usage_cb=usage_cb)
     if not text:
         return ""

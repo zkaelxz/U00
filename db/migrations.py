@@ -117,6 +117,9 @@ def _migrate_line_columns(conn):
     if "confidence" not in existing_cols:
         # whisper_transcribe.segment_confidence: 0-1, NULL for lines Whisper didn't transcribe.
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN confidence REAL")
+    if "mark" not in existing_cols:
+        # core.Line.mark: NULL (no mark), 'wrong' or 'mixed'; existing lines start unmarked.
+        db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN mark TEXT")
 
 
 def _migrate_drama_columns(conn):

@@ -151,3 +151,12 @@ class TestRepeatedCallsPickUpLateEdits:
         assert not settings_service.resolve_key("hf_token", env_path)  # not in .env yet
         _write_env(tmp_path / ".env", "BAIHE_CLAUDE_KEY=sk-ant-x\nBAIHE_HF_TOKEN=hf_added_later\n")
         assert settings_service.resolve_key("hf_token", env_path) == "hf_added_later"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no POSIX mode bits")
+def test_saving_a_key_makes_a_world_readable_env_private(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("BAIHE_CLAUDE_KEY=old\n")
+    env.chmod(0o644)
+    settings_service._rewrite_env_locked(str(env), lambda lines: lines + ["BAIHE_OPENAI_KEY=new\n"])
+    assert env.stat().st_mode & 0o777 == 0o600

@@ -65,25 +65,25 @@ function item(
 export const NAV_ITEMS: NavItem[] = [
   item('Library', { name: 'library' }, {
     requires: 'library.read',
-    rail: { group: 'library', active: ['library', 'drama', 'read', 'comic'] },
+    rail: { group: 'library', active: ['library', 'drama', 'read', 'watch', 'comic'] },
   }),
   item('Library tools', { name: 'library-tools' }, {
     requires: 'library.read',
     advanced: true,
     rail: { group: 'library', active: ['library-tools', 'manga', 'manga-series', 'manga-read'] },
   }),
-  // Creating a title is what the run does first, so the item needs the same permission as the Library's New title.
-  item('Make subtitles', { name: 'make-subtitles' }, {
+  // Every way in creates a title, so the item needs the permission the Library's Add box needs.
+  item('Add', { name: 'make-subtitles' }, {
     requires: 'library.create',
     hideWithoutPermission: true,
-    rail: { group: 'tools', active: ['make-subtitles'] },
+    rail: { group: 'find', active: ['make-subtitles'] },
   }),
-  item('Quick translate', { name: 'translate' }, {
+  item('Text', { name: 'translate' }, {
     requires: 'library.read',
     rail: { group: 'tools', active: ['translate'] },
   }),
-  item('Sources', { name: 'sources' }, { requires: 'library.read', feature: 'sources', rail: { group: 'find', active: ['sources', 'sources-manage'] } }),
-  item('Discover', { name: 'discover' }, { requires: 'library.read', rail: { group: 'find', active: ['discover'] } }),
+  // Discover and Sources are two tabs of one entry; each page carries the switch (pages/FindSwitch.tsx).
+  item('Find', { name: 'discover' }, { requires: 'library.read', rail: { group: 'find', active: ['discover', 'sources', 'sources-manage'] } }),
   item('Live', { name: 'live' }, { requires: 'library.read', rail: { group: 'tools', active: ['live'] } }),
   // The header's Jobs button is the glance; this is the page.
   item('Jobs', { name: 'jobs' }, {
@@ -91,7 +91,7 @@ export const NAV_ITEMS: NavItem[] = [
     badge: 'running-jobs',
     rail: { group: 'system', active: ['jobs'] },
   }),
-  // A member sees only Account and display here, which needs library.read.
+  // A member sees only My account and look here, which needs library.read.
   item('Settings', { name: 'settings' }, { requires: 'library.read', rail: { group: 'system', active: ['settings'] } }),
   item('People and access', { name: 'admin' }, {
     requires: 'admin.users.read',

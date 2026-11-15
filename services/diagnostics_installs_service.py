@@ -439,7 +439,12 @@ def _unpack_binary(zip_path: str):
 # Q06: package install and GPU PyTorch setup
 # ---------------------------------------------------------------------------
 
-_READ_ONLY_HINT = "Stop the service and start Baihe from the Start menu to install packages."
+# The check is on the folder's permissions, not on whether the services run: Setup locks the
+# install folder while the Baihe service is installed, and stopping a service does not unlock it.
+_READ_ONLY_HINT = ("Baihe's install folder is locked, so packages can't be installed from here. "
+                   "That happens while Baihe is set up as a Windows service; turning the services off "
+                   "does not unlock it. See \"Locked install folder\" in docs/runbook.md, or reinstall "
+                   "Baihe without the service.")
 
 
 def get_dependency_install() -> dict:
@@ -680,7 +685,8 @@ def _restore(before: dict, skip: set, cancel):
     with pending_install.restore_commands(safe) as argvs:
         for argv in argvs:
             for event in proc_run.stream_tree(argv, max(1.0, end - time.monotonic()), cancel=cancel,
-                                              warn=job_process_kill._warn_via_jobs):
+                                              warn=job_process_kill._warn_via_jobs,
+                                              env=proc_run.secretless_env(drop_prefixes=())):
                 stopped = stopped or bool(event.get("cancelled"))
             now = pending_install.snapshot()
             if stopped:

@@ -139,7 +139,7 @@ def _env(key, store_key, **kw):
 _ASSISTANT: dict[str, Any] = dict(scope="developer", dev_only=True, tab="system", section="Developer Mode")
 
 SETTINGS = (
-    # --- Translation and keys
+    # --- Engines and keys
     _pref("default_engine", "choice", "claude", choices="engines", label="Default engine",
           tab="translation", section="Defaults for new dramas"),
     _pref("default_locale", "choice", "en-US", choices="locales", label="English variant",
@@ -154,13 +154,39 @@ SETTINGS = (
     _pref("scanlate_chapter_brief", "bool", True, label="Read the whole comic chapter before translating",
           help="Before a comic run translates page by page, one extra request reads the chapter's whole text and writes a short brief (who speaks, names, what happens) that every page's translation carries, so names and plot stay consistent across pages. It costs one request per chapter and delays the first page while the chapter is read; the brief is kept, so running the chapter again is free. Turn off to translate each page with only the page before it as context.",
           tab="translation", section="Translation style"),
+    _pref("scanlate_page_image", "bool", True, label="Show the comic page to the translator",
+          help="A comic run sends each page's picture along with its OCR text, so the model can correct OCR mistakes, tell who is speaking, read the tone and ignore a site's watermark. It needs the Claude, Gemini, OpenAI or Ollama engine and costs about four times as much per page as translating the text alone; the text is the fallback when the picture request fails. Turn off to translate from the OCR text only.",
+          tab="translation", section="Translation style"),
+    _pref("scanlate_sfx_gloss", "bool", False, label="Translate comic sound effects beside the art",
+          help="A comic run leaves sound effects (like 털썩) as the artist drew them. Turn on to have each one translated into a short English word set small beside it; the original lettering is never painted out. It adds the effects to the page's translation request, and the word is only as good as the OCR read of the effect.",
+          tab="translation", section="Translation style"),
+    _pref("scanlate_match_text_color", "bool", True, label="Match the original lettering colour in comic balloons",
+          help="A comic balloon's English is set in the colour of the original lettering when that was a real colour (orange, blue, red); black and white lettering stays black, or white on a dark balloon. A colour you set by hand on a box always wins. Turn off to always use black or white. Applies to pages typeset after you change it.",
+          tab="translation", section="Translation style"),
+    _pref("scanlate_rect_layout", "bool", False, label="Set comic balloon text in one rectangle",
+          help="A comic balloon's English follows the balloon's outline, so each line is as wide as the balloon is at that height and the block can look staggered in an oval. Turn on to set the text in the largest rectangle that fits inside the balloon instead: even lines, but often a smaller size. A balloon where that rectangle is too small keeps the outline layout. Applies to pages typeset after you turn it on.",
+          tab="translation", section="Translation style"),
     _pref("episode_brief", "bool", True, label="Read the whole episode before translating",
           help="Before a subtitle or novel-narration run translates in batches, one extra request reads the whole episode and writes a short brief (who is who, register, recurring terms, ambiguous lines) that every batch carries; it is shown under Details > More details to edit, and an edited brief is used as written. It costs one request per episode and delays the first batch while the episode is read; the brief is kept, so running the episode again is free. A wrong brief colours every line, so check it. Turn off to translate each batch with only its neighbouring lines and the previous episode's summary as context.",
+          tab="translation", section="Translation style"),
+    _pref("stream_plain_prompt", "bool", True, label="Plain prompt for Gemma 4 stream translations",
+          help="A stream title translated with Gemma 4 uses a short plain prompt: only the names and terms in your glossary, a short note on who talks to whom and the register, and a line asking for normal sentences with capitals and end punctuation. The preset rules, learned style and emotion notes are left out, and a run starts with no neighbouring-line context and 10 lines per request. On 127 marked lines it made the same or fewer mistakes than the full prompt (2 wrong and 2 mixed, against 2 wrong and 4 mixed), and it sends 40 to 65% fewer input tokens, which made a run about 35 to 45% cheaper. It was measured only on Gemma 4 (gemma4:31b-cloud) on Chinese streams. Turn off to use the full prompt again. Other models and other titles are not affected.",
+          tab="translation", section="Translation style"),
+    _pref("ollama_cloud_default", "bool", False, label="Allow a hosted Ollama model as the default",
+          help="Off keeps Ollama's hosted \"-cloud\" models out of every default: a run that is not handed a model uses a model on this PC. Turn on to let a hosted model (such as gemma4:31b-cloud) be the default Ollama model in Diagnostics > Models, and to be carried into re-runs, queued runs and Library batches. A hosted model sends the text to Ollama's servers and is billed per token; the monthly spending cap still counts it. An account without paid-engine permission never gets the hosted default: it starts on TranslateGemma on this PC, and it cannot choose a hosted model itself.",
           tab="translation", section="Translation style"),
     _pref("translate_reply_guard", "choice", "auto", choices="reply_guard_modes",
          label="Check translations for merged or shifted lines",
          help="After each batch, lines that look merged into a neighbour, shifted, duplicated or still in the source script are asked again once. Extra requests are billed like any other. Claude models rarely need this and weaker engines do, so Auto checks every engine except Claude and Gemini Pro. On always checks; Off never does.",
          tab="translation", section="Translation style"),
+    _pref("claude_reasoning", "choice", "default", choices="reasoning_modes",
+          label="Claude Sonnet 5.5 reasoning",
+          help="Default lets Sonnet 5.5 think before it answers, which reads slang best. Less turns that off: on a 90-line stream chunk it was about twice as fast and 40% cheaper but slightly worse on slang and nicknames. Applies to Translate runs on Sonnet 5.5 only; other Claude models are unchanged.",
+          tab="translation", section="Translation style"),
+    _pref("openai_reasoning", "choice", "less", choices="reasoning_modes",
+          label="GPT-6 Luna reasoning",
+          help="Less (the default) asks Luna for low reasoning: about 9 minutes per 2,000 lines and under half the cost on a 90-line stream chunk, with about the same quality (one slang line was lost). Default is Luna's full reasoning, which read slang best but took about 25 minutes per 2,000 lines. Applies to Translate runs on Luna only; Terra and Sol are unchanged.",
+          tab="translation", section="Translation style"),
     _pref("translate_alignment_check", "bool", False, label="Flag translations that don't match their source",
           help="After a translation, compares each line's English with its source using the bge-m3 model on your Ollama server and flags lines that look shifted, skipped or about something else. Needs `ollama pull bge-m3`; nothing is changed and no paid engine is used. Off by default.",
           tab="translation", section="Translation style"),
@@ -218,6 +244,7 @@ SETTINGS = (
          section="Browser extension", label="Browser extension engine"),
     _own("grounded_search_usage", "json", {}),
     _own("remote_health", "json", None),
+    _own("resource_alert_rules", "json", None),
 
     # --- System
     _own("use_gpu", "bool", True, label="Use the GPU", tab="system", section="Performance"),
@@ -453,9 +480,13 @@ SETTINGS = (
          **_ASSISTANT),
     _own("assistant.cloud_consent", "json", {}, label="Cloud consent per engine", **_ASSISTANT),
     _own("assistant.tiers", "json", None, label="Escalation ladder", **_ASSISTANT),
-    _own("remote_uploads", "bool", False, label="Allow uploads from away", **_ASSISTANT),
-    # When the switch above was last turned on; it lapses REMOTE_UPLOADS_DAYS later.
-    _own("remote_uploads.on_at", "float", 0.0, min=0),
+    # Access, not a developer knob: its card is on People and access.
+    _own("remote_uploads", "bool", False, label="Allow uploads from away", custom=True,
+         tab="system", section="Uploads from away"),
+    # When the switch above was last turned on; it lapses REMOTE_UPLOADS_DAYS later. Not the
+    # older "remote_uploads.on_at": a stamp from when the switch also needed Developer Mode must
+    # not count, or a PC with that mode off would start allowing uploads on its own.
+    _own("remote_uploads.since", "float", 0.0, min=0),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}

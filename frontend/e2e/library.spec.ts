@@ -18,6 +18,16 @@ test('shows the library from the real API', async ({ page }) => {
   await expect(card).toContainText('Video drama')
 })
 
+test('the "Can\'t reach Baihe" badge comes and goes with the server', async ({ page }) => {
+  await page.route('**/api/meta', (route) => route.abort())
+  await page.goto('/')
+  await expect(page.getByTestId('api-status')).toBeVisible()
+  // Checked again when the window comes back to the front (and every 30 s).
+  await page.unroute('**/api/meta')
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(page.getByTestId('api-status')).toHaveCount(0)
+})
+
 test('filters go through the API', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
@@ -47,7 +57,8 @@ test('Details opens a sheet; Esc closes it and returns focus', async ({ page }) 
   await expect(sheet).toContainText('墨香铜臭 (Mo Xiang Tong Xiu)')
   await expect(sheet).toContainText('Audio drama')
   await expect(sheet.getByRole('link', { name: 'Open workspace' })).toHaveClass(/btn-primary/)
-  await expect(sheet.getByRole('link', { name: 'Read', exact: true })).toHaveAttribute('href', /#\/read\/\d+$/)
+  // An audio drama: Listen, opening the Watch page.
+  await expect(sheet.getByRole('link', { name: 'Listen', exact: true })).toHaveAttribute('href', /#\/watch\/\d+$/)
   await page.keyboard.press('Escape')
   await expect(sheet).toBeHidden()
   await expect(details).toBeFocused()
@@ -74,5 +85,5 @@ test('the card title opens the workspace in one click', async ({ page }) => {
   await dramas(page).getByRole('link', { name: 'Signal', exact: true }).click()
   await expect(page).toHaveURL(/#\/drama\/\d+$/)
   // The seeded drama has no lines, so its current stage is Source.
-  await expect(page.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: 'Transcribe', exact: true })).toHaveAttribute('aria-current', 'page')
 })

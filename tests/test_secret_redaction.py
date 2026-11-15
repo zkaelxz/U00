@@ -13,6 +13,20 @@ SECRETS = {
     "openai": "sk-" + "Ab12Cd34Ef56Gh78Ij90Kl12",
     "openai_proj": "sk-proj-" + "Ab12Cd34Ef56Gh78Ij90Kl12_x-y",
     "anthropic": "sk-ant-api03-" + "Ab12Cd34Ef56Gh78Ij90Kl12",
+    "jellyfin_header": 'Token="' + "0123456789abcdef0123456789abcdef" + '"',
+    "jellyfin_single_quoted": "Token='" + "0123456789abcdef0123456789abcdef" + "'",
+    "jellyfin_unquoted": "Token=" + "0123456789abcdef0123456789abcdef",
+    "long_prefixed_token": "google_oauth_refresh_access_token=" + "0123456789abcdef0123456789abcdef",
+    "long_prefixed_json": '"my-long-prefixed-client-secret": "' + "0123456789abcdef0123456789abcdef" + '"',
+    "refresh_token_assign": "refresh_token=" + "0123456789abcdef0123456789abcdef",
+    "json_token": '"token":"' + "0123456789abcdef0123456789abcdef" + '"',
+    "dict_repr_token": "'access_token': '" + "0123456789abcdef0123456789abcdef" + "'",
+    "x_api_key_text": "X-Api-Key: " + "0123456789abcdef0123456789abcdef",
+    "apikey_param": "?apikey=" + "0123456789abcdef0123456789abcdef",
+    "api_hyphen_key_param": "&api-key=" + "0123456789abcdef0123456789abcdef",
+    "apikey_assign": "apikey=" + "0123456789abcdef0123456789abcdef",
+    "api_key_param": "?api_key=" + "0123456789abcdef0123456789abcdef",
+    "token_param": "&access_token=" + "0123456789abcdef0123456789abcdef",
 }
 
 REDACTORS = [shared.redact_secrets, diagnostics_report.redact_for_support]
@@ -41,6 +55,8 @@ def test_deepl_pro_key_after_auth_header_redacted(redactor):
     "gsk_short and sk-short",
     "job 0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b finished",
     "the Groq engine and the DeepL engine",
+    "invalid token: expired",
+    "api key rejected by the server",
 ])
 def test_ordinary_text_untouched(redactor, text):
     assert redactor(text) == text
@@ -67,3 +83,35 @@ def test_fetch_and_adaptive_modules_use_the_shared_redactor(text):
     assert expected != text
     assert safe_fetch.redact_secrets(text) == expected
     assert adaptive.redact_secrets(text) == expected
+
+
+@pytest.mark.parametrize("redactor", REDACTORS)
+def test_an_unclosed_quote_does_not_hide_the_rest_of_the_message(redactor):
+    out = redactor('auth failed Token="0123456789abcdef0123456789abcdef then retry in 5 s')
+    assert "0123456789abcdef0123456789abcdef" not in out
+    assert out.endswith("then retry in 5 s")
+
+
+@pytest.mark.parametrize("text", ["max_tokens=4096 exceeded", "token=5 is too small"])
+def test_short_or_unrelated_token_params_are_left_readable(text):
+    # redact_for_support scrubs every credential-looking param on purpose, so only the shared redactor is held to this.
+    assert shared.redact_secrets(text) == text
+
+
+@pytest.mark.parametrize("redactor", REDACTORS)
+@pytest.mark.parametrize("filler", ["a-", "a_", 'x"a-', "a-" * 3 + "token=", 'a-"', "a_token_"])
+def test_a_long_run_of_prefix_like_text_is_redacted_in_linear_time(redactor, filler):
+    import time
+    text = filler * (40_000 // len(filler))
+    started = time.perf_counter()
+    redactor(text)
+    # Unbounded prefix repeats backtracked quadratically (20 KB took ~5 s); a linear pass takes milliseconds.
+    assert time.perf_counter() - started < 1.0
+
+
+def test_a_long_run_of_token_words_is_redacted_in_linear_time_by_the_shared_redactor():
+    import time
+    text = "token-" * 6_000
+    started = time.perf_counter()
+    shared.redact_secrets(text)
+    assert time.perf_counter() - started < 1.0

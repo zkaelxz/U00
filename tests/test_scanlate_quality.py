@@ -74,6 +74,30 @@ class TestDetector:
         boxes = scanlate_detect.detect_bubbles_cv(_save(tmp_path, img))
         assert len(boxes) == 1 and abs(boxes[0]["x"] - 520) < 10
 
+    @pytest.mark.parametrize("spokes", [40, 90, 180])
+    def test_a_burst_balloon_with_a_ring_of_hairline_spikes_is_found(self, tmp_path, spokes):
+        import math
+        img = np.full((900, 700), 90, np.uint8)
+        cx, cy, radius = 350, 450, 190
+        cv2.circle(img, (cx, cy), radius, 255, -1)
+        for k in range(spokes):
+            a = 2 * math.pi * k / spokes
+            cv2.line(img, (int(cx + math.cos(a) * radius * 0.8), int(cy + math.sin(a) * radius * 0.8)),
+                     (int(cx + math.cos(a) * radius), int(cy + math.sin(a) * radius)), 0, 1)
+        _letters(img, 300, 420, 5)
+        _letters(img, 300, 480, 5)
+        boxes = scanlate_detect.detect_bubbles_cv(_save(tmp_path, img))
+        assert len(boxes) == 1 and abs(boxes[0]["w"] - 380) < 20
+
+    def test_a_white_shape_with_one_deep_cut_is_still_a_ragged_outline(self, tmp_path):
+        img = np.full((900, 700), 90, np.uint8)
+        cv2.circle(img, (350, 450), 190, 255, -1)
+        import math
+        cv2.line(img, (350, 450), (int(350 + math.cos(0.3) * 200), int(450 + math.sin(0.3) * 200)), 0, 12)
+        _letters(img, 300, 420, 5)
+        boxes, rejected = scanlate_detect.detect_bubbles_cv(_save(tmp_path, img), debug=True)
+        assert boxes == [] and any(r[4] == "ragged outline" for r in rejected)
+
     def test_thresholds_come_from_the_tuning_module(self, tmp_path, monkeypatch):
         path = _save(tmp_path, _white_panel_page())
         monkeypatch.setattr(scanlate_tuning, "CV_MIN_W", 400)
@@ -85,7 +109,14 @@ class TestMlBoxMerge:
         balloon = {"x": 280, "y": 1071, "w": 125, "h": 185, "confidence": 0.94, "label": "bubble"}
         text = {"x": 301, "y": 1097, "w": 82, "h": 136, "confidence": 0.95, "label": "text_bubble"}
         assert scanlate_detect._box_iou(balloon, text) < 0.5    # the case IoU alone missed
-        assert scanlate_detect.dedupe_overlapping_boxes([text, balloon]) == [balloon]
+        assert scanlate_detect.dedupe_overlapping_boxes([text, balloon]) == [
+            dict(balloon, text_boxes=[{"x": 301, "y": 1097, "w": 82, "h": 136}])]
+
+    def test_merged_fragments_keep_every_text_box(self):
+        a = {"x": 0, "y": 0, "w": 100, "h": 100, "label": "bubble", "text_boxes": [{"x": 10, "y": 10, "w": 5, "h": 5}]}
+        b = {"x": 2, "y": 2, "w": 96, "h": 96, "label": "bubble", "text_boxes": [{"x": 60, "y": 60, "w": 5, "h": 5}]}
+        merged = scanlate_detect.merge_fragment_boxes([a, b])
+        assert len(merged) == 1 and len(merged[0]["text_boxes"]) == 2
 
     def test_a_small_balloon_inside_a_big_balloon_s_box_stays(self):
         big = {"x": 0, "y": 0, "w": 300, "h": 300, "label": "bubble"}
@@ -225,6 +256,24 @@ class TestCleanup:
             assert (after[ring > 0] < 128).all()
             assert np.array_equal(after[:, :61], gray[:, :61])
 
+    @pytest.mark.parametrize("art", [122, 60])                         # grey tone, dark jacket
+    def test_art_in_the_dent_above_a_tail_is_not_erased(self, art):
+        # The shape of a tall vertical balloon on a real page: its tail runs to the
+        # box edge, and art fills the dent between tail and outline above it.
+        img = np.full((1000, 450), 225, np.uint8)                          # light sky
+        cv2.rectangle(img, (0, 170), (120, 1000), art, -1)
+        cv2.ellipse(img, (250, 500), (190, 480), 0, 0, 360, 0, -1)
+        cv2.fillPoly(img, [np.array([[0, 340], [80, 300], [80, 380]], np.int32)], 0)
+        cv2.ellipse(img, (250, 500), (186, 476), 0, 0, 360, 255, -1)
+        cv2.fillPoly(img, [np.array([[5, 340], [84, 306], [84, 374]], np.int32)], 255)
+        for left in (200, 290):                                            # two columns
+            for k in range(7):
+                cv2.rectangle(img, (left, 150 + k * 100), (left + 50, 210 + k * 100), 0, -1)
+        box = {"x": 0, "y": 0, "w": 450, "h": 1000}
+        mask = scanlate_detect.bubble_erase_mask("unused", box, image=img)
+        assert mask[150:210, 200:250].all() and mask[750:810, 290:340].all()
+        assert not (mask & (img == art)).any()
+
     def test_a_generous_box_still_finds_the_oval(self):
         img = np.full((800, 800), 255, np.uint8)
         cv2.ellipse(img, (400, 400), (150, 100), 0, 0, 360, 0, 3)
@@ -285,6 +334,14 @@ class TestFontSize:
         blank = np.full((400, 400), 255, np.uint8)
         assert scanlate.suggest_font_size(blank, box) == scanlate_tuning.TYPESET_DEFAULT_FONT_PX
 
+    def test_unmeasurable_lettering_in_a_big_balloon_starts_bigger_than_the_default(self):
+        pale = np.full((400, 400), 255, np.uint8)
+        _letters(pale, 120, 180, 4, size=24, step=30, gap=2)
+        pale[pale < 128] = 200  # ink the dark-ink threshold misses
+        box = {"x": 10, "y": 10, "w": 380, "h": 300, "orientation": "horizontal"}
+        size = scanlate.suggest_font_size(pale, box)
+        assert scanlate_tuning.TYPESET_DEFAULT_FONT_PX < size <= scanlate_tuning.TYPESET_START_MAX_PX
+
     def test_the_start_size_stays_within_the_tuned_range(self):
         box = {"x": 10, "y": 10, "w": 380, "h": 380, "orientation": "horizontal"}
         img = np.full((400, 400), 255, np.uint8)
@@ -307,3 +364,53 @@ class TestOcrCrop:
     def test_a_noisy_crop_is_smoothed_and_stretched(self):
         out = np.asarray(scanlate.clean_ocr_crop(self._crop(8)))
         assert out[:20].std() < 4 and out[:20].mean() > 245 and out[35:45, 30:130].max() < 15
+
+
+def _hatched_balloon(letter_bgr, hatch_bgr=(200, 160, 150)):
+    """A balloon drawn on 360x300 with hatching over its lower right and lettering on the left."""
+    page = np.full((300, 360, 3), 255, np.uint8)
+    cv2.ellipse(page, (180, 150), (160, 130), 0, 0, 360, (20, 20, 20), 4)
+    yy, xx = np.mgrid[:300, :360]
+    hatched = (((xx - 180) / 155.0) ** 2 + ((yy - 150) / 125.0) ** 2 < 1) & (xx + yy > 330)
+    lines = ((xx + yy) % 8 == 0) | ((xx - yy) % 8 == 0)
+    page[hatched & lines] = hatch_bgr
+    for x0 in range(90, 150, 14):
+        cv2.rectangle(page, (x0, 120), (x0 + 6, 150), letter_bgr, -1)
+    return page
+
+
+def _erase_mask(tmp_path, page, monkeypatch):
+    """The mask inpaint_region would erase, captured instead of inpainted."""
+    seen = {}
+
+    def fake_inpaint(roi, mask, *args, **kwargs):
+        seen["mask"] = mask.copy()
+        return roi
+
+    monkeypatch.setattr(cv2, "inpaint", fake_inpaint)
+    path = _save(tmp_path, page)
+    gray = scanlate_detect.page_gray(path, None)
+    box = {"x": 0, "y": 0, "w": 360, "h": 300}
+    inside = scanlate_detect.bubble_erase_mask(path, box, image=gray)
+    inpaint_region(path, box, image=page.copy(), inside=inside, backend="cv")
+    return seen["mask"] > 0
+
+
+def test_hatching_inside_a_balloon_is_not_erased_with_dark_lettering(tmp_path, monkeypatch):
+    erased = _erase_mask(tmp_path, _hatched_balloon((15, 15, 15)), monkeypatch)
+    assert erased[120:150, 90:150].any()
+    assert not erased[200:240, 215:255].any()
+
+
+def test_hatching_as_dark_as_the_lettering_is_erased_as_before(tmp_path, monkeypatch):
+    erased = _erase_mask(tmp_path, _hatched_balloon((60, 100, 180), (60, 100, 180)), monkeypatch)
+    assert erased[120:150, 90:150].any()
+    assert erased[200:240, 215:255].any()
+
+
+def test_a_balloon_without_hatching_is_erased_as_before(tmp_path, monkeypatch):
+    plain = _hatched_balloon((15, 15, 15), (255, 255, 255))
+    import scanlate_inpaint
+    gray = cv2.cvtColor(plain, cv2.COLOR_BGR2GRAY)
+    keep = np.ones(gray.shape, bool)
+    assert (scanlate_inpaint._without_hatching(gray, keep) == gray).all()

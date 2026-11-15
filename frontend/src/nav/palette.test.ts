@@ -21,12 +21,12 @@ const entry = (label: string, keywords = ''): PaletteEntry => ({ id: label, labe
 describe('paletteEntries', () => {
   it('lists the menu pages and always Library and Settings', () => {
     const l = labels(paletteEntries(member, { name: 'library' }))
-    expect(l).toEqual(expect.arrayContaining(['Library', 'Settings', 'Discover', 'Sources']))
+    expect(l).toEqual(expect.arrayContaining(['Library', 'Settings', 'Find']))
   })
 
   it('leaves out pages the person hid, but never Library or Settings', () => {
     const l = labels(paletteEntries({ ...member, hidden: ['discover', 'library', 'settings'] }, { name: 'library' }))
-    expect(l).not.toContain('Discover')
+    expect(l).not.toContain('Find')
     expect(l).toContain('Library')
     expect(l).toContain('Settings')
   })
@@ -42,14 +42,14 @@ describe('paletteEntries', () => {
 
   it('adds the open title\'s stages first, only inside a title', () => {
     const inDrama = paletteEntries(member, { name: 'drama', id: 7, stage: null })
-    expect(labels(inDrama).slice(0, 4)).toEqual(['Go to Media', 'Go to Translate', 'Go to Review', 'Go to Export'])
+    expect(labels(inDrama).slice(0, 4)).toEqual(['Go to Transcribe', 'Go to Translate', 'Go to Review', 'Go to Export'])
     expect(inDrama[2].href).toBe('#/drama/7/review')
     expect(labels(paletteEntries(member, { name: 'jobs' })).some((l) => l.startsWith('Go to'))).toBe(false)
   })
 })
 
 describe('filterEntries', () => {
-  const all = [entry('Library', 'titles'), entry('Quick translate', 'text'), entry('Saved manga'), entry('Settings', 'disk')]
+  const all = [entry('Library', 'titles'), entry('Translate text', 'text'), entry('Saved manga'), entry('Settings', 'disk')]
 
   it('returns everything for an empty or blank query', () => {
     expect(filterEntries(all, '')).toBe(all)
@@ -57,12 +57,12 @@ describe('filterEntries', () => {
   })
 
   it('is case-insensitive and matches anywhere in a word', () => {
-    expect(labels(filterEntries(all, 'TRANS'))).toEqual(['Quick translate'])
+    expect(labels(filterEntries(all, 'TRANS'))).toEqual(['Translate text'])
     expect(labels(filterEntries(all, 'brar'))).toEqual(['Library'])
   })
 
   it('needs every word, in any order', () => {
-    expect(labels(filterEntries(all, 'text translate'))).toEqual(['Quick translate'])
+    expect(labels(filterEntries(all, 'text translate'))).toEqual(['Translate text'])
     expect(filterEntries(all, 'text library')).toEqual([])
   })
 
@@ -109,10 +109,17 @@ const owner_: NavContext = {
 }
 
 describe('page keywords', () => {
-  it('finds Make subtitles by what people type', () => {
+  it('finds Find by the old names Sources and Discover', () => {
     const entries = paletteEntries(owner_, { name: 'library' })
-    expect(labels(filterEntries(entries, 'srt'))).toContain('Make subtitles')
-    expect(labels(filterEntries(entries, 'transcribe'))[0]).toBe('Make subtitles')
+    expect(labels(filterEntries(entries, 'sources'))).toContain('Find')
+    expect(labels(filterEntries(entries, 'discover'))).toContain('Find')
+  })
+
+  it('finds Add by what people type, and by its old name', () => {
+    const entries = paletteEntries(owner_, { name: 'library' })
+    expect(labels(filterEntries(entries, 'srt'))).toContain('Add')
+    expect(labels(filterEntries(entries, 'transcribe'))[0]).toBe('Add')
+    expect(labels(filterEntries(entries, 'quick translate'))).toContain('Add')
   })
 
   it('finds Benchmark Lab by its keywords only where the page is listed', () => {
@@ -127,7 +134,7 @@ describe('settingsEntries', () => {
     filterEntries(settingsEntries(ctx), q).map((e) => e.href)
 
   it('opens the card on the main PC', () => {
-    expect(settingsHits(owner_, 'backup')).toContain('#/settings?card=auto-backup')
+    expect(settingsHits(owner_, 'server addresses')).toContain('#/settings?card=server-addresses')
     expect(paletteEntries(owner_, { name: 'library' }).filter((e) => e.hint === 'Settings').length).toBeGreaterThan(10)
   })
 
@@ -137,15 +144,15 @@ describe('settingsEntries', () => {
     expect(settingsHits({ ...owner_, pcMode: 'remote' }, 'sharing')).toContain('#/settings?card=sharing')
   })
 
-  it('offers someone who cannot read settings only the Sharing tab\'s cards', () => {
+  it('offers someone who cannot read settings only the account tab\'s cards', () => {
     const cards = settingsEntries(member).map((e) => e.href.split('card=')[1])
     expect(new Set(cards)).toEqual(new Set(['sharing', 'display', 'customize-menu', 'devices', 'extension-devices']))
   })
 
   it('offers the update card away from the PC only to someone holding system.update', () => {
     const away = (permissions: string[]): NavContext => ({ ...member, session: sessionOf(permissions) })
-    expect(settingsHits(away(['library.read', 'system.update']), 'update')).toContain('#/settings?card=source-update')
-    expect(settingsHits(away(['library.read']), 'update')).not.toContain('#/settings?card=source-update')
+    expect(settingsHits(away(['library.read', 'system.update']), 'update')).toContain('#/settings?card=updates')
+    expect(settingsHits(away(['library.read']), 'update')).not.toContain('#/settings?card=updates')
   })
 })
 

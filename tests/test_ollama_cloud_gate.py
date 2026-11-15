@@ -1,6 +1,7 @@
 """Ollama cloud tags need `engines.paid` on every route that takes a
 client-chosen model, not only the translate run. Mocked: nothing is sent."""
 import ast
+import json
 import inspect
 import textwrap
 import typing
@@ -175,7 +176,7 @@ def test_omitted_model_is_treated_as_the_local_default():
 
 def test_restored_cloud_default_override_is_ignored_on_read(isolated_db):
     from engine_backends import engine_registry, local
-    db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": "gemma4:cloud", "claude": "claude-sonnet-5-5"})
+    db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": "qwen3-coder:cloud", "claude": "claude-sonnet-5-5"})
     assert engine_registry.model_override_for_default("ollama") is None
     assert engine_registry.model_override_for_default("claude") == "claude-sonnet-5-5"
     assert not local.is_ollama_cloud_model(engine_registry.effective_default_model("ollama"))
@@ -238,3 +239,45 @@ def test_an_unreadable_own_key_is_refused_even_with_engines_paid(remote, drama, 
     r = remote.post(f"/api/line-ai/dramas/{drama}/lines/1/alternatives",
                     json={"engine": "ollama", "model": "gemma4:12b"}, headers=h)
     assert r.status_code != 403
+
+
+def test_hosted_default_is_used_only_after_the_owner_opts_in(isolated_db, monkeypatch):
+    from engine_backends import engine_registry
+    from services import model_registry_service, profile_service
+    db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": CLOUD})
+    drama = {"id": 1, "translate_start_json": json.dumps({"engine_model": CLOUD})}
+    monkeypatch.setattr(model_registry_service, "_listed_extras", lambda engine: {CLOUD})
+    assert engine_registry.model_override_for_default("ollama") is None
+    assert "can't be the default" in model_registry_service._override_error("ollama", CLOUD)
+    assert "model" not in profile_service.title_run_defaults(drama, "ollama", "ollama")
+    db.set_app_setting("pref.ollama_cloud_default", True)
+    assert engine_registry.effective_default_model("ollama") == CLOUD
+    assert model_registry_service._override_error("ollama", CLOUD) is None
+    assert profile_service.title_run_defaults(drama, "ollama", "ollama")["model"] == CLOUD
+    db.set_app_setting("pref.ollama_cloud_default", False)
+    assert engine_registry.model_override_for_default("ollama") is None
+
+
+def test_account_without_paid_permission_gets_the_local_default_not_the_hosted_one(isolated_db):
+    from engine_backends import engine_registry, local
+    from services import ownership_service
+    db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": CLOUD})
+    db.set_app_setting("pref.ollama_cloud_default", True)
+    assert engine_registry.effective_default_model("ollama") == CLOUD  # owner / no request
+    token = ownership_service.bind_request()
+    try:
+        ownership_service.note_acting_principal({"user_id": 7, "permissions": ["lines.read"]})
+        assert engine_registry.effective_default_model("ollama") == local.OLLAMA_DEFAULT_MODEL
+        ownership_service.note_acting_principal(
+            {"user_id": 8, "permissions": ["lines.read", "engines.paid"]})
+        assert engine_registry.effective_default_model("ollama") == CLOUD
+    finally:
+        ownership_service.unbind_request(token)
+
+
+def test_hosted_tag_stays_refused_for_an_account_without_paid_permission_even_when_allowed(isolated_db):
+    from types import SimpleNamespace
+    db.set_app_setting("pref.ollama_cloud_default", True)
+    req = SimpleNamespace(state=SimpleNamespace(principal={"user_id": 7, "permissions": ["lines.read"]}))
+    with pytest.raises(ForbiddenError):
+        api_auth.require_engines_allowed(req, "ollama", model=CLOUD)

@@ -13,7 +13,7 @@ test('an audio or video title has Add media, Transcribe and Details', async ({ p
   for (const id of [1, 3]) {
     await page.goto(`/#/drama/${id}/source`)
     await expect(page.getByRole('tablist', { name: 'Media sections' })).toBeVisible()
-    expect(await tabNames(page)).toEqual(['Add media', 'Transcribe', 'Details'])
+    expect(await tabNames(page)).toEqual(['Add media', 'Run', 'Details'])
   }
 })
 

@@ -65,7 +65,9 @@ test('Continue resumes reading at the saved page (GET /api/library/continue)', a
   const shelf = page.getByRole('region', { name: 'Continue' })
   await expect(shelf.getByRole('listitem')).toHaveCount(1)
   await expect(shelf).toContainText('Reading · page 2 · 42%')
-  await expect(shelf.getByRole('link', { name: "Resume reading Heaven Official's Blessing" })).toHaveAttribute('href', '#/read/2')
+  const read = shelf.getByRole('link', { name: "Read from page 2: Heaven Official's Blessing", exact: true })
+  await expect(read).toHaveText('Read from page 2')
+  await expect(read).toHaveAttribute('href', '#/read/2')
 })
 
 test('Reading history Clear is a two-step PC-only action inside Library tools', async ({ page }) => {
@@ -99,11 +101,13 @@ test('Reading history on a remote device: no Clear button', async ({ page }) => 
   await expect(section.getByRole('button', { name: 'Clear reading history' })).toHaveCount(0)
 })
 
-test('Library header has only New title; Library tools lives in the rail or drawer (no Saved manga item)', async ({ page }) => {
+test('Library header holds no links; the Add box sits under it; Library tools lives in the rail or drawer (no Saved manga item)', async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 900 })
   await page.goto('/')
   const head = page.locator('.page-head')
-  await expect(head.getByRole('button', { name: 'New title' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Add' }).getByRole('heading', { name: 'Add something to translate' })).toBeVisible()
+  await expect(head.getByRole('link')).toHaveCount(0)
+  await expect(head.getByRole('button', { name: 'New title' })).toHaveCount(0)
   await expect(head.getByRole('link', { name: 'Saved manga' })).toHaveCount(0)
   await expect(head.getByRole('link', { name: 'Library tools' })).toHaveCount(0)
   await openMenu(page)

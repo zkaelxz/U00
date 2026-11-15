@@ -89,7 +89,8 @@ details.user-menu > summary:focus-visible { outline: 2px solid var(--accent, cur
 }
 .user-menu-panel p { margin: 0; }
 /* The open panel shows the whole address (the summary truncates it). */
-.user-menu-panel .user-menu-email { white-space: normal; overflow-wrap: anywhere; }
+.user-menu-panel :is(.user-menu-email, .user-menu-fullname) { white-space: normal; overflow-wrap: anywhere; }
+.user-menu-panel .user-menu-fullname { font-weight: var(--weight-bold); }
 .user-menu-panel button { width: 100%; }
 
 .connecting { text-align: center; padding-top: clamp(var(--space-4), 12vh, 120px); }

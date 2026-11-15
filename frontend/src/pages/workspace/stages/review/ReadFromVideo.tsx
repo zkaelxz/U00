@@ -122,7 +122,7 @@ export function ReadFromVideo({ player, sourceLanguage, lineStart, onText, trans
         type="button"
         className={buttonClass('secondary', 'sm', 'review-read-video-open')}
         aria-label="Read from video"
-        title="Read the caption from a picture: paste a screenshot (Ctrl+V) or grab a frame"
+        title="Read a caption from a picture"
         onClick={() => setOpen(true)}
       >
         <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

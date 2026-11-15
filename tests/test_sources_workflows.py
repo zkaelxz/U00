@@ -330,6 +330,19 @@ class TestGenericNovelImport:
         text = generic_import.extract_main_text_heuristic(page)
         assert text.startswith("第0段") and "第39段" in text
 
+    def test_a_chapter_inside_txtnav_is_kept_and_real_nav_blocks_still_go(self):
+        chapter = "".join(f"<p>第{i}段 很长的一段正文内容。</p>" for i in range(40))
+        page = ("<div class='site-nav'><p>首页 书架 排行 分类 完本 全本 更多</p></div>"
+                "<div id='navbar'><p>登录 注册 我的书架 阅读记录 最近更新 小说排行</p></div>"
+                f"<div class='txtnav'>{chapter}"
+                "<div class='bottomnav'><p>上一章 目录 下一章 加入书签 推荐本书 返回书页</p></div>"
+                "<div class='chaptercomment'><p>读者评论 写得真好 期待更新 作者加油 催更</p></div></div>")
+        text = generic_import.extract_main_text_heuristic(page)
+        assert text.startswith("第0段") and "第39段" in text
+        assert "首页" not in text and "登录" not in text
+        # Navigation and comments held inside the chapter's own box still go.
+        assert "上一章" not in text and "读者评论" not in text
+
     @pytest.mark.parametrize("use_trafilatura", [True, False])
     def test_extracts_main_text_into_the_raw_novel_path(self, isolated_db, monkeypatch,
                                                         use_trafilatura):

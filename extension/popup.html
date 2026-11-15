@@ -30,7 +30,7 @@
     .tabs button[aria-selected="true"] { color: var(--accent); font-weight: 600; background: var(--active); box-shadow: var(--btn-shadow); }
     .segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     #translate { width: 100%; min-height: 46px; }
-    #translateText, #saveNovel, #cancelCapture { width: 100%; overflow-wrap: anywhere; }
+    #translateText, #saveNovel, #continueNovel, #continueComic, #cancelCapture, #retryMissed { width: 100%; overflow-wrap: anywhere; }
     #dramaTitle { overflow-wrap: anywhere; }
     [hidden] { display: none !important; }
   </style>
@@ -51,9 +51,33 @@
         <p id="dramaTitle" class="hint" hidden></p>
       </div>
       <div class="switches">
-        <label class="switch"><input type="checkbox" role="switch" id="store" checked><span>Also save the page into that drama</span></label>
+        <label class="switch"><input type="checkbox" role="switch" id="store" checked><span>Also save into that drama (and text history)</span></label>
         <label class="switch"><input type="checkbox" role="switch" id="overlay" checked><span>Draw over page</span></label>
+        <label class="switch"><input type="checkbox" role="switch" id="typeset"><span>Clean and typeset pages</span></label>
       </div>
+      <div id="typesetStyle">
+        <label for="typesetAlign">Text alignment</label>
+        <select id="typesetAlign">
+          <option value="auto">Auto</option>
+          <option value="left">Left</option>
+          <option value="center">Centre</option>
+          <option value="right">Right</option>
+        </select>
+        <label for="typesetFont">Font</label>
+        <select id="typesetFont">
+          <option value="default">Default (Comic Neue)</option>
+          <option value="bangers">Bangers</option>
+        </select>
+        <label for="typesetMinFont">Minimum font size (px, 0 = automatic)</label>
+        <input id="typesetMinFont" type="number" min="0" max="40" step="1" value="0">
+        <label for="typesetErase">Erase strength (1 = normal, up to 3)</label>
+        <input id="typesetErase" type="range" min="1" max="3" step="0.1" value="1">
+        <label for="typesetFill">Balloon fill (% toward flat paper)</label>
+        <input id="typesetFill" type="range" min="0" max="100" step="5" value="0">
+        <label class="switch"><input type="checkbox" role="switch" id="typesetStroke"><span>Outline the text</span></label>
+        <p class="hint">These shape the cleaned page drawn over the reader when it is not saved.</p>
+      </div>
+      <p class="hint">Draw over page only previews on the page you are reading. Clean and typeset makes Baihe erase the original lettering and put the English in, on the page you are reading and in saved pages (a few seconds per page).</p>
     </div>
 
     <div class="tabs" role="tablist" aria-label="Actions">
@@ -76,10 +100,18 @@
         <button id="captureChapter" type="button">Capture whole chapter</button>
         <button id="captureFromHere" type="button">Capture from here</button>
       </div>
-      <button id="cancelCapture" type="button" hidden>Cancel capture</button>
+      <div class="pane">
+        <div>
+          <label for="seriesCount">Chapters to capture</label>
+          <input id="seriesCount" type="number" min="1" max="50" value="5">
+        </div>
+        <button id="continueComic" type="button">Capture and continue</button>
+      </div>
+      <p class="hint">Follows the site's next-chapter link. Free chapters only; it stops at a sign-in or purchase page. Each chapter is translated like a single capture, so with a paid engine the cost grows with the chapter count.</p>
       <div id="novelSection" class="pane" aria-label="Save text into a title" hidden>
         <h2>Save this chapter</h2>
         <button id="saveNovel" type="button">Save text into a title</button>
+        <button id="continueNovel" type="button">Save and continue to next chapters</button>
         <p class="hint">Uses your selection, or the page's main text. Added as a new raw chapter to the title picked above, or to an automatic one.</p>
       </div>
     </section>
@@ -97,7 +129,7 @@
         </select>
       </div>
       <button id="translateText" class="primary" type="button">Translate text</button>
-      <p class="hint">Uses your selection, or the page's main text. Saved to Standalone translate history.</p>
+      <p class="hint">Uses your selection, or the page's main text. Saved to Standalone translate history unless the save switch above is off.</p>
     </section>
 
     <section id="panel-auto" class="pane" role="tabpanel" aria-labelledby="tab-auto" hidden>
@@ -106,10 +138,18 @@
         <label class="switch"><input type="checkbox" role="switch" id="autoFill" checked><span>Fill name and source link from the page</span></label>
         <label class="switch"><input type="checkbox" role="switch" id="autoSeries" checked><span>Put the title in a series</span></label>
       </div>
+      <div class="switches">
+        <label class="switch"><input type="checkbox" role="switch" id="screenshot"><span>Use a screenshot when a page can't be read</span></label>
+      </div>
+      <p class="hint">Off: a page is saved with its text and the preview is drawn over the page. On: Baihe also erases the original lettering and typesets the translation, so Typeset is already on when you open the title. It adds a few seconds per page on the PC running Baihe.</p>
+      <p class="hint">For readers that draw pages so the browser blocks reading them. It takes a picture of the visible window one page at a time, so each page must fit on screen (zoom out if needed) and capture is slower. Off by default.</p>
       <p class="hint">Used while “Send pages to” is on Auto. A matching title only gets its blank fields filled. Merge or move titles afterwards in Baihe.</p>
     </section>
 
     <p id="status" class="status" role="status" aria-live="polite">Checking the app…</p>
+    <progress id="progress" max="1" hidden></progress>
+    <button id="cancelCapture" type="button" hidden>Cancel</button>
+    <button id="retryMissed" type="button" hidden>Retry missed pages</button>
     <div id="allowSites" hidden></div>
     <a id="openInBaihe" href="#" hidden>Open in Baihe</a>
   </main>

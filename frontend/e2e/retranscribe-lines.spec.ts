@@ -4,12 +4,13 @@ import path from 'node:path'
 import { expect, test } from '@playwright/test'
 
 import { seedLines, tickBox } from './compareSelectedHelpers'
-import { mockRetranscribeLines } from './retranscribeLinesMocks'
+import { mockRetranscribeLines, type Proposal } from './retranscribeLinesMocks'
 
 // Review: tick lines and press "Re-transcribe selected"; one job runs on exactly
 // those ids, the proposals list old text next to new with a checkbox each, and
 // "Apply selected" sends only the ticked ones, exactly as shown. The waveform's
-// "Transcribe this gap" adds the lines for a gap and starts the same run on them.
+// "Transcribe this gap" adds the lines for a gap, starts the same run on them and
+// fills them with what was heard.
 
 const repoRoot = path.resolve(process.cwd(), '..')
 const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')
@@ -76,7 +77,9 @@ test('the action appears with the selection bar and goes with it', async ({ page
   await expect(page.getByTestId('selection-bar')).toHaveCount(0)
 })
 
-test('"Transcribe this gap" adds the lines for the gap and re-transcribes them', async ({ page }) => {
+// Simple is what a new audio or video title opens in; its Review leaves out the Re-transcribe section that runs it.
+for (const view of ['full', 'simple'] as const) test(`"Transcribe this gap" adds the lines for the gap and fills them with what was heard (${view} view)`, async ({ page }) => {
+  await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
   execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
 db.configure_library_dir(${JSON.stringify(libraryDir)})
 import os, wave, struct, math
@@ -104,7 +107,9 @@ db.save_lines(3, [Line(idx=0, start=1.0, end=2.0, zh='一', en='One'), Line(idx=
     adds.push(route.request().postDataJSON())
     return route.fulfill({ json: { new_line_ids: [901], line_ids: [1, 2, 901, 3], split: 'single', history_id: 5, lines_fingerprint: 'f' } })
   })
-  await page.goto('/#/drama/3/review')
+  // In Simple a link to Look for problems too: adding the tool must not send the open group back to the link's.
+  const review = view === 'simple' ? '/#/drama/3/review?tools=problems' : '/#/drama/3/review'
+  await page.goto(review)
   const button = page.getByTestId('wave-gap-button')
   await expect(button).toBeVisible()
   await expect(button).toHaveAccessibleName(/0:04\.00 – 0:13\.00 \(9 s, speech heard\)/)
@@ -113,21 +118,69 @@ db.save_lines(3, [Line(idx=0, start=1.0, end=2.0, zh='一', en='One'), Line(idx=
   await expect.poll(() => adds).toEqual([{ expected_line_ids: lines.map((l) => l.id), start: 4, end: 13, after_line_id: lines[1].id }])
   const panel = page.getByTestId('retranscribe-lines')
   await expect(panel).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Change many lines' })).toHaveAttribute('aria-selected', 'true')
   await expect.poll(() => seen.starts).toEqual([{ line_ids: [901] }])
-  const row = panel.getByTestId('retranscribe-lines-row')
-  await expect(row).toContainText('缺失的话')
-  await row.getByRole('checkbox').check()
-  await panel.getByRole('button', { name: 'Apply selected (1)' }).click()
-  expect(seen.applies).toEqual([{ job_id: 'retranscribe_3', items: [{ line_id: 901, expected_zh: '', expected_proposed: '缺失的话' }] }])
+  // The new blank line gets what was heard with no Apply press; the server's
+  // compare-and-set is what keeps a line typed in meanwhile.
+  await expect.poll(() => seen.applies).toEqual([{ job_id: 'retranscribe_3', items: [{ line_id: 901, expected_zh: '', expected_proposed: '缺失的话' }] }])
+  await expect(panel.getByTestId('retranscribe-lines-note')).toHaveText('Filled #3 with what it heard.')
+  await expect(panel.getByTestId('retranscribe-lines-row')).toHaveCount(0)
 })
 
-test('the proposals are still there after leaving Review and coming back', async ({ page }) => {
+test('typing in the new gap line before its run ends is saved before the fill is sent (the server then refuses the fill)', async ({ page }) => {
+  execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
+db.configure_library_dir(${JSON.stringify(libraryDir)})
+import os, wave, struct, math
+from core import Line
+p = os.path.join(db.drama_dir(3), 'e2e.wav')
+with wave.open(p, 'wb') as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000)
+    w.writeframes(b''.join(struct.pack('<h', int(2000 * math.sin(i / 6))) for i in range(8000 * 20)))
+db.update_drama(3, audio_filename='e2e.wav', source_video_filename=None)
+db.save_lines(3, [Line(idx=0, start=1.0, end=2.0, zh='一', en='One'), Line(idx=1, start=3.0, end=4.0, zh='二', en='Two'), Line(idx=2, start=13.0, end=14.0, zh='三', en='Three')])
+`], { cwd: repoRoot })
+  // Filled in once the real add-lines route has made the line.
+  const proposals: Proposal[] = []
+  const seen = await mockRetranscribeLines(page, proposals, { hold: true })
+  await page.route('**/api/media/dramas/3/peaks*', (route) => {
+    const u = new URL(route.request().url())
+    const n = Number(u.searchParams.get('buckets'))
+    return route.fulfill({ json: { start: Number(u.searchParams.get('start')), end: Number(u.searchParams.get('end')), buckets: n, peaks: Array.from({ length: n }, (_, i) => (i % 7) * 30) } })
+  })
+  const lines = (await (await page.request.get('/api/review/dramas/3/lines?page=1&page_size=50&only=all')).json()).lines as { id: number }[]
+  await page.route('**/api/transcribe/dramas/3/gaps', (route) =>
+    route.fulfill({ json: { gaps: [{ start: 4, end: 13, seconds: 9, pieces: 1, part: 1, parts: 1, after_line_id: lines[1].id, before_line_id: lines[2].id, speech: true }], speech_checked: true } }))
+  const order: string[] = []
+  page.on('request', (r) => {
+    if (r.method() !== 'POST') return
+    if (/\/api\/lines\/dramas\/3\/lines\/\d+$/.test(r.url())) order.push('save')
+    if (r.url().endsWith('/retranscribe-lines/apply')) order.push('apply')
+  })
+  await page.goto('/#/drama/3/review')
+  await page.getByTestId('wave-gap-button').click()
+  await expect.poll(() => seen.starts.length).toBe(1)
+  const newId = (seen.starts[0] as { line_ids: number[] }).line_ids[0]
+  proposals.push({ line_id: newId, number: 3, base_zh: '', proposed_zh: '听到的', had_english: false })
+
+  await page.getByTestId(`line-${newId}`).getByTestId('line-en').click()
+  await page.getByLabel('Translation').fill('Typed by hand')
+  seen.release()
+
+  await expect.poll(() => order).toEqual(['save', 'apply'])
+  const stored = (await (await page.request.get('/api/review/dramas/3/lines?page=1&page_size=50&only=all')).json()).lines as { id: number; en: string }[]
+  expect(stored.find((l) => l.id === newId)?.en).toBe('Typed by hand')
+})
+
+// Simple shows Re-transcribe only after a button asked for it; it keeps it for the title, so the run stays reachable.
+for (const view of ['full', 'simple'] as const) test(`the proposals are still there after leaving Review and coming back (${view} view)`, async ({ page }) => {
+  await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
   const ids = seedLines(6)
   const seen = await mockRetranscribeLines(page, [
     { line_id: ids[1], number: 2, base_zh: '第1句', proposed_zh: '第一句话', had_english: true },
     { line_id: ids[2], number: 3, base_zh: '第2句', proposed_zh: '第二句话', had_english: true },
   ])
-  await page.goto('/#/drama/3/review')
+  // Simple opens Review on the lines that need a look, and none of these do: the lines to tick are under All.
+  await page.goto(view === 'simple' ? '/#/drama/3/review?focus=all' : '/#/drama/3/review')
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(6)
   for (const n of [2, 3]) await tickBox(page, n).check()
   await action(page).click()

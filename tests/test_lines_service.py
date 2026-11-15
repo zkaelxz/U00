@@ -204,7 +204,7 @@ class TestMarkEpisodeReviewed:
         did, ids = _seed(series=True)
         out = svc.mark_episode_reviewed(did)
         assert out == {"reviewed": 2, "remembered": 2, "kept_existing": 0,
-                       "skipped_flagged": 1, "already_reviewed": 0}
+                       "skipped_flagged": 1, "skipped_marked": 0, "already_reviewed": 0}
         assert [bool(_row(did, i)["reviewed"]) for i in ids] == [True, False, True]
         series_id = db.get_drama(did)["series_id"]
         assert {(e["source_text"], e["translation"]) for e in db.list_translation_memory(series_id)} == {
@@ -423,3 +423,122 @@ class TestNeverFullSync:
         svc.accept_tm_suggestion(did, ids[0], e["id"], "a")
         svc.add_note(did, ids[0], "t", "idiom", "n")
         assert save_spy and all(f is not None and isinstance(f, tuple) for f in save_spy)
+
+
+def _mark(did, lid):
+    row = _row(did, lid)
+    return row["mark"], row["reviewed"]
+
+
+class TestSetMark:
+    def test_each_value_clear_and_idempotent(self, isolated_db):
+        did, ids = _seed()
+        for mark in ("wrong", "mixed", "mixed", None, None):
+            out = svc.set_mark(did, ids[0], mark)
+            assert out["mark"] == mark and out["id"] == ids[0] and out["reviewed"] is False
+            assert _mark(did, ids[0]) == (mark, 0)
+
+    def test_marking_a_checked_line_unchecks_it_and_checking_clears_the_mark(self, isolated_db):
+        did, ids = _seed()
+        svc.set_reviewed(did, ids[0], True)
+        assert svc.set_mark(did, ids[0], "wrong", expected_en="Hello")["reviewed"] is False
+        assert _mark(did, ids[0]) == ("wrong", 0)
+        out = svc.set_reviewed(did, ids[0], True, expected_en="Hello")
+        assert (out["mark"], out["reviewed"]) == (None, True)
+
+    def test_a_changed_english_is_a_conflict_and_writes_nothing(self, isolated_db):
+        did, ids = _seed()
+        with pytest.raises(ConflictError):
+            svc.set_mark(did, ids[0], "wrong", expected_en="Hello (old)")
+        assert _mark(did, ids[0]) == (None, 0)
+
+    def test_an_untranslated_line_cannot_be_marked(self, isolated_db):
+        did = db.create_drama(title_en="D")
+        _real_save(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="  ")])
+        lid = db.load_lines(did)[0]["id"]
+        for expected in (None, "  "):
+            with pytest.raises(InvalidInputError):
+                svc.set_mark(did, lid, "wrong", expected_en=expected)
+        assert svc.set_mark(did, lid, None)["mark"] is None
+        assert _mark(did, lid) == (None, 0)
+
+    @pytest.mark.parametrize("bad", ["", "Wrong", "good", 1, True])
+    def test_an_unknown_mark_is_refused(self, isolated_db, bad):
+        did, ids = _seed()
+        with pytest.raises(InvalidInputError):
+            svc.set_mark(did, ids[0], bad)
+
+    def test_a_line_of_another_title_is_not_found(self, isolated_db):
+        did, ids = _seed()
+        other, _ = _seed()
+        with pytest.raises(NotFoundError):
+            svc.set_mark(other, ids[0], "wrong")
+        with pytest.raises(NotFoundError):
+            svc.set_mark(999, ids[0], "wrong")
+        assert _mark(did, ids[0]) == (None, 0)
+
+    def test_marking_a_flagged_line_keeps_its_flag_and_dismissing_keeps_the_mark(self, isolated_db):
+        did, ids = _seed()
+        out = svc.set_mark(did, ids[1], "mixed")
+        assert (out["flag"], out["mark"]) == ("uncertain", "mixed")
+        out = svc.dismiss_flag(did, ids[1])
+        assert (out["flag"], out["mark"]) == (None, "mixed")
+
+
+class TestEnglishWritersClearTheMark:
+    """Rule 1 lives in db/lines.py, so these services clear a mark with no code of their own."""
+
+    def test_an_edit_clears_it_and_the_same_english_keeps_it(self, isolated_db):
+        did, ids = _seed()
+        svc.set_mark(did, ids[0], "wrong")
+        svc.set_mark(did, ids[2], "wrong")
+        assert svc.patch_line(did, ids[0], en="Hello")["mark"] == "wrong"
+        assert svc.patch_line(did, ids[0], en="Hi")["mark"] is None
+        assert svc.patch_line(did, ids[2], en="Cheers", expected={"en": "Thanks"})["mark"] is None
+
+    def test_find_and_replace_clears_it(self, isolated_db):
+        did, ids = _seed()
+        svc.set_mark(did, ids[0], "mixed")
+        svc.set_mark(did, ids[2], "mixed")
+        svc.apply_find_replace(did, [{"id": ids[0], "old_text": "Hello", "new_text": "Howdy"}])
+        assert [_mark(did, i)[0] for i in (ids[0], ids[2])] == [None, "mixed"]
+
+    def test_a_translate_jobs_field_scoped_save_clears_it(self, isolated_db):
+        import translation_finish
+        did, ids = _seed()
+        svc.set_mark(did, ids[0], "wrong")
+        svc.set_mark(did, ids[2], "wrong")
+        lines = db.load_line_objects(did)
+        save_cb, _, skipped = translation_finish.own_lines_callbacks(did, lines, lambda _ls: None)
+        lines[0].en = "Hello again"
+        with db.job_line_fields("translate", ("en", "flag", "flag_note")):
+            save_cb([lines[0], lines[2]])
+        assert not skipped
+        assert [_mark(did, i)[0] for i in (ids[0], ids[2])] == [None, "wrong"]
+
+
+class TestMarkEpisodeReviewedSkipsMarked:
+    def test_marked_lines_are_skipped_reported_and_not_remembered(self, isolated_db):
+        did, ids = _seed(series=True)
+        svc.set_mark(did, ids[0], "wrong")
+        svc.set_mark(did, ids[1], "mixed")  # flagged too: counted in both skips
+        out = svc.mark_episode_reviewed(did)
+        assert out == {"reviewed": 1, "remembered": 1, "kept_existing": 0,
+                       "skipped_flagged": 1, "skipped_marked": 2, "already_reviewed": 0}
+        assert [_mark(did, i) for i in ids] == [("wrong", 0), ("mixed", 0), (None, 1)]
+        series_id = db.get_drama(did)["series_id"]
+        assert {e["source_text"] for e in db.list_translation_memory(series_id)} == {"谢谢"}
+
+    def test_a_line_marked_after_the_read_is_not_checked(self, isolated_db, monkeypatch):
+        did, ids = _seed(series=True)
+        real = db.update_lines_fields_if_many
+
+        def racing(drama_id, items):
+            db.update_line_fields_if(drama_id, ids[0], {"mark": "wrong"}, {})
+            return real(drama_id, items)
+
+        monkeypatch.setattr(db, "update_lines_fields_if_many", racing)
+        out = svc.mark_episode_reviewed(did)
+        assert out["reviewed"] == 1 and _mark(did, ids[0]) == ("wrong", 0)
+        sources = {e["source_text"] for e in db.list_translation_memory(db.get_drama(did)["series_id"])}
+        assert sources == {"谢谢"}

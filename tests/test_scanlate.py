@@ -195,6 +195,18 @@ class TestRenderTextInBox:
 
 
 class TestFindFont:
+    def test_the_bundled_comic_face_is_the_default_for_regular_and_bold(self):
+        regular = scanlate_render._find_font(category="regular")
+        bold = scanlate_render._find_font(category="bold")
+        assert os.path.basename(regular) == "ComicNeue-Regular.ttf" and os.path.exists(regular)
+        assert os.path.basename(bold) == "ComicNeue-Bold.ttf" and os.path.exists(bold)
+
+    def test_a_bundled_font_covers_the_punctuation_the_typesetter_draws(self):
+        from PIL import ImageFont
+        font = ImageFont.truetype(scanlate_render._find_font(category="regular"), 20)
+        for ch in "…—’“”é!?":
+            assert font.getmask(ch).getbbox() is not None, ch
+
     def test_explicit_font_path_always_wins(self, tmp_path):
         real_font = tmp_path / "custom.ttf"
         real_font.write_bytes(b"fake ttf bytes")
@@ -1048,6 +1060,28 @@ class TestLamaGeneratorLayout:
         assert scanlate_inpaint._LAMA_ML_FILE == "lama-manga.safetensors"
 
 
+class TestWebtoonOverlapOnlyThroughArt:
+    def _noisy_strip(self, temp_dir, height, gutter_rows=()):
+        rng = np.random.default_rng(0)
+        img = rng.integers(0, 255, (height, 40, 3), dtype=np.uint8)
+        for y in gutter_rows:
+            img[y] = 255
+        path = os.path.join(temp_dir, "noisy.png")
+        cv2.imwrite(path, img)
+        return path
+
+    def test_a_cut_on_a_gutter_row_shares_no_band(self, temp_dir):
+        path = self._noisy_strip(temp_dir, 3000, gutter_rows=range(1590, 1600))
+        a, b = scanlate_detect.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
+        assert 1590 <= a["y_end"] <= 1600
+        assert b["y_start"] == a["y_end"]
+
+    def test_a_cut_through_artwork_keeps_the_shared_band(self, temp_dir):
+        path = self._noisy_strip(temp_dir, 3000)
+        a, b = scanlate_detect.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
+        assert b["y_start"] == a["y_end"] - 100
+
+
 class TestWebtoonSliceCap:
     def _strip(self, temp_dir, height):
         path = os.path.join(temp_dir, f"strip_{height}.png")
@@ -1140,6 +1174,82 @@ class TestMlFailureMemoryOnlyCoversTheModelLoad:
         assert "/home/kae" not in str(again.value) and again.value.__cause__ is None
 
 
+class TestEnglishTextSkipped:
+    def test_english_lettering_in_the_art_is_skipped_but_source_text_is_not(self):
+        regions = [{"source_text": "CHOOL\n(H\nCHILD", "skip": False},
+                   {"source_text": "执行", "skip": False},
+                   {"source_text": "OK 알겠어", "skip": False},
+                   {"source_text": "88", "skip": False},
+                   {"source_text": "", "skip": False}]
+        assert scanlate.flag_english_text(regions, "zh") == 1
+        assert [r["skip"] for r in regions] == [True, False, False, False, False]
+
+    def test_an_english_source_page_is_left_alone(self):
+        regions = [{"source_text": "Hello there", "skip": False}]
+        assert scanlate.flag_english_text(regions, "en") == 0
+        assert regions[0]["skip"] is False
+
+
+class TestBareNumbersSkipped:
+    def test_a_region_that_is_only_a_number_is_skipped(self):
+        regions = [{"source_text": "610", "skip": False}, {"source_text": "１００！", "skip": False},
+                   {"source_text": "3-2", "skip": False}]
+        assert scanlate.flag_bare_numbers(regions, "zh") == 3
+        assert all(r["skip"] for r in regions)
+
+    def test_numbers_inside_a_sentence_and_empty_text_are_left_alone(self):
+        regions = [{"source_text": "第3拳", "skip": False}, {"source_text": "我有100个", "skip": False},
+                   {"source_text": "", "skip": False}, {"source_text": "...", "skip": False},
+                   {"source_text": "610", "skip": False}]
+        assert scanlate.flag_bare_numbers(regions, "zh") == 1
+        assert [r["skip"] for r in regions] == [False, False, False, False, True]
+
+    def test_an_english_source_page_is_left_alone(self):
+        regions = [{"source_text": "610", "skip": False}]
+        assert scanlate.flag_bare_numbers(regions, "en") == 0
+
+
+class TestHollowFrames:
+    def test_a_sign_erase_keeps_the_frame_round_the_lettering_and_erases_the_lettering(self):
+        import cv2
+        img = np.full((300, 400, 3), 250, np.uint8)
+        cv2.rectangle(img, (20, 20), (380, 280), (120, 40, 40), 3)   # caption frame
+        cv2.rectangle(img, (120, 120), (280, 160), (0, 0, 0), -1)    # lettering block
+        box = {"x": 10, "y": 10, "w": 380, "h": 280, "kind": "sign"}
+        page = img.copy()
+        scanlate_inpaint.inpaint_region("unused", box, image=page, backend="cv", on_art=True)
+        assert (page[20, 100] == img[20, 100]).all() and (page[150, 20] == img[150, 20]).all()
+        assert page[120:160, 120:280].max() > 200
+
+
+class TestFlattenAroundLettering:
+    def _page(self):
+        roi = np.full((120, 240, 3), 250, np.uint8)
+        roi[40:70, 40:200] = 60          # a dense line of lettering
+        roi[5:110, 5] = 30               # a frame line far from it
+        mask = np.zeros((120, 240), np.uint8)
+        mask[38:72, 38:202] = 255
+        return roi, mask
+
+    def test_the_ghost_a_model_leaves_where_lettering_was_is_set_to_paper(self):
+        roi, mask = self._page()
+        ghost = roi.copy()
+        ghost[40:70, 40:200] = 232       # faint copy of the lettering
+        out = scanlate_inpaint._flatten_around_lettering(roi, ghost, mask)
+        assert (out[40:70, 40:200] == 250).all()
+        assert (out[5:110, 5] == 30).all()
+
+    def test_a_sparse_mark_is_left_alone(self):
+        roi = np.full((120, 240, 3), 250, np.uint8)
+        roi[10:110, 100] = 40            # one thin line of art
+        mask = np.zeros((120, 240), np.uint8)
+        mask[10:110, 97:104] = 255
+        ghost = roi.copy()
+        ghost[10:110, 97:104] = 200
+        out = scanlate_inpaint._flatten_around_lettering(roi, ghost, mask)
+        assert (out == ghost).all()
+
+
 class TestLetteringMask:
     def test_pale_gray_strokes_are_masked_and_the_mask_grows_past_a_hard_stroke(self):
         roi = np.full((60, 120), 250, np.uint8)
@@ -1151,6 +1261,24 @@ class TestLetteringMask:
         assert (mask[20:40, 60:70] == 255).all()
         assert (mask[20:40, 58:60] == 255).all() and (mask[20:40, 70:72] == 255).all()
         assert mask[20:40, 40:50].max() == 0   # paper far from any stroke
+
+    def test_the_pale_halo_touching_a_stroke_is_masked_but_shading_far_from_it_is_not(self):
+        roi = np.full((60, 160), 235, np.uint8)
+        roi[20:40, 20:30] = 60            # stroke
+        roi[17:43, 15:35] = np.minimum(roi[17:43, 15:35], 205)   # its halo, over the stroke's edge
+        roi[20:40, 20:30] = 60
+        roi[:, 120:] = 200                # shading on the paper, apart from the stroke
+        mask = scanlate_inpaint._lettering_mask(roi)
+        assert (mask[17:43, 16:34] == 255).all()
+        assert mask[:, 125:].max() == 0
+
+    def test_a_halo_that_would_flood_the_box_is_left_out(self):
+        roi = np.full((60, 120), 235, np.uint8)
+        roi[:, :45] = 200                 # a shaded third of the box, touching the stroke
+        roi[20:40, 40:50] = 60
+        mask = scanlate_inpaint._lettering_mask(roi)
+        assert mask[:, :20].max() == 0
+        assert (mask[20:40, 40:50] == 255).all()
 
     def test_light_lettering_on_a_dark_balloon_masks_only_the_lettering(self):
         roi = np.full((60, 120), 20, np.uint8)
@@ -1173,3 +1301,28 @@ def test_render_paints_out_a_skipped_site_stamp(tmp_path):
     done = cv2.imread(out)
     assert done[100:180, 20:150].mean() < 200        # no longer white
     assert (done[0:15] == img[0:15]).all()            # the art away from it is untouched
+
+
+class TestSiblingBalloonsShareAFitRatio:
+    def test_a_roomy_balloon_follows_a_cramped_one_of_similar_lettering(self):
+        caps = scanlate_render.sibling_size_caps([(32, 32), (26, 22)])
+        assert caps == [27, 26]
+
+    def test_lettering_much_larger_or_smaller_is_left_alone(self):
+        assert scanlate_render.sibling_size_caps([(40, 40), (26, 22), (18, 18)]) == [40, 26, 18]
+
+    def test_a_very_cramped_neighbour_costs_a_balloon_at_most_a_quarter(self):
+        assert scanlate_render.sibling_size_caps([(30, 30), (30, 8)]) == [22, 30]
+
+    def test_a_lone_balloon_keeps_its_start(self):
+        assert scanlate_render.sibling_size_caps([(24, 24)]) == [24]
+
+
+class TestRenderReportsTheDrawnSize:
+    def test_the_report_carries_the_fitted_size(self):
+        from PIL import Image
+        img = Image.new("RGB", (80, 60), "white")
+        report = {}
+        scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": 80, "h": 60}, "A longer line "
+                                           "of text that must shrink", font_size=40, report=report)
+        assert 8 <= report["size"] < 40

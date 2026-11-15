@@ -71,7 +71,6 @@ const OPTION_LABELS: Record<string, string> = {
   normal: 'Normal (default)',
   sensitive: 'More sensitive',
   audio_separator: 'Audio separator',
-  demucs: 'Demucs',
   tesseract: 'Tesseract',
   paddle: 'PaddleOCR',
 }

@@ -313,10 +313,10 @@ def build_plan(args) -> Plan:
                 bool(settings_service.get("scene_aware_batches")))
 
 
-def effective_cap(engine_name: str, max_usd: float) -> float:
+def effective_cap(engine_name: str, model, max_usd: float) -> float:
     """The tighter of --max-usd and what is left of this month's cap (a refusal if it is used up)."""
     monthly = translate_run_service.month_cap_usd() if translate_run_service.engine_cap_applies(
-        engine_name, settings_service.resolve_gemini_free_tier(None)) else 0.0
+        engine_name, settings_service.resolve_gemini_free_tier(None), model) else 0.0
     spend = db.get_month_spend() if monthly else 0.0
     cap, refusal = pricing.resolve_cost_cap(max_usd, monthly, spend)
     if refusal:
@@ -573,7 +573,7 @@ def run(args) -> int:
         raise Refusal("Refusing to write the report: that file exists and is not a previous "
                       "context-bench report.")
     plan = build_plan(args)
-    cap = effective_cap(plan.engine_name, args.max_usd)
+    cap = effective_cap(plan.engine_name, args.model, args.max_usd)
 
     print(f"Estimating {len(plan.window_ids)} lines under {len(configs)} configs (no network calls)...")
     estimate = run_all(plan, configs, True, float("inf"), "dry-run")

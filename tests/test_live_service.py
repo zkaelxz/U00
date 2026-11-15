@@ -111,6 +111,27 @@ def test_bad_options_rejected(live, kw):
         _start(**kw)
 
 
+def test_the_japanese_model_is_for_japanese_streams_only(live):
+    seen = []
+    live_translate_run = live_translate.run_live_job
+    try:
+        live_translate.run_live_job = lambda job_id, url, out_dir, seg, lang, size, *a, **k: seen.append((lang, size))
+        sid = _start(whisper_size="ja-1.5b", source_language="ja")
+        assert _terminal(sid)
+    finally:
+        live_translate.run_live_job = live_translate_run
+    assert seen == [("ja", "ja-1.5b")]
+    for language in ("zh", "ko"):
+        with pytest.raises(InvalidInputError, match="Japanese"):
+            _start(whisper_size="ja-1.5b", source_language=language)
+
+
+def test_form_options_carry_the_language_rules():
+    options = live_service.form_options()
+    assert "ja-1.5b" in options["whisper_sizes"]
+    assert set(options["whisper_exclusions"]["ja-1.5b"]) == {"zh", "ko"}
+
+
 def test_missing_key_is_dependency_error(live, monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: None)
     with pytest.raises(DependencyUnavailableError):
@@ -635,7 +656,7 @@ def test_chosen_model_reaches_the_engine_and_shows_in_status(live, monkeypatch):
 def test_model_not_offered_for_the_engine_is_refused(live, monkeypatch):
     seen = _capture_engine(live, monkeypatch)
     with pytest.raises(InvalidInputError):
-        _start(engine="claude", model="qwen3:8b")
+        _start(engine="claude", model="translategemma:12b")
     with pytest.raises(InvalidInputError):
         _start(engine="ollama", model="not-a-real-model:1b")
     assert seen == {} and live_service._sessions == {}
@@ -660,8 +681,8 @@ def test_ollama_model_must_be_pulled_at_start(live, monkeypatch):
                         lambda base, model: (_ for _ in ()).throw(engine_local.OllamaUnavailableError(
                             "ollama_model_missing", f'Ollama doesn\'t have the model {model}. Run "ollama pull {model}" first.')))
     with pytest.raises(DependencyUnavailableError) as exc:
-        _start(engine="ollama", model="gemma4:12b")
-    assert 'ollama pull gemma4:12b' in str(exc.value)
+        _start(engine="ollama", model="translategemma:12b")
+    assert 'ollama pull translategemma:12b' in str(exc.value)
     assert seen == {} and live_service._sessions == {}
 
 
@@ -683,7 +704,7 @@ def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
     from lib import http
 
     def fake_get(url, ip, headers, timeout, method="GET", **k):
-        return _TagsResp(json.dumps({"models": [{"name": "qwen3:8b"}, {"name": "tiny:latest"}]}).encode())
+        return _TagsResp(json.dumps({"models": [{"name": "translategemma:12b"}, {"name": "tiny:latest"}]}).encode())
 
     class _TagsResp:
         ok = True
@@ -694,7 +715,7 @@ def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
         headers = {}
 
     monkeypatch.setattr(http, "pinned_get", fake_get)
-    local.check_ollama_model_installed("http://x", "qwen3:8b")
+    local.check_ollama_model_installed("http://x", "translategemma:12b")
     local.check_ollama_model_installed("http://x", "tiny")
     with pytest.raises(local.OllamaUnavailableError) as exc:
         local.check_ollama_model_installed("http://x", "gemma4:12b")

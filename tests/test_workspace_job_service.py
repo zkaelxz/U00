@@ -40,9 +40,10 @@ def _stub_style_sources(monkeypatch):
     monkeypatch.setattr(wjs.emotion, "build_emotion_guidance", lambda emap, idxs: "EMOTION-GUIDE")
 
 
-def _capture_bulk_start(isolated_db, monkeypatch, engine, content_mode):
+def _capture_bulk_start(isolated_db, monkeypatch, engine, content_mode, translate_start_json=None):
     did = isolated_db.create_drama(title_en="D", media_type="audio_drama", content_mode=content_mode,
-                                   status="aligned", translation_engine=engine)
+                                   status="aligned", translation_engine=engine,
+                                   translate_start_json=translate_start_json)
     isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句")])
     _stub_style_sources(monkeypatch)
     summary = object()
@@ -53,7 +54,10 @@ def _capture_bulk_start(isolated_db, monkeypatch, engine, content_mode):
             seen["summary_base_url"] = k.get("base_url")
             return summary
         # The real class without its constructor (no SDK import, no network).
-        return engine_registry.ENGINES[name].__new__(engine_registry.ENGINES[name])
+        built = engine_registry.ENGINES[name].__new__(engine_registry.ENGINES[name])
+        if a and a[0]:
+            built.model = a[0]
+        return built
     monkeypatch.setattr(engine_registry, "get_engine", fake_get_engine)
 
     def fake_start(job_id, fn, *args, **kwargs):
@@ -127,6 +131,64 @@ def test_bulk_cap_engines_match_translate_run(isolated_db, monkeypatch, engine):
     assert seen["kwargs"]["cost_cap_usd"] == pytest.approx(5.0)
     # Sonnet-class Claude batches 60 lines a request; DeepSeek keeps 30.
     assert seen["args"][13] == 10 and seen["kwargs"]["batch_size"] == {"claude": 60, "deepseek": 30}[engine]
+
+
+# A local tag: the Library batch never picks up a remembered cloud tag.
+GEMMA_LOCAL = "gemma4:31b"
+
+
+def _bulk_sizes(seen):
+    return seen["args"][13], seen["kwargs"]["context_window_ahead"], seen["kwargs"]["batch_size"]
+
+
+@pytest.mark.parametrize("remembered", [
+    '{"engine_model": "%s"}' % GEMMA_LOCAL,
+    # The form used to echo its defaults back; those are not the person's choice.
+    '{"engine_model": "%s", "context_window": 10, "context_window_ahead": 6, "batch_size": 30}'
+    % GEMMA_LOCAL])
+def test_bulk_gemma_stream_title_gets_the_plain_prompt_and_its_sizes(isolated_db, monkeypatch,
+                                                                     remembered):
+    from engine_backends import stream_recipe
+    seen, _ = _capture_bulk_start(isolated_db, monkeypatch, "ollama", "streamer_vod", remembered)
+    style_guidelines = seen["args"][10]
+    assert stream_recipe.is_active(style_guidelines)
+    assert "LEARNED-STYLE" not in style_guidelines and "EMOTION-GUIDE" not in style_guidelines
+    assert _bulk_sizes(seen) == (0, 0, engine_registry.PLAIN_STREAM_BATCH_SIZE)
+    assert seen["kwargs"]["run_settings"]["batch_size"] == engine_registry.PLAIN_STREAM_BATCH_SIZE
+
+
+def test_bulk_gemma_stream_title_keeps_sizes_the_person_chose(isolated_db, monkeypatch):
+    from engine_backends import stream_recipe
+    seen, _ = _capture_bulk_start(
+        isolated_db, monkeypatch, "ollama", "streamer_vod",
+        '{"engine_model": "%s", "context_window": 3, "context_window_ahead": 2, "batch_size": 12}'
+        % GEMMA_LOCAL)
+    assert stream_recipe.is_active(seen["args"][10])
+    assert _bulk_sizes(seen) == (3, 2, 12)
+
+
+@pytest.mark.parametrize("content_mode,model,expected", [
+    ("novel_narration", GEMMA_LOCAL, (30, 15, 30)),
+    ("streamer_vod", "translategemma:27b", (10, 6, 30))])
+def test_bulk_novel_or_other_model_keeps_the_full_prompt_and_sizes(isolated_db, monkeypatch,
+                                                                   content_mode, model, expected):
+    from engine_backends import stream_recipe
+    seen, _ = _capture_bulk_start(isolated_db, monkeypatch, "ollama", content_mode,
+                                  '{"engine_model": "%s"}' % model)
+    assert not stream_recipe.is_active(seen["args"][10])
+    assert "LEARNED-STYLE" in seen["args"][10]
+    assert _bulk_sizes(seen) == expected
+
+
+def test_bulk_stream_title_with_the_plain_prompt_off_keeps_remembered_sizes(isolated_db, monkeypatch):
+    from engine_backends import stream_recipe
+    patch_setting(monkeypatch, "stream_plain_prompt", False)
+    seen, _ = _capture_bulk_start(
+        isolated_db, monkeypatch, "ollama", "streamer_vod",
+        '{"engine_model": "%s", "context_window": 10, "context_window_ahead": 6, "batch_size": 30}'
+        % GEMMA_LOCAL)
+    assert not stream_recipe.is_active(seen["args"][10])
+    assert _bulk_sizes(seen) == (10, 6, 30)
 
 
 def test_fix_flagged_retranslate_gets_full_context(isolated_db, monkeypatch):

@@ -408,6 +408,26 @@ class TestCopyTerms:
         assert svc.copy_terms(people["a"], dst, src)["added"] == 1
         assert len(db.list_glossary_terms(dst)) == 1
 
+    def test_word_replacements_are_copied_without_overwriting(self, people):
+        src, dst = self._pair(people)
+        db.save_word_replacement(src, "thee", "you")
+        db.save_word_replacement(src, "Thou", "you")
+        db.save_word_replacement(dst, "thou", "yourself")
+        assert svc.copy_terms_preview(people["a"], dst, src)["replacements_new"] == 1
+        r = svc.copy_terms(people["a"], dst, src)
+        assert r["replacements_added"] == 1
+        got = {x["find_text"]: x["replace_text"] for x in db.list_word_replacements(dst)}
+        # "Thou" matches the destination's own "thou" ignoring case, so it is not copied over it.
+        assert got == {"thee": "you", "thou": "yourself"}
+        assert svc.copy_terms(people["a"], dst, src)["replacements_added"] == 0
+
+    def test_word_replacements_copy_stays_within_the_series_cap(self, people, monkeypatch):
+        monkeypatch.setattr(svc.word_replacement_service, "MAX_REPLACEMENTS", 2)
+        src, dst = self._pair(people)
+        for word in ("a1", "b2", "c3"):
+            db.save_word_replacement(src, word, "x")
+        assert svc.copy_terms(people["a"], dst, src)["replacements_added"] == 2
+
     def test_aliases_and_banned_translations_are_copied(self, people):
         src = db.create_series("S", owner_user_id=people["a_id"])
         dst = db.create_series("D", owner_user_id=people["a_id"])

@@ -154,3 +154,83 @@ def test_a_missing_engine_package_is_503_without_a_path(client, isolated_db, sta
     r = client.post(f"/api/listen/dramas/{did}/run", json={})
     assert r.status_code == 503 and "/" not in r.json()["error"]["message"]
     assert started == []
+
+
+class TestTestVoice:
+    """The Test voice sentence: one thread job that speaks the speaker's first line, then a clip to play."""
+
+    @pytest.fixture
+    def thread_jobs(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(listen_service, "_missing_engine_dependency", lambda e: None)
+        monkeypatch.setattr(listen_service, "_engine_install_problem", lambda e: None)
+        monkeypatch.setattr(job_launch, "start_job", lambda job_id, target, *a, **k: calls.append(
+            dict(job_id=job_id, target=target, args=a, launch=k)) or True)
+        return calls
+
+    def _title(self, db):
+        did = db.create_drama(title_en="N", content_mode="novel_narration")
+        db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="x" * 300, speaker="S1"),
+                            Line(idx=1, start=1, end=2, zh="再见", en="Bye", speaker="S2")])
+        return did
+
+    def test_it_speaks_the_speakers_first_line_cut_short_in_their_voice(self, client, isolated_db, thread_jobs):
+        did = self._title(isolated_db)
+        isolated_db.upsert_character(did, "S1", voice_design="calm")
+        r = client.post(f"/api/listen/dramas/{did}/test-voice", json={"speaker_label": "S1"})
+        assert r.status_code == 200, r.text
+        assert r.json() == {"job_id": f"voicetest_{did}"}
+        call = thread_jobs[0]
+        _, voice, sentence, language = call["args"]
+        assert voice["instruct"] == "calm"
+        assert sentence == "x" * listen_service.TEST_SENTENCE_MAX_CHARS
+        assert language == "en"
+        assert call["launch"]["line_fields"] == ()
+
+    def test_a_default_voice_is_the_one_a_full_run_gives_that_speaker(self, client, isolated_db, thread_jobs):
+        did = self._title(isolated_db)
+        client.post(f"/api/listen/dramas/{did}/test-voice", json={"speaker_label": "S2"})
+        import dub
+        # S1 and S2 are both bare, so S2 is the second default voice, not the first.
+        assert thread_jobs[0]["args"][1]["instruct"] == dub.DEFAULT_VOICE_DESCRIPTIONS[1]
+
+    def test_original_language_speaks_the_source_text(self, client, isolated_db, thread_jobs):
+        did = self._title(isolated_db)
+        client.post(f"/api/listen/dramas/{did}/test-voice",
+                    json={"speaker_label": "S2", "narration_language": "original"})
+        assert thread_jobs[0]["args"][2:] == ("再见", "zh")
+
+    def test_an_engine_that_needs_a_clip_names_the_speaker(self, client, isolated_db, thread_jobs):
+        did = self._title(isolated_db)
+        r = client.post(f"/api/listen/dramas/{did}/test-voice", json={"speaker_label": "S1", "tts_engine": "qwen3_tts"})
+        assert r.status_code == 422
+        assert "S1 has no voice yet" in r.text
+        assert thread_jobs == []
+
+    def test_a_speaker_with_nothing_to_say_is_404(self, client, isolated_db, thread_jobs):
+        did = self._title(isolated_db)
+        assert client.post(f"/api/listen/dramas/{did}/test-voice", json={"speaker_label": "nobody"}).status_code == 404
+
+    def test_a_title_that_is_not_a_narrated_novel_has_no_test(self, client, isolated_db, thread_jobs):
+        did = _drama(isolated_db)
+        assert client.post(f"/api/listen/dramas/{did}/test-voice", json={"speaker_label": "S1"}).status_code == 404
+        assert client.get(f"/api/listen/dramas/{did}/test-voice").status_code == 404
+
+    def test_the_clip_is_404_until_the_job_made_it_then_streams(self, client, isolated_db, monkeypatch, tmp_path):
+        import os
+        did = self._title(isolated_db)
+        assert client.get(f"/api/listen/dramas/{did}/test-voice").status_code == 404
+
+        def speak(text, clone, out_path, language):
+            open(out_path, "wb").write(b"RIFFxxxxWAVE")
+        monkeypatch.setattr(dub_narration, "speak_sample", speak)
+        listen_service._test_voice_job(did, {"engine": "omnivoice", "instruct": "calm"}, "Hi", "en")
+        r = client.get(f"/api/listen/dramas/{did}/test-voice")
+        assert r.status_code == 200 and r.headers["content-type"] == "audio/wav"
+        assert not os.path.exists(os.path.join(isolated_db.drama_dir(did), "voice_test", "sample.partial.wav"))
+
+    def test_a_failed_sentence_fails_the_job_with_the_fixed_text(self, isolated_db, monkeypatch):
+        did = self._title(isolated_db)
+        monkeypatch.setattr(dub_narration, "speak_sample", lambda *a: "The voice engine could not speak this line.")
+        with pytest.raises(RuntimeError, match="could not speak this line"):
+            listen_service._test_voice_job(did, {"engine": "omnivoice", "instruct": "calm"}, "Hi", "en")

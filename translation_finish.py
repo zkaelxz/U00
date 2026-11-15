@@ -6,11 +6,15 @@ finish step shared by the translate jobs.
 import contextlib
 import json
 import logging
+import time
 
+import applog
 import db
+import sentence_groups
 import source_change
-from engine_backends import engine_registry, pricing, llm_tasks
+from engine_backends import engine_registry, pricing, llm_tasks, paid_calls
 import translation_guide as tguide
+import word_replacements
 
 
 def untranslated_line_count(drama_id: int) -> int:
@@ -59,22 +63,25 @@ def repair_stale_aligned_statuses() -> int:
 
 def _summary_engine_is_paid(summary_engine, summary_engine_choice) -> bool:
     name = summary_engine_choice or getattr(summary_engine, "name", "")
-    return (name not in engine_registry.FREE_ENGINES
+    # paid_calls.is_paid, not FREE_ENGINES: a hosted Ollama tag is billed too.
+    return (paid_calls.is_paid(name, summary_engine)
             and not getattr(summary_engine, "free_tier", False))
 
 
 def own_lines_callbacks(drama_id: int, lines, on_saved):
     """(save_cb, notes_cb, skipped ids) for translate_lines_with_engine:
-    `en` is written only where the database still holds what the run
-    loaded, so an edit saved mid-run is kept. A Reflect critique arrives
-    before its batch is saved, so it is held until that save and dropped
-    for a line whose write was skipped: it describes text that never
-    landed. on_saved(lines written) runs after each save (provenance)."""
+    `en` is written only where the database still holds the English and
+    the source text the run loaded, so an edit saved mid-run is kept and
+    English for a source that has since changed never lands. A Reflect
+    critique arrives before its batch is saved, so it is held until that
+    save and dropped for a line whose write was skipped: it describes text
+    that never landed. on_saved(lines written) runs after each save (provenance)."""
     id_by_idx = {ln.idx: ln.id for ln in lines if getattr(ln, "id", None) is not None}
     skipped, pending = set(), []
 
     def save_cb(ls):
-        skipped.update(db.save_lines(drama_id, ls, fields=("en",), only_if_unchanged=True) or ())
+        skipped.update(db.save_lines(drama_id, ls, fields=("en",), only_if_unchanged=True,
+                                     guard_fields=("zh",)) or ())
         notes = [n for n in pending if id_by_idx.get(n.get("line_idx")) not in skipped]
         pending.clear()
         if notes:
@@ -84,11 +91,51 @@ def own_lines_callbacks(drama_id: int, lines, on_saved):
     return save_cb, pending.extend, skipped
 
 
+def _log_finish_step(drama_id: int, step: str, started: float, n_lines: int,
+                     engine: str = "", outcome: str = "") -> None:
+    """One log line per slow finish step. The job's "Finish" stage is a single
+    number, so this is the only record of which step (the summary call runs on
+    an engine that can differ from the translation's) made it long."""
+    applog.get_logger().info(
+        "finish step %s for title %s: %.1fs, %d lines%s%s", step, drama_id,
+        time.monotonic() - started, n_lines, f", engine {engine}" if engine else "",
+        f", {outcome}" if outcome else "")
+
+
+def _save_version_logged(drama_id: int, lines, label: str, engine_choice: str, engine) -> None:
+    started = time.monotonic()
+    db.save_translation_version(drama_id, lines, label=label, engine=engine_choice,
+                                model=getattr(engine, "model", ""), make_active=True)
+    _log_finish_step(drama_id, "translation version", started, len(lines))
+
+
+def _store_episode_summary(drama_id: int, summary_engine, summary_engine_choice, stage_cb=None) -> None:
+    engine_name = summary_engine_choice or getattr(summary_engine, "name", "")
+    model = getattr(summary_engine, "model", "")
+    fresh = db.load_line_objects(drama_id)
+    # Its own timing stage: a local summary model has to load after a cloud run, which
+    # the single Finish stage hid.
+    if stage_cb is not None:
+        stage_cb("Episode summary")
+    started = time.monotonic()
+    summary = llm_tasks.generate_episode_summary(
+        fresh, summary_engine,
+        usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
+            drama_id, engine_name, model, "episode_summary", inp, out,
+            pricing.estimate_cost_for_engine(summary_engine, inp, out, cache_read, cache_write),
+            cache_read_tokens=cache_read))
+    _log_finish_step(drama_id, "episode summary", started, len(fresh), f"{engine_name}/{model}",
+                     "ok" if summary else "no summary")
+    if summary:
+        db.update_drama(drama_id, episode_summary=summary)
+
+
 def _flag_for_review(drama_id: int, lines, landed: set, embed_texts) -> None:
     """Review flags computed from the run's English: reading speed on every line,
     and the optional source-match check (embed_texts, None skips it) only on the
     lines this run's English landed on."""
     from services import reading_speed_dismissal_service as dismissals
+    started = time.monotonic()
     dismissals.flag_dense_lines(drama_id, lines)
     if embed_texts is not None:
         from engine_backends import alignment_check
@@ -97,6 +144,42 @@ def _flag_for_review(drama_id: int, lines, landed: set, embed_texts) -> None:
         except Exception:
             # An optional extra check must not fail a finished translation.
             logging.getLogger(__name__).exception("source-match check failed")
+    _log_finish_step(drama_id, "review flags", started, len(lines),
+                     "with source-match" if embed_texts is not None else "")
+
+
+def _still_the_runs(fresh, lines, enforce_ids) -> list:
+    """The freshly loaded lines among enforce_ids whose source and English
+    are still the ones the run translated and wrote."""
+    run_text = {ln.id: (ln.zh or "", ln.en or "") for ln in lines
+                if getattr(ln, "id", None) is not None}
+    return [ln for ln in fresh if ln.id in enforce_ids
+            and run_text.get(ln.id) == (ln.zh or "", ln.en or "")]
+
+
+def _substitute(own_fresh, substitute_terms, sentence_source) -> dict:
+    """Applies the exact terms to each line's English in place; line id ->
+    (English before, after) for the lines it changed."""
+    substituted = {}
+    for ln in own_fresh:
+        if ln.en:
+            before = ln.en
+            ln.en = substitute_terms(ln.en, sentence_source.get(ln.id, ln.zh))
+            if ln.en != before:
+                substituted[ln.id] = (before, ln.en)
+    return substituted
+
+
+def _sentence_sources(fresh, groups) -> dict:
+    """Line id -> the source of the whole sentence the run translated the line
+    in. Translate by sentence splits one sentence's English across its parts,
+    so a term in part 1's source can land in part 2's English."""
+    zh = {ln.id: ln.zh or "" for ln in fresh}
+    out = {}
+    for ids in groups:
+        joined = sentence_groups.join_fragments([zh.get(i, "") for i in ids])
+        out.update((i, joined) for i in ids)
+    return out
 
 
 def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, style_preset: str,
@@ -104,7 +187,8 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                            summary_engine=None, summary_engine_choice: str | None = None,
                            line_scoped: bool = False,
                            summary_monthly_cap_usd: float | None = None,
-                           flags_needing_recheck: set | None = None, *, enforce_ids, embed_texts=None) -> bool:
+                           flags_needing_recheck: set | None = None, *, enforce_ids, embed_texts=None,
+                           sentence_parts=(), stage_cb=None) -> bool:
     """What happens after translate_pipeline.translate_lines_with_engine
     returns, shared by the translate jobs so they can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves
@@ -141,41 +225,37 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     enforce_ids: the run's own line ids, the only English it may write:
     the exact-term substitution touches only those line ids, and
     only where the database still holds the English this run wrote. A
-    line whose English differs (its write was skipped because it was
-    edited mid-run, or it was edited since) is the user's: it gets no
+    line whose English or source differs (its write was skipped because
+    it was edited mid-run, or it was edited since) is the user's: no
     substitution, and no flag computed from this run's text. A flag is
-    saved only while the line's English, timing and flag in the database
-    are still what it was computed from (the flag can be a reading-speed
-    or a content-blocked one); the ids of lines that changed during the
-    run are added to flags_needing_recheck (a set, if given)."""
+    saved only while the line's source, English, timing and flag in the
+    database are still what it was computed from (the flag can be a
+    reading-speed or a content-blocked one); the ids of lines that changed
+    during the run are added to flags_needing_recheck (a set, if given).
+
+    sentence_parts: the line ids of each sentence the run translated as one."""
     # First: the exact-term substitution below changes `en` in the database,
     # which the compare-and-set on this run's English would then refuse.
     source_change.save_cleared_flags(drama_id, lines)
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
-    substitute_terms = tguide.build_hard_term_substituter(enforced)
+    substitute_terms, fixes_text = word_replacements.with_replacements(
+        tguide.build_hard_term_substituter(enforced), drama_id, bool(enforced))
     # One load only: the substitution's compare-and-set guards against
     # edits after this read, so deciding which lines are still the run's
     # from a second, earlier read would let an edit in between through.
-    run_en = {ln.id: (ln.en or "") for ln in lines if getattr(ln, "id", None) is not None}
     fresh = db.load_line_objects(drama_id)
-    own_fresh = [ln for ln in fresh if ln.id in enforce_ids and ln.id in run_en
-                 and (ln.en or "") == run_en[ln.id]]
+    own_fresh = _still_the_runs(fresh, lines, enforce_ids)
     landed = {ln.id for ln in own_fresh}
     # The version saved below must hold an edit the run kept, or restoring
     # it later would bring this run's English back over the edit.
     kept = {ln.id: ln.en for ln in fresh if ln.id not in landed}
     for ln in lines:
         ln.en = kept.get(ln.id, ln.en)
-    if enforced:
-        substituted = {}
-        for ln in own_fresh:
-            if ln.en:
-                before = ln.en
-                ln.en = substitute_terms(ln.en)
-                if ln.en != before:
-                    substituted[ln.id] = (before, ln.en)
+    if fixes_text:
+        substituted = _substitute(own_fresh, substitute_terms, _sentence_sources(fresh, sentence_parts))
         # Compare-and-set: an edit saved since the load above is kept too.
-        for lid in db.save_lines(drama_id, own_fresh, fields=("en",), only_if_unchanged=True):
+        for lid in db.save_lines(drama_id, own_fresh, fields=("en",), only_if_unchanged=True,
+                                 guard_fields=("zh",)):
             substituted.pop(lid, None)
         # The density check below reads the run's own copies: give them
         # the substituted English that is now in the database.
@@ -199,7 +279,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # read above must not get a flag computed from this run's English.
     stale = db.save_lines(drama_id, [ln for ln in lines if ln.id in landed],
                           fields=("flag", "flag_note"), only_if_unchanged=True,
-                          guard_fields=("en", "start", "end"))
+                          guard_fields=("zh", "en", "start", "end"))
     if flags_needing_recheck is not None:
         flags_needing_recheck.update(stale)
 
@@ -215,8 +295,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         label = f"{engine_choice} · {style_preset}"
         if engine_choice in engine_registry.FREE_ENGINES or getattr(engine, "free_tier", False):
             label = f"[testing: {engine_choice}] {label}"
-        db.save_translation_version(drama_id, lines, label=label, engine=engine_choice,
-                                    model=getattr(engine, "model", ""), make_active=True)
+        _save_version_logged(drama_id, lines, label, engine_choice, engine)
     # Persisted, not just shown once: if the app restarts, the record of
     # what failed (and why some lines are untranslated) must not vanish.
     fields = {}
@@ -235,15 +314,5 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
         if refusal:
             summary_engine = None
     if fields.get("status") == "translated" and not cancelled and summary_engine is not None:
-        _fresh_for_summary = db.load_line_objects(drama_id)
-        summary = llm_tasks.generate_episode_summary(
-            _fresh_for_summary, summary_engine,
-            usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
-                drama_id, summary_engine_choice or getattr(summary_engine, "name", ""),
-                getattr(summary_engine, "model", ""), "episode_summary", inp, out,
-                pricing.estimate_cost_for_engine(
-                    summary_engine, inp, out, cache_read, cache_write),
-                cache_read_tokens=cache_read))
-        if summary:
-            db.update_drama(drama_id, episode_summary=summary)
+        _store_episode_summary(drama_id, summary_engine, summary_engine_choice, stage_cb)
     return True

@@ -57,7 +57,7 @@ test('PC admin still gets Cancel', async ({ page }) => {
 test('remote admin: no per-item sharing switches in Settings, with a note', async ({ page }) => {
   await mock(page, ['library.read', 'admin.users.read'])
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Account and display')
+  await openSettingsGroups(page, 'My account and look')
   await expect(page.getByTestId('remote-admin-sharing-note')).toBeVisible()
   await expect(page.getByTestId('sharing-drama:5')).toHaveCount(0)
 })
@@ -65,7 +65,7 @@ test('remote admin: no per-item sharing switches in Settings, with a note', asyn
 test('PC admin still gets every item with its switch', async ({ page }) => {
   await mock(page, ['library.read', 'admin.library'])
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Account and display')
+  await openSettingsGroups(page, 'My account and look')
   await expect(page.getByTestId('sharing-drama:5')).toBeVisible()
   await expect(page.getByTestId('remote-admin-sharing-note')).toHaveCount(0)
 })
@@ -77,7 +77,7 @@ test('member: Diagnostics shows the not-allowed state and asks the server nothin
   expect(unmocked.filter((u) => u.includes('/api/diagnostics'))).toEqual([])
 })
 
-test('member: Quick translate is disabled with a reason and no Settings link', async ({ page }) => {
+test('member: Text is disabled with a reason and no Settings link', async ({ page }) => {
   await mock(page, ['library.read'])
   await page.route('**/api/translate/engines', (r) => r.fulfill({ json: {
     items: [{ name: 'claude', label: 'Claude', free: false, models: null, key_configured: true }], default_engine: 'claude',
@@ -85,7 +85,7 @@ test('member: Quick translate is disabled with a reason and no Settings link', a
   await page.route('**/api/translate/history*', (r) => r.fulfill({ json: { items: [] } }))
   await page.goto('/#/translate')
   await expect(page.getByRole('button', { name: 'Translate', exact: true })).toBeDisabled()
-  await expect(page.getByText("Quick translate isn't allowed for this account. Ask the PC owner.")).toBeVisible()
+  await expect(page.getByText("Text translation isn't allowed for this account. Ask the PC owner.")).toBeVisible()
 })
 
 test('remote: Settings says the PC-only settings can only be changed on the main PC', async ({ page }) => {

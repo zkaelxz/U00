@@ -147,7 +147,7 @@ describe('PendingInstallBanner', () => {
     const html = banner(status({ packages: ['paddleocr', 'paddlepaddle'] }))
     expect(html).toContain('pending install (restart)')
     expect(html).toContain('paddleocr, paddlepaddle will install when you restart Baihe')
-    expect(html).toContain('Cancel the queued install')
+    expect(html).toContain('Cancel install')
   })
 
   it('says how the last start-up install went in plain words, with Dismiss', () => {
@@ -160,7 +160,7 @@ describe('PendingInstallBanner', () => {
     expect(html).toContain('Your earlier packages were put back.')
     expect(html).toContain('no matching distribution')
     expect(html).toContain('Dismiss')
-    expect(html).not.toContain('Cancel the queued install')
+    expect(html).not.toContain('Cancel install')
   })
 
   it('shows a refused file and nothing else when nothing is queued', () => {

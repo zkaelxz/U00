@@ -4,7 +4,7 @@ applying each stage's results and submitting the next stage.
 """
 import uuid
 
-from bulk_apply import (require_bulk_job, _load_apply_context, _log_generic_usage, _parse_strict,
+from bulk_apply import (junk_check, flag_rejected, require_bulk_job, _load_apply_context, _log_generic_usage, _parse_strict,
                         _save_applied_english, _save_flags, _stale_line)
 from bulk_providers import make_provider
 from bulk_translate import (_character_names, _copy_english_lines, _require_batch_engine, _target_lines,
@@ -21,6 +21,7 @@ from engine_backends import (
 )
 from engine_backends import prompts as engine_prompts
 import translation_guide as tguide
+import word_replacements
 from lib.errors import NotFoundError
 from translation_finish import mark_translated_if_complete
 
@@ -507,7 +508,9 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
     cur_by_id = {ln.id: ln for ln in current}
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
-    substitute_terms = tguide.build_hard_term_substituter(enforced)
+    substitute_terms, fixes_text = word_replacements.with_replacements(
+        tguide.build_hard_term_substituter(enforced), job["drama_id"], bool(enforced))
+    unusable = junk_check(job)
     notes = []
     for lid, text in text_by_id.items():
         row = row_by_id[lid]
@@ -521,8 +524,12 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
         translation = (text or "").strip()
         if not translation:
             continue
-        if enforced:
-            translation = substitute_terms(translation)
+        if reason := unusable(ln, translation):
+            counts["rejected"] = counts.get("rejected", 0) + 1
+            flag_rejected(ln, translation, reason)
+            continue
+        if fixes_text:
+            translation = substitute_terms(translation, ln.zh)
         ln.en = translation
         source_change.clear_for_new_english(ln)
         counts["applied"] += 1

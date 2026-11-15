@@ -51,6 +51,7 @@ export function GlossaryProposals({ proposals, selected, onToggle, edits, onEdit
     <>
       {p.occurrences}×
       {p.alternatives.length > 0 && <span className="muted"> · also: {p.alternatives.join(', ')}</span>}
+      {p.aliases.length > 0 && <span className="muted"> · also written: {p.aliases.join(', ')}</span>}
     </>
   )
   const ignore = (p: NovelGlossaryProposal) =>

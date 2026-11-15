@@ -244,7 +244,7 @@ test.describe('Glossary from novel', () => {
         return route.fulfill({ json: { job_id: 'novelglossary_1', status: 'running', progress: 0.42, message: '', proposals: null, run_id: 'run-1' } })
       }
       const prop = (term: string, en: string, already = false) => ({
-        term, suggested_translation: en, category: 'person', policy: 'keep', reason: 'Recurring name', already_in_glossary: already, occurrences: 3, alternatives: [], confidence: 'high',
+        term, suggested_translation: en, category: 'person', policy: 'keep', reason: 'Recurring name', already_in_glossary: already, occurrences: 3, alternatives: [], aliases: [], confidence: 'high',
       })
       return route.fulfill({
         json: {
@@ -335,7 +335,7 @@ test.describe('Glossary from novel', () => {
       route.fulfill({
         json: {
           job_id: 'novelglossary_1', status: 'done', progress: 1, message: '', run_id: 'run-7',
-          proposals: [{ term: '江澄', suggested_translation: 'Jiang Cheng', category: null, policy: null, reason: '', already_in_glossary: true , occurrences: 3, alternatives: [], confidence: 'high'}],
+          proposals: [{ term: '江澄', suggested_translation: 'Jiang Cheng', category: null, policy: null, reason: '', already_in_glossary: true , occurrences: 3, alternatives: [], aliases: [], confidence: 'high'}],
         },
       }),
     )
@@ -366,7 +366,7 @@ test.describe('Glossary from novel', () => {
       route.fulfill({
         json: {
           job_id: 'novelglossary_1', status: 'done', progress: 1, message: '',
-          proposals: [{ term: '魏婴', suggested_translation: 'Wei Ying', category: null, policy: null, reason: '', already_in_glossary: false , occurrences: 3, alternatives: [], confidence: 'high'}],
+          proposals: [{ term: '魏婴', suggested_translation: 'Wei Ying', category: null, policy: null, reason: '', already_in_glossary: false , occurrences: 3, alternatives: [], aliases: [], confidence: 'high'}],
         },
       }),
     )
@@ -384,7 +384,7 @@ test.describe('Glossary from novel', () => {
 test.describe('Glossary proposal confidence and ignore list', () => {
   const prop = (term: string, en: string, confidence: 'high' | 'low', occurrences: number, alternatives: string[] = []) => ({
     term, suggested_translation: en, category: 'person', policy: 'keep', reason: '', already_in_glossary: false,
-    occurrences, alternatives, confidence,
+    occurrences, alternatives, aliases: [], confidence,
   })
 
   // Both proposals are listed until the ignore POST lands, as the server filters them.
@@ -473,7 +473,7 @@ test.describe('PC-only stage deletes', () => {
   test('version delete: first tap makes no call, the second sends confirm with the local header', async ({ page }) => {
     const calls = await mockVersions(page)
     // No lines on this title, so the tools panel only shows when a link asks for it.
-    await page.goto('/#/drama/1/review?tools=history')
+    await page.goto('/#/drama/1/review?tools=records')
     await openSection(page, 'Records')
     const list = page.getByTestId('versions-list')
     await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
@@ -491,7 +491,7 @@ test.describe('PC-only stage deletes', () => {
 
   test('Escape cancels and the button reverts after the idle time', async ({ page }) => {
     const calls = await mockVersions(page)
-    await page.goto('/#/drama/1/review?tools=history')
+    await page.goto('/#/drama/1/review?tools=records')
     await openSection(page, 'Records')
     const list = page.getByTestId('versions-list')
     await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
@@ -507,7 +507,7 @@ test.describe('PC-only stage deletes', () => {
     await mockRemote(page)
     await mockVersions(page)
     await withAudio(page)
-    await page.goto('/#/drama/1/review?tools=history')
+    await page.goto('/#/drama/1/review?tools=records')
     await openSection(page, 'Records')
     await expect(page.getByTestId('versions-list')).toBeVisible()
     await expect(page.getByRole('button', { name: /Delete Claude pass 1/ })).toHaveCount(0)
@@ -539,7 +539,7 @@ test.describe('PC-only stage deletes', () => {
     await page.getByRole('button', { name: 'Confirm remove audio/video' }).click()
     await expect(page.getByText('Removed. Lines are untouched.')).toBeVisible()
     await openSection(page, 'Novel text')
-    await expect(page.getByRole('link', { name: 'Build the glossary from this novel in Translate →' })).toHaveAttribute('href', '#/drama/1/translate?tab=glossary')
+    await expect(page.getByRole('link', { name: 'Build glossary in Translate →' })).toHaveAttribute('href', '#/drama/1/translate?tab=glossary')
     // The raw novel's own panel sits on the Tools tab.
     await selectMediaTab(page, 'tools')
     const raw = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })
@@ -548,7 +548,7 @@ test.describe('PC-only stage deletes', () => {
     await raw.getByRole('button', { name: 'Confirm remove raw novel' }).click()
     await expect(raw.getByRole('status')).toHaveText('Removed.')
     await selectMediaTab(page, 'add')
-    await expect(page.getByRole('link', { name: /Build the glossary from this novel/ })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: /Build glossary/ })).toHaveCount(0)
     expect(posted.map((u) => new URL(u).pathname)).toEqual([
       '/api/media/dramas/1/remove',
       '/api/novel/dramas/1/raw-novel/remove',

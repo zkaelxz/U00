@@ -18,9 +18,10 @@ import { isComicType } from '../comic/comicLogic'
 import type { WorkflowProgress } from '../../types/workspace'
 import { COMIC_STAGE_TITLE, ComicStageNotice, isLineStageForComic } from './ComicStageNotice'
 import { STAGE_COMPONENTS } from './stageRegistry'
-import { STAGE_IDS, STAGE_LABELS, STAGE_STATE_WORDS, type StageId, stageCount, nextAction, stageStates, startStage, isCastTab } from './stages'
+import { STAGE_IDS, STAGE_STATE_WORDS, stageLabel, type StageId, stageCount, nextAction, stageStates, startStage, isCastTab } from './stages'
 import { OpenInWindowButton } from '../../nav/OpenInWindowButton'
 import { isPopOutWindow } from '../../nav/popOut'
+import { AddSourceLink } from './AddSourceLink'
 import { JobPill } from './JobPill'
 import { NovelTitlePage } from './NovelTitlePage'
 import { SimpleStagePage } from './SimpleStagePage'
@@ -89,6 +90,8 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   // A Simple page's buttons open these stages; the stage tab strip would drop a Simple reader into the full workspace.
   // Kept out of the branch condition: inline, it makes React Compiler skip the ctx memo below.
   const slimStage = !!kind && opensSimpleStage(kind, active)
+  // A separate titleKind call: passing `kind` itself to stageLabel makes React Compiler think it may be mutated and skip the ctx memo below.
+  const stageNames = Object.fromEntries(STAGE_IDS.map((s) => [s, stageLabel(s, drama ? titleKind(drama.media_type, drama.content_mode) : null)])) as Record<StageId, string>
   const chooseView = (v: TitleView) => store(v)
   const linked = parseRoute(window.location.hash)
   const comicNotice = comic && isLineStageForComic(active) && !(linked.name === 'drama' && linked.id === id && isCastTab(linked.tab))
@@ -130,7 +133,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
     <div className="ws-actions">
       <SourceLink href={drama?.source_url} dramaId={id} className={buttonClass('secondary', 'sm', 'ws-source')} />
       {drama && !safeHref(drama.source_url) && (
-        <a className="ws-source-add muted" href={routeHref({ name: 'drama', id, stage: 'source', tab: 'details' })}>Add a source link</a>
+        <AddSourceLink id={id} />
       )}
       {drama && (
         <ButtonLink
@@ -155,11 +158,14 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   // The phone stepper drops the counts and shows only a marker, so the open stage's state is spelled out below it.
   const activeState = active ? states[active] : undefined
   const activeDesc = active ? [activeState && STAGE_STATE_WORDS[activeState], stageCount(active, progress)].filter(Boolean).join(' · ') : ''
+  // The keys keep the title page and the stage pages apart, so opening the title page from a step reads its counts afresh.
   if (stage === null && drama && twoViews && view === 'simple') {
-    return kind === 'novel' ? <NovelTitlePage id={id} drama={drama} onView={chooseView} /> : <SimpleTitlePage id={id} drama={drama} comic={kind === 'comic'} onView={chooseView} />
+    if (kind === 'novel') return <NovelTitlePage id={id} drama={drama} onView={chooseView} />
+    if (kind === 'comic') return <SimpleTitlePage id={id} drama={drama} onView={chooseView} />
+    return <SimpleStagePage key="title" id={id} drama={drama} title={title} error={error} refetch={refetch} simple={simple} stage={null} onView={chooseView} />
   }
   if (stage !== null && drama && twoViews && view === 'simple' && slimStage) {
-    return <SimpleStagePage id={id} drama={drama} title={title} error={error} refetch={refetch} simple={simple} stage={active} onView={chooseView} />
+    return <SimpleStagePage key="stage" id={id} drama={drama} title={title} error={error} refetch={refetch} simple={simple} stage={active} onView={chooseView} />
   }
   return (
     <section className={`workspace${next && phone && active !== 'review' ? ' has-next-bar' : ''}`} ref={sectionRef} aria-label={`Title ${id} workspace`}>
@@ -209,7 +215,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
               aria-current={s === active ? 'page' : undefined}
               data-state={st}
               data-comic-skipped={skipped ? 'true' : undefined}
-              title={desc ? `${STAGE_LABELS[s]}: ${desc}` : undefined}
+              title={desc ? `${stageNames[s]}: ${desc}` : undefined}
             >
               {st ? (
                 <span className="stage-mark" aria-hidden="true">
@@ -218,7 +224,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
               ) : (
                 <span className="stage-mark-slot" aria-hidden="true">○</span>
               )}
-              <span className="stage-label" data-label={STAGE_LABELS[s]}>{STAGE_LABELS[s]}</span>
+              <span className="stage-label" data-label={stageNames[s]}>{stageNames[s]}</span>
               {st === 'blocked' && <span className="visually-hidden"> (blocked)</span>}
               {count ? (
                 <span className="stage-count" aria-hidden="true">
@@ -239,12 +245,13 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
       </div>
       </div>
       <Sheet open={phone && moreOpen} title="Title actions" hideTitle onClose={() => setMoreOpen(false)}>
-        <div onClick={() => setMoreOpen(false)}>
+        {/* Open folder keeps the sheet open: closing it unmounts the button and drops the path it shows when the PC can't open the folder. */}
+        <div onClick={(e) => { if (!(e.target as Element).closest('.ws-folder, .open-folder-notice')) setMoreOpen(false) }}>
           {twoViews && <TitleViewSwitch view={view} onChange={chooseView} />}
           {actions}
         </div>
       </Sheet>
-      {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{STAGE_LABELS[active]}: {activeDesc}</p>}
+      {phone && active && activeDesc && <p className="ws-stage-state muted" data-testid="stage-state">{stageNames[active]}: {activeDesc}</p>}
       {drama ? (
         <ErrorBanner error={error} />
       ) : (

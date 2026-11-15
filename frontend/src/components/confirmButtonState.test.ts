@@ -75,7 +75,10 @@ describe('describeError additions', () => {
     expect(describeError(err(422, 'validation_error')).title).toBe('Restoring needs RESTORE.')
     expect(describeError(err(422, 'validation_error'), { serverText: true }).title).toBe('Restoring needs RESTORE.')
     expect(describeError(err(400, 'validation_error')).detail).toBeNull()
-    expect(describeError(err(400, 'validation_error'), { serverText: true }).detail).toBe('Restoring needs RESTORE.')
+    expect(describeError(err(400, 'validation_error'), { serverText: true })).toEqual({
+      title: 'Restoring needs RESTORE.',
+      detail: null,
+    })
     expect(describeError(err(422, 'validation_error', 'bad /home/kae/x.zip'), { serverText: true }).title).toMatch(/not valid/)
   })
 })

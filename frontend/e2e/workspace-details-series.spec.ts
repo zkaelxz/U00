@@ -137,5 +137,5 @@ test('the header shows Source when a link exists, else a muted "Add a source lin
   await stubDrama(page, { source_url: null })
   await page.reload()
   await expect(page.locator('.ws-source')).toHaveCount(0)
-  await expect(page.getByRole('link', { name: 'Add a source link' })).toHaveAttribute('href', '#/drama/2/source?tab=details')
+  await expect(page.getByRole('link', { name: 'Add a source link' })).toHaveAttribute('href', '#/drama/2/source?focus=sourceLink&tab=details')
 })

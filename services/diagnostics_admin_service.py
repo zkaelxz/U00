@@ -11,6 +11,8 @@ diagnostics_packages_service and diagnostics_gpu_torch_service.
 No HTTP types: the refusals are ServiceError subclasses the API maps by type.
 """
 
+import logging
+import sqlite3
 import time
 
 import background_jobs
@@ -18,6 +20,8 @@ from jobs import job_launch, job_runner
 import db
 import diagnostics
 from lib.errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Admin actions (router: local_only). Each requires confirm=True and
@@ -97,6 +101,39 @@ def _under_install_hold(fn):
         job_launch.release_exclusive()
 
 
+def _rollback_quietly(conn) -> None:
+    """A failing rollback must not replace the error that caused it; closing
+    the connection discards the open transaction anyway."""
+    try:
+        conn.rollback()
+    except sqlite3.Error:
+        logger.warning("Could not roll back the followed-series unlink", exc_info=True)
+
+
+def _undo_copy_quietly(prev, kept) -> None:
+    """Puts the media back after a failed reset; a failure here is logged so it
+    doesn't replace the reset's own error."""
+    try:
+        prev.after_reset(kept, ok=False)
+    except Exception:
+        logger.warning("Could not put the library copy back after a failed reset", exc_info=True)
+
+
+def _unlink_after_reset() -> str | None:
+    """The library is already gone and can't be restored, so the unlink is
+    retried on a fresh connection once the failed one has released sources.db.
+    Returns a sentence for the user when it still fails."""
+    from sources import store as src_store
+    try:
+        src_store.unlink_all_dramas()
+    except sqlite3.Error:
+        logger.error("Library reset done but the followed-series links could not be cleared; "
+                     "followed series may point at new titles", exc_info=True)
+        return ("The library was reset, but the followed-series links could not be cleared "
+                "(sources.db is locked or damaged). Unfollow and follow those series again.")
+    return None
+
+
 def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dict:
     """Irreversible from inside the app, but the database and the titles'
     media are first kept beside the library (previous_library_service, the
@@ -112,6 +149,7 @@ def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dic
     if not job_launch.acquire_exclusive("Library reset"):
         raise AdminActionJobsRunning(
             "A job, restore or cleanup is in progress; try again when it ends.")
+    warning = None
     try:
         from services import library_admin_service
         if library_admin_service.any_job_running():     # re-check under the hold
@@ -122,18 +160,57 @@ def reset_library(confirm: bool = False, confirm_text: str | None = None) -> dic
         if not job_runner.wait_for_job_threads(10.0):
             raise AdminActionJobsRunning(
                 "A background job is still finishing; try again in a moment.")
-        from services import previous_library_service
-        kept = previous_library_service.keep_before_reset()
+        # sources.db survives the reset but its title ids are the old library's,
+        # and a new title gets id 1 again. The unlink is opened first and
+        # committed only once the reset has succeeded: if it can't be opened the
+        # reset is refused with the library untouched, and if the reset fails
+        # the links are rolled back rather than lost with it. The slow snapshot
+        # is made before the lock is taken, and the media is moved only after
+        # it is held: a refusal then displaces nothing, and nothing can recreate
+        # dramas/ between the move and the reset's own rename.
+        from services import previous_library_service as prev
+        from sources import store as src_store
+        kept = prev.snapshot_before_reset()
         try:
-            db.reset_library()
+            unlink = src_store.begin_unlink_all_dramas()
+        except BaseException as exc:
+            prev.discard_snapshot(kept)
+            if not isinstance(exc, sqlite3.Error):
+                raise
+            logger.warning("Library reset refused: could not unlink followed series", exc_info=True)
+            raise ConflictError(
+                "Couldn't clear the followed-series links (sources.db is locked or damaged), "
+                "so nothing was reset. Try again in a moment.") from None
+        committed = False
+        try:
+            try:
+                prev.move_media_before_reset(kept)
+                db.reset_library()
+            except BaseException:
+                _undo_copy_quietly(prev, kept)
+                raise
+            prev.after_reset(kept, ok=True)
         except BaseException:
-            previous_library_service.after_reset(kept, ok=False)
+            _rollback_quietly(unlink)
             raise
-        previous_library_service.after_reset(kept, ok=True)
+        else:
+            try:
+                unlink.commit()
+                committed = True
+            except sqlite3.Error:
+                logger.warning("Followed-series unlink did not commit after the reset; retrying",
+                               exc_info=True)
+        finally:
+            unlink.close()
+        if not committed:
+            warning = _unlink_after_reset()
         background_jobs.clear_all_jobs()
     finally:
         job_launch.release_exclusive()
-    return {"ok": True, "reset_at": time.time()}
+    result = {"ok": True, "reset_at": time.time()}
+    if warning:
+        result["warning"] = warning
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ and Windows are faked; the zip, the install folder and the library are real
 files under tmp_path.
 """
 
+import contextlib
 import datetime
 import hashlib
 import json
@@ -16,6 +17,7 @@ import pytest
 
 pytest.importorskip("cryptography")
 
+import db  # noqa: E402
 from installer import app_swap  # noqa: E402
 from lib import release_signature as rs  # noqa: E402
 from services import app_update_service as aus  # noqa: E402
@@ -99,7 +101,7 @@ def env(isolated_db, monkeypatch, tmp_path, keys):
 
 
 def _serve(env, manifest=None, zip_manifest=None, signed=True, sign_name=ZIP_NAME,
-           sig_bytes=None):
+           sig_bytes=None, manifest_sig=True):
     manifest = manifest or _app_manifest(db_schema_sha256=aus._library_schema())
     data = _zip_bytes(env["tmp"], zip_manifest or manifest)
     sha = hashlib.sha256(data).hexdigest()
@@ -114,8 +116,15 @@ def _serve(env, manifest=None, zip_manifest=None, signed=True, sign_name=ZIP_NAM
         env["http"].add(SIG_URL, body=sig_bytes if sig_bytes is not None else
                         rs.format_signature(rs.sign(env["seed"], sign_name, sha)).encode())
     http = env["http"]
+    manifest_bytes = json.dumps(manifest).encode()
+    if manifest_sig:
+        release["assets"].append({"name": "BaiheStudio-App-0.2.0.json.sig", "size": 89,
+                                  "browser_download_url": MANIFEST_URL + ".sig"})
+        http.add(MANIFEST_URL + ".sig", body=manifest_sig if isinstance(manifest_sig, bytes) else
+                 rs.format_signature(rs.sign(env["seed"], "BaiheStudio-App-0.2.0.json",
+                                             hashlib.sha256(manifest_bytes).hexdigest())).encode())
     http.add(API_URL, body=json.dumps([release]).encode())
-    http.add(MANIFEST_URL, body=json.dumps(manifest).encode())
+    http.add(MANIFEST_URL, body=manifest_bytes)
     http.add(HASH_URL, body=f"{sha}  {ZIP_NAME}\n".encode())
     http.add(ZIP_URL, body=data, headers={"Content-Length": str(len(data))})
     return data
@@ -313,6 +322,57 @@ def test_apply_refuses_a_changed_download(env):
     assert env["started"] == []
 
 
+def test_a_check_keeps_the_releases_schema_for_the_full_installers_backup_check(env):
+    _serve(env, manifest=_app_manifest(db_schema_sha256="1" * 64))
+    us.check()
+    assert aus._offer_schema == ("0.2.0", "1" * 64)
+
+
+@pytest.mark.parametrize("manifest_sig", [
+    False,
+    "release key, other manifest",
+    b"not a signature",
+])
+def test_an_unsigned_manifests_schema_is_not_believed(env, manifest_sig):
+    if manifest_sig == "release key, other manifest":
+        manifest_sig = rs.format_signature(rs.sign(env["seed"], "BaiheStudio-App-0.2.0.json",
+                                                   "0" * 64)).encode()
+    _serve(env, manifest=_app_manifest(db_schema_sha256=aus._library_schema()),
+           manifest_sig=manifest_sig)
+    us.check()
+    # The full installer then asks for a backup, as when the release says nothing.
+    assert aus._offer_schema == ("0.2.0", None)
+
+
+def test_a_signature_by_another_key_is_not_believed(env, monkeypatch):
+    other = rs.parse_private_key(rs.generate()[0])
+    _serve(env, manifest=_app_manifest(db_schema_sha256="1" * 64),
+           manifest_sig=rs.format_signature(rs.sign(
+               other, "BaiheStudio-App-0.2.0.json",
+               hashlib.sha256(json.dumps(_app_manifest(db_schema_sha256="1" * 64)).encode())
+               .hexdigest())).encode())
+    us.check()
+    assert aus._offer_schema == ("0.2.0", None)
+
+
+def test_a_copy_without_a_release_key_believes_the_manifest(env, monkeypatch):
+    monkeypatch.setattr(us, "PUBLIC_KEY_PATH", str(env["tmp"] / "no-key.txt"))
+    _serve(env, manifest=_app_manifest(db_schema_sha256="1" * 64), manifest_sig=False)
+    us.check()
+    assert aus._offer_schema == ("0.2.0", "1" * 64)
+
+
+def test_setup_asks_for_a_backup_when_the_schema_is_not_believed(env, monkeypatch):
+    _serve(env, manifest=_app_manifest(db_schema_sha256=aus._library_schema()),
+           manifest_sig=False)
+    us.check()
+    monkeypatch.setattr(aus, "_recent_backup", lambda now=None: False)
+    with pytest.raises(ConflictError, match="may change the library database"):
+        aus.check_database_before_setup("0.2.0")
+    monkeypatch.setattr(aus, "_recent_backup", lambda now=None: True)
+    aus.check_database_before_setup("0.2.0")
+
+
 def test_a_database_change_needs_a_recent_backup(env, monkeypatch):
     _serve(env, manifest=_app_manifest(db_schema_sha256="0" * 64))
     us.check()
@@ -453,9 +513,221 @@ def test_a_failed_helper_start_undoes_the_staging(env, monkeypatch):
 def test_the_last_swap_is_reported_in_plain_words(env):
     app_swap.write_result(env["root"], "rolled_back_health", "0.1.0", "0.2.0")
     s = us.status()
-    assert s["app_last_result"] == "Version 0.2.0 didn't start, so Baihe Studio went back to 0.1.0."
+    assert s["app_last_result"] == ("Version 0.2.0 didn't start, so Baihe Studio went back to "
+                                    "0.1.0. Couldn't tell whether the newer version changed the "
+                                    "library.")
     for code in app_swap.RESULT_CODES:
         assert code in aus.RESULT_MESSAGES
+
+
+def _backups(monkeypatch, created_at="2026-11-12T10:00:00+00:00"):
+    """The backup copies the update sees; tests drop entries to stand in for rotation."""
+    from services import auto_backup_service
+    copies = ([{"name": "baihe-auto-1.zip", "created_at": created_at, "readable": True,
+                "managed": True, "kept_as": None}] if created_at else [])
+    monkeypatch.setattr(auto_backup_service, "settings_overview", lambda: {"copies": copies})
+    return copies
+
+
+def _start_update(env):
+    _serve(env)
+    us.check()
+    _download(env)
+    assert aus.apply()["started"] is True
+
+
+def _change_library(sql="ALTER TABLE dramas ADD COLUMN from_the_newer_version TEXT"):
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute(sql)
+        conn.commit()
+
+
+def _rolled_back(env, new="0.2.0"):
+    app_swap.clear_journal(env["root"])
+    app_swap.write_result(env["root"], "rolled_back_health", "0.1.0", new)
+    return us.status()
+
+
+def test_a_rollback_after_the_tables_changed_says_so_and_names_the_backup(env, monkeypatch):
+    _backups(monkeypatch)
+    _start_update(env)
+    _change_library()
+    s = _rolled_back(env)
+    assert s["app_rollback_library_changed"] is True
+    assert s["app_rollback_backup_at"] == "2026-11-12T10:00:00+00:00"
+    assert "had already changed the library's tables" in s["app_last_result"]
+    assert "restore the backup from before the update" in s["app_last_result"]
+
+
+def test_a_rollback_with_the_tables_unchanged_adds_nothing(env, monkeypatch):
+    _backups(monkeypatch)
+    _start_update(env)
+    s = _rolled_back(env)
+    assert s["app_rollback_library_changed"] is False and s["app_rollback_backup_at"] is None
+    assert s["app_last_result"] == "Version 0.2.0 didn't start, so Baihe Studio went back to 0.1.0."
+
+
+def test_a_new_index_counts_as_a_change(env, monkeypatch):
+    _backups(monkeypatch)
+    _start_update(env)
+    _change_library("CREATE INDEX from_the_newer_version ON dramas (title_zh, id)")
+    assert _rolled_back(env)["app_rollback_library_changed"] is True
+
+
+def test_a_change_to_the_sources_database_counts(env, monkeypatch):
+    import sqlite3
+    from sources import store
+    with contextlib.closing(sqlite3.connect(store.db_path())) as conn:
+        conn.execute("CREATE TABLE kept (id INTEGER)")
+        conn.commit()
+    _backups(monkeypatch)
+    _start_update(env)
+    with contextlib.closing(sqlite3.connect(store.db_path())) as conn:
+        conn.execute("CREATE TABLE from_the_newer_version (id INTEGER)")
+        conn.commit()
+    assert _rolled_back(env)["app_rollback_library_changed"] is True
+
+
+def test_a_rollback_with_no_backup_still_warns(env, monkeypatch):
+    _backups(monkeypatch, created_at=None)
+    _start_update(env)
+    _change_library()
+    s = _rolled_back(env)
+    assert s["app_rollback_library_changed"] is True and s["app_rollback_backup_at"] is None
+    assert "had already changed the library's tables" in s["app_last_result"]
+    assert "restore the backup" not in s["app_last_result"]
+
+
+def test_a_backup_rotated_away_since_is_not_named(env, monkeypatch):
+    copies = _backups(monkeypatch)
+    _start_update(env)
+    _change_library()
+    copies[:] = [{"name": "baihe-auto-2.zip", "created_at": "2026-11-13T10:00:00+00:00",
+                  "readable": True, "managed": True, "kept_as": None}]
+    s = _rolled_back(env)
+    assert s["app_rollback_library_changed"] is True and s["app_rollback_backup_at"] is None
+
+
+def test_a_later_attempt_keeps_the_warning_from_the_first(env, monkeypatch):
+    _backups(monkeypatch)
+    _start_update(env)
+    _change_library()
+    _rolled_back(env)
+    # A second try at the same release: the record from before the first
+    # change stays, whether this try writes a result of its own or not.
+    _start_update(env)
+    s = us.status()
+    assert s["app_rollback_library_changed"] is True
+    assert s["app_rollback_backup_at"] == "2026-11-12T10:00:00+00:00"
+    s = _rolled_back(env)
+    assert s["app_rollback_library_changed"] is True
+    assert s["app_rollback_backup_at"] == "2026-11-12T10:00:00+00:00"
+
+
+def test_only_this_librarys_own_copy_is_named(env, monkeypatch):
+    copies = _backups(monkeypatch)
+    copies[:0] = [{"name": "other-library.zip", "created_at": "2026-11-12T11:00:00+00:00",
+                   "readable": True, "managed": False, "kept_as": None},
+                  {"name": "baihe-auto-0.zip", "created_at": "2026-11-12T10:30:00+00:00",
+                   "readable": True, "managed": True, "kept_as": "sources"}]
+    _start_update(env)
+    _change_library()
+    assert _rolled_back(env)["app_rollback_backup_at"] == "2026-11-12T10:00:00+00:00"
+
+
+def test_sources_db_created_after_the_rollback_is_not_a_change(env, monkeypatch):
+    from sources import store
+    _backups(monkeypatch)
+    assert not os.path.exists(store.db_path())
+    _start_update(env)
+    os.remove(store.db_path())
+    store._initialised.clear()
+    with contextlib.closing(store.connect()):
+        pass
+    assert _rolled_back(env)["app_rollback_library_changed"] is False
+
+
+def test_a_later_rollback_names_the_version_that_changed_the_library(env, monkeypatch):
+    _backups(monkeypatch)
+    _start_update(env)
+    _change_library()
+    _rolled_back(env)
+    aus._remember_library("0.1.0", "0.3.0")
+    s = _rolled_back(env, new="0.3.0")
+    assert s["app_rollback_library_changed"] is True
+    assert "Version 0.2.0 had already changed the library's tables" in s["app_last_result"]
+    assert s["app_last_result"].startswith("Version 0.3.0 didn't start")
+
+
+def test_a_rollback_with_no_record_says_it_couldnt_tell(env):
+    s = _rolled_back(env)
+    assert s["app_rollback_library_unknown"] is True
+    assert s["app_rollback_library_changed"] is False
+    assert s["app_last_result"].endswith(
+        "Couldn't tell whether the newer version changed the library.")
+
+
+def test_an_unreadable_sources_db_says_it_couldnt_tell(env, monkeypatch):
+    import sqlite3
+    from sources import store
+    _backups(monkeypatch)
+    _start_update(env)
+
+    def damaged():
+        raise sqlite3.DatabaseError("file is not a database")
+    monkeypatch.setattr(store, "connect", damaged)
+    s = _rolled_back(env)
+    assert s["app_rollback_library_unknown"] is True
+    assert s["app_rollback_library_changed"] is False
+
+
+def test_a_library_change_is_still_seen_with_sources_db_unreadable(env, monkeypatch):
+    import sqlite3
+    from sources import store
+    _backups(monkeypatch)
+    _start_update(env)
+    _change_library()
+
+    def damaged():
+        raise sqlite3.DatabaseError("file is not a database")
+    monkeypatch.setattr(store, "connect", damaged)
+    s = _rolled_back(env)
+    assert s["app_rollback_library_changed"] is True
+    assert s["app_rollback_library_unknown"] is False
+
+
+def test_a_kept_update_or_unchanged_rollback_is_not_unknown(env, monkeypatch):
+    _backups(monkeypatch)
+    _start_update(env)
+    assert _rolled_back(env)["app_rollback_library_unknown"] is False
+    app_swap.write_result(env["root"], "updated", "0.1.0", "0.2.0")
+    assert us.status()["app_rollback_library_unknown"] is False
+
+
+def test_a_record_without_the_library_layout_says_it_couldnt_tell(env):
+    db.set_app_setting(aus.BEFORE_UPDATE_KEY, {"old": "0.1.0", "attempts": ["0.2.0"],
+                                               "layout": "x" * 64, "backup_name": None,
+                                               "backup_at": None})
+    s = _rolled_back(env)
+    assert s["app_rollback_library_unknown"] is True
+    assert s["app_rollback_library_changed"] is False
+
+
+def test_a_record_from_another_update_is_not_used(env, monkeypatch):
+    db.set_app_setting(aus.BEFORE_UPDATE_KEY, {"old": "0.0.9", "attempts": ["0.1.0"],
+                                               "layout": "x" * 64, "backup_name": None,
+                                               "backup_at": None})
+    app_swap.write_result(env["root"], "rolled_back_health", "0.1.0", "0.2.0")
+    s = us.status()
+    assert s["app_rollback_library_changed"] is False and s["app_rollback_library_unknown"] is True
+
+
+def test_a_kept_update_never_warns_about_the_library(env, monkeypatch):
+    db.set_app_setting(aus.BEFORE_UPDATE_KEY, {"old": "0.1.0", "attempts": ["0.2.0"],
+                                               "layout": "x" * 64, "backup_name": None,
+                                               "backup_at": None})
+    app_swap.write_result(env["root"], "updated", "0.1.0", "0.2.0")
+    assert us.status()["app_rollback_library_changed"] is False
 
 
 def test_status_never_carries_a_path_or_url(env):

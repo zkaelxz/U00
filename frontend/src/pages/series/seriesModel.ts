@@ -85,15 +85,16 @@ export function copySources(all: SeriesListItem[], currentId: number): SeriesLis
 }
 
 export function copyPreviewText(p: SeriesCopyTermsPreview): string {
-  if (p.new_count === 0) return `Nothing to add: all ${plural(p.skipped_count, 'term')} are already there.`
-  const added = `${plural(p.new_count, 'new term')} will be added`
+  const swaps = p.replacements_new > 0 ? ` and ${plural(p.replacements_new, 'word replacement')}` : ''
+  if (p.new_count === 0 && p.replacements_new === 0) return `Nothing to add: all ${plural(p.skipped_count, 'term')} are already there.`
+  const added = `${plural(p.new_count, 'new term')}${swaps} will be added`
   return p.skipped_count > 0
     ? `${added}, ${p.skipped_count} ${p.skipped_count === 1 ? 'is' : 'are'} already there and ${p.skipped_count === 1 ? 'is' : 'are'} skipped.`
     : `${added}.`
 }
 
-export const copyResultText = (r: { added: number; skipped: number }) =>
-  `Added ${plural(r.added, 'term')}${r.skipped ? `; skipped ${r.skipped} already there` : ''}.`
+export const copyResultText = (r: { added: number; skipped: number; replacements_added: number }) =>
+  `Added ${plural(r.added, 'term')}${r.replacements_added ? ` and ${plural(r.replacements_added, 'word replacement')}` : ''}${r.skipped ? `; skipped ${r.skipped} already there` : ''}.`
 
 // ---- Defaults tab -----------------------------------------------------------
 

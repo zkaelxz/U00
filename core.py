@@ -26,7 +26,9 @@ ISO_639_2 = {"en": "eng", "zh": "chi", "ja": "jpn", "ko": "kor"}
 # position (display order) -- it changes on every merge/split; `id` is the
 # permanent identity notes, emotions and background jobs attach to.
 LINE_FIELDS = ("idx", "start", "end", "zh", "en", "speaker", "dub_filename", "flag", "flag_note",
-               "speaker_manual", "sfx", "lang", "reviewed", "ass_event", "confidence")
+               "speaker_manual", "sfx", "lang", "reviewed", "ass_event", "confidence", "mark")
+# What a person's mark on a line (Line.mark) may be besides None; a tick is `reviewed`.
+LINE_MARKS = ("wrong", "mixed")
 
 
 @dataclass
@@ -61,6 +63,10 @@ class Line:
     # None for lines from any other source and for rows saved before it existed. Editing
     # `zh` clears it, since a person has since read the line.
     confidence: float | None = None
+    # A person's judgement of the English when it isn't a tick: a LINE_MARKS value or None.
+    # Editing `en` clears it, as it unchecks `reviewed`: the text it judged is gone. A
+    # marked line is never checked (db/lines.py enforces both on every save).
+    mark: str | None = None
     # Permanent row id (lines.id). None for a line not saved yet.
     id: int | None = field(default=None, compare=False)
     # encode_line_words' stored form, read through line_words. None means "not
@@ -99,6 +105,11 @@ def _stored_line_lang(value):
     return code if code in LINE_LANGUAGES else None
 
 
+def _stored_line_mark(value):
+    # As for lang: an imported or hand-edited row must not make the lines unloadable.
+    return value if value in LINE_MARKS else None
+
+
 def line_from_row(row) -> "Line":
     """The one shared db row (db.load_lines dict) -> Line conversion. Carries
     id and every field through, so nothing (flags, speaker, dub clip) is
@@ -110,7 +121,8 @@ def line_from_row(row) -> "Line":
               flag_note=row.get("flag_note") or "", speaker_manual=bool(row.get("speaker_manual")),
               sfx=bool(row.get("sfx")), lang=_stored_line_lang(row.get("lang")), id=row.get("id"),
               reviewed=bool(row.get("reviewed")), word_timings=row.get("word_timings"),
-              ass_event=row.get("ass_event"), confidence=row.get("confidence"))
+              ass_event=row.get("ass_event"), confidence=row.get("confidence"),
+              mark=_stored_line_mark(row.get("mark")))
     ln.orig = {f: getattr(ln, f) for f in LINE_FIELDS}
     if "word_timings" in row:
         ln.orig["word_timings"] = ln.word_timings
@@ -122,7 +134,7 @@ def lines_from_rows(rows) -> list:
 
 
 # Fields a snapshot/version records since the undo fix; older ones lack them.
-SAVED_MARK_FIELDS = ("flag", "flag_note", "sfx", "lang", "reviewed")
+SAVED_MARK_FIELDS = ("flag", "flag_note", "sfx", "lang", "reviewed", "mark")
 
 
 def adopt_ids(restored, current, recorded=()) -> list:
@@ -176,6 +188,16 @@ def adopt_ids(restored, current, recorded=()) -> list:
         if "reviewed" not in recorded:
             # Carried as today's value; the save unchecks it anyway if the English differs.
             ln.reviewed = match.reviewed
+        if (ln.en or "") == (match.en or ""):
+            # Today's judgement of this English wins, as the Checked mark does above.
+            ln.mark = match.mark
+        elif ln.mark and ln.mark == match.mark and ln.orig is not None:
+            # The snapshot's mark comes back with its English. The save drops a mark whose
+            # English changes unless the write stores one, and an unchanged field isn't
+            # written, so it is taken out of the baseline to be written.
+            ln.orig = {f: v for f, v in ln.orig.items() if f != "mark"}
+        if ln.mark:
+            ln.reviewed = False
         # Older snapshots/versions didn't record
         # speaker_manual -- restoring the same speaker the line has now
         # keeps its hand-corrected mark instead of silently dropping it.
@@ -195,7 +217,7 @@ def lines_from_saved(rows) -> list:
                  speaker_manual=bool(r.get("speaker_manual")),
                  lang=_stored_line_lang(r.get("lang")), id=r.get("id"),
                  reviewed=bool(r.get("reviewed")), ass_event=r.get("ass_event"),
-                 confidence=r.get("confidence"),
+                 confidence=r.get("confidence"), mark=_stored_line_mark(r.get("mark")),
                  word_timings=words_for_text(r.get("word_timings"), r.get("zh") or ""))
             for r in rows]
 

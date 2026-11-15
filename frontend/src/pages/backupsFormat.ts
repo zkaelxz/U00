@@ -1,6 +1,5 @@
-// Pure helpers for the automatic backup UI: the Settings "Automatic backups"
-// Card (settings/AutoBackupCard.tsx) and the Library tools snapshot block
-// (libraryAdmin/SnapshotBlock.tsx).
+// Pure helpers for the automatic backup UI on Library tools > Backup
+// (libraryTools/AutoBackupBlock.tsx, libraryAdmin/SnapshotBlock.tsx).
 import { ApiError } from '../api/client'
 import { describeError, safeDetail } from '../components/errorMessages'
 import type {
@@ -24,7 +23,14 @@ export const FREQUENCY_OPTIONS: readonly [BackupFrequency, string][] = [
 ]
 
 export const ROTATION_NOTE =
-  'Keeps one copy a day for the last 2 days, plus the first copy of each of the last 2 weeks. Older copies this library made are deleted after each backup.'
+  'Keeps one copy a day for the last 7 days, plus the first copy of each of the last 4 weeks. Older copies this library made are deleted after each backup.'
+export const SAME_DRIVE_NOTE =
+  'These copies are on the same drive as your library, so one failing drive loses both. Pick a backup folder on another drive.'
+
+export const BACKUP_PROBLEM_TEXT: Record<NonNullable<AutoBackupSettings['problem']>, string> = {
+  failing: 'The last automatic backup failed, so the newest copy is older than it should be.',
+  stale: 'No automatic backup has succeeded for a while.',
+}
 export const DEFAULT_FOLDER_TEXT = 'Default: backups\\auto in your library'
 
 type DateOpts = { locale?: string; timeZone?: string }
@@ -113,13 +119,6 @@ export function chooseCopyCandidates(e: unknown): CopyCandidate[] | null {
   return d.candidates.filter(
     (c): c is CopyCandidate => !!c && typeof c === 'object' && typeof (c as CopyCandidate).name === 'string',
   )
-}
-
-/** The Card's one-line meta: "Off" or "Weekly · database only". */
-export function settingsSummary(s: AutoBackupSettings): string {
-  if (!s.enabled) return 'Off'
-  const freq = FREQUENCY_OPTIONS.find(([v]) => v === s.frequency)?.[1] ?? 'On'
-  return `${freq} · ${s.include_media ? 'with media' : 'database only'}`
 }
 
 /**

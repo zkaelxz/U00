@@ -103,6 +103,7 @@ def preflight_view(pf, url: str) -> dict:
         "next_link": bool(pf.next_link),
         "previous_link": bool(pf.previous_link),
         "warnings": _lines(pf.warnings),
+        "terms_notes": _lines(pf.terms_notes),
         "lines": _lines(pf.lines),
         "display_url": safe_url(url),
     }

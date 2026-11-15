@@ -19,7 +19,6 @@ import re
 CLAUDE_MODELS = {
     "claude-sonnet-5-5": "Sonnet 5.5 -- balanced quality and cost (recommended default)",
     "claude-opus-5-5": "Opus 5.5 -- highest quality",
-    "claude-haiku-4-5-20251001": "Haiku 4.5 -- fastest and cheapest, lower nuance",
     # Kept selectable so a saved preset, title or promoted benchmark model that
     # names one of these still runs instead of being refused as "not offered".
     "claude-sonnet-5": "Sonnet 5 -- previous generation",
@@ -40,29 +39,42 @@ GEMINI_MODELS = {
     # priced at ai.google.dev in September 2026, but there's no CJK-specific
     # quality benchmark for it yet, so no quality claim is made here.
     "gemini-3.1-flash-lite": "3.1 Flash-Lite -- cheaper, lighter tier (no quality claim yet)",
+    # Opt-in only: in one small zh->en test it came closest to Sonnet on idioms and
+    # tone, but it thinks before answering, so it costs more and is slower.
+    "gemini-3.8-flash": "3.8 Flash -- close to Sonnet on idioms and tone in a small test; slower, costs more (thinks first)",
 }
 
 # OpenAI's Chat Completions endpoint, the one place its address is set.
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 
-# Selectable OpenAI models. The default is the first-listed mini tier; the
-# lineup changes often, so check platform.openai.com/docs/models if a run
+# Selectable OpenAI models. The default is the first-listed (cheapest) tier;
+# the lineup changes often, so check platform.openai.com/docs/models if a run
 # starts failing, and update this and PRICING_PER_MILLION_TOKENS together.
 OPENAI_MODELS = {
-    "gpt-5-mini": "GPT-5 mini -- balanced quality and cost (recommended default)",
-    "gpt-5-nano": "GPT-5 nano -- cheapest, lower nuance",
-    "gpt-5": "GPT-5 -- highest quality, most expensive",
+    "gpt-6-luna": "GPT-6 Luna -- cheapest, high-volume (recommended default)",
+    "gpt-6.1-terra": "GPT-6.1 Terra -- better tone, names and context",
+    "gpt-6.1-sol": "GPT-6.1 Sol -- top tier for hard lines, most expensive",
 }
+
+# GPT-5 ids a saved preset or title may still name. OpenAI is retiring them
+# (gpt-5-mini is deprecated), so they run as the default model instead of
+# failing the run; see openai_model_or_default.
+OPENAI_RETIRED_MODELS = ("gpt-5-mini", "gpt-5-nano", "gpt-5")
+
+
+def openai_model_or_default(model):
+    return next(iter(OPENAI_MODELS)) if model in OPENAI_RETIRED_MODELS else model
+
 
 # Newer OpenAI models the provider itself lists (the manual model check in
 # services/model_registry_service) can be used without an edit here. Only the
-# GPT-5-and-later chat models: older ids (gpt-4, o-series) cost far more than
+# GPT-6-and-later chat models: older ids (gpt-4, o-series) cost far more than
 # any rate estimate_cost could fall back to, and the others are not Chat
-# Completions models. Newer GPT-5.x releases can also cost more than gpt-5,
+# Completions models. Newer releases can also cost more than gpt-6.1-sol,
 # so an unpriced one is costed at OPENAI_EXTRA_MODEL_CEILING instead.
 PROVIDER_CHECK_CACHE_KEY = "model_registry_provider_check"
 OPENAI_EXTRA_MODEL_CEILING = {"input": 5.0, "output": 40.0}
-_OPENAI_EXTRA_RE = re.compile(r"gpt-(?:[5-9]|[1-9][0-9])[a-z0-9._-]{0,60}")
+_OPENAI_EXTRA_RE = re.compile(r"gpt-(?:[6-9]|[1-9][0-9])[a-z0-9._-]{0,60}")
 _OPENAI_EXCLUDED_WORDS = re.compile(
     r"(?:^|[-.])(?:pro|codex|realtime|search|research|instruct|audio|image|tts|"
     r"transcribe|embedding|moderation|diarize)(?:[-.]|$)")
@@ -136,11 +148,21 @@ PRICING_PER_MILLION_TOKENS = {
     "gemini-flash-latest": {"input": 0.75, "output": 3.75},
     "gemini-pro-latest": {"input": 2.0, "output": 12.0},
     "gemini-3.1-flash-lite": {"input": 0.25, "output": 1.50},
-    # OpenAI list prices, checked against developers.openai.com/api/docs/pricing
-    # on PRICES_VERIFIED_ON.
-    "gpt-5-mini": {"input": 0.25, "output": 2.0},
-    "gpt-5-nano": {"input": 0.05, "output": 0.40},
-    "gpt-5": {"input": 1.25, "output": 10.0},
+    # Pinned ids: the research lookup uses both; 3.8 Flash is also offered for translation.
+    "gemini-3.5-flash-lite": {"input": 0.30, "output": 2.50},
+    "gemini-3.8-flash": {"input": 0.75, "output": 3.75},
+    # OpenAI standard-tier list prices, read from developers.openai.com/api/docs/pricing
+    # on 2026-11-11.
+    "gpt-6-luna": {"input": 0.10, "output": 0.50},
+    "gpt-6.1-terra": {"input": 1.00, "output": 5.00},
+    "gpt-6.1-sol": {"input": 2.00, "output": 10.00},
+    # Ollama cloud list prices (ollama.com/pricing, 2026-11-09); free use ended, so
+    # these tags are billed per token and must count toward the spend caps.
+    "gemma4:31b-cloud": {"input": 0.14, "output": 0.40},
+    # No longer offered in the picker, but a saved setting, model override or job
+    # record can still name it; unpriced it would run on Ollama's cloud at $0 and
+    # slip past the spend caps.
+    "gemma4:cloud": {"input": 0.14, "output": 0.40},
 }
 
 
@@ -166,6 +188,7 @@ CACHE_WRITE_PRICE_FACTOR = 1.25
 SCHEDULED_PRICE_CHANGES = {
     # Google's pricing page, checked on PRICES_VERIFIED_ON.
     "gemini-flash-latest": [(datetime.date(2027, 1, 1), {"input": 1.50, "output": 7.50})],
+    "gemini-3.8-flash": [(datetime.date(2027, 1, 1), {"input": 1.50, "output": 7.50})],
 }
 
 # Date the tables above were last compared with the providers' pricing pages;
@@ -207,11 +230,21 @@ def _model_tier(prefix: str, model: str):
     return None
 
 
+def _is_ollama_cloud_tag(model: str) -> bool:
+    # Same test as engine_backends.local.is_ollama_cloud_model; not imported
+    # because local pulls in the engine stack this module sits below.
+    return model.lower().endswith(("-cloud", ":cloud"))
+
+
 def _highest_family_rates(model: str):
     if is_openai_extra_model(model):
         return dict(OPENAI_EXTRA_MODEL_CEILING)
     prefix = next((p for p in _PRICED_FAMILY_PREFIXES if model.startswith(p)), None)
     family = [(m, r) for m, r in PRICING_PER_MILLION_TOKENS.items() if prefix and m.startswith(prefix)]
+    if not prefix and _is_ollama_cloud_tag(model):
+        # A hosted Ollama tag has no family prefix, so without this it cost $0
+        # and ran past the spend caps.
+        family = [(m, r) for m, r in PRICING_PER_MILLION_TOKENS.items() if _is_ollama_cloud_tag(m)]
     # A new Sonnet must not be costed at Opus rates (~7x too high, which
     # inflates the spend caps), so prefer priced models of the same tier and
     # only widen to the whole family when the id names no known tier.
@@ -229,7 +262,7 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int,
     are the parts of it that were served from / written to a prompt cache."""
     rates = _current_rates(model, input_tokens)
     if not rates and isinstance(model, str):
-        # A Claude/Gemini/DeepSeek model the app has no price for (one offered
+        # A Claude/Gemini/DeepSeek/hosted Ollama model the app has no price for (one offered
         # from the provider's list): price it at that provider's highest known
         # rates so the cost cap still protects, rather than reporting $0.
         rates = _highest_family_rates(model)
@@ -257,7 +290,8 @@ def estimate_cost_for_engine(engine, input_tokens: int, output_tokens: int,
 # pre-run estimate ran 2-5x below the real spend on these, so the Lab (not
 # a normal Translate estimate) scales their output tokens by this factor.
 REASONING_OUTPUT_MULTIPLIER = 4
-_REASONING_MODELS = frozenset({"deepseek-v4-pro", "deepseek-reasoner", "gpt-5", "gpt-5-mini", "gpt-5-nano"})
+_REASONING_MODELS = frozenset({"deepseek-v4-pro", "deepseek-reasoner",
+                               "gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol"})
 
 
 def is_reasoning_model(model) -> bool:
@@ -276,13 +310,12 @@ def estimate_text_tokens(text: str) -> float:
 
 
 def estimate_translation_cost(engine, zh_lines: list, batch_size: int | None = None) -> float:
-    """Rough pre-run estimate of a normal single-pass translation run,
-    from the lines' own character count. For token-billed engines this
-    uses a tokenizer-free heuristic (a token per CJK character, ~3.5 chars/token otherwise) -- an
-    order-of-magnitude estimate, not a precise bill. batch_size: every batch
-    re-sends the instructions, so a run in many batches costs more input
-    than one request carrying all the lines."""
-    return estimate_cost_for_engine(engine, *estimate_translation_tokens(zh_lines, batch_size))
+    """Rough pre-run estimate of a normal single-pass translation run with the
+    bare instructions (estimate_run_tokens: the real reply size, and every batch
+    re-sending the instructions when batch_size is given). Tokenizer-free, so an
+    estimate, not a bill; a title's own glossary and style guide are not known here."""
+    inp, out, _ = estimate_run_tokens(zh_lines, batch_size or len(zh_lines) or 1)
+    return estimate_cost_for_engine(engine, inp, out)
 
 
 def estimate_translation_tokens(zh_lines: list, batch_size: int | None = None) -> tuple:
@@ -301,6 +334,59 @@ def estimate_translation_tokens(zh_lines: list, batch_size: int | None = None) -
     input_tokens = int(source_tokens) + batches * per_batch_prompt
     output_tokens = int(chars / 2.5)  # English translations tend to run a bit longer than CJK source
     return input_tokens, output_tokens
+
+
+# A translate run's real output ran about 2.5x the reply text it saved (11 finished
+# Sonnet 5.5 runs in the usage log: 2.2-3.2x, median 2.7): hidden reasoning, batch
+# retries and the pronoun re-check all bill as output, and output costs 5x input.
+RUN_OUTPUT_FACTOR = 2.5
+# Per line: the JSON key and quotes around its translation in the reply.
+REPLY_TOKENS_PER_LINE = 6
+# Per line: its number in the request.
+REQUEST_TOKENS_PER_LINE = 3
+
+
+def estimate_run_tokens(zh_lines: list, batch_size: int, stable_text: str | None = None,
+                        context_lines: tuple = (0, 0)) -> tuple:
+    """(input, output, repeated) tokens for a translate run as it really sends
+    it, which estimate_translation_tokens does not know about: the title's own
+    prompt (stable_text: style guide, glossary, summary of the last episode; the
+    bare instructions when omitted), the neighbouring lines each batch carries
+    (context_lines = (lines before, lines after)) and the reply's extra output.
+    `repeated` is the part of the input that is the same in every batch, which
+    an engine with a prompt cache bills at a tenth after the first."""
+    from .prompts import build_stable_system_text
+    if not zh_lines:
+        return 0, 0, 0
+    source_tokens = sum(estimate_text_tokens(z) for z in zh_lines)
+    batches = -(-len(zh_lines) // max(batch_size or len(zh_lines), 1))
+    stable_tokens = int(estimate_text_tokens(
+        stable_text if stable_text is not None else build_stable_system_text({})))
+    per_line = source_tokens / len(zh_lines)
+    before, after = context_lines
+    # A preceding line is shown with its English, which runs about as long as the source.
+    per_batch_context = int(per_line * (2 * before + after))
+    input_tokens = (int(source_tokens) + REQUEST_TOKENS_PER_LINE * len(zh_lines)
+                    + batches * (stable_tokens + 300 + per_batch_context))
+    reply = source_tokens + REPLY_TOKENS_PER_LINE * len(zh_lines)
+    return input_tokens, int(reply * RUN_OUTPUT_FACTOR), (batches - 1) * stable_tokens
+
+
+def estimate_episode_brief_tokens(zh_lines: list) -> tuple:
+    """(input, output) of the whole-episode pre-read, which llm_tasks.generate_episode_brief
+    cuts at EPISODE_BRIEF_SOURCE_CHARS; its answer is capped at 700 tokens and a
+    real one was 512."""
+    from .llm_tasks import EPISODE_BRIEF_SOURCE_CHARS
+    text = "\n".join(z for z in zh_lines)[:EPISODE_BRIEF_SOURCE_CHARS]
+    return int(estimate_text_tokens(text)) + 300, 600
+
+
+def estimate_episode_summary_tokens(zh_lines: list) -> tuple:
+    """(input, output) of the once-per-episode summary written at the end of a run:
+    the prompt plus the whole finished English (about a token per source character),
+    and a few sentences back (a real one ran 90-140 tokens, the call allows 500)."""
+    source_tokens = sum(estimate_text_tokens(z) for z in zh_lines)
+    return int(source_tokens) + REPLY_TOKENS_PER_LINE * len(zh_lines) + 250, 200
 
 
 def estimate_reflect_mode_cost(engine, zh_lines: list, batch_size: int | None = None) -> float:

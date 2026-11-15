@@ -99,4 +99,4 @@ def check_start(stage: str, checked: list, judge, use_gpu):
     arms = [c["transcribe"] for c in checked if c.get("transcribe")]
     if judge and arms:
         raise UnsupportedOperationError("The judge can't score an end-to-end arm.")
-    require_separation_ready(checked if stage == "transcription" else arms, use_gpu)
+    require_separation_ready(checked if stage == "transcription" else arms)

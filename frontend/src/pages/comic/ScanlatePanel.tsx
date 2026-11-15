@@ -6,15 +6,15 @@
  * finishes, onChanged() lets the viewer reload its pages so the typeset
  * images show. Server notes are rendered as text only.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { scanlateApi, scanlateExportUrl } from '../../api/scanlate'
 import { engineOptionLabel, engineShortName } from '../../api/translate'
 import { routeHref } from '../../router'
 import { Card } from '../../components/Card'
-import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { RedoControls, type RedoRequest } from './RedoControls'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
@@ -43,8 +43,11 @@ import {
   toolsSummary,
   uploadResultText,
   usableEngines,
+  warningPages,
 } from './scanlateLogic'
+import { WarningPages } from './WarningPages'
 import { AI_ENGINE_LABEL } from '../../helpText'
+import { recommendedModelNote } from '../workspace/recommendedModel'
 import type { ScopeCounts } from './chapterLogic'
 
 interface Props {
@@ -54,8 +57,10 @@ interface Props {
   // The reader's Typeset toggle: off exports the original pages.
   typeset: boolean
   // Opens a page by its 1-based position, for the list of pages with warnings.
-  onGoToPage?: (ordinal: number) => void
+  onGoToPage?: (ordinal: number, boxes: number[]) => void
   pageNumber: number | null
+  // Every page of the title in reading order (position n is page number n), 
+  pageIds: number[]
   // Page counts for "this chapter" and "all chapters" (hidden pages never count).
   scopes?: ScopeCounts
   onChanged: () => void
@@ -72,13 +77,7 @@ const DETECTORS: { value: ScanlateDetectBackend; label: string }[] = [
 // The form is remembered per title, so leaving the page does not reset the engine, detector and scope.
 const SCANLATE_DRAFT = { engine: '', detector: 'auto' as string, slice: true, scope: 'all' as string }
 
-// A page's first note line, short enough to scan in a list.
-function firstLine(message: string): string {
-  const line = message.split('\n')[0]
-  return line.length > 140 ? `${line.slice(0, 139)}…` : line
-}
-
-export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, onChanged, onJob, onGoToPage }: Props) {
+export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, scopes, onChanged, onJob, onGoToPage }: Props) {
   const canUpload = useCanUpload()
   const { readiness } = useReadiness()
   const [config, setConfig] = useState<ScanlateConfig | null>(null)
@@ -92,8 +91,10 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
   )
   const [files, setFiles] = useState<File[]>([])
   const [slice, setSlice] = useState(draft.slice ?? true)
-  // Not remembered: it adds seconds per caption, so each visit starts with it off.
-  const [artCaptions, setArtCaptions] = useState(false)
+  // Not remembered. null = untouched: on when PaddleOCR and the LaMa model are here
+  // (otherwise the art lettering and the source site's watermark stay on the page).
+  const [artCaptionsChoice, setArtCaptions] = useState<boolean | null>(null)
+  const artCaptions = artCaptionsChoice ?? config?.art_captions_available ?? false
   const [uploading, setUploading] = useState(false)
   const [uploadMsg, setUploadMsg] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -177,8 +178,41 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
         confirm: mode === 'all' ? true : undefined,
         engine,
         detect_backend: detector,
-        art_captions: artCaptions || undefined,
+        art_captions: artCaptions,
       })
+      setJobKind('run')
+      setJobId(r.job_id)
+    } catch (e) {
+      setError(e)
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const redo = async ({ scope: redoScope, how, ordinals }: RedoRequest) => {
+    setError(null)
+    setStarting(true)
+    pendingExport.current = []
+    try {
+      const chosen = redoScope === 'chosen' ? ordinals.map((n) => pageIds[n - 1]).filter(Boolean) : []
+      let r
+      if (how === 'typeset') {
+        const ids = redoScope === 'page' ? (pageId ? [pageId] : []) : redoScope === 'chosen' ? chosen : chapterScope?.ids
+        r = await scanlateApi.render(dramaId, null, undefined, ids)
+      } else {
+        const keep = how === 'keep_text' ? true : undefined
+        r = await scanlateApi.run(dramaId, {
+          mode: redoScope === 'page' ? 'page' : redoScope === 'chosen' ? 'pages' : 'all',
+          page_id: redoScope === 'page' && pageId ? pageId : undefined,
+          page_ids: redoScope === 'chosen' ? chosen : undefined,
+          chapter_id: redoScope === 'all' && chapterScope ? chapterScope.id : undefined,
+          confirm: redoScope === 'page' ? undefined : true,
+          keep_text: keep,
+          engine,
+          detect_backend: detector,
+          art_captions: artCaptions,
+        })
+      }
       setJobKind('run')
       setJobId(r.job_id)
     } catch (e) {
@@ -225,7 +259,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
   }
 
   const pageNotes = notes.find((n) => n.page_id === pageId)?.notes ?? []
-  const problemPages = notes.filter((n) => n.page_id !== pageId && n.notes.some((x) => x.level !== 'info'))
+  const warnings = useMemo(() => warningPages(notes), [notes])
   const limits = config?.upload_limits
   const accept = limits?.pdf === false
     ? '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp'
@@ -306,16 +340,6 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
         >
           {running && jobKind === 'run' ? 'Translating…' : `Translate ${targetName}`}
         </button>
-        <ConfirmButton
-          name={pageNumber ? `page ${pageNumber}` : 'this page'}
-          label={pageNumber ? `Redo page ${pageNumber}…` : 'Redo this page…'}
-          verb="redo"
-          ariaLabel={pageNumber ? `Redo page ${pageNumber}` : 'Redo this page'}
-          confirmLabel={pageNumber ? `Replace text on page ${pageNumber}` : 'Replace text on this page'}
-          busy={running}
-          disabled={!config || !!blocked || !pageId}
-          onConfirm={() => void start('page')}
-        />
         {blocked && (
           <span id="scanlate-blocked" className={need ? 'visually-hidden' : 'muted'}>
             {blocked}
@@ -323,8 +347,16 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
         )}
       </div>
       {need && <NeedsInstall need={need} onInstalled={reload} />}
+      <RedoControls
+        pageNumber={pageNumber}
+        pageCount={pageIds.length}
+        allName={targetName}
+        disabled={!config || !!blocked}
+        busy={running}
+        onRedo={(req) => void redo(req)}
+      />
       <p className="muted scanlate-hint">
-        {target ? `${target.todo} of ${pagesText(target.pages)} have no text yet. ` : ''}Translate skips pages that already have text. Redo replaces a page's text boxes, including edits.
+        {target ? `${target.todo} of ${pagesText(target.pages)} have no text yet. ` : ''}Translate skips pages that already have text. Redo replaces the text boxes of the pages you pick, including edits (not for Typeset only).
       </p>
 
       {starting && !jobId && <p className="muted" role="status">Starting…</p>}
@@ -342,28 +374,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
           </ul>
         </div>
       )}
-      {problemPages.length > 0 && (
-        <details className="scanlate-problem-pages">
-          <summary>
-            {problemPages.length} other page{problemPages.length === 1 ? ' has' : 's have'} warnings
-          </summary>
-          <ul>
-            {problemPages.map((p) => {
-              const worst = p.notes.find((x) => x.level === 'error') ?? p.notes.find((x) => x.level !== 'info')
-              return (
-                <li key={p.page_id}>
-                  <button type="button" className={buttonClass('secondary')} onClick={() => onGoToPage?.(p.ordinal)}>
-                    Page {p.ordinal}
-                  </button>{' '}
-                  <span className={worst?.level === 'error' ? 'error' : 'warn'}>
-                    {firstLine(worst?.message ?? '')}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        </details>
-      )}
+      <WarningPages all={warnings.all} groups={warnings.groups} pageNumber={pageNumber} onGo={onGoToPage} />
 
       <div className="actions scanlate-export">
         <button
@@ -400,7 +411,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
           <div className="scanlate-run-row">
             <Field
               label={AI_ENGINE_LABEL}
-              help={`Keys stay on the PC; engines without a key are not listed.${selectedEngine ? ` ${engineShortName(selectedEngine)}: ${selectedEngine.label}` : ''}`}
+              help={`${recommendedModelNote('comic')} Keys stay on the PC; engines without a key are not listed.${selectedEngine ? ` ${engineShortName(selectedEngine)}: ${selectedEngine.label}` : ''}`}
             >
               <select value={engine} onChange={(e) => setEngine(e.target.value)} disabled={!usable.length}>
                 {usable.length === 0 && <option value="">No engine has a key</option>}
@@ -431,17 +442,6 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, scopes, on
             </select>
           </Field>
           {detectorNeed && <NeedsInstall need={detectorNeed} />}
-          <div className="actions">
-            <ConfirmButton
-              name={chapterScope ? 'every page of this chapter' : 'every page'}
-              label={chapterScope ? 'Redo chapter…' : 'Redo all…'}
-              verb="redo"
-              confirmLabel="Replace text on every page"
-              busy={running}
-              disabled={!config || !!blocked}
-              onConfirm={() => void start('all')}
-            />
-          </div>
         </div>
       </Section>
       </>)}

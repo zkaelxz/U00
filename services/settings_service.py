@@ -248,18 +248,17 @@ def get_settings_overview(env_path: str | None = None) -> dict:
 _DB_TOGGLES = ("use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models")
 
 # A stolen admin cookie could fill the disk with uploads, so the switch that
-# lets an admin upload from away lapses on its own and needs Developer Mode.
+# lets an admin upload from away lapses on its own.
 REMOTE_UPLOADS_DAYS = 7
 
 
 def remote_uploads_on(now: float | None = None) -> bool:
     """Whether a signed-in admin away from the PC may upload (media.upload).
-    Off unless Developer Mode is on and the switch was turned on in the last
-    REMOTE_UPLOADS_DAYS days."""
-    if not (_developer_mode_on() and get("remote_uploads")):
+    Off unless the switch was turned on in the last REMOTE_UPLOADS_DAYS days."""
+    if not get("remote_uploads"):
         return False
     now = time.time() if now is None else now
-    on_at = get("remote_uploads.on_at")
+    on_at = get("remote_uploads.since")
     return isinstance(on_at, (int, float)) and 0 < on_at <= now < on_at + REMOTE_UPLOADS_DAYS * 86400
 
 
@@ -267,7 +266,7 @@ def _set_remote_uploads(enabled: bool) -> None:
     import db
     # Time first: a crash between the two writes leaves the switch off.
     if enabled:
-        db.set_app_setting("remote_uploads.on_at", time.time())
+        db.set_app_setting("remote_uploads.since", time.time())
     db.set_app_setting("remote_uploads", enabled)
     from services import auth_service
     # Only the PC can flip this, so there is no acting account to name. The switch is
@@ -422,6 +421,14 @@ def _voice_detector_choices() -> tuple:
 REPLY_GUARD_MODES = ("auto", "on", "off")
 
 
+def reasoning_override(engine_name):
+    """"less" when the saved choice asks this engine's Translate runs to reason less, else
+    None (the provider's default). Callers read it here so the root translate modules never
+    read settings."""
+    key = {"claude": "claude_reasoning", "openai": "openai_reasoning"}.get(engine_name)
+    return "less" if key and get(key) == "less" else None
+
+
 def reply_guard_override():
     """The translate reply guard as the pipeline's `check_replies` argument:
     None leaves the choice to the engine and model (auto), else forced on or off.
@@ -455,6 +462,7 @@ _SCHEMA_CHOICES = {
     "voice_detectors": _voice_detector_choices,
     "speaker_models": _speaker_model_choices,
     "reply_guard_modes": lambda: REPLY_GUARD_MODES,
+    "reasoning_modes": lambda: __import__("engine_backends.thinking", fromlist=["x"]).REASONING_MODES,
 }
 
 
@@ -725,13 +733,14 @@ def _rewrite_env(env_path: str, transform):
 
 def _rewrite_env_locked(env_path: str, transform):
     """Atomically rewrites the .env file: `transform(lines)` returns the
-    new line list. Temp file in the same folder + os.replace; keeps the
-    existing file's permission bits (new files get 0600)."""
+    new line list. Temp file in the same folder + os.replace; the result is
+    always mode 0600."""
     import tempfile
     lines = []
+    # Always 0600, not the old file's mode: a hand-made world-readable .env
+    # must not stay readable just because it was saved through the app.
     mode = 0o600
     if os.path.exists(env_path):
-        mode = os.stat(env_path).st_mode & 0o777
         # surrogateescape round-trips bytes we cannot decode, so saving a key never rewrites them.
         # A UTF-16 file is decoded as such and saved as UTF-8 like every other.
         encoding = _env_file_encoding(env_path)

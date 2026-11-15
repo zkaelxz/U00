@@ -84,8 +84,7 @@ class TestDiagnostics:
         deps = diagnostics.OPTIONAL_DEPENDENCIES
         assert deps["audio-separator"][0] == "audio_separator"
         assert deps["funasr"][0] == "funasr"
-        assert deps["demucs"][0] == "demucs"
-        assert deps["audio-separator"][2] == deps["funasr"][2] == deps["demucs"][2] == "feature"
+        assert deps["audio-separator"][2] == deps["funasr"][2] == "feature"
 
     def test_requirements_optional_extras_are_registered(self):
         """CLAUDE.md: every pip-installable extra in requirements-optional.txt
@@ -361,7 +360,7 @@ class TestModelFolders:
     def test_lists_files_and_folders_largest_first_skipping_symlinks(self, tmp_path_str):
         folder = os.path.join(tmp_path_str, "models")
         os.makedirs(os.path.join(folder, "repo"))
-        with open(os.path.join(folder, "htdemucs.th"), "wb") as f:
+        with open(os.path.join(folder, "model.pt"), "wb") as f:
             f.write(b"x" * 300)
         with open(os.path.join(folder, "repo", "w.bin"), "wb") as f:
             f.write(b"x" * 500)
@@ -373,7 +372,7 @@ class TestModelFolders:
         except (OSError, NotImplementedError):
             pass
         assert diagnostics.scan_model_folder("torch", folder) == [
-            {"name": "repo", "size_bytes": 500}, {"name": "htdemucs.th", "size_bytes": 300}]
+            {"name": "repo", "size_bytes": 500}, {"name": "model.pt", "size_bytes": 300}]
         assert diagnostics.scan_model_folder("torch", os.path.join(tmp_path_str, "nope")) == []
 
     def test_delete_stays_inside_the_folder(self, tmp_path_str):
@@ -430,9 +429,9 @@ class TestModelEngineVersions:
 
     def test_ollama_tag_appended_only_when_given(self):
         assert not any(v["name"].startswith("Ollama") for v in diagnostics_report.get_model_engine_versions())
-        versions = diagnostics_report.get_model_engine_versions("qwen3:8b")
+        versions = diagnostics_report.get_model_engine_versions("translategemma:12b")
         row = next(v for v in versions if v["name"].startswith("Ollama"))
-        assert row["version"] == "qwen3:8b"
+        assert row["version"] == "translategemma:12b"
 
     def test_makes_no_network_call(self, monkeypatch):
         def boom(*a, **k):
@@ -440,7 +439,7 @@ class TestModelEngineVersions:
         monkeypatch.setattr("requests.get", boom)
         monkeypatch.setattr("requests.post", boom)
         monkeypatch.setattr(http, "pinned_get", boom)
-        diagnostics_report.get_model_engine_versions("qwen3:8b")  # must not raise
+        diagnostics_report.get_model_engine_versions("translategemma:12b")  # must not raise
 
     def test_installed_is_a_real_boolean_not_a_string_match(self):
         """Step 18 item 2: the render step branches on a real boolean this
@@ -454,7 +453,7 @@ class TestModelEngineVersions:
         assert rows["pyannote diarization model"]["installed"] is True
 
     def test_ollama_row_is_installed(self):
-        rows = {v["name"]: v for v in diagnostics_report.get_model_engine_versions("qwen3:8b")}
+        rows = {v["name"]: v for v in diagnostics_report.get_model_engine_versions("translategemma:12b")}
         assert rows["Ollama (active tag)"]["installed"] is True
 
 
@@ -1041,3 +1040,13 @@ class TestCheckCuda:
         monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
         monkeypatch.setitem(sys.modules, "torch", None)  # forces ImportError on `import torch`
         assert diagnostics.check_cuda() == {"torch_installed": True, "cuda_available": None}
+
+
+@pytest.mark.parametrize("filler", ["a-", "token-", "a-token-", "x-amz-a-", "key.sig-"])
+def test_credential_param_pattern_is_linear_on_a_long_name_without_an_equals_sign(filler):
+    import time
+    text = filler * (40_000 // len(filler))
+    started = time.perf_counter()
+    diagnostics_report.CREDENTIAL_PARAM_PATTERN.sub(r"\1[REDACTED]", text)
+    # A nested name match backtracked quadratically here (about 2 s for 40 KB).
+    assert time.perf_counter() - started < 1.0

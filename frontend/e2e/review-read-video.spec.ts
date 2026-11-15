@@ -5,7 +5,7 @@ import { seedVideo } from './playerMocks'
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 
 // "Read from video" under the side video: a frame at the active line's start
-// goes through Quick translate's read route and lands in that line's Source
+// goes through Text's read route and lands in that line's Source
 // box as an unsaved edit. The read itself is mocked.
 
 const ENGINES = {

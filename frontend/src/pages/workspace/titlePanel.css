@@ -1,0 +1,7 @@
+/* Text wraps and the video never outgrows the column. */
+.title-studio { display: grid; gap: var(--space-4); grid-template-columns: minmax(0, 1fr); align-items: start; }
+.title-panel { display: grid; gap: var(--space-3); min-width: 0; }
+.title-panel-body { display: grid; gap: var(--space-3); }
+.title-panel-body[hidden] { display: none; }
+.title-panel-video { width: 100%; max-height: 50vh; border-radius: var(--radius-md); background: #000; }
+.title-panel-note { margin: 0; overflow-wrap: anywhere; }

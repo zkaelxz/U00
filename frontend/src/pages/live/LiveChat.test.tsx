@@ -1,9 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
+import { fmtSentAt } from '../../api/live'
 import { LiveChat } from './LiveChat'
 
-const msg = (id: number, state: string, extra = {}) => ({ id, author: `A${id}`, text: `t${id}`, paid: '', translation: state === 'done' ? `e${id}` : '', state, ...extra })
+const msg = (id: number, state: string, extra = {}) => ({ id, author: `A${id}`, text: `t${id}`, paid: '', sent_at: 0, translation: state === 'done' ? `e${id}` : '', state, ...extra })
 
 describe('LiveChat', () => {
   it('shows the original with its translation, newest first', () => {
@@ -24,6 +25,14 @@ describe('LiveChat', () => {
     const html = renderToStaticMarkup(<LiveChat language="zh" view={{ state: 'unavailable', message: 'This stream has no live chat to read.', messages: [msg(1, 'done', { paid: '$5.00' })] }} />)
     expect(html).toContain('$5.00')
     expect(html).toContain('This stream has no live chat to read.')
+  })
+
+  it('shows when a message was sent, and nothing for one with no stamp', () => {
+    const sent = Date.UTC(2026, 10, 12, 12, 30) / 1000
+    const html = renderToStaticMarkup(<LiveChat language="zh" view={{ state: 'reading', message: '', messages: [msg(1, 'done', { sent_at: sent }), msg(2, 'done')] }} />)
+    expect(html).toContain(fmtSentAt(sent))
+    expect(html.match(/<time /g)).toHaveLength(1)
+    expect(html).toContain('dateTime="2026-11-12T12:30:00.000Z"')
   })
 
   it('says nothing has arrived yet while reading', () => {

@@ -42,7 +42,7 @@ test('Library: cards, title opens the workspace', async ({ page }) => {
   // No stage in the link: the workspace opens the drama's current stage
   // (Source for the seeded drama, which has no lines).
   await expect(page).toHaveURL(/#\/drama\/\d+$/)
-  await expect(page.getByRole('link', { name: 'Media', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('link', { name: 'Transcribe', exact: true })).toHaveAttribute('aria-current', 'page')
 })
 
 for (const stage of ['source', 'translate', 'review', 'export']) {
@@ -78,7 +78,7 @@ for (const [name, path] of [
   })
 }
 
-test('Library at 360px: no sideways scroll; New title and Details open bottom sheets', async ({ page }) => {
+test('Library at 360px: no sideways scroll; Add, New title and Details open without it', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   await page.goto('/')
   await expect(page.getByTestId('drama-count')).toBeVisible()
@@ -86,7 +86,11 @@ test('Library at 360px: no sideways scroll; New title and Details open bottom sh
   await page.getByRole('button', { name: 'Filters' }).click()
   await expectTall(page, '.segmented label')
   await page.getByRole('button', { name: 'Close' }).click()
-  await page.getByRole('button', { name: 'New title' }).click()
+  // A phone's Library has no Add box: its Add opens the Add page, whose "Add a title by hand" comes back with New title open.
+  await page.locator('.page-head').getByRole('link', { name: 'Add', exact: true }).click()
+  await expect(page).toHaveURL(/#\/make-subtitles$/)
+  await expectNoSidewaysScroll(page)
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
   await expect(page.getByRole('dialog', { name: 'New title' })).toBeVisible()
   await expectNoSidewaysScroll(page)
   await page.getByRole('button', { name: 'Close' }).click()
@@ -104,7 +108,7 @@ test('Jellyfin: the settings card fits a phone (labels on one line, full-width f
   await page.route('**/api/jellyfin/config', (route) =>
     route.fulfill({ json: { enabled: true, server_url: 'http://192.168.1.20:8096', library_dir: 'D:\\Media\\Dramas', key_configured: true } }))
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Integrations')
+  await openSettingsGroups(page, 'Connections')
   const card = page.getByRole('region', { name: 'Jellyfin' })
   await expect(card.getByTestId('jellyfin-key')).toHaveText('Set')
   await expectNoSidewaysScroll(page)

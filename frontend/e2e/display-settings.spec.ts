@@ -4,7 +4,7 @@ import { openSettingsGroups } from './settingsNav'
 
 test('Settings > Display sets the page width and text size, and they survive a reload', async ({ page }) => {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Account and display')
+  await openSettingsGroups(page, 'My account and look')
   const html = page.locator('html')
   await expect(html).not.toHaveAttribute('data-width', /.+/)
   const sizeAtDefault = await html.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
@@ -16,7 +16,7 @@ test('Settings > Display sets the page width and text size, and they survive a r
   await page.reload()
   await expect(html).toHaveAttribute('data-width', 'wide')
   await expect(html).toHaveAttribute('data-text', 'large')
-  await openSettingsGroups(page, 'Account and display')
+  await openSettingsGroups(page, 'My account and look')
   await page.getByLabel('Page width', { exact: true }).selectOption('standard')
   await page.getByLabel('Text size', { exact: true }).selectOption('default')
   await expect(html).not.toHaveAttribute('data-width', /.+/)
@@ -25,7 +25,7 @@ test('Settings > Display sets the page width and text size, and they survive a r
 
 test('Settings > Display > Spacing compact tightens card padding and survives a reload', async ({ page }) => {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Account and display')
+  await openSettingsGroups(page, 'My account and look')
   const html = page.locator('html')
   const card = page.getByLabel('Display', { exact: true }).first()
   const padding = () => card.evaluate((el) => parseFloat(getComputedStyle(el).paddingLeft))
@@ -35,7 +35,7 @@ test('Settings > Display > Spacing compact tightens card padding and survives a 
   expect(await padding()).toBeLessThan(comfortable)
   await page.reload()
   await expect(html).toHaveAttribute('data-density', 'compact')
-  await openSettingsGroups(page, 'Account and display')
+  await openSettingsGroups(page, 'My account and look')
   await page.getByLabel('Spacing', { exact: true }).selectOption('comfortable')
   await expect(html).not.toHaveAttribute('data-density', /.+/)
 })

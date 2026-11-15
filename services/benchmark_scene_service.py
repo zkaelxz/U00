@@ -19,7 +19,7 @@ import translation_memory
 from core import SOURCE_LANGUAGES, Line
 from engine_backends import paid_calls, pricing
 from engine_backends.temperature import MAX_TEMPERATURE, MIN_TEMPERATURE, TEMPERATURE_ENGINES
-from services import transcribe_options_service
+from services import ownership_service, transcribe_options_service
 from services.benchmark_case_service import redact
 from lib.errors import InvalidInputError
 
@@ -156,6 +156,8 @@ def estimate_cost(probe, options: dict, cases: list) -> float:
         batches = math.ceil(len(lines) / options["batch_size"])
         average = sum(engine_pricing.estimate_text_tokens(z) for z in lines) / len(lines)
         tokens_in, tokens_out = pricing.estimate_translation_tokens(lines, options["batch_size"])
+        if not engine_pricing.is_reasoning_model(probe.model):
+            tokens_out = engine_pricing.estimate_run_tokens(lines, options["batch_size"])[1]
         context = batches * (options["context_window"] + options["context_window_ahead"]) * average
         tokens_in += int(context + batches * engine_pricing.estimate_text_tokens(guidelines))
         if engine_pricing.is_reasoning_model(probe.model):
@@ -170,12 +172,14 @@ def is_reasoning_arm(cfg: dict) -> bool:
 
 def estimate_per_case_cost(probe, cases: list) -> float:
     """One call per case, so the fixed instructions overhead is paid per case."""
-    multiplier = engine_pricing.REASONING_OUTPUT_MULTIPLIER if engine_pricing.is_reasoning_model(
-        probe.model) else 1
+    reasoning = engine_pricing.is_reasoning_model(probe.model)
     total = 0.0
     for case in cases:
-        tokens_in, tokens_out = pricing.estimate_translation_tokens([case.get("source_text") or ""])
-        total += engine_pricing.estimate_cost_for_engine(probe, tokens_in, tokens_out * multiplier)
+        lines = [case.get("source_text") or ""]
+        tokens_in, tokens_out = pricing.estimate_translation_tokens(lines)
+        tokens_out = (tokens_out * engine_pricing.REASONING_OUTPUT_MULTIPLIER if reasoning
+                      else engine_pricing.estimate_run_tokens(lines, 1)[1])
+        total += engine_pricing.estimate_cost_for_engine(probe, tokens_in, tokens_out)
     return total
 
 
@@ -261,7 +265,7 @@ def option_choices() -> dict:
     from services import translate_service
     engines = translate_service.list_engines()
     return {"style_presets": [{"key": k, "label": v["label"]} for k, v in tguide.STYLE_PRESETS.items()],
-            "series": [{"id": s["id"], "name": s["name"]} for s in db.list_series()],
+            "series": [{"id": s["id"], "name": s["name"]} for s in db.list_series(visible_to=ownership_service.visible_to_filter(None))],
             "defaults": {**engine_registry.default_translate_options(), "reflect": False,
                          "style_preset": DEFAULT_STYLE_PRESET, "memory_examples": False},
             "temperature_engines": list(TEMPERATURE_ENGINES),

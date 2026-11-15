@@ -93,15 +93,16 @@ export function JobsMenu() {
       <button
         ref={button}
         type="button"
-        className="jobs-menu-btn"
+        className="jobs-menu-btn hb-box"
         aria-label={jobsButtonLabel(running)}
         aria-expanded={open}
         aria-controls={panelId}
         onClick={toggle}
       >
-        <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg className="hb-icon" aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
         </svg>
+        <span className="hb-words" aria-hidden="true">Jobs</span>
         {running > 0 && (
           <span className="jobs-count" aria-hidden="true" data-testid="jobs-count">
             <Badge tone="accent">{badgeText(running)}</Badge>

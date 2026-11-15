@@ -1,3 +1,5 @@
+import { usePublishedHeight } from '../../../../hooks/usePublishedHeight'
+
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
 import { DISCARD_WARNING } from './LineRow'
@@ -14,12 +16,16 @@ interface Props {
   onPlay: () => void
   onMove: (delta: 1 | -1) => void
   onEdit: () => void
+  // Simple's check queue: Skip for now and Looks right, next take the place of Prev, Next and Edit; the card's
+  // English box opens the editor on a tap, as Edit did, and Play line is on the card.
+  queue?: { onSkip: () => void; onLooksRight: () => void }
 }
 
 // The phone action bar for the active line.
-export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCancel, onSave, onSaveAndNext, onPlay, onMove, onEdit }: Props) {
+export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCancel, onSave, onSaveAndNext, onPlay, onMove, onEdit, queue }: Props) {
+  const barRef = usePublishedHeight('--editbar-h')
   return (
-    <div className="review-editbar" role="toolbar" aria-label="Line actions" onMouseDown={editing ? (e) => e.preventDefault() : undefined}>
+    <div ref={barRef} className={queue ? 'review-editbar is-queue' : 'review-editbar'} role="toolbar" aria-label="Line actions" onMouseDown={editing ? (e) => e.preventDefault() : undefined}>
       {editing ? (
         <>
           {discardWarning && <span role="status">{DISCARD_WARNING}</span>}
@@ -29,16 +35,27 @@ export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCanc
         </>
       ) : (
         <>
-          {hasMedia && (
+          {hasMedia && !queue && (
             <button type="button" aria-label={`Play line ${lineNumber(active.idx)}`} onClick={onPlay}>
               ▶ #{lineNumber(active.idx)}
             </button>
           )}
-          <button type="button" aria-label="Previous line" onClick={() => onMove(-1)}>‹ Prev</button>
-          <button type="button" aria-label="Next line" onClick={() => onMove(1)}>Next ›</button>
-          <button type="button" onClick={onEdit}>
-            Edit #{lineNumber(active.idx)}
-          </button>
+          {queue ? (
+            <button type="button" aria-label="Skip for now" title="Skip for now" onClick={queue.onSkip}>Skip</button>
+          ) : (
+            <>
+              <button type="button" aria-label="Previous line" onClick={() => onMove(-1)}>‹ Prev</button>
+              <button type="button" aria-label="Next line" onClick={() => onMove(1)}>Next ›</button>
+            </>
+          )}
+          {!queue && (
+            <button type="button" onClick={onEdit}>
+              Edit #{lineNumber(active.idx)}
+            </button>
+          )}
+          {queue && !active.reviewed && (
+            <button type="button" className={buttonClass('ok', 'md', 'review-queue-done')} disabled={!active.en} aria-label="Looks right, next" title="Looks right, next (R)" onClick={queue.onLooksRight}>Next</button>
+          )}
         </>
       )}
     </div>

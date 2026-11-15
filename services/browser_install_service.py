@@ -25,6 +25,7 @@ import job_process_kill
 import browser_support
 import diagnostics_report
 from engine_backends import shared
+from lib import proc
 from lib.proc import stream_tree
 from services import diagnostics_admin_service as admin_svc
 from lib.errors import ConflictError
@@ -139,7 +140,7 @@ def _command() -> list:
 
 
 def _environment(folder: str) -> dict:
-    env = {k: v for k, v in os.environ.items() if k not in _ENV_DROPPED}
+    env = {k: v for k, v in proc.secretless_env(drop_prefixes=()).items() if k not in _ENV_DROPPED}
     env[browser_support.BROWSERS_ENV] = folder
     return env
 
@@ -229,7 +230,7 @@ def refresh_playwright_browser(on_line, cancelled) -> tuple:
     if browser_support.app_chromium_present():
         env = _environment(browser_support.app_browsers_folder())
     elif _global_chromium_present():
-        env = {k: v for k, v in os.environ.items() if k not in _ENV_DROPPED}
+        env = {k: v for k, v in proc.secretless_env(drop_prefixes=()).items() if k not in _ENV_DROPPED}
     else:
         return True, ""
     code, timed_out, was_cancelled = _run(_command(), env, INSTALL_TIMEOUT_SECONDS, on_line,

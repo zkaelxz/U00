@@ -20,15 +20,30 @@ export function useScrollCollapse(isPhone: boolean): boolean {
   return isPhone && scrolled
 }
 
-// Rows keep clear of the sticky toolbar through scroll-margin-top, which follows its measured height.
+// Rows keep clear of the sticky toolbar through scroll-margin-top, which follows its measured height. The list card's top
+// is published too, so the card can reach the window's bottom when its rows are few (review.css, 1400px and wider).
 // Runs after every render because the toolbar element is replaced when the empty-drama state flips.
 export function useToolbarHeight(sectionRef: RefObject<HTMLElement | null>) {
   useEffect(() => {
     const section = sectionRef.current
     const bar = section?.querySelector<HTMLElement>('.review-toolbar')
     if (!section || !bar || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(() => section.style.setProperty('--review-toolbar-h', `${bar.offsetHeight}px`))
+    const measure = () => {
+      section.style.setProperty('--review-toolbar-h', `${bar.offsetHeight}px`)
+      // A collapsed phone toolbar hides the header above the list, which moves the card up; the card's height is for the page as it opens, so that move is not measured.
+      if (bar.classList.contains('is-collapsed')) return
+      // A phone draws no box for the list's card (display: contents has no rectangle), so its first child, the list, marks the top.
+      const wrapper = section.querySelector<HTMLElement>('.review-list-card')
+      const card = wrapper && wrapper.getClientRects().length === 0 ? wrapper.firstElementChild : wrapper
+      if (card) section.style.setProperty('--review-card-top', `${card.getBoundingClientRect().top + window.scrollY}px`)
+    }
+    const ro = new ResizeObserver(measure)
     ro.observe(bar)
+    ro.observe(section)
+    // The card's top moves with the title header's height (a job pill, a wrapped name, the queue's place) without the toolbar or the section changing size.
+    const header = document.querySelector<HTMLElement>('.workspace-header')
+    if (header) ro.observe(header)
+    measure()
     return () => ro.disconnect()
   })
 }

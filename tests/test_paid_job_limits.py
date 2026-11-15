@@ -111,12 +111,12 @@ class TestRecordCall:
         assert row["input_tokens"] == 0 and row["estimated_cost_usd"] == 0
 
     def test_a_free_engine_with_no_tokens_is_not_logged(self):
-        local = SimpleNamespace(name="ollama", model="qwen3:8b")
+        local = SimpleNamespace(name="ollama", model="translategemma:12b")
         assert not paid_calls.record_call(local, "ollama", "op", {})
         assert _usage_rows() == []
 
     def test_a_free_engine_that_reports_tokens_is_logged(self):
-        local = SimpleNamespace(name="ollama", model="qwen3:8b")
+        local = SimpleNamespace(name="ollama", model="translategemma:12b")
         assert paid_calls.record_call(local, "ollama", "op", {"input_tokens": 5, "output_tokens": 5})
 
     def test_a_hosted_ollama_model_is_logged_even_with_no_tokens(self):
@@ -222,7 +222,7 @@ class TestCallLimits:
 
     def test_a_free_engine_with_no_tokens_writes_nothing(self):
         engine = FakeClaude()
-        engine.name, engine.model = "ollama", "qwen3:8b"
+        engine.name, engine.model = "ollama", "translategemma:12b"
         engine.client.messages.create = lambda **kw: SimpleNamespace(
             content=[SimpleNamespace(type="text", text="[]")], usage=None)
         with paid_calls.call_limits(engine, None, "op", log_usage=True):
@@ -310,14 +310,14 @@ class TestUnattendedNeedsACap:
     def test_a_capped_engine_is_refused_without_a_cap(self, no_cap):
         for engine in ("claude", "deepseek", "gemini", "openai"):
             with pytest.raises(UnsupportedOperationError, match="Settings"):
-                paid_job_service.require_cap_for_unattended(engine)
+                paid_job_service.require_cap_for_unattended(engine, False, None)
 
     def test_free_engines_and_gemini_free_tier_need_no_cap(self, no_cap):
-        paid_job_service.require_cap_for_unattended("ollama")
-        paid_job_service.require_cap_for_unattended("gemini", gemini_free_tier=True)
+        paid_job_service.require_cap_for_unattended("ollama", False, None)
+        paid_job_service.require_cap_for_unattended("gemini", True, None)
 
     def test_a_set_cap_lets_it_through(self):
-        assert paid_job_service.require_monthly_cap(["claude", "ollama"]) == 50.0
+        assert paid_job_service.require_monthly_cap([("claude", None), ("ollama", None)]) == 50.0
 
     def test_a_bulk_batch_start_is_refused(self, no_cap, monkeypatch):
         did = db.create_drama(title_zh="D")
@@ -379,8 +379,8 @@ class TestUnattendedNeedsACap:
 
     def test_an_automatic_live_start_is_refused(self, no_cap, monkeypatch):
         monkeypatch.setattr("services.live_service.list_sessions", lambda principal: [])
-        assert "monthly spending cap" in live_follow_poller._gate_refusal("claude")
-        assert live_follow_poller._gate_refusal("ollama") == ""
+        assert "monthly spending cap" in live_follow_poller._gate_refusal("claude", None)
+        assert live_follow_poller._gate_refusal("ollama", None) == ""
 
 
 def _bulk_job(status="submitted", engine="claude"):
@@ -726,7 +726,7 @@ class TestJudgePass:
                      "input_tokens": 0, "output_tokens": 0}}
         results = {1: {i: {"output_text": "x", "error": None, "case_id": i} for i in range(1, 7)}}
         cases = {i: {"id": i} for i in range(1, 7)}
-        monkeypatch.setattr(benchmark_judge_service.lab, "_cap_applies", lambda e: False)
+        monkeypatch.setattr(benchmark_judge_service.lab, "_cap_applies", lambda e, m=None: False)
         benchmark_judge_service._judge_cases(
             "judge_t", sessions, {"engine": "claude"}, state, FakeClaude(), "k", results, cases,
             list(cases), time.monotonic() + 600, run_limits.FailureStreak())
@@ -736,7 +736,7 @@ class TestJudgePass:
     def test_a_pass_past_its_deadline_is_cut_off(self, monkeypatch):
         state = {1: {"status": "running", "note": None, "scores": {}}}
         results = {1: {1: {"output_text": "x", "error": None, "case_id": 1}}}
-        monkeypatch.setattr(benchmark_judge_service.lab, "_cap_applies", lambda e: False)
+        monkeypatch.setattr(benchmark_judge_service.lab, "_cap_applies", lambda e, m=None: False)
         benchmark_judge_service._judge_cases(
             "judge_late", [1], {"engine": "claude"}, state, FakeClaude(), "k", results, {1: {"id": 1}},
             [1], time.monotonic() - 1, run_limits.FailureStreak())

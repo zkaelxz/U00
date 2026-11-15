@@ -9,8 +9,10 @@ import { canConfirmDelete } from '../pages/libraryForm'
 import { Badge } from './Badge'
 import { ButtonLink } from './Button'
 import { ErrorBanner } from './ErrorBanner'
+import { DramaCaptureNote } from './DramaCaptureNote'
+import { DramaSeriesRow } from './DramaSeriesRow'
 import { OpenFolderButton } from './OpenFolderButton'
-import { readHref, workspaceHref } from './libraryView'
+import { readAction, workspaceHref } from './libraryView'
 import { buttonClass } from './uiClasses'
 import { useCancellableEffect } from '../hooks/useCancellableEffect'
 import { useHolds } from '../hooks/useHolds'
@@ -33,6 +35,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
   const [confirming, setConfirming] = useState(false)
   const [typed, setTyped] = useState('')
   const [deleteError, setDeleteError] = useState<unknown>(null)
+  const [deleting, setDeleting] = useState(false)
   const [moreSummary, setMoreSummary] = useState(false)
   const [copying, setCopying] = useState(false)
   // The copy route needs library.create, which members don't hold.
@@ -51,10 +54,18 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
     )
   }
 
+  // One request per confirmation: a second click while the first is in flight
+  // sent a second delete for a title the first was already removing.
   const remove = () => {
+    if (deleting) return
+    setDeleting(true)
+    setDeleteError(null)
     deleteDrama(dramaId).then(
       (r) => onDeleted?.(r),
-      (e: unknown) => setDeleteError(e),
+      (e: unknown) => {
+        setDeleteError(e)
+        setDeleting(false)
+      },
     )
   }
 
@@ -71,6 +82,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
 
   if (error) return <p className="error" role="alert">{error}</p>
   if (!drama) return <p className="muted">Loading…</p>
+  const read = readAction(drama)
 
   const rows: [string, string | number | null][] = [
     ['Author', credit(drama.author, drama.author_romanized)],
@@ -113,9 +125,11 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
             </div>
           ))}
       </dl>
+      <DramaSeriesRow drama={drama} onChanged={setDrama} />
+      <DramaCaptureNote dramaId={dramaId} />
       <div className="actions drama-detail-actions">
         <ButtonLink variant="primary" href={workspaceHref(dramaId)}>Open workspace</ButtonLink>
-        <ButtonLink href={readHref(drama)}>Read</ButtonLink>
+        <ButtonLink href={read.href}>{read.label}</ButtonLink>
         <OpenFolderButton open={() => openDramaFolder(dramaId)} title="Show this title's files on the PC" />
         {canCopy && (
           <button type="button" className={buttonClass()} disabled={copying} onClick={copy}
@@ -140,10 +154,10 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
               onChange={(e) => setTyped(e.target.value)}
             />
             <div className="actions">
-              <button type="button" className={buttonClass('danger')} disabled={!canConfirmDelete(typed)} onClick={remove}>
-                Delete permanently
+              <button type="button" className={buttonClass('danger')} disabled={deleting || !canConfirmDelete(typed)} onClick={remove}>
+                {deleting ? 'Deleting…' : 'Delete permanently'}
               </button>
-              <button type="button" className={buttonClass('ghost')} onClick={() => { setConfirming(false); setTyped(''); setDeleteError(null) }}>
+              <button type="button" className={buttonClass('ghost')} disabled={deleting} onClick={() => { setConfirming(false); setTyped(''); setDeleteError(null) }}>
                 Cancel
               </button>
             </div>

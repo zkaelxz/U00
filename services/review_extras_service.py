@@ -341,7 +341,8 @@ def learn_style(drama_id: int, engine_name: str | None = None, model: str | None
             f"{adaptive_style.MIN_SAMPLES_TO_LEARN} are needed.")
     name, engine = _style_engine(drama, engine_name, model, gemini_free_tier)
     translate_run_service.refuse_when_cap_spent(
-        name, settings_service.resolve_gemini_free_tier(gemini_free_tier))
+        name, settings_service.resolve_gemini_free_tier(gemini_free_tier),
+        getattr(engine, "model", None))
     scope = _scope(drama)
     existing = (db.get_style_profile(scope) or {}).get("profile") or {}
     if existing.get("preferences") and not _visible_profile(principal, existing):

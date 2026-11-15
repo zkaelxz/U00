@@ -226,7 +226,7 @@ re-exports every name, so a router writes `from api.schemas import X`.
   `TranslateEngine.key_configured`). Write endpoints are write-only; the
   one place a token comes back (`POST /api/extension/token`, with
   `confirm=true`) sends `Cache-Control: no-store`.
-- No filesystem paths, stored filenames or fetched URLs, except a `display_url`-cleaned source page link (scheme, host, path only). A path becomes a
+- No filesystem paths, stored filenames or fetched URLs, except a `display_url`-cleaned source page link (scheme, host, path only) and the title's folder that the PC-only (`local_only`) Open folder route returns when no file manager can open it, for the PC owner to copy. A path becomes a
   boolean (`has_audio`) or an opaque id (reference-clip candidates are
   addressed by one); downloads use a generic name, never the stored one.
 - API keys go in request headers, never in URLs, logs or stored errors
@@ -270,7 +270,7 @@ disk. The pattern, where a route takes a raw body or multipart:
   own checks, and `sources_tools_routes.py` caps a JSON body with `capped`.
 - Media upload size: `media_upload_service.max_upload_bytes`. The env var
   `BAIHE_MAX_UPLOAD_MB` (a positive number; zero, negative or garbage is
-  ignored) wins, else the saved setting `max_upload_mb` (Settings > Performance and advanced > Offline, paths and limits >
+  ignored) wins, else the saved setting `max_upload_mb` (Settings > Advanced > Offline, paths and limits >
   Uploads, 100 to 1048576, written through `POST /api/settings`, `local_only()`),
   else 20480 MB. The overview reports `effective_upload_max_mb` and
   `upload_max_mb_from_env` (numbers and a boolean only). Every user of the

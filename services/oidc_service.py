@@ -376,9 +376,11 @@ class SignIn:
                               "return_to": safe_return_to(return_to)},
                              source=auth_service.rate_limit_key(client_ip),
                              net=_net_key(client_ip))
+        # No `profile`: sign-in only needs the verified email, and the app never
+        # reads Google's name or picture, so it shouldn't ask for them.
         query = urlencode({
             "response_type": "code", "client_id": config["client_id"],
-            "redirect_uri": config["redirect_uri"], "scope": "openid email profile",
+            "redirect_uri": config["redirect_uri"], "scope": "openid email",
             "state": state, "nonce": nonce, "code_challenge": challenge,
             "code_challenge_method": "S256", "prompt": "select_account",
         })

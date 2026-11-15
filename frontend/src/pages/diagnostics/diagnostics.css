@@ -8,6 +8,9 @@
 .diag-panel, .diag-folds { display: grid; gap: var(--page-gap); min-width: 0; }
 /* Two classes so it out-ranks details.section's own bottom margin. */
 .diag-page .diag-folds > * { margin: 0; }
+/* People and access wraps each card so a link can scroll to it; a card that renders nothing must leave no gap. */
+.admin-card-slot:empty { display: none; }
+.diag-page .diag-folds > .admin-card-slot > * { margin: 0; }
 .diag-panel[hidden], .diag-card:empty { display: none; }
 .diag-card { min-width: 0; scroll-margin-top: var(--space-4); }
 .diag-card > details.section, .diag-card > .card-fold > details.section { margin: 0; background: var(--surface); }
@@ -186,6 +189,9 @@
 .admin-user-rights label > span { display: grid; min-width: 0; line-height: 1.25; }
 .admin-right-id { color: var(--muted); font-size: 0.8em; overflow-wrap: anywhere; background: none; padding: 0; }
 @media (pointer: coarse) { .admin-user-rights label { min-height: 44px; } }
+.admin-add-user { display: grid; gap: var(--space-2); min-width: 0; margin-top: var(--space-3); }
+.admin-add-user-right { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; cursor: pointer; }
+@media (pointer: coarse) { .admin-add-user-right { min-height: 44px; } }
 
 /* Setup > models: an engine row with its downloads indented under it. */
 .diag-rows.model-engines > li { display: block; }

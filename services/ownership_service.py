@@ -9,7 +9,9 @@ everything is visible. With auth on, callers must always pass
 the request's principal -- never None for a missing one, which would
 grant full visibility.
 
-The rule: auth off, the local owner and admins see everything. Changing
+The rule: auth off, the local owner and admins see everything, except that the
+PC window on its Guest profile (services/pc_profile_service.py) lists and
+reads only what a member could. Changing
 what only an admin can see (the admin override) needs `admin_override` as
 well: `api.auth.listener_principal` clears it on the household (internet)
 listener, where an admin still sees everything but changes only what a
@@ -46,8 +48,10 @@ import re
 import sqlite3
 
 import db
+from engine_backends import engine_registry
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError)
+from services import pc_profile_service
 
 HOUSEHOLD_SHARE_KEY = "household.share_by_default"
 _DRAMA_IN_SERIES_MESSAGE = "Make the whole series private instead"
@@ -63,6 +67,16 @@ def _sees_everything(principal) -> bool:
     if principal is None:            # auth off
         return True
     return bool(principal.get("is_local_owner") or principal.get("is_admin"))
+
+
+def guest_view(principal) -> bool:
+    """The PC window is on its Guest profile (PIN set, owner not unlocked).
+    It narrows only what a request lists or reads (`visible_to_filter`,
+    `_visible`). Powers keep the owner's: stopping jobs and batches, the
+    learned style and background threads must not lose access to private
+    titles because someone else is at the PC."""
+    return ((principal is None or bool(principal.get("is_local_owner")))
+            and pc_profile_service.guest_active())
 
 
 def may_override(principal) -> bool:
@@ -98,11 +112,15 @@ def _owns(principal, owner_user_id, writing: bool) -> bool:
     return uid is not None and owner_user_id == uid
 
 
-def _visible(principal, kind: str, row: dict, writing: bool = False) -> bool:
+def _visible(principal, kind: str, row: dict, writing: bool = False,
+             guest_aware: bool = True) -> bool:
     """Must agree with the `visible_to` SQL in db.list_dramas/list_series.
     `writing`: may the principal change it (the admin override needs
-    `may_override`; everyone else changes what they can see)."""
-    if _everything(principal, writing):
+    `may_override`; everyone else changes what they can see).
+    `guest_aware=False`: the check before a change, which must not start
+    failing for the PC owner's own tools (the browser extension, background
+    work) because someone else has the window on Guest."""
+    if _everything(principal, writing) and (not guest_aware or writing or not guest_view(principal)):
         return True
     if kind == "drama":
         uid = user_id(principal)
@@ -181,7 +199,7 @@ def require_editable(principal, kind: str, item_id: int) -> None:
     if kind not in _KINDS:
         raise InvalidInputError("Unknown item kind.")
     row = db.get_item_ownership(kind, _item_id(item_id))
-    if not row or not _visible(principal, kind, row):
+    if not row or not _visible(principal, kind, row, guest_aware=False):
         raise _not_found(kind)
     if not _visible(principal, kind, row, writing=True):
         raise ForbiddenError(_ADMIN_CHANGE_AT_PC)
@@ -224,7 +242,7 @@ def visible_to_filter(principal):
     """The `visible_to` argument for db.list_dramas / db.list_series:
     None when the principal sees everything, else their user id (-1 for a
     principal with no id, so only shared items match)."""
-    if _sees_everything(principal):
+    if _sees_everything(principal) and not guest_view(principal):
         return None
     uid = user_id(principal)
     return -1 if uid is None else uid
@@ -357,7 +375,10 @@ def check_series_assignment(principal, series_id, drama_owner_user_id) -> int:
 def assign_drama_series(principal, drama_id, series_id) -> None:
     """Moves an existing drama into a series under `check_series_assignment`,
     with the private-series rule re-checked in the same write. Clears the
-    drama's own private flag (user decision 4)."""
+    drama's own private flag (user decision 4). The title must be one the
+    principal may change: moving it clears that flag, so an admin away from
+    the PC must not be able to publish a member's private title this way."""
+    require_editable(principal, "drama", drama_id)
     drama = db.get_item_ownership("drama", _item_id(drama_id))
     if not drama:
         raise NotFoundError("Title not found.")
@@ -459,6 +480,14 @@ def acting_user_id():
 
 # Paid calls made in an API request are logged for its signed-in user.
 db.set_spender_lookup(acting_user_id)
+
+
+def _acting_may_use_hosted_default() -> bool:
+    principal = acting_principal()
+    return principal is None or "engines.paid" in (principal.get("permissions") or ())
+
+
+engine_registry.set_hosted_default_caller_check(_acting_may_use_hosted_default)
 
 
 def acting_principal():

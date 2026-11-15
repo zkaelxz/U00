@@ -108,6 +108,8 @@ interface ScopeCount {
   pages: number
   // Of those, pages with no text yet (what "Translate" does).
   todo: number
+  // The ids of those pages, in reading order.
+  ids: number[]
 }
 
 export interface ScopeCounts {
@@ -119,7 +121,7 @@ export interface ScopeCounts {
 export function scopeCounts(pages: ComicPageInfo[], chapters: ComicChapter[], chapterId: string | null): ScopeCounts {
   const count = (inScope: (p: ComicPageInfo) => boolean): ScopeCount => {
     const list = pages.filter((p) => !p.hidden && inScope(p))
-    return { pages: list.length, todo: list.filter((p) => !p.has_regions).length }
+    return { pages: list.length, todo: list.filter((p) => !p.has_regions).length, ids: list.map((p) => p.id) }
   }
   const at = chapterIndex(chapters, chapterId)
   const chapter =

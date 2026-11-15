@@ -229,6 +229,11 @@ def request(method: str, url: str, *, timeout: Union[float, Tuple[float, float]]
                     raise FetchError()
                 # Location already carries the query; resending params would double it.
                 hop_kwargs = {k: v for k, v in hop_kwargs.items() if k != "params"}
+                # Credential headers are stripped off-origin, but a body can carry
+                # the same secrets, so it is never replayed to another origin.
+                if _origin(current) != origin and any(
+                        hop_kwargs.get(k) is not None for k in ("data", "json")):
+                    raise FetchError()
             else:
                 hop_method, hop_kwargs = "GET", {}
             continue

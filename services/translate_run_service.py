@@ -36,7 +36,8 @@ import bulk_poll
 import bulk_translate
 import translation_finish
 import db
-from engine_backends import engine_registry, llm_tasks, pricing
+from engine_backends import engine_registry, llm_tasks, paid_calls, pricing
+from engine_backends import prompts as engine_prompts
 from engine_backends import gemini as engine_gemini
 from engine_backends import shared as engine_shared
 from engine_backends import local as engine_local
@@ -64,15 +65,20 @@ def month_cap_usd() -> float:
     return settings_service.get_monthly_cap_usd()
 
 
-def engine_cap_applies(engine_name: str, gemini_free_tier: bool = False) -> bool:
+def engine_cap_applies(engine_name: str, gemini_free_tier: bool, model) -> bool:
+    """Ollama is a free engine, but its hosted tags are billed per token, so the
+    cap covers them. `model` has no default so a caller cannot forget it; pass
+    None only where the engine runs its default (local) model."""
+    if engine_name == "ollama" and engine_local.is_ollama_cloud_model(model):
+        return True
     return engine_name in _CAP_ENGINES and not (engine_name == "gemini" and gemini_free_tier)
 
 
-def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool = False) -> None:
+def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool, model) -> None:
     """For a one-off LLM run with no per-run budget (glossary extraction,
     learn my style): UnsupportedOperationError when this month's spending
     cap is already used up and the engine is a capped one."""
-    if not engine_cap_applies(engine_name, gemini_free_tier):
+    if not engine_cap_applies(engine_name, gemini_free_tier, model):
         return
     monthly = month_cap_usd()
     _cap, refusal = pricing.resolve_cost_cap(
@@ -101,8 +107,34 @@ def _parse_errors(raw) -> Optional[list]:
         return None
 
 
-def get_translate_config_defaults(is_novel: bool, engine=None, model=None) -> dict:
-    return engine_registry.default_translate_options(engine, model, novel=is_novel)
+def get_translate_config_defaults(is_novel: bool, engine=None, model=None, plain_stream=False) -> dict:
+    return engine_registry.default_translate_options(engine, model, novel=is_novel,
+                                                     plain_stream=plain_stream)
+
+
+def _plain_stream(drama, engine_name, model=None) -> bool:
+    return workspace_job_service.plain_stream_prompt(drama, engine_name, model)
+
+
+def _without_untouched_defaults(remembered: dict, is_novel: bool, engine, model) -> dict:
+    """`remembered` minus the context and batch values that equal what a run gets with no
+    plain prompt. Titles translated before the plain prompt existed carry those values
+    only because the form echoed its defaults back; keeping them would run the plain
+    prompt with neighbouring lines, which made Gemma's captions worse. A value the person
+    changed differs from the old default, so it stays."""
+    old_defaults = engine_registry.default_translate_options(engine, model, novel=is_novel)
+    return {k: v for k, v in remembered.items() if old_defaults.get(k, object()) != v}
+
+
+def remembered_and_defaults(drama, remembered: dict, is_novel: bool, engine_name, model):
+    """(remembered, defaults) for a run of this title on this engine and model. When the
+    plain stream prompt applies, the defaults are its sizes and `remembered` loses the
+    values that only echo the old defaults. Every run that starts from the title's last
+    values goes through this, so its prompt and its batch and context sizes agree."""
+    plain = _plain_stream(drama, engine_name, model)
+    if plain:
+        remembered = _without_untouched_defaults(remembered, is_novel, engine_name, model)
+    return remembered, get_translate_config_defaults(is_novel, engine_name, model, plain)
 
 
 def get_translate_config(drama_id: int) -> dict:
@@ -114,6 +146,13 @@ def get_translate_config(drama_id: int) -> dict:
     free_tier = bool(settings_service.get("gemini_free_tier"))
     engine_name = (drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
+    translate_start = profile_service.translate_start(drama)
+    # The form starts on the model the last run used, so that is the model the plain
+    # prompt would apply to.
+    start_model = translate_start.get("engine_model")
+    plain = _plain_stream(drama, engine_name, start_model)
+    if plain:
+        translate_start = _without_untouched_defaults(translate_start, is_novel, engine_name, start_model)
     return {
         "drama_id": drama_id,
         "translation_engine": engine_name,
@@ -130,7 +169,8 @@ def get_translate_config(drama_id: int) -> dict:
              "auto_qc": bool(t["auto_qc"])}
             for k in engine_registry.WORKFLOW_TIERS
             for t in [engine_registry.effective_tier(k)] if t is not None],
-        "defaults": get_translate_config_defaults(is_novel, engine_name),
+        "defaults": get_translate_config_defaults(is_novel, engine_name, start_model if plain else None,
+                                                   plain_stream=plain),
         "default_locale": settings_service.get("default_locale"),
         "default_style_note": settings_service.get("default_style_note"),
         "project_instructions": drama.get("project_instructions"),
@@ -144,7 +184,7 @@ def get_translate_config(drama_id: int) -> dict:
         # The form shows it as "X of $cap" (what the cap counts, since any
         # reset) or, with no cap, as the month's real spend.
         "month_spend": db.get_month_spend(since_reset=monthly_cap > 0),
-        "cap_applies_by_engine": {name: engine_cap_applies(name, free_tier)
+        "cap_applies_by_engine": {name: engine_cap_applies(name, free_tier, None)
                                   for name in engine_registry.ENGINES},
         "bulk_supported_engines": [e for e in bulk_translate.BULK_ENGINES
                                    if not (e == "gemini" and free_tier)],
@@ -153,7 +193,7 @@ def get_translate_config(drama_id: int) -> dict:
         "default_female_pronouns": _saved_bool(drama.get("default_female_pronouns")),
         "include_genre_notes": _saved_bool(drama.get("include_genre_notes")),
         "translate_by_sentence": _saved_bool(drama.get("translate_by_sentence")),
-        "translate_start": profile_service.translate_start(drama),
+        "translate_start": translate_start,
     }
 
 
@@ -185,6 +225,43 @@ def validate_run_options(engine_name: str, model, *, locale: str, style_preset: 
                                 f"batch's reply can be cut off by the engine's output limit.")
 
 
+def _estimate_run_calls(drama_id, drama, stand_in, targets, zh_lines, batch_size, reflect,
+                        context_lines, *, whole_title, bulk) -> float:
+    """Dollars for every paid call a translate run makes: its batches (with the
+    title's real prompt), the pre-read of the whole episode and the episode summary.
+    The summary is priced on its own engine, which Settings can set apart from the run's."""
+    is_novel = drama.get("content_mode") == "novel_narration"
+    ids = {ln["id"] for ln in targets}
+    lines = [ln for ln in db.load_line_objects(drama_id) if ln.id in ids]
+    glossary_terms, style_guidelines, _ = workspace_job_service.build_run_style_context(
+        drama_id, drama, lines, "novel" if is_novel else "audio_drama",
+        engine_name=stand_in.name, model=stand_in.model)
+    stable_text = engine_prompts.build_stable_system_text({
+        "drama_meta": drama, "style_guidelines": style_guidelines, "glossary_terms": glossary_terms})
+    inp, out, repeated = pricing.estimate_run_tokens(zh_lines, batch_size, stable_text, context_lines)
+    cached = repeated if stand_in.name == "claude" else 0
+    total = float(pricing.estimate_cost_for_engine(stand_in, inp, out, cached))
+    if reflect:
+        total *= 3  # three calls per batch instead of one
+    if bulk:
+        return total
+    if (whole_title and len(zh_lines) >= 2 and settings_service.get("episode_brief")
+            and not (drama.get("episode_brief") or "").strip()
+            and stand_in.name not in engine_registry.TRANSLATION_ONLY_ENGINES):
+        total += pricing.estimate_cost_for_engine(
+            stand_in, *pricing.estimate_episode_brief_tokens(zh_lines))
+    summary = str(settings_service.get("episode_summary_engine"))
+    summary_model = (stand_in.model if summary == stand_in.name
+                     else engine_registry.effective_default_model(summary))
+    summary_engine = SimpleNamespace(
+        name=summary, model=summary_model,
+        free_tier=summary == "gemini" and bool(settings_service.get("gemini_free_tier")))
+    if paid_calls.is_paid(summary, summary_engine):
+        total += pricing.estimate_cost_for_engine(
+            summary_engine, *pricing.estimate_episode_summary_tokens(zh_lines))
+    return total
+
+
 def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model: str | None = None,
                             reflect: bool = False, force_retranslate: bool = False,
                             bulk: bool = False, gemini_free_tier: bool | None = None,
@@ -212,8 +289,8 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
 
     free_tier = engine_name == "gemini" and gemini_free_tier
     resolved_model = model or engine_registry.effective_default_model(engine_name)
-    cap_applies = engine_cap_applies(engine_name, gemini_free_tier)
-    free = engine_name in engine_registry.FREE_ENGINES or free_tier
+    cap_applies = engine_cap_applies(engine_name, gemini_free_tier, resolved_model)
+    free = (engine_name in engine_registry.FREE_ENGINES and not cap_applies) or free_tier
 
     lines = db.load_lines(drama_id)
     targets = [ln for ln in lines if (ln.get("zh") or "").strip()
@@ -225,12 +302,15 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
         # The helpers only read name/model/free_tier, so a stand-in avoids
         # constructing a real engine (SDK import, key, network).
         stand_in = SimpleNamespace(name=engine_name, model=resolved_model, free_tier=free_tier)
-        fn = (pricing.estimate_reflect_mode_cost if reflect
-              else pricing.estimate_translation_cost)
+        is_novel = drama.get("content_mode") == "novel_narration"
+        defaults = get_translate_config_defaults(is_novel, engine_name, model)
         if batch_size is None:
-            batch_size = get_translate_config_defaults(
-                drama.get("content_mode") == "novel_narration", engine_name, model)["batch_size"]
-        estimated = float(fn(stand_in, [ln["zh"] for ln in targets], batch_size))
+            batch_size = defaults["batch_size"]
+        zh_lines = [ln["zh"] for ln in targets]
+        estimated = _estimate_run_calls(
+            drama_id, drama, stand_in, targets, zh_lines, batch_size, reflect,
+            (defaults["context_window"], defaults["context_window_ahead"]),
+            whole_title=line_ids is None, bulk=bulk)
         if bulk and not reflect and cap_applies:
             estimated *= bulk_translate.BATCH_PRICE_FACTOR
 
@@ -432,7 +512,8 @@ def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts,
         drama_id, drama, lines, opts.style_preset,
         include_genre_notes=include_genre_notes,
         default_female_pronouns=default_female_pronouns,
-        principal=ownership_service.acting_principal(), memory_examples=memory_examples)
+        principal=ownership_service.acting_principal(), memory_examples=memory_examples,
+        engine_name=opts.engine_name, model=opts.model)
     novel_reference = load_novel_reference(drama_id, drama)
     resp = {"job_id": job_id, "drama_id": drama_id, "engine": opts.engine_name,
             "model": getattr(engines[0], "model", opts.model), "target_line_count": len(eligible),
@@ -525,14 +606,14 @@ def _resolve_run_options(drama, engine_name, model, style_preset, style_note, lo
     style_preset = style_preset or last.get("style_preset") or ("novel" if is_novel else "audio_drama")
     style_note = last.get("style_note", "") if style_note is None else style_note
     locale = locale or last.get("locale") or "en-US"
-    chosen_batch_size = batch_size if batch_size is not None else last.get("batch_size")
     if model is None and "model" in last:
         try:
             _require_offered_model(engine_name, last["model"])
             model = last["model"]
         except InvalidInputError:
             pass    # no longer offered: the engine's default
-    defaults = get_translate_config_defaults(is_novel, engine_name, model)
+    last, defaults = remembered_and_defaults(drama, last, is_novel, engine_name, model)
+    chosen_batch_size = batch_size if batch_size is not None else last.get("batch_size")
     context_window = last.get("context_window", defaults["context_window"]) if context_window is None else context_window
     context_window_ahead = (last.get("context_window_ahead", defaults["context_window_ahead"])
                             if context_window_ahead is None else context_window_ahead)
@@ -571,7 +652,7 @@ def _build_engine_chain(engine_name, model, fallback_chain, gemini_free_tier, jo
         if free_tier and c["model"] in engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS:
             raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
         cap = None
-        if engine_cap_applies(name, gemini_free_tier):
+        if engine_cap_applies(name, gemini_free_tier, c["model"]):
             cap, refusal = pricing.resolve_cost_cap(
                 job_cost_cap_usd, monthly_cap, month_spend)
             if refusal:
@@ -617,8 +698,8 @@ def resume_bulk_translations(drama_id: int) -> dict:
             "jobs": [{"bulk_job_id": k, "state": v} for k, v in sorted(out.items())]}
 
 
-def _spend_cap_used_up(engine_name: str) -> bool:
-    if not engine_cap_applies(engine_name, bool(settings_service.get("gemini_free_tier"))):
+def _spend_cap_used_up(engine_name: str, model) -> bool:
+    if not engine_cap_applies(engine_name, bool(settings_service.get("gemini_free_tier")), model):
         return False
     monthly = month_cap_usd()
     _cap, refusal = pricing.resolve_cost_cap(
@@ -648,7 +729,7 @@ def resume_interrupted_at_startup() -> dict:
         why = {}
 
         def factory(engine_name, model):
-            if _spend_cap_used_up(engine_name):
+            if _spend_cap_used_up(engine_name, model):
                 why[engine_name] = "the monthly spending cap is used up"
                 return None
             try:

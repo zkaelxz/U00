@@ -513,13 +513,16 @@ def filter_candidates(candidates, page_url: str, remember: bool = True,
 
 
 def import_comic_page(url: str, client=None, rendered_fetch=None, user_html: str | None = None,
-                      remember: bool = True) -> ComicImportResult:
-    """Fetches a chapter URL and returns its page images, filtered. Raises
+                      remember: bool = True, allow_signed_in: bool = True,
+                      allow_browser: bool = True) -> ComicImportResult:
+    """Fetches a chapter URL and returns its page images, filtered.
+    `allow_signed_in`/`allow_browser`: see fetch_page. Raises
     NoContentFound (with the ladder's per-tier lines in the message) when
     nothing usable is there; ChallengeDetected-shaped hand-offs come back
     via `result.ladder.handoff` with no images."""
     client = http_client(client, url)
-    lr = fetch_page(url, client, rendered_fetch, user_html)
+    lr = fetch_page(url, client, rendered_fetch, user_html, allow_signed_in=allow_signed_in,
+                    allow_browser=allow_browser)
     out = ComicImportResult(page_url=url, ladder=lr)
     if lr.handoff:
         return out
@@ -548,6 +551,9 @@ _DROP_TAGS = ["script", "style", "noscript", "nav", "header", "footer", "aside",
               "iframe", "button", "select"]
 _DROP_HINT = re.compile(r"comment|sidebar|footer|header|nav|menu|breadcrumb|share|related|"
                         r"advert|\bads?\b|recommend|login|copyright", re.I)
+# Ids and classes that hold the chapter although a hint is inside them: Chinese novel
+# sites put it in class="txtnav". Matched whole, so "bottomnav" or "mainNav" still go.
+_CONTENT_IDENTS = frozenset({"txtnav"})
 
 
 # A container is a candidate only within this depth; its text still counts
@@ -624,7 +630,10 @@ def extract_main_text_heuristic(html: str) -> str:
         t.decompose()
     doomed = []
     for t in soup.find_all(True):
-        ident = " ".join([attr_str(t, "id")] + list(t.get("class") or []))
+        names = [attr_str(t, "id")] + list(t.get("class") or [])
+        ident = " ".join(names)
+        if any(n.lower() in _CONTENT_IDENTS for n in names):
+            continue
         if ident.strip() and _DROP_HINT.search(ident) and t.name not in ("body", "html"):
             doomed.append(t)
     for t in doomed:

@@ -68,6 +68,11 @@ function PreflightCard({ p }: { p: UrlPreflight }) {
           {w}
         </p>
       ))}
+      {(p.terms_notes ?? []).map((t, i) => (
+        <p key={i} className="sources-meta" data-testid="site-terms-note">
+          {t}
+        </p>
+      ))}
       {p.lines.length > 0 && (
         <Section title="What the check found" defaultOpen={!p.ok}>
           <ul className="sources-notes">

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { asMediaType, exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
-import { BLOCKS, FIRST_OPEN, expectOpen, mockSoftsubRun, summaryOf } from './exportBlocksCases'
+import { BLOCKS, FIRST_OPEN, SEEDED_OPEN, expectOpen, mockSoftsubRun, summaryOf } from './exportBlocksCases'
 import { hitHeight, installHitArea } from './hitArea'
 
 test.beforeEach(async ({ page }) => {
@@ -23,9 +23,9 @@ test('headings are 44px tall, each kind opens its own block and nothing scrolls 
   expect(await noSideScroll(page)).toBeLessThanOrEqual(0)
 
   await page.goto('/#/drama/1/export')
-  await expectOpen(page, { [FIRST_OPEN.audio]: true, 'Video with a subtitle track': false })
+  await expectOpen(page, { [SEEDED_OPEN.audio]: true, [FIRST_OPEN.audio]: false })
   await page.goto('/#/drama/2/export')
-  await expectOpen(page, { [FIRST_OPEN.novel]: true, Audiobook: false })
+  await expectOpen(page, { [SEEDED_OPEN.novel]: true, [FIRST_OPEN.novel]: false, Audiobook: false })
   await asMediaType(page, 'other')
   await page.goto('/#/drama/1/export')
   await expectOpen(page, { [FIRST_OPEN.subtitle]: true, Audiobook: false })
@@ -50,7 +50,7 @@ test('a tap folds a block, the choice survives a reload, and a running job stays
 test('unavailable exports are disabled with a one-line reason and fit the width', async ({ page }) => {
   await mockExportReady(page, { hasSourceVideo: false })
   await page.goto('/#/drama/3/export')
-  await expect(summaryOf(page, 'Burned-in video')).toContainText('No source video yet. Add one in Media.')
+  await expect(summaryOf(page, 'Burned-in video')).toContainText('No source video yet. Add one in Transcribe.')
   await openExportBlock(page, 'Video with a subtitle track')
   await expect(exportBlock(page, 'Video with a subtitle track').getByRole('button', { name: 'Start subtitle-track video export' })).toBeDisabled()
   expect(await noSideScroll(page)).toBeLessThanOrEqual(0)

@@ -31,6 +31,14 @@ from services import library_restore_service as lrs
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 
+@pytest.fixture(autouse=True)
+def _two_daily_two_weekly(monkeypatch):
+    """These tests pin the rotation rule itself with a small, easy-to-count
+    window; the shipped sizes are checked in test_auto_backup_rotation."""
+    monkeypatch.setattr(abc_, "KEEP_DAILY", 2)
+    monkeypatch.setattr(abc_, "KEEP_WEEKLY", 2)
+
+
 def _patch_now(monkeypatch, fn):
     for mod in (abs_, abt_, abc_, abf_):
         monkeypatch.setattr(mod, "_now", fn)
@@ -490,6 +498,24 @@ class TestWholeLibraryRestore:
             return conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE name = 'bug_reports'").fetchone() is not None
 
+    def test_restored_lines_obey_the_mark_rules(self, isolated_db, tmp_path):
+        from core import Line
+        did = db.create_drama(title_en="A")
+        db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"z{i}", en=f"e{i}") for i in range(4)])
+        with contextlib.closing(db.get_conn()) as conn:
+            # Checked and marked, an unknown mark, a plain mark, a plain tick.
+            for i, (reviewed, mark) in enumerate(((1, "wrong"), (1, "Bogus"), (0, "mixed"), (1, None))):
+                conn.execute("UPDATE lines SET reviewed = ?, mark = ? WHERE drama_id = ? AND idx = ?",
+                             (reviewed, mark, did, i))
+            conn.commit()
+        lrs.restore_library_backup(_library_zip(tmp_path), db.LIBRARY_DIR)
+        assert [(r["reviewed"], r["mark"]) for r in db.load_lines(did)] == [
+            (0, "wrong"), (1, None), (0, "mixed"), (1, None)]
+        lines = db.load_line_objects(did)
+        for ln in lines:
+            ln.orig = None
+        db.save_lines(did, lines)
+
     def _legacy_library(self):
         did = db.create_drama(title_en="A")
         with contextlib.closing(db.get_conn()) as conn:
@@ -532,7 +558,7 @@ class TestWholeLibraryRestore:
         db.create_drama(title_en="A")
         theirs = {"jellyfin": {"url": "http://evil.example"}, "pref.tesseract_cmd": "C:/evil.exe",
                   "pref.lncrawl_cmd": "C:/evil2.exe", "remote_uploads": True,
-                  "remote_uploads.on_at": time.time(),
+                  "remote_uploads.since": time.time(),
                   "comic_save": {"folder": "\\\\evil\\share"}, "web_search": {"base_url": "http://evil"},
                   "pref.whisper_model_path": "\\\\evil\\m", "pref.cookies_file": "\\\\evil\\c",
                   "pref.max_upload_mb": 99999,
@@ -541,7 +567,7 @@ class TestWholeLibraryRestore:
             db.set_app_setting(key, value)
         backup = _library_zip(tmp_path)
         mine = {"jellyfin": {"url": "http://nas.local"}, "pref.tesseract_cmd": "C:/ok.exe",
-                "pref.lncrawl_cmd": None, "remote_uploads": False, "remote_uploads.on_at": None,
+                "pref.lncrawl_cmd": None, "remote_uploads": False, "remote_uploads.since": None,
                 "comic_save": {"folder": "C:/comics"}, "web_search": {"base_url": "http://ok"},
                 "pref.whisper_model_path": "", "pref.cookies_file": "", "pref.max_upload_mb": 500,
                 "pref.cookies_browser": "none"}

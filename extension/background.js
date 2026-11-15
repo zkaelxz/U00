@@ -31,15 +31,23 @@ chrome.runtime.onInstalled.addListener(() => {
 // The popup's "Auto" choices for a page sent with no drama picked; all on, so a first send just works.
 const AUTO_TITLE_DEFAULTS = { create: true, fill: true, series: true };
 
+// The look of the redrawn page: "auto" alignment, no minimum size and no outline are the app's plain render.
+const TYPESET_STYLE_DEFAULTS = { align: "auto", minFont: 0, stroke: false, eraseGrow: 1, bubbleFill: 0, font: "default" };
+
 async function settings() {
   const stored = await chrome.storage.local.get(
-    ["token", "serverUrl", "dramaBySite", "overlay", "textDirection", "autoTitle"]);
+    ["token", "serverUrl", "dramaBySite", "overlay", "textDirection", "autoTitle", "typeset", "typesetStyle", "screenshot"]);
   return {
     autoTitle: { ...AUTO_TITLE_DEFAULTS, ...(stored.autoTitle || {}) },
     token: stored.token || "",
     serverUrl: stored.serverUrl || "",
     dramaBySite: stored.dramaBySite || {},
     overlay: stored.overlay !== false,
+    // Off by default: clean-and-typeset costs seconds per page, so a person turns it on.
+    typeset: stored.typeset === true,
+    typesetStyle: { ...TYPESET_STYLE_DEFAULTS, ...(stored.typesetStyle || {}) },
+    // Off by default: a screenshot is only for pages the browser will not let the script read.
+    screenshot: stored.screenshot === true,
     textDirection: stored.textDirection || { source: "zh", target: "en" },
   };
 }
@@ -59,14 +67,82 @@ function base(serverUrl) {
 // earlier and reported honestly: the app keeps working on it.
 const CALL_TIMEOUT_MS = 4.5 * 60 * 1000;
 const STILL_WORKING = "Baihe is still working; send the rest later.";
+const TIMED_OUT = "Baihe is still working on this. Check the drama in Baihe in a few minutes; pages already read are kept.";
 
-async function call(path, { method = "GET", body = null } = {}) {
+// Requests in flight, so a Cancel can end the wait for them at once instead of after the app answers.
+const inflight = new Set();
+
+// Runs the app is still working on. Dropping the connection does not stop the app, so a
+// cancel also names each of them to it.
+const activeRuns = new Set();
+
+function abortSends() {
+  for (const runId of activeRuns) {
+    call("/cancel", { method: "POST", body: { run_id: runId } }).catch(() => {});
+  }
+  for (const controller of inflight) {
+    controller.userAbort = true;
+    controller.abort();
+  }
+  return { ok: true, data: { aborted: inflight.size } };
+}
+
+// A streamed answer (one JSON line per finished page, then {done} or {error}) as the
+// ordinary {ok, data} shape, with data.pages built from the page lines. `onPage` hears each
+// page as its line arrives. An answer cut off after some pages keeps those pages and says why
+// the rest are missing in data.cutOff, since they are already drawn on the reader's page;
+// `brokenReason(error)` says why when the read itself failed ({error, timedOut?, cancelled?}).
+async function readPageLines(response, onPage, brokenReason) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const pages = [];
+  let buffer = "";
+  let last = null;
+  const take = (text) => {
+    if (!text.trim()) return;
+    const line = JSON.parse(text);
+    if (line && line.page) {
+      pages.push(line.page);
+      try { onPage(line.page); } catch (e) { /* drawing early is a nicety; the page is still returned */ }
+    } else {
+      last = line;
+    }
+  };
+  let broken = null;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+      let cut;
+      while ((cut = buffer.indexOf("\n")) >= 0) {
+        take(buffer.slice(0, cut));
+        buffer = buffer.slice(cut + 1);
+      }
+      if (done) break;
+    }
+  } catch (e) {
+    // The pages already heard are stored and drawn, so they are kept; with none, the caller
+    // answers as for any failed call.
+    if (!pages.length) throw e;
+    broken = brokenReason(e);
+  }
+  // A last line cut short by a dropped connection is not an answer.
+  try { take(buffer + decoder.decode()); } catch (e) { /* the page or answer it held never arrived */ }
+  if (broken) return { ok: true, timedOut: broken.timedOut, cancelled: broken.cancelled, data: { pages, cutOff: broken.error } };
+  if (last && last.done) return { ok: true, data: { ...last.done, pages } };
+  const reason = (last && last.error) || "The app stopped answering partway through.";
+  if (!pages.length) return { ok: false, error: reason, status: (last && last.status) || 500 };
+  return { ok: true, data: { pages, cutOff: reason } };
+}
+
+async function call(path, { method = "GET", body = null, onPage = null } = {}) {
   const { token, serverUrl } = await settings();
   if (!token) {
     return { ok: false, error: "No token yet. Open the extension's options and paste the token from Baihe's Settings." };
   }
   let response;
   const controller = new AbortController();
+  inflight.add(controller);
   const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
   try {
     response = await fetch(base(serverUrl) + path, {
@@ -83,11 +159,16 @@ async function call(path, { method = "GET", body = null } = {}) {
     });
   } catch (e) {
     clearTimeout(timer);
+    inflight.delete(controller);
+    if (controller.userAbort) {
+      // The app may still finish pages of the batch it was already working on; those are kept there.
+      return { ok: false, cancelled: true, error: "Cancelled." };
+    }
     if (e && e.name === "AbortError") {
       return {
         ok: false,
         timedOut: true,
-        error: "Baihe is still working on this. Check the drama in Baihe in a few minutes; pages already read are kept.",
+        error: TIMED_OUT,
       };
     }
     // A refused connection is the ordinary "the app isn't running" case,
@@ -99,6 +180,24 @@ async function call(path, { method = "GET", body = null } = {}) {
         : `Couldn't reach Baihe on ${base()}. Is the app running, with the Extension bridge switch on in Settings → Browser extension?`,
     };
   }
+  const type = (response.headers && response.headers.get && response.headers.get("content-type")) || "";
+  if (response.ok && onPage && type.includes("ndjson")) {
+    try {
+      return await readPageLines(response, onPage, (e) => {
+        if (controller.userAbort) return { cancelled: true, error: "Cancelled." };
+        if (e && e.name === "AbortError") return { timedOut: true, error: TIMED_OUT };
+        return { error: "The app stopped answering partway through." };
+      });
+    } catch (e) {
+      if (controller.userAbort) return { ok: false, cancelled: true, error: "Cancelled." };
+      return e && e.name === "AbortError"
+        ? { ok: false, timedOut: true, error: TIMED_OUT }
+        : { ok: false, error: "The app's answer could not be read." };
+    } finally {
+      clearTimeout(timer);
+      inflight.delete(controller);
+    }
+  }
   let payload = null;
   try {
     payload = await response.json();
@@ -106,6 +205,7 @@ async function call(path, { method = "GET", body = null } = {}) {
     payload = null;
   }
   clearTimeout(timer);
+  inflight.delete(controller);
   if (!response.ok) {
     // The bridge answers {error: text}; the app's own routes answer {error: {message}}.
     const reported = payload && payload.error;
@@ -159,6 +259,11 @@ async function resolveTitle({ url, titles, siteName, language, kind, chapterLink
   });
 }
 
+// The closing line of a chapter capture, kept in the app's log: the popup's copy is gone once the next capture starts.
+async function captureSummary({ dramaId, message }) {
+  return call("/capture-summary", { method: "POST", body: { drama_id: dramaId || null, summary: String(message || "").slice(0, 2000) } });
+}
+
 async function setAutoTitle({ options }) {
   const next = { ...(await settings()).autoTitle };
   for (const key of Object.keys(AUTO_TITLE_DEFAULTS)) {
@@ -166,6 +271,48 @@ async function setAutoTitle({ options }) {
   }
   await chrome.storage.local.set({ autoTitle: next });
   return { ok: true, data: next };
+}
+
+function typesetStyleChanged(style) {
+  return style.align !== TYPESET_STYLE_DEFAULTS.align || style.minFont !== TYPESET_STYLE_DEFAULTS.minFont
+    || style.stroke !== TYPESET_STYLE_DEFAULTS.stroke || style.eraseGrow !== TYPESET_STYLE_DEFAULTS.eraseGrow
+    || style.bubbleFill !== TYPESET_STYLE_DEFAULTS.bubbleFill || style.font !== TYPESET_STYLE_DEFAULTS.font;
+}
+
+async function setTypeset({ on }) {
+  await chrome.storage.local.set({ typeset: on === true });
+  return { ok: true, data: { typeset: on === true } };
+}
+
+async function setTypesetStyle({ style }) {
+  const next = { ...(await settings()).typesetStyle };
+  if (style && ["auto", "left", "center", "right"].includes(style.align)) next.align = style.align;
+  if (style && Number.isFinite(Number(style.minFont))) next.minFont = Math.max(0, Math.min(40, Math.round(Number(style.minFont))));
+  if (style && typeof style.stroke === "boolean") next.stroke = style.stroke;
+  if (style && ["default", "bangers"].includes(style.font)) next.font = style.font;
+  if (style && Number.isFinite(Number(style.eraseGrow))) next.eraseGrow = Math.max(1, Math.min(3, Number(style.eraseGrow)));
+  if (style && Number.isFinite(Number(style.bubbleFill))) next.bubbleFill = Math.max(0, Math.min(100, Math.round(Number(style.bubbleFill))));
+  await chrome.storage.local.set({ typesetStyle: next });
+  return { ok: true, data: next };
+}
+
+async function setScreenshot({ on }) {
+  await chrome.storage.local.set({ screenshot: on === true });
+  return { ok: true, data: { screenshot: on === true } };
+}
+
+// A picture of the visible tab for the page that asked. It needs the switch on and the tab's
+// activeTab grant (the popup click); the answer is the PNG as base64, never a URL.
+async function captureTab(sender) {
+  if (!(await settings()).screenshot) return { ok: false, code: "OFF", error: "screenshots are off" };
+  const tab = sender && sender.tab;
+  if (!tab) return { ok: false, error: "no tab to take a picture of" };
+  try {
+    const url = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+    return { ok: true, data: { data: String(url).split(",")[1] || "" } };
+  } catch (e) {
+    return { ok: false, error: "the browser would not take a picture of the tab; click the extension icon on this page first" };
+  }
 }
 
 async function saveNovelText({ dramaId, heading, text, source, url }) {
@@ -225,11 +372,42 @@ function planBatches(images, cap, minSize = 1) {
 // A whole chapter is many requests, never one: the bridge caps a request, and
 // one failing batch must not hide the pages that did arrive. The totals let
 // the popup show sent vs. received vs. stored instead of a bare page count.
-async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
+async function sendImages(message, sender) {
+  const runId = crypto.randomUUID();
+  activeRuns.add(runId);
+  // Each finished page goes straight back to the tab that sent it, so the reader sees it
+  // drawn while the rest of the batch is still being worked on.
+  const tab = sender && sender.tab;
+  const onPage = tab && chrome.tabs && chrome.tabs.sendMessage
+    ? (page) => chrome.tabs.sendMessage(tab.id, { type: "pageReady", page },
+                                        { frameId: sender.frameId || 0 }).catch(() => {})
+    : () => {};
+  try {
+    return await sendImagesRun(message, runId, onPage);
+  } finally {
+    activeRuns.delete(runId);
+  }
+}
+
+// The app keeps working on a batch the extension gave up on. Sending the next one now would run
+// two at once and interleave the stored pages, so the later batches are named, not sent.
+function stopAfterTimeout(merged, later) {
+  let notSent = 0;
+  for (const batch of later) {
+    for (const image of batch) {
+      merged.failed.push({ key: image.key, url: image.url || "", error: STILL_WORKING });
+      notSent += 1;
+    }
+  }
+  merged.stopped = { message: `Baihe is still working on the last batch. ${notSent} later pages were not sent; send them later.` };
+}
+
+async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages }, runId, onPage = () => {}) {
   if (!images || !images.length) {
     return { ok: false, error: "No page images were found on this page." };
   }
   const cap = await batchCap();
+  const { typeset, typesetStyle } = await settings();
   const merged = { pages: [], skipped: [], failed: [], sent: images.length, received: 0, stored: 0, alreadyStored: 0 };
   let firstError = null;
   const batches = planBatches(images, cap, filterPages !== false ? 2 : 1);
@@ -237,12 +415,22 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
     // /pages is the only route that runs the page filter, so a chapter of two or more images uses it even if the filter later leaves one.
     const answer = await call(batch.length === 1 && images.length === 1 ? "/page" : "/pages", {
       method: "POST",
+      onPage,
       body: {
+        // An older app ignores it and answers the whole batch at once.
+        stream: true,
         images: batch,
         drama_id: dramaId || null,
         source_url: sourceUrl || "",
         store: store !== false,
         filter_pages: filterPages !== false,
+        run_id: runId,
+        // Only sent when on, so an older app never sees the key.
+        ...(typeset ? { typeset: true } : {}),
+        // Only when something differs from the plain render, so an older app never sees the key.
+        ...(typeset && typesetStyleChanged(typesetStyle)
+          ? { typeset_style: { align: typesetStyle.align, min_font: typesetStyle.minFont, stroke: typesetStyle.stroke,
+              erase_grow: typesetStyle.eraseGrow, bubble_fill: typesetStyle.bubbleFill, font: typesetStyle.font } } : {}),
       },
     });
     // The app refuses a whole filtered batch with 422 when none of it looks
@@ -254,27 +442,35 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
       merged.received += batch.length;
       continue;
     }
+    if (answer.cancelled) {
+      // The person cancelled: this batch and the rest are neither failed nor skipped, just not done.
+      merged.cancelled = true;
+      break;
+    }
     if (!answer.ok) {
       firstError = firstError || answer;
       for (const image of batch) {
         merged.failed.push({ key: image.key, url: image.url || "", error: answer.error });
       }
       if (answer.timedOut) {
-        // The app keeps working on this batch. Sending the next one now would
-        // run two at once and interleave the stored pages.
-        let notSent = 0;
-        for (const later of batches.slice(index + 1)) {
-          for (const image of later) {
-            merged.failed.push({ key: image.key, url: image.url || "", error: STILL_WORKING });
-            notSent += 1;
-          }
-        }
-        merged.stopped = { message: `Baihe is still working on the last batch. ${notSent} later pages were not sent; send them later.` };
+        stopAfterTimeout(merged, batches.slice(index + 1));
         break;
       }
       continue;
     }
     const data = answer.data || {};
+    if (data.cutOff) {
+      // The pages that arrived are kept (and already drawn); the rest of the batch is named.
+      const arrived = new Set((data.pages || []).map((p) => p.key));
+      const missing = batch.filter((image) => !arrived.has(image.key));
+      // Cancelled pages are not done, not failed, as when no page had arrived yet.
+      if (!answer.cancelled) {
+        for (const image of missing) merged.failed.push({ key: image.key, url: image.url || "", error: data.cutOff });
+        firstError = firstError || { ok: false, error: data.cutOff };
+      }
+      data.received = batch.length - missing.length;
+      data.stored = (data.pages || []).filter((p) => p.stored).length;
+    }
     merged.pages.push(...(data.pages || []));
     merged.skipped.push(...(data.skipped || []));
     merged.failed.push(...(data.failed || []));
@@ -285,6 +481,19 @@ async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
       merged.stopped = data.stopped;
       break;
     }
+    // A stream broken by Cancel or the time limit after some pages: those pages are kept, and
+    // the run ends as the same answer without them would.
+    if (answer.cancelled) {
+      merged.cancelled = true;
+      break;
+    }
+    if (answer.timedOut) {
+      stopAfterTimeout(merged, batches.slice(index + 1));
+      break;
+    }
+  }
+  if (merged.cancelled && !merged.pages.length && !merged.skipped.length && !merged.failed.length) {
+    return { ok: false, cancelled: true, error: "Cancelled." };
   }
   // Nothing arrived at all: surface the app's own refusal (bad token, bridge
   // off, no such drama) rather than a table of identical per-page failures.
@@ -358,6 +567,33 @@ function senderOrigin(sender) {
   }
 }
 
+// Rule ids are only live for the length of one request; a counter keeps two at once apart.
+let refererRuleId = 1;
+
+// The same request again with the Referer set to the page's origin, as the browser would have
+// sent it for the page's own image. The rule is limited to this host, to requests the extension
+// itself makes, and is removed as soon as the request ends. Without the permission it does nothing.
+async function retryWithReferer(href, options, pageOrigin) {
+  const rules = chrome.declarativeNetRequest;
+  if (!rules || !rules.updateSessionRules) return fetch(href, options);
+  const id = refererRuleId;
+  refererRuleId = refererRuleId % 1000 + 1;
+  const host = new URL(href).hostname;
+  await rules.updateSessionRules({
+    removeRuleIds: [id],
+    addRules: [{
+      id, priority: 1,
+      action: { type: "modifyHeaders", requestHeaders: [{ header: "referer", operation: "set", value: `${pageOrigin}/` }] },
+      condition: { requestDomains: [host], initiatorDomains: [chrome.runtime.id], resourceTypes: ["xmlhttprequest", "other"] },
+    }],
+  });
+  try {
+    return await fetch(href, options);
+  } finally {
+    await rules.updateSessionRules({ removeRuleIds: [id] });
+  }
+}
+
 async function fetchImage({ url }, sender) {
   let parsed;
   try {
@@ -390,7 +626,10 @@ async function fetchImage({ url }, sender) {
     // The result reports parsed.href, not response.url, so a redirect target can never reach the page.
     // redirect "error" because a redirect target would be requested before it
     // could be checked, letting a granted origin bounce the fetch to a LAN address.
-    const response = await fetch(parsed.href, options);
+    let response = await fetch(parsed.href, options);
+    // A worker's fetch cannot set a cross-origin referrer, so a CDN that checks it answers 403;
+    // only then is the header set by rule, for this one request.
+    if (response.status === 403 && pageOrigin) response = await retryWithReferer(parsed.href, options, pageOrigin);
     if (!response.ok) return { ok: false, error: `the image server answered HTTP ${response.status}` };
     const declared = Number(response.headers.get("content-length") || 0);
     if (declared > FETCH_IMAGE_MAX_BYTES) {
@@ -414,6 +653,122 @@ async function fetchImage({ url }, sender) {
   }
 }
 
+// -- carrying on chapter after chapter ---------------------------------------
+// One chapter at a time in the tab: capture it, follow the site's own next-chapter link, repeat.
+// It runs here because the page's script is replaced at every navigation and the popup may close.
+// Free chapters only: a sign-in or purchase wall ends the run, nothing tries to get past it.
+const SERIES_MAX_CHAPTERS = 50;
+const SERIES_LOAD_TIMEOUT_MS = 30000;
+const SERIES_SETTLE_MS = 1500;
+const SERIES_STOPS = {
+  limit: "reached the chapter limit",
+  end: "no next-chapter link on the last chapter",
+  gated: "reached a sign-in or purchase page",
+  repeat: "the next link led back to a chapter already done",
+  failed: "a chapter failed",
+  cancelled: "cancelled",
+};
+let series = null;
+let lastSeriesLine = "";
+
+function seriesSay(text) {
+  if (series) series.text = text;
+  chrome.runtime.sendMessage({ type: "seriesProgress", text }).catch(() => {});
+}
+
+async function tabAsk(tabId, message) {
+  try {
+    return (await chrome.tabs.sendMessage(tabId, message)) || { ok: false, error: "The page did not answer." };
+  } catch (e) {
+    return { ok: false, error: `The page could not be reached (${e.message}).` };
+  }
+}
+
+async function goTo(tabId, url) {
+  // The listener is added before the navigation so a fast load cannot be missed.
+  const loaded = new Promise((resolve) => {
+    const done = () => { chrome.tabs.onUpdated.removeListener(on); clearTimeout(timer); resolve(); };
+    const on = (id, info) => { if (id === tabId && info.status === "complete") done(); };
+    const timer = setTimeout(done, SERIES_LOAD_TIMEOUT_MS);
+    chrome.tabs.onUpdated.addListener(on);
+  });
+  await chrome.tabs.update(tabId, { url });
+  await loaded;
+  await new Promise((r) => setTimeout(r, SERIES_SETTLE_MS));
+}
+
+function seriesLine(done, stop) {
+  const count = (status) => done.filter((c) => c.status === status).length;
+  const named = (status) => done.filter((c) => c.status === status).slice(0, 3)
+    .map((c) => `${c.name || `chapter ${c.number}`} (${c.reason})`).join(", ");
+  const parts = [`Chapters: saved ${count("saved")}, skipped ${count("skipped")}, failed ${count("failed")}`];
+  if (count("skipped")) parts.push(`skipped: ${named("skipped")}`);
+  if (count("failed")) parts.push(`failed: ${named("failed")}`);
+  return `${parts.join("; ")}. Stopped: ${SERIES_STOPS[stop] || stop}.`;
+}
+
+async function chapterOutcome(tabId, kind, { dramaId, store }) {
+  if (kind === "novel") {
+    const r = await tabAsk(tabId, { type: "saveNovelText", dramaId });
+    if (!r.ok) return { status: "failed", reason: r.error || "no text saved" };
+    return r.data.saved ? { status: "saved" } : { status: "skipped", reason: "already saved" };
+  }
+  const r = await tabAsk(tabId, { type: "captureChapter", dramaId, store, fromHere: false });
+  if (!r.ok) return { status: "failed", reason: r.error || "capture failed" };
+  if (r.data.reason === "cancelled") return { status: "cancelled" };
+  if (r.data.reason === "error") return { status: "failed", reason: r.data.message };
+  return (r.data.stored || r.data.translated) ? { status: "saved" }
+    : { status: "skipped", reason: "no pages found" };
+}
+
+async function runSeries({ tabId, kind, dramaId, store, limit }) {
+  if (series) return { ok: false, error: "A chapter run is already going." };
+  if (!Number.isInteger(tabId) || !["novel", "comic"].includes(kind)) {
+    return { ok: false, error: "Open the chapter's tab first." };
+  }
+  const max = Math.min(Math.max(Number(limit) || 1, 1), SERIES_MAX_CHAPTERS);
+  series = { tabId, cancelled: false, text: "Starting…" };
+  const seen = new Set();
+  const done = [];
+  let stop = "limit";
+  try {
+    for (let number = 1; number <= max; number += 1) {
+      if (series.cancelled) { stop = "cancelled"; break; }
+      await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+      const here = await tabAsk(tabId, { type: "nextChapter" });
+      if (!here.ok) { done.push({ number, status: "failed", reason: here.error }); stop = "failed"; break; }
+      if (seen.has(here.data.here)) { stop = "repeat"; break; }
+      seen.add(here.data.here);
+      if (here.data.gated) { stop = "gated"; break; }
+      seriesSay(`Chapter ${number} of up to ${max}…`);
+      const outcome = await chapterOutcome(tabId, kind, { dramaId, store });
+      done.push({ number, name: here.data.heading, ...outcome });
+      if (outcome.status === "cancelled" || series.cancelled) { stop = "cancelled"; break; }
+      if (outcome.status === "failed") { stop = "failed"; break; }
+      if (number === max) break;
+      const after = await tabAsk(tabId, { type: "nextChapter" });
+      if (!after.ok || !after.data.url) { stop = "end"; break; }
+      await goTo(tabId, after.data.url);
+    }
+  } catch (e) {
+    stop = "failed";
+    done.push({ number: done.length + 1, status: "failed", reason: e.message });
+  } finally {
+    series = null;
+  }
+  lastSeriesLine = seriesLine(done, stop);
+  chrome.runtime.sendMessage({ type: "seriesDone", text: lastSeriesLine, failed: stop === "failed" }).catch(() => {});
+  return { ok: true, data: { text: lastSeriesLine, stop, chapters: done } };
+}
+
+async function cancelSeries() {
+  if (!series) return { ok: true, data: { cancelled: false } };
+  series.cancelled = true;
+  abortSends();
+  await tabAsk(series.tabId, { type: "cancelCapture" });
+  return { ok: true, data: { cancelled: true } };
+}
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   (async () => {
     try {
@@ -422,7 +777,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           respond(await health());
           break;
         case "send":
-          respond(await sendImages(message));
+          respond(await sendImages(message, sender));
           break;
         // Interim status from the content script; the popup, if open,
         // receives it too. Nothing to do here.
@@ -441,6 +796,41 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "resolveTitle":
           respond(await resolveTitle(message));
+          break;
+        case "captureSummary":
+          respond(await captureSummary(message));
+          break;
+        case "startSeries": {
+          // Answered at once: the run outlasts any message port, and ends with seriesDone.
+          const wasRunning = !!series;
+          const running = runSeries(message);
+          respond(!wasRunning && series ? { ok: true, data: { started: true } } : await running);
+          break;
+        }
+        case "cancelSeries":
+          respond(await cancelSeries());
+          break;
+        case "seriesStatus":
+          respond({ ok: true, data: { running: !!series, text: series ? series.text : "", last: lastSeriesLine } });
+          break;
+        case "seriesProgress":
+        case "seriesDone":
+          respond({ ok: true });
+          break;
+        case "abortSends":
+          respond(abortSends());
+          break;
+        case "captureTab":
+          respond(await captureTab(sender));
+          break;
+        case "setScreenshot":
+          respond(await setScreenshot(message));
+          break;
+        case "setTypesetStyle":
+          respond(await setTypesetStyle(message));
+          break;
+        case "setTypeset":
+          respond(await setTypeset(message));
           break;
         case "setAutoTitle":
           respond(await setAutoTitle(message));

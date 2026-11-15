@@ -18,7 +18,8 @@ name: Windows Installer
 # has passed the release job attaches the installer and the app-only update
 # zip (with its manifest copy), each with its SHA-256 and (when the
 # BAIHE_RELEASE_SIGNING_KEY secret is set) its Ed25519 signature, to a
-# GitHub Release named after the tag; the version is the tag without "v".
+# GitHub pre-release named after the tag; the version is the tag without "v".
+# promote-release.yml later makes a tested one the full release.
 on:
   workflow_dispatch:
     inputs:
@@ -52,8 +53,8 @@ jobs:
       INNO_SHA256: "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
       # Builds the bundled Caddy (installer/build_installer.py CADDY_GO_VERSION);
       # the hash is go.dev's published one for this zip.
-      GO_URL: "https://go.dev/dl/go1.26.10.windows-amd64.zip"
-      GO_SHA256: "7ecd2d7260e82c59bcbd7f1077a07cee2dea607295b858df67195a1e4e09629b"
+      GO_URL: "https://go.dev/dl/go1.26.11.windows-amd64.zip"
+      GO_SHA256: "71ae086f0137e665f855a811cc119152b6a783e0bbc1b906e709f46d80141eb0"
     steps:
       # Actions pinned by commit (tag in the comment; each runs on Node 24).
       # No token left on disk: npm ci runs package install scripts.
@@ -541,6 +542,32 @@ jobs:
       contents: write
       actions: read
     steps:
+      # CI runs on pushes to baihe-subtitler, not on tags: without this a tag on
+      # a commit whose Tests run failed would still publish.
+      - name: Check that Tests passed at the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUNS_FILTER: >-
+            [.workflow_runs[] | select(.head_sha == env.GITHUB_SHA and .event == "push"
+            and .head_branch == "baihe-subtitler" and .path == ".github/workflows/tests.yml")]
+            | sort_by(.created_at) | last | .conclusion // "missing"
+        run: |
+          set -euo pipefail
+          # Only the push run on baihe-subtitler counts: a pull request's run
+          # tests a merge with the base, not this commit, and anyone can open one.
+          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/tests.yml/runs?head_sha=$GITHUB_SHA&event=push&branch=baihe-subtitler&per_page=100" \
+            --jq "$RUNS_FILTER")"
+          # A run that waited and lost its place to a newer merge shows as cancelled; the generic
+          # message below would tell a maintainer to wait for a run that never finishes.
+          if [ "$conclusion" = "cancelled" ]; then
+            echo "::error::The Tests run on baihe-subtitler at $GITHUB_SHA was cancelled and never ran to the end. That is usually a run that was still waiting when a newer merge took its place, so it says nothing about whether this commit passes. Tag the later commit once its Tests run passed, or re-run this commit's cancelled run while no other run is waiting and tag when it has passed (docs/runbook.md, section 1, step 5). Nothing was published."
+            exit 1
+          fi
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::The Tests run on baihe-subtitler at $GITHUB_SHA is $conclusion, not success. Tag a commit whose Tests run on baihe-subtitler passed, or wait for it to finish and re-run this job. Nothing was published."
+            exit 1
+          fi
+          echo "Tests passed at $GITHUB_SHA."
       - name: Attach the installer, its SHA-256 and its signature to the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -556,7 +583,13 @@ jobs:
           # copy, when the build made them: hashed and signed like the installer.
           appzip="$(find out -name "BaiheStudio-App-$version.zip" | head -n 1)"
           signed=("$exe")
-          if [ -n "$appzip" ]; then signed+=("$appzip"); fi
+          # The manifest copy is signed too: the full installer's backup gate
+          # reads its schema hash before anything is downloaded.
+          if [ -n "$appzip" ]; then
+            manifest="$(dirname "$appzip")/BaiheStudio-App-$version.json"
+            test -f "$manifest"
+            signed+=("$appzip" "$manifest")
+          fi
           assets=()
           for file in "${signed[@]}"; do
             name="$(basename "$file")"
@@ -566,14 +599,12 @@ jobs:
             # In the log of this tag's own run, out of reach of a later edit to
             # the release's assets: what the owner checks a download against.
             label="Installer"
-            case "$name" in BaiheStudio-App-*) label="App update" ;; esac
+            case "$name" in
+              BaiheStudio-App-*.json) label="App update manifest" ;;
+              BaiheStudio-App-*) label="App update" ;;
+            esac
             echo "$label: $name sha256 $(sha256sum "$file" | cut -d ' ' -f 1)"
           done
-          if [ -n "$appzip" ]; then
-            manifest="$(dirname "$appzip")/BaiheStudio-App-$version.json"
-            test -f "$manifest"
-            assets+=("$manifest")
-          fi
           if [ -z "${BAIHE_RELEASE_SIGNING_KEY:-}" ]; then
             case "$version" in
               *-*) ;;
@@ -623,20 +654,32 @@ jobs:
               echo "Signed $name with $public"
             done
           fi
-          flags=""
-          case "$version" in *-*) flags="--prerelease" ;; esac
-          # Fixed short notes: generated notes list every commit since the previous
-          # release, and GitHub refuses a body over 125000 characters (the first
-          # release has no previous one, so it lists the whole history).
+          # Always a pre-release first: only copies with "Include pre-releases" on
+          # (the test PCs) are offered it until Promote Release makes it the full
+          # release (docs/runbook.md, section 1).
+          # The notes are release/v<version>-notes.md at the tagged commit, read
+          # through the API (this job runs no repository code); the update card
+          # shows the body. Without that file, a fixed line: generated notes list
+          # every commit since the previous release, and GitHub refuses a body
+          # over 125000 characters.
+          notes="$(mktemp)"
+          if ! gh api -H 'Accept: application/vnd.github.raw' \
+              "repos/$GITHUB_REPOSITORY/contents/release/v$version-notes.md?ref=$GITHUB_SHA" \
+              > "$notes" 2>/dev/null || [ ! -s "$notes" ]; then
+            echo "::warning::release/v$version-notes.md is not in the tagged commit; the release gets a one-line note."
+            printf 'Baihe Studio %s.\n' "$version" > "$notes"
+          fi
+          head -c 100000 "$notes" > "$notes.body"
+          printf '\nCheck the installer against its .sha256 file before you run it.\n' >> "$notes.body"
           # A re-run after a failure that came once the release existed adds the
           # files to it instead of failing on "already exists".
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
           else
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --verify-tag $flags \
+              --verify-tag --prerelease \
               --title "Baihe Studio $version" \
-              --notes "Baihe Studio $version. Check the installer against its .sha256 file before you run it." \
+              --notes-file "$notes.body" \
               "${assets[@]}"
           fi
 

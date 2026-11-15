@@ -102,11 +102,11 @@ def test_claude_keeps_its_client_timeout_and_a_deadline_past_it():
 def test_ollama_deadline_follows_its_own_chat_timeout():
     from engine_backends.local import OllamaEngine, ollama_chat_timeout
     scope = llm_tasks._BoundedScope("jo", lambda: False, None, False)
-    for model in ("qwen3:8b", "gemma4:31b"):
+    for model in ("translategemma:12b", "gemma4:31b"):
         engine = OllamaEngine(model=model)
         assert llm_tasks._deadline_for(scope, engine) >= ollama_chat_timeout(model)
     explicit = llm_tasks._BoundedScope("jo", lambda: False, 5, False)
-    assert llm_tasks._deadline_for(explicit, OllamaEngine(model="qwen3:8b")) == 5
+    assert llm_tasks._deadline_for(explicit, OllamaEngine(model="translategemma:12b")) == 5
 
 
 @pytest.mark.parametrize("how", ["cancel", "deadline"])
@@ -129,7 +129,7 @@ def test_abandoning_an_ollama_call_closes_its_request(no_abandoned, monkeypatch,
             "jo2", lambda: bool(flag) if how == "cancel" else False,
             deadline=60 if how == "cancel" else 0.3):
         with pytest.raises((TranslationCancelled, llm_tasks.LLMTaskTimeout)):
-            llm_tasks.call_llm_json(OllamaEngine(model="qwen3:8b"), "p")
+            llm_tasks.call_llm_json(OllamaEngine(model="translategemma:12b"), "p")
     assert closed.wait(3)
     assert "jo2" not in llm_tasks._abandoned  # unwound, so a retry isn't refused
 

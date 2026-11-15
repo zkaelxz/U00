@@ -4,6 +4,7 @@ import { hasStatus } from '../../../../api/client'
 import { applyFindReplace, patchLine } from '../../../../api/review'
 import { listAllLines } from '../../../../api/restructure'
 import { lineNumber } from '../../../../lineNumber'
+import type { SpeakerChangeEntry } from '../../../../types/characters'
 import type { ApplyResult, LineFilter, ReviewLine, ReviewLinesPage, ReviewMatch } from '../../../../types/review'
 import { buildRowActions } from './lineRowActions'
 import { createMoveFlagged } from './lineFlaggedMove'
@@ -16,7 +17,8 @@ import { inFilter, stepFrom, type PanelMode } from './reviewLogic'
 import { retireUndoOffer } from './undoOffer'
 
 export type Target = 'first' | 'last' | number
-export type Pending = { target: Target; edit?: boolean }
+// landed: told once the move's page has loaded, and whether its target was on it (the kept place falls back when not).
+export type Pending = { target: Target; edit?: boolean; landed?: (lines: ReviewLine[], hit: boolean) => void }
 // The lines a write changes: some ids, or every line (a version, a restore).
 type LineScope = number[] | 'all'
 
@@ -54,6 +56,16 @@ export interface LinesControllerDeps {
   setStructError: Dispatch<SetStateAction<unknown>>
   setAi: Dispatch<SetStateAction<{ lineId: number; mode: PanelMode } | null>>
   setRetranscribeFocusId: Dispatch<SetStateAction<number | null>>
+  // The last suggested speaker taken, while it can be undone.
+  setSpeakerUndo?: (undo: SpeakerUndo | null) => void
+}
+
+export interface SpeakerUndo {
+  lineNumber: number
+  speaker: string
+  entries: SpeakerChangeEntry[]
+  // Shown on the card of a Need a look line that stays listed for another reason once its speaker is set.
+  note?: string | null
 }
 
 // What the extracted action builders (lineRowActions, lineTiming, lineFlaggedMove) need from the
@@ -67,7 +79,7 @@ export interface LinesCore {
   stillDirty: (lineId: number) => boolean
   leaveEdit: () => Promise<boolean>
   beforeWrite: (scope: LineScope) => Promise<string | null>
-  afterWrite: (scope: LineScope) => void
+  afterWrite: (scope: LineScope, keepTyping?: boolean) => void
   focusTo: (id: number) => void
   activate: (id: number, focus?: boolean) => Promise<void>
   openEdit: (id: number, details?: boolean) => Promise<boolean>
@@ -187,10 +199,12 @@ export function createLinesController(deps: LinesControllerDeps) {
     return `Save or discard your edit to #${lineNumber(cur.base.idx)} first.`
   }
   // An edit opened on those lines while the write ran started from the old
-  // text: close it when nothing was typed.
-  const afterWrite = (scope: LineScope) => {
+  // text: close it when nothing was typed. With keepTyping, typing there is
+  // moved onto the written line on the next load and kept over it.
+  const afterWrite = (scope: LineScope, keepTyping = false) => {
     const cur = editIn(scope)
     if (cur && !isDirty(cur.base, cur.draft)) setEditNow(null)
+    else if (cur && keepTyping) setEditNow({ ...cur, rebaseOnLoad: true, keepTyping: true })
   }
 
   // A draft kept from an earlier visit (useDraftGuard), rebased on the line as
@@ -226,11 +240,11 @@ export function createLinesController(deps: LinesControllerDeps) {
       setEditNow({ ...cur, rebaseOnLoad: false })
       return
     }
-    const reset = clashingFields(cur.base, fresh, cur.draft)
+    const reset = cur.keepTyping ? [] : clashingFields(cur.base, fresh, cur.draft)
     const draft = rebaseDraft(cur.base, fresh, cur.draft)
     const now = draftFromLine(fresh)
     for (const k of reset) (draft as unknown as Record<string, unknown>)[k] = now[k]
-    setEditNow({ ...cur, base: fresh, draft, rebaseOnLoad: false })
+    setEditNow({ ...cur, base: fresh, draft, rebaseOnLoad: false, keepTyping: false })
     if (reset.length) setStatus(resetFieldsText(reset, lineNumber(fresh.idx)))
   }
 
@@ -351,7 +365,8 @@ export function registerLinesWriter(ctl: LinesController): () => void {
 export const beforeLinesWrite = (dramaId: number, scope: LineScope): Promise<string | null> =>
   writers.get(dramaId)?.beforeWrite(scope) ?? Promise.resolve(null)
 
-export const afterLinesWrite = (dramaId: number, scope: LineScope): void => writers.get(dramaId)?.afterWrite(scope)
+export const afterLinesWrite = (dramaId: number, scope: LineScope, ...keepTyping: [] | [boolean]): void =>
+  writers.get(dramaId)?.afterWrite(scope, ...keepTyping)
 
 export const linesLoaded = (dramaId: number, lines: ReviewLine[]): void => void writers.get(dramaId)?.rebaseKept(lines)
 

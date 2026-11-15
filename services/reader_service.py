@@ -64,7 +64,7 @@ from engine_backends import shared as engine_shared
 import universe_wiki
 import vocab_export
 from engine_backends import paid_calls
-from services import ownership_service, settings_service, translate_service
+from services import glossary_service, ownership_service, settings_service, translate_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from lib.errors import (
     DependencyUnavailableError,
@@ -136,7 +136,8 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
         html_str = reader.build_reader_html(
             page_lines, source_language, definitions, audio_data_uri=None, theme=theme,
             font_size=font_size, line_height=line_height, max_width=max_width, font=font,
-            readings=readings, paragraph_ends=ends, editable=editable)
+            readings=readings, paragraph_ends=ends, editable=editable,
+            terms=glossary_service.effective_glossary_terms(drama_id) if editable else None)
 
     return {"html": html_str, "page": page, "page_count": page_count, "total_lines": len(lines)}
 
@@ -802,7 +803,17 @@ def ask_about_drama(drama_id: int, question: str, chat_history: list | None = No
     history = [{"role": m["role"], "content": m["content"]} for m in history]
     lines = _require_lines(drama_id)
     engine = llm_engine(engine_name, model)
-    answer = _run_engine(lambda: qa.ask_about_drama(question, lines, drama, engine,
-                                                    chat_history=history),
-                         (engine, "reader_ask", drama_id))
+    from services import line_ai_service
+    name = getattr(engine, "name", None) or type(engine).__name__
+    # qa.ask_about_drama is a plain chat call, outside call_llm_json, so neither
+    # the monthly cap nor the usage log sees it unless it is done here.
+    line_ai_service.refuse_if_over_monthly_cap(
+        name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
+    logged = []
+    try:
+        answer = _run_engine(lambda: qa.ask_about_drama(
+            question, lines, drama, engine, chat_history=history, usage_cb=logged.append))
+    finally:
+        # Written for a failed request too: a paid provider may have billed it.
+        paid_calls.record_chat_calls(engine, name, "reader_ask", logged, drama_id=drama_id)
     return {"drama_id": drama_id, "answer": answer}

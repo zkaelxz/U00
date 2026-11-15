@@ -5,6 +5,7 @@ import { api } from '../../api/client'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { PageShell } from '../../components/PageShell'
 import { usePersistedState } from '../../hooks/usePersistedState'
+import { scrollBehavior } from '../../hooks/useMediaQuery'
 import { routeHref } from '../../router'
 import { activeIndex, alongLines } from '../reader/readAlongLogic'
 import { listAllLines } from '../../api/review'
@@ -68,7 +69,7 @@ export default function FollowAlongPage({ id }: { id: number }) {
   const position = positionAt(clock, now)
   const current = lines ? activeIndex(lines, position) : null
   useEffect(() => {
-    active.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    active.current?.scrollIntoView({ block: 'center', behavior: scrollBehavior() })
   }, [current])
 
   const act = useCallback((f: (c: FollowClock, t: number) => FollowClock) => {

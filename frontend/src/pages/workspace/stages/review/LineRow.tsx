@@ -2,24 +2,30 @@ import { memo, useEffect, useState, type FocusEvent, type KeyboardEvent, type Mo
 
 import { retryBlockedLine } from '../../../../api/review'
 import { translateApi } from '../../../../api/translate'
+import { LineMarkBadge, LineMarkButtons } from './LineMarkButtons'
 import { Badge } from '../../../../components/Badge'
+import { ButtonLink } from '../../../../components/Button'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
-import { humanize, humanizeValue } from '../../../../components/labels'
-import { capFirst, languageLabel } from '../../../../labels'
+import { HelpTip } from '../../../../components/HelpTip'
+import { humanize } from '../../../../components/labels'
+import { languageLabel } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
-import type { ReviewLine, TmSuggestion } from '../../../../types/review'
+import type { LineMark, ReviewLine, SpeakerGuess, TmSuggestion } from '../../../../types/review'
 import type { TimingSuggestion } from '../../../../types/timingCheck'
 import type { TranslateEngine } from '../../../../types/translate'
 import { LineAi } from './LineAi'
 import { LineOrigin } from './LineOrigin'
 import { LineTools } from './LineTools'
+import { RowSpeakerGuesses } from './SpeakerGuesses'
+import { SpeakerChip } from './SpeakerChip'
 import { SpeakerSelect } from './SpeakerSelect'
 import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
-import { CONFLICT_MESSAGE, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
+import { queueAction, queueReason, type QueueAction } from './checkQueueModel'
+import { CONFLICT_MESSAGE, formatTenths, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 import { isSourceChanged } from '../sourceChanged'
@@ -48,6 +54,9 @@ export interface EditState {
   discardWarning?: boolean
   // Reload after a conflict: the next load moves the draft onto the line as it is then.
   rebaseOnLoad?: boolean
+  // A fill of a blank line landed under this draft: on that rebase the typing
+  // wins over the filled text instead of giving way to it.
+  keepTyping?: boolean
 }
 
 // Safari ends an IME composition with a keydown whose isComposing is false but
@@ -81,13 +90,21 @@ export interface RowActions {
   useSuggestion: (id: number, text: string) => Promise<boolean>
   dismissFlag: (id: number) => void
   setReviewed: (id: number, reviewed: boolean) => void
+  // Your wrong / mixed verdict on the line; null clears it.
+  setMark: (id: number, mark: LineMark | null) => void
+  // The check queue's "Looks right, next": marks the line checked and opens the next card.
+  reviewAndNext: (id: number) => void
+  // The line menu's "Re-transcribe…": opens the line's details on its re-transcribe step.
+  retranscribe: (id: number) => void
   // Shortens a timing-flagged line to the speech the check found (compare-and-set on the server).
   snapToSpeech?: (id: number) => void
-  // Starts the title's timing check (the same one as Fix > Flag lines for review).
+  // Starts the title's timing check (the same one as Look for problems > Flag lines for review).
   checkTiming?: () => void
   applyLine: (saved: ReviewLine, closeEdit: boolean) => void
   playLine: (line: ReviewLine) => void
   acceptTm: (id: number, entryId: number, expectedEn: string) => void
+  // Gives a line with no speaker one of its suggested speakers; true once saved.
+  acceptSpeaker: (id: number, speaker: string) => Promise<boolean>
   dismissTm: (s: TmSuggestion) => void
   clearIssue: () => void
   reload: () => void
@@ -116,6 +133,10 @@ interface Props {
   tm: TmSuggestion | null
   // The stronger engine offered for this hard line, if any.
   stronger?: StrongerOffer | null
+  // Speakers to offer while the line has none.
+  guesses?: SpeakerGuess[] | null
+  // Said under a queue card whose speaker was just set while another reason keeps it listed.
+  speakerNote?: string | null
   // The corrected times saved for this timing-flagged line, if any.
   timingSnap?: TimingSuggestion | null
   issue: RowIssue | null
@@ -123,6 +144,14 @@ interface Props {
   // Shown as a search result: offers "Show on its page".
   // Simple view: the meta line and toolbar leave out what a first pass over the lines does not use.
   simple?: boolean
+  // A card of Simple's check queue: its reason is always written out, and Mark checked moves on to the next card.
+  queue?: boolean
+  // A phone's open card ends with the Next line, which says which cards follow it.
+  queueNext?: string | null
+  // Whether a queue card can offer Re-transcribe now, with the line menu's reason when it can't.
+  retranscribe?: RetranscribeState | null
+  // The This line panel beside the queue shows the open card's reason in full and the lines around it.
+  linePanel?: boolean
   searchHit?: boolean
   // Just jumped to from a search result: briefly highlighted.
   jumped?: boolean
@@ -130,9 +159,9 @@ interface Props {
   focusRetranscribe?: boolean
 }
 
-// "content_blocked" + note -> "Content blocked · gemini: SAFETY"
-function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
-  return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${capFirst(line.flag_note)}` : ''}`
+export interface RetranscribeState {
+  disabled: boolean
+  reason: string | null
 }
 
 // Desktop shows the whole note under the meta line instead of in it: that
@@ -145,8 +174,8 @@ export function FlagNote({ text }: { text: string }) {
   )
 }
 
-// Phones keep a one-line chip; a button reveals the whole note there, where
-// there is no hover and no room to show it inline.
+// Phones show a flag's few words; a press reveals the whole sentence there,
+// where there is no hover and no room to show it inline.
 export function FlagToggle({ text, open, onToggle, controls, children }: {
   text: string
   open: boolean
@@ -187,22 +216,28 @@ function TimingUncertainActions({ dramaId, lineId, snap, actions, jobRunning }: 
   return (
     <div className="review-flag-actions" data-testid="timing-uncertain-actions">
       {snap && actions.snapToSpeech && (
-        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.snapToSpeech?.(lineId)}
-                title={`Set ${formatTime(snap.new_start)} – ${formatTime(snap.new_end)}; saves a history snapshot first`}>
-          Snap to speech
-        </button>
+        <>
+          <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.snapToSpeech?.(lineId)}
+                  aria-describedby={`timing-snap-times-${lineId}`}>
+            Snap to speech
+          </button>
+          {/* Shown, not a title: phones show these actions too, and have no hover. */}
+          <span className="muted" id={`timing-snap-times-${lineId}`}>
+            Sets {formatTime(snap.new_start)} – {formatTime(snap.new_end)}; saves a history snapshot first
+          </span>
+        </>
       )}
       {actions.checkTiming && (
         <button type="button" className={buttonClass('secondary', 'sm')} disabled={jobRunning} onClick={() => actions.checkTiming?.()}
                 aria-describedby={jobRunning ? `timing-check-reason-${lineId}` : undefined}
-                title={jobRunning ? undefined : 'Compare every line’s times with the speech in the audio'}>
+                title={jobRunning ? undefined : 'Checks every line against the audio'}>
           Check timing
         </button>
       )}
       {actions.checkTiming && jobRunning && <span className="muted review-reason" id={`timing-check-reason-${lineId}`}>{JOB_RUNNING_MESSAGE}</span>}
       <span className="muted">
         Re-transcribe with Whisper large-v3-turbo for word timings:{' '}
-        <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source', tab: 'transcribe' })}>open Media → Transcribe</a>
+        <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source', tab: 'transcribe' })}>open Transcribe → Run</a>
       </span>
     </div>
   )
@@ -226,17 +261,23 @@ const keepFocusInBox = (e: MouseEvent<HTMLElement>) => e.preventDefault()
 
 const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog'
 
+const SHAKY_HELP = 'Whisper was unsure of this line'
+const SOURCE_CHANGED_HELP = 'The source text changed after this line was translated'
+
 // One line: meta, source and translation. Only the active row's controls are Tab
 // stops (roving tabIndex; j/k moves it): with every row's buttons tabbable the
 // selection bar after the list is ~80 presses away. The active row
 // carries a toolbar on wider screens; editing happens in place. Details and
 // the AI panel are only rendered while open, so a long list stays light.
-function ShakyBadge({ line }: { line: ReviewLine }) {
+function ShakyBadge({ line, help }: { line: ReviewLine; help: boolean }) {
   if (!isShaky(line)) return null
   return (
-    <span data-testid="line-shaky" title="Whisper was unsure of this line">
-      <Badge tone="warn">Shaky {Math.round((line.confidence ?? 0) * 100)}%</Badge>
-    </span>
+    <>
+      <span data-testid="line-shaky" title={SHAKY_HELP}>
+        <Badge tone="warn">Shaky {Math.round((line.confidence ?? 0) * 100)}%</Badge>
+      </span>
+      {help && <HelpTip label="Shaky" id={`line-shaky-help-${line.id}`}>{SHAKY_HELP}</HelpTip>}
+    </>
   )
 }
 
@@ -266,11 +307,11 @@ function WhySplitMerge({ line, ai, jobRunning, limited, reasonId, actions }: {
             className={buttonClass('ghost', 'sm')}
             aria-pressed={ai === 'explain'}
             onClick={() => actions.setAi(line.id, ai === 'explain' ? null : 'explain')}
-            title="Why this? (W)"
+            title="Key: W"
           >
             Why this?
           </button>
-          <button type="button" className={buttonClass('ghost', 'sm')} disabled={jobRunning} aria-describedby={jobRunning ? reasonId : undefined} onClick={() => actions.openStructure(line.id, 'split')} title="Split line (Alt+Enter while editing)">
+          <button type="button" className={buttonClass('ghost', 'sm')} disabled={jobRunning} aria-describedby={jobRunning ? reasonId : undefined} onClick={() => actions.openStructure(line.id, 'split')} title="Key: Alt+Enter while editing">
             Split…
           </button>
           <button
@@ -287,13 +328,199 @@ function WhySplitMerge({ line, ai, jobRunning, limited, reasonId, actions }: {
   )
 }
 
-function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, timingSnap, issue, actions, simple = false, searchHit, jumped, focusRetranscribe }: Props) {
+interface FitProps {
+  dramaId: number
+  line: ReviewLine
+  fit: QueueAction | null
+  isPhone: boolean
+  timingSnap: TimingSuggestion | null
+  retranscribe: RetranscribeState | null
+  actions: RowActions
+}
+
+// The one existing action that fits a queue card's reason, with the gating, label and tip it has elsewhere. A blocked
+// line's retry needs its engine picker, so it is drawn under the card instead (BlockedRetry).
+function FitAction({ dramaId, line, fit, isPhone, timingSnap, retranscribe, actions }: FitProps) {
+  if (fit === 'glossary') {
+    return <ButtonLink variant="secondary" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })}>Glossary</ButtonLink>
+  }
+  if (fit === 'keep') {
+    return (
+      <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.dismissFlag(line.id)} title="Key: F">
+        Keep English
+      </button>
+    )
+  }
+  if (fit === 'snap' && timingSnap && actions.snapToSpeech) {
+    const times = `${formatTime(timingSnap.new_start)} – ${formatTime(timingSnap.new_end)}`
+    return (
+      <>
+        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.snapToSpeech?.(line.id)}
+                title={isPhone ? undefined : `Set to ${times} (undo in Records)`} aria-describedby={isPhone ? `queue-snap-${line.id}` : undefined}>
+          Snap to speech
+        </button>
+        {/* A phone has no hover to show the title on. */}
+        {isPhone && <span className="muted review-reason" id={`queue-snap-${line.id}`}>Sets {times}; saves a history snapshot first</span>}
+      </>
+    )
+  }
+  if (fit === 'retranscribe' && retranscribe) {
+    const reasonId = `queue-retranscribe-${line.id}`
+    return (
+      <>
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={retranscribe.disabled} aria-describedby={retranscribe.reason ? reasonId : undefined}
+                onClick={() => actions.retranscribe(line.id)}>
+          Re-transcribe…
+        </button>
+        {retranscribe.reason && <span className="muted review-reason" id={reasonId}>{retranscribe.reason}</span>}
+      </>
+    )
+  }
+  return null
+}
+
+function ImproveButton({ line, ai, actions }: { line: ReviewLine; ai: PanelMode | null; actions: RowActions }) {
+  return (
+    <button type="button" className={buttonClass('secondary', 'sm')} disabled={!line.en} aria-pressed={ai === 'improve'}
+            onClick={() => actions.setAi(line.id, ai === 'improve' ? null : 'improve')} title="Ask the AI to re-write this line (I)">
+      {line.en ? 'Re-write' : 'Re-write (needs a translation first)'}
+    </button>
+  )
+}
+
+// The open queue card's buttons on a wide screen: Play, the action that fits the reason, Improve, and the one
+// finishing step pushed to the far end. Edit details, a second Snap to speech and Dismiss flag stay in More and on D and F.
+function QueueTools({ line, hasMedia, ai, linePanel, fit, actions, ...fitProps }: FitProps & {
+  hasMedia: boolean
+  ai: PanelMode | null
+  linePanel: boolean
+}) {
+  return (
+    <div className="review-tools review-queue-tools" role="toolbar" aria-label={`Line ${lineNumber(line.idx)} actions`}>
+      {hasMedia && (
+        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.playLine(line)} title="Key: Space">
+          Play line
+        </button>
+      )}
+      <FitAction line={line} fit={fit} actions={actions} {...fitProps} />
+      <ImproveButton line={line} ai={ai} actions={actions} />
+      {!linePanel && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.showOnPage(line.id)}>In context</button>}
+      <LineMarkButtons line={line} onMark={actions.setMark} />
+      {line.reviewed && (
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={!line.en} aria-pressed onClick={() => actions.setReviewed(line.id, false)} title="Uncheck (R)">
+          Checked
+        </button>
+      )}
+      {!line.reviewed && (
+        <button type="button" className={buttonClass('ok', 'sm', 'review-queue-done')} disabled={!line.en} onClick={() => actions.reviewAndNext(line.id)}
+                aria-label="Looks right, next" title="Key: R">
+          <span aria-hidden="true">✓</span> Next
+        </button>
+      )}
+    </div>
+  )
+}
+
+// The open card on a phone has no toolbar: Play line, the fitting action, Improve and the card's menu sit under the English;
+// Skip for now and Looks right, next are in the bar at the bottom. The menu's button is as tall as the others, at the row's end.
+function QueuePhoneActions({ line, hasMedia, ai, actions, ...fitProps }: FitProps & { hasMedia: boolean; ai: PanelMode | null }) {
+  return (
+    <div className="review-queue-actions">
+      {hasMedia && (
+        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.playLine(line)} title="Key: Space">
+          Play line
+        </button>
+      )}
+      <FitAction line={line} actions={actions} {...fitProps} />
+      <ImproveButton line={line} ai={ai} actions={actions} />
+      <span className="review-mark-pair"><LineMarkButtons line={line} onMark={actions.setMark} /></span>
+      <MoreButton line={line} active actions={actions} extra="review-card-more" />
+    </div>
+  )
+}
+
+function MoreButton({ line, active, actions, extra, label = '⋯' }: { line: ReviewLine; active: boolean; actions: RowActions; extra: string; label?: string }) {
+  return (
+    <button
+      type="button"
+      className={buttonClass('ghost', 'sm', extra)}
+      aria-label={`More actions for line ${lineNumber(line.idx)}`}
+      aria-haspopup="dialog"
+      tabIndex={active ? undefined : -1}
+      onClick={() => actions.openSheet(line.id)}
+    >
+      {label}
+    </button>
+  )
+}
+
+// The translation: the button that opens the editor, or the editor itself with its Save buttons on a wide screen.
+function LineEnglish({ line, draft, discardWarning, isPhone, active, actions, onKey }: {
+  line: ReviewLine
+  draft: LineDraft | null
+  discardWarning: boolean
+  isPhone: boolean
+  active: boolean
+  actions: RowActions
+  onKey: (e: KeyboardEvent<HTMLTextAreaElement>) => void
+}) {
+  return draft ? (
+    <div className="review-en-edit">
+      <textarea
+        aria-label="Translation"
+        autoFocus
+        enterKeyHint="next"
+        data-field="en"
+        value={draft.en}
+        onChange={(e) => actions.setDraft({ en: e.target.value })}
+        onKeyDown={onKey}
+        rows={2}
+      />
+      {!isPhone && (
+        <div className="review-actions" onMouseDown={keepFocusInBox}>
+          <button type="button" className={buttonClass('primary', 'sm')} onClick={actions.saveAndNext}>Save &amp; next</button>
+          <button type="button" className={buttonClass('secondary', 'sm')} onClick={actions.save}>Save</button>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={actions.cancelEdit}>Cancel</button>
+          {discardWarning ? (
+            <span className="review-keys" role="status">{DISCARD_WARNING}</span>
+          ) : (
+            <span className="muted review-keys">Enter save &amp; next · Shift+Enter new line · Esc cancel</span>
+          )}
+        </div>
+      )}
+    </div>
+  ) : (
+    <button
+      type="button"
+      className="review-en"
+      data-testid="line-en"
+      tabIndex={active ? undefined : -1}
+      onClick={() => (isPhone && !active ? actions.activate(line.id) : actions.openEdit(line.id))}
+    >
+      {line.en || <span className="muted review-untranslated">Not translated</span>}
+    </button>
+  )
+}
+
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, guesses, speakerNote, timingSnap, issue, actions, simple = false, queue = false, queueNext = null, retranscribe = null, linePanel = false, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
   const reasonId = `review-reason-${line.id}`
   const langChip = lineLangChip(line.lang, sourceLanguage)
+  // A title never shows on a touch screen. The phone's meta line doesn't wrap and has no room for a
+  // help button, so the active row spells the reasons out under it; elsewhere the active row gets a tip
+  // (active only, to keep the roving Tab order). A queue card's Why already says what these would.
+  const badgeHelp = active && !isPhone
+  const badgeReasons = [isShaky(line) && !(queue && !line.flag) && SHAKY_HELP, isSourceChanged(line) && !queue && SOURCE_CHANGED_HELP].filter((r): r is string => !!r)
   const textLang = sourceTextLang(line.lang, sourceLanguage)
+  const reason = queue ? queueReason(line) : null
+  // Outside the queue only a flag is written out: a low Whisper score there has its Shaky badge.
+  const flagReason = line.flag && !queue ? queueReason(line) : null
+  const fit = queue ? queueAction(line) : null
+  const card = queue && active
+  const phoneCard = card && isPhone
+  const fitProps: FitProps = { dramaId, line, fit, isPhone, timingSnap: timingSnap ?? null, retranscribe, actions }
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (isComposingKey(e)) return
@@ -321,8 +548,13 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
     if ((e.target as Element).closest(INTERACTIVE)) return
     actions.activate(line.id)
   }
+  // A wide closed queue row has no button to open it, so Enter on the focused row does.
+  const onRowKey = (e: KeyboardEvent<HTMLLIElement>) => {
+    if (e.key === 'Enter' && e.target === e.currentTarget && queue && !active && !isPhone) actions.activate(line.id)
+  }
 
-  const className = ['review-line', active && 'is-active', draft && 'is-editing', jumped && 'is-jumped', selected && 'is-selected'].filter(Boolean).join(' ')
+  const className = ['review-line', queue && 'is-queue', active && 'is-active', draft && 'is-editing', jumped && 'is-jumped', selected && 'is-selected'].filter(Boolean).join(' ')
+  const english = <LineEnglish line={line} draft={draft} discardWarning={!!edit?.discardWarning} isPhone={isPhone} active={active} actions={actions} onKey={onKey} />
 
   return (
     <li
@@ -333,6 +565,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       aria-current={active ? 'true' : undefined}
       tabIndex={active ? 0 : -1}
       onClick={onRowClick}
+      onKeyDown={onRowKey}
       onBlur={onRowBlur}
     >
       <label className="review-select">
@@ -348,15 +581,19 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         />
       </label>
       <div className="review-line-meta">
-        <span className="review-idx">#{lineNumber(line.idx)}</span>
-        {!prose && (
-          <span className="review-time">
-            {formatTime(line.start)}
-            {!isPhone && !simple && <>–{formatTime(line.end)}</>}
-          </span>
-        )}
+        {/* One cell, so a closed queue row can hold the number and time in a fixed-width column; elsewhere it adds no box. */}
+        <span className="review-line-ref">
+          <span className="review-idx">{phoneCard ? 'Line ' : '#'}{lineNumber(line.idx)}</span>
+          {phoneCard && !prose && <span className="review-card-dot" aria-hidden="true">·</span>}
+          {!prose && (
+            <span className="review-time">
+              {queue ? formatTenths(line.start) : formatTime(line.start)}
+              {!isPhone && !simple && <>–{formatTime(line.end)}</>}
+            </span>
+          )}
+        </span>
         {!prose && !isPhone && (!simple || line.flag === READING_SPEED_FLAG) && <LineCps line={line} />}
-        {!prose && line.speaker && <span className="review-speaker">{line.speaker}</span>}
+        {!prose && line.speaker && <>{phoneCard && <span className="review-card-dot" aria-hidden="true">·</span>}<SpeakerChip dramaId={dramaId} line={line} actions={actions} /></>}
         {langChip && (
           <span data-testid="line-lang" title={`Spoken in ${languageLabel(line.lang)}`}>
             <span aria-hidden="true"><Badge>{langChip}</Badge></span>
@@ -365,86 +602,74 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         )}
         {line.sfx && <Badge>Sound cue</Badge>}
         {line.reviewed && <span data-testid="line-checked"><Badge tone="ok">Checked</Badge></span>}
-        <ShakyBadge line={line} />
+        <LineMarkBadge line={line} />
+        <ShakyBadge line={line} help={badgeHelp} />
         {isSourceChanged(line) && (
-          <span data-testid="source-changed-badge" title="The source text changed after this line was translated">
-            <Badge tone="warn">Source changed</Badge>
-          </span>
+          <>
+            <span data-testid="source-changed-badge">
+              <Badge tone="warn">Source changed</Badge>
+            </span>
+            {badgeHelp && <HelpTip label="Source changed" id={`source-changed-help-${line.id}`}>{SOURCE_CHANGED_HELP}</HelpTip>}
+          </>
         )}
         {line.dub_filename && !isPhone && !simple && <span>Dub: {line.dub_filename}</span>}
-        {line.flag && isPhone && (
+        {/* A closed card keeps to a few words, so the list stays one glance per line; so does the open one while the This line panel beside it says the rest. */}
+        {reason && !isPhone && (!active || linePanel) && <span className="review-queue-reason" data-testid="queue-reason">{reason.chip}</span>}
+        {flagReason && isPhone && (
           <span className="review-flag" data-testid="line-flag">
             <span aria-hidden="true">⚑</span>
-            <span className="sr-only"> Flagged: {flagText(line)}</span>
+            <span className="sr-only"> Flagged: {flagReason.text}</span>
           </span>
         )}
-        <button
-          type="button"
-          className={buttonClass('ghost', 'sm', 'review-more')}
-          aria-label={`More actions for line ${lineNumber(line.idx)}`}
-          aria-haspopup="dialog"
-          tabIndex={active ? undefined : -1}
-          onClick={() => actions.openSheet(line.id)}
-        >
-          {active && !isPhone ? 'More' : '⋯'}
-        </button>
+        {/* A phone's open card puts its link to the lines around it here and its menu after the buttons. */}
+        {phoneCard && <button type="button" className="check-queue-link review-card-around" onClick={() => actions.showOnPage(line.id)}>In context</button>}
+        {/* A wide closed queue row opens with a click or Enter and has no menu of its own; its open card has ⋯. */}
+        {(!queue || isPhone || active) && !phoneCard && (
+          <MoreButton line={line} active={active} extra="review-more" label={active && !isPhone && !queue ? 'More' : '⋯'} actions={actions} />
+        )}
       </div>
-      {line.flag && !isPhone && <FlagNote text={flagText(line)} />}
+      {flagReason && !isPhone && <FlagNote text={flagReason.text} />}
+      {/* Its own line under the top one, so the sentence never squeezes the number, time, speaker and More beside it. */}
+      {reason && !isPhone && active && !linePanel && <p className="review-queue-reason review-queue-sentence" data-testid="queue-reason">{reason.text}</p>}
+      {reason && isPhone && active && <p className="review-queue-why" data-testid="queue-reason">Why: {reason.text}</p>}
+      {isPhone && active && badgeReasons.length > 0 && (
+        <p className="muted review-badge-reasons" data-testid="badge-reasons">{badgeReasons.join('. ')}.</p>
+      )}
       {/* A phone's meta line has no room for the number (it would move ⋯ under the tap point), so the active row shows it below. */}
-      {!prose && isPhone && active && <LineCps line={line} lineAbove />}
+      {!prose && isPhone && active && (!queue || line.flag === READING_SPEED_FLAG) && <LineCps line={line} lineAbove />}
       {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}
-      {isPhone && active && line.flag && (
+      {isPhone && active && flagReason && (
         <div className="review-flag review-flag-line">
-          <FlagToggle text={`Flagged: ${flagText(line)}`} open={flagOpen} onToggle={setFlagOpen} controls={flagNoteId}>
-            Flagged: {flagText(line)}
+          <FlagToggle text={`Flagged: ${flagReason.text}`} open={flagOpen} onToggle={setFlagOpen} controls={flagNoteId}>
+            Flagged: {flagReason.short}
           </FlagToggle>
         </div>
       )}
-      {line.flag && flagOpen && (
-        <p id={flagNoteId} className="review-flag-open" role="note">{flagText(line)}</p>
+      {flagReason && flagOpen && (
+        <p id={flagNoteId} className="review-flag-open" role="note">{flagReason.text}</p>
       )}
-      {line.flag === TIMING_UNCERTAIN_FLAG && (active || !isPhone) && (
-        <TimingUncertainActions dramaId={dramaId} lineId={line.id} snap={timingSnap ?? null} actions={actions} jobRunning={jobRunning} />
+      {/* A closed queue card stays one glance; the open one carries the timing tools, with its Snap among the card's buttons. */}
+      {line.flag === TIMING_UNCERTAIN_FLAG && (active || (!isPhone && !queue)) && (
+        <TimingUncertainActions dramaId={dramaId} lineId={line.id} snap={queue ? null : timingSnap ?? null} actions={actions} jobRunning={jobRunning} />
       )}
+      {!prose && !draft && <RowSpeakerGuesses line={line} guesses={guesses} active={active} isPhone={isPhone} actions={actions} />}
+      {queue && speakerNote && <p className="review-speaker-note" role="status" data-testid="speaker-note">{speakerNote}</p>}
       <div className="review-body">
         <div lang={textLang} className="review-zh">{line.zh}</div>
-        {draft ? (
-          <div className="review-en-edit">
-            <textarea
-              aria-label="Translation"
-              autoFocus
-              enterKeyHint="next"
-              data-field="en"
-              value={draft.en}
-              onChange={(e) => actions.setDraft({ en: e.target.value })}
-              onKeyDown={onKey}
-              rows={2}
-            />
-            {!isPhone && (
-              <div className="review-actions" onMouseDown={keepFocusInBox}>
-                <button type="button" className={buttonClass('primary', 'sm')} onClick={actions.saveAndNext}>Save &amp; next</button>
-                <button type="button" className={buttonClass('secondary', 'sm')} onClick={actions.save}>Save</button>
-                <button type="button" className={buttonClass('ghost', 'sm')} onClick={actions.cancelEdit}>Cancel</button>
-                {edit?.discardWarning ? (
-                  <span className="review-keys" role="status">{DISCARD_WARNING}</span>
-                ) : (
-                  <span className="muted review-keys">Enter save &amp; next · Shift+Enter new line · Esc cancel</span>
-                )}
-              </div>
-            )}
+        {card ? (
+          // Labelled and boxed so the English reads as the place to type; it opens the editor on a click as before,
+          // and is not focused on its own so the card's keyboard shortcuts keep working.
+          <div className="review-queue-en">
+            <span className="review-queue-label">English</span>
+            {english}
           </div>
-        ) : (
-          <button
-            type="button"
-            className="review-en"
-            data-testid="line-en"
-            tabIndex={active ? undefined : -1}
-            onClick={() => (isPhone && !active ? actions.activate(line.id) : actions.openEdit(line.id))}
-          >
-            {line.en || <span className="muted review-untranslated">Not translated</span>}
-          </button>
-        )}
+        ) : english}
       </div>
+      {phoneCard && <QueuePhoneActions hasMedia={hasMedia} ai={ai} {...fitProps} />}
+      {phoneCard && queueNext && <p className="muted check-queue-next">{queueNext}</p>}
+      {card && fit === 'retry' && !edit?.details && (
+        <BlockedRetry dramaId={dramaId} lineId={line.id} dirty={!!edit && buildPatch(edit.base, edit.draft) !== null} jobRunning={jobRunning} onApplied={actions.applyLine} />
+      )}
 
       {searchHit && (
         <div className="review-hit">
@@ -472,10 +697,11 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         </div>
       )}
 
-      {active && !isPhone && (
+      {card && !isPhone && <QueueTools hasMedia={hasMedia} ai={ai} linePanel={linePanel} {...fitProps} />}
+      {active && !isPhone && !queue && (
         <div className="review-tools" role="toolbar" aria-label={`Line ${lineNumber(line.idx)} actions`}>
           {hasMedia && (
-            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.playLine(line)} title="Play the line (Space)">
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.playLine(line)} title="Key: Space">
               ▶ Play
             </button>
           )}
@@ -494,30 +720,31 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
             disabled={!line.en}
             aria-pressed={ai === 'improve'}
             onClick={() => actions.setAi(line.id, ai === 'improve' ? null : 'improve')}
-            title="Improve translation (I)"
+            title="Ask the AI to re-write this line (I)"
           >
-            {line.en ? 'Improve translation' : 'Improve (needs a translation first)'}
+            {line.en ? 'Re-write' : 'Re-write (needs a translation first)'}
           </button>
           {!simple && <WhySplitMerge line={line} ai={ai} jobRunning={jobRunning} limited={limited} reasonId={reasonId} actions={actions} />}
           {timingSnap && actions.snapToSpeech && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.snapToSpeech?.(line.id)}
-                    title={`Set ${formatTime(timingSnap.new_start)} – ${formatTime(timingSnap.new_end)}; saves a history snapshot first`}>
+                    title={`Set to ${formatTime(timingSnap.new_start)} – ${formatTime(timingSnap.new_end)} (undo in Records)`}>
               Snap to speech
             </button>
           )}
+          <LineMarkButtons line={line} onMark={actions.setMark} variant="ghost" />
           <button
             type="button"
             className={buttonClass('ghost', 'sm')}
             disabled={!line.en}
             aria-pressed={!!line.reviewed}
             onClick={() => actions.setReviewed(line.id, !line.reviewed)}
-            title={line.reviewed ? 'Mark unchecked (R)' : 'Mark checked (R)'}
+            title={line.reviewed ? 'Uncheck (R)' : 'Check (R)'}
           >
             {line.reviewed ? 'Checked' : 'Mark checked'}
           </button>
           {line.flag && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.dismissFlag(line.id)}
-                    title={isSourceChanged(line) ? 'Keep this English for the new source text (F)' : 'Dismiss flag (F)'}>
+                    title={isSourceChanged(line) ? 'Keep this English (F)' : 'Dismiss flag (F)'}>
               {isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}
             </button>
           )}

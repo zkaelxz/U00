@@ -269,9 +269,25 @@ def _version_tuple(text):
 
 
 def _running_app_version():
-    """None for a source checkout, which has no version and so is neither
-    checked nor recorded."""
+    """None for a source checkout, which is not checked: a developer moving
+    between branches must not be locked out of their own library."""
     return portable.installed_app_version()
+
+
+def _checkout_stamp(conn):
+    """The version a source checkout records, or None to keep the stored one.
+    A checkout never lowers the stamp: a library a newer installed copy opened
+    must still be refused by an older one after a checkout opened it."""
+    try:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?",
+                           (APP_VERSION_SETTING,)).fetchone()
+        stored = json.loads(row[0]) if row else None
+    except (ValueError, TypeError):
+        stored = None
+    stored_v, source_v = _version_tuple(stored), _version_tuple(portable.SOURCE_VERSION)
+    if stored_v and source_v and stored_v >= source_v:
+        return None
+    return portable.SOURCE_VERSION
 
 
 def _refuse_newer_database(conn, running):
@@ -306,7 +322,9 @@ def init_db():
         # ones create (the ownership step needs users and app_settings).
         _create_library_tables(conn)
         _create_series_tables(conn)
+        _create_word_replacement_table(conn)
         _create_shared_glossary_tables(conn)
+        _create_title_glossary_table(conn)
         _create_line_annotation_tables(conn)
         _create_bulk_job_tables(conn)
         _create_reading_tables(conn)
@@ -324,6 +342,7 @@ def init_db():
         _migrate_bulk_job_columns(conn)
         _migrate_vocab_and_style_columns(conn)
         _migrate_ownership_columns(conn)
+        link_existing_private_series(conn)
         _migrate_progress_view_prefs(conn)
         _migrate_auth_session_columns(conn)
         _grant_lines_read_for_reader_page(conn)
@@ -332,11 +351,12 @@ def init_db():
         import member_keys     # owns its table; imports db, so not at the top
         member_keys.create_tables(conn)
         _migrate_off_removed_test_engine(conn)
-        if running:
+        stamp = running or _checkout_stamp(conn)
+        if stamp:
             conn.execute("""
                 INSERT INTO app_settings (key, value) VALUES (?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
-            """, (APP_VERSION_SETTING, json.dumps(running)))
+            """, (APP_VERSION_SETTING, json.dumps(stamp)))
         conn.commit()
     _init_benchmark_lab_schema()
     _migrate_gpu_lock_slots()
@@ -350,7 +370,8 @@ from db.schema import (  # noqa: E402,F401
     _create_library_tool_tables, _create_line_annotation_tables,
     _create_metadata_research_tables, _create_reading_tables, _create_review_tables,
     ensure_legacy_bug_reports,
-    _create_series_tables, _create_shared_glossary_tables)
+    _create_series_tables, _create_shared_glossary_tables, _create_title_glossary_table,
+    _create_word_replacement_table)
 
 from db.schema_system import (  # noqa: E402,F401
     _create_auth_tables, _create_job_tables, _init_benchmark_lab_schema)
@@ -479,7 +500,7 @@ from db.lines import (  # noqa: E402,F401
     line_value, update_line_fields_if, update_lines_fields_if_many, save_lines,
     FULL_SYNC, UndeclaredLineWrite, check_line_fields, job_line_fields,
     line_ids_with_refs, load_lines, load_line_objects, load_line_ids, line_ids_exist,
-    LineText, load_line_texts)
+    LineText, load_line_texts, settle_copied_marks)
 
 
 from db.speakers import (  # noqa: F401
@@ -513,6 +534,7 @@ from db.speakers import (  # noqa: F401
     save_voice_bank_entry,
     list_voice_bank_entries,
     get_voice_bank_entry,
+    voice_bank_clip_path,
     apply_voice_bank_entry,
     rename_voice_bank_entry,
     delete_voice_bank_entry,
@@ -563,9 +585,14 @@ from db.glossary import (  # noqa: E402,F401
     list_translation_memory_for_sources, record_translation_memory, update_glossary_term, update_translation_memory_after_replace,
     upsert_glossary_term, count_glossary_terms_by_series, list_glossary_terms, list_glossary_dismissals,
     list_dismissed_glossary_terms, add_glossary_dismissals, remove_glossary_dismissals,
-    delete_glossary_term)
+    delete_glossary_term, list_word_replacements, save_word_replacement, delete_word_replacement)
+
+from db.title_glossary import (  # noqa: E402,F401
+    get_title_glossary_series, link_existing_private_series, link_title_glossary,
+    list_run_glossary_terms, title_only_terms)
 
 from db.shared_glossary import (  # noqa: E402,F401
+    term_key as glossary_term_key,
     create_group as create_shared_glossary_group, detach_owner_groups as detach_shared_glossary_owner_groups,
     delete_group as delete_shared_glossary_group,
     delete_group_term as delete_shared_glossary_term, get_group as get_shared_glossary_group,
@@ -641,6 +668,9 @@ from db.presets import (  # noqa: E402,F401
 from db.line_history import (  # noqa: E402,F401
     MAX_SNAPSHOT_WORD_BYTES, PLAIN_SNAPSHOTS, get_line_history_snapshot, list_line_history,
     save_line_history_snapshot)
+
+
+from db.capture_notes import add_capture_note, list_capture_notes  # noqa: E402,F401
 
 
 # ---------------------------------------------------------------------------

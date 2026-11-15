@@ -40,6 +40,16 @@ class TestNormalize:
         (p,) = gs._normalize_proposals([_prop("师尊", "")], [], "师尊" * 9)
         assert p["confidence"] == "low"
 
+    def test_a_term_the_model_is_unsure_of_is_never_high(self):
+        (sure, unsure) = gs._normalize_proposals(
+            [_prop("敲", "get wasted", unsure=False), _prop("敲敲", "hit it", unsure=True)], [], "敲" * 5 + "敲敲" * 5)
+        assert sure["confidence"] == "high"
+        assert unsure["occurrences"] >= 3 and unsure["confidence"] == "low"
+
+    def test_a_non_boolean_unsure_does_not_lower_confidence(self):
+        (p,) = gs._normalize_proposals([_prop("师尊", "Teacher", unsure="false")], [], "师尊" * 3)
+        assert p["confidence"] == "high"
+
     def test_bad_renderings_are_ignored(self):
         (p,) = gs._normalize_proposals([_prop("师尊", "Teacher", renderings="oops")], [], "师尊" * 3)
         assert p["alternatives"] == [] and p["confidence"] == "high"
@@ -50,7 +60,7 @@ class TestExtractionStats:
         class Engine:
             supports_reference = True
         answers = iter(["Sect A", "Sect B", "Sect B"])
-        monkeypatch.setattr(tguide, "_sample_across_text", lambda *a, **k: ["a", "b", "c"])
+        monkeypatch.setattr(tguide, "_sample_across_text", lambda *a, **k: ["宗a", "宗b", "宗c"])  # each window holds the term
         monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: json.dumps([
             {"term": "宗", "suggested_translation": next(answers), "category": "sect",
              "policy": "hybrid", "reason": ""}]))
@@ -219,3 +229,47 @@ class TestApi:
         c, a, did = world["c"], world["a"], world["did"]
         for body in ({"terms": []}, {"terms": [""]}, {"terms": ["x"], "extra": 1}, {}):
             assert c.post(_url(did), json=body, headers=a).status_code == 422
+
+
+class TestAliases:
+    def test_only_spellings_the_excerpt_shows_are_kept(self, monkeypatch):
+        class Engine:
+            supports_reference = True
+        monkeypatch.setattr(tguide, "_sample_across_text", lambda *a, **k: ["小沈说话。沈清来了。", "沈清走了。"])
+        replies = iter([
+            [{"term": "沈清", "suggested_translation": "Shen Qing", "category": "person_name",
+              "policy": "keep_pinyin", "reason": "", "aliases": ["小沈", "阿清", "沈", "沈清"]}],
+            [{"term": "沈清", "suggested_translation": "Shen Qing", "category": "person_name",
+              "policy": "keep_pinyin", "reason": "", "aliases": ["小沈"]}]])
+        monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: json.dumps(next(replies)))
+        (e,) = tguide.extract_glossary_from_novel("x", Engine())
+        # 阿清 is not written in the excerpt, 沈 is one character, 沈清 is the term itself.
+        assert e["aliases"] == ["小沈"]
+
+    def test_a_spelling_that_is_another_glossary_term_is_left_out(self):
+        (p,) = gs._normalize_proposals(
+            [_prop("沈清", "Shen Qing", aliases=["小沈", "沈青", 5])],
+            [{"term_original": "沈青", "term_translation": "Shen Qing B"}], "")
+        assert p["aliases"] == ["小沈"]
+
+    def test_apply_saves_them_and_keeps_the_ones_already_stored(self, isolated_db, monkeypatch):
+        did, sid = _drama(isolated_db)
+        db.upsert_glossary_term(sid, "沈清", "Shen Qing", aliases="阿清")
+        TestStatusAndIgnoreList._held(None, monkeypatch, did, gs._normalize_proposals(
+            [_prop("沈清", "Shen Qing", aliases=["小沈"]), _prop("青云宗", "Q")], [], ""))
+        gs.apply_novel_glossary(did, ["沈清", "青云宗"], overwrite_existing=True, run_id="r1")
+        rows = {r["term_original"]: r for r in db.list_glossary_terms(sid)}
+        assert rows["沈清"]["aliases"] == "阿清|小沈"
+        assert not rows["青云宗"]["aliases"]
+
+    def test_merged_aliases_stay_within_what_the_editor_accepts(self, isolated_db):
+        did, sid = _drama(isolated_db)
+        stored = "|".join(f"a{i}" for i in range(48))
+        db.upsert_glossary_term(sid, "沈清", "Shen Qing", aliases=stored)
+        merged = glossary_extract_service._merged_aliases(
+            {"aliases": stored}, ["b1", "b2", "b3", "x" * 201, "has|bar"])
+        parts = merged.split("|")
+        assert len(parts) == 50 and parts[:48] == stored.split("|") and parts[48:] == ["b1", "b2"]
+        # Nothing is dropped from a list that is already longer than the cap.
+        long = "|".join(f"a{i}" for i in range(55))
+        assert glossary_extract_service._merged_aliases({"aliases": long}, ["new"]) == long

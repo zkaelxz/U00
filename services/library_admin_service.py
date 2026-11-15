@@ -40,11 +40,11 @@ import db
 from jobs import job_store
 import storage
 from engine_backends import engine_registry
-from services import (drama_service, keep_original_service, ownership_service, paid_job_service,
+from services import (drama_service, keep_original_service, ownership_service, paid_job_service, profile_service,
                       settings_service, translate_run_service, translate_service)
 from services import library_translated_guard
 from services import workspace_job_service as wjs
-from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                                      ServiceError)
 
 STATUSES = ("not started", "aligned", "translated", "dubbed", "exported")
@@ -223,6 +223,32 @@ def bulk_set_tags(drama_ids, tag: str, present: bool) -> dict:
     return _bulk_apply(drama_ids, lambda did: db.set_custom_tag(did, tag, present))
 
 
+def bulk_set_series(drama_ids, *, principal=None, series_id=None, new_series_name=None) -> dict:
+    """Puts each drama in one series (`series_id`; 0 takes it out) or in the
+    series named `new_series_name`, created on the first drama and reused by
+    the rest. Each drama goes through drama_service.set_drama_series, so the
+    ownership and private-series rules apply per drama; a refused drama gets
+    its own error and the others still move."""
+    ids = _check_ids(drama_ids)
+    if (series_id is None) == (new_series_name is None):
+        raise InvalidInputError("Pass series_id or new_series_name.")
+    if new_series_name is not None and not new_series_name.strip():
+        raise InvalidInputError("new_series_name must not be blank.")
+    errors = ((NotFoundError, "not_found"), (ForbiddenError, "not_allowed"),
+              (ConflictError, "conflict"), (ServiceError, "failed"))
+    results = []
+    for did in ids:
+        try:
+            drama_service.set_drama_series(did, principal=principal, series_id=series_id,
+                                           new_series_name=new_series_name)
+        except ServiceError as e:
+            code = next(c for cls, c in errors if isinstance(e, cls))
+            results.append({"drama_id": did, "ok": False, "error": code, "message": str(e)})
+        else:
+            results.append({"drama_id": did, "ok": True})
+    return {"results": results, "updated": sum(r["ok"] for r in results)}
+
+
 def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
     """Permanently deletes each drama (drama_service._hard_delete_drama).
     Needs confirm=True and confirm_text "DELETE" (the same word the
@@ -365,7 +391,10 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
             api_keys[engine] = translate_service.resolve_api_key(engine)
         except Exception:
             api_keys[engine] = None
-    cap = paid_job_service.require_monthly_cap(engine_by_id[d] for d in queued)
+    # The title's last-run model decides whether a hosted Ollama tag is in play.
+    cap = paid_job_service.require_monthly_cap(
+        (engine_by_id[d], profile_service.title_run_defaults(
+            db.get_drama(d) or {}, engine_by_id[d], engine_by_id[d]).get("model")) for d in queued)
     started = job_launch.start_job(
         BULK_TRANSLATE_JOB_ID, wjs.run_bulk_series_translate_job,
         BULK_TRANSLATE_JOB_ID, queued, api_keys,

@@ -11,7 +11,7 @@ test('re-split controls fit a phone', async ({ page }) => {
   await mockResplit(page, () => ({ json: SUMMARY }))
   const group = await openResplit(page)
   const buttons = group.getByRole('button')
-  for (const name of ['Re-split long lines', 'Preview split', 'Re-assign speakers from saved detection']) {
+  for (const name of ['Re-split long lines', 'Preview split', 'Reassign speakers']) {
     const box = await group.getByRole('button', { name }).boundingBox()
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
   }

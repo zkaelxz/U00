@@ -468,7 +468,7 @@ def test_notify_remote_access_goes_to_the_bell_and_the_remote_category(env, monk
     class T:
         def cancel(self):
             pass
-    monkeypatch.setattr(ns, "_schedule_flush", lambda: timers.append(1) or T())
+    monkeypatch.setattr(ns, "_schedule_flush", lambda *_: timers.append(1) or T())
     ns.notify_remote_access("Remote access problem: The certificate has expired")
     assert ns._pending == [("remote", "Remote access problem: The certificate has expired",
                             "remote")]

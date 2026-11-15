@@ -16,6 +16,7 @@ import db
 import scanlate
 import scanlate_detect
 from services import scanlate_run_service as run_svc
+from lib.errors import ConflictError, InvalidInputError
 from tests.saved_settings import patch_setting
 
 PAGE_H = 80
@@ -271,9 +272,15 @@ def _engines(**usable):
             for n, ok in usable.items()]
 
 
-def test_default_engine_is_the_cheapest_usable_when_none_was_saved(isolated_db):
+def test_default_engine_is_openai_when_it_can_run_and_none_was_saved(isolated_db):
     from services import scanlate_pages_service as svc
-    assert svc.default_engine(_engines(claude=True, openai=True, deepseek=True)) == "deepseek"
+    assert svc.default_engine(_engines(claude=True, openai=True, deepseek=True)) == "openai"
+    assert svc.default_engine(_engines(claude=False, openai=True, deepseek=False)) == "openai"
+
+
+def test_default_engine_is_the_cheapest_usable_without_an_openai_key(isolated_db):
+    from services import scanlate_pages_service as svc
+    assert svc.default_engine(_engines(claude=True, openai=False, deepseek=True)) == "deepseek"
     assert svc.default_engine(_engines(claude=True, deepseek=True, ollama=True)) == "ollama"
 
 
@@ -286,7 +293,7 @@ def test_default_engine_honours_a_usable_saved_choice(isolated_db):
 def test_default_engine_ignores_a_saved_choice_that_cannot_run(isolated_db):
     from services import scanlate_pages_service as svc, settings_service
     settings_service.set_settings({"default_engine": "claude"})
-    assert svc.default_engine(_engines(claude=False, openai=True, deepseek=True)) == "deepseek"
+    assert svc.default_engine(_engines(claude=False, openai=True, deepseek=True)) == "openai"
 
 
 def test_default_engine_is_the_settings_default_when_nothing_can_run(isolated_db):
@@ -365,6 +372,32 @@ def test_the_chapter_brief_reaches_each_pages_translation_and_is_cached(harness,
     assert not any("comic chapter" in p for p in prompts)
 
 
+def test_a_chapter_run_records_its_read_brief_and_page_stages(harness, monkeypatch):
+    from services import job_timing_service
+    did, p1, p2, _ = _two_pages(monkeypatch)
+    _llm_calls(monkeypatch)
+    stages = []
+    monkeypatch.setattr(job_timing_service, "mark_stage", lambda jid, stage: stages.append(stage))
+
+    run_svc._run_job("j", did, "all", [p1, p2], "llm", _LLM(), "auto")
+
+    assert stages == ["Read every page", "Chapter brief", "Translate and typeset pages"]
+
+
+def test_the_bar_counts_pages_while_the_chapter_is_read_and_then_keeps_climbing(harness, monkeypatch):
+    did, p1, p2, _ = _two_pages(monkeypatch)
+    _llm_calls(monkeypatch)
+    seen = []
+    monkeypatch.setattr(background_jobs, "update_progress",
+                        lambda jid, fraction, message=None: seen.append((fraction, message)))
+    run_svc._run_job("j", did, "all", [p1, p2], "llm", _LLM(), "auto")
+    messages = [m for _, m in seen]
+    assert messages.index("Reading page 1 of 2") < messages.index("Reading page 2 of 2")
+    assert messages.index("Reading page 2 of 2") < messages.index("Page 1 of 2")
+    fractions = [f for f, m in seen if m and m.startswith(("Reading page", "Writing", "Page "))]
+    assert fractions == sorted(fractions), "the bar must not drop back to 0% after the read-through"
+
+
 def test_the_chapter_brief_can_be_turned_off(harness, monkeypatch):
     did, p1, p2, _ = _two_pages(monkeypatch)
     patch_setting(monkeypatch, "scanlate_chapter_brief", False)
@@ -386,3 +419,50 @@ def test_a_single_page_run_reads_no_brief(harness, monkeypatch):
     prompts = _llm_calls(monkeypatch)
     run_svc._run_job("j", did, "all", [p1], "llm", _LLM(), "auto")
     assert not any("comic chapter" in p for p in prompts)
+
+
+def test_a_redo_that_keeps_the_text_does_not_detect_or_read_again(harness, monkeypatch):
+    did, p1, p2, detected = _two_pages(monkeypatch)
+    db.save_bubbles(p1, [_region("你好", translated_text="Old hello", skip=False)])
+    engine = _MT()
+    run_svc._run_job("j", did, "all", [p1], "mt", engine, "auto", keep_text=True)
+    assert detected == []
+    assert _texts(p1) == {"你好": "Hello"}
+    assert engine.calls == ["你好"]
+    assert "reused" in json.dumps(json.loads(db.get_page(p1)["run_notes"]))
+
+
+def test_a_redo_does_not_shorten_a_sign_the_person_typed_by_hand(harness, monkeypatch):
+    import scanlate_render
+    did, p1, _, _ = _two_pages(monkeypatch)
+    typed = "Typed by hand: a long line that nobody asked the engine to shorten"
+    db.save_bubbles(p1, [_region("你好", kind="sign", translated_text="Old hello"),
+                         _region("", kind="sign", y=60, translated_text=typed)])
+    measured = []
+    monkeypatch.setattr(scanlate_render, "sign_fitted_size",
+                        lambda page, b, text, fonts: measured.append(text) or 9)
+    run_svc._run_job("j", did, "all", [p1], "mt", _MT(), "auto", keep_text=True)
+    assert measured == ["Hello"]
+    assert typed in [b["translated_text"] for b in db.load_bubbles(p1)]
+
+
+def test_a_redo_that_keeps_the_text_still_reads_a_page_with_no_text(harness, monkeypatch):
+    did, p1, p2, detected = _two_pages(monkeypatch)
+    run_svc._run_job("j", did, "all", [p1, p2], "mt", _MT(), "auto", keep_text=True)
+    assert sorted(detected) == [p1, p2]
+
+
+def test_start_run_pages_needs_a_confirm_and_pages_of_this_title(isolated_db, monkeypatch):
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    other = db.create_drama(title_en="Other", source_language="zh")
+    pid, foreign = _page(did, 0), _page(other, 0)
+    with pytest.raises(ConflictError):
+        run_svc.start_run(did, mode="pages", page_ids=[pid])
+    with pytest.raises(InvalidInputError):
+        run_svc.start_run(did, mode="pages", page_ids=[foreign], confirm=True)
+    with pytest.raises(InvalidInputError):
+        run_svc.start_run(did, mode="pages", confirm=True)
+    with pytest.raises(InvalidInputError):
+        run_svc.start_run(did, mode="all", page_ids=[pid], confirm=True)
+    with pytest.raises(InvalidInputError):
+        run_svc.start_run(did, mode="missing", keep_text=True)

@@ -22,6 +22,8 @@ every reply (`api.auth.HouseholdGate`).
 # Must run before any other app import (see portable.py's docstring).
 import portable
 portable.activate_portable_mode()
+import app_tools
+app_tools.activate()
 
 import logging
 from contextlib import asynccontextmanager
@@ -53,7 +55,7 @@ from api.routers import (
     delete_routes,
     device_token_routes,
     member_key_routes,
-    diagnostics_browser_routes,
+    diagnostics_browser_routes, diagnostics_ffmpeg_routes,
     diagnostics_voice_engine_routes, voices_routes,
     diagnostics_gaps_routes,
     disk_usage_routes,
@@ -127,6 +129,7 @@ from api.routers import (
     system_routes,
     transcribe_routes,
     translate_routes,
+    three_run_routes,
     translate_run_routes,
     translation_version_routes,
     spend_history_routes,
@@ -155,7 +158,8 @@ async def _lifespan(app: FastAPI):
     Idempotent. The GPU-queue re-check is stopped at shutdown, any
     running lightnovel-crawler import is cancelled and its program killed,
     and job records left running by a dead process are closed, as
-    are stale sign-in sessions (expired, idle or of a deactivated user);
+    are stale sign-in sessions (expired, idle or of a deactivated user),
+    and chapter moves a hard kill stopped are finished or undone;
     the exit flush of this server's own job rows is registered here, not
     at import, so tests and GPU workers never run it.
     The household listener's app does none of this, at start or stop: it
@@ -193,16 +197,23 @@ async def _lifespan(app: FastAPI):
         auth_service.prune_audit_log()
     except Exception:
         logging.getLogger(__name__).warning("Activity log pruning failed", exc_info=True)
+    from services import novel_chapter_move_service
+    try:
+        novel_chapter_move_service.recover_interrupted_moves()
+    except Exception:
+        logging.getLogger(__name__).warning("Interrupted chapter move check failed", exc_info=True)
     from api.background import (start_background_services, start_gpu_queue_poller,
                                 start_reeval_scheduler, start_remote_health_monitor,
-                                stop_gpu_queue_poller, stop_reeval_scheduler,
-                                stop_remote_health_monitor)
+                                start_resource_monitor, stop_gpu_queue_poller,
+                                stop_reeval_scheduler, stop_remote_health_monitor,
+                                stop_resource_monitor)
     # First, so fetches made by the services below wait for the home's
     # own addresses (url_guard) instead of going out before they are known.
     start_remote_health_monitor(app.state.settings)
     start_background_services(app.state.settings.features_off)
     start_gpu_queue_poller()
     start_reeval_scheduler()
+    start_resource_monitor(app.state.settings)
     from services import live_follow_poller, queue_service
     queue_service.start_runner()
     try:
@@ -219,6 +230,7 @@ async def _lifespan(app: FastAPI):
 
         stop_reeval_scheduler()
         stop_remote_health_monitor()
+        stop_resource_monitor()
 
 
 _ROUTER_MODULES = (
@@ -242,10 +254,10 @@ _ROUTER_MODULES = (
     auth_routes, admin_users_routes,
     device_token_routes, member_key_routes, voice_clone_routes, bug_report_routes,
     novel_files_routes, benchmark_routes, model_registry_routes, model_reeval_routes,
-    diagnostics_installs_routes, pending_install_routes, diagnostics_browser_routes,
+    diagnostics_installs_routes, pending_install_routes, diagnostics_browser_routes, diagnostics_ffmpeg_routes,
     diagnostics_voice_engine_routes, voices_routes,
     real_model_check_routes, voice_bank_audio_routes, sources_tools_routes, assistant_routes,
-    sharing_routes, android_app_routes,
+    sharing_routes, android_app_routes, three_run_routes,
 )
 
 

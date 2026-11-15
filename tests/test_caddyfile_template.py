@@ -269,17 +269,21 @@ ADMIN_AWAY_WRITES = [
 ]
 
 
-REMOVE_ADMIN = {("POST", "/api/admin/users/{user_id}/revoke-admin")}
+# admin.users routes the app keeps at the PC: Remove admin always targets an
+# admin, and a new person could sign in from the internet.
+PC_ONLY_ADMIN_USERS = {("POST", "/api/admin/users/{user_id}/revoke-admin"),
+                       ("POST", "/api/admin/users")}
 
 
 def test_member_account_changes_pass_and_nothing_else_there(routes):
-    """Exactly the admin.users routes other than Remove admin, and only for
-    their own method; each with a path that only looks like one is refused."""
+    """Exactly the admin.users routes other than Remove admin and Add a
+    person, and only for their own method; each with a path that only looks
+    like one is refused."""
     matchers = _blocking_matchers()
     away = {(m, p) for p, methods, decls in routes for m in methods
             if decls and decls[0][0] == "permission"
             and decls[0][1] in auth_service.ADMIN_AWAY_WRITE_PERMISSIONS}
-    assert set(ADMIN_AWAY_WRITES) == away - REMOVE_ADMIN
+    assert set(ADMIN_AWAY_WRITES) == away - PC_ONLY_ADMIN_USERS
     for method, path in ADMIN_AWAY_WRITES:
         assert not _blocked(method, _sample(path), matchers), f"{method} {path}"
         for other in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"):
@@ -287,6 +291,7 @@ def test_member_account_changes_pass_and_nothing_else_there(routes):
                 assert _blocked(other, _sample(path), matchers), f"{other} {path}"
         assert _blocked(method, _sample(path) + "/x", matchers), f"{method} {path}/x"
     assert _blocked("POST", "/api/admin/users/7/revoke-admin", matchers)
+    assert _blocked("POST", "/api/admin/users", matchers)
     for method in ("POST", "DELETE"):
         for perm in auth_service.MEMBER_PERMISSIONS:
             assert not _blocked(method, f"/api/admin/users/7/permissions/{perm}", matchers), perm
@@ -340,7 +345,7 @@ def test_household_routes_are_not_refused(routes):
                 and perm not in auth_service.ADMIN_HOUSEHOLD_PERMISSIONS):
             continue
         for m in methods:
-            if (m, path) in REMOVE_ADMIN:   # admin.users, but always an admin target
+            if (m, path) in PC_ONLY_ADMIN_USERS:
                 continue
             if (m, path) not in BLOCKED_ON_PURPOSE and _blocked(m, _sample(path), matchers):
                 wrong.append(f"{m} {path} ({perm or kind})")
