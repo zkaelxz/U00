@@ -230,7 +230,7 @@ function TimingUncertainActions({ dramaId, lineId, snap, actions, jobRunning }: 
       {actions.checkTiming && (
         <button type="button" className={buttonClass('secondary', 'sm')} disabled={jobRunning} onClick={() => actions.checkTiming?.()}
                 aria-describedby={jobRunning ? `timing-check-reason-${lineId}` : undefined}
-                title={jobRunning ? undefined : 'Compare every line’s times with the speech in the audio'}>
+                title={jobRunning ? undefined : 'Checks every line against the audio'}>
           Check timing
         </button>
       )}
@@ -307,11 +307,11 @@ function WhySplitMerge({ line, ai, jobRunning, limited, reasonId, actions }: {
             className={buttonClass('ghost', 'sm')}
             aria-pressed={ai === 'explain'}
             onClick={() => actions.setAi(line.id, ai === 'explain' ? null : 'explain')}
-            title="Why this? (W)"
+            title="Key: W"
           >
             Why this?
           </button>
-          <button type="button" className={buttonClass('ghost', 'sm')} disabled={jobRunning} aria-describedby={jobRunning ? reasonId : undefined} onClick={() => actions.openStructure(line.id, 'split')} title="Split line (Alt+Enter while editing)">
+          <button type="button" className={buttonClass('ghost', 'sm')} disabled={jobRunning} aria-describedby={jobRunning ? reasonId : undefined} onClick={() => actions.openStructure(line.id, 'split')} title="Key: Alt+Enter while editing">
             Split…
           </button>
           <button
@@ -346,7 +346,7 @@ function FitAction({ dramaId, line, fit, isPhone, timingSnap, retranscribe, acti
   }
   if (fit === 'keep') {
     return (
-      <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.dismissFlag(line.id)} title="Keep this English for the new source text (F)">
+      <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.dismissFlag(line.id)} title="Key: F">
         Keep English
       </button>
     )
@@ -356,7 +356,7 @@ function FitAction({ dramaId, line, fit, isPhone, timingSnap, retranscribe, acti
     return (
       <>
         <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.snapToSpeech?.(line.id)}
-                title={isPhone ? undefined : `Set ${times}; saves a history snapshot first`} aria-describedby={isPhone ? `queue-snap-${line.id}` : undefined}>
+                title={isPhone ? undefined : `Set to ${times} (undo in Records)`} aria-describedby={isPhone ? `queue-snap-${line.id}` : undefined}>
           Snap to speech
         </button>
         {/* A phone has no hover to show the title on. */}
@@ -398,23 +398,23 @@ function QueueTools({ line, hasMedia, ai, linePanel, fit, actions, ...fitProps }
   return (
     <div className="review-tools review-queue-tools" role="toolbar" aria-label={`Line ${lineNumber(line.idx)} actions`}>
       {hasMedia && (
-        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.playLine(line)} title="Play the line (Space)">
+        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.playLine(line)} title="Key: Space">
           Play line
         </button>
       )}
       <FitAction line={line} fit={fit} actions={actions} {...fitProps} />
       <ImproveButton line={line} ai={ai} actions={actions} />
-      {!linePanel && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.showOnPage(line.id)}>See the lines around it</button>}
+      {!linePanel && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.showOnPage(line.id)}>In context</button>}
       <LineMarkButtons line={line} onMark={actions.setMark} />
       {line.reviewed && (
-        <button type="button" className={buttonClass('secondary', 'sm')} disabled={!line.en} aria-pressed onClick={() => actions.setReviewed(line.id, false)} title="Mark unchecked (R)">
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={!line.en} aria-pressed onClick={() => actions.setReviewed(line.id, false)} title="Uncheck (R)">
           Checked
         </button>
       )}
       {!line.reviewed && (
         <button type="button" className={buttonClass('ok', 'sm', 'review-queue-done')} disabled={!line.en} onClick={() => actions.reviewAndNext(line.id)}
-                title="Mark checked and go to the next line (R)">
-          Looks right, next
+                aria-label="Looks right, next" title="Key: R">
+          <span aria-hidden="true">✓</span> Next
         </button>
       )}
     </div>
@@ -427,7 +427,7 @@ function QueuePhoneActions({ line, hasMedia, ai, actions, ...fitProps }: FitProp
   return (
     <div className="review-queue-actions">
       {hasMedia && (
-        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.playLine(line)} title="Play the line (Space)">
+        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.playLine(line)} title="Key: Space">
           Play line
         </button>
       )}
@@ -606,7 +606,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         <ShakyBadge line={line} help={badgeHelp} />
         {isSourceChanged(line) && (
           <>
-            <span data-testid="source-changed-badge" title={SOURCE_CHANGED_HELP}>
+            <span data-testid="source-changed-badge">
               <Badge tone="warn">Source changed</Badge>
             </span>
             {badgeHelp && <HelpTip label="Source changed" id={`source-changed-help-${line.id}`}>{SOURCE_CHANGED_HELP}</HelpTip>}
@@ -622,7 +622,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
           </span>
         )}
         {/* A phone's open card puts its link to the lines around it here and its menu after the buttons. */}
-        {phoneCard && <button type="button" className="check-queue-link review-card-around" onClick={() => actions.showOnPage(line.id)}>See the lines around it</button>}
+        {phoneCard && <button type="button" className="check-queue-link review-card-around" onClick={() => actions.showOnPage(line.id)}>In context</button>}
         {/* A wide closed queue row opens with a click or Enter and has no menu of its own; its open card has ⋯. */}
         {(!queue || isPhone || active) && !phoneCard && (
           <MoreButton line={line} active={active} extra="review-more" label={active && !isPhone && !queue ? 'More' : '⋯'} actions={actions} />
@@ -701,7 +701,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       {active && !isPhone && !queue && (
         <div className="review-tools" role="toolbar" aria-label={`Line ${lineNumber(line.idx)} actions`}>
           {hasMedia && (
-            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.playLine(line)} title="Play the line (Space)">
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.playLine(line)} title="Key: Space">
               ▶ Play
             </button>
           )}
@@ -727,7 +727,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
           {!simple && <WhySplitMerge line={line} ai={ai} jobRunning={jobRunning} limited={limited} reasonId={reasonId} actions={actions} />}
           {timingSnap && actions.snapToSpeech && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.snapToSpeech?.(line.id)}
-                    title={`Set ${formatTime(timingSnap.new_start)} – ${formatTime(timingSnap.new_end)}; saves a history snapshot first`}>
+                    title={`Set to ${formatTime(timingSnap.new_start)} – ${formatTime(timingSnap.new_end)} (undo in Records)`}>
               Snap to speech
             </button>
           )}
@@ -738,13 +738,13 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
             disabled={!line.en}
             aria-pressed={!!line.reviewed}
             onClick={() => actions.setReviewed(line.id, !line.reviewed)}
-            title={line.reviewed ? 'Mark unchecked (R)' : 'Mark checked (R)'}
+            title={line.reviewed ? 'Uncheck (R)' : 'Check (R)'}
           >
             {line.reviewed ? 'Checked' : 'Mark checked'}
           </button>
           {line.flag && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.dismissFlag(line.id)}
-                    title={isSourceChanged(line) ? 'Keep this English for the new source text (F)' : 'Dismiss flag (F)'}>
+                    title={isSourceChanged(line) ? 'Keep this English (F)' : 'Dismiss flag (F)'}>
               {isSourceChanged(line) ? 'Keep English' : 'Dismiss flag'}
             </button>
           )}

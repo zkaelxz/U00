@@ -197,7 +197,7 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
           </button>
           {noKey && (
             <span className="muted" id="assistant-no-key" data-testid="assistant-no-key">
-              {engineName(askEngine)} has no API key yet. <a href={routeHref({ name: 'settings' })}>Add one in Settings</a>, or pick another engine below.
+              {engineName(askEngine)} has no API key yet. <a href={routeHref({ name: 'settings' })}>Add a key in Settings</a>, or pick another engine below.
             </span>
           )}
           {asking && (
@@ -256,7 +256,7 @@ function TurnActions({ next, onEscalate, onReport }: { next: string | null; onEs
         </button>
       )}
       <button type="button" className={buttonClass('ghost', 'sm')} onClick={onReport}>
-        Prepare a report for a developer
+        Prepare bug report
       </button>
     </div>
   )

@@ -182,7 +182,7 @@ export function FilePlan({ run, onChooseFile, onOnlyAdd, onClear, onMake }: {
       </Section>
       {file && (
         <div className="actions">
-          <button type="button" className={buttonClass('ghost')} onClick={onOnlyAdd}>Only add it, don&apos;t start</button>
+          <button type="button" className={buttonClass('ghost')} onClick={onOnlyAdd}>Add only</button>
           <button type="button" className={buttonClass('ghost')} onClick={onClear}>Clear</button>
         </div>
       )}

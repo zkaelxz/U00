@@ -147,7 +147,7 @@ export function ReviewFlags({ onDone, onOpenHistory }: { onDone: () => void; onO
             <button type="button" className={buttonClass('secondary')} disabled={busy !== null}
                     onClick={() => setConfirming('clear')}>Clear reading-speed flags</button>
             <button type="button" className={buttonClass('secondary')} disabled={busy !== null}
-                    onClick={() => setConfirming('recheck')}>Re-check with the current setting</button>
+                    onClick={() => setConfirming('recheck')}>Re-check</button>
             <span className="muted">Removes only the reading-speed flag from every line; other flags, notes and text stay. Saves a history snapshot first.</span>
           </>
         ) : (

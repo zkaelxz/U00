@@ -70,15 +70,14 @@ test.describe('Automatic backups card (real API)', () => {
   })
 })
 
-test.describe('Settings summary card (mocked)', () => {
-  test('Manage backups lands on the Backup tab; the settings are not repeated', async ({ page }) => {
+test.describe('Settings search (mocked)', () => {
+  test('Settings has no backup card; a search for backups links to the Backup tab', async ({ page }) => {
     await mockBackups(page)
     await page.goto('/#/settings')
-    await openSettingsGroups(page, 'Notifications and backups')
-    const summary = page.getByRole('region', { name: 'Automatic backups', exact: true })
-    await expect(summary.locator('.card-meta')).toHaveText('Off')
-    await expect(summary.getByRole('switch')).toHaveCount(0)
-    await summary.getByRole('link', { name: 'Manage backups' }).click()
+    await openSettingsGroups(page, 'Advanced')
+    await expect(page.getByRole('region', { name: 'Automatic backups', exact: true })).toHaveCount(0)
+    await page.getByRole('searchbox', { name: 'Search settings' }).fill('backup')
+    await page.getByRole('navigation', { name: 'On other pages' }).getByRole('link', { name: /Backups: schedule/ }).click()
     await expect(page).toHaveURL(/#\/library-tools\?tab=backup/)
     await expect(page.getByRole('tab', { name: 'Backup', exact: true })).toHaveAttribute('aria-selected', 'true')
   })

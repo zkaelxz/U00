@@ -16,7 +16,7 @@ export interface FileRunRequest {
   variant: string
 }
 
-/** What "Only add it, don't start" or "Add a title by hand" hands to the New title sheet. */
+/** What "Add only" or "Add a title by hand" hands to the New title sheet. */
 export type NewTitleStart = { link: string } | { fileName: string } | null
 
 /** A pasted link: anything that parses as an http(s) address with a host. */

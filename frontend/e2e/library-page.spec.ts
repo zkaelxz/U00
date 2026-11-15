@@ -197,7 +197,7 @@ test('a link in the Add box, Only add it, opens New title with it filled in; tit
   const box = page.getByRole('region', { name: 'Add' })
   await box.getByRole('textbox', { name: 'Paste a link' }).fill('https://example.com/watch?v=abc')
   await expect(box.getByTestId('add-found')).toHaveText('Found: a link to example.com. Baihe could not read it.')
-  await box.getByRole('button', { name: "Only add it, don't start" }).click()
+  await box.getByRole('button', { name: "Add only" }).click()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await expect(sheet.getByLabel(/^Link/)).toHaveValue('https://example.com/watch?v=abc')
   await page.keyboard.press('Escape')

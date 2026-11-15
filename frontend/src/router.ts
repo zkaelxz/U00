@@ -11,6 +11,10 @@ import { isBenchmarkTab, type BenchmarkTab } from './pages/benchmark/benchmarkTa
 import { isSeriesTab, type SeriesTab } from './pages/series/seriesModel'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
 
+export const ADMIN_CARDS = ['people', 'activity', 'address', 'uploads', 'pc-profiles'] as const
+export type AdminCard = (typeof ADMIN_CARDS)[number]
+const isAdminCard = (v: unknown): v is AdminCard => ADMIN_CARDS.includes(v as AdminCard)
+
 export type Route =
   | { name: 'library' }
   // tab: "#/library-tools?tab=storage" opens that tab (the last one used is remembered otherwise).
@@ -27,7 +31,8 @@ export type Route =
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
   // card: "#/settings?card=display" does the same for any card id in the settings index; an unknown id is dropped.
   | { name: 'settings'; section?: 'developer-mode' | 'uploads'; card?: string }
-  | { name: 'admin' }
+  // card: "#/admin?card=uploads" opens that card of People and access and scrolls to it; an unknown id is dropped.
+  | { name: 'admin'; card?: AdminCard }
   // card: "#/diagnostics?card=ports" opens the tab that holds that card and scrolls to it;
   // tab alone opens that tab. install=transcription (Before-you-run) lands on the Packages card.
   // pkg: with card=packages, "&package=audio-separator" scrolls to that package and picks it.
@@ -91,7 +96,10 @@ export function parseRoute(hash: string): Route {
       ? { name: 'settings', section }
       : { name: 'settings' }
   }
-  if (head === 'admin' && parts.length === 1) return { name: 'admin' }
+  if (head === 'admin' && parts.length === 1) {
+    const card = new URLSearchParams(qs).get('card')
+    return isAdminCard(card) ? { name: 'admin', card } : { name: 'admin' }
+  }
   if (head === 'diagnostics' && parts.length === 1) {
     const q = new URLSearchParams(qs)
     const card = q.get('card') ?? (q.get('install') === 'transcription' ? 'packages' : null)
@@ -207,6 +215,7 @@ export function routeHref(r: Route): string {
   }
   if (r.name === 'sources-manage') return manageHref(r.tab)
   if (r.name === 'sources' && r.tab) return sourcesHref(r.tab)
+  if (r.name === 'admin' && r.card) return `#/admin?card=${r.card}`
   if (r.name === 'settings' && r.card) return `#/settings?card=${encodeURIComponent(r.card)}`
   if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`
   if (r.name === 'benchmark') {

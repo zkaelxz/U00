@@ -57,10 +57,10 @@ describe('applyItems', () => {
 describe('applyNote', () => {
   it('reports what was replaced, marked source changed and left alone', () => {
     expect(applyNote({ applied: [1, 2], skipped: [3], untranslated_count: 0 }, 2)).toBe(
-      'Replaced the source text of 2 lines. Kept the English on 2 and marked them “Source changed”: retranslate or keep them from Review checks. 1 changed since the run, so left alone. Undo from History.',
+      'Replaced the source text of 2 lines. Kept the English on 2 and marked them “Source changed”. Retranslate or keep them in Review checks. 1 changed since the run, so left alone. Undo from History.',
     )
     expect(applyNote({ applied: [1], skipped: [], untranslated_count: 0 }, 1)).toContain(
-      'Kept the English on 1 and marked it “Source changed”: retranslate or keep it from Review checks.',
+      'Kept the English on 1 and marked it “Source changed”. Retranslate or keep it in Review checks.',
     )
     expect(applyNote({ applied: [], skipped: [1], untranslated_count: 0 }, 0)).toBe(
       'Replaced the source text of 0 lines. 1 changed since the run, so left alone.',

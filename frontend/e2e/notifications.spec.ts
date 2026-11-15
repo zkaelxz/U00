@@ -78,7 +78,7 @@ async function mockNotifications(
 
 async function open(page: Page) {
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Notifications and backups')
+  await openSettingsGroups(page, 'Connections')
   const section = page.getByRole('region', { name: 'Notifications' })
   await expect(section).toBeVisible()
   return section
@@ -154,7 +154,7 @@ test('away from the PC the section is left out and makes no notification calls',
     return route.fulfill({ response: resp, json: { ...body, local: false } })
   })
   await page.goto('/#/settings')
-  await expect(page.getByRole('tab', { name: 'Notifications and backups' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Connections' })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Notifications' })).toHaveCount(0)
   expect(calls).toEqual([])
   expect(unmocked).toEqual([])
