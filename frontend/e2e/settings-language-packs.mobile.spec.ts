@@ -16,7 +16,7 @@ test('Language packs fits a phone: no sideways page scroll with a pack open', as
     return route.fulfill({ json: { ...summary, entries: [{ source: '先輩、これをお願いしてもよろしいでしょうか', en: long, category: 'phrase', note: long, context: '' }] } })
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Engines and keys')
   const card = page.getByRole('region', { name: 'Language packs', exact: true })
   await card.locator('summary').last().click()
   await expect(card.getByRole('table')).toContainText('先輩')
