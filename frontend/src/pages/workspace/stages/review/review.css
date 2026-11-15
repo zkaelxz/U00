@@ -342,11 +342,11 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* ⋯ sits in the row's top-right corner, out of the meta line's flow. `.stage-review` outweighs index.css's phone
      `.btn.btn-sm { position: relative }`, which otherwise left ⋯ after the last item, over the source text and past the
      edge of a 320px screen. It keeps the small button's 32px box and its ::after, whose 44px hit area stays clear of the
-     first text line (phone-spacing checks that). The meta line stays 32px tall so Review still fits 8 rows on a phone.
+     first text line and the row above it (phone-spacing checks that). The meta line stays 32px tall so Review still fits 8 rows on a phone.
      ⚑ keeps its width: the speaker is what gives way. */
   .review-line-meta { padding-right: calc(var(--touch) - var(--space-2)); min-height: calc(var(--touch) - var(--space-1) - var(--space-2)); }
   .review-line-meta > .review-flag { flex: none; }
-  .stage-review button.review-more { position: absolute; top: 0; right: 0; min-width: var(--touch); padding: 0; margin: 0; }
+  .stage-review button.review-more { position: absolute; top: var(--space-1); right: 0; min-width: var(--touch); padding: 0; margin: 0; }
   .review-ai-compare { grid-template-columns: minmax(0, 1fr); }
   .review-editbar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-sticky, 3);

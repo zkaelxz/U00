@@ -53,7 +53,7 @@ db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh='这是一个
   const rowBox = (await row.boundingBox())!
   const moreBox = (await more.boundingBox())!
   expect(Math.abs(moreBox.x + moreBox.width - (rowBox.x + rowBox.width))).toBeLessThanOrEqual(1)
-  expect(Math.abs(moreBox.y - rowBox.y)).toBeLessThanOrEqual(1)
+  expect(Math.abs(moreBox.y - rowBox.y - 4)).toBeLessThanOrEqual(1)
 
   // A tap in the middle of the right end of a row's first text line picks the row; it must not reach ⋯ and open the More sheet.
   await page.getByRole('radio', { name: /^All/ }).check({ force: true })
