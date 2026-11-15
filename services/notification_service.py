@@ -34,6 +34,14 @@ one sentence per (job kind, title) with the names kept. Anything else is sent
 after BURST_WINDOW seconds, carrying the waiting successes with it; identical
 failure or hold sentences are shown once with a count.
 
+Discord cards: a message to Discord is an embed whose colour is its result
+(green Finished, amber Finished with errors or Waiting for you, red Failed).
+A single job's card adds its title and series, the counts its result already
+holds (RESULT_COUNTS), one scrubbed sentence of the failure reason, how long it
+ran, a link to the title only when BAIHE_PUBLIC_URL is an https address, and
+who ran it only when more than one account exists (display name, never an
+email). Never line text. ntfy keeps plain text.
+
 Rate limit: events arriving within one wait are collapsed into one message, and at most
 MAX_PER_MINUTE messages (tests included) go out in any 60 s. Only clean
 successes are dropped (with a log line) over the cap: anything the person
@@ -117,6 +125,13 @@ BURST_WINDOW = 5.0
 SUCCESS_PUSH_MIN_SECONDS = 120.0
 GROUP_WINDOW = 60.0           # a lone clean success waits this long for repeats
 MAX_GROUPS_NAMED = 5
+PUBLIC_URL_ENV = "BAIHE_PUBLIC_URL"
+# Discord card colours: green finished, amber with errors or waiting, red failed.
+COLOR_OK, COLOR_WARN, COLOR_FAIL, COLOR_INFO = 0x2ECC71, 0xF59E0B, 0xE74C3C, 0x5865F2
+# Counts a job result already carries, shown as card fields: (result key, label).
+RESULT_COUNTS = (("translated_count", "Lines translated"), ("skipped_count", "Skipped"),
+                 ("failed_count", "Failed"), ("line_count", "Lines"), ("page_count", "Pages"),
+                 ("new", "New chapters"))
 MAX_PER_MINUTE = 5
 MAX_URL_LEN = 512
 _KIND_MAX = 60
@@ -585,12 +600,16 @@ def _pinned_post(url, ip, body: bytes, headers: dict):
         session.close()
 
 
-def _payload(channel, text):
+def _payload(channel, text, embed=None):
     if channel == "discord":
         import json
         # allowed_mentions: a drama title can never ping @everyone/@here.
-        return (json.dumps({"content": f"{APP_NAME}: {text}", "allowed_mentions": {"parse": []}},
-                           ensure_ascii=False).encode("utf-8"),
+        body = {"allowed_mentions": {"parse": []}}
+        if embed:
+            body["embeds"] = [embed]
+        else:
+            body["content"] = f"{APP_NAME}: {text}"
+        return (json.dumps(body, ensure_ascii=False).encode("utf-8"),
                 {"Content-Type": "application/json"})
     return text.encode("utf-8"), {"Title": APP_NAME, "Content-Type": "text/plain; charset=utf-8"}
 
@@ -600,7 +619,7 @@ def _log():
     return applog.get_logger()
 
 
-def _send_one(channel, text) -> str:
+def _send_one(channel, text, embed=None) -> str:
     """"sent" / "failed" / "refused" / "not_configured". Never raises; logs
     only the channel name and a status code or exception type."""
     url = _channel_url(channel)
@@ -617,7 +636,7 @@ def _send_one(channel, text) -> str:
                        f"({type(exc).__name__})")
         return "failed"
     try:
-        body, headers = _payload(channel, text)
+        body, headers = _payload(channel, text, embed)
         status = _pinned_post(url, ip, body, headers)
     except Exception as exc:
         _log().warning(f"notification: {channel} send failed ({type(exc).__name__})")
@@ -628,8 +647,8 @@ def _send_one(channel, text) -> str:
     return "failed"
 
 
-def _deliver(text) -> dict:
-    return {channel: _send_one(channel, text) for channel in CHANNELS}
+def _deliver(text, embed=None) -> dict:
+    return {channel: _send_one(channel, text, embed) for channel in CHANNELS}
 
 
 # --- rate limit + burst collapse -------------------------------------------
@@ -813,6 +832,112 @@ def list_recent(principal=None, limit=RECENT_MAX) -> list:
     return out
 
 
+def _one_sentence(text):
+    """The first sentence of `text`, scrubbed of keys, paths and addresses."""
+    if not text:
+        return None
+    from services import jobs_service
+    clean = redact_secrets(jobs_service.scrub_text(str(text)))
+    first = re.split(r"(?<=[.!?])\s", _tidy(clean, 400), maxsplit=1)[0]
+    return _tidy(first, 160) or None
+
+
+def _duration_text(seconds) -> str:
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f"{seconds} s"
+    minutes, secs = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes} min {secs} s"
+    return f"{minutes // 60} h {minutes % 60} min"
+
+
+def _title_link(description):
+    """The title's address on the remote host, only when a public https
+    address is set up; None otherwise."""
+    m = _DRAMA_REF.search(description or "")
+    if not m:
+        return None
+    try:
+        from services import remote_health_service
+        public = _settings().resolve_env_names((PUBLIC_URL_ENV,))
+        if remote_health_service.public_target(public) is None:
+            return None
+        return f"https://{urlsplit(public).netloc}/#/drama/{int(m.group(1))}"
+    except Exception:
+        return None
+
+
+def _run_by(owner_user_id):
+    """The runner's display name, only when more than one account exists."""
+    if not owner_user_id:
+        return None
+    try:
+        import db
+        users = [u for u in db.auth_list_users() if u.get("is_active", 1)]
+        if len(users) < 2:
+            return None
+        mine = next((u for u in users if u.get("id") == owner_user_id), None)
+        name = _tidy((mine or {}).get("display_name") or "", 40)
+        return name or None
+    except Exception:
+        return None
+
+
+def _job_embed(description, status, with_errors, reason, job_id, owner_user_id):
+    """The Discord card for one ended job (see the module note). `status` is
+    "done" or "error". Every string has been through redact_secrets."""
+    failed = status == "error"
+    outcome = "Failed" if failed else ("Finished with errors" if with_errors else "Finished")
+    job = {}
+    try:
+        import background_jobs
+        job = background_jobs.get_status(job_id) or {}
+    except Exception:
+        pass
+    embed = {"title": _tidy(f"{outcome} \u00b7 {_job_kind(description)}", 200),
+             "color": COLOR_FAIL if failed else COLOR_WARN if with_errors else COLOR_OK}
+    title = _drama_title(description, True)
+    sentence = _one_sentence(reason or (job.get("error") if failed else None))
+    lines = [x for x in (title, sentence) if x]
+    if lines:
+        embed["description"] = "\n".join(lines)
+    fields = []
+    started, finished = job.get("started_at"), job.get("finished_at")
+    if started is not None and finished is not None and finished >= started:
+        fields.append(("Duration", _duration_text(finished - started)))
+    result = job.get("result") if isinstance(job.get("result"), dict) else {}
+    for key, label in RESULT_COUNTS:
+        value = result.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            fields.append((label, str(value)))
+    who = _run_by(owner_user_id)
+    if who:
+        fields.append(("Run by", who))
+    if fields:
+        embed["fields"] = [{"name": n, "value": redact_secrets(v), "inline": True}
+                           for n, v in fields[:10]]
+    link = _title_link(description) if title else None
+    if link:
+        embed["url"] = link
+    return embed
+
+
+def _embed_for(events, text):
+    """The card for one flushed message, or None for plain text. A single
+    job keeps its own card; several events share one coloured card holding
+    the summary. Events that are not jobs alone stay plain text."""
+    if len(events) == 1:
+        return events[0][4] if len(events[0]) > 4 else None
+    if not any((e[2] if len(e) > 2 else "jobs") == "jobs" for e in events):
+        return None
+    statuses = {e[0] for e in events}
+    color = (COLOR_FAIL if "error" in statuses else
+             COLOR_WARN if statuses & {"partial", "waiting"} else
+             COLOR_OK if statuses <= {"done"} else COLOR_INFO)
+    return {"description": redact_secrets(_tidy(text, 2000)), "color": color}
+
+
 def _ran_long(job_id) -> bool:
     """Did the job run SUCCESS_PUSH_MIN_SECONDS or more? True when its times
     are unknown: a missing record must not silence a long job."""
@@ -912,7 +1037,9 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None,
             return
         if not configured_channels():
             return
-        _enqueue((status, message, category, group) if category == "jobs"
+        card = _job_embed(description, "error" if status == "error" else "done", with_errors,
+                          reason, job_id, owner_user_id) if category == "jobs" else None
+        _enqueue((status, message, category, group, card) if category == "jobs"
                  else (status, message, category))
     except Exception as exc:
         try:
@@ -1017,7 +1144,8 @@ def flush() -> dict:
                 if not urgent:
                     return {}
                 events = urgent
-        return _deliver(_summarize(events))
+        text = _summarize(events)
+        return _deliver(text, _embed_for(events, text))
     except Exception as exc:
         try:
             _log().warning(f"notification: flush failed ({type(exc).__name__})")
