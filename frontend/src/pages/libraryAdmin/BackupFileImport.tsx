@@ -26,6 +26,9 @@ export function BackupFileImport({ onDone, onCancel }: {
   const [file, setFile] = useState<File | null>(null)
   const [list, setList] = useState<BackupFileDramaList | null>(null)
   const [chosen, setChosen] = useState<Set<number>>(new Set())
+  const [joinSeries, setJoinSeries] = useState(false)
+  const [voiceBank, setVoiceBank] = useState(false)
+  const [settings, setSettings] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -54,7 +57,7 @@ export function BackupFileImport({ onDone, onCancel }: {
     if (!file) return
     setBusy(true)
     setError(null)
-    importBackupFileDramas(file, [...chosen]).then(
+    importBackupFileDramas(file, [...chosen], undefined, { joinSeries, voiceBank, settings }).then(
       (r) => {
         setBusy(false)
         onDone(r)
@@ -108,6 +111,31 @@ export function BackupFileImport({ onDone, onCancel }: {
               </ul>
             </>
           )}
+          {list.dramas.length > 0 && (
+            <p>
+              <label className="muted">
+                <input type="checkbox" checked={joinSeries} onChange={(e) => setJoinSeries(e.target.checked)} />{' '}
+                Add each series to the one of the same name here, with its characters, voice prints and glossary
+              </label>
+            </p>
+          )}
+          {list.dramas.length > 0 && list.voice_bank_entries > 0 && (
+            <p>
+              <label className="muted">
+                <input type="checkbox" checked={voiceBank} onChange={(e) => setVoiceBank(e.target.checked)} />{' '}
+                Also add the file's voice bank ({list.voice_bank_entries.toLocaleString('en-US')}{' '}
+                {list.voice_bank_entries === 1 ? 'voice' : 'voices'})
+              </label>
+            </p>
+          )}
+          {list.dramas.length > 0 && list.settings_available && (
+            <p>
+              <label className="muted">
+                <input type="checkbox" checked={settings} onChange={(e) => setSettings(e.target.checked)} />{' '}
+                Also use the file's translation settings and preferences
+              </label>
+            </p>
+          )}
           <div className="actions">
             <button type="button" disabled={!picked.length} onClick={() => setConfirming(true)}>
               Import {picked.length ? `${picked.length} selected` : 'selected'}…
@@ -125,7 +153,7 @@ export function BackupFileImport({ onDone, onCancel }: {
           onCancel={() => setConfirming(false)}
         >
           <ul className="restore-notes" data-testid="import-notes">
-            {importNotes(list, picked).map((n) => <li key={n}>{n}</li>)}
+            {importNotes(list, picked, undefined, { joinSeries, voiceBank, settings }).map((n) => <li key={n}>{n}</li>)}
           </ul>
         </TypedConfirm>
       )}
