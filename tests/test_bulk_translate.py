@@ -1130,6 +1130,17 @@ class TestFinishTranslationRunEpisodeSummary:
         assert engine.call_count == 1
         assert isolated_db.get_drama(did)["episode_summary"] == "Auto-generated summary."
 
+    def test_summary_call_gets_its_own_timing_stage(self, isolated_db):
+        did, lines = self._translated_drama(isolated_db)
+        stages = []
+
+        translation_finish.finish_translation_run(
+            did, lines, NS(model="fake"), "claude", "audio_drama", glossary_terms=None,
+            errors=[], enforce_ids={ln.id for ln in lines}, summary_engine=_FakeSummaryEngine(),
+            summary_engine_choice="claude", stage_cb=stages.append)
+
+        assert stages == ["Episode summary"]
+
     def test_paid_summary_skipped_once_the_monthly_cap_is_used_up(self, isolated_db):
         """Security review (PR #439): a cloud summary spends the owner's key,
         so it counts against the monthly cap like the translation does."""

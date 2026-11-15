@@ -108,3 +108,22 @@ def test_retranscribe_then_full_finish_run_marks_translated(isolated_db):
     translation_finish.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
                               glossary_terms=[], errors=[], enforce_ids={ln.id for ln in lines})
     assert _status(isolated_db, did) == "translated"
+
+
+def test_finish_run_logs_how_long_each_step_took(isolated_db):
+    """The job's Finish stage is one number; the log says which step made it long."""
+    import applog
+    from types import SimpleNamespace as NS
+    did = _two_line_drama(isolated_db, en=("", ""))
+    lines = isolated_db.load_line_objects(did)
+    for ln in lines:
+        ln.en = "x"
+    isolated_db.save_lines(did, lines, fields=("en",))
+    translation_finish.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
+                              glossary_terms=[], errors=[], enforce_ids={ln.id for ln in lines})
+    for handler in applog.get_logger().handlers:
+        handler.flush()
+    with open(os.path.join(isolated_db.LIBRARY_DIR, "logs", "app.log"), encoding="utf-8") as f:
+        log = f.read()
+    assert f"finish step translation version for title {did}" in log
+    assert f"finish step review flags for title {did}" in log
