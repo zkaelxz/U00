@@ -644,7 +644,8 @@ def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, job_h
               if msg in ("Finished: Translation", "Failed: Dub generation")]
     assert sorted(queued) == [("done", "Finished: Translation"),
                               ("error", "Failed: Dub generation")]
-    assert len(no_timer) == 1
+    # The two jobs end in either order: the failure always leaves the short wait running.
+    assert no_timer[-1] == ns.BURST_WINDOW and len(no_timer) <= 2
     assert ns.flush() == {"discord": "failed", "ntfy": "not_configured"}
 
 
