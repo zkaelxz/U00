@@ -3,6 +3,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { clearCheckLines, GLOSSARY_SENTENCE, joinSeries, leaveSeries, mockPeaks, seedCheckLines } from './compareSelectedHelpers'
 import { expectNoSidewaysScroll } from './mockHelpers'
 import { clearLines } from './resegmentLlmMocks'
+import { serveJobs } from './workspaceJobPillMocks'
 
 // The Simple title view at phone width. Title 1 is the seeded audio drama.
 
@@ -39,6 +40,10 @@ async function expectTall(loc: Locator, what: string) {
   expect(box?.height ?? 0, `${what} is too short to tap`).toBeGreaterThanOrEqual(44)
 }
 
+// The header's name and buttons whose text runs past their box.
+const headerTextsCut = (page: Page) => page.locator('.workspace-header').evaluate((h) =>
+  [...h.querySelectorAll('h1, button, a.btn')].filter((el) => el.scrollWidth > el.clientWidth).map((el) => el.textContent))
+
 // In Full on a phone the switch lives in the Title actions sheet, which keeps the sticky strip one row. In Simple it is
 // behind the steps button, so the click is not followed by check()'s look at a radio that is no longer on screen.
 async function chooseSimple(page: Page) {
@@ -50,12 +55,14 @@ async function chooseSimple(page: Page) {
 test('Simple fits a phone: More and the steps button each open their panel, the main button under the header, no sideways scroll', async ({ page }) => {
   await page.goto('/#/drama/1')
   await chooseSimple(page)
-  for (const width of [390, 320]) {
+  for (const width of [390, 360, 320]) {
     await page.setViewportSize({ width, height: 844 })
     const header = page.locator('.workspace-header')
     const button = stepsButton(page)
     await expect(button).toHaveText('Step 3 of 5 · Translate')
     await expectTall(button, `the steps button at ${width}px`)
+    // The name and every button of the header show their whole text, whatever the width.
+    expect(await headerTextsCut(page), `header texts cut at ${width}px`).toEqual([])
     await expect(header.getByRole('button', { name: 'Step 3 of 5 · Translate' })).toHaveCount(1)
     // More is at the right of the name's row: 44px high, at least 44px wide.
     const [moreBox, nameBox] = [(await headerMore(page).boundingBox())!, (await page.getByTestId('drama-title').boundingBox())!]
@@ -194,6 +201,21 @@ async function expectEndClearOfBars(page: Page, last: Locator, what: string) {
   expect(bottom, `${what} ends above the bottom bar`).toBeLessThanOrEqual(await barTop(page) + 0.5)
 }
 
+// The first box lies inside the second.
+async function expectInside(inner: Locator, outer: Locator, what: string) {
+  const [i, o] = [(await inner.boundingBox())!, (await outer.boundingBox())!]
+  expect(i.x, `${what}: left edge`).toBeGreaterThanOrEqual(o.x - 0.5)
+  expect(i.y, `${what}: top edge`).toBeGreaterThanOrEqual(o.y - 0.5)
+  expect(i.x + i.width, `${what}: right edge`).toBeLessThanOrEqual(o.x + o.width + 0.5)
+  expect(i.y + i.height, `${what}: bottom edge`).toBeLessThanOrEqual(o.y + o.height + 0.5)
+}
+
+// The queue's progress bar: how much of its track the fill covers.
+async function progressShare(page: Page) {
+  const [fill, track] = [(await page.locator('.title-top-progress-fill').boundingBox())!, (await page.locator('.title-top-progress').boundingBox())!]
+  return { fill: fill.width, track: track.width }
+}
+
 // Each element's top is below the one before.
 async function expectOrder(items: [string, Locator][], width: number) {
   let last = -Infinity
@@ -223,6 +245,12 @@ test.describe(() => {
     await expect(cards).toHaveCount(1)
     await expect(cards.locator('.review-idx')).toHaveText('Line 24')
     await expect(page.getByText('Next: line 7, Whisper was unsure · line 12, too fast to read', { exact: true })).toBeVisible()
+    // The Next line and the way to the lines around it are inside the card, and the link is a full-size target.
+    await expectInside(page.getByText(/^Next: line/), cards, 'the Next line')
+    await expectInside(cards.getByRole('button', { name: 'See the lines around it' }), cards, 'See the lines around it')
+    // The bar under the steps button fills a third of its track for the first of three cards.
+    const first = await progressShare(page)
+    expect(Math.abs(first.fill - first.track / 3), 'the progress fill is a third of its track').toBeLessThanOrEqual(2)
     // The card: Why in a plain sentence, the English under its label in a box, the buttons under it, and a green
     // Looks right, next beside Skip for now. Tapping the box edits, so the bar has no Edit button.
     await expect(cards.getByTestId('queue-reason')).toHaveText(`Why: ${GLOSSARY_SENTENCE}`)
@@ -250,6 +278,8 @@ test.describe(() => {
     await bar.getByRole('button', { name: 'Skip for now' }).tap()
     await expect(position).toHaveText('2 of 3 to look at')
     await expect(cards.locator('.review-idx')).toHaveText('Line 7')
+    const second = await progressShare(page)
+    expect(Math.abs(second.fill - 2 * second.track / 3), 'the progress fill is two thirds of its track after Skip for now').toBeLessThanOrEqual(2)
     const reason = cards.getByTestId('queue-reason')
     await expect(reason).toHaveText('Why: Whisper was unsure of this line (50% sure)')
     await expectTall(cards.getByRole('button', { name: 'Re-transcribe…' }), 'Re-transcribe…')
@@ -324,6 +354,12 @@ test.describe(() => {
       expect(Math.abs(boxes[1].w - 2 * boxes[0].w), `Looks right, next is twice as wide at ${width}px`).toBeLessThanOrEqual(4)
       await expect(cards.getByRole('button', { name: 'Play line', exact: true })).toBeVisible()
       await expectTall(cards.getByRole('button', { name: 'Play line', exact: true }), `Play line at ${width}px`)
+      // The card reaches down to just above the bottom bar, once the position text and progress bar have made the header taller.
+      await expect(page.getByTestId('queue-position')).toBeVisible()
+      await expect(page.locator('.title-top-progress')).toBeVisible()
+      const gap = await barTop(page) - (await cards.evaluate((el) => el.getBoundingClientRect().bottom))
+      expect(gap, `the card ends above the bottom bar at ${width}px`).toBeGreaterThanOrEqual(-0.5)
+      expect(gap, `the card ends within 16px of the bottom bar at ${width}px`).toBeLessThanOrEqual(16)
       await expectNoSidewaysScroll(page)
     }
     await page.setViewportSize({ width: 390, height: 844 })
@@ -366,6 +402,31 @@ test.describe(() => {
     await expect(notice).toContainText('Line #24 marked checked.')
     await expect(notice).toBeVisible()
     await expectTall(notice.getByRole('button', { name: 'Undo' }), 'Undo')
+  })
+
+  test('the card still reaches down to the bottom bar when the header grows after the lines have loaded', async ({ page }) => {
+    seedCheckLines({ audio: true })
+    await mockPeaks(page)
+    const jobs = { current: [] as unknown[] }
+    await serveJobs(page, jobs)
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.setViewportSize({ width: 320, height: 844 })
+    await page.goto('/#/drama/3/review')
+    const card = page.locator('.review-line.is-active')
+    await expect(card.locator('.review-idx')).toHaveText('Line 24')
+    const headerHeight = () => page.locator('.workspace-header').evaluate((el) => el.getBoundingClientRect().height)
+    const before = await headerHeight()
+    const t = Math.floor(Date.now() / 1000)
+    jobs.current = [{
+      job_id: 'translate_3', status: 'running', progress: 0.42, message: '', error: null, description: null, gpu_touching: false,
+      started_at: t, finished_at: null, updated_at: t, owned_by_me: true, drama_id: 3, kind: 'translate',
+    }]
+    await expect(page.getByTestId('job-pill')).toBeVisible({ timeout: 20_000 })
+    expect(await headerHeight(), 'the running job makes the header taller').toBeGreaterThan(before)
+    await page.evaluate(() => window.scrollTo(0, 0))
+    const gap = await barTop(page) - (await card.evaluate((el) => el.getBoundingClientRect().bottom))
+    expect(gap, 'the card ends above the bottom bar').toBeGreaterThanOrEqual(-0.5)
+    expect(gap, 'the card ends within 16px of the bottom bar').toBeLessThanOrEqual(16)
   })
 
   test('Search in More\'s panel shows All and opens the lines\' search box with the cursor in it', async ({ page }) => {
@@ -439,6 +500,7 @@ test.describe(() => {
           const nameLine = await page.getByTestId('drama-title').evaluate((el) => parseFloat(getComputedStyle(el).lineHeight))
           expect(back.y < name.y + nameLine && name.y < back.y + back.height, `title ${id}: the back arrow and the name's first line share a row at ${width}px`).toBe(true)
           await expectTall(stepsButton(page), `title ${id}: the steps button at ${width}px`)
+          expect(await headerTextsCut(page), `title ${id}: header texts cut at ${width}px`).toEqual([])
           expect((await stepsButton(page).boundingBox())!.y, `title ${id}: the steps button is under the name at ${width}px`).toBeGreaterThanOrEqual(name.y + name.height - 1)
           if (id === 3) expect(tops[3], `the first card's top at ${width}px`).toBeLessThanOrEqual(cardTopAtMost[width])
           await expectNoSidewaysScroll(page)

@@ -40,6 +40,9 @@ export function useToolbarHeight(sectionRef: RefObject<HTMLElement | null>) {
     const ro = new ResizeObserver(measure)
     ro.observe(bar)
     ro.observe(section)
+    // The card's top moves with the title header's height (a job pill, a wrapped name, the queue's place) without the toolbar or the section changing size.
+    const header = document.querySelector<HTMLElement>('.workspace-header')
+    if (header) ro.observe(header)
     measure()
     return () => ro.disconnect()
   })

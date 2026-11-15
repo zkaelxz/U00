@@ -820,6 +820,7 @@ test.describe('the check queue', () => {
   test('with lines that need a look, the title page is the check queue, and Review shows the same page', async ({ page }) => {
     seedCheckLines({ audio: true })
     await mockPeaks(page)
+    await page.addInitScript(() => localStorage.setItem('baihe.navDock', 'docked'))
     await page.setViewportSize({ width: 1440, height: 900 })
     await simple(page)
     for (const path of ['#/drama/3', '#/drama/3/review']) {
@@ -830,6 +831,12 @@ test.describe('the check queue', () => {
       await expect(back).toHaveAttribute('href', '#/library')
       await expect(back).toHaveText('‹Library')
       await expect(page.locator('.workspace-header').getByTestId('title-kind')).toHaveText('Video drama · Korean to English')
+      // A short name keeps its chip beside it: the name, the chip and the buttons share one row, with the menu docked.
+      const [name, chip, buttons] = await Promise.all([page.getByTestId('drama-title'), page.getByTestId('title-kind'), page.locator('.title-top-actions')].map(async (l) => (await l.boundingBox())!))
+      const sameRow = (a: { y: number; height: number }, b: { y: number; height: number }) => a.y < b.y + b.height && b.y < a.y + a.height
+      expect(sameRow(name, chip) && sameRow(name, buttons), 'the name, the chip and the buttons share a row').toBe(true)
+      expect(name.x + name.width, 'the chip follows the name').toBeLessThanOrEqual(chip.x)
+      expect(chip.x + chip.width, 'the buttons follow the chip').toBeLessThanOrEqual(buttons.x)
       // The main button is drawn once, as the first thing in the Need a look row.
       const main = page.getByRole('button', { name: 'Check the 3 lines', exact: true })
       await expect(main).toHaveCount(1)
