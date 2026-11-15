@@ -31,8 +31,8 @@ export function alsoUnsureText(line: Pick<ReviewLine, 'flag' | 'confidence'>): s
   return `Whisper was also unsure of this line (${Math.round(line.confidence * 100)}% sure).`
 }
 
-/** The flag as the line list has always written it: "Content blocked · gemini: SAFETY". */
-export function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
+/** A flag with no words of its own: its tidied name and the note as stored, "Uncertain · Check". */
+function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
   return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${capFirst(line.flag_note)}` : ''}`
 }
 
@@ -382,9 +382,9 @@ const FLAG_KINDS: Record<string, FlagKind> = {
 export const QUEUE_FLAG_KINDS = Object.keys(FLAG_KINDS)
 
 /**
- * Why a queue card is listed, in everyday words. A note the server writes in a known shape gives the specifics; any
- * other note is shown as it is after the plain sentence. An unknown flag keeps the line list's own text. Null for a
- * line with no flag that Whisper was sure of.
+ * Why a queue card is listed, in everyday words; a flagged line says the same wherever Review writes its flag out.
+ * A note the server writes in a known shape gives the specifics; any other note is shown as it is after the plain
+ * sentence. An unknown flag keeps the line list's own text. Null for a line with no flag that Whisper was sure of.
  */
 export function queueReason(line: Pick<ReviewLine, 'flag' | 'flag_note' | 'confidence'>): QueueReason | null {
   if (!line.flag) {
