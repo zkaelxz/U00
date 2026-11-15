@@ -221,10 +221,11 @@ def same_drive_as_library(folder: str = "") -> bool:
 
 
 def problem(settings: dict, state: dict, now=None):
-    """Why the owner should look at the backups, or None: "off", "failing"
-    (the last run failed) or "stale" (no success for a long while)."""
+    """Why the owner should look at the backups, or None: "failing" (the last
+    run failed) or "stale" (no success for a long while). Backups turned off
+    are not a problem: the default is on, so off is the owner's own choice."""
     if not settings["enabled"]:
-        return "off"
+        return None
     if state.get("last_error"):
         return "failing"
     last = _parse(state.get("last_success_at"))

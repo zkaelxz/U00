@@ -29,7 +29,6 @@ export const SAME_DRIVE_NOTE =
   'These copies are on the same drive as your library, so one failing drive loses both. Pick a backup folder on another drive.'
 
 export const BACKUP_PROBLEM_TEXT: Record<NonNullable<AutoBackupSettings['problem']>, string> = {
-  off: 'Automatic backups are off, so nothing can bring the library back if it is damaged or deleted.',
   failing: 'The last automatic backup failed, so the newest copy is older than it should be.',
   stale: 'No automatic backup has succeeded for a while.',
 }

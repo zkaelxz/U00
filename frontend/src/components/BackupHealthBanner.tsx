@@ -1,6 +1,6 @@
 /*
  * BackupHealthBanner: in the app shell, on the main PC only (usePcOnly 'local'; the backup routes are PC only),
- * while automatic backups are off, the last run failed or none has succeeded for a long while
+ * while the last automatic backup failed or none has succeeded for a long while
  * (GET /api/backups/settings `problem`). Dismissing hides it for this page load only, so a lasting problem
  * comes back after a reload. A refusal or a server without the route stops the reads.
  */

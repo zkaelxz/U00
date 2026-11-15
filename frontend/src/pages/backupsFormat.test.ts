@@ -223,6 +223,6 @@ describe('restore one title', () => {
 
 describe('backup problem text', () => {
   it('has a sentence for every problem the server can report', () => {
-    expect(Object.keys(BACKUP_PROBLEM_TEXT).sort()).toEqual(['failing', 'off', 'stale'])
+    expect(Object.keys(BACKUP_PROBLEM_TEXT).sort()).toEqual(['failing', 'stale'])
   })
 })

@@ -502,9 +502,10 @@ class TestProblem:
     def _settings(self, **kw):
         return {**abt_.DEFAULT_SETTINGS, **kw}
 
-    def test_off_is_a_problem_even_for_a_saved_choice(self, isolated_db):
+    def test_off_by_choice_is_quiet(self, isolated_db):
         abs_.set_settings(enabled=False)
-        assert abs_.settings_overview()["problem"] == "off"
+        assert abs_.settings_overview()["problem"] is None
+        assert abt_.problem(self._settings(enabled=False), {"last_error": "boom"}, self.NOW) is None
 
     def test_failed_last_run(self):
         assert abt_.problem(self._settings(), {"last_error": "boom"}, self.NOW) == "failing"

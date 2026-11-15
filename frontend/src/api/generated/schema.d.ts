@@ -13200,9 +13200,9 @@ export interface components {
             next_run_at: string | null;
             /**
              * Problem
-             * @description Why the owner should look: backups off, the last run failed, or no success for a long while.
+             * @description Why the owner should look: the last run failed, or no success for a long while. Never set while backups are off.
              */
-            problem: ("off" | "failing" | "stale") | null;
+            problem: ("failing" | "stale") | null;
             /** Running */
             running: boolean;
             /**

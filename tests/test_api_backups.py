@@ -225,6 +225,7 @@ class TestLocal:
         body = r.json()
         assert body["enabled"] is False and body["frequency"] == "daily"
         assert body["include_media"] is False and body["folder"] == ""
+        assert body["problem"] is None and body["same_drive_as_library"] is True
         assert body["next_run_at"] is None and body["running"] is False
         assert body["copies"] == []
         snap = _clean(client.get(f"{BASE}/snapshot")).json()
