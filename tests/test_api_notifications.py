@@ -498,7 +498,6 @@ def test_burst_collapses_into_one_message(env, dns, posts, no_timer):
     assert no_timer == [ns.GROUP_WINDOW, ns.BURST_WINDOW]
     assert posts.calls == []           # nothing sent from the job thread
     assert ns.flush() == {"discord": "sent", "ntfy": "not_configured"}
-    import json
     assert _discord_text(posts.calls[0]).endswith(
         "Finished: Translation. Finished: Library backup. Failed: Dub generation.")
     assert ns.flush() == {}
@@ -514,7 +513,6 @@ def test_repeats_are_grouped_by_kind_and_title_and_keep_their_names(env, dns, po
     ns.notify_job_finished(f"Translation (drama #{a})", "done")
     assert no_timer == [ns.GROUP_WINDOW]   # only clean successes: they wait for repeats
     assert ns.flush()["discord"] == "sent"
-    import json
     assert _discord_text(posts.calls[0]).endswith(
         "14 \u00d7 Re-transcribe line \u00b7 Title A \u00b7 all finished. "
         "Finished: Re-transcribe line - Title B. Finished: Translation - Title A.")
@@ -675,7 +673,6 @@ def test_over_the_cap_only_clean_successes_are_dropped(env, dns, posts, no_timer
     ns.notify_job_finished("Export (drama #1)", "error", reason="Disk full")
     ns.notify_waiting("Ep 1 is done.", push_text="Ep 1 is done.")
     assert ns.flush()["discord"] == "sent"
-    import json
     text = _discord_text(posts.calls[-1])
     assert "Failed: Export" in text and "Disk full" in text and "Waiting for you" in text
     assert "Finished" not in text
@@ -701,7 +698,6 @@ def test_a_short_success_stays_in_the_bell_and_a_long_one_pushes(env, dns, posts
     ns.notify_job_finished("Re-time", "error", job_id="quick")
     ns.notify_job_finished("Re-time", "done", job_id="quick", with_errors=True)
     assert ns.flush()["discord"] == "sent"
-    import json
     text = _discord_text(posts.calls[-1])
     assert "Failed: Re-time" in text and "Finished with errors: Re-time" in text
 
