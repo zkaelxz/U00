@@ -182,6 +182,9 @@ class BackupFileDramaList(BaseModel):
     media_available: bool
     schema_differs: bool = Field(description="The file has columns this version doesn't know; "
                                              "they are ignored.")
+    voice_bank_entries: int = Field(0, description="Voice bank entries whose clip the file "
+                                                   "holds (none in a database-only file).")
+    settings_available: bool = False
     dramas: List[BackupFileDrama]
 
 
@@ -197,4 +200,7 @@ class ImportDramasDone(BaseModel):
     series_created: int
     series_joined: int = 0
     media_imported: int
+    voice_bank_imported: int = 0
+    settings_imported: int = 0
+    notes: List[str] = []
     counts: Dict[str, int]

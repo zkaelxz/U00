@@ -117,7 +117,8 @@ _IMPORT_BODY = {"requestBody": {"required": True, "content": {"multipart/form-da
     "properties": {"file": {"type": "string", "format": "binary"},
                    "drama_ids": {"type": "array", "items": {"type": "integer"}},
                    "confirm": {"type": "string"}, "confirm_text": {"type": "string"},
-                   "join_series": {"type": "string"}}}}}}}
+                   "join_series": {"type": "string"}, "voice_bank": {"type": "string"},
+                   "settings": {"type": "string"}}}}}}}
 
 
 async def _read_form(request: Request, max_fields: int):
@@ -168,9 +169,11 @@ async def post_import_list(request: Request):
              description="Multipart: file, drama_ids (repeat the field; ids as listed by "
                          "/import/list), confirm (the string \"true\"), confirm_text, "
                          "join_series (\"true\" merges each series into one of the same "
-                         "name here; otherwise it comes in as a new series).")
+                         "name here; otherwise it comes in as a new series), voice_bank (\"true\" adds "
+                         "the file's voice bank entries), settings (\"true\" takes the file's "
+                         "Translation and Preferences settings; never keys or paths).")
 async def post_import(request: Request):
-    form = await _read_form(request, max_fields=bis.MAX_DRAMAS_PER_IMPORT + 3)
+    form = await _read_form(request, max_fields=bis.MAX_DRAMAS_PER_IMPORT + 5)
     try:
         # Checked before the uploaded file is opened or the library is locked.
         if (form.get("confirm") != "true"
@@ -182,6 +185,7 @@ async def post_import(request: Request):
         return await run_in_threadpool(
             bis.import_dramas, upload.file, drama_ids, confirm=True,
             confirm_text=bis.RESTORE_CONFIRM_TEXT, principal=principal,
-            join_series=form.get("join_series") == "true")
+            join_series=form.get("join_series") == "true",
+            voice_bank=form.get("voice_bank") == "true", settings=form.get("settings") == "true")
     finally:
         await form.close()
