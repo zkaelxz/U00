@@ -336,7 +336,6 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     fresh: ignore replies cached by an earlier run over the same
     text and engine and ask the model again (the new replies replace them)."""
     drama = _drama(drama_id)
-    sid = _series_id(drama, required=False)   # the run reads the glossary; applying proposals makes the series
     orig = _read_drama_file(drama_id, RAW_NOVEL_FILENAME, capped=False)
     novel = _read_drama_file(drama_id, drama.get("novel_reference_filename"))
     if not (orig.strip() or novel.strip()):
@@ -351,7 +350,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     job_id = novel_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
-        en_text, drama.get("source_language") or "zh", db.list_effective_glossary_terms(sid) if sid else [],
+        en_text, drama.get("source_language") or "zh", db.list_run_glossary_terms(drama),
         gpu_touching=engine_name == "ollama",
         description=f"Glossary from novel (title #{drama_id})", fresh=bool(fresh),
         conventions=split_term_conventions(drama.get("project_instructions"))[1])
@@ -655,7 +654,6 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     from services import settings_service, translate_run_service
 
     drama = _drama(drama_id)
-    sid = _series_id(drama, required=False)
     if chapter is not None:
         source_lines = _chapter_source_lines(drama_id, chapter)
     else:
@@ -671,7 +669,7 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     job_id = lines_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_lines_glossary_job, drama_id, engine, engine_name, source_lines,
-        drama.get("source_language") or "zh", db.list_effective_glossary_terms(sid) if sid else [],
+        drama.get("source_language") or "zh", db.list_run_glossary_terms(drama),
         gpu_touching=engine_name == "ollama",
         description=f"Glossary from lines (title #{drama_id})")
     if not started:
