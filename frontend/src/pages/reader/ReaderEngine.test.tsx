@@ -21,7 +21,7 @@ describe('EnginePicker', () => {
     expect(out).toMatch(/<option value="ollama" disabled="">Ollama \(local\) \(not running\)<\/option>/)
     expect(out).toMatch(/<option value="claude"( selected="")?>Claude/)
     expect(out).toContain('href="#/diagnostics?card=packages"')
-    expect(out).toContain('Install the package in Diagnostics')
+    expect(out).toContain('Install in Diagnostics')
     expect(out).toContain('Start Ollama on this PC.')
   })
 

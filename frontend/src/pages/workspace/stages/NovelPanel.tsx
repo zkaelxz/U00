@@ -196,7 +196,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
         )}
         {(status?.has_novel_text || hasRaw) && (
           <p className="muted">
-            <a href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })}>Build the glossary from this novel in Translate →</a>
+            <a href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })}>Build glossary in Translate →</a>
           </p>
         )}
         <Field label="Mode" help="Replace overwrites any attached novel text; Append adds to it.">
