@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { openDramaFolder } from '../../api/library'
 import type { DramaDetail } from '../../api/types'
@@ -15,6 +17,7 @@ import type { TitleView } from './titleView'
 // The stage routes are unchanged and the Full view is one switch away.
 export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: DramaDetail; onView: (v: TitleView) => void }) {
   const { lineCount, translatedCount } = useTitleProgress(id, true)
+  const [jobsEnded, setJobsEnded] = useState(0)
   const title = drama.title_en || drama.title_zh || `Title #${id}`
   const stage = (s: string, tab?: 'add' | 'glossary') => routeHref({ name: 'drama', id, stage: s, ...(tab ? { tab } : {}) })
 
@@ -29,7 +32,7 @@ export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: Dram
         <div className="ws-badges">
           <Badge kind="mediaType" value={drama.media_type} />
         </div>
-        <JobPill dramaId={id} onFinished={() => undefined} />
+        <JobPill dramaId={id} onFinished={() => setJobsEnded((n) => n + 1)} />
         <TitleViewSwitch view="simple" onChange={onView} />
         <OpenFolderButton open={() => openDramaFolder(id)} size="sm" className="ws-folder" title="Show this title's files on the PC" />
       </header>
@@ -39,7 +42,7 @@ export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: Dram
         <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
         <ButtonLink href={stage('export')}>Export</ButtonLink>
       </div>
-      <ComicChapterList id={id} />
+      <ComicChapterList id={id} refresh={jobsEnded} />
       <section className="panel" aria-label="Titles in this series">
         <h2 className="source-subhead">Titles in this series</h2>
         <EpisodesList id={id} drama={drama} comic lineCount={lineCount} translatedCount={translatedCount} />
