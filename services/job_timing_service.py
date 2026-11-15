@@ -25,6 +25,7 @@ import time
 import db
 
 WHOLE_JOB = "Whole job"
+AFTER_SPLIT = "Save and finish"   # what is left of a job once its steps are split out
 MAX_STAGE_LEN = 60
 RUNS_KEPT_PER_JOB = 10
 
@@ -114,6 +115,40 @@ def mark_stage(job_id, stage, now=None):
             row = _close_stage_locked(job_id, now)
             _open[job_id]["stage"] = name
             _insert([row])
+    except Exception:
+        pass
+
+
+def split_open_stage(job_id, parts, now=None):
+    """Replaces the job's open stage, up to now, with one row per (name, seconds) in
+    `parts`, laid back to back and scaled down if they add up to more than the open
+    stage lasted. A job that measures its own steps only after it has run them (the
+    transcription pipeline) would otherwise show one "Whole job" row. Rows that can't
+    be shown (no seconds, job not running) are dropped; the time left over is "Other"."""
+    try:
+        now = time.time() if now is None else now
+        parts = [(" ".join(str(n).split())[:MAX_STAGE_LEN], float(sec)) for n, sec in parts
+                 if isinstance(sec, (int, float)) and not isinstance(sec, bool) and sec > 0]
+        with _lock:
+            run = _open.get(job_id)
+            if run is None or not parts:
+                return
+            whole = max(0.0, now - run["t0"])
+            total = sum(sec for _, sec in parts)
+            scale = whole / total if total > whole > 0 else 1.0
+            if whole <= 0:
+                return
+            parts = [(n, sec * scale) for n, sec in parts]
+            rest = whole - sum(sec for _, sec in parts)
+            if rest >= 0.5:
+                parts.insert(0, ("Other", rest))
+            rows, at = [], run["t0"]
+            for i, (name, sec) in enumerate(parts):
+                rows.append((job_id, run["run"], name, at, at + sec, sec,
+                             round(run["cost"], 6) if i == 0 else 0.0))
+                at += sec
+            run["t0"], run["cost"], run["stage"] = now, 0.0, AFTER_SPLIT
+            _insert(rows)
     except Exception:
         pass
 
