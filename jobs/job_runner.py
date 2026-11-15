@@ -209,7 +209,7 @@ def _finish_message_locked(job):
     """Caller holds _lock. A cancel that arrived while the job was finishing
     leaves the job `done` (the work completed), so it must stop saying
     "Cancelling..." in the persisted row."""
-    if job.get("message") == CANCELLING_MESSAGE:
+    if job.get("message") == CANCELLING_MESSAGE or job.get("stop_message"):
         job["message"] = FINISHED_MESSAGE
 
 
@@ -537,7 +537,7 @@ def _mark_cancelled_locked(job_id, run=None):
         job["status"] = "cancelled"
         job["finished_at"] = time.time()
         if job.get("cancel_requested"):
-            job["message"] = CANCELLED_MESSAGE
+            job["message"] = job.get("stop_message") or CANCELLED_MESSAGE
         _interrupted_by_stop_locked(job)
         _mirror_locked(job_id)
 

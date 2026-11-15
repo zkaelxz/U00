@@ -200,9 +200,16 @@ def allow_restart(job_id: str, restart) -> None:
 
 
 def _forget_ended_locked() -> None:
-    """Caller holds both locks. Drops registrations of runs that ended or were replaced."""
+    """Caller holds both locks. Drops registrations of runs that ended or were
+    replaced. A queued process job gets a new job dict when it is promoted
+    (job_runner._register_process_job), which is the same run: the
+    registration follows it. The queued dict is left behind as it was, so it
+    still says "queued"; a run cancelled or cleared while queued doesn't."""
     for job_id, entry in list(_restartable.items()):
         run = _jobs.get(job_id)
+        if run is not None and run is not entry["run"] and entry["run"].get("status") == "queued" \
+                and run.get("kind") == "process" and run.get("status") == "running":
+            entry["run"] = run
         if run is None or run is not entry["run"] or run.get("status") not in ("queued", "running"):
             del _restartable[job_id]
 
@@ -265,10 +272,14 @@ def _stop_running(state: dict, now: float, stop_minutes: int) -> None:
                 continue
             stop.append(job_id)
             _pending[job_id] = {**entry, "why": _why(state), "stopped_at": now}
+            # The message the run keeps once it is cancelled (job_runner._mark_cancelled_locked),
+            # so a guard stop doesn't read like the user's own Cancel.
+            run["stop_message"] = _stopped_text(_why(state))
             del _restartable[job_id]
     for job_id in stop:
         _log(f"GPU guard: stopping job {job_id}: {_why(state)}")
         background_jobs.request_cancel(job_id)
+        _set_message(_pending[job_id]["run"], f"Stopping: {_pending[job_id]['why']}.")
 
 
 def _set_message(run, text) -> None:
@@ -290,6 +301,11 @@ def _restart_pending(state: dict, now: float) -> None:
         run = entry["run"]
         if run.get("status") in ("queued", "running"):
             continue   # still stopping
+        if run.get("status") != "cancelled":
+            # It finished (or failed) before the stop took: nothing to start again.
+            with _guard_lock:
+                _pending.pop(job_id, None)
+            continue
         if job_launch.is_stopping():
             with _guard_lock:
                 _pending.pop(job_id, None)

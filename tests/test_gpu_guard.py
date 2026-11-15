@@ -248,6 +248,69 @@ class TestStopAndRestart:
         assert _status("stop_a") == "running"
         assert _wait_for(lambda: len(started) == 2)
 
+    def test_a_guard_stop_says_why_not_just_cancelled(self, job):
+        t = self._short_for(2, time.time())
+        assert _message("stop_a").startswith("Stopping: low GPU memory")
+        assert _wait_for(lambda: _status("stop_a") == "cancelled")
+        assert _message("stop_a").startswith("Stopped: low GPU memory")
+        assert "Starts again by itself" in _message("stop_a")
+        gpu_guard.tick(now=t + 20, reading=(500.0, COOL))
+        assert _message("stop_a").startswith("Held: low GPU memory")
+
+    def test_the_users_own_cancel_still_says_cancelled(self, job):
+        bg.request_cancel("stop_a")
+        assert _wait_for(lambda: _status("stop_a") == "cancelled")
+        assert _message("stop_a") == job_runner.CANCELLED_MESSAGE
+
+    def test_a_run_that_finished_before_the_stop_took_is_not_started_again(self):
+        release = threading.Event()
+        calls = []
+
+        def work():
+            release.wait(5)   # no cancel check: it finishes whatever is asked
+        assert job_launch.start_job("done_a", work, gpu_touching=True)
+        gpu_guard.allow_restart("done_a", lambda: calls.append(1))
+        t = self._short_for(2, time.time())
+        release.set()
+        assert _wait_for(lambda: _status("done_a") == "done")
+        assert _message("done_a") == job_runner.FINISHED_MESSAGE
+        gpu_guard.tick(now=t + 20, reading=(500.0, COOL))
+        assert calls == [] and gpu_guard.status()["pending_restarts"] == 0
+
+    def test_a_process_job_promoted_from_the_queue_can_still_be_stopped(self, monkeypatch):
+        """Promotion gives a queued process job a new job dict
+        (job_runner._register_process_job); the registration follows it."""
+        from jobs.job_table import _jobs, _lock
+        cancelled = []
+        monkeypatch.setattr(bg, "request_cancel", lambda jid, *a, **k: cancelled.append(jid))
+        queued = {"status": "queued", "kind": "process", "gpu_touching": True,
+                  "cancel_requested": False, "message": ""}
+        with _lock:
+            _jobs["proc_a"] = queued
+        gpu_guard.allow_restart("proc_a", lambda: None)
+        with _lock:
+            _jobs["proc_a"] = {**queued, "status": "running"}
+        self._short_for(2, time.time())
+        assert cancelled == ["proc_a"]
+        with _lock:
+            _jobs.pop("proc_a")
+
+    def test_a_job_cleared_while_queued_does_not_pass_its_restart_on(self, monkeypatch):
+        from jobs.job_table import _jobs, _lock
+        cancelled = []
+        monkeypatch.setattr(bg, "request_cancel", lambda jid, *a, **k: cancelled.append(jid))
+        queued = {"status": "queued", "kind": "process", "gpu_touching": True, "cancel_requested": False}
+        with _lock:
+            _jobs["proc_b"] = queued
+        gpu_guard.allow_restart("proc_b", lambda: None)
+        queued["status"] = "cancelled"
+        with _lock:
+            _jobs["proc_b"] = {**queued, "status": "running"}
+        self._short_for(2, time.time())
+        assert cancelled == []
+        with _lock:
+            _jobs.pop("proc_b")
+
     def test_heat_stops_too(self, job):
         t = time.time()
         gpu_guard.tick(now=t, reading=(FREE, 90.0))
