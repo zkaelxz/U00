@@ -250,7 +250,7 @@ class TestStopAndRestart:
 
     def test_a_guard_stop_says_why_not_just_cancelled(self, job):
         t = self._short_for(2, time.time())
-        assert _message("stop_a").startswith("Stopping: low GPU memory")
+        assert _message("stop_a").startswith(("Stopping: low GPU memory", "Stopped: low GPU memory"))
         assert _wait_for(lambda: _status("stop_a") == "cancelled")
         assert _message("stop_a").startswith("Stopped: low GPU memory")
         assert "Starts again by itself" in _message("stop_a")

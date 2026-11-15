@@ -279,7 +279,12 @@ def _stop_running(state: dict, now: float, stop_minutes: int) -> None:
     for job_id in stop:
         _log(f"GPU guard: stopping job {job_id}: {_why(state)}")
         background_jobs.request_cancel(job_id)
-        _set_message(_pending[job_id]["run"], f"Stopping: {_pending[job_id]['why']}.")
+        run = _pending[job_id]["run"]
+        with _lock:
+            # Replaces "Cancelling..." only while it is still stopping.
+            if run.get("status") == "running":
+                run["message"] = f"Stopping: {_pending[job_id]['why']}."
+                _mirror_locked(job_id)
 
 
 def _set_message(run, text) -> None:
@@ -299,8 +304,8 @@ def _restart_pending(state: dict, now: float) -> None:
         pending = list(_pending.items())
     for job_id, entry in pending:
         run = entry["run"]
-        if run.get("status") in ("queued", "running"):
-            continue   # still stopping
+        if run.get("status") in ("queued", "running") or entry["stopped_at"] == now:
+            continue   # still stopping; a run stopped this tick starts again on the next
         if run.get("status") != "cancelled":
             # It finished (or failed) before the stop took: nothing to start again.
             with _guard_lock:
