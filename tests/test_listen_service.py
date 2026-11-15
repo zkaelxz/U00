@@ -189,6 +189,51 @@ class TestRemovedEnginesAndBlockers:
             listen_service.start_listen(did, "omnivoice", "klingon")
 
 
+class TestSpeakersWithoutAVoice:
+    """Only OmniVoice gives a bare speaker a default voice; the other engines need a clip or a description."""
+
+    @pytest.fixture(autouse=True)
+    def _engines_installed(self, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ffmpeg")
+        monkeypatch.setattr(listen_service, "_engine_install_problem", lambda engine: None)
+
+    def _title(self, db):
+        did = _drama(db, [_line(0, "A"), _line(1, "B"), _line(2, "B", en="")])
+        db.upsert_character(did, "A", character_name="Lin", voice_design="calm")
+        db.upsert_character(did, "B", character_name="Wei")
+        return did
+
+    def test_config_names_them_per_engine(self, isolated_db):
+        engines = {e["key"]: e["speakers_without_voice"]
+                   for e in listen_service.get_listen_config(self._title(isolated_db))["tts_engines"]}
+        assert engines == {"omnivoice": [], "qwen3_tts": ["Wei"], "chatterbox": ["Wei"]}
+
+    def test_a_speaker_with_nothing_to_say_is_not_named(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A"), _line(1, "B", en="")])
+        engines = listen_service.get_listen_config(did)["tts_engines"]
+        assert [e["speakers_without_voice"] for e in engines if e["key"] == "qwen3_tts"] == [["A"]]
+
+    def test_lines_with_no_speaker_are_named_plainly(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, None)])
+        engines = listen_service.get_listen_config(did)["tts_engines"]
+        assert [e["speakers_without_voice"] for e in engines if e["key"] == "chatterbox"] == [["Lines with no speaker"]]
+
+    def test_start_refuses_before_any_job_starts(self, isolated_db, monkeypatch):
+        did = self._title(isolated_db)
+        started = []
+        monkeypatch.setattr(listen_service.job_launch, "start_process_job", lambda *a, **k: started.append(1))
+        with pytest.raises(InvalidInputError) as err:
+            listen_service.start_listen(did, "qwen3_tts")
+        assert str(err.value) == ("Wei has no voice yet. Qwen3-TTS needs a reference clip or a voice description "
+                                  "for every speaker; only OmniVoice picks voices on its own.")
+        assert started == []
+
+    def test_start_lets_omnivoice_pick_voices(self, isolated_db, monkeypatch):
+        did = self._title(isolated_db)
+        monkeypatch.setattr(listen_service.job_launch, "start_process_job", lambda *a, **k: True)
+        assert listen_service.start_listen(did, "omnivoice") == {"job_id": f"dub_{did}"}
+
+
 class TestEngineInstallChecks:
     """_engine_install_problem against what is really importable here."""
 
