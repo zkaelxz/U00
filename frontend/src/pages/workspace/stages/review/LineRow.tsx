@@ -161,8 +161,8 @@ export function FlagNote({ text }: { text: string }) {
   )
 }
 
-// Phones keep a one-line chip; a button reveals the whole note there, where
-// there is no hover and no room to show it inline.
+// Phones show a flag's few words; a press reveals the whole sentence there,
+// where there is no hover and no room to show it inline.
 export function FlagToggle({ text, open, onToggle, controls, children }: {
   text: string
   open: boolean
