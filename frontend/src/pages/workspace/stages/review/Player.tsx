@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
+import { useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref, type RefObject, type SyntheticEvent } from 'react'
 
 import { createPortal } from 'react-dom'
 
@@ -63,6 +63,9 @@ interface Props {
   // The page shows the spoken line itself, larger, so a sound-only title's caption strip (and the choice that only
   // changes it) would repeat it; the pop-out window and the floating box keep both, as the only text there.
   lineShownByPage?: boolean
+  // A page that plays by seeking rather than line by line (the Watch page) names the line under the playhead, which
+  // Loop line then repeats. Stable, so the player does not redraw for it.
+  loopLineAt?: (time: number) => Segment | null
 }
 
 // The Fullscreen API is still webkit-prefixed in older Safari.
@@ -85,7 +88,7 @@ const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
 // A player over the Range endpoint, with a seek bar, jump to time and
 // subtitles from the current lines (the Reader's caption route). Only rendered
 // when the drama has audio (or a source video); the element fetches the stream itself.
-export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost, sourceStage, alwaysOpen = false, lineShownByPage = false }: Props) {
+export function Player({ dramaId, kind, ref, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost, sourceStage, alwaysOpen = false, lineShownByPage = false, loopLineAt }: Props) {
   const stage = useContext(StageContext)
   const media = useRef<HTMLMediaElement | null>(null)
   const trackEl = useRef<HTMLTrackElement | null>(null)
@@ -130,10 +133,6 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   const src = englishAbsent && subs === 'English' ? null : subtitleSrc(dramaId, subs, captionVersion)
   const cue = cueFor && cueFor.src === src ? cueFor.text : ''
   const subsMissing = src === null ? subs === 'English' && englishAbsent : missingSrc === src
-
-  useEffect(() => {
-    loopRef.current = loop
-  }, [loop])
 
   // Also on loadedmetadata: a new source can reset the element's speed.
   const applyRate = useCallback((el: HTMLMediaElement | null) => {
@@ -182,6 +181,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     segRef.current = s
     setSegment(s)
   }
+  useLoop({ loop, loopRef, playing, loopLineAt, media, segRef, setSeg })
 
   // While a line plays, stop (or loop) exactly at its end; timeupdate alone
   // fires only about four times a second.
@@ -624,4 +624,42 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
       )}
     </div>
   )
+}
+
+/**
+ * Loop line's state, and on a page that plays by seeking (loopLineAt) the line it repeats: while the sound plays with
+ * Loop line on and no line was played, the page's line under the playhead is taken as the played line, so it repeats
+ * at its end like one. A seek clears it like any played line, and it is taken again where the sound lands. Turning
+ * Loop line off drops a line taken only for it, in the same step as the switch, so the sound runs on instead of
+ * stopping at that line's end.
+ */
+function useLoop({ loop, loopRef, playing, loopLineAt, media, segRef, setSeg }: {
+  loop: boolean
+  loopRef: RefObject<boolean>
+  playing: boolean
+  loopLineAt: ((time: number) => Segment | null) | undefined
+  media: RefObject<HTMLMediaElement | null>
+  segRef: RefObject<Segment | null>
+  setSeg: (s: Segment | null) => void
+}) {
+  const taken = useRef<Segment | null>(null)
+  useEffect(() => {
+    loopRef.current = loop
+    if (!loop && taken.current && segRef.current === taken.current) setSeg(null)
+    // The refs are the player's own, and setSeg, new each render, only writes them and the segment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loop])
+  useEffect(() => {
+    if (!loopLineAt || !loop || !playing) return
+    let raf = 0
+    const look = () => {
+      const el = media.current
+      const line = el && !segRef.current ? loopLineAt(el.currentTime) : null
+      if (line) setSeg((taken.current = line))
+      raf = requestAnimationFrame(look)
+    }
+    raf = requestAnimationFrame(look)
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loopLineAt, loop, playing])
 }

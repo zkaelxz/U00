@@ -5,8 +5,9 @@ import type { ReviewLine } from '../../types/review'
 import { START_SLACK_S } from '../reader/readAlongLogic'
 import {
   clockTenths, currentLine, fieldKey, fixIsDirty, focusAfterFix, FOLLOW_AT, FOLLOW_PAUSE_MS, followPaused, followScroll,
-  lineHeading, lineToFix, openFix, parkedOutcome, parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix,
-  spokenOrder, stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
+  lineHeading, lineToFix, openFix, OWN_SCROLL_MS, ownScrollUntil, parkedOutcome, parkFix, positionKey, readParkedFix,
+  resumePoint, rowMeta, saveFix, spokenOrder, stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey,
+  watchVerb, type LineFix,
 } from './watchLogic'
 
 const line = (id: number, start: number, end: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
@@ -168,6 +169,27 @@ describe('keys', () => {
     expect(watchKey('l', field)).toBeNull()
     expect(watchKey('e', field)).toBeNull()
   })
+  // Matches the way Element.closest does, for an element that matches exactly these parts of a selector list.
+  const matching = (...parts: string[]) => ({ closest: (s: string) => (s.split(', ').some((p) => parts.includes(p)) ? {} : null) })
+  const range = matching('input')
+  const ariaSlider = matching('[role="slider"]')
+  it('E and L still work on the seek bar and on any slider, which use no letters; their arrow keys stay theirs', () => {
+    for (const target of [range, ariaSlider]) {
+      expect(watchKey('e', target)).toBe('fix')
+      expect(watchKey('l', target)).toBe('loop')
+      expect(watchKey('arrowup', target)).toBeNull()
+      expect(watchKey('arrowdown', target)).toBeNull()
+    }
+  })
+  it('text fields, selects, lists and editable regions keep every key, E and L included', () => {
+    const text = matching('input', 'input:not([type="range"])')
+    const editable = matching('[contenteditable]:not([contenteditable="false"])')
+    for (const target of [text, matching('textarea'), matching('select'), editable, matching('[role="listbox"]'), matching('[role="combobox"]')]) {
+      expect(watchKey('e', target)).toBeNull()
+      expect(watchKey('l', target)).toBeNull()
+      expect(watchKey('arrowdown', target)).toBeNull()
+    }
+  })
   it('Alt+Space plays or pauses from anywhere, the fix field and a slider included', () => {
     expect(watchKey('alt+ ', body)).toBe('play')
     expect(watchKey('alt+ ', field)).toBe('play')
@@ -240,13 +262,24 @@ describe('the fix kept from being lost', () => {
   it('parks the line, the English seen and the draft per title, and reads them back', () => {
     const s = store()
     // A whole open fix is passed; only what is needed to open it again is kept.
-    const fix: LineFix = { ...openFix(lines[1]), draft: 'Mine', conflict: true, now: 'x', error: new Error('e') }
+    const fix: LineFix = { ...openFix(lines[1]), draft: 'Mine', now: 'x', error: new Error('e') }
     parkFix(3, fix, s)
     expect([...s.m.keys()]).toEqual(['baihe.watch.draft.3'])
-    expect(readParkedFix(3, s)).toEqual({ lineId: 2, seen: 'en 2', draft: 'Mine' })
+    expect(readParkedFix(3, s)).toEqual({ lineId: 2, seen: 'en 2', draft: 'Mine', refused: false })
     expect(readParkedFix(4, s)).toBeNull()
     unparkFix(3, s)
     expect(readParkedFix(3, s)).toBeNull()
+  })
+  it('marks a fix whose last Save was refused, and reads a record without the mark as never refused', () => {
+    const s = store()
+    const refused: LineFix = { ...openFix(lines[1]), seen: 'Theirs', draft: 'Mine', conflict: true, now: 'Theirs' }
+    parkFix(3, refused, s)
+    expect(JSON.parse(s.m.get('baihe.watch.draft.3')!)).toEqual({ lineId: 2, seen: 'Theirs', draft: 'Mine', refused: true })
+    expect(readParkedFix(3, s)).toEqual({ lineId: 2, seen: 'Theirs', draft: 'Mine', refused: true })
+    for (const mark of ['', ', "refused": "yes"']) {
+      s.setItem('baihe.watch.draft.3', `{"lineId": 2, "seen": "en 2", "draft": "Mine"${mark}}`)
+      expect(readParkedFix(3, s)).toEqual({ lineId: 2, seen: 'en 2', draft: 'Mine', refused: false })
+    }
   })
   it('drops anything under its key that is not a parked fix', () => {
     for (const junk of ['not json', 'null', '{"lineId":"2","seen":"a","draft":"b"}', '{"lineId":2,"seen":"a"}']) {
@@ -273,7 +306,16 @@ describe('the fix kept from being lost', () => {
     expect(parkedOutcome(parked, { en: 'Mine' })).toBe('saved')
   })
   it('opens again measured against the English seen first, so a line changed since is refused on Save', () => {
-    expect(unparkedFix({ lineId: 2, seen: 'en 2', draft: 'Mine' })).toEqual({ lineId: 2, seen: 'en 2', draft: 'Mine', conflict: false, now: null, error: null })
+    expect(unparkedFix({ lineId: 2, seen: 'en 2', draft: 'Mine', refused: false }, { en: 'Theirs' })).toEqual({ lineId: 2, seen: 'en 2', draft: 'Mine', conflict: false, now: null, error: null })
+  })
+  it('a refused one opens refused again, against what the line says now, so Save sends it over that', () => {
+    const parked = { lineId: 2, seen: 'Theirs', draft: 'Mine', refused: true }
+    expect(unparkedFix(parked, { en: 'Changed again' })).toEqual({ lineId: 2, seen: 'Changed again', draft: 'Mine', conflict: true, now: 'Changed again', error: null })
+    expect(unparkedFix(parked, { en: '' })).toMatchObject({ seen: '', conflict: true, now: '' })
+    // Its line gone or already saying the draft, it is not opened at all.
+    expect(parkedOutcome(parked, undefined)).toBe('gone')
+    expect(parkedOutcome(parked, { en: 'Mine' })).toBe('saved')
+    expect(parkedOutcome(parked, { en: 'Changed again' })).toBe('open')
   })
 })
 
@@ -310,5 +352,10 @@ describe('following the sound', () => {
     expect(followPaused(10_000, 10_000)).toBe(true)
     expect(followPaused(10_000, 14_999)).toBe(true)
     expect(followPaused(10_000, 15_000)).toBe(false)
+  })
+  it("counts the page's own scroll as its own until its scrollend, or for a second where that event is not fired", () => {
+    expect(ownScrollUntil(10_000, true)).toBe(Infinity)
+    expect(OWN_SCROLL_MS).toBe(1000)
+    expect(ownScrollUntil(10_000, false)).toBe(11_000)
   })
 })

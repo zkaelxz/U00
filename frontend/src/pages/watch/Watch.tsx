@@ -5,7 +5,7 @@
  */
 import {
   memo, useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction,
+  type MouseEvent, type RefObject, type SetStateAction, type UIEvent,
 } from 'react'
 
 import { api } from '../../api/client'
@@ -39,9 +39,9 @@ import '../workspace/stages/review/review.css'
 import { titleKind } from '../workspace/titleKind'
 import { NowCard } from './NowCard'
 import {
-  currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, openFix, parkedOutcome,
-  parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, spokenOrder, stepIndex,
-  titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
+  currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, openFix, ownScrollUntil,
+  parkedOutcome, parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, spokenOrder,
+  stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
 } from './watchLogic'
 import './watch.css'
 
@@ -121,7 +121,7 @@ export default function WatchPage({ id }: { id: number }) {
   const playable = kind !== null && !readOnly ? original : null
   const player = useRef<PlayerHandle | null>(null)
   const list = useRef<HTMLOListElement | null>(null)
-  const { playerBoxRef, mediaRef, currentId, showCurrent, resumedAt, clearResumed } = useWatchClock(id, playable, ordered, player)
+  const { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed } = useWatchClock(id, playable, ordered, player)
   const { resume, scrollHandlers } = useFollow(list, currentId)
 
   const currentIndex = currentId === null ? -1 : lineIndex.get(currentId) ?? -1
@@ -260,6 +260,7 @@ export default function WatchPage({ id }: { id: number }) {
                   sourceStage={sourceStage}
                   alwaysOpen
                   lineShownByPage
+                  loopLineAt={lineAt}
                 />
                 {resumedAt !== null && (
                   <div className="watch-resume">
@@ -291,7 +292,9 @@ export default function WatchPage({ id }: { id: number }) {
                 onCancel={cancel}
                 onAgain={() => {
                   const line = fixLine ?? current
-                  if (line) player.current?.playLine(line)
+                  if (!line) return
+                  resume()
+                  player.current?.playLine(line)
                 }}
                 fixButtonRef={fixButtonRef}
                 fieldRef={fieldRef}
@@ -433,17 +436,22 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
   }, [id, playable, player, showCurrent])
 
   const clearResumed = useCallback(() => setResumedAt(null), [])
-  return { playerBoxRef, mediaRef, currentId, showCurrent, resumedAt, clearResumed }
+  // The line Loop line repeats, by the card's own rule, so the line repeated is the line the card shows.
+  const lineAt = useCallback((time: number) => currentLine(orderedRef.current, time), [])
+  return { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed }
 }
 
 /**
  * The list follows the sound inside its own scroll area (the page itself never moves for it), with the spoken row's
- * top a little way down so the coming lines show. It waits while the person scrolls the list themselves, told apart
- * from the page's own scrolling by their input, and comes back at once when they press a row, step or seek.
+ * top a little way down so the coming lines show. It waits while the person scrolls the list themselves, by any means
+ * (a wheel, the scroll bar, keys, Tab to a row out of view): every scroll of the list the page did not start is
+ * theirs. A press on a row, a step or a seek brings it back at once.
  */
 function useFollow(list: RefObject<HTMLOListElement | null>, currentId: number | null) {
   const scrolledAt = useRef<number | null>(null)
-  const draggingBar = useRef(false)
+  // The page's own scroll: until when its scroll events are its own, and where it ends.
+  const ownUntil = useRef(0)
+  const ownTarget = useRef(0)
   const [tick, setTick] = useState(0)
 
   const scrolledByHand = useCallback(() => {
@@ -455,30 +463,18 @@ function useFollow(list: RefObject<HTMLOListElement | null>, currentId: number |
   }, [])
 
   const scrollHandlers = useMemo(() => ({
+    // Input during the page's own glide, whose scroll events count as the page's.
     onWheel: scrolledByHand,
     onTouchMove: scrolledByHand,
-    // A press on the list itself, beside its rows' width, is on its scroll bar; the drag is counted until it ends.
-    onPointerDown: (e: ReactPointerEvent<HTMLOListElement>) => {
-      if (e.target !== e.currentTarget || e.nativeEvent.offsetX < e.currentTarget.clientWidth) return
-      scrolledByHand()
-      draggingBar.current = true
-      window.addEventListener('pointerup', () => { draggingBar.current = false }, { once: true })
-    },
     onScroll: () => {
-      if (draggingBar.current) scrolledByHand()
+      if (Date.now() >= ownUntil.current) scrolledByHand()
+    },
+    // Only the end of the page's own scroll: another scroll's end can come while the page's glide is still running
+    // (a row scrolled into view by focus just as it is pressed), and the rest of that glide is still the page's.
+    onScrollEnd: (e: UIEvent<HTMLOListElement>) => {
+      if (Math.abs(e.currentTarget.scrollTop - ownTarget.current) < 2) ownUntil.current = 0
     },
   }), [scrolledByHand])
-
-  useEffect(() => {
-    // These keys scroll the list when focus is in it, or nowhere after a press on it.
-    const onKey = (e: KeyboardEvent) => {
-      if (!['PageUp', 'PageDown', 'Home', 'End'].includes(e.key)) return
-      const t = e.target as Node | null
-      if (t === document.body || (t && list.current?.contains(t))) scrolledByHand()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [list, scrolledByHand])
 
   useEffect(() => {
     const box = list.current
@@ -486,8 +482,11 @@ function useFollow(list: RefObject<HTMLOListElement | null>, currentId: number |
     if (!box || !row || followPaused(scrolledAt.current, Date.now())) return
     const offset = row.getBoundingClientRect().top - box.getBoundingClientRect().top - box.clientTop
     const delta = followScroll(offset, { height: box.clientHeight, scrollTop: box.scrollTop, maxScroll: box.scrollHeight - box.clientHeight })
+    if (!delta) return
+    ownUntil.current = ownScrollUntil(Date.now(), 'onscrollend' in window)
+    ownTarget.current = box.scrollTop + delta
     // A jump (a seek, the saved place) lands at once; gliding there would leave the row out of view for a while.
-    if (delta) box.scrollBy({ top: delta, behavior: Math.abs(delta) > box.clientHeight ? 'auto' : scrollBehavior() })
+    box.scrollBy({ top: delta, behavior: Math.abs(delta) > box.clientHeight ? 'auto' : scrollBehavior() })
   }, [list, currentId, tick])
 
   return { resume, scrollHandlers }
@@ -495,7 +494,8 @@ function useFollow(list: RefObject<HTMLOListElement | null>, currentId: number |
 
 /**
  * The open fix, its save, and its draft kept from being lost: leaving the page while it is dirty asks first; leaving
- * inside the app parks it in this tab and saves it, and if that save fails, the next visit opens it again.
+ * inside the app parks it in this tab and saves it, and if that save fails, the next visit opens it again. A fix whose
+ * last Save was refused is parked but not sent, and a page put away parks its fix without sending it.
  */
 function useLineFix({ id, ordered, lineIndex, canEdit, ready, setLines, player, mediaRef, current, playFrom, onSaved }: {
   id: number
@@ -546,8 +546,10 @@ function useLineFix({ id, ordered, lineIndex, canEdit, ready, setLines, player, 
     if (!left || !body) return
     const store = browserSession()
     parkFix(id, left, store)
-    // A save already running is the one to wait for; sending the draft again would be refused as a change.
-    const sent = saving.current ?? patchLine(id, left.lineId, body).then(() => true)
+    // A save already running is the one to wait for; sending the draft again would be refused as a change. A refused
+    // fix is not sent: it would go over the other person's text, which the viewer has seen but not chosen to replace.
+    const sent = saving.current ?? (left.conflict ? null : patchLine(id, left.lineId, body).then(() => true))
+    if (!sent) return
     const run = sent.then((ok) => {
       if (ok) unparkFix(id, store)
     }, () => {
@@ -557,6 +559,32 @@ function useLineFix({ id, ordered, lineIndex, canEdit, ready, setLines, player, 
     void run.finally(() => {
       if (leavingSaves.get(id) === run) leavingSaves.delete(id)
     })
+  }, [id])
+
+  // Phones rarely fire beforeunload and may discard a tab that is put away, so a hidden page parks its fix (sending
+  // nothing) for the reloaded tab to offer back; shown again, the open box holds it and the parked copy goes.
+  useEffect(() => {
+    const store = browserSession()
+    let parked = false
+    const hide = () => {
+      const left = fixRef.current
+      if (!left || !fixIsDirty(left)) return
+      parkFix(id, left, store)
+      parked = true
+    }
+    const show = () => {
+      if (parked) unparkFix(id, store)
+      parked = false
+    }
+    const onVisibility = () => (document.visibilityState === 'hidden' ? hide() : show())
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pagehide', hide)
+    window.addEventListener('pageshow', show)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pagehide', hide)
+      window.removeEventListener('pageshow', show)
+    }
   }, [id])
 
   const offered = useRef(false)
@@ -570,10 +598,11 @@ function useLineFix({ id, ordered, lineIndex, canEdit, ready, setLines, player, 
       // From here the open box holds it, or there is nothing to bring back.
       unparkFix(id, store)
       const index = lineIndex.get(parked.lineId)
-      const outcome = parkedOutcome(parked, index === undefined ? undefined : ordered[index])
+      const line = index === undefined ? undefined : ordered[index]
+      const outcome = parkedOutcome(parked, line)
       if (outcome === 'gone') setStatus(RESTORE_GONE)
-      else if (outcome === 'open') {
-        setFix(unparkedFix(parked))
+      else if (outcome === 'open' && line) {
+        setFix(unparkedFix(parked, line))
         setStatus(RESTORED)
       }
     }
@@ -623,8 +652,9 @@ function useLineFix({ id, ordered, lineIndex, canEdit, ready, setLines, player, 
     if (result.kind === 'saved') {
       setLines((ls) => ls?.map((l) => (l.id === result.line.id ? result.line : l)) ?? ls)
       onSaved()
-      setStatus('Saved.')
     }
+    // An unchanged fix closes unsent, so a sentence about a fix brought back would speak of a box that is gone.
+    setStatus(result.kind === 'saved' ? 'Saved.' : '')
     setFix(null)
     focus(focusAfterFix(result.kind))
     if (line) playFrom(line.start)
@@ -665,14 +695,13 @@ const WatchRow = memo(function WatchRow({ line: l, current, sourceLanguage, canP
       <span className={l.en ? 'watch-row-en' : 'watch-row-en is-empty'} lang={l.en ? 'en' : undefined}>{l.en || 'No English yet'}</span>
     </>
   )
-  const mark = current ? 'true' : undefined
   return (
-    <li className={current ? 'is-current' : undefined} aria-current={canPlay ? undefined : mark}>
+    <li className={current ? 'is-current' : undefined}>
       {canPlay ? (
         <button
           type="button"
           className="watch-row"
-          aria-current={mark}
+          aria-current={current ? 'true' : undefined}
           onClick={(e) => {
             onPick(l.start)
             // A pointer press leaves focus on the row, where the next Space would press it again and start the line

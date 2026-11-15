@@ -31,8 +31,9 @@
 .watch-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
 .watch-now { gap: var(--space-2); }
-/* Focused only by the page, after Save and play, so Space reaches the player; it is not a control to show a ring on. */
-.watch-now:focus { outline: none; }
+/* Focused only by the page, after Save and play, so Space reaches the player. No ring after a click; after a save from
+   the keyboard it shows where focus went. */
+.watch-now:focus:not(:focus-visible) { outline: none; }
 .watch-now > p, .watch-now-form { margin: 0; }
 .watch-now-meta { font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; color: var(--muted); }
 .watch-now-zh { font-size: var(--text-lg); overflow-wrap: anywhere; }

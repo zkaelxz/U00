@@ -88,6 +88,8 @@ export function watchVerb(kind: TitleKind, original: 'video' | 'audio' | null | 
 
 // Controls that use the arrow keys or typed letters themselves.
 const OWN_KEYS = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="slider"], [role="listbox"], [role="combobox"]'
+// A slider (the seek bar) answers the arrows, Home, End and Page Up/Down but no letters, so E and L still work there.
+const OWN_LETTERS = 'input:not([type="range"]), textarea, select, [contenteditable]:not([contenteditable="false"]), [role="listbox"], [role="combobox"]'
 
 export type WatchKey = 'fix' | 'prev' | 'next' | 'play' | 'loop'
 
@@ -95,7 +97,8 @@ export type WatchKey = 'fix' | 'prev' | 'next' | 'play' | 'loop'
  *  on or off, and Alt+Space plays or pauses from anywhere, a button or the fix field included, as in Review. */
 export function watchKey(combo: string, target: { closest?: (selector: string) => unknown } | null): WatchKey | null {
   if (combo === 'alt+ ') return 'play'
-  if (target?.closest?.(OWN_KEYS)) return null
+  const letter = combo === 'e' || combo === 'l'
+  if (target?.closest?.(letter ? OWN_LETTERS : OWN_KEYS)) return null
   if (combo === 'e') return 'fix'
   if (combo === 'l') return 'loop'
   if (combo === 'arrowup') return 'prev'
@@ -139,20 +142,22 @@ export function focusAfterFix(outcome: FixResult['kind'] | 'cancel'): 'card' | '
   return outcome === 'conflict' || outcome === 'failed' ? 'field' : 'card'
 }
 
-/** A dirty fix kept in this tab while the page is left, until its save is known to have gone through. */
+/** A dirty fix kept in this tab while the page is left or put away, until its save is known to have gone through. */
 interface ParkedFix {
   lineId: number
   seen: string
   draft: string
+  /** Its last Save was refused because the line changed, and it has not been saved since. */
+  refused: boolean
 }
 
 type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 const parkKey = (dramaId: number) => `baihe.watch.draft.${dramaId}`
 
-export function parkFix(dramaId: number, fix: ParkedFix, store: Store | null): void {
+export function parkFix(dramaId: number, fix: Pick<LineFix, 'lineId' | 'seen' | 'draft' | 'conflict'>, store: Store | null): void {
   try {
-    store?.setItem(parkKey(dramaId), JSON.stringify({ lineId: fix.lineId, seen: fix.seen, draft: fix.draft }))
+    store?.setItem(parkKey(dramaId), JSON.stringify({ lineId: fix.lineId, seen: fix.seen, draft: fix.draft, refused: fix.conflict }))
   } catch {
     // Storage full or blocked: the save sent on leaving is the only copy.
   }
@@ -173,7 +178,7 @@ export function readParkedFix(dramaId: number, store: Store | null): ParkedFix |
     if (raw == null) return null
     const p = JSON.parse(raw) as Partial<ParkedFix> | null
     if (p && typeof p.lineId === 'number' && typeof p.seen === 'string' && typeof p.draft === 'string') {
-      return { lineId: p.lineId, seen: p.seen, draft: p.draft }
+      return { lineId: p.lineId, seen: p.seen, draft: p.draft, refused: p.refused === true }
     }
   } catch {
     // Unreadable: dropped below.
@@ -184,14 +189,17 @@ export function readParkedFix(dramaId: number, store: Store | null): ParkedFix |
 
 /** What a parked fix comes to on the next visit: its line is gone; the line already says it (the save went through
  *  and only its answer was lost), so there is nothing to bring back; or it opens again. */
-export function parkedOutcome(parked: ParkedFix, line: Pick<ReviewLine, 'en'> | undefined): 'gone' | 'saved' | 'open' {
+export function parkedOutcome(parked: Pick<ParkedFix, 'draft'>, line: Pick<ReviewLine, 'en'> | undefined): 'gone' | 'saved' | 'open' {
   if (!line) return 'gone'
   return fixIsDirty({ seen: line.en, draft: parked.draft }) ? 'open' : 'saved'
 }
 
-/** A parked fix opened again: measured against the English that was seen when it was first opened, so a line
- *  changed since is refused on Save and shown under It now says. */
-export const unparkedFix = (p: ParkedFix): LineFix => ({ ...openFix({ id: p.lineId, en: p.seen }), draft: p.draft })
+/** A parked fix opened again. One never refused is measured against the English seen when it was first opened, so a
+ *  line changed since is refused on Save and shown under It now says. A refused one opens refused again, against what
+ *  the line says now, which is shown under It now says, so Save then sends it over that. */
+export const unparkedFix = (p: ParkedFix, line: Pick<ReviewLine, 'en'>): LineFix => p.refused
+  ? { lineId: p.lineId, seen: line.en, draft: p.draft, conflict: true, now: line.en, error: null }
+  : { ...openFix({ id: p.lineId, en: p.seen }), draft: p.draft }
 
 export type FixResult =
   | { kind: 'unchanged' }
@@ -241,3 +249,8 @@ export function followScroll(rowOffset: number, view: { height: number; scrollTo
 
 /** Following is paused while the person's own scrolling of the list is recent. */
 export const followPaused = (scrolledAt: number | null, now: number): boolean => scrolledAt !== null && now - scrolledAt < FOLLOW_PAUSE_MS
+
+/** A scroll of the list the page did not start is the person's. The page's own counts as its own from its start until
+ *  its scrollend where the browser fires that event (which clears it), else for OWN_SCROLL_MS. */
+export const OWN_SCROLL_MS = 1000
+export const ownScrollUntil = (now: number, endIsFired: boolean): number => (endIsFired ? Infinity : now + OWN_SCROLL_MS)
