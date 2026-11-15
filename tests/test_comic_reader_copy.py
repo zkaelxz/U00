@@ -82,3 +82,32 @@ def test_a_page_that_cannot_be_decoded_is_served_as_it_is(client):
 def test_the_reader_size_must_be_known(client):
     d, p, _ = _page(_png())
     assert client.get(_url(d, p, "huge")).status_code == 422
+
+
+def test_no_more_than_two_pages_are_decoded_at_once(client, monkeypatch):
+    import threading
+    import time
+    from services import comic_reader_copy_service as svc
+    live, peak, lock = 0, 0, threading.Lock()
+    real = svc._write_copy
+
+    def slow(*a):
+        nonlocal live, peak
+        with lock:
+            live += 1
+            peak = max(peak, live)
+        time.sleep(0.05)
+        real(*a)
+        with lock:
+            live -= 1
+
+    monkeypatch.setattr(svc, "_write_copy", slow)
+    pages = [_page(_png(seed=i)) for i in range(5)]
+    threads = [threading.Thread(target=svc.reader_copy, args=(d, {
+        "path": path, "stat": os.stat(path), "content_type": "image/png", "ordinal": 1}))
+        for d, _, path in pages]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert 1 <= peak <= 2
