@@ -1687,6 +1687,48 @@ class TestVoiceBank:
         with pytest.raises(ValueError):
             isolated_db.apply_voice_bank_entry(99999, tmp_path_str, 1, "SPEAKER_00")
 
+    def _outside_clip_names(self, isolated_db, tmp_path_str):
+        """A '../' name and an absolute path, each naming a real file
+        outside the voice-bank folder."""
+        os.makedirs(isolated_db.VOICE_BANK_DIR, exist_ok=True)
+        parent = os.path.dirname(os.path.abspath(isolated_db.VOICE_BANK_DIR))
+        with open(os.path.join(parent, "victim_rel.wav"), "wb") as f:
+            f.write(b"outside")
+        absolute = os.path.join(tmp_path_str, "victim_abs.wav")
+        with open(absolute, "wb") as f:
+            f.write(b"outside")
+        return [("../victim_rel.wav", os.path.join(parent, "victim_rel.wav")),
+                (absolute, absolute)]
+
+    def _set_clip_filename(self, isolated_db, entry_id, name):
+        import sqlite3
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        conn.execute("UPDATE voice_bank SET clip_filename = ? WHERE id = ?", (name, entry_id))
+        conn.commit()
+        conn.close()
+
+    def test_apply_refuses_a_clip_filename_outside_the_bank_folder(self, isolated_db, tmp_path_str):
+        import pytest
+        did = isolated_db.create_drama(title_en="Target")
+        isolated_db.upsert_character(did, "SPEAKER_00")
+        drama_dir = os.path.join(tmp_path_str, "target_drama")
+        for name, _victim in self._outside_clip_names(isolated_db, tmp_path_str):
+            eid = isolated_db.save_voice_bank_entry("Bad", self._make_clip(tmp_path_str))
+            self._set_clip_filename(isolated_db, eid, name)
+            with pytest.raises(ValueError):
+                isolated_db.apply_voice_bank_entry(eid, drama_dir, did, "SPEAKER_00")
+            assert not os.path.isdir(drama_dir) or os.listdir(drama_dir) == []
+            char = {c["speaker_label"]: c for c in isolated_db.list_characters(did)}["SPEAKER_00"]
+            assert not char.get("ref_audio_filename")
+
+    def test_delete_leaves_a_file_outside_the_bank_folder_alone(self, isolated_db, tmp_path_str):
+        for name, victim in self._outside_clip_names(isolated_db, tmp_path_str):
+            eid = isolated_db.save_voice_bank_entry("Bad", self._make_clip(tmp_path_str))
+            self._set_clip_filename(isolated_db, eid, name)
+            isolated_db.delete_voice_bank_entry(eid)
+            assert isolated_db.get_voice_bank_entry(eid) is None
+            assert os.path.exists(victim)
+
 
 class TestGpuLock:
     """Step 25w: the cross-process "one GPU job at a time" guard.
