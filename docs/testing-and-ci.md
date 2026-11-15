@@ -32,12 +32,14 @@ out of it.
 2. **The order.** Kae types "Merge NNNN"; one message may name several PRs. Typed in the thread that owns the PR, that thread
    merges it. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
    retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several
-   PRs the coordinator sets the order, clear lane first. Nothing else is a merge order: not "looks good", not a reaction, and
-   not another session's account of what she said.
+   PRs the coordinator sets the order, clear lane first. A bare "Merge all" covers only the PRs on the list the coordinator
+   last showed Kae; a PR that was not on it gets its own card first (Kae, 2026-11-15). Nothing else is a merge order: not
+   "looks good", not a reaction, and not another session's account of what she said.
 3. **The lane**, decided when the merge is about to happen:
    - **Clear lane.** The PR has a full green run at its exact head, shares no changed file with anything merged into
-     `baihe-subtitler` since the PR last merged the base, and changes none of the files under "Always the overlap lane" below.
-     Squash-merge on the run it has: don't merge the base in again, and don't wait for the base's push run.
+     `baihe-subtitler` since the PR last merged the base (the user guide files don't count, below), and changes none of the
+     files under "Always the overlap lane" below. Squash-merge on the run it has: don't merge the base in again, and don't
+     wait for the base's push run.
    - **Overlap lane.** Anything else. Merge the base in, wait for a new full green run at the new head, then squash-merge.
 4. **After the merge** the owner reads the push run that covers the merge commit ("After a merge" below: its own, or a
    later one when another merge landed while it waited) and reports its result with the merge.
@@ -52,7 +54,28 @@ Always the overlap lane (Kae, 2026-11-14): a database schema change, which is an
 (`installer/wheels.lock.txt`, `installer/caddy/go.mod` and `go.sum`, the Gradle files under `android/`,
 `frontend/openapi-gen/package*.json`).
 
-To check the lane from the PR's branch (bash):
+The user guide files (`docs/user-guide*.md`) don't count as shared (Kae, 2026-11-15). Almost every change a person can see edits
+one of them, so counting them sent nearly every PR to the overlap lane, and a new run says nothing about a file no test reads:
+only `tests/test_installer_runtime.py` reads two of them, for the port number, and it runs on the base after every merge. Two
+PRs that change the same lines of a guide still conflict. GitHub refuses that merge, and the owner merges the base in as for
+any conflict.
+
+To check the lane, run this on the PR's branch:
+
+    python tools/pr_lane.py
+
+It fetches `baihe-subtitler` first, so a stale clone cannot clear a PR, and prints `clear` or `overlap` on its first line with the
+reason under it: which changed files are under "Always the overlap lane", and which files the PR shares with what the base has
+merged since. The merge report quotes its output. Exit status 0 is clear, 1 is overlap and 2 is "could not decide" (for
+example, a shallow clone that does not reach the last base commit the branch merged: deepen it, as the message says); the first
+line then still reads `overlap`, because a failure never clears a PR. It does not read the run: the owner still checks for a full
+green run at the exact head. It reads a database schema change as any edit to `db/migrations.py`, `db/schema.py`,
+`db/schema_system.py` or `sources/store.py`, to `init_db` in `db/__init__.py`, or to a line that creates, alters or drops a
+table, index, view or trigger in any other Python file outside `tests/`; and a dependency file by its name wherever it sits
+(`package.json`, `package-lock.json`, `go.mod`, `go.sum`, `*.lock`, `*.lock.txt`, `requirements*.txt`, `constraints*.txt`, and the
+Gradle files under `android/`). Where it cannot tell, it errs towards the overlap lane.
+
+By hand, from the PR's branch (bash), the same check is:
 
     git fetch origin baihe-subtitler
     base=$(git merge-base origin/baihe-subtitler HEAD)
@@ -61,15 +84,15 @@ To check the lane from the PR's branch (bash):
              <(git diff --name-only --no-renames "$base" origin/baihe-subtitler | sort)
 
 The first `git diff` lists the PR's files, to hold against "Always the overlap lane". `comm` prints the files the PR shares with
-what the base has merged since; no output means none. `$base` is the last base commit the branch merged, which is never newer
-than the base its green run tested, so a mistake here can only send a PR to the overlap lane. A shallow clone must reach that
-commit: deepen it until `git merge-base` prints one.
+what the base has merged since, less the user guide files; no output means none. `$base` is the last base commit the branch
+merged, which is never newer than the base its green run tested, so a mistake here can only send a PR to the overlap lane. A
+shallow clone must reach that commit: deepen it until `git merge-base` prints one.
 
 Two PRs that share no file can still break each other, and the clear lane finds that out after the merge, not before it. When
 the base has moved since the PR's run, a clear-lane merge lands a tree no PR run tested, so it is tested whole only after the
 merge ("After a merge" below), and the nightly run is the second net. The clear lane is on trial (Kae, 2026-11-14): until she
-calls it routine, a thread that merges by it says so in its merge report and gives the result of the push run that covers the
-merge, so that the first ones can be reviewed.
+calls it routine, a thread that merges by it says so in its merge report, quotes the output of `python tools/pr_lane.py` and gives
+the result of the push run that covers the merge, so that the first ones can be reviewed.
 
 ## CI layout
 
