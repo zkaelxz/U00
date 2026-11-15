@@ -47,7 +47,7 @@ from engine_backends import fallback as engine_fallback
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
 from services import (auth_service, bulk_submit_service, engine_routing_service,
-                      novel_files_service, ownership_service, profile_service,
+                      novel_files_service, ownership_service, paid_job_service, profile_service,
                       run_settings_service, settings_service, translate_service,
                       translate_run_options, workspace_job_service)
 from services.translate_run_options import ollama_reachable  # also read as translate_run_service.ollama_reachable
@@ -492,9 +492,9 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
     chain, built, caps = _build_engine_chain(
         engine_name, model, fallback_chain, gemini_free_tier, job_cost_cap_usd)
 
-    job_id = f"translate_{drama_id}"
+    job_id, bulk_estimate = f"translate_{drama_id}", None
     if bulk:
-        translate_run_options.require_bulk_ready(
+        bulk_estimate = translate_run_options.require_bulk_ready(
             drama_id, engine_name, model, caps[0], reflect, force_retranslate,
             gemini_free_tier, job_cost_cap_usd, estimate_translate_cost)
         job_id = bulk_job_id(drama_id)
@@ -510,7 +510,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
     if bulk:
         _launch_bulk(job_id, drama_id, drama, engines[0], opts, reflect, novel_reference,
                      glossary_terms, style_guidelines, force_retranslate, job_cost_cap_usd,
-                     thinking, run_settings, include_genre_notes, default_female_pronouns)
+                     thinking, run_settings, include_genre_notes, default_female_pronouns, bulk_estimate)
         return {**resp, "fallback_engines": []}
 
     _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, opts, reflect,
@@ -550,17 +550,29 @@ def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts,
 
 def _launch_bulk(job_id, drama_id, drama, engine, opts, reflect, novel_reference,
                  glossary_terms, style_guidelines, force_retranslate, job_cost_cap_usd,
-                 thinking, run_settings, include_genre_notes, default_female_pronouns) -> None:
+                 thinking, run_settings, include_genre_notes, default_female_pronouns,
+                 estimate_usd=None) -> None:
     submit = bulk_submit_service.bulk_submitter(
         drama_id, drama, engine, opts.engine_name, reflect, novel_reference, glossary_terms,
         style_guidelines, opts.style_note or "", opts.locale, opts.style_preset,
         opts.context_window, opts.context_window_ahead, opts.batch_size, force_retranslate,
-        job_cost_cap_usd, drama.get("series_id"), thinking)
-    started = job_launch.start_job(
-        job_id, run_bulk_translate_job, job_id, engine, opts.engine_name, submit,
-        month_cap_usd() or None,
-        description=f"Bulk {'Reflect ' if reflect else ''}translation (title #{drama_id})",
-        run_settings=run_settings, line_fields=("en", "flag", "flag_note"))
+        job_cost_cap_usd, drama.get("series_id"), thinking, estimate_usd)
+    runner = run_bulk_translate_job
+    if estimate_usd is not None:
+        key = paid_job_service.bulk_hold_key(drama_id, "translate")
+        paid_job_service.hold_bulk_spend(key, estimate_usd)
+        submit = paid_job_service.holding_bulk_spend(key, submit)
+        runner = paid_job_service.holding_bulk_spend(key, run_bulk_translate_job)
+    started = False
+    try:
+        started = job_launch.start_job(
+            job_id, runner, job_id, engine, opts.engine_name, submit,
+            month_cap_usd() or None,
+            description=f"Bulk {'Reflect ' if reflect else ''}translation (title #{drama_id})",
+            run_settings=run_settings, line_fields=("en", "flag", "flag_note"))
+    finally:
+        if estimate_usd is not None and not started:
+            paid_job_service.release_bulk_spend(key)
     if not started:
         raise ConflictError("A translation is already running for this title.")
     _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns)
