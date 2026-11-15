@@ -49,7 +49,6 @@ _SLOW_PATTERN_MESSAGE = ("This pattern could take too long to run. Avoid repeati
                          "that itself repeats, has alternatives (|) or refers back to a group, "
                          f"and use at most {MAX_OPEN_REPEATS} open-ended repeats (+, *, {{n,}}).")
 _ONLY_VALUES = ("all", "flagged", "untranslated", "unreviewed", "shaky", "risk", "marked")
-_ADJACENT_KINDS = ("flagged", "unreviewed", "marked", "flagged_or_marked")
 # Below this, Whisper's own confidence (whisper_transcribe.segment_confidence) puts a line in the
 # "shaky" view. Typical clean speech scores well above it; picked to list the worst few percent
 # of a title rather than most of it.
@@ -90,6 +89,13 @@ def _is_unreviewed(ln) -> bool:
     """Has a translation nobody has marked checked yet. A blank or untranslated
     line isn't waiting on review, so it doesn't count."""
     return bool((ln.en or "").strip()) and not ln.reviewed
+
+
+def needs_speaker(ln) -> bool:
+    """Has words but no speaker, and nobody chose that: clearing the speaker by hand marks
+    the line manual, and a sound effect has no speaker to give."""
+    return (not ln.speaker and not ln.speaker_manual and not ln.sfx
+            and bool((ln.zh or "").strip() or (ln.en or "").strip()))
 
 
 def _is_shaky(ln) -> bool:
@@ -164,6 +170,10 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
     shaky = sum(1 for ln in texts if _is_shaky(ln))
     risky = sum(1 for ln in texts if _risk_score(ln) > 0)
     marked = sum(1 for ln in texts if _is_marked(ln))
+    # A title whose lines carry no speaker at all never had speakers detected (or is a
+    # novel); its lines are not waiting for one.
+    no_speaker = (sum(1 for ln in texts if needs_speaker(ln))
+                  if any(ln.speaker for ln in texts) else 0)
     visible = _visible(texts, only)
     start = (page - 1) * page_size
     # A second read: a save landing between the two can leave this page a
@@ -179,6 +189,7 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
         "flagged_count": flagged, "untranslated_count": untranslated,
         "unreviewed_count": unreviewed, "shaky_count": shaky, "risk_count": risky,
         "marked_count": marked,
+        "no_speaker_count": no_speaker,
     }
 
 
@@ -379,6 +390,11 @@ def _position(lines, ln, page_size: int, only: str) -> dict:
             "page_all": all_ids.index(ln.id) // page_size + 1}
 
 
+_STEP_KINDS = {"flagged": _is_flagged, "unreviewed": _is_unreviewed, "no_speaker": needs_speaker,
+               "marked": _is_marked,
+               "flagged_or_marked": lambda ln: _is_flagged(ln) or _is_marked(ln)}
+
+
 def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int | None = None,
                      page_size: int = 40, only: str = "all", kind: str = "flagged") -> dict:
     """The nearest flagged line after (forward) or before `from_line_id`,
@@ -387,21 +403,23 @@ def adjacent_flagged(drama_id: int, forward: bool, from_line_id: int | None = No
     page_all}: `page` in the `only` view (None when the filter hides the
     line), `page_all` with no filter; every field None when there's no
     such line. `kind="unreviewed"` steps through translated lines nobody
-    has checked instead (the "next line to check" button), `kind="marked"`
+    has checked instead (the "next line to check" button), `kind="no_speaker"`
+    through lines that still need a speaker (needs_speaker), `kind="marked"`
     through marked lines, and `kind="flagged_or_marked"` through lines with
     either."""
     _check_view(page_size, only)
-    if kind not in _ADJACENT_KINDS:
-        raise InvalidInputError(f"Unknown kind {kind!r}; use one of {', '.join(_ADJACENT_KINDS)}.")
+    if kind not in _STEP_KINDS:
+        raise InvalidInputError(f"Unknown kind {kind!r}; use one of {', '.join(_STEP_KINDS)}.")
     ownership_service.require_drama(drama_id)
     lines = db.load_line_texts(drama_id)
     if from_line_id is None:
         ref = -1 if forward else float("inf")
     else:
         ref = _find_line(lines, from_line_id).idx
-    if kind != "flagged":
-        wanted = {"unreviewed": _is_unreviewed, "marked": _is_marked,
-                  "flagged_or_marked": lambda ln: _is_flagged(ln) or _is_marked(ln)}[kind]
+    if kind == "no_speaker" and not any(ln.speaker for ln in lines):
+        idx = None  # the same rule as no_speaker_count: nothing waits for a speaker here
+    elif kind != "flagged":
+        wanted = _STEP_KINDS[kind]
         ordered = lines if forward else reversed(lines)
         idx = next((ln.idx for ln in ordered
                     if wanted(ln) and (ln.idx > ref if forward else ln.idx < ref)), None)

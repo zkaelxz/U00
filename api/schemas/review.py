@@ -11,6 +11,9 @@ from api.schemas.common import ConfirmRequest
 __all__ = [
     "ReviewLinesLine",
     "ReviewLinesPage",
+    "ReviewSpeakerGuess",
+    "ReviewLineSpeakerGuesses",
+    "ReviewSpeakerSuggestions",
     "ReviewLinesFindReplaceRequest",
     "ReviewLinesMatch",
     "ReviewLinesCoverageEntry",
@@ -153,6 +156,26 @@ class ReviewLinesPage(BaseModel):
         "in the whole drama."))
     marked_count: int = Field(default=0, description=(
         "Lines marked wrong or mixed (the `marked` filter), in the whole drama."))
+    no_speaker_count: int = Field(default=0, description=(
+        "Lines with words but no speaker that nobody cleared by hand, in the whole drama; "
+        "0 when no line has a speaker."))
+
+
+class ReviewSpeakerGuess(BaseModel):
+    speaker: str
+    reasons: List[Literal["above", "below", "voice"]] = Field(description=(
+        "Why it is offered: the nearest line above or below with a speaker has it, or the "
+        "voice the saved speaker detection heard most in this line is now named it."))
+
+
+class ReviewLineSpeakerGuesses(BaseModel):
+    line_id: int
+    speakers: List[ReviewSpeakerGuess] = Field(description="Most-supported first, at most three.")
+
+
+class ReviewSpeakerSuggestions(BaseModel):
+    lines: List[ReviewLineSpeakerGuesses] = Field(description=(
+        "Only lines that still need a speaker and have at least one guess, in line order."))
 
 
 class ReviewLinesFindReplaceRequest(BaseModel):
