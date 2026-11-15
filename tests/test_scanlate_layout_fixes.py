@@ -175,6 +175,18 @@ def test_a_line_of_lettering_on_a_white_band_is_erased_without_whitening_the_art
     assert (out_gray[art] == page[art]).mean() > 0.99               # the art round it is untouched
 
 
+def test_specks_of_the_old_lettering_beside_the_line_are_erased_with_it():
+    page, band, glyphs = _band_over_art_page()
+    # A dot beside the first letter, too small to pass as a glyph, and a big dark mark that is art.
+    page[93:95, 18:20] = 0
+    page[60:70, 100:110] = 0
+    bgr = np.dstack([page] * 3).copy()
+    box = {"x": 0, "y": 40, "w": 400, "h": 140}
+    out = scanlate_inpaint.inpaint_region(None, box, image=bgr.copy(), backend="cv", on_art=True)[..., 0]
+    assert out[93:95, 18:20].min() > 200
+    assert out[60:70, 100:110].max() == 0
+
+
 def test_art_with_no_line_of_lettering_keeps_the_usual_mask():
     page, _band, _glyphs = _band_over_art_page()
     assert scanlate_inpaint._strokes_on_a_line(page[:60, :200]) is None
