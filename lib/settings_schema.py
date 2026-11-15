@@ -139,7 +139,7 @@ def _env(key, store_key, **kw):
 _ASSISTANT: dict[str, Any] = dict(scope="developer", dev_only=True, tab="system", section="Developer Mode")
 
 SETTINGS = (
-    # --- Translation and keys
+    # --- Engines and keys
     _pref("default_engine", "choice", "claude", choices="engines", label="Default engine",
           tab="translation", section="Defaults for new dramas"),
     _pref("default_locale", "choice", "en-US", choices="locales", label="English variant",
@@ -480,9 +480,13 @@ SETTINGS = (
          **_ASSISTANT),
     _own("assistant.cloud_consent", "json", {}, label="Cloud consent per engine", **_ASSISTANT),
     _own("assistant.tiers", "json", None, label="Escalation ladder", **_ASSISTANT),
-    _own("remote_uploads", "bool", False, label="Allow uploads from away", **_ASSISTANT),
-    # When the switch above was last turned on; it lapses REMOTE_UPLOADS_DAYS later.
-    _own("remote_uploads.on_at", "float", 0.0, min=0),
+    # Access, not a developer knob: its card is on People and access.
+    _own("remote_uploads", "bool", False, label="Allow uploads from away", custom=True,
+         tab="system", section="Uploads from away"),
+    # When the switch above was last turned on; it lapses REMOTE_UPLOADS_DAYS later. Not the
+    # older "remote_uploads.on_at": a stamp from when the switch also needed Developer Mode must
+    # not count, or a PC with that mode off would start allowing uploads on its own.
+    _own("remote_uploads.since", "float", 0.0, min=0),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}

@@ -248,18 +248,17 @@ def get_settings_overview(env_path: str | None = None) -> dict:
 _DB_TOGGLES = ("use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models")
 
 # A stolen admin cookie could fill the disk with uploads, so the switch that
-# lets an admin upload from away lapses on its own and needs Developer Mode.
+# lets an admin upload from away lapses on its own.
 REMOTE_UPLOADS_DAYS = 7
 
 
 def remote_uploads_on(now: float | None = None) -> bool:
     """Whether a signed-in admin away from the PC may upload (media.upload).
-    Off unless Developer Mode is on and the switch was turned on in the last
-    REMOTE_UPLOADS_DAYS days."""
-    if not (_developer_mode_on() and get("remote_uploads")):
+    Off unless the switch was turned on in the last REMOTE_UPLOADS_DAYS days."""
+    if not get("remote_uploads"):
         return False
     now = time.time() if now is None else now
-    on_at = get("remote_uploads.on_at")
+    on_at = get("remote_uploads.since")
     return isinstance(on_at, (int, float)) and 0 < on_at <= now < on_at + REMOTE_UPLOADS_DAYS * 86400
 
 
@@ -267,7 +266,7 @@ def _set_remote_uploads(enabled: bool) -> None:
     import db
     # Time first: a crash between the two writes leaves the switch off.
     if enabled:
-        db.set_app_setting("remote_uploads.on_at", time.time())
+        db.set_app_setting("remote_uploads.since", time.time())
     db.set_app_setting("remote_uploads", enabled)
     from services import auth_service
     # Only the PC can flip this, so there is no acting account to name. The switch is

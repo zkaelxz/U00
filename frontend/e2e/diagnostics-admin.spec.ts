@@ -262,7 +262,7 @@ test('away from the PC: no install, reset or extension controls and no extension
   // Settings always reads /api/settings on mount, alongside any extension read, so its answer closes the window.
   const settingsRead = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/settings')
   await page.goto('/#/settings')
-  await expect(page.getByRole('tab', { name: 'Integrations' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Connections' })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Browser extension' })).toHaveCount(0)
   await settingsRead
   expect(extensionCalls).toEqual([])
@@ -314,7 +314,7 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
 
   const settingsRead = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/settings')
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Integrations')
+  await openSettingsGroups(page, 'Connections')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext).toContainText("Couldn't confirm this is the main PC.")
   await settingsRead
@@ -395,7 +395,7 @@ test('extension: summary, two-step token reveal, never stored, Hide clears it', 
     return r.fulfill({ json: { enabled: true, running: true, restart_needed: false } })
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Integrations')
+  await openSettingsGroups(page, 'Connections')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('Off · still running until Baihe restarts')
   // The status is the Card's meta line, next to the switch.
@@ -443,7 +443,7 @@ test('extension: pick the engine pages are translated with (key stays on the PC)
     return r.fulfill({ json: current })
   })
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Integrations')
+  await openSettingsGroups(page, 'Connections')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   const picker = ext.getByRole('combobox', { name: 'Translation engine' })
   await expect(picker).toHaveValue('')

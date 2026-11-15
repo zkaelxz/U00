@@ -102,7 +102,7 @@ async function mockSettings(page: Page) {
 
 // Defaults and Spending are Cards (the helper opens them); the rest are
 // Sections (folds) inside the Offline, paths and limits Card or the Jobs and GPU Card.
-const CARDS = ['Translation style', 'Spending']
+const CARDS = ['Translation style', 'Spending', 'Server addresses']
 const block = (page: Page, title: string) =>
   CARDS.includes(title)
     ? page.getByRole('region', { name: title, exact: true })
@@ -123,7 +123,7 @@ async function open(page: Page, title: string) {
 test('defaults for new titles save only what changed', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Engines and keys')
   const s = await open(page, 'Translation style')
   const save = s.getByRole('button', { name: 'Save' })
   await expect(save).toBeDisabled()
@@ -153,7 +153,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
   await spend.getByRole('button', { name: 'Save' }).click()
   await expect(spend.getByTestId('cap-effective')).toHaveText('Cap in effect: $12.50 a month.')
 
-  await openSettingsGroups(page, 'Performance and advanced')
+  await openSettingsGroups(page, 'Advanced')
   const offline = await open(page, 'Offline models')
   await offline.getByLabel('Ollama context window', { exact: true }).fill('1.5')
   await offline.getByRole('button', { name: 'Save' }).click()
@@ -164,12 +164,14 @@ test('spending, offline and OCR fields check input before saving', async ({ page
   await expect(offline.getByRole('status')).toHaveText('Saved.')
 
   // The keep-free-memory limits live in the Jobs and GPU card, in this one place.
+  await openSettingsGroups(page, 'Transcription and jobs')
   const keepFree = await open(page, 'Keep free memory')
   await keepFree.getByLabel('Keep free graphics memory', { exact: true }).fill('4')
   await keepFree.getByRole('button', { name: 'Save' }).click()
   await expect(keepFree.getByRole('status')).toHaveText('Saved.')
   await expect(page.getByLabel('Keep free graphics memory', { exact: true })).toHaveCount(1)
 
+  await openSettingsGroups(page, 'Advanced')
   const ocr = await open(page, 'OCR')
   await ocr.getByLabel('Default backend', { exact: true }).selectOption('manga_ocr')
   await ocr.getByRole('switch', { name: 'Japanese: prefer PaddleOCR-VL' }).click()
@@ -200,7 +202,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
 test('server addresses: a URL with a password is refused client-side; save and clear', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Performance and advanced')
+  await openSettingsGroups(page, 'Engines and keys')
   const s = await open(page, 'Server addresses')
   const ollama = s.getByTestId('endpoint-ollama_url')
   await ollama.getByLabel('Ollama URL', { exact: true }).fill('http://me:hunter2@192.168.1.5:11434')
@@ -224,7 +226,7 @@ test('server addresses: a URL with a password is refused client-side; save and c
 test('the theme is changed from the header button, not from Settings', async ({ page }) => {
   await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Translation and keys')
+  await openSettingsGroups(page, 'Engines and keys')
   await expect(block(page, 'Translation style')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Appearance', exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Theme', { exact: true })).toHaveCount(0)
@@ -237,10 +239,13 @@ test('away from the PC the PC-only preference blocks and their tabs are left out
     route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }),
   )
   await page.goto('/#/settings')
-  for (const name of ['Costs', 'Notifications and backups', 'Integrations', 'Performance and advanced']) {
+  // The tab row is drawn once the settings arrive; checking for missing tabs before that proves nothing.
+  await openSettingsGroups(page, 'Engines and keys')
+  for (const name of ['Costs', 'Transcription and jobs', 'Connections', 'Advanced']) {
     await expect(page.getByRole('tab', { name })).toHaveCount(0)
   }
-  await openSettingsGroups(page, 'Translation and keys')
+  // Updates stays: someone who may update Baihe can do it from away.
+  await expect(page.getByRole('tab', { name: 'Updates' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Translation style' })).toHaveCount(0)
   for (const name of ['Jobs and GPU', 'Offline, paths and limits', 'Developer Mode']) {
     await expect(page.getByRole('region', { name })).toHaveCount(0)

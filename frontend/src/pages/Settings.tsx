@@ -26,11 +26,9 @@ import { canReadSettings, useSession } from '../hooks/useSession'
 import { routeHref, useRoute } from '../router'
 import { NeedsInstall } from './readiness/NeedsInstall'
 import { gpuOnText, gpuSettingNote } from './readiness/needs'
-import { AppUpdatesCard } from './settings/AppUpdatesCard'
-import { SourceUpdateCard } from './settings/SourceUpdateCard'
+import { UpdatesCard } from './settings/UpdatesCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
 import { DevicesCard } from './settings/DevicesCard'
-import { AutoBackupCard } from './settings/AutoBackupCard'
 import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionDevicesCard } from './settings/ExtensionDevicesCard'
 import { ExtensionSection } from './settings/ExtensionSection'
@@ -40,17 +38,15 @@ import { QuickVideoCard } from './settings/QuickVideoCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { OllamaKeyCard } from './settings/OllamaKeyCard'
-import { PcProfileCard } from './settings/PcProfileCard'
 import { showOllamaKey } from './settings/ollamaKeyModel'
 import { PastCostsCard } from './settings/PastCostsCard'
 import { SpendHistoryCard } from './settings/SpendHistoryCard'
 import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
 import { DisplayCard } from './settings/DisplayCard'
-import { AdvancedCard, DefaultsCard, KeepFreeMemory, SpendingCard } from './settings/PreferencesSections'
+import { AdvancedCard, DefaultsCard, EndpointsCard, KeepFreeMemory, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
 import { TimingSettingsCard } from './settings/TimingSettingsCard'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
-import { SaveFolderCard } from './manga/SaveFolder'
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsSchemaRow, SettingsToggleKey } from '../types/settings'
 import { filterElsewhere, filterSettings, PC_ONLY_CARDS, SETTINGS_INDEX, SETTINGS_TABS, tabFoldKeys, tabOfCard, type SettingsTab } from './settings/settingsIndex'
@@ -60,9 +56,9 @@ import { seedPageTabFolds } from '../components/sectionStorage'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import './settings/settings.css'
 
-// Members who get 403 on the settings call see only the cards of this tab.
-const MEMBER_TAB: SettingsTab = 'sharing'
-const MEMBER_CARDS = new Set(SETTINGS_TABS.find((t) => t.id === MEMBER_TAB)!.cards.map((c) => c.id))
+// Members who get 403 on the settings call see only these cards: their own account tab, plus Update Baihe
+// for an admin on the household address, whose update works from a phone.
+const MEMBER_CARDS = new Set([...SETTINGS_TABS.find((t) => t.id === 'account')!.cards.map((c) => c.id), 'updates'])
 const ALL_CARDS = new Set(SETTINGS_INDEX.map((entry) => entry.cardId))
 
 const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
@@ -87,8 +83,9 @@ export default function SettingsPage() {
   const gpuNote = gpuSettingNote(readiness)
   const [schema, setSchema] = useState<SettingsSchemaRow[] | null>(null)
   const [error, setError] = useState<unknown>(null)
-  // A failed load leaves only the Sharing tab, so it gets a Retry rather than a dismissable banner.
+  // A failed load leaves only the My account and look tab, so it gets a Retry rather than a dismissable banner.
   const [loadError, setLoadError] = useState<unknown>(null)
+  const [settingsRefused, setSettingsRefused] = useState(false)
   const [loadTry, setLoadTry] = useState(0)
   // The routing card reloads after any key, endpoint or preference save here
   // (a replaced key keeps configured=true but clears its Test).
@@ -156,7 +153,8 @@ export default function SettingsPage() {
     // A 403 from an older server means the same.
     setLoadError(null)
     getSettings().then(setSettings, (e: unknown) => {
-      if (!(hasStatus(e, 403))) setLoadError(e)
+      if (hasStatus(e, 403)) setSettingsRefused(true)
+      else setLoadError(e)
     })
     // One banner for both loads: a stopped server fails them together, and Retry reloads both.
     fetchSettingsSchema().then(setSchema, (e: unknown) => {
@@ -221,7 +219,7 @@ export default function SettingsPage() {
   const canUpdate = useHolds('system.update')
   const available: ReadonlySet<string> = useMemo(() => {
     const cards = loaded ? ALL_CARDS : MEMBER_CARDS
-    return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (canUpdate || id !== 'source-update')
+    return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (canUpdate || id !== 'updates')
       && !(remote && PC_ONLY_CARDS.has(id)) && !(id in FEATURE_CARDS && !featureOn(FEATURE_CARDS[id], features))))
   }, [loaded, ownKeyShown, canUpdate, remote, features])
   const shown = (id: string) => available.has(id)
@@ -229,12 +227,16 @@ export default function SettingsPage() {
   const match = useMemo(() => filterSettings(query, available), [query, available])
   const canDiagnostics = useHolds('admin.diagnostics')
   const canLibrary = useHolds('library.read')
+  const canUsers = useHolds('admin.users.read')
   const elsewhere = useMemo(
-    () => filterElsewhere(query, (entry) => (entry.requires === 'admin.diagnostics' ? canDiagnostics : canLibrary) && (!entry.pcOnly || pcMode === 'local')),
-    [query, canDiagnostics, canLibrary, pcMode],
+    () => filterElsewhere(query, (entry) => ({ 'admin.diagnostics': canDiagnostics, 'admin.users.read': canUsers, 'library.read': canLibrary })[entry.requires] && (!entry.pcOnly || pcMode === 'local')),
+    [query, canDiagnostics, canUsers, canLibrary, pcMode],
   )
-  const visibleTabs = SETTINGS_TABS.filter((t) => (loaded || t.id === MEMBER_TAB) && t.cards.some((c) => shown(c.id)))
-  const stored = visibleTabs.some((t) => t.id === storedTab) ? storedTab : visibleTabs[0].id
+  const visibleTabs = SETTINGS_TABS.filter((t) => t.cards.some((c) => shown(c.id)))
+  // Before the settings load only the member cards exist: land on the account tab, not Updates, whose open
+  // card would repeat the Retry banner's complaint when the server is down.
+  const fallbackTab = (!loaded && visibleTabs.find((t) => t.id === 'account')) || visibleTabs[0]
+  const stored = visibleTabs.some((t) => t.id === storedTab) ? storedTab : fallbackTab.id
   // A search shows its hits even when they are on another tab; the saved tab is left alone.
   const active = searching && match.counts[stored] === 0
     ? (visibleTabs.find((t) => match.counts[t.id] > 0)?.id ?? stored)
@@ -273,7 +275,9 @@ export default function SettingsPage() {
         <>
           {loaded && <SettingsSearch query={query} onQuery={setQuery} total={searching ? match.total : null} />}
           <div className="settings-tabrow">
-            {visibleTabs.length > 1 && (
+            {/* While an admin's settings are still loading only two of the tabs are known; drawing that
+                short row first would swap it for the full one a moment later. */}
+            {visibleTabs.length > 1 && (loaded || !readsSettings || settingsRefused || loadError != null) && (
               <Tabs
                 label="Settings"
                 idPrefix="settings"
@@ -319,6 +323,7 @@ export default function SettingsPage() {
                 onGeminiFreeTier={(next) => void toggle('gemini_free_tier', next)}
               />
             </SettingsCard>
+            {shown('server-addresses') && <SettingsCard id="server-addresses"><EndpointsCard {...prefProps} /></SettingsCard>}
             {shown('defaults') && <SettingsCard id="defaults"><DefaultsCard {...prefProps} /></SettingsCard>}
             <SettingsCard id="language-packs"><LanguagePacksCard /></SettingsCard>
             {shown('quick-video') && <SettingsCard id="quick-video"><QuickVideoCard /></SettingsCard>}
@@ -331,41 +336,7 @@ export default function SettingsPage() {
             {shown('past-costs') && <SettingsCard id="past-costs"><PastCostsCard /></SettingsCard>}
           </>
         ))}
-        {settings && prefProps && panel('notifications', (
-          <>
-            {shown('notifications') && (
-              <SettingsCard id="notifications" summary={notifySummary}>
-                <NotificationsSection notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
-              </SettingsCard>
-            )}
-            {shown('auto-backup') && <SettingsCard id="auto-backup"><AutoBackupCard /></SettingsCard>}
-            {shown('save-folder') && <SettingsCard id="save-folder"><SaveFolderCard /></SettingsCard>}
-            {shown('app-updates') && <SettingsCard id="app-updates"><AppUpdatesCard /></SettingsCard>}
-          </>
-        ))}
-        {/* Outside the settings gate: every signed-in person has a share-new-items choice
-            and manages their own devices and extension tokens. */}
-        {panel('sharing', (
-          <>
-            <SettingsCard id="sharing"><SharingCard /></SettingsCard>
-            <SettingsCard id="source-update"><SourceUpdateCard /></SettingsCard>
-            <SettingsCard id="display"><DisplayCard /></SettingsCard>
-            <SettingsCard id="customize-menu"><CustomizeMenuCard /></SettingsCard>
-            <SettingsCard id="devices"><DevicesCard /></SettingsCard>
-            <SettingsCard id="extension-devices"><ExtensionDevicesCard /></SettingsCard>
-            <SettingsCard id="ollama-key"><OllamaKeyCard /></SettingsCard>
-            {shown('pc-profiles') && <SettingsCard id="pc-profiles"><PcProfileCard /></SettingsCard>}
-          </>
-        ))}
-        {settings && prefProps && panel('integrations', (
-          <>
-            {shown('jellyfin') && <SettingsCard id="jellyfin"><JellyfinSection /></SettingsCard>}
-            {shown('web-search') && <SettingsCard id="web-search"><WebSearchSection /></SettingsCard>}
-            {shown('inbox') && <SettingsCard id="inbox"><InboxCard /></SettingsCard>}
-            {shown('extension') && <SettingsCard id="extension"><ExtensionSection /></SettingsCard>}
-          </>
-        ))}
-        {settings && prefProps && panel('system', (
+        {settings && prefProps && panel('transcription', (
           <>
             {shown('performance') && (
               <SettingsCard id="performance" summary={jobsSummary}>
@@ -392,13 +363,47 @@ export default function SettingsPage() {
                 </Card>
               </SettingsCard>
             )}
+            {shown('timing-splitting') && <SettingsCard id="timing-splitting"><TimingSettingsCard {...prefProps} /></SettingsCard>}
+            {shown('transcription-experiments') && <SettingsCard id="transcription-experiments"><TranscriptionExperimentsCard /></SettingsCard>}
+          </>
+        ))}
+        {settings && prefProps && panel('connections', (
+          <>
+            {shown('notifications') && (
+              <SettingsCard id="notifications" summary={notifySummary}>
+                <NotificationsSection notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
+              </SettingsCard>
+            )}
+            {shown('jellyfin') && <SettingsCard id="jellyfin"><JellyfinSection /></SettingsCard>}
+            {shown('web-search') && <SettingsCard id="web-search"><WebSearchSection /></SettingsCard>}
+            {shown('inbox') && <SettingsCard id="inbox"><InboxCard /></SettingsCard>}
+            {shown('extension') && <SettingsCard id="extension"><ExtensionSection /></SettingsCard>}
+          </>
+        ))}
+        {/* Outside the settings gate: every signed-in person has a share-new-items choice and
+            manages their own devices and extension tokens, and Update Baihe needs only system.update. */}
+        {panel('updates', (
+          <>
+            {shown('updates') && <SettingsCard id="updates"><UpdatesCard /></SettingsCard>}
+          </>
+        ))}
+        {panel('account', (
+          <>
+            <SettingsCard id="sharing"><SharingCard /></SettingsCard>
+            <SettingsCard id="display"><DisplayCard /></SettingsCard>
+            <SettingsCard id="customize-menu"><CustomizeMenuCard /></SettingsCard>
+            <SettingsCard id="devices"><DevicesCard /></SettingsCard>
+            <SettingsCard id="extension-devices"><ExtensionDevicesCard /></SettingsCard>
+            <SettingsCard id="ollama-key"><OllamaKeyCard /></SettingsCard>
+          </>
+        ))}
+        {settings && prefProps && panel('advanced', (
+          <>
             {shown('advanced') && (
               <SettingsCard id="advanced">
                 <AdvancedCard {...prefProps} openSignal={advancedSignal} uploadsSignal={uploadsSignal} />
               </SettingsCard>
             )}
-            {shown('timing-splitting') && <SettingsCard id="timing-splitting"><TimingSettingsCard {...prefProps} /></SettingsCard>}
-            {shown('transcription-experiments') && <SettingsCard id="transcription-experiments"><TranscriptionExperimentsCard /></SettingsCard>}
             <SettingsCard id="developer-mode"><DeveloperModeCard /></SettingsCard>
           </>
         ))}

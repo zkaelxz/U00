@@ -18,7 +18,7 @@ export async function pickTab(scope: Page | Locator, name: string | RegExp, bar?
   await scope.locator('.ui-tab-picker-list').getByRole('option', { name }).click()
 }
 
-// The picker button names the open section: "Settings: Translation and keys".
+// The picker button names the open section: "Settings: Engines and keys".
 export async function expectPickedTab(scope: Page | Locator, bar: string, name: string | RegExp): Promise<void> {
   const tab = scope.getByRole('tab', { name }).first()
   const picker = pickerButton(scope, bar)
