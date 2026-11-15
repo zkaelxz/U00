@@ -102,6 +102,21 @@ test('remote: upload and remove are hidden with a PC-only note', async ({ page }
   expect(unmocked).toEqual([])
 })
 
+test('a title with no audio offers no clip search and saves a voice description', async ({ page }) => {
+  const unmocked = await guard(page)
+  const m = await mockVoiceClone(page, { noAudio: true })
+  const panel = await openVoices(page)
+  const wei = panel.getByRole('listitem', { name: 'Voice for SPEAKER_00' })
+  await expect(wei.getByRole('button', { name: 'Find clips in the audio' })).toHaveCount(0)
+  await expect(wei.getByTestId('no-audio-note')).toContainText('no audio')
+
+  await wei.getByLabel('Voice description for SPEAKER_00').fill('young, bright')
+  await wei.getByRole('button', { name: 'Save description' }).click()
+  await expect(wei.getByRole('status')).toHaveText('Voice description saved.')
+  expect(m.posts.at(-1)?.body).toEqual({ speaker_label: 'SPEAKER_00', voice_design: 'young, bright' })
+  expect(unmocked).toEqual([])
+})
+
 test('an extraction left running picks up again when the panel is reopened', async ({ page }) => {
   const m = await mockVoiceClone(page)
   m.state.started = true
