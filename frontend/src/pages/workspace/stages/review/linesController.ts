@@ -64,6 +64,8 @@ export interface SpeakerUndo {
   lineNumber: number
   speaker: string
   entries: SpeakerChangeEntry[]
+  // Shown on the card of a Need a look line that stays listed for another reason once its speaker is set.
+  note?: string | null
 }
 
 // What the extracted action builders (lineRowActions, lineTiming, lineFlaggedMove) need from the

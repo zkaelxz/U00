@@ -62,7 +62,7 @@ from engine_backends import paid_calls
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from ocr import default_hardsub_backend
 from services import difficult_audio_service as difficult
-from services import (asr_options_service, diarization_service, ownership_service, run_settings_service,
+from services import (asr_options_service, diarization_service, job_timing_service, ownership_service, run_settings_service,
                       name_fix_service, settings_service, source_service, timing_check_service, timing_settings_service,
                       transcribe_checkpoint_service, transcribe_pipeline,
                       vocabulary_hint_service)
@@ -640,7 +640,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     diarize_started, diarize_skipped_reason = _chain_diarization(
         job_id, drama_id, hf_token, diarize_audio_path, expected_speakers, min_speakers,
         max_speakers, diarize_requested)
-    _record_speed(outcome, whisper_size, use_gpu and not crash)
+    _record_run(job_id, outcome, whisper_size, use_gpu and not crash)
 
     return {
         "line_count": len(lines),
@@ -724,6 +724,19 @@ def _chain_diarization(job_id, drama_id, hf_token, diarize_audio_path, expected_
             raise
         raise background_jobs.JobCancelled(job_id) from None
     return started, None
+
+
+# Order the pipeline runs them in; the keys are transcribe_pipeline's stage_seconds keys.
+_STAGE_LABELS = {"separate": "Separate vocals", "load": "Load model",
+                 "decode_vad": "Decode and find speech", "transcribe": "Transcribe",
+                 "align": "Align"}
+
+
+def _record_run(job_id, outcome, whisper_size, use_gpu) -> None:
+    """What a finished run leaves behind for later estimates and for the Jobs timing view."""
+    _record_speed(outcome, whisper_size, use_gpu)
+    job_timing_service.split_open_stage(job_id, [
+        (_STAGE_LABELS[key], outcome["stage_seconds"].get(key)) for key in _STAGE_LABELS])
 
 
 def _record_speed(outcome, whisper_size, use_gpu) -> None:

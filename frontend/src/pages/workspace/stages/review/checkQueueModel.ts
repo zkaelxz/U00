@@ -453,6 +453,14 @@ export function queueAction(line: Pick<ReviewLine, 'flag' | 'confidence'>): Queu
   return confidenceReason(line) ? 'retranscribe' : null
 }
 
+/** What a card says once its speaker is set but another reason still lists it; null when nothing else does. */
+export function stillListedNote(line: ReviewLine, speaker: string): string | null {
+  const short = queueReason({ ...line, speaker })?.short
+  if (!short) return null
+  // The reason runs on after a colon, so its first word drops its capital; Whisper is a name and keeps it.
+  return `Speaker set to ${speaker}. This line is still listed: ${short.startsWith('Whisper ') ? short : lowerFirst(short)}.`
+}
+
 /** The next two cards after the one open, for the phone's one-card view; null at the end of the list. */
 export function nextText(shown: ReviewLine[], activeId: number | null): string | null {
   const at = shown.findIndex((l) => l.id === activeId)

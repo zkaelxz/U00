@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import {
   alsoUnsureText, askedReason, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, markRestView, nextAfterCheck, nextText, NO_SPEAKER_FIRST,
-  NO_SPEAKER_REASON, onlyNeedsSpeaker, otherFineText, placeText, queueAction, queueCounts, queuePlace, queueReason, QUEUE_FLAG_KINDS, restUnchecked, UNSURE_FIRST,
+  NO_SPEAKER_REASON, onlyNeedsSpeaker, otherFineText, placeText, queueAction, queueCounts, queuePlace, queueReason, QUEUE_FLAG_KINDS, restUnchecked, stillListedNote, UNSURE_FIRST,
   untranslatedText, WHOLE_LIST_FIRST,
 } from './checkQueueModel'
 
@@ -246,6 +246,13 @@ describe('queue reasons', () => {
     expect(queueReason({ ...blank, confidence: 0.5 })?.short).toBe('Whisper was unsure (50% sure)')
     expect(queueReason({ ...blank, flag: 'reading_speed' })?.short).toBe('Too fast to read')
     expect(queueAction(blank)).toBeNull()
+  })
+
+  it('says what still lists a card once its speaker is set, and nothing when nothing does', () => {
+    expect(stillListedNote(line(3, { flag: 'reading_speed', flag_note: '25.2 characters/second -- more than ~17/s is hard to read in time. The speech is this fast: shorten the text.' }), 'Cray'))
+      .toBe('Speaker set to Cray. This line is still listed: too fast to read, 25 characters a second.')
+    expect(stillListedNote(line(3, { confidence: 0.58 }), 'Cray')).toBe('Speaker set to Cray. This line is still listed: Whisper was unsure (58% sure).')
+    expect(stillListedNote(line(3), 'Cray')).toBeNull()
   })
 
   it('knows which lines only a speaker would take out of the queue', () => {
