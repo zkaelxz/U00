@@ -189,6 +189,8 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
                     _jobs[job_id]["status"] = "error"
                     _jobs[job_id]["error"] = error_msg
                     _jobs[job_id]["traceback"] = tb
+                    # A model refused for GPU memory: the GPU guard may wait for room.
+                    _jobs[job_id]["vram_need_mb"] = getattr(exc, "vram_need_mb", None)
                     _jobs[job_id]["finished_at"] = time.time()
                     _description = _jobs[job_id].get("description")
                     _owner = _jobs[job_id].get("owner_user_id")

@@ -273,8 +273,11 @@ of every GPU-queue poll (20 s) while the `gpu_guard` preference is on (default o
 reads the first GPU's free memory and temperature with one nvidia-smi call. The card is
 *short* when free VRAM is under `external_busy_min_free_mb` and *hot* when the GPU
 temperature is at or above `gpu_guard_temp_c` (85 °C). The CPU temperature is not read. Either starts a hold at once; the hold ends only after every
-reading has stayed 1 GB / 5 °C clear for 60 s, so a value at the limit doesn't flap. No
-reading, or a state older than 90 s, means no hold.
+reading has stayed 1 GB / 5 °C clear for 60 s, so a value at the limit doesn't flap; in
+that minute the held message says what the card reads now ("GPU memory is free again …,
+checking it stays free"). A changed memory or GPU temperature limit is judged on the next
+reading: a card already clear of the new limit isn't held for the old one's clear minute.
+No reading, or a state older than 90 s, means no hold.
 
 While held:
 
@@ -283,13 +286,21 @@ While held:
   "Held: the GPU is hot (…)". Needs the GPU limit on: with it off nothing queues.
 - While short and no Baihe job runs, idle models are unloaded (`whisper_models.release_gpu_models`
   and `ollama_unload.unload_loaded_models`), at most once a minute.
-- After `gpu_guard_stop_minutes` (2; 0 = never) of one unbroken hold, every running GPU
+- After `gpu_guard_stop_minutes` (2; 0 = never) of one unbroken hold, or at once when free
+  memory is under half the reserve (`CRITICAL_SHARE`: on the V100, four streams left 1.9 GB
+  of a 5 GB reserve during the 2-minute wait), and never during the clear minute, every running GPU
   job that registered a restart is stopped with `request_cancel` (the same stop as the
   Stop button) and started again through the call that started it, under its starter's
   principal (`allow_restart`). With the GPU limit on the new run queues held at once;
   with it off it waits for the card to clear first. A restart refused as busy (a stopped
   translation's last Ollama request still running) is retried for 15 min. After
   `MAX_RESTARTS` (3) restarts in a row a further stop is final, and the job says so.
+- A registered job whose model `memory_headroom` refused (`HeadroomError.vram_need_mb`,
+  carried in a process job's result or on a thread job's dict) waits instead of staying
+  failed: it starts again once free memory covers the reserve plus that need and the card
+  is neither short nor hot, saying "Waiting for GPU memory: …" meanwhile. It gives up after
+  an hour (`ROOM_WAIT_SECONDS`), and stops waiting if the user clears it or starts it again.
+  The run has already ended Failed, so its failure notification has gone out.
 
 Which jobs register (checked per type, 2026-11-15):
 

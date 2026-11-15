@@ -549,7 +549,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
             hardsub_interval=hardsub_interval, tesseract_cmd=tesseract_cmd,
             hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec)
     except memory_headroom.HeadroomError as exc:
-        outcome = {"failed_reason": "headroom", "detail": str(exc)}
+        outcome = {"failed_reason": "headroom", "detail": str(exc), "vram_need_mb": exc.vram_need_mb}
     except ImportError as exc:
         outcome = {**transcribe_pipeline.missing_package_outcome(
             transcribe_pipeline.MISSING_OCR_MESSAGE if transcript_mode == "hardsub_ocr"
