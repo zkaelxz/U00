@@ -63,6 +63,7 @@ const KIND_BADGE: Record<NotificationKind, { tone: BadgeTone; label: string }> =
   job_failed: { tone: 'bad', label: 'Failed' },
   chapters: { tone: 'info', label: 'New chapters' },
   remote: { tone: 'warn', label: 'Remote access' },
+  resource: { tone: 'warn', label: 'This PC' },
   live: { tone: 'accent', label: 'Live' },
   waiting: { tone: 'warn', label: 'Waiting' },
 }
