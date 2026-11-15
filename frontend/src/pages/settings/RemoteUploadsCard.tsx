@@ -71,7 +71,7 @@ function RemoteUploadsControls() {
         !error && <p className="muted">Loading…</p>
       ) : (
         <div className="setting-list">
-          <Field label="Allow uploads from away" help="Lets an admin signed in on another device upload audio, video, subtitle files and novel text. It turns itself off after 7 days, and whenever Developer Mode is off.">
+          <Field label="Allow uploads from away" help="Lets an admin signed in on another device upload audio, video, subtitle files, novel text and comic pages. It turns itself off after 7 days, and whenever Developer Mode is off.">
             <Toggle checked={uploads} disabled={busy || (!developerMode && !uploads)} onChange={flip} />
           </Field>
           {!developerMode && (
