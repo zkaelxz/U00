@@ -384,6 +384,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/lines/dramas/{drama_id}/source-changed/keep-english` | lines.edit |
 | `GET /api/listen/dramas/{drama_id}/config` | library.read |
 | `POST /api/listen/dramas/{drama_id}/run` | jobs.start |
+| `GET /api/listen/dramas/{drama_id}/test-voice` | media.stream |
+| `POST /api/listen/dramas/{drama_id}/test-voice` | jobs.start |
 | `GET /api/listen/dramas/{drama_id}/track` | media.stream |
 | `GET /api/live/follows` | library.read |
 | `POST /api/live/follows` | media.import_url |
