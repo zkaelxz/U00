@@ -4,7 +4,7 @@
  * answers states and fixed sentences, never the public name, the Google id or secret.
  * Steps the PC can't see (the router) say so instead of guessing.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { getRemoteSetup, saveRemoteSignIn } from '../../api/diagnostics'
 import { Badge } from '../../components/Badge'
@@ -29,7 +29,19 @@ function RemoteSetupBody() {
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
 
-  const load = useCallback(() => {
+  // The first load starts with the page, so it sets no state before the answer arrives.
+  useEffect(() => {
+    let live = true
+    getRemoteSetup().then(
+      (r) => live && setSetup(r),
+      (e: unknown) => live && setError(e),
+    )
+    return () => {
+      live = false
+    }
+  }, [])
+
+  const reload = () => {
     setBusy(true)
     getRemoteSetup().then(
       (r) => {
@@ -41,9 +53,7 @@ function RemoteSetupBody() {
         setBusy(false)
       },
     )
-  }, [])
-
-  useEffect(load, [load])
+  }
 
   const [draft, setDraft] = useState({ name: '', id: '', secret: '' })
   const [saving, setSaving] = useState(false)
@@ -95,7 +105,7 @@ function RemoteSetupBody() {
             })}
           </ol>
           <div className="status-form" data-testid="remote-sign-in-form">
-            <h4>Sign-in settings</h4>
+            <h3>Sign-in settings</h3>
             <p className="settings-note">
               Saved in this PC&apos;s .env. They are write-only: Baihe never shows them back. Leave a box empty to
               keep what is saved.
@@ -134,7 +144,7 @@ function RemoteSetupBody() {
             )}
           </div>
           <div className="settings-actions">
-            <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={load}>
+            <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={reload}>
               {busy ? 'Checking…' : 'Check again'}
             </button>
           </div>
