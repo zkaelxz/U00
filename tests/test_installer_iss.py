@@ -306,11 +306,13 @@ class TestUninstall:
 
     def test_clean_uninstall_keeps_shared_caches_and_lists_them(self, iss):
         step = _func(iss, "CurUninstallStepChanged")
-        for shared in ("ms-playwright", "pip\\cache", ".cache\\huggingface"):
+        for shared in ("ms-playwright", "pip\\cache", ".cache\\huggingface", ".cache\\audio-separator-models",
+                       ".cache\\modelscope", ".paddlex"):
             assert shared in step
         assert "NoteShared(" in step and "Left on this PC:" in step
         temp = _func(iss, "DeleteOwnTempItems")
-        for pattern in ("'baihe_*'", "'baihe_page_*'", "'baihe-torch-pins-*'"):
+        for pattern in ("'baihe_*'", "'baihe_page_*'", "'baihe_tmp_*'", "'baihe_typeset_*'", "'baihe-plan-*'",
+                        "'baihe-torch-pins-*'"):
             assert pattern in temp
         assert "FILE_ATTRIBUTE_DIRECTORY" in _func(iss, "DeleteTempMatches")
         assert ".deno" in step

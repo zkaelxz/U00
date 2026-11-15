@@ -263,7 +263,7 @@ def run_transcription(cfg: dict, case: dict, use_gpu: bool, folder: str | None =
             raise background_jobs.JobCancelled()
 
     try:
-        with tempfile.TemporaryDirectory(prefix="benchmark_") as scratch:
+        with tempfile.TemporaryDirectory(prefix="baihe_benchmark_") as scratch:
             timing = difficult.mark(timing_settings_service.values(), options)
             prepared = difficult.prepare(
                 _Reporter(cancelled), os.path.join(db.BENCHMARK_DIR, case["input_filename"]), scratch, "whisper",

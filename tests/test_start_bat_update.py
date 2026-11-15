@@ -157,6 +157,19 @@ class TestAfterUpdate:
         assert "-gt $d" in block
         assert text.index("if defined BAIHE_BUILD_FRONTEND goto :build_frontend") < text.index("if exist INSTALLED goto :stale_check_done")
 
+    def test_missing_screens_are_built_in_a_checkout_with_npm_and_otherwise_one_next_step_is_shown(self):
+        text = "\n".join(_lines(False))
+        block = text[text.index("\n:stale_check_done\n"):text.index("\n:frontend_missing_noninteractive\n")]
+        for guard in ("if exist INSTALLED goto :frontend_missing_stop",
+                      'if not exist ".git" goto :frontend_missing_stop', "where npm"):
+            assert guard in block
+        assert block.index("where npm") < block.index("set BAIHE_BUILD_FRONTEND=1") < block.index("goto :build_frontend")
+        # Not BAIHE_AUTO_BUILD: with no screens at all, a failed build must stop, not start API-only.
+        assert "BAIHE_AUTO_BUILD" not in block
+        stop = block[block.index(":frontend_missing_stop"):]
+        assert "Node.js 22" in stop and "start.bat again" in stop and "exit /b 1" in stop
+        assert block.index("BAIHE_CI") < block.index("set BAIHE_BUILD_FRONTEND=1")
+
     def test_auto_rebuild_failure_does_not_stop_the_launch(self):
         text = "\n".join(_lines(False))
         failed = text[text.index("\n:build_failed\n"):]

@@ -427,11 +427,21 @@ goto :build_frontend
 if exist "frontend\dist\index.html" goto :frontend_ready
 if defined BAIHE_CI goto :frontend_missing_noninteractive
 if defined BAIHE_SERVER_ONLY goto :frontend_missing_noninteractive
+REM A fresh git clone has no frontend\dist (it is not tracked), so build it here
+REM instead of making the user find --build-frontend. Not for INSTALLED copies:
+REM those ship it prebuilt, so a missing one is a broken install, not a build job.
+if exist INSTALLED goto :frontend_missing_stop
+if not exist ".git" goto :frontend_missing_stop
+where npm >nul 2>nul
+if errorlevel 1 goto :frontend_missing_stop
+echo The app's screens ^(frontend\dist^) aren't built yet -- building them now.
+set BAIHE_BUILD_FRONTEND=1
+goto :build_frontend
+:frontend_missing_stop
 echo The app's screens ^(frontend\dist^) aren't installed yet.
 echo.
-echo Build it here ^(needs Node.js 22^):  start.bat --build-frontend
-echo.
-echo Then run start.bat again.
+echo Next step: install Node.js 22 from https://nodejs.org/ ^(setup.bat can do it^),
+echo open a NEW window and run start.bat again -- it will build the screens itself.
 if not defined BAIHE_NOPAUSE pause
 exit /b 1
 
