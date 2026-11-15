@@ -36,19 +36,26 @@ function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
   return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${capFirst(line.flag_note)}` : ''}`
 }
 
-/** A queue card's reason: the sentence the open card shows, and the few words of a closed card and the phone's Next line. */
+/**
+ * A queue card's reason: the sentence the open card shows, the few words of a flag outside the queue, the chip of a
+ * card in the queue's list, and the kind alone for the phone's Next line, which names two cards on one line.
+ */
 export interface QueueReason {
   text: string
   short: string
+  chip: string
+  next: string
 }
 
 // A note the server writes in a known shape becomes its own sentence (none: the kind's own sentence already says it all);
 // null means "not that shape", never a part of it.
-type ReadNote = (note: string) => { text?: string; short?: string } | null
+type ReadNote = (note: string) => { text?: string; short?: string; chip?: string } | null
 
 interface FlagKind {
   text: string
   short: string
+  // The chip where it says more than `short`, for a note that could not be read.
+  chip?: string
   read?: ReadNote
 }
 
@@ -71,12 +78,14 @@ const readGlossary: ReadNote = (note) => {
   if (pairs.some((p) => p.length !== 2 || !p[0].trim() || !p[1].trim())) return null
   const more = Number(m[2] ?? 0)
   const names = pairs.map(([src]) => src).join(', ') + (more ? ` and ${more} more` : '')
+  const several = pairs.length > 1 || more > 0
   const writes = joinAnd([...pairs.map(([src, en]) => `${src} as “${en}”`), ...(more ? [`${more} more ${more === 1 ? 'name' : 'names'}`] : [])])
   const one = pairs.length === 1 && !more
   return {
     text: `The glossary writes ${writes}, but the English doesn’t use ${one ? 'that name' : 'those names'}. ` +
       `Put ${one ? 'it' : 'them'} in the English, or change the glossary if ${one ? 'the' : 'a'} name is wrong.`,
     short: `Glossary name not used: ${names}`,
+    chip: `The English does not use the glossary ${several ? 'names' : 'name'} for ${names}`,
   }
 }
 
@@ -91,7 +100,8 @@ const readSpeed: ReadNote = (note) => {
   if (!fix) return null
   return {
     text: `This subtitle is too fast to read: ${m[1]} characters a second, and more than about ${m[2]} is hard to read in time. ${fix}`,
-    short: `Fast to read, ${Math.round(Number(m[1]))} characters a second`,
+    short: `Too fast to read, ${Math.round(Number(m[1]))} characters a second`,
+    chip: `Too fast to read: ${Math.round(Number(m[1]))} characters a second`,
   }
 }
 
@@ -314,7 +324,7 @@ const FLAG_KINDS: Record<string, FlagKind> = {
   },
   reading_speed: {
     text: 'This subtitle is too fast to read: too many characters for the time it is shown. Shorten the text.',
-    short: 'Fast to read',
+    short: 'Too fast to read',
     read: readSpeed,
   },
   factual_detail: {
@@ -349,6 +359,7 @@ const FLAG_KINDS: Record<string, FlagKind> = {
   glossary_missing: {
     text: 'The English doesn’t use a name the glossary sets for this line. Put the glossary’s name in the English, or change the glossary if it is wrong.',
     short: 'Glossary name not used',
+    chip: 'The English does not use a glossary name',
     read: readGlossary,
   },
   source_mismatch: {
@@ -389,15 +400,24 @@ export const QUEUE_FLAG_KINDS = Object.keys(FLAG_KINDS)
 export function queueReason(line: Pick<ReviewLine, 'flag' | 'flag_note' | 'confidence'>): QueueReason | null {
   if (!line.flag) {
     const unsure = confidenceReason(line)
-    // The score goes in the few words too: a closed card on a wide screen leaves out the Shaky badge that also says it.
-    return unsure ? { text: unsure, short: `Whisper was unsure (${Math.round((line.confidence ?? 0) * 100)}% sure)` } : null
+    // The chip keeps the score: a closed card on a wide screen leaves out the Shaky badge that also says it. Whisper is a
+    // name, so the Next line keeps its capital.
+    return unsure ? { text: unsure, short: `Whisper was unsure (${Math.round((line.confidence ?? 0) * 100)}% sure)`, chip: unsure, next: 'Whisper was unsure' } : null
   }
   const kind = FLAG_KINDS[line.flag]
-  if (!kind) return { text: flagText(line), short: humanizeValue(line.flag) }
+  if (!kind) {
+    const short = humanizeValue(line.flag)
+    return { text: flagText(line), short, chip: short, next: lowerFirst(short) }
+  }
+  // The Next line runs on after a comma, so the kind's words drop their capital.
+  const next = lowerFirst(kind.short)
   const note = (line.flag_note ?? '').trim()
   const read = note && kind.read ? kind.read(note) : null
-  if (read) return { text: read.text ?? kind.text, short: read.short ?? kind.short }
-  return { text: note ? `${kind.text} Note: ${capFirst(note)}` : kind.text, short: kind.short }
+  if (read) {
+    const short = read.short ?? kind.short
+    return { text: read.text ?? kind.text, short, chip: read.chip ?? kind.chip ?? short, next }
+  }
+  return { text: note ? `${kind.text} Note: ${capFirst(note)}` : kind.text, short: kind.short, chip: kind.chip ?? kind.short, next }
 }
 
 /** The one existing line action that fits a card's reason, shown beside Play. */
@@ -421,18 +441,12 @@ export function queueAction(line: Pick<ReviewLine, 'flag' | 'confidence'>): Queu
   return confidenceReason(line) ? 'retranscribe' : null
 }
 
-// The Next line runs on after a comma, so a reason's first word drops its capital; Whisper is a name and keeps it.
-const nextReason = (line: ReviewLine) => {
-  const short = queueReason(line)?.short ?? 'Whisper was unsure'
-  return short.startsWith('Whisper ') ? short : lowerFirst(short)
-}
-
 /** The next two cards after the one open, for the phone's one-card view; null at the end of the list. */
 export function nextText(shown: ReviewLine[], activeId: number | null): string | null {
   const at = shown.findIndex((l) => l.id === activeId)
   const next = shown.slice(at + 1, at + 3)
   if (at === -1 || next.length === 0) return null
-  return `Next: ${next.map((l) => `line ${lineNumber(l.idx)}, ${nextReason(l)}`).join(' · ')}`
+  return `Next: ${next.map((l) => `line ${lineNumber(l.idx)}, ${queueReason(l)?.next ?? 'Whisper was unsure'}`).join(' · ')}`
 }
 
 /**

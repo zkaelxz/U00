@@ -189,7 +189,7 @@ test.describe(() => {
     await expect(position).toHaveText('1 of 3 to look at')
     await expect(cards).toHaveCount(1)
     await expect(cards.locator('.review-idx')).toHaveText('#24')
-    await expect(page.getByText('Next: line 7, Whisper was unsure (50% sure) · line 12, fast to read, 25 characters a second')).toBeVisible()
+    await expect(page.getByText('Next: line 7, Whisper was unsure · line 12, too fast to read', { exact: true })).toBeVisible()
     // The card: Why in a plain sentence, the English under its label in a box, the buttons under it, and a green
     // Looks right, next beside Skip for now. Tapping the box edits, so the bar has no Edit button.
     await expect(cards.getByTestId('queue-reason')).toHaveText(`Why: ${GLOSSARY_SENTENCE}`)
@@ -474,7 +474,7 @@ test.describe(() => {
     await page.locator('label').filter({ hasText: /^All 24$/ }).tap()
     await expect(page.getByRole('group', { name: 'Lines to show' }).getByRole('radio', { name: /^All/ })).toBeChecked()
     const speed = 'This subtitle is too fast to read: 25.2 characters a second, and more than about 17 is hard to read in time. Shorten the text.'
-    for (const [n, short, sentence] of [[12, 'Fast to read, 25 characters a second', speed], [24, 'Glossary name not used: 夷陵老祖', GLOSSARY_SENTENCE]] as const) {
+    for (const [n, short, sentence] of [[12, 'Too fast to read, 25 characters a second', speed], [24, 'Glossary name not used: 夷陵老祖', GLOSSARY_SENTENCE]] as const) {
       const row = page.locator('.review-line').filter({ has: page.locator('.review-idx', { hasText: new RegExp(`^#${n}$`) }) })
       const more = row.getByRole('button', { name: `More actions for line ${n}` })
       // Where ⋯ sits in the row before the few words appear under the meta line.

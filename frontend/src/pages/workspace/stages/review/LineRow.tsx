@@ -22,7 +22,7 @@ import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
 import { queueAction, queueReason, type QueueAction } from './checkQueueModel'
-import { CONFLICT_MESSAGE, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
+import { CONFLICT_MESSAGE, formatTenths, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 import { isSourceChanged } from '../sourceChanged'
@@ -543,7 +543,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         <span className="review-idx">#{lineNumber(line.idx)}</span>
         {!prose && (
           <span className="review-time">
-            {formatTime(line.start)}
+            {queue ? formatTenths(line.start) : formatTime(line.start)}
             {!isPhone && !simple && <>–{formatTime(line.end)}</>}
           </span>
         )}
@@ -568,7 +568,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         )}
         {line.dub_filename && !isPhone && !simple && <span>Dub: {line.dub_filename}</span>}
         {/* A closed card keeps to a few words, so the list stays one glance per line; so does the open one while the This line panel beside it says the rest. */}
-        {reason && !isPhone && (!active || linePanel) && <span className="review-queue-reason" data-testid="queue-reason">{reason.short}</span>}
+        {reason && !isPhone && (!active || linePanel) && <span className="review-queue-reason" data-testid="queue-reason">{reason.chip}</span>}
         {flagReason && isPhone && (
           <span className="review-flag" data-testid="line-flag">
             <span aria-hidden="true">⚑</span>

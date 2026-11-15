@@ -374,11 +374,23 @@ test.describe('the check queue', () => {
     await expect(page.getByTestId('queue-fine')).toHaveText('20 of 24 look fine')
     // Riskiest first: the glossary name, then the line Whisper was unsure of, then the fast one.
     await expect(page.locator('.review-line .review-idx')).toHaveText(['#24', '#7', '#12'])
-    // The open card says why in a plain sentence; the closed ones in a few words, as a chip in their meta line.
+    // The open card says why in a plain sentence; the closed ones in a chip at the end of their row.
     await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
     await expect(card(page, 24).getByTestId('queue-reason')).toHaveText(GLOSSARY_SENTENCE)
-    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure (50% sure)')
-    await expect(card(page, 12).getByTestId('queue-reason')).toHaveText('Fast to read, 25 characters a second')
+    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure of this line (50% sure)')
+    await expect(card(page, 12).getByTestId('queue-reason')).toHaveText('Too fast to read: 25 characters a second')
+    // The number and the time read as part of the sentence: the body font, to the tenth, with digits of one width.
+    for (const n of [24, 12]) {
+      const look = await card(page, n).evaluate((el) => {
+        const num = getComputedStyle(el.querySelector('.review-idx')!)
+        const time = getComputedStyle(el.querySelector('.review-time')!)
+        return { body: getComputedStyle(document.body).fontFamily, numFont: num.fontFamily, timeFont: time.fontFamily, digits: time.fontVariantNumeric }
+      })
+      expect(look.numFont, `#${n}'s number is in the body font`).toBe(look.body)
+      expect(look.timeFont, `#${n}'s time is in the body font`).toBe(look.body)
+      expect(look.digits).toContain('tabular-nums')
+    }
+    await expect(card(page, 12).locator('.review-time')).toHaveText('0:22.0')
     await expect(page.locator('.review-line').getByTestId('line-flag')).toHaveCount(0)
     await expect(card(page, 24).getByRole('link', { name: 'Open glossary' })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
     // The English under its label, boxed like a field; the fitting action first, with the green finishing step last.
@@ -641,7 +653,7 @@ test.describe('the check queue', () => {
     expect(first.y).toBeGreaterThanOrEqual(toolbar.y + toolbar.height)
     // The open card: no tick box, a short reason (the panel has the rest), and its four buttons.
     await expect(card(page, 24).locator('.review-select')).toBeHidden()
-    await expect(card(page, 24).getByTestId('queue-reason')).toHaveText('Glossary name not used: 夷陵老祖')
+    await expect(card(page, 24).getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
       .toHaveText(['▶ Play', 'Open glossary', 'Improve translation', 'Looks right, next'])
 
@@ -708,7 +720,8 @@ test.describe('the check queue', () => {
     const panel = page.getByTestId('this-line')
     await expect(panel.getByRole('heading', { name: 'Line 24 sound' })).toBeVisible()
     await expect(panel.getByRole('button', { name: '▶ Play' })).toBeVisible()
-    await expect(panel).toContainText('0:46.00')
+    await expect(panel).toContainText('0:46.0')
+    await expect(panel).not.toContainText('0:46.00')
     await expect(panel.getByTestId('this-line-wave')).toHaveCount(0)
     await expect(panel.getByRole('alert')).toHaveCount(0)
   })
@@ -917,14 +930,14 @@ test.describe('the check queue', () => {
       for (const [what, loc] of [['source', zh], ['English', en], ['chip', chip]] as const) {
         expect(await loc.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `the ${what} is not cut at ${width}px`).toBe(true)
       }
-      await expect(chip).toHaveText('Fast to read, 25 characters a second')
+      await expect(chip).toHaveText('Too fast to read: 25 characters a second')
       await expect(closed.locator('.review-speaker')).toBeHidden()
       await expect(closed.getByTestId('line-cps')).toBeHidden()
       await expect(closed.getByText(/^Shaky/)).toBeHidden()
       await expect(card(page, 24).locator('.review-speaker')).toHaveText('Wei Wuxian')
     }
-    // The line only Whisper doubted keeps its score in the few words, as its badge is not shown.
-    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure (50% sure)')
+    // The line only Whisper doubted keeps its score in the chip, as its badge is not shown.
+    await expect(card(page, 7).getByTestId('queue-reason')).toHaveText('Whisper was unsure of this line (50% sure)')
     await expectNoSidewaysScroll(page)
   })
 
@@ -963,7 +976,7 @@ test.describe('the check queue', () => {
     await page.goto('/#/drama/3/review')
     const open = card(page, 24)
     await expect(page.getByRole('tab', { name: 'This line' })).toHaveAttribute('aria-selected', 'true')
-    await expect(open.getByTestId('queue-reason')).toHaveText('Glossary name not used: 夷陵老祖')
+    await expect(open.getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
     await expect(open.getByRole('button', { name: 'See the lines around it' })).toHaveCount(0)
     await page.getByRole('tab', { name: 'Look for problems' }).click()
     await expect(open.getByTestId('queue-reason')).toHaveText(GLOSSARY_SENTENCE)
@@ -971,7 +984,7 @@ test.describe('the check queue', () => {
     // The hidden panel is not drawn at all, so nothing in it runs.
     await expect(page.getByTestId('this-line')).toHaveCount(0)
     await page.getByRole('tab', { name: 'This line' }).click()
-    await expect(open.getByTestId('queue-reason')).toHaveText('Glossary name not used: 夷陵老祖')
+    await expect(open.getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
     await expect(open.getByRole('button', { name: 'See the lines around it' })).toHaveCount(0)
     await expect(page.getByTestId('this-line')).toBeVisible()
   })

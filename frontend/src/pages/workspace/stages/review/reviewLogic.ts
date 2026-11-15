@@ -13,6 +13,15 @@ export function formatTime(seconds: number): string {
   return `${m}:${(seconds - m * 60).toFixed(2).padStart(5, '0')}`
 }
 
+/** "1:02.5": the check queue's times, to the tenth. Cut, not rounded, so a line never reads as starting after it does. */
+export function formatTenths(seconds: number): string {
+  // Whole milliseconds first, so 62.57 (62.569999… as a float) still reads 1:02.5 and 0.3 reads 0:00.3.
+  const tenths = Math.floor(Math.round(Math.max(0, seconds) * 1000) / 100)
+  const m = Math.floor(tenths / 600)
+  const s = tenths - m * 600
+  return `${m}:${String(Math.floor(s / 10)).padStart(2, '0')}.${s % 10}`
+}
+
 // Characters per second of the translation, counted as subtitle_formats.reading_speed does
 // (stripped length in code points over the duration). null when there is no text to read.
 export function lineCps(line: { start: number; end: number; en: string }): number | null {

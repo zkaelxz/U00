@@ -59,6 +59,14 @@ describe('Simple view line row', () => {
 describe('check queue card', () => {
   const glossary: ReviewLine = { ...LINE, flag: 'glossary_missing', flag_note: 'Glossary: 夷陵老祖 -> Yiling Patriarch missing' }
 
+  it('writes a queue row\'s time to the tenth, cut not rounded, open or closed, on a wide screen or a phone; other rows keep the hundredths', () => {
+    const timed: ReviewLine = { ...LINE, start: 62.57, end: 64 }
+    expect(row(true, timed, { queue: true })).toContain('<span class="review-time">1:02.5</span>')
+    expect(row(true, timed, { queue: true, active: false })).toContain('<span class="review-time">1:02.5</span>')
+    expect(row(true, timed, { queue: true, isPhone: true })).toContain('<span class="review-time">1:02.5</span>')
+    expect(row(true, timed)).toContain('<span class="review-time">1:02.57</span>')
+  })
+
   it('turns Mark checked into Looks right, next and keeps Improve and its tip; Edit details is left to More and D', () => {
     const html = row(true, LINE, { queue: true })
     expect(html).toContain('Looks right, next')
@@ -88,13 +96,12 @@ describe('check queue card', () => {
     const unsure = { ...LINE, confidence: 0.72 }
     expect(row(true, unsure, { queue: true })).toContain('Whisper was unsure of this line (72% sure)')
     const closed = row(true, unsure, { queue: true, active: false })
-    // The closed card's few words keep the score: on a wide screen it leaves out the Shaky badge that also says it.
-    expect(closed).toContain('data-testid="queue-reason">Whisper was unsure (72% sure)</span>')
-    expect(closed).not.toContain('of this line')
+    // The closed card's chip keeps the score: on a wide screen it leaves out the Shaky badge that also says it.
+    expect(closed).toContain('data-testid="queue-reason">Whisper was unsure of this line (72% sure)</span>')
     expect(row(true, unsure)).not.toContain('Whisper was unsure')
     // A closed card drops the full-width flag bar for its chip.
     const closedGlossary = row(true, glossary, { queue: true, active: false })
-    expect(closedGlossary).toContain('Glossary name not used: 夷陵老祖')
+    expect(closedGlossary).toContain('data-testid="queue-reason">The English does not use the glossary name for 夷陵老祖</span>')
     expect(closedGlossary).not.toContain('data-testid="line-flag"')
     expect(closedGlossary).not.toContain(GLOSSARY_SENTENCE)
   })
@@ -135,7 +142,7 @@ describe('check queue card', () => {
 
   it('with the This line panel beside it, the open card says its reason in a few words; without it, in full with See the lines around it', () => {
     const beside = row(true, glossary, { queue: true, linePanel: true })
-    expect(beside).toContain('data-testid="queue-reason">Glossary name not used: 夷陵老祖</span>')
+    expect(beside).toContain('data-testid="queue-reason">The English does not use the glossary name for 夷陵老祖</span>')
     expect(beside).not.toContain(GLOSSARY_SENTENCE)
     const alone = row(true, glossary, { queue: true })
     expect(alone).toContain(GLOSSARY_SENTENCE)
@@ -197,7 +204,7 @@ describe('a flagged line outside the check queue', () => {
     expect(closed).toContain(`<span class="sr-only"> Flagged: ${SPEED_SENTENCE}</span>`)
     expect(closed).not.toContain('review-flag-toggle')
     const html = row(false, speed, { isPhone: true })
-    expect(html).toContain(`title="Flagged: ${SPEED_SENTENCE}" aria-expanded="false">Flagged: Fast to read, 25 characters a second</button>`)
+    expect(html).toContain(`title="Flagged: ${SPEED_SENTENCE}" aria-expanded="false">Flagged: Too fast to read, 25 characters a second</button>`)
     expect(row(true, free, { isPhone: true })).toContain('>Flagged: Translation may be off</button>')
     expect(row(true, unknown, { isPhone: true })).toContain('>Flagged: Uncertain</button>')
   })

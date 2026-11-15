@@ -11,7 +11,7 @@ import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { alsoUnsureText, aroundFrom, queueAction, queueReason, type Around } from './checkQueueModel'
 import type { PlayerHandle } from './Player'
 import { sourceTextLang } from './reviewDraft'
-import { formatTime, PAGE_SIZE, pageForPosition } from './reviewLogic'
+import { formatTenths, PAGE_SIZE, pageForPosition } from './reviewLogic'
 
 // Half a second either side shows where the speech starts and stops around the line.
 const SOUND_PAD_S = 0.5
@@ -82,8 +82,8 @@ export function LineSound({ dramaId, line, player }: { dramaId: number; line: Re
       </div>
       {picture && <SoundPicture picture={picture} line={line} player={player} />}
       <div className="this-line-times">
-        <span className="review-time"><span className="sr-only">Start </span>{formatTime(line.start)}</span>
-        <span className="review-time"><span className="sr-only">End </span>{formatTime(line.end)}</span>
+        <span className="review-time"><span className="sr-only">Start </span>{formatTenths(line.start)}</span>
+        <span className="review-time"><span className="sr-only">End </span>{formatTenths(line.end)}</span>
       </div>
     </section>
   )
