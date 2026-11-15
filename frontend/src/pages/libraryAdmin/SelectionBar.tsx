@@ -371,7 +371,7 @@ export function SelectionBar({
           onConfirm={remove}
           onCancel={() => setDeleting(false)}
         >
-          <p>Permanently deletes {n} title{n === 1 ? '' : 's'} with their lines and files. No undo.</p>
+          <p>Delete {n} title{n === 1 ? '' : 's'} with lines and files. Can’t be undone.</p>
         </TypedConfirm>
       )}
       {result && <p role="status" data-testid="bulk-result">{result}</p>}

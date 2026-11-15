@@ -90,7 +90,7 @@ export function AddLineForm({ dramaId, after, next, busy, blocked, onAdd, onAddA
             type="button"
             className={buttonClass('secondary')}
             disabled={!!problem || busy || !!blocked || zh.trim() !== ''}
-            title={zh.trim() !== '' ? 'Leave the source empty to have it transcribed from the audio.' : undefined}
+            title={zh.trim() !== '' ? 'Leave empty to transcribe from the audio' : undefined}
             onClick={() => onAddAndTranscribe({ start: s, end: e, zh: '', en, speaker: speaker.trim() || null })}
           >
             Add and transcribe

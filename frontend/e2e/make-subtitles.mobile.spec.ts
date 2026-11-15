@@ -27,7 +27,7 @@ test('the card is one column with 44px controls and a full-width primary', async
   await c.getByLabel('Audio or video file').setInputFiles({ name: 'a.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
   await c.getByText('Change options', { exact: true }).click()
   const primary = c.getByRole('button', { name: 'Make English subtitles' })
-  for (const el of [primary, c.getByLabel('Source language'), c.getByLabel('Translator'), c.getByRole('button', { name: "Only add it, don't start" })]) {
+  for (const el of [primary, c.getByLabel('Source language'), c.getByLabel('Translator'), c.getByRole('button', { name: "Add only" })]) {
     const h = await el.evaluate((n) => window.hitHeight(n))
     expect(h).toBeGreaterThanOrEqual(44)
   }

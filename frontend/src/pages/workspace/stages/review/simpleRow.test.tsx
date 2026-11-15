@@ -70,7 +70,7 @@ describe('check queue card', () => {
   it('turns Mark checked into Looks right, next and keeps Improve and its tip; Edit details is left to More and D', () => {
     const html = row(true, LINE, { queue: true })
     expect(html).toContain('Looks right, next')
-    expect(html).toContain('title="Mark checked and go to the next line (R)"')
+    expect(html).toContain('title="Key: R"')
     expect(html).not.toContain('>Mark checked<')
     expect(html).not.toContain('Edit details')
     expect(html).toContain('title="Ask the AI to re-write this line (I)"')
@@ -110,10 +110,10 @@ describe('check queue card', () => {
     const html = row(true, glossary, { queue: true, isPhone: true })
     expect(html).toContain(`class="review-queue-why" data-testid="queue-reason">Why: ${GLOSSARY_SENTENCE}`)
     expect(html).not.toContain('review-flag-toggle')
-    expect(html).toContain('See the lines around it')
+    expect(html).toContain('In context')
     expect(html).toContain('Glossary')
     expect(html).toContain('title="Ask the AI to re-write this line (I)"')
-    expect(html.indexOf('See the lines around it')).toBeLessThan(html.indexOf('data-testid="line-en"'))
+    expect(html.indexOf('In context')).toBeLessThan(html.indexOf('data-testid="line-en"'))
     expect(row(true, glossary, { isPhone: true })).toContain('review-flag-toggle')
   })
 
@@ -169,24 +169,24 @@ describe('check queue card', () => {
     const at = ['Play line', 'Glossary', 'Re-write', 'Looks right, next'].map((t) => html.indexOf(t))
     expect(at.every((n) => n > 0)).toBe(true)
     expect([...at].sort((a, b) => a - b)).toEqual(at)
-    expect(html).toMatch(/class="btn btn-ok btn-sm review-queue-done"[^>]*>Looks right, next/)
+    expect(html).toMatch(/class="btn btn-ok btn-sm review-queue-done"[^>]*><span aria-hidden="true">✓<\/span> Next/)
     expect(html).not.toContain('btn-primary')
-    for (const gone of ['Edit details', 'Dismiss flag', 'See the lines around it']) expect(html).not.toContain(gone)
+    for (const gone of ['Edit details', 'Dismiss flag', 'In context']) expect(html).not.toContain(gone)
     const snap: TimingSuggestion = { line_id: 7, start: 1, end: 3, new_start: 1.2, new_end: 2.8 }
     const withSnap = row(true, glossary, { queue: true, timingSnap: snap, actions: { snapToSpeech: () => {} } as unknown as RowActions })
     expect(withSnap).not.toContain('Snap to speech')
     expect(row(true, { ...glossary, flag: 'source_changed' }, { queue: true }).match(/Keep English/g)).toHaveLength(1)
   })
 
-  it('with the This line panel beside it, the open card says its reason in a few words; without it, in full with See the lines around it', () => {
+  it('with the This line panel beside it, the open card says its reason in a few words; without it, in full with In context', () => {
     const beside = row(true, glossary, { queue: true, linePanel: true })
     expect(beside).toContain('data-testid="queue-reason">The English does not use the glossary name for 夷陵老祖</span>')
     expect(beside).not.toContain(GLOSSARY_SENTENCE)
     const alone = row(true, glossary, { queue: true })
     expect(alone).toContain(GLOSSARY_SENTENCE)
-    expect(alone).toMatch(/<button type="button" class="btn btn-ghost btn-sm">See the lines around it<\/button>/)
-    expect(alone.indexOf('Re-write')).toBeLessThan(alone.indexOf('See the lines around it'))
-    expect(alone.indexOf('See the lines around it')).toBeLessThan(alone.indexOf('Looks right, next'))
+    expect(alone).toMatch(/<button type="button" class="btn btn-ghost btn-sm">In context<\/button>/)
+    expect(alone.indexOf('Re-write')).toBeLessThan(alone.indexOf('In context'))
+    expect(alone.indexOf('In context')).toBeLessThan(alone.indexOf('Looks right, next'))
   })
 
   it('still offers Edit details, Snap to speech and Dismiss flag or Keep English in the card\'s More sheet', () => {
@@ -204,7 +204,7 @@ describe('check queue card', () => {
     expect(noAudio).toContain('id="queue-retranscribe-7">Needs this title’s audio or video.</span>')
 
     const changed = row(true, { ...LINE, flag: 'source_changed' }, { queue: true })
-    expect(changed).toContain('title="Keep this English for the new source text (F)">Keep English</button>')
+    expect(changed).toContain('title="Key: F">Keep English</button>')
     expect(changed.match(/Keep English/g)).toHaveLength(1)
 
     const snap: TimingSuggestion = { line_id: 7, start: 1, end: 3, new_start: 1.2, new_end: 2.8 }
@@ -223,7 +223,7 @@ describe('check queue card', () => {
 
 describe('a flagged line outside the check queue', () => {
   const speed = { ...LINE, flag: 'reading_speed', flag_note: '25.2 characters/second -- more than ~17/s is hard to read in time. The speech is this fast: shorten the text.' }
-  const SPEED_SENTENCE = 'This subtitle is too fast to read: 25.2 characters a second, and more than about 17 is hard to read in time. Shorten the text.'
+  const SPEED_SENTENCE = 'Too fast to read: 25.2 characters a second (over 17 is hard). Shorten the text.'
   const free = { ...LINE, flag: 'uncertain_translation', flag_note: 'the pun on 饺子 may not land' }
   const FREE_SENTENCE = 'The English may not say what the source says, or may read awkwardly. Read both and fix the English if needed. Note: The pun on 饺子 may not land'
   const unknown = { ...LINE, flag: 'uncertain', flag_note: 'check' }

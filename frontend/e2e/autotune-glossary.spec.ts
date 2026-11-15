@@ -539,7 +539,7 @@ test.describe('PC-only stage deletes', () => {
     await page.getByRole('button', { name: 'Confirm remove audio/video' }).click()
     await expect(page.getByText('Removed. Lines are untouched.')).toBeVisible()
     await openSection(page, 'Novel text')
-    await expect(page.getByRole('link', { name: 'Build the glossary from this novel in Translate →' })).toHaveAttribute('href', '#/drama/1/translate?tab=glossary')
+    await expect(page.getByRole('link', { name: 'Build glossary in Translate →' })).toHaveAttribute('href', '#/drama/1/translate?tab=glossary')
     // The raw novel's own panel sits on the Tools tab.
     await selectMediaTab(page, 'tools')
     const raw = page.getByRole('region', { name: 'Raw source novel (original language, used as reference)' })
@@ -548,7 +548,7 @@ test.describe('PC-only stage deletes', () => {
     await raw.getByRole('button', { name: 'Confirm remove raw novel' }).click()
     await expect(raw.getByRole('status')).toHaveText('Removed.')
     await selectMediaTab(page, 'add')
-    await expect(page.getByRole('link', { name: /Build the glossary from this novel/ })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: /Build glossary/ })).toHaveCount(0)
     expect(posted.map((u) => new URL(u).pathname)).toEqual([
       '/api/media/dramas/1/remove',
       '/api/novel/dramas/1/raw-novel/remove',

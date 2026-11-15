@@ -98,7 +98,7 @@ export function FloatingFrame({ width, onWidth, onReturn, hostRef }: Props) {
         aria-valuemax={clampFloatWidth(Infinity, viewportWidth)}
         aria-valuenow={w}
         aria-valuetext={`${w} pixels wide`}
-        title="Drag to resize, or use the arrow keys"
+        title="Drag to resize"
         onPointerDown={onResizeDrag}
         onKeyDown={onResizeKey}
       />

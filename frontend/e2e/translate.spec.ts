@@ -64,7 +64,7 @@ test('an engine with no key is marked and says where to add one', async ({ page 
   await engine.selectOption('claude')
   await expect(page.getByRole('button', { name: 'Translate', exact: true })).toBeDisabled()
   await expect(page.getByText('Still needed: an API key for Claude.')).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Add it in Settings' })).toHaveAttribute('href', '#/settings')
+  await expect(page.getByRole('link', { name: 'Add a key in Settings' })).toHaveAttribute('href', '#/settings')
   await expect(page.getByLabel('Model')).toBeVisible()
 })
 

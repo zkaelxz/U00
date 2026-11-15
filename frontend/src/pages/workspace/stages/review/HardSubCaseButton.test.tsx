@@ -14,13 +14,13 @@ const html = () => renderToStaticMarkup(<HardSubCaseButton dramaId={1} line={lin
 describe('HardSubCaseButton', () => {
   it('is the one named action, enabled, on the PC', () => {
     const out = html()
-    expect(out).toContain('Add a hard-sub test case')
+    expect(out).toContain('Add hard-sub case')
     expect(out).not.toContain('disabled')
   })
 
   it('shows while the PC is not yet confirmed (the server enforces)', () => {
     state.pc = 'unknown'
-    expect(html()).toContain('Add a hard-sub test case')
+    expect(html()).toContain('Add hard-sub case')
   })
 
   it('is not rendered at all on a remote page', () => {

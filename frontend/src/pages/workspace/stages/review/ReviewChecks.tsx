@@ -137,7 +137,7 @@ export function ReviewChecks({ dramaId, reloads, onGoTo, onChanged, jobRunning, 
             {noteCount > 0 && (
               <Section storageKey="review.notesExport" title="Notes export" count={noteCount} summary="Markdown">
                 <a href={notesMarkdownUrl(dramaId)} target="_blank" rel="noreferrer" className="review-jump" data-testid="notes-markdown">
-                  Open translation notes as Markdown
+                  Notes (.md)
                 </a>
               </Section>
             )}
