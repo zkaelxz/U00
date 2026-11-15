@@ -3170,10 +3170,50 @@ def test_init_db_opens_when_the_stored_version_is_malformed(isolated_db, monkeyp
     assert _stored_version() == "2.0.5"
 
 
-def test_a_source_checkout_neither_checks_nor_records_a_version(isolated_db, monkeypatch):
+def test_a_source_checkout_opens_a_newer_library_and_keeps_its_stamp(isolated_db, monkeypatch):
     db.set_app_setting(db.APP_VERSION_SETTING, "9.9.9")
     _open_as(monkeypatch, None)
     assert _stored_version() == "9.9.9"
+
+
+@pytest.mark.parametrize("stored", [None, "0.0.1", "dev"])
+def test_a_source_checkout_stamps_its_library_with_the_release_it_works_towards(
+        isolated_db, monkeypatch, stored):
+    import portable
+    if stored is None:
+        with contextlib.closing(db.get_conn()) as conn:
+            conn.execute("DELETE FROM app_settings WHERE key = ?", (db.APP_VERSION_SETTING,))
+            conn.commit()
+    else:
+        db.set_app_setting(db.APP_VERSION_SETTING, stored)
+    _open_as(monkeypatch, None)
+    assert _stored_version() == portable.SOURCE_VERSION
+
+
+def test_a_checkout_library_is_refused_by_the_release_before_and_opened_by_its_own(
+        isolated_db, monkeypatch):
+    import portable
+    from lib.errors import NewerDatabaseError
+    monkeypatch.setattr(portable, "SOURCE_VERSION", "2.1.0-dev")
+    _open_as(monkeypatch, None)
+    with pytest.raises(NewerDatabaseError):
+        _open_as(monkeypatch, "2.0.9")
+    _open_as(monkeypatch, "2.1.0")
+    assert _stored_version() == "2.1.0"
+    _open_as(monkeypatch, None)   # the release's stamp is not lowered back to -dev
+    assert _stored_version() == "2.1.0"
+
+
+def test_source_version_is_not_behind_any_release_note():
+    # A release note for a newer version with SOURCE_VERSION left behind means
+    # its bump after the last tag was forgotten, and that release would open
+    # libraries made by checkouts newer than it.
+    import glob
+    import portable
+    notes = glob.glob(os.path.join(os.path.dirname(portable.__file__), "release", "v*-notes.md"))
+    versions = [db._version_tuple(os.path.basename(p)[1:-len("-notes.md")]) for p in notes]
+    assert versions and all(versions)
+    assert db._version_tuple(portable.SOURCE_VERSION) >= max(versions)
 
 
 def test_installed_app_version_comes_from_the_install_manifest(tmp_path, monkeypatch):

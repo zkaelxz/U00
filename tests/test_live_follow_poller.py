@@ -457,7 +457,7 @@ def test_push_goes_out_only_when_asked_and_with_its_own_text(isolated_db, monkey
     notification_service.reset_for_tests()
     monkeypatch.delenv(notification_service.DISABLED_ENV, raising=False)
     monkeypatch.setattr(notification_service, "configured_channels", lambda: ["ntfy"])
-    monkeypatch.setattr(notification_service, "_schedule_flush", lambda: None)
+    monkeypatch.setattr(notification_service, "_schedule_flush", lambda *_: None)
     notification_service.notify_live_follow("Member ch is live now", 11, 1, start_action=True)
     assert notification_service._pending == []
     notification_service.notify_live_follow("Mine scheduled a stream", None, 2, starts_at=NOW,

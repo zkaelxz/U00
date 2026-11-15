@@ -11,6 +11,7 @@ const STATUS = {
   send_jobs: false,
   send_chapters: true,
   send_remote: true,
+  show_private_titles: false,
 }
 
 const reply = (body: unknown, status = 200) =>

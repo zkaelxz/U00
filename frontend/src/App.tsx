@@ -30,6 +30,7 @@ import { useHiddenNav } from './nav/hiddenNav'
 import { BackButton } from './nav/BackButton'
 import { MenuButton, NavDrawer } from './nav/NavDrawer'
 import { PhoneBar } from './nav/PhoneBar'
+import { usePhoneBarWanted } from './nav/phoneBarRequest'
 import { PopOutMenu } from './nav/PopOutMenu'
 import { isPopOutWindow } from './nav/popOut'
 import { DOCK_MIN_WIDTH } from './nav/navItems'
@@ -272,6 +273,7 @@ export default function App() {
   const popOut = isPopOutWindow()
   // A pop-out has no side nav, drawer or phone bar: its header carries the page switcher instead, at every width.
   const wide = useMediaQuery(`(min-width: ${DOCK_MIN_WIDTH}px)`) && !popOut
+  const menuWanted = usePhoneBarWanted()
   const navDock = useNavDock()
   const navPosition = useNavPosition()
   const headerRef = useHeaderHeight()
@@ -309,8 +311,9 @@ export default function App() {
   if (view === 'login' && !signedOut) return <LoginPage configured={signInConfigured} />
   const user = menuUser(session)
   const navContext = { session, pcMode, developerMode, hidden, features, simple: viewMode === 'simple' }
-  // Title workspaces and readers keep the header's Menu button: their bottom edge belongs to their own actions.
-  const phoneBar = !wide && !popOut && !BOUNDED_ROUTES.has(route.name)
+  // Title workspaces and readers keep the header's Menu button: their bottom edge belongs to their own actions. The one
+  // exception is a page that makes room for the menu under its own bar and asks for it.
+  const phoneBar = !wide && !popOut && (!BOUNDED_ROUTES.has(route.name) || (route.name === 'drama' && menuWanted))
   // Left is the original layout and adds nothing; on a phone only the bar can move, and only to the top.
   const shellClass = [
     'app-shell',
@@ -430,7 +433,7 @@ export default function App() {
         </div>
         {!wide && !popOut && <NavDrawer route={route} context={navContext} open={menuOpen} onOpenChange={setMenuOpen} viewMode={viewMode} onViewMode={storeMode} />}
         <GlobalShortcuts route={route} />
-        {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} />}
+        {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} words={BOUNDED_ROUTES.has(route.name)} />}
       </div>
     </JobsProvider>
   )

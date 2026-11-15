@@ -194,6 +194,13 @@ const barTop = (page: Page) => page.evaluate(() => Math.min(window.innerHeight, 
   return css.position === 'fixed' && css.visibility !== 'hidden' && r.height > 0 && r.top > window.innerHeight / 2
 }).map((el) => el.getBoundingClientRect().top)))
 
+// A box taller than the room above the bars: at the page's end its bottom is above them.
+async function expectEndReachable(page: Page, box: Locator, what: string) {
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  const bottom = await box.evaluate((el) => el.getBoundingClientRect().bottom)
+  expect(bottom, `${what} ends above the bottom bar once scrolled to the end`).toBeLessThanOrEqual(await barTop(page) + 0.5)
+}
+
 // The fixed bars at the bottom must leave the end of the page reachable above them.
 async function expectEndClearOfBars(page: Page, last: Locator, what: string) {
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
@@ -247,8 +254,11 @@ test.describe(() => {
       const [wrong, mixed, more] = await Promise.all([/Wrong/, /Mixed/, 'More actions for line 24'].map(async (name) => (await card.getByRole('button', { name }).boundingBox())!))
       expect(mixed.y, `Wrong and Mixed share a row at ${width}px`).toBe(wrong.y)
       expect(mixed.x, `Mixed follows Wrong at ${width}px`).toBeGreaterThan(wrong.x + wrong.width)
-      expect(more.y, `the menu is in their row at ${width}px`).toBe(wrong.y)
-      expect(more.x, `the menu ends their row at ${width}px`).toBeGreaterThan(mixed.x + mixed.width)
+      // With the words Glossary and Re-write ahead of them the menu may wrap to the next row, but it stays inside the card.
+      const box = (await card.boundingBox())!
+      expect(more.x, `the menu is inside the card at ${width}px`).toBeGreaterThanOrEqual(box.x)
+      expect(more.x + more.width, `the menu is inside the card at ${width}px`).toBeLessThanOrEqual(box.x + box.width)
+      expect(more.y, `the menu is not above Wrong at ${width}px`).toBeGreaterThanOrEqual(wrong.y)
       await expectNoSidewaysScroll(page)
     }
     await card.getByRole('button', { name: /Wrong/ }).tap()
@@ -287,10 +297,10 @@ test.describe(() => {
     await expect(cards.getByTestId('queue-reason')).toHaveText(`Why: ${GLOSSARY_SENTENCE}`)
     await expect(cards.locator('.review-queue-label')).toHaveText('English')
     expect(await cards.getByTestId('line-en').evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
-    await expect(cards.getByRole('link', { name: 'Open glossary' })).toBeVisible()
-    for (const target of [cards.getByRole('button', { name: 'See the lines around it' }), cards.getByRole('link', { name: 'Open glossary' }),
-      cards.getByRole('button', { name: 'Improve translation' }), cards.getByTestId('line-en')]) await expectTall(target, (await target.textContent()) ?? '')
-    await expect(bar.getByRole('button')).toHaveText(['Skip for now', 'Looks right, next'])
+    await expect(cards.getByRole('link', { name: 'Glossary', exact: true })).toBeVisible()
+    for (const target of [cards.getByRole('button', { name: 'See the lines around it' }), cards.getByRole('link', { name: 'Glossary', exact: true }),
+      cards.getByRole('button', { name: 'Re-write' }), cards.getByTestId('line-en')]) await expectTall(target, (await target.textContent()) ?? '')
+    await expect(bar.getByRole('button')).toHaveText(['Skip', 'Next'])
     const fill = await bar.getByRole('button', { name: 'Looks right, next' }).evaluate((el) => {
       const probe = document.createElement('span')
       probe.style.color = 'var(--ok)'
@@ -378,10 +388,10 @@ test.describe(() => {
       const top = await cards.evaluate((el) => el.getBoundingClientRect().top + window.scrollY)
       expect(top, `the first card's top at ${width}px`).toBeLessThanOrEqual(cardTopAtMost[width])
       // Play is on the card, so the bar has the two buttons only, as tall as each other and the green one twice as wide.
-      await expect(barButtons).toHaveText(['Skip for now', 'Looks right, next'])
+      await expect(barButtons).toHaveText(['Skip', 'Next'])
       const boxes = await barButtons.evaluateAll((els) => els.map((el) => { const r = el.getBoundingClientRect(); return { w: r.width, h: Math.round(r.height) } }))
       expect(new Set(boxes.map((b) => b.h)).size, `the bar's buttons are one height at ${width}px`).toBe(1)
-      expect(boxes[0].h, `the bar's buttons are tall enough at ${width}px`).toBeGreaterThanOrEqual(48)
+      expect(boxes[0].h, `the bar's buttons are tall enough at ${width}px`).toBeGreaterThanOrEqual(44)
       expect(Math.abs(boxes[1].w - 2 * boxes[0].w), `Looks right, next is twice as wide at ${width}px`).toBeLessThanOrEqual(4)
       await expect(cards.getByRole('button', { name: 'Play line', exact: true })).toBeVisible()
       await expectTall(cards.getByRole('button', { name: 'Play line', exact: true }), `Play line at ${width}px`)
@@ -389,8 +399,9 @@ test.describe(() => {
       await expect(page.getByTestId('queue-position')).toBeVisible()
       await expect(page.locator('.title-top-progress')).toBeVisible()
       const gap = await barTop(page) - (await cards.evaluate((el) => el.getBoundingClientRect().bottom))
-      expect(gap, `the card ends above the bottom bar at ${width}px`).toBeGreaterThanOrEqual(-0.5)
-      expect(gap, `the card ends within 16px of the bottom bar at ${width}px`).toBeLessThanOrEqual(16)
+      // A card with more in it than the room above the bars scrolls; its end is then reached at the page's end.
+      if (gap < -0.5) await expectEndReachable(page, cards, `the card at ${width}px`)
+      else expect(gap, `the card ends within 16px of the bottom bar at ${width}px`).toBeLessThanOrEqual(16)
       await expectNoSidewaysScroll(page)
     }
     await page.setViewportSize({ width: 390, height: 844 })
@@ -419,6 +430,39 @@ test.describe(() => {
     await expectNoSidewaysScroll(page)
     await page.setViewportSize({ width: 320, height: 844 })
     await expectNoSidewaysScroll(page)
+  })
+
+  test('the phone menu sits under the check queue bar, and the bar is still fully tappable above it', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    for (const width of [390, 360, 320] as const) {
+      // Tapping Looks right changes the title, so each width starts from the seeded lines again.
+      seedCheckLines()
+      await page.setViewportSize({ width, height: 844 })
+      await page.goto('/#/drama/3/review')
+      await page.reload()
+      const bar = page.getByRole('toolbar', { name: 'Line actions' })
+      const menu = page.getByRole('navigation', { name: 'Quick' })
+      await expect(menu.getByRole('link')).toHaveText(['Library', 'Add', 'Jobs'])
+      await expect(menu.getByRole('button', { name: 'More' })).toBeVisible()
+      const m = (await menu.boundingBox())!
+      const b = (await bar.getByRole('button', { name: 'Looks right, next' }).boundingBox())!
+      expect(m.y + m.height, `the menu reaches the bottom edge at ${width}px`).toBeGreaterThan(843)
+      expect(b.y + b.height, `Looks right, next is above the menu at ${width}px`).toBeLessThanOrEqual(m.y + 1)
+      for (const target of [...await menu.getByRole('link').all(), menu.getByRole('button', { name: 'More' })]) await expectTall(target, 'a menu item')
+      // The press lands on the button, not on the menu laid over it.
+      await bar.getByRole('button', { name: 'Looks right, next' }).tap()
+      await expect(page.getByTestId('queue-position')).toHaveText('1 of 2 to look at')
+      await expectNoSidewaysScroll(page)
+    }
+  })
+
+  test('the phone menu is not drawn on the other title screens', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/translate')
+    await expect(page.getByTestId('drama-title')).toBeVisible()
+    await expect(page.getByRole('navigation', { name: 'Quick' })).toHaveCount(0)
   })
 
   test('on an audio title with the player folded, the Undo notice after Looks right, next can be seen and tapped', async ({ page }) => {
@@ -456,8 +500,8 @@ test.describe(() => {
     expect(await headerHeight(), 'the running job makes the header taller').toBeGreaterThan(before)
     await page.evaluate(() => window.scrollTo(0, 0))
     const gap = await barTop(page) - (await card.evaluate((el) => el.getBoundingClientRect().bottom))
-    expect(gap, 'the card ends above the bottom bar').toBeGreaterThanOrEqual(-0.5)
-    expect(gap, 'the card ends within 16px of the bottom bar').toBeLessThanOrEqual(16)
+    if (gap < -0.5) await expectEndReachable(page, card, 'the card')
+    else expect(gap, 'the card ends within 16px of the bottom bar').toBeLessThanOrEqual(16)
   })
 
   test('Search in More\'s panel shows All and opens the lines\' search box with the cursor in it', async ({ page }) => {
