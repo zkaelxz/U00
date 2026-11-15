@@ -67,13 +67,29 @@ def build_consistency_prompt(batch: list, source_language=None) -> str:
     )
 
 
+# A summary of a very long episode sent every line: 112,000 characters for 4,563 lines, which a
+# local model cannot answer inside the request deadline, so the title got no summary after a
+# 10-minute wait. An episode over this size is cut to its opening and, mostly, its ending, since
+# the next episode needs where things stand now. Shorter episodes are sent whole, as before.
+EPISODE_SUMMARY_SOURCE_CHARS = 40_000
+_EPISODE_SUMMARY_HEAD_CHARS = 12_000
+_CUT_MARK = "\n[... the middle of the episode is left out ...]\n"
+
+
+def _summary_source(body: str) -> str:
+    if len(body) <= EPISODE_SUMMARY_SOURCE_CHARS:
+        return body
+    tail = EPISODE_SUMMARY_SOURCE_CHARS - _EPISODE_SUMMARY_HEAD_CHARS
+    return body[:_EPISODE_SUMMARY_HEAD_CHARS] + _CUT_MARK + body[-tail:]
+
+
 def build_episode_summary_prompt(lines) -> str:
     """The per-episode running-summary prompt -- one call over the
     WHOLE finished episode's English text, not a per-batch window (unlike
     build_consistency_prompt above), since the point is a fixed, once-per-
     episode artifact that the next episode's translation can afford to
-    read in full."""
-    body = "\n".join(ln.en.strip() for ln in lines if (ln.en or "").strip())
+    read. A very long episode is cut to its opening and ending (see above)."""
+    body = _summary_source("\n".join(ln.en.strip() for ln in lines if (ln.en or "").strip()))
     return (
         "Below is the complete English translation of one finished episode from an "
         "ongoing series. Write a short running summary for continuity into the NEXT "
