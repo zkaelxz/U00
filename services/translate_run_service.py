@@ -36,7 +36,8 @@ import bulk_poll
 import bulk_translate
 import translation_finish
 import db
-from engine_backends import engine_registry, llm_tasks, pricing
+from engine_backends import engine_registry, llm_tasks, paid_calls, pricing
+from engine_backends import prompts as engine_prompts
 from engine_backends import gemini as engine_gemini
 from engine_backends import shared as engine_shared
 from engine_backends import local as engine_local
@@ -224,6 +225,43 @@ def validate_run_options(engine_name: str, model, *, locale: str, style_preset: 
                                 f"batch's reply can be cut off by the engine's output limit.")
 
 
+def _estimate_run_calls(drama_id, drama, stand_in, targets, zh_lines, batch_size, reflect,
+                        context_lines, *, whole_title, bulk) -> float:
+    """Dollars for every paid call a translate run makes: its batches (with the
+    title's real prompt), the pre-read of the whole episode and the episode summary.
+    The summary is priced on its own engine, which Settings can set apart from the run's."""
+    is_novel = drama.get("content_mode") == "novel_narration"
+    ids = {ln["id"] for ln in targets}
+    lines = [ln for ln in db.load_line_objects(drama_id) if ln.id in ids]
+    glossary_terms, style_guidelines, _ = workspace_job_service.build_run_style_context(
+        drama_id, drama, lines, "novel" if is_novel else "audio_drama",
+        engine_name=stand_in.name, model=stand_in.model)
+    stable_text = engine_prompts.build_stable_system_text({
+        "drama_meta": drama, "style_guidelines": style_guidelines, "glossary_terms": glossary_terms})
+    inp, out, repeated = pricing.estimate_run_tokens(zh_lines, batch_size, stable_text, context_lines)
+    cached = repeated if stand_in.name == "claude" else 0
+    total = float(pricing.estimate_cost_for_engine(stand_in, inp, out, cached))
+    if reflect:
+        total *= 3  # three calls per batch instead of one
+    if bulk:
+        return total
+    if (whole_title and len(zh_lines) >= 2 and settings_service.get("episode_brief")
+            and not (drama.get("episode_brief") or "").strip()
+            and stand_in.name not in engine_registry.TRANSLATION_ONLY_ENGINES):
+        total += pricing.estimate_cost_for_engine(
+            stand_in, *pricing.estimate_episode_brief_tokens(zh_lines))
+    summary = str(settings_service.get("episode_summary_engine"))
+    summary_model = (stand_in.model if summary == stand_in.name
+                     else engine_registry.effective_default_model(summary))
+    summary_engine = SimpleNamespace(
+        name=summary, model=summary_model,
+        free_tier=summary == "gemini" and bool(settings_service.get("gemini_free_tier")))
+    if paid_calls.is_paid(summary, summary_engine):
+        total += pricing.estimate_cost_for_engine(
+            summary_engine, *pricing.estimate_episode_summary_tokens(zh_lines))
+    return total
+
+
 def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model: str | None = None,
                             reflect: bool = False, force_retranslate: bool = False,
                             bulk: bool = False, gemini_free_tier: bool | None = None,
@@ -264,12 +302,15 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
         # The helpers only read name/model/free_tier, so a stand-in avoids
         # constructing a real engine (SDK import, key, network).
         stand_in = SimpleNamespace(name=engine_name, model=resolved_model, free_tier=free_tier)
-        fn = (pricing.estimate_reflect_mode_cost if reflect
-              else pricing.estimate_translation_cost)
+        is_novel = drama.get("content_mode") == "novel_narration"
+        defaults = get_translate_config_defaults(is_novel, engine_name, model)
         if batch_size is None:
-            batch_size = get_translate_config_defaults(
-                drama.get("content_mode") == "novel_narration", engine_name, model)["batch_size"]
-        estimated = float(fn(stand_in, [ln["zh"] for ln in targets], batch_size))
+            batch_size = defaults["batch_size"]
+        zh_lines = [ln["zh"] for ln in targets]
+        estimated = _estimate_run_calls(
+            drama_id, drama, stand_in, targets, zh_lines, batch_size, reflect,
+            (defaults["context_window"], defaults["context_window_ahead"]),
+            whole_title=line_ids is None, bulk=bulk)
         if bulk and not reflect and cap_applies:
             estimated *= bulk_translate.BATCH_PRICE_FACTOR
 
