@@ -65,19 +65,23 @@ const MakeSubtitlesPage = lazy(() => import('./pages/MakeSubtitlesPage'))
 const TranslatePage = lazy(() => import('./pages/Translate'))
 const WorkspaceShell = lazy(() => import('./pages/workspace/WorkspaceShell'))
 
-// Shown only when the server can't be reached; the version lives in
-// Diagnostics and in problem reports, where it is useful.
 const API_STATUS_RECHECK_MS = 30_000
 
-function ApiStatus() {
-  const [down, setDown] = useState(false)
+type ApiState = 'unknown' | 'up' | 'down'
+
+// "Can't reach Baihe" everywhere once a check has failed. With room for words (a wide window or a pop-out) the
+// last answered check also shows "Connected", and before the first answer nothing shows, so a slow start never
+// claims a state it hasn't checked. Not a live region: it would be read out on every page. The version lives in
+// Diagnostics and in problem reports, where it is useful.
+function ApiStatus({ showConnected }: { showConnected: boolean }) {
+  const [state, setState] = useState<ApiState>('unknown')
 
   // Checked again on a timer and when the window comes back to the front: a single check
   // at load never showed a server that stopped later, nor cleared once it came back.
   useEffect(() => {
     let stopped = false
     const check = () => {
-      api.meta().then(() => !stopped && setDown(false), () => !stopped && setDown(true))
+      api.meta().then(() => !stopped && setState('up'), () => !stopped && setState('down'))
     }
     check()
     const timer = window.setInterval(check, API_STATUS_RECHECK_MS)
@@ -89,7 +93,14 @@ function ApiStatus() {
     }
   }, [])
 
-  if (!down) return null
+  if (state === 'up' && showConnected) {
+    return (
+      <span className="api-connected" data-testid="api-connected">
+        <span aria-hidden="true">●</span> Connected
+      </span>
+    )
+  }
+  if (state !== 'down') return null
   return (
     <span className="badge bad" data-testid="api-status">
       Can't reach Baihe
@@ -112,6 +123,8 @@ function UserMenu({ user }: { user: AuthUser | null }) {
   const [error, setError] = useState<string | null>(null)
   const label = user ? (user.email ?? user.display_name ?? 'Signed in') : 'Account'
   const initial = accountInitial(user)
+  // Never the address: it is long and private enough that it only shows inside the open panel.
+  const shownName = user?.display_name?.trim() || 'Account'
 
   async function onSignOut() {
     setBusy(true)
@@ -126,14 +139,17 @@ function UserMenu({ user }: { user: AuthUser | null }) {
 
   return (
     <details className="user-menu" ref={ref}>
-      <summary aria-label={`Account: ${user?.display_name ?? label}`}>
-        <span className="user-menu-avatar" aria-hidden="true">
+      <summary className="hb-box" aria-label={`Account: ${user?.display_name ?? label}`}>
+        <span className="user-menu-avatar hb-icon" aria-hidden="true">
           {initial ?? (
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <circle cx="12" cy="8" r="4" />
               <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
             </svg>
           )}
+        </span>
+        <span className="hb-words user-menu-name" aria-hidden="true">
+          <span className="user-menu-name-text">{shownName}</span> ▾
         </span>
       </summary>
       <div className="user-menu-panel">
@@ -299,16 +315,20 @@ export default function App() {
     (wide ? navPosition !== 'left' : phoneBar && navPosition === 'top') && `nav-${navPosition}`,
   ].filter(Boolean).join(' ')
 
+  // Wide windows and pop-outs have room for the controls' words. The PIN profile button and the account use up some of it, so their steps come earlier (index.css).
+  const room = wide || popOut
+  const headerEndClass = ['header-end', room && 'has-room', room && (profile.status?.pin_set || canSignOut(session)) && 'has-extras'].filter(Boolean).join(' ')
+
   const headerEnd = (
-    <div className="header-end">
-      {(wide || popOut) && <ViewModeSwitch mode={viewMode} onChange={storeMode} />}
+    <div className={headerEndClass}>
+      {room && <ViewModeSwitch mode={viewMode} onChange={storeMode} />}
       <CommandPalette route={route} context={navContext} />
+      <ReportProblemButton hidden={!room} />
       <JobsMenu />
       <NotificationBell />
-      <ReportProblemButton hidden={!wide && !popOut} />
-      {(wide || popOut) && <KeyboardHelpButton />}
-      {(wide || popOut) && <ThemeMenu />}
-      <ApiStatus />
+      {room && <KeyboardHelpButton />}
+      {room && <ThemeMenu />}
+      <ApiStatus showConnected={room} />
       {profile.status?.pin_set && <ProfileSwitch guest={profile.status.guest} />}
       {canSignOut(session) && <UserMenu user={user} />}
     </div>

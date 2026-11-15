@@ -55,7 +55,7 @@ export function seenAfter(items: NotificationItem[], prev: Seen): Seen {
 }
 
 export function bellLabel(unread: number): string {
-  return unread > 0 ? `Notifications (${unread} new)` : 'Notifications'
+  return unread > 0 ? `Alerts (${unread} new)` : 'Alerts'
 }
 
 const KIND_BADGE: Record<NotificationKind, { tone: BadgeTone; label: string }> = {

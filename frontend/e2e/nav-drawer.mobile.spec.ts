@@ -15,7 +15,7 @@ test('the header keeps the Menu button, brand and the icon controls, with no nav
   await expect(menu).toHaveAttribute('aria-expanded', 'false')
   await expect(page.locator('.app-header').getByRole('link', { name: 'Baihe Studio' })).toHaveAttribute('href', '#/library')
   await expect(page.getByRole('button', { name: /^Jobs/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: /^Notifications/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Alerts/ })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0)
   await expect(page.locator('summary[aria-label="Settings and tools"]')).toHaveCount(0)
   const box = (await menu.boundingBox())!

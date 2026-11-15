@@ -585,15 +585,79 @@ details.section[open] > summary::before { content: '\25BE'; }
   .field-help-btn { width: 24px; height: 24px; }
   .field-help-btn::after { inset: -12px; }
 }
-/* Narrower than a wide desktop the header buttons (theme button included) would wrap: "Report a problem" shows its icon only. */
-@media (max-width: 1360px) {
-  .app-header button.report-btn > span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* Each header control carries an icon (.hb-icon) and its words (.hb-words); the icon is today's form and the default. Where the
+   header has room the words replace it, in three fixed steps by the room the controls themselves have (.header-end is a size
+   container: the menu docked, minimized, floating or absent, a Back button and a pop-out's page menu all take their share
+   before the controls see it). Fixed numbers, not a script that measures during a resize, so nothing flickers at an edge.
+   As room runs out: Report a problem falls back to its flag, then the search box to its icon and key, then Jobs, Alerts,
+   Shortcuts, Theme and the account fall back to their icons together. The widths are the controls' own natural widths
+   plus 10px gaps and a margin, in rem so a larger text size moves them; the second set is for a header that also carries
+   the PIN profile button or the account (329px more). Below the last step the controls move to a row of their own and, if that is
+   still too narrow, wrap within it, rather than overlap or push the page sideways. */
+.header-end.has-room { flex: 1 1 0; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2) 10px; min-width: min(40rem, 100%); container: header-end / inline-size; }
+.header-end.has-room.has-extras { min-width: min(55.5rem, 100%); }
+/* A control never gives up width to its neighbours: a word broken across lines is worse than the steps below being a little early. */
+.header-end.has-room > * { flex-shrink: 0; }
+.header-end .hb-words { display: none; }
+.header-end .api-connected { color: var(--ok); font-size: var(--text-sm); white-space: nowrap; }
+
+/* The page-view switch as drawn: a white box holding two choices, the chosen one tinted and bold. Scoped to the header; the phone
+   drawer and the other segmented controls keep their own look. */
+.header-end fieldset.segmented.view-mode-switch { padding: 2px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.header-end fieldset.segmented.view-mode-switch label { padding: 6px 12px; border-radius: var(--radius-sm); color: var(--text); font-size: var(--text-md); }
+.header-end fieldset.segmented.view-mode-switch label:has(input:checked) { background: var(--accent-soft); color: var(--text); font-weight: var(--weight-bold); box-shadow: none; }
+@media (pointer: fine) and (min-width: 641px) {
+  .header-end fieldset.segmented.view-mode-switch label { min-height: 0; }
+  .header-end fieldset.segmented.view-mode-switch { min-height: var(--control-h); }
+}
+
+/* Frost and Soft draw the other header buttons as boxes in their own stylesheets; these two are plain until they sit in the row. */
+.header-end.has-room :is(button.keys-btn, details.user-menu > summary) { border-color: var(--btn-edge); background: var(--btn); box-shadow: var(--btn-shadow); }
+html[data-style='soft'] .header-end.has-room :is(button.keys-btn, details.user-menu > summary) { border-color: transparent; border-radius: var(--radius-pill); font-weight: 700; }
+.header-end .user-menu-name-text { display: inline-block; max-width: 14em; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+
+@container header-end (min-width: 69rem) {
+  .header-end:not(.has-extras) button.report-btn { padding: 6px 12px; font-size: var(--text-md); color: var(--text); }
+  .header-end:not(.has-extras) button.report-btn .hb-icon { display: none; }
+  .header-end:not(.has-extras) button.report-btn .hb-words { display: inline; }
+}
+@container header-end (min-width: 91rem) {
+  .header-end.has-extras button.report-btn { padding: 6px 12px; font-size: var(--text-md); color: var(--text); }
+  .header-end.has-extras button.report-btn .hb-icon { display: none; }
+  .header-end.has-extras button.report-btn .hb-words { display: inline; }
+}
+@container header-end (min-width: 62rem) {
+  .header-end:not(.has-extras) button.palette-btn { padding: 6px 12px; font-size: var(--text-md); white-space: nowrap; }
+  .header-end:not(.has-extras) button.palette-btn .hb-icon { display: none; }
+  .header-end:not(.has-extras) button.palette-btn .hb-words { display: inline; }
+  .header-end:not(.has-extras) button.palette-btn kbd { padding: 0; border: 0; font-size: inherit; }
+}
+@container header-end (min-width: 84rem) {
+  .header-end.has-extras button.palette-btn { padding: 6px 12px; font-size: var(--text-md); white-space: nowrap; }
+  .header-end.has-extras button.palette-btn .hb-icon { display: none; }
+  .header-end.has-extras button.palette-btn .hb-words { display: inline; }
+  .header-end.has-extras button.palette-btn kbd { padding: 0; border: 0; font-size: inherit; }
+}
+@container header-end (min-width: 52rem) {
+  .header-end:not(.has-extras) .hb-box { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; height: auto; min-width: 0; padding: 6px 10px; font-size: var(--text-sm); white-space: nowrap; color: var(--text); }
+  .header-end:not(.has-extras) details.user-menu > summary.hb-box { border-radius: var(--radius); }
+  @media (pointer: fine) { .header-end:not(.has-extras) details.user-menu > summary.hb-box { min-height: var(--control-h); } }
+  .header-end:not(.has-extras) .hb-box .hb-icon { display: none; }
+  .header-end:not(.has-extras) .hb-box .hb-words { display: inline; }
+  .header-end:not(.has-extras) :is(.jobs-count, .notify-count) { position: static; }
+}
+@container header-end (min-width: 74rem) {
+  .header-end.has-extras .hb-box { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: auto; height: auto; min-width: 0; padding: 6px 10px; font-size: var(--text-sm); white-space: nowrap; color: var(--text); }
+  .header-end.has-extras details.user-menu > summary.hb-box { border-radius: var(--radius); }
+  @media (pointer: fine) { .header-end.has-extras details.user-menu > summary.hb-box { min-height: var(--control-h); } }
+  .header-end.has-extras .hb-box .hb-icon { display: none; }
+  .header-end.has-extras .hb-box .hb-words { display: inline; }
+  .header-end.has-extras :is(.jobs-count, .notify-count) { position: static; }
 }
 @media (max-width: 640px) {
   .app-header .badge.ok { display: none; }
-  /* "Report a problem" is a 44px icon button in the title row; the text stays its accessible name. */
+  /* "Report a problem" is a 44px icon button in the title row; its aria-label stays its accessible name. */
   .app-header button.report-btn { min-width: 44px; min-height: 44px; justify-content: center; padding-inline: 0; }
-  .app-header button.report-btn > span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .app-header { row-gap: var(--space-2); padding-bottom: var(--space-2); }
 }
 @media (pointer: coarse), (max-width: 640px) { .history-read { display: inline-flex; align-items: center; min-height: 44px; } }

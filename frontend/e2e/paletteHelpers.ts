@@ -2,7 +2,7 @@ import { expect, type Page } from '@playwright/test'
 
 import { hideDiscoverFromSettings } from './customizeMenu'
 
-export const searchButton = (page: Page) => page.getByRole('button', { name: 'Quick search', exact: true })
+export const searchButton = (page: Page) => page.getByRole('button', { name: 'Search pages and titles', exact: true })
 export const palette = (page: Page) => page.getByRole('dialog', { name: 'Quick search' })
 export const paletteInput = (page: Page) => palette(page).getByRole('combobox')
 
