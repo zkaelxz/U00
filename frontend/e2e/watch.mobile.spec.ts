@@ -140,7 +140,7 @@ for (const width of [390, 360, 320]) {
     await more.tap()
 
     // Fixing opens on a tap, with the same size rules.
-    await page.getByRole('button', { name: 'Fix this line' }).tap()
+    await page.getByRole('button', { name: 'Fix Line' }).tap()
     await expect(page.getByRole('textbox', { name: 'English' })).toHaveValue(LONG_LINE)
     expect(await smallTargets(page)).toEqual([])
     expect(await sideways(page)).toBeLessThanOrEqual(0)
