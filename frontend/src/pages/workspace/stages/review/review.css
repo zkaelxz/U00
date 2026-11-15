@@ -343,7 +343,8 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   button.review-clear { min-width: var(--touch); min-height: var(--touch); }
   .review-body { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .review-line { padding: var(--space-1) var(--space-2); }
-  .review-line-meta { flex-wrap: nowrap; }
+  /* Wraps rather than squeezing: at 320px a speaker beside a Source changed badge would shrink to nothing. */
+  .review-line-meta { flex-wrap: wrap; }
   .review-speaker { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* ⋯ sits in the row's top-right corner, out of the meta line's flow. `.stage-review` outweighs index.css's phone
      `.btn.btn-sm { position: relative }`, which otherwise left ⋯ after the last item, over the source text and past the

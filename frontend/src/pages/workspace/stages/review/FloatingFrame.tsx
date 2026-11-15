@@ -16,7 +16,9 @@ interface Props {
 // On a phone Review's line bar (Play, Prev, Next, Edit; Skip and Looks right in the check queue) is fixed along the
 // bottom: the box stays above it, or it would cover those buttons until dragged away. PhoneEditBar publishes its live
 // height as --editbar-h (unset while it is not shown, as on wider screens).
-const barInset = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--editbar-h')) || 0
+const cssPx = (name: string) => parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0
+// The phone selection bar (--selbar-h, only while lines are ticked) sits right above the line bar, and the box above both.
+const barInset = () => cssPx('--editbar-h') + cssPx('--selbar-h')
 
 // An in-page floating box for browsers without Document Picture-in-Picture (Firefox, Safari, phones,
 // pages not served over HTTPS or localhost). Dragging and resizing have button and key equivalents.
@@ -71,7 +73,7 @@ export function FloatingFrame({ width, onWidth, onReturn, hostRef }: Props) {
   }
 
   return createPortal(
-    <div ref={box} className="review-float" role="group" aria-label="Floating player" style={{ width: w, right: `min(${pos.right}px, calc(100vw - ${w}px))`, bottom: `calc(${pos.bottom}px + var(--editbar-h, 0px))` }}>
+    <div ref={box} className="review-float" role="group" aria-label="Floating player" style={{ width: w, right: `min(${pos.right}px, calc(100vw - ${w}px))`, bottom: `calc(${pos.bottom}px + var(--editbar-h, 0px) + var(--selbar-h, 0px))` }}>
       <div className="review-float-bar" onPointerDown={onMoveDrag} title="Drag to move">
         <span className="review-float-grip" aria-hidden="true">⠿</span>
         <span className="review-float-title">Player</span>

@@ -67,6 +67,27 @@ db.save_lines(3, [Line(idx=i, start=i + 1, end=i + 2, zh='一', en='Line %d' % i
   })
 }
 
+test('phone: the floating player opens above the selection bar, not over Actions… and Clear', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'documentPictureInPicture', { configurable: true, value: undefined })
+    localStorage.setItem('baihe.pref.title.view', JSON.stringify('full'))
+  })
+  await page.goto('/#/drama/3/review')
+  await page.locator('.review-line:not(.review-skeleton)').first().getByRole('checkbox').check({ force: true })
+  const selbar = page.getByTestId('selection-bar')
+  await expect(selbar).toBeVisible()
+  await page.getByRole('button', { name: 'Pop out' }).tap()
+  const float = page.getByRole('group', { name: 'Floating player' })
+  await expect(float).toBeVisible()
+  await expect
+    .poll(async () => {
+      const box = (await float.boundingBox())!
+      return box.y + box.height - (await selbar.boundingBox())!.y
+    })
+    .toBeLessThanOrEqual(0)
+  await selbar.getByRole('button', { name: 'Clear' }).tap({ trial: true })
+})
+
 test('phone: when the filter chips scroll, the row fades at the edge they continue past', async ({ page }) => {
   execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db
 from core import Line
