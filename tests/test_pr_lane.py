@@ -15,23 +15,15 @@ import pr_lane  # noqa: E402
 IDENTITY = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid"}
 
-# init_db is lines 8 to 12: the tests below edit inside it, next to it and after it.
-DB_INIT = '''"""db"""
-
-
-def other():
-    return 1
-
-
-def init_db():
-    steps = []
-    steps.append("a")
-    steps.append("b")
-    return steps
-
-
-def later():
-    return 2
+# A table statement over several lines: the line a column is added on names no statement.
+TOKENS = '''"""tokens"""
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS tokens (
+    id INTEGER PRIMARY KEY,
+    label TEXT
+)
+"""
+OTHER = 1
 '''
 
 
@@ -55,7 +47,7 @@ def new_repo(path):
     path.mkdir()
     git(path, "init", "-q")
     git(path, "symbolic-ref", "HEAD", "refs/heads/main")
-    commit(path, {"a.py": "a = 1\n", "shared.py": "x = 1\n", "db/__init__.py": DB_INIT,
+    commit(path, {"a.py": "a = 1\n", "shared.py": "x = 1\n", "device_tokens.py": TOKENS,
                   "services/migrate.py": 'conn.execute("ALTER TABLE a ADD COLUMN b TEXT")\nx = 1\n'}, "seed")
     return path
 
@@ -156,6 +148,7 @@ def test_only_the_user_guide_files_directly_in_docs_are_exempt(repo, path):
     ("android/gradle.properties", "dependency file"),
     ("android/gradle/wrapper/gradle-wrapper.properties", "dependency file"),
     ("android/gradlew", "dependency file"),
+    ("db/__init__.py", "database schema"),
     ("db/migrations.py", "database schema"),
     ("db/schema.py", "database schema"),
     ("db/schema_system.py", "database schema"),
@@ -170,7 +163,7 @@ def test_the_files_kae_guards_always_take_the_overlap_lane(repo, path, why):
 
 @pytest.mark.parametrize("path", [
     "api/routers/jobs_routes.py", "api/routers/x_schemas.py", "services/x.py", "docs/user-guide.md",
-    "installer/service_lock.py", "installer/setup_lock.py", "tools/pr_lane.py", "tests/test_db.py", "db/__init__.py",
+    "installer/service_lock.py", "installer/setup_lock.py", "tools/pr_lane.py", "tests/test_db.py", "db/reading.py",
     "android/app/src/main/java/App.kt", "frontend/src/App.tsx",
 ])
 def test_other_files_are_not_guarded_by_their_path(path):
@@ -183,32 +176,34 @@ def test_every_file_that_makes_ci_run_everything_takes_the_overlap_lane():
     assert paths and all(pr_lane.path_kind(p) == "CI file" for p in paths)
 
 
-def _db(old, new):
-    assert old in DB_INIT
-    return DB_INIT.replace(old, new)
-
-
-@pytest.mark.parametrize("edit,counts", [
-    (('    return 1\n', '    return 11\n'), False),   # another function, before init_db
-    (('    return 2\n', '    return 22\n'), False),   # another function, after it
-    (('    steps.append("a")\n', '    steps.append("a2")\n'), True),   # a step changed
-    (('    steps.append("b")\n', ''), True),   # a step deleted
-    (('    steps.append("b")\n', '    steps.append("b")\n    steps.append("c")\n'), True),   # a step added
-    (('    return steps\n', '    return steps\n\n\ndef added():\n    return 3\n'), False),   # a function next to it
+@pytest.mark.parametrize("old,new", [
+    ("    label TEXT\n", "    label TEXT,\n    scope TEXT DEFAULT ''\n"),   # a column added inside the statement
+    ("    label TEXT\n", "    label TEXT NOT NULL\n"),   # a column's definition changed
+    ("    id INTEGER PRIMARY KEY,\n", ""),   # a column dropped
+    ("OTHER = 1\n", "OTHER = 2\n"),   # a line of the file that is no part of the statement: the whole file counts
 ])
-def test_in_db_init_only_an_edit_to_init_db_counts(repo, edit, counts):
-    v = lane(repo, {"db/__init__.py": _db(*edit)})
-    assert (v.always == {"db/__init__.py": "database schema"}) is counts
+def test_any_edit_to_a_python_file_that_holds_a_table_statement_is_a_schema_change(repo, old, new):
+    assert old in TOKENS
+    v = lane(repo, {"device_tokens.py": TOKENS.replace(old, new)})
+    assert v.always == {"device_tokens.py": "database schema"}
 
 
-def test_an_unreadable_db_init_is_assumed_to_count(repo):
-    v = lane(repo, {"db/__init__.py": "def other(:\n"})
-    assert v.always == {"db/__init__.py": "database schema"}
+def test_a_new_module_with_a_table_statement_is_a_schema_change(repo):
+    v = lane(repo, {"services/new_store.py": 'SQL = """\nCREATE TABLE t (\n    id INTEGER\n)\n"""\n'})
+    assert v.always == {"services/new_store.py": "database schema"}
+
+
+def test_deleting_a_module_that_holds_a_table_statement_is_a_schema_change(repo):
+    git(repo, "checkout", "-q", "-b", "feature")
+    git(repo, "rm", "-q", "device_tokens.py")
+    git(repo, "commit", "-q", "-m", "drop the module")
+    git(repo, "checkout", "-q", "main")
+    assert pr_lane.decide(repo, "main", "feature").always == {"device_tokens.py": "database schema"}
 
 
 @pytest.mark.parametrize("path,text,counts", [
     ("services/x.py", 'conn.execute("ALTER TABLE a ADD COLUMN b TEXT")\n', True),
-    ("device_tokens.py", "CREATE TABLE IF NOT EXISTS t (id INTEGER)\n", True),
+    ("services/tokens.py", "CREATE TABLE IF NOT EXISTS t (id INTEGER)\n", True),
     ("services/x.py", "db._safe_alter(conn, sql)\n", True),
     ("services/x.py", 'sql = "create unique index i on t (c)"\n', True),
     ("services/x.py", "x = 1\n", False),
@@ -226,8 +221,7 @@ def test_removing_a_table_statement_is_a_schema_change_too(repo):
 
 
 def test_editing_the_tool_itself_is_not_a_schema_change():
-    lines = Path(pr_lane.__file__).read_text(encoding="utf-8").splitlines()
-    assert not [line for line in lines if pr_lane.TABLE_STATEMENT.search(line)]
+    assert not pr_lane.TABLE_STATEMENT.search(Path(pr_lane.__file__).read_text(encoding="utf-8"))
 
 
 def test_a_long_list_is_cut_and_counted():
@@ -241,6 +235,8 @@ def test_the_report_leads_with_the_verdict_and_the_exit_status_follows_it(repo, 
     assert run(repo, "--head", "feature") == 0
     first, summary = capsys.readouterr().out.splitlines()[:2]
     assert first == "clear" and "last merged the base at" in summary
+    # The head is named so the report can be held against the commit of the green run.
+    assert git(repo, "rev-parse", "feature")[:7] in summary
     git(repo, "checkout", "-q", "-b", "other", "main")
     commit(repo, {".github/workflows/tests.yml": "x\n"})
     assert run(repo, "--head", "other") == 1
@@ -274,7 +270,8 @@ def test_a_criss_cross_history_cannot_be_decided(repo, capsys):
     assert "more than one merge base" in capsys.readouterr().out
 
 
-def test_the_base_is_fetched_first_so_a_stale_clone_cannot_clear_a_pr(tmp_path, capsys):
+@pytest.mark.parametrize("narrow", [False, True], ids=["full refspec", "one-branch clone"])
+def test_the_base_is_fetched_first_so_a_stale_clone_cannot_clear_a_pr(tmp_path, capsys, narrow):
     origin = tmp_path / "origin.git"
     origin.mkdir()
     git(origin, "init", "-q", "--bare")
@@ -282,6 +279,9 @@ def test_the_base_is_fetched_first_so_a_stale_clone_cannot_clear_a_pr(tmp_path, 
     work = new_repo(tmp_path / "work")
     git(work, "remote", "add", "origin", str(origin))
     git(work, "push", "-q", "origin", "main")
+    if narrow:
+        # A one-branch clone maps no other branch, so a plain `git fetch origin main` leaves origin/main where it was.
+        git(work, "config", "remote.origin.fetch", "+refs/heads/feature:refs/remotes/origin/feature")
     git(work, "checkout", "-q", "-b", "feature")
     commit(work, {"shared.py": "x = 2\n"})
     other = tmp_path / "other"

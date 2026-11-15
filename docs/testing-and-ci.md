@@ -64,16 +64,17 @@ To check the lane, run this on the PR's branch:
 
     python tools/pr_lane.py
 
-It fetches `baihe-subtitler` first, so a stale clone cannot clear a PR, and prints `clear` or `overlap` on its first line with the
-reason under it: which changed files are under "Always the overlap lane", and which files the PR shares with what the base has
-merged since. The merge report quotes its output. Exit status 0 is clear, 1 is overlap and 2 is "could not decide" (for
-example, a shallow clone that does not reach the last base commit the branch merged: deepen it, as the message says); the first
-line then still reads `overlap`, because a failure never clears a PR. It does not read the run: the owner still checks for a full
-green run at the exact head. It reads a database schema change as any edit to `db/migrations.py`, `db/schema.py`,
-`db/schema_system.py` or `sources/store.py`, to `init_db` in `db/__init__.py`, or to a line that creates, alters or drops a
-table, index, view or trigger in any other Python file outside `tests/`; and a dependency file by its name wherever it sits
-(`package.json`, `package-lock.json`, `go.mod`, `go.sum`, `*.lock`, `*.lock.txt`, `requirements*.txt`, `constraints*.txt`, and the
-Gradle files under `android/`). Where it cannot tell, it errs towards the overlap lane.
+It fetches `baihe-subtitler` first, so a stale clone cannot clear a PR. Its first line is `clear` or `overlap`; under it come the
+head commit it read, to hold against the commit of the green run, and the reason: which changed files are under "Always the
+overlap lane", and which files the PR shares with what the base has merged since. The merge report quotes its output. Exit
+status 0 is clear, 1 is overlap and 2 is "could not decide" (for example, a shallow clone that does not reach the last base
+commit the branch merged: deepen it, as the message says); the first line then still reads `overlap`, because a failure never
+clears a PR. It does not read the run: the owner still checks for a full green run at the exact head. It reads a database schema
+change as any edit to `db/__init__.py`, `db/migrations.py`, `db/schema.py`, `db/schema_system.py` or `sources/store.py`, or to
+any other Python file outside `tests/` that holds a `CREATE`, `ALTER` or `DROP` of a table, index, view or trigger, whichever
+line changed (a column added inside a multi-line statement changes no line that names it); and a dependency file by its name
+wherever it sits (`package.json`, `package-lock.json`, `go.mod`, `go.sum`, `*.lock`, `*.lock.txt`, `requirements*.txt`,
+`constraints*.txt`, and the Gradle files under `android/`). Where it cannot tell, it errs towards the overlap lane.
 
 By hand, from the PR's branch (bash), the same check is:
 

@@ -1,7 +1,7 @@
 """Prints which merge lane a branch takes, `clear` or `overlap` with the reason (docs/testing-and-ci.md, "Merge flow").
 
     python tools/pr_lane.py                    # HEAD against origin/baihe-subtitler, fetched first
-    python tools/pr_lane.py --head origin/some-branch
+    python tools/pr_lane.py --head origin/some-branch   # only the base is fetched; the report names the head it read
     python tools/pr_lane.py --no-fetch         # the base as this clone already has it
 
 Exit status 0 is clear, 1 is overlap and 2 is "could not decide"; the first line then still says `overlap`, because a
@@ -9,7 +9,6 @@ failure must never clear a PR. The lane is one half of the clear-lane test: the 
 still read from GitHub. Stdlib only.
 """
 import argparse
-import ast
 import fnmatch
 import re
 import subprocess
@@ -29,10 +28,12 @@ LISTED = 12  # paths named on one line of the report; the rest are counted
 # overlap lane. Two PRs that change the same lines still conflict, and GitHub refuses that merge.
 USER_GUIDE_PATTERN = "user-guide*.md"
 
-# A database schema change is any diff that adds or edits a table statement or a migration list. These files hold
-# nothing else, so any change to them counts; in any other Python file only the changed lines are read.
-SCHEMA_FILES = frozenset({"db/migrations.py", "db/schema.py", "db/schema_system.py", "sources/store.py"})
-INIT_DB_FILE = "db/__init__.py"  # also holds code that is no schema, so only edits to init_db count
+# A database schema change is any diff that adds or edits a table statement or a migration list. Any change to these
+# files counts: they hold the migration lists, some of which (a column list) name no statement at all. Another Python
+# file counts when it holds a table statement, whichever line changed: a column added inside a multi-line statement
+# changes no line that names the statement.
+SCHEMA_FILES = frozenset({"db/__init__.py", "db/migrations.py", "db/schema.py", "db/schema_system.py",
+                          "sources/store.py"})
 TABLE_STATEMENT = re.compile(
     r"\b(?:CREATE|ALTER|DROP)\s+(?:\w+\s+)?(?:TABLE|INDEX|VIEW|TRIGGER)\b|\bADD\s+COLUMN\b|\b_safe_alter\b",
     re.IGNORECASE)
@@ -50,6 +51,7 @@ class LaneError(Exception):
 
 @dataclass
 class Verdict:
+    head: str
     merge_base: str
     base_tip: str
     pr_files: int
@@ -64,8 +66,8 @@ class Verdict:
 
     def lines(self):
         out = ["clear" if self.clear else "overlap",
-               f"  The branch last merged the base at {self.merge_base[:7]}. The base is now at {self.base_tip[:7]}: "
-               f"{self.base_files} files changed there since, {self.pr_files} on the branch."]
+               f"  Head {self.head[:7]}. The branch last merged the base at {self.merge_base[:7]}. The base is now at "
+               f"{self.base_tip[:7]}: {self.base_files} files changed there since, {self.pr_files} on the branch."]
         if self.always:
             out.append("  Always the overlap lane: " + _listing(f"{p} ({why})" for p, why in sorted(self.always.items())))
         if self.shared:
@@ -104,7 +106,9 @@ def _names(root, old, new):
 def _fetch(root, base):
     remote, _, branch = base.partition("/")
     if branch:  # a local branch name has nothing to fetch
-        _out(root, "fetch", remote, branch)
+        # The refspec is spelled out because a clone that maps only its own branch would take `git fetch origin
+        # <branch>` into FETCH_HEAD and leave `origin/<branch>` at the commit it had, which reads a stale base.
+        _out(root, "fetch", remote, f"+refs/heads/{branch}:refs/remotes/{remote}/{branch}")
 
 
 def _merge_base(root, base, head):
@@ -143,33 +147,21 @@ def path_kind(path):
     return None
 
 
-def _touches_init_db(root, rev, patch):
-    try:
-        tree = ast.parse(_out(root, "show", f"{rev}:{INIT_DB_FILE}"))
-    except (LaneError, SyntaxError):
-        return True  # an edit that cannot be placed is assumed to count
-    span = next(((n.lineno, n.end_lineno) for n in ast.walk(tree)
-                 if isinstance(n, ast.FunctionDef) and n.name == "init_db"), None)
-    if span is None:
-        return True
-    for hunk in re.finditer(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", patch, re.MULTILINE):
-        start, count = int(hunk.group(1)), int(hunk.group(2) or 1)
-        low, high = (start, start + count - 1) if count else (start, start + 1)  # a deletion sits between two lines
-        if low <= span[1] and high >= span[0]:
-            return True
-    return False
+def _text_at(root, rev, path):
+    """The file's text at `rev`; empty when the file is not there (it was added or deleted by the branch)."""
+    done = _git(root, "show", f"{rev}:{path}")
+    if done.returncode == 0:
+        return done.stdout
+    if _out(root, "ls-tree", "--name-only", rev, "--", path).strip():
+        raise LaneError(f"git show {rev}:{path} failed: {done.stderr.strip()[:200]}")
+    return ""
 
 
 def edits_schema(root, old, new, path):
-    """True when the diff of a Python file outside tests/ changes a table statement or an init_db step."""
+    """True when a Python file outside tests/ holds a table statement before or after the change."""
     if not path.endswith(".py") or path.startswith("tests/"):
         return False
-    patch = _out(root, "diff", "-U0", "--no-color", "--no-renames", old, new, "--", path)
-    changed = [line[1:] for line in patch.splitlines()
-               if line.startswith(("+", "-")) and not line.startswith(("+++", "---"))]
-    if any(TABLE_STATEMENT.search(line) for line in changed):
-        return True
-    return path == INIT_DB_FILE and _touches_init_db(root, new, patch)
+    return any(TABLE_STATEMENT.search(_text_at(root, rev, path)) for rev in (old, new))
 
 
 def decide(root, base, head):
@@ -182,9 +174,10 @@ def decide(root, base, head):
         if why:
             always[path] = why
     both = sorted(pr_files & base_files)
-    return Verdict(merge_base=merge_base, base_tip=_out(root, "rev-parse", base).strip(), pr_files=len(pr_files),
-                   base_files=len(base_files), always=always,
-                   shared=[p for p in both if not _is_user_guide(p)], exempt=[p for p in both if _is_user_guide(p)])
+    return Verdict(head=_out(root, "rev-parse", head).strip(), merge_base=merge_base,
+                   base_tip=_out(root, "rev-parse", base).strip(), pr_files=len(pr_files), base_files=len(base_files),
+                   always=always, shared=[p for p in both if not _is_user_guide(p)],
+                   exempt=[p for p in both if _is_user_guide(p)])
 
 
 def main(argv=None, root=ROOT):
