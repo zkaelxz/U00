@@ -1,11 +1,10 @@
 /** The check queue's part of the Review line list: the view it opens on, the rows it shows, and the switch, footer and Undo around them. */
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 
 import { setReviewed } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { useRoute } from '../../../../router'
-import { createPortal } from 'react-dom'
-
 import { useCheckLead, useCheckSignal, useLinesOnAll, usePlayerDock, useSearchRequest } from '../../StageContext'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
@@ -46,7 +45,7 @@ interface Deps {
   ctl: LinesController
   pending: MutableRefObject<Pending | null>
   st: MutableRefObject<LinesState>
-  changeFilter: (f: LineFilter) => Promise<void>
+  changeFilter: (f: LineFilter) => Promise<boolean>
   onChanged: () => void
   setError: (e: unknown) => void
   // The Player toggle of an audio title: drawn in the header's More row (see useQueueMedia), so it is only placed here.
@@ -93,10 +92,8 @@ export function useCheckQueue(d: Deps) {
   useEffect(() => {
     searchRef.current = async () => {
       const { filter, searching } = st.current
-      if (!searching && filter !== 'all') {
-        if (!(await ctl.leaveEdit())) return
-        await d.changeFilter('all')
-      }
+      // An ask left unanswered would take the focus whenever the search box is next drawn, so it is raised only once the lines are on All.
+      if (!searching && filter !== 'all' && !(await d.changeFilter('all'))) return
       setSearchAsk((n) => n + 1)
     }
   })

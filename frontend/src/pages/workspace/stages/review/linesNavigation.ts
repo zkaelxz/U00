@@ -30,12 +30,14 @@ interface LinesNavigationDeps {
 // Each first saves (or keeps) a dirty draft. Rebuilt every render.
 export function buildLinesNavigation(deps: LinesNavigationDeps) {
   const { dramaId, ctl, st, pending, listRef, searching, filter, page, place, setFilter, setPage, setInput, setTerm, setStatus, setError } = deps
-const changeFilter = async (f: LineFilter) => {
-  if (!(await ctl.leaveEdit())) return
+// Whether the view changed: false when a draft that cannot be saved holds the person where they are.
+const changeFilter = async (f: LineFilter): Promise<boolean> => {
+  if (!(await ctl.leaveEdit())) return false
   setFilter(f)
   setPage(place.pageFor(f))
   setInput('')
   setTerm('')
+  return true
 }
 const changeSearch = async (v: string) => {
   // The box takes the keystroke at once: waiting for the save first dropped
