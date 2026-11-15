@@ -148,7 +148,7 @@ class ReviewLinesPage(BaseModel):
     shaky_count: int = Field(default=0, description=(
         "Unchecked lines Whisper was unsure of (the `shaky` filter), in the whole drama."))
     risk_count: int = Field(default=0, description=(
-        "Unchecked translated lines with a flag or low confidence (the `risk` filter), in the whole drama."))
+        "Unchecked translated lines with a flag, low confidence or no speaker (the `risk` filter), in the whole drama."))
     no_speaker_count: int = Field(default=0, description=(
         "Lines with words but no speaker that nobody cleared by hand, in the whole drama; "
         "0 when no line has a speaker."))

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 import { clearDrama3Lines } from './reviewResultsSeed'
 import { clearTurns, guesses, row, seedBlankSpeakers, speakers } from './speakerGuessHelpers'
@@ -16,7 +16,7 @@ for (const view of ['full', 'simple'] as const) test(`fill blank speakers from t
   seedBlankSpeakers()
   await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
   await page.goto('/#/drama/3/review')
-  // Simple opens on the lines that need a look; blank speakers are under All.
+  // Simple opens on the lines that need a look, which lists the blank speakers too; this flow reads them under All.
   if (view === 'simple') await page.getByRole('radio', { name: /^All/ }).check()
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(7)
 
@@ -26,7 +26,8 @@ for (const view of ['full', 'simple'] as const) test(`fill blank speakers from t
   await expect(guesses(page, 1)).toHaveCount(0)
   await expect(guesses(page, 6).getByRole('button')).toHaveText([/Anok/, /Cray/])
 
-  // N goes to the first line with no speaker; 1 takes its first guess and moves to the next one.
+  // N goes to the first line with no speaker after the open one; 1 takes its first guess and moves to the next one.
+  await row(page, 1).click()
   await page.getByRole('button', { name: 'Next with no speaker (3) ›' }).click()
   await expect(row(page, 2)).toBeFocused()
   await page.keyboard.press('1')
@@ -57,4 +58,32 @@ for (const view of ['full', 'simple'] as const) test(`fill blank speakers from t
   await row(page, 1).click()
   await page.keyboard.press('n')
   await expect(row(page, 6)).toBeFocused()
+})
+
+// A queue card has no tick box, so the lines are found by their source text (line n holds 第n-1句).
+const card = (page: Page, n: number) => page.locator('.review-line').filter({ hasText: `第${n - 1}句` })
+
+test('a line with no speaker is in Simple\'s Need a look, and taking a speaker moves to the next card', async ({ page }) => {
+  seedBlankSpeakers()
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', JSON.stringify('simple')))
+  await page.goto('/#/drama/3/review')
+  // The three blank lines are all that is listed: nothing else in this title is flagged or unsure.
+  await expect(page.getByText('Need a look 3', { exact: true })).toBeVisible()
+  await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(3)
+  // The open card is the first one; a closed card gives its reason in a few words.
+  await expect(card(page, 3).getByTestId('queue-reason')).toHaveText('No speaker yet')
+  await expect(guesses(page, 2).getByRole('button')).toHaveText([/Cray/, /Anok/])
+
+  // 1 takes the first guess; the line leaves the queue and the next card opens, not the first.
+  await card(page, 2).click()
+  await page.keyboard.press('1')
+  await expect(page.getByText('Need a look 2', { exact: true })).toBeVisible()
+  await expect(card(page, 2)).toHaveCount(0)
+  await expect(card(page, 3)).toBeFocused()
+  expect(speakers()[1]).toBe('Cray')
+
+  // Undo of the speaker puts the line back in the queue.
+  await page.getByTestId('speaker-undo').getByRole('button', { name: 'Undo' }).click()
+  await expect(page.getByText('Need a look 3', { exact: true })).toBeVisible()
+  await expect(card(page, 2)).toBeVisible()
 })

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import {
-  alsoUnsureText, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, nextAfterCheck, nextText, otherFineText,
+  alsoUnsureText, confidenceReason, fineText, initialLinesFilter, JOB_RUNNING_TEXT, markRestBlocker, nextAfterCheck, nextText, NO_SPEAKER_FIRST, NO_SPEAKER_REASON, onlyNeedsSpeaker, otherFineText,
   positionText, queueAction, queueCounts, queueReason, QUEUE_FLAG_KINDS, restUnchecked, UNSURE_FIRST, untranslatedText, WHOLE_LIST_FIRST,
 } from './checkQueueModel'
 
@@ -226,6 +226,24 @@ describe('queue reasons', () => {
     expect(queueReason({ flag: null, flag_note: null, confidence: 0.5 })).toEqual({ text: 'Whisper was unsure of this line (50% sure)', short: 'Whisper was unsure (50% sure)' })
     expect(queueReason({ flag: null, flag_note: null, confidence: 0.9 })).toBeNull()
   })
+
+  it('says a confident, unflagged line with no speaker is listed for that, and keeps any other reason first', () => {
+    const blank = line(3)
+    expect(queueReason(blank)).toEqual(NO_SPEAKER_REASON)
+    expect(queueReason({ ...blank, speaker: 'Anok' })).toBeNull()
+    expect(queueReason({ ...blank, speaker_manual: true })).toBeNull()
+    expect(queueReason({ ...blank, sfx: true })).toBeNull()
+    expect(queueReason({ ...blank, confidence: 0.5 })?.short).toBe('Whisper was unsure (50% sure)')
+    expect(queueReason({ ...blank, flag: 'reading_speed' })?.short).toBe('Fast to read')
+    expect(queueAction(blank)).toBeNull()
+  })
+
+  it('knows which lines only a speaker would take out of the queue', () => {
+    expect(onlyNeedsSpeaker(line(1))).toBe(true)
+    expect(onlyNeedsSpeaker(line(1, { flag: 'reading_speed' }))).toBe(false)
+    expect(onlyNeedsSpeaker(line(1, { confidence: 0.5 }))).toBe(false)
+    expect(onlyNeedsSpeaker(line(1, { speaker: 'Anok' }))).toBe(false)
+  })
 })
 
 describe('the action that fits the reason', () => {
@@ -263,6 +281,7 @@ describe('the phone card', () => {
     expect(nextText(shown, 24)).toBe('Next: line 12, fast to read · line 7, Whisper was unsure (50% sure)')
     expect(nextText(shown, 7)).toBe('Next: line 9, times off the speech')
     expect(nextText(shown, 9)).toBeNull()
+    expect(nextText([line(1, { flag: 'reading_speed' }), line(2)], 1)).toBe('Next: line 2, no speaker yet')
     expect(nextText(shown, null)).toBeNull()
   })
 })
@@ -314,6 +333,11 @@ describe('markRestBlocker', () => {
 
   it('refuses while an unflagged low-score line is listed: Mark episode reviewed would mark it unseen', () => {
     expect(markRestBlocker(page([line(1, { flag: 'reading_speed' }), line(2, { confidence: 0.5 })]), false)).toBe(UNSURE_FIRST)
+  })
+
+  it('refuses while a line with no speaker is listed, in words about the speaker', () => {
+    expect(markRestBlocker(page([line(1, { flag: 'reading_speed' }), line(2)]), false)).toBe(NO_SPEAKER_FIRST)
+    expect(markRestBlocker(page([line(2), line(3, { confidence: 0.5 })]), false)).toBe(UNSURE_FIRST)
   })
 
   it('refuses while the queue runs past this page, where its lines cannot be seen', () => {

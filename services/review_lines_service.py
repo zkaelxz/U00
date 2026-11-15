@@ -111,17 +111,29 @@ _RISK_FLAG_WEIGHT = {
 }
 _RISK_UNKNOWN_FLAG = 2
 _RISK_CONFIDENCE_BELOW = 0.8  # wider than SHAKY_BELOW: a middling score still adds a little
+# Below every flag weight: a missing speaker is a one-tap fix, and a title with many blanks must not
+# bury the lines whose meaning may be wrong.
+_RISK_NO_SPEAKER = 0.5
 
 
-def _risk_score(ln) -> float:
+def _risk_score(ln, speakers_known: bool = False) -> float:
     """Rough 'how likely a person must fix this' from signals already stored on the line.
-    0 means nothing is known against it; a reviewed or untranslated line is never ranked."""
+    0 means nothing is known against it; a reviewed or untranslated line is never ranked.
+    `speakers_known` is whether any line of the title has a speaker: without one, a blank
+    speaker is not a gap (see no_speaker_count)."""
     if ln.reviewed or not (ln.en or "").strip():
         return 0.0
     score = float(_RISK_FLAG_WEIGHT.get(ln.flag, _RISK_UNKNOWN_FLAG)) if ln.flag else 0.0
     if ln.confidence is not None and ln.confidence < _RISK_CONFIDENCE_BELOW:
         score += 3 * (_RISK_CONFIDENCE_BELOW - ln.confidence) / _RISK_CONFIDENCE_BELOW
+    if speakers_known and needs_speaker(ln):
+        score += _RISK_NO_SPEAKER
     return score
+
+
+def _risk_scores(lines) -> list:
+    speakers_known = any(ln.speaker for ln in lines)
+    return [_risk_score(ln, speakers_known) for ln in lines]
 
 
 def _find_line(lines, line_id):
@@ -141,7 +153,8 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
     """One page of lines, optionally only flagged, only untranslated, only
     unreviewed (translated but not marked checked) or only shaky (Whisper was unsure
     and nobody has checked since), least confident first, or `risk`: unchecked lines
-    with a flag or low confidence, most worrying first. The counts are
+    with a flag, low confidence or (in a title that has speakers) no speaker, most
+    worrying first. The counts are
     always over the whole drama, not the filtered view. An out-of-range
     page returns an empty `lines` list rather than an error."""
     if only not in _ONLY_VALUES:
@@ -158,7 +171,7 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
     untranslated = sum(1 for ln in texts if _is_untranslated(ln))
     unreviewed = sum(1 for ln in texts if _is_unreviewed(ln))
     shaky = sum(1 for ln in texts if _is_shaky(ln))
-    risky = sum(1 for ln in texts if _risk_score(ln) > 0)
+    risky = sum(1 for score in _risk_scores(texts) if score > 0)
     # A title whose lines carry no speaker at all never had speakers detected (or is a
     # novel); its lines are not waiting for one.
     no_speaker = (sum(1 for ln in texts if needs_speaker(ln))
@@ -350,7 +363,7 @@ def _visible(lines, only: str) -> list:
     if only == "unreviewed":
         return [ln for ln in lines if _is_unreviewed(ln)]
     if only == "risk":
-        scored = [(_risk_score(ln), ln) for ln in lines]
+        scored = list(zip(_risk_scores(lines), lines))
         # sorted() is stable, so equal scores stay in line order.
         return [ln for score, ln in sorted((x for x in scored if x[0] > 0), key=lambda x: -x[0])]
     if only == "shaky":
