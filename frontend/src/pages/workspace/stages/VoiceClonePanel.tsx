@@ -29,7 +29,7 @@ import type { SeriesCharacter } from '../../../types/autotuneGlossary'
 import { isTerminalStatus, jobFailed } from '../../../types/jobs'
 import type { CharacterEntry, VoiceBankEntry } from '../../../types/translateStage'
 import type { VoiceCloneCandidates, VoiceCloneSpeakerCandidates } from '../../../types/voiceClone'
-import { useStage } from '../StageContext'
+import { useStage, useStageFocus } from '../StageContext'
 import './voiceClone.css'
 import {
   CLIP_ACCEPT,
@@ -293,6 +293,8 @@ export function VoiceClonePanel() {
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   useReattachJob([voiceCloneJobId(dramaId)], adoptJob)
   const [candReload, setCandReload] = useState(0)
+  // Listen's Change voice link (?focus=voices) opens this card and scrolls to it once the speakers have loaded.
+  const focusSignal = useStageFocus('voices', 'voice-clone', entries !== null)
 
   useEffect(() => {
     let cancelled = false
@@ -340,6 +342,7 @@ export function VoiceClonePanel() {
       storageKey="dub.voices"
       title="Voices and cloning"
       defaultOpen
+      openSignal={focusSignal}
       count={entries?.length}
       summary={
         warnings.size
@@ -349,7 +352,7 @@ export function VoiceClonePanel() {
             : undefined
       }
     >
-      <div className="voice-clone" role="region" aria-label="Voices and cloning">
+      <div id="voice-clone" className="voice-clone" role="region" aria-label="Voices and cloning">
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         {loadForbidden && <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p>}
         {jobId && (
