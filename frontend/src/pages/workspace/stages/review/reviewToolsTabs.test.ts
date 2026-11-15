@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { readSectionOpen, writeSectionOpen, type StorageLike } from '../../../../components/sectionStorage'
 import {
-  asReviewToolsGroup, FIRST_CARD, groupOfTool, isReviewToolsGroup, readAddedTools, readLastTab, REVIEW_TOOLS, REVIEW_TOOLS_GROUPS,
+  activeToolsTab, asReviewToolsGroup, EPISODES_TAB, FIRST_CARD, LINE_TAB, lineTabOpen, remembersTab, groupOfTool, isReviewToolsGroup, readAddedTools, readLastTab, REVIEW_TOOLS, REVIEW_TOOLS_GROUPS,
   reviewToolsGroupForLink, seedFirstCard, shownGroups, shownTools, writeAddedTools, writeLastTab, type ReviewTool,
 } from './reviewToolsTabs'
 
@@ -164,5 +164,39 @@ describe('Review tools groups', () => {
   it('tolerates blocked storage', () => {
     expect(() => seedFirstCard(throwing, 'problems')).not.toThrow()
     expect(() => seedFirstCard(null, 'problems')).not.toThrow()
+  })
+})
+
+describe('the line tab', () => {
+  it('opens each time it is offered anew, unless the address names a group', () => {
+    expect(lineTabOpen({ offered: false, open: false }, true, false)).toBe(true)
+    expect(lineTabOpen({ offered: false, open: false }, true, true)).toBe(false)
+  })
+
+  it('keeps the last pick while it stays offered, and is never open once it goes', () => {
+    expect(lineTabOpen({ offered: true, open: false }, true, false)).toBe(false)
+    expect(lineTabOpen({ offered: true, open: true }, true, true)).toBe(true)
+    expect(lineTabOpen({ offered: true, open: true }, false, false)).toBe(false)
+    // Back again (Need a look after All): open again.
+    expect(lineTabOpen({ offered: false, open: false }, true, false)).toBe(true)
+  })
+
+  it('is never remembered as the title\'s last tab', () => {
+    expect(remembersTab(LINE_TAB)).toBe(false)
+    expect(remembersTab('problems')).toBe(true)
+  })
+})
+
+describe('the Episodes tab', () => {
+  it('is never remembered as the title\'s last tab, and no ?tools= link names it', () => {
+    expect(remembersTab(EPISODES_TAB)).toBe(false)
+    expect(asReviewToolsGroup(EPISODES_TAB)).toBeNull()
+    expect(reviewToolsGroupForLink(EPISODES_TAB, null)).toBeNull()
+  })
+
+  it('shows while picked, gives way to This line when a card opens, and otherwise leaves the group open', () => {
+    expect(activeToolsTab('change', false, true)).toBe(EPISODES_TAB)
+    expect(activeToolsTab('change', true, true)).toBe(LINE_TAB)
+    expect(activeToolsTab('change', false, false)).toBe('change')
   })
 })

@@ -12,6 +12,37 @@ export const REVIEW_TOOLS_GROUPS: { id: ReviewToolsGroup; label: string }[] = [
   { id: 'finish', label: 'Finish' },
 ]
 
+// The tools sit in a column beside the lines from this width; review.css's inspector rules use the same 1400px.
+export const TOOLS_BESIDE_LINES = '(min-width: 1400px)'
+
+// A tab another part of the stage can put first in the row (the check queue's open line). It is never a
+// remembered tab and no link names it, so it lives beside the groups rather than among them.
+export const LINE_TAB = 'line'
+export const LINE_TAB_LABEL = 'This line'
+// The same for the last tab of Simple's lines in a series (the title page and the Check step's page): the series' episodes.
+export const EPISODES_TAB = 'episodes'
+export const EPISODES_TAB_LABEL = 'Episodes'
+export type ToolsTab = ReviewToolsGroup | typeof LINE_TAB | typeof EPISODES_TAB
+
+/**
+ * Whether the line tab is the open one after a render: it opens each time it is offered anew, unless the address
+ * names a tools group; otherwise it stays as last picked. A tab that is no longer offered is never open.
+ */
+export function lineTabOpen(was: { offered: boolean; open: boolean }, offered: boolean, linked: boolean): boolean {
+  if (!offered) return false
+  if (!was.offered) return !linked
+  return was.open
+}
+
+/** Only a group is remembered as the title's last tab; the line tab comes and goes with the queue, and Episodes with the page. */
+export const remembersTab = (tab: ToolsTab): tab is ReviewToolsGroup => tab !== LINE_TAB && tab !== EPISODES_TAB
+
+/** The open tab: This line while it is open (it opens over Episodes when a card opens), then Episodes while picked, else the group. */
+export function activeToolsTab(group: ReviewToolsGroup, line: boolean, episodes: boolean): ToolsTab {
+  if (line) return LINE_TAB
+  return episodes ? EPISODES_TAB : group
+}
+
 export type ReviewTool =
   | 'checks' | 'flags' | 'coverage' | 'compareTranscription' | 'audioTags'
   | 'fixFlagged' | 'retranslate' | 'threeRun' | 'structure' | 'resplit' | 'merge' | 'shorten' | 'cleanup' | 'retime' | 'retranscribe' | 'voices'

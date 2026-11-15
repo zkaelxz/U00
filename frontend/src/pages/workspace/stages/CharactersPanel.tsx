@@ -419,12 +419,12 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
   }
   const [cands, setCands] = useState<VoiceCloneCandidates | null>(null)
   const [candReload, setCandReload] = useState(0)
+  // A clip goes with the line it was cut from, so a rename, merge or swap
+  // (or its undo) can move clips between speakers.
+  const reloadSamples = () => setCandReload((n) => n + 1)
   const [findFor, setFindFor] = useState<string | null>(null)
   // The start request is in flight: a second press would only be refused.
   const [findStarting, setFindStarting] = useState(false)
-  // A swap trades lines but the server keeps clips under their label, so a
-  // swapped speaker's clips are now the other voice: hidden until found again.
-  const [staleSamples, setStaleSamples] = useState<ReadonlySet<string>>(new Set())
   const [findError, setFindError] = useState<{ label: string; error: unknown } | null>(null)
   const [findJobId, setFindJobId, findRunKey, adoptFindJob] = useJobRun()
   // Picks up a search still running from an earlier visit (or from Review >
@@ -432,10 +432,7 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
   useReattachJob(drama.has_audio ? [voiceCloneJobId(dramaId)] : [], adoptFindJob)
   const { job: findJob, error: findPollError } = useJob(findJobId, {
     runKey: findRunKey,
-    onDone: () => {
-      if (findFor) setStaleSamples((cur) => new Set([...cur].filter((l) => l !== findFor)))
-      setCandReload((n) => n + 1)
-    },
+    onDone: () => setCandReload((n) => n + 1),
   })
   const finding = findStarting || (findJobId !== null && !findPollError && !(findJob && isTerminalStatus(findJob.status)))
   const findFailed = findPollError
@@ -465,7 +462,7 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
   }, [dramaId, drama.has_audio, candReload])
   const sampleFor = (label: string): SampleProps | null => drama.has_audio
     ? {
-        candidates: staleSamples.has(label) ? null : candidatesFor(cands, label),
+        candidates: candidatesFor(cands, label),
         extracting: finding,
         finding: finding && findFor === label,
         failed: findFor === label ? findFailed : null,
@@ -497,6 +494,7 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
     saveRenameUndo(dramaId, r.undo)
     setNotice(r.undo ? `Renamed ${r.undo.previous_label} to ${r.undo.speaker_label} on ${r.renamed} lines.` : null)
     setSuggestRefresh((n) => n + 1)
+    reloadSamples()
   }
   const merged = (r: MergeResult, sourceLabel: string, targetLabel: string) => {
     setEntries(r.characters)
@@ -511,13 +509,14 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
     saveRenameUndo(dramaId, null)
     setNotice(`Merged ${sourceLabel} into ${targetLabel}: ${r.moved} ${r.moved === 1 ? 'line' : 'lines'} moved.`)
     setSuggestRefresh((n) => n + 1)
+    reloadSamples()
   }
   const swapped = (r: SpeakerChangeResult, first: string, second: string) => {
     getCharacters(dramaId).then(setEntries, setError)
     setSwapUndo(r.undo.length ? r.undo : null)
     setNotice(`Swapped ${first} and ${second}: ${r.updated} ${r.updated === 1 ? 'line' : 'lines'} changed.`)
-    setStaleSamples((cur) => new Set([...cur, first, second]))
     setSuggestRefresh((n) => n + 1)
+    reloadSamples()
   }
   const runUndoSwap = () => {
     if (!swapUndo) return
@@ -529,6 +528,7 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
         getCharacters(dramaId).then(setEntries, setError)
         setNotice(`Put the speakers back on ${r.updated} ${r.updated === 1 ? 'line' : 'lines'}.`)
         setSuggestRefresh((n) => n + 1)
+        reloadSamples()
       },
       (e: unknown) => {
         setUndoBusy(false)
@@ -549,6 +549,7 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
         setNotice(`Put ${mergeUndo.source} back on ${r.moved} ${r.moved === 1 ? 'line' : 'lines'}.`)
         forgetMergeUndo()
         setSuggestRefresh((n) => n + 1)
+        reloadSamples()
       },
       (e: unknown) => {
         setUndoBusy(false)
@@ -570,6 +571,7 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
         saveRenameUndo(dramaId, null)
         setNotice(`Put ${undo.previous_label} back on ${r.renamed} lines.`)
         setSuggestRefresh((n) => n + 1)
+        reloadSamples()
       },
       (e: unknown) => {
         setUndoBusy(false)
