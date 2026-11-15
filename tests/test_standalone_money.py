@@ -59,7 +59,7 @@ def _request_cost():
 class TestCapPerRequest:
     def test_stops_before_the_request_that_would_pass_the_cap(self, paid, monkeypatch):
         first = _request_cost()
-        paid.tokens = pricing.estimate_translation_tokens([PARAGRAPH] * 8)
+        paid.tokens = pricing.estimate_run_tokens([PARAGRAPH] * 8, 8)[:2]
         monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: first * 1.2)
         out = translate_service.translate(TEXT, "claude", "zh", "en")
         assert len(paid.calls) == 1
@@ -91,7 +91,7 @@ class TestCapPerRequest:
         assert "message" not in translate_service.translate(TEXT, "claude", "zh", "en")
 
     def test_a_stopped_run_keeps_its_finished_text_in_history(self, paid, monkeypatch):
-        paid.tokens = pricing.estimate_translation_tokens([PARAGRAPH] * 8)
+        paid.tokens = pricing.estimate_run_tokens([PARAGRAPH] * 8, 8)[:2]
         monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: _request_cost() * 1.2)
         translate_service.translate(TEXT, "claude", "zh", "en")
         assert db.list_translate_history()[0]["translated_text"].count("EN:") == 8
