@@ -427,7 +427,7 @@ categories in `storage.CLEANABLE_CATEGORIES`):
 |---|---|
 | `model_cache/` | `library.db`, `sources.db` (protected: never cleared or moved) |
 | `library/tmp/`, `source_cache/`, `source_review_tmp/`, `updates/`, `logs/`, `piper_voices/` | a title's own files: source media, reference novel, `voice_refs/`, narration or dub track, pages |
-| per title: `dub_clips/`, OCR temp (`ocr_*`, `_bubble_crop*`), rendered `typeset_*` pages, `*.tmp` files | `voice_bank/`, `benchmark_cases/`, `source_profiles/`, `saved_comics/`, `backups/` (except `backups/exports/`) |
+| per title: `dub_clips/`, separated vocals (`vocals.wav`), OCR temp (`ocr_*`, `_bubble_crop*`), rendered `typeset_*` pages, `*.tmp` files | `voice_bank/`, `benchmark_cases/`, `source_profiles/`, `saved_comics/`, `backups/` (except `backups/exports/`) |
 | `backups/exports/` (make again from the Library) | `profiles/` (site sign-ins) is protected outright |
 
 Disk-usage "Clear" never deletes: it moves an item into `baihe_trash/` with a

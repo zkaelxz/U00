@@ -408,6 +408,8 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, **fields):
             _retire(ddir, name)
         except Exception:  # committed: a retire hiccup must not report the swap as failed
             pass
+    if fields["audio_filename"] != old.get("audio_filename"):
+        storage.drop_separated_vocals(ddir)
     return {f: fields[f] for f in new_files}
 
 

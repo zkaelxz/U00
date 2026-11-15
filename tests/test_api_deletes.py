@@ -90,6 +90,14 @@ def test_remove_media(client):
     assert not os.listdir(_folder(did))
 
 
+def test_remove_media_drops_the_vocals_separated_from_that_audio(client):
+    did = _media_drama()
+    with open(os.path.join(_folder(did), "vocals.wav"), "wb") as f:
+        f.write(b"RIFF")
+    assert client.post(f"/api/media/dramas/{did}/remove", json=YES).status_code == 200
+    assert not os.listdir(_folder(did))
+
+
 def test_remove_media_keeps_lines(client):
     did = _media_drama()
     import core
