@@ -209,6 +209,7 @@ describe('queue reasons', () => {
       ['One-character lines in a row, often noise; check against the audio', 'This is one of several one-character lines in a row, which is often noise.'],
       ['Cut into slivers of audio, often unclear speech; check against the audio', 'This line is cut into slivers of audio, which is often unclear speech.'],
       ['Text in a split second of audio; check against the audio', 'This text sits in a split second of audio, too short to hold it.'],
+      ['Heard again without the speech detector, which replaced the first hearing; check against the audio', 'Whisper heard this stretch a second time without the speech detector and this text replaced the first hearing.'],
     ]
     for (const [note, text] of notes) {
       expect(say('text_uncertain', note)).toEqual({ text: `${text} Play the line, then fix it or delete it.`, short: 'May not be real speech', chip: 'May not be real speech', next: 'may not be real speech' })
