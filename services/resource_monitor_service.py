@@ -47,7 +47,9 @@ METRICS: dict[str, dict[str, Any]] = {
             "margin": 3, "range": (50, 100)},
     "disk_free": {"label": "Free disk space", "unit": " GB", "limit": 10, "minutes": 5, "enabled": True,
                   "margin": 2, "range": (1, 100000), "low": True},
-    "gpu_memory": {"label": "GPU memory use", "unit": "%", "limit": 100, "minutes": 15, "enabled": False,
+    "gpu_memory_warn": {"label": "GPU memory (nearly full)", "unit": "%", "limit": 85, "minutes": 15,
+                        "enabled": True, "margin": 3, "range": (50, 100)},
+    "gpu_memory": {"label": "GPU memory (full)", "unit": "%", "limit": 100, "minutes": 15, "enabled": False,
                    "margin": 3, "range": (50, 100)},
     "cpu": {"label": "CPU use", "unit": "%", "limit": 95, "minutes": 30, "enabled": False,
             "margin": 3, "range": (50, 100)},
@@ -289,6 +291,8 @@ def sample() -> dict:
             readings.update(reader())
         except Exception:
             pass
+    # Two rules judge the same reading, at different limits.
+    readings["gpu_memory_warn"] = readings["gpu_memory"]
     for name, reader in (("ram", _read_ram_percent), ("disk_free", _disk_free_gb)):
         try:
             readings[name] = reader()
