@@ -102,7 +102,7 @@ function ApiStatus({ showConnected }: { showConnected: boolean }) {
   }
   if (state !== 'down') return null
   return (
-    <span className="badge bad" data-testid="api-status">
+    <span className="badge bad api-down" data-testid="api-status">
       Can't reach Baihe
       <HelpTip label="Can't reach Baihe" id="api-status-help">Check that Baihe Studio is still running on this PC.</HelpTip>
     </span>

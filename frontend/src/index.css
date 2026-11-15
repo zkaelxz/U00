@@ -606,12 +606,12 @@ details.section[open] > summary::before { content: '\25BE'; }
 /* While the server does not answer, the badge ("Can't reach Baihe" and its help mark) is 54px wider than "Connected", which the steps were sized with.
    The padding narrows what the size container's queries see, so every words step comes 3.6rem later exactly then, with no second set of steps;
    the first control's negative margin gives the controls that room back. */
-.header-end.has-room:has([data-testid='api-status']) { padding-left: 3.6rem; }
-.header-end.has-room:has([data-testid='api-status']) > :first-child { margin-left: -3.6rem; }
+.header-end.has-room:has(.api-down) { padding-left: 3.6rem; }
+.header-end.has-room:has(.api-down) > :first-child { margin-left: -3.6rem; }
 /* The badge itself (140px with its gap) is part of the icons' natural width while it shows, so the row wraps before it would squeeze the controls. */
-.header-end.has-room:has([data-testid='api-status']) { min-width: 41.4rem; }
-.header-end.has-room.has-extras:has([data-testid='api-status']) { min-width: 56.6rem; }
-@media (max-width: 640px) { .header-end.has-room:has([data-testid='api-status']) { min-width: 0; } }
+.header-end.has-room:has(.api-down) { min-width: 41.4rem; }
+.header-end.has-room.has-extras:has(.api-down) { min-width: 56.6rem; }
+@media (max-width: 640px) { .header-end.has-room:has(.api-down) { min-width: 0; } }
 /* "Connected" is a luxury of the same room the five controls' words need: below that step the row keeps today's width and says nothing while the server answers. */
 .header-end .api-connected { display: none; color: var(--ok); font-size: var(--text-sm); white-space: nowrap; }
 

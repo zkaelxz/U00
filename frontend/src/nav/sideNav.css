@@ -6,7 +6,8 @@
    The left padding keeps the page clear of the resting dock (56px wide plus its 18px margin). */
 .has-rail > .app-main { min-width: 0; width: 100%; max-width: var(--content-max-wide); margin-inline: auto; padding: var(--space-4); padding-left: var(--page-inset-left); padding-right: var(--page-inset-right); }
 body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
-.has-rail > .app-main > .app-header { justify-content: safe flex-end; }
+/* A row too wide for the header spills to the right, where the page can scroll to it, not in under the menu; the plain value is for a browser without "safe". */
+.has-rail > .app-main > .app-header { justify-content: flex-end; justify-content: safe flex-end; }
 
 .app-rail {
   position: fixed;
