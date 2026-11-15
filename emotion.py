@@ -97,6 +97,15 @@ def build_emotion_prompt(batch: list, use_audio_cues: bool = False,
     )
 
 
+# A model can return a number, list or novel-length "note"; SQLite would bind
+# a list as an error and lose the whole paid batch at save time.
+MAX_NOTE_CHARS = 300
+
+
+def _clean_note(note) -> str:
+    return note.strip()[:MAX_NOTE_CHARS] if isinstance(note, str) else ""
+
+
 def parse_emotion_tags(text: str) -> dict:
     """Parses one batch's response from build_emotion_prompt into
     {id: {"emotion", "intensity", "note"}}, keyed by whatever id the
@@ -123,7 +132,7 @@ def parse_emotion_tags(text: str) -> dict:
         results[key] = {
             "emotion": emo,
             "intensity": max(0.0, min(1.0, intensity)),
-            "note": t.get("note", ""),
+            "note": _clean_note(t.get("note")),
         }
     return results
 
