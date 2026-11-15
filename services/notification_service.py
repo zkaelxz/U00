@@ -15,8 +15,11 @@ outcome words ("sent", "failed", "refused", "not_configured").
 
 Message content: the job kind (the job description up to its first "("),
 the drama title (looked up from a "(drama #N)" reference) and the outcome.
-The push leaves the title out for a drama a household member couldn't see
-(private, or in a private series): the channel may be shared.
+The push leaves the title (and its series name) out for a drama a household
+member couldn't see (private, or in a private series): the channel may be
+shared. The switch "This channel is only mine" (`show_private_titles`, off by
+default, `private_titles` in `db.app_settings["notify_categories"]`) lifts that for a channel
+only the PC owner reads.
 Never line text, keys or paths; the result also goes through
 `engine_backends.shared.redact_secrets`.
 
@@ -95,6 +98,7 @@ from lib.errors import InvalidInputError, RateLimitedError
 CHANNELS = ("discord", "ntfy")
 CATEGORIES = ("jobs", "chapters", "remote")
 CATEGORY_SETTING = "notify_categories"
+PRIVATE_TITLES_KEY = "private_titles"   # kept inside the CATEGORY_SETTING blob, off unless True
 CHAPTER_CHECK_JOB_ID = "sources_chapter_check"   # sources.chapter_check.CHECK_JOB_ID
 RECENT_MAX = 50          # events returned to one viewer
 RECENT_KEEP = 500        # events kept in memory for everyone
@@ -170,16 +174,30 @@ def get_categories() -> dict:
     return {c: stored.get(c) is not False for c in CATEGORIES}
 
 
-def set_categories(jobs=None, chapters=None, remote=None) -> dict:
-    """Switches the external-push categories. None leaves one unchanged."""
+def show_private_titles() -> bool:
+    """On only when the PC owner said the channel is theirs alone; any read
+    problem keeps the safe answer."""
+    try:
+        import db
+        stored = db.get_app_setting(CATEGORY_SETTING, None)
+        return isinstance(stored, dict) and stored.get(PRIVATE_TITLES_KEY) is True
+    except Exception:
+        return False
+
+
+def set_categories(jobs=None, chapters=None, remote=None, private_titles=None) -> dict:
+    """Switches the external-push categories and the private-titles switch.
+    None leaves one unchanged."""
     import db
     changes = {name: bool(value) for name, value in
-               (("jobs", jobs), ("chapters", chapters), ("remote", remote)) if value is not None}
+               (("jobs", jobs), ("chapters", chapters), ("remote", remote),
+                (PRIVATE_TITLES_KEY, private_titles)) if value is not None}
 
     def apply(stored):
         # Same normalising as get_categories: anything but False reads as on.
         stored = stored if isinstance(stored, dict) else {}
-        return {**{c: stored.get(c) is not False for c in CATEGORIES}, **changes}
+        return {**{c: stored.get(c) is not False for c in CATEGORIES},
+                PRIVATE_TITLES_KEY: stored.get(PRIVATE_TITLES_KEY) is True, **changes}
     db.update_app_setting(CATEGORY_SETTING, apply)
     return get_status()
 
@@ -192,7 +210,8 @@ def get_status() -> dict:
             "ntfy_allow_local": allow_local_ntfy(),
             "send_jobs": categories["jobs"],
             "send_chapters": categories["chapters"],
-            "send_remote": categories["remote"]}
+            "send_remote": categories["remote"],
+            "show_private_titles": show_private_titles()}
 
 
 def _unmap(ip):
@@ -307,7 +326,10 @@ _HOUSEHOLD = {"user_id": None, "is_admin": False, "is_local_owner": False}
 def household_sees(kind, item_id) -> bool:
     """Could any household member see this drama or series? A push channel
     may be read by the whole household, so only then may it be named
-    there. False when unsure."""
+    there. False when unsure, except that the owner's "only mine" switch
+    makes it True."""
+    if show_private_titles():
+        return True
     try:
         from services import ownership_service
         return ownership_service.can_see(_HOUSEHOLD, kind, int(item_id))
@@ -332,7 +354,26 @@ def _drama_title(description, shared_only=False):
     if not isinstance(drama, dict):
         return None
     title = drama.get("title_en") or drama.get("title_zh")
-    return _tidy(title, _TITLE_MAX) if title else None
+    if not title:
+        return None
+    title = _tidy(title, _TITLE_MAX)
+    series = _series_name(drama.get("series_id"), shared_only)
+    return f"{title} ({series})" if series else title
+
+
+def _series_name(series_id, shared_only):
+    """The series' name, or None; shared_only hides one a household member
+    couldn't see."""
+    if not series_id:
+        return None
+    try:
+        import db
+        name = next((r["name"] for r in db.list_series() if r["id"] == series_id), None)
+        if name and shared_only and not household_sees("series", series_id):
+            return None
+    except Exception:
+        return None
+    return _tidy(name, _TITLE_MAX) if name else None
 
 
 def _job_kind(description) -> str:
