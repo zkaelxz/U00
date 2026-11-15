@@ -16,7 +16,8 @@ import { inFilter, stepFrom, type PanelMode } from './reviewLogic'
 import { retireUndoOffer } from './undoOffer'
 
 export type Target = 'first' | 'last' | number
-export type Pending = { target: Target; edit?: boolean }
+// landed: told once the move's page has loaded, and whether its target was on it (the kept place falls back when not).
+export type Pending = { target: Target; edit?: boolean; landed?: (lines: ReviewLine[], hit: boolean) => void }
 // The lines a write changes: some ids, or every line (a version, a restore).
 type LineScope = number[] | 'all'
 

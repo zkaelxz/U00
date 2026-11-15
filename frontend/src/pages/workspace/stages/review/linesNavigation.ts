@@ -16,6 +16,8 @@ interface LinesNavigationDeps {
   searching: boolean
   filter: LineFilter
   page: number
+  // The kept places (useReviewPlace): the page a view opens on when the person switches to it.
+  place: { pageFor: (f: LineFilter) => number }
   setFilter: Dispatch<SetStateAction<LineFilter>>
   setPage: Dispatch<SetStateAction<number>>
   setInput: Dispatch<SetStateAction<string>>
@@ -27,11 +29,11 @@ interface LinesNavigationDeps {
 // Filter, search and go-to-line: the moves that change which lines are shown.
 // Each first saves (or keeps) a dirty draft. Rebuilt every render.
 export function buildLinesNavigation(deps: LinesNavigationDeps) {
-  const { dramaId, ctl, st, pending, listRef, searching, filter, page, setFilter, setPage, setInput, setTerm, setStatus, setError } = deps
+  const { dramaId, ctl, st, pending, listRef, searching, filter, page, place, setFilter, setPage, setInput, setTerm, setStatus, setError } = deps
 const changeFilter = async (f: LineFilter) => {
   if (!(await ctl.leaveEdit())) return
   setFilter(f)
-  setPage(1)
+  setPage(place.pageFor(f))
   setInput('')
   setTerm('')
 }
