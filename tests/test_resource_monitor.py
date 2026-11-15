@@ -208,10 +208,18 @@ def test_a_resource_alert_reaches_the_bell_and_always_pushes(notify_env):
     ns.set_categories(jobs=False, chapters=False, remote=False)   # no category can switch it off
     ns.notify_resource_alert("GPU temperature is 88 °C, at or above 85 °C for 5 min.")
     text = "This PC: GPU temperature is 88 °C, at or above 85 °C for 5 min."
-    assert ns._pending == [("resource", text, "resource")]
+    assert ns._pending == [("resource", text, "resource", None, {"description": text, "color": ns.COLOR_WARN})]
     assert [(e["kind"], e["text"]) for e in ns.list_recent(None)] == [("resource", text)]
     member = {"user_id": 7, "is_admin": False, "is_local_owner": False}
     assert ns.list_recent(member) == []   # PC owner and admins only
+
+
+def test_a_recovery_card_is_green(notify_env):
+    ns, env = notify_env
+    env.write_text(_DISCORD)
+    ns.notify_resource_alert("RAM use is back to normal (60%).", recovered=True)
+    assert ns._pending[0][4]["color"] == ns.COLOR_OK
+    assert ns._embed_for(ns._pending, ns._pending[0][1])["color"] == ns.COLOR_OK
 
 
 def test_a_resource_alert_without_a_channel_stays_in_the_bell(notify_env):

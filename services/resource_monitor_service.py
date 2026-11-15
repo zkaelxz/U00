@@ -350,7 +350,7 @@ def _notify(event) -> None:
     """The default `notify`: the log, the bell and the push channels."""
     _log("resource monitor: %s", redact_secrets(event["text"]))
     from services import notification_service
-    notification_service.notify_resource_alert(event["text"])
+    notification_service.notify_resource_alert(event["text"], recovered=event["kind"] == "recovered")
 
 
 def reset_for_tests() -> None:
