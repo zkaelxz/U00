@@ -570,6 +570,31 @@ test.describe('with sound', () => {
     await expect(now(page).getByTestId('watch-now-meta')).toHaveText('Line #1 · 0:00.0')
   })
 
+  test('the place sentence goes as soon as the person moves the playhead, and stays through a wait', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.watch.at.3', '20'))
+    await page.goto('/#/watch/3')
+    await ready(page)
+    const said = page.getByText('Back where you stopped, at 0:20.')
+    await expect(said).toBeVisible()
+    await page.waitForTimeout(600)
+    await expect(said).toBeVisible()
+    await page.keyboard.press('ArrowDown')
+    await expect(time(page)).toHaveText(/^0:22\.00/)
+    await expect(said).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Start from the beginning' })).toHaveCount(0)
+  })
+
+  test('a drag of the seek bar while paused takes the place sentence away too', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.watch.at.3', '20'))
+    await page.goto('/#/watch/3')
+    await ready(page)
+    await expect(page.getByText('Back where you stopped, at 0:20.')).toBeVisible()
+    const seek = (await page.getByRole('slider', { name: 'Seek' }).boundingBox())!
+    await page.mouse.click(seek.x + seek.width * 0.8, seek.y + seek.height / 2)
+    await expect(playButton(page)).toBeVisible()
+    await expect(page.getByText('Back where you stopped')).toHaveCount(0)
+  })
+
   test('a saved place reached before the lines are in still marks its line, and Down goes on from there', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('baihe.pref.watch.at.3', '20'))
     let release!: () => void
@@ -931,6 +956,34 @@ test.describe('with sound', () => {
     expect(Math.max(...fifth)).toBeLessThanOrEqual(9.7)
   })
 
+  test('Loop line starts off on this page whatever Review left it at, and turning it on or off here leaves that preference as it was', async ({ page }) => {
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem('seeded')) return
+      sessionStorage.setItem('seeded', '1')
+      localStorage.setItem('baihe.pref.review.loop', 'true')
+    })
+    await page.goto('/#/watch/3')
+    await ready(page)
+    const loop = page.getByRole('switch', { name: 'Loop line' })
+    await expect(loop).toHaveAttribute('aria-checked', 'false')
+    await playButton(page).click()
+    // Line 1 runs from 0:00 to 0:01.5: with Loop line on, the sound would never leave it.
+    await expect.poll(() => audioTime(page), { timeout: 5000 }).toBeGreaterThan(2.5)
+    await loop.click()
+    await expect(loop).toHaveAttribute('aria-checked', 'true')
+    await loop.click()
+    await expect(loop).toHaveAttribute('aria-checked', 'false')
+    expect(await page.evaluate(() => localStorage.getItem('baihe.pref.review.loop'))).toBe('true')
+  })
+
+  test('Loop line turned on here is not stored for Review', async ({ page }) => {
+    await page.goto('/#/watch/3')
+    await ready(page)
+    await page.getByRole('switch', { name: 'Loop line' }).click()
+    await expect(page.getByRole('switch', { name: 'Loop line' })).toHaveAttribute('aria-checked', 'true')
+    expect(await page.evaluate(() => localStorage.getItem('baihe.pref.review.loop'))).toBeNull()
+  })
+
   test.describe('following, 1440x900 with the sound playing', () => {
     test.beforeEach(async ({ page }) => {
       await page.setViewportSize({ width: 1440, height: 900 })
@@ -959,6 +1012,26 @@ test.describe('with sound', () => {
       expect(Math.max(...after.map((a) => a.gap))).toBeLessThanOrEqual(2)
       await now(page).getByRole('button', { name: 'Hear it again' }).click()
       await spokenRowAtFollowPlace(page, 3000)
+    })
+
+    test('a wheel that ends the first glide early does not leave a later scroll-bar drag uncounted', async ({ page }) => {
+      await playFrom(page, '0:14')
+      await spokenRowAtFollowPlace(page, 3000)
+      const box = (await boxes(page)).list
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      // A glide that a wheel cancels never ends where the page aimed, so the page's mark of it is never cleared by its
+      // scrollend; a scrollBy that does nothing leaves the same mark, without depending on how a browser cuts a glide.
+      await list(page).evaluate((ol) => { ol.scrollBy = () => {} })
+      const before = await currentRow(page)
+      await expect.poll(() => currentRow(page)).toBeGreaterThan(before)
+      await list(page).evaluate((ol) => { delete (ol as Partial<HTMLElement>).scrollBy })
+      await page.mouse.wheel(0, -30)
+      const wheeled = Date.now()
+      // The drag comes inside the five seconds the wheel started; the wait it starts must outlast the wheel's.
+      await page.waitForTimeout(3000)
+      await scrollListTo(page, 'top')
+      await page.waitForTimeout(wheeled + 6500 - Date.now())
+      expect((await boxes(page)).scrollTop).toBeLessThan(2)
     })
 
     test('Tab to a row out of view waits for the person: the focused row stays in sight', async ({ page }) => {

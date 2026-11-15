@@ -30,6 +30,13 @@ export function currentLine<T extends Timed>(ordered: readonly T[], time: number
   return i === null ? null : ordered[i]
 }
 
+/** The line Loop line repeats: the one being spoken, unless it ends at or before its start, which would put the sound
+ *  back to its start at every frame and stop it. */
+export function loopLineAt<T extends Timed & Pick<ReviewLine, 'end'>>(ordered: readonly T[], time: number): T | null {
+  const line = currentLine(ordered, time)
+  return line && line.end > line.start ? line : null
+}
+
 /** Where to seek on arrival, or null to start at the beginning. */
 export function resumePoint(saved: number, duration: number): number | null {
   if (!Number.isFinite(saved) || saved < RESUME_MIN_S) return null

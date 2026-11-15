@@ -5,7 +5,7 @@ import type { ReviewLine } from '../../types/review'
 import { START_SLACK_S } from '../reader/readAlongLogic'
 import {
   clockTenths, currentLine, fieldKey, fixIsDirty, focusAfterFix, FOLLOW_AT, FOLLOW_PAUSE_MS, followPaused, followScroll,
-  lineHeading, lineToFix, openFix, OWN_SCROLL_MS, ownScrollUntil, parkedOutcome, parkFix, positionKey, readParkedFix,
+  lineHeading, lineToFix, loopLineAt, openFix, OWN_SCROLL_MS, ownScrollUntil, parkedOutcome, parkFix, positionKey, readParkedFix,
   resumePoint, rowMeta, saveFix, spokenOrder, stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey,
   watchVerb, type LineFix,
 } from './watchLogic'
@@ -17,6 +17,21 @@ const line = (id: number, start: number, end: number, over: Partial<ReviewLine> 
 
 const lines = [line(1, 1, 2), line(2, 3, 4.5), line(3, 6, 7)]
 const conflict = () => new ApiError(409, { code: 'conflict', message: 'changed' }, 'POST')
+
+describe('loopLineAt', () => {
+  it('is the line being spoken, as the card shows it', () => {
+    expect(loopLineAt(lines, 3.2)?.id).toBe(2)
+    expect(loopLineAt(lines, 2.5)?.id).toBe(1)
+    expect(loopLineAt(lines, 0)).toBeNull()
+  })
+  it('never takes a line that ends at or before its start, which the sound would be put back from at every frame', () => {
+    const odd = [line(1, 1, 2), line(2, 3, 3), line(3, 6, 5.5)]
+    expect(loopLineAt(odd, 3.5)).toBeNull()
+    expect(loopLineAt(odd, 6.2)).toBeNull()
+    expect(currentLine(odd, 3.5)?.id).toBe(2)
+    expect(loopLineAt(odd, 1.5)?.id).toBe(1)
+  })
+})
 
 describe('currentLine', () => {
   it('is nothing before the first line starts', () => {

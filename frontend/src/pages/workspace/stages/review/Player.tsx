@@ -132,7 +132,7 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(NaN)
   const [segment, setSegment] = useState<Segment | null>(null)
-  const [loop, setLoop] = usePersistedState('review.loop', false)
+  const [loop, setLoop] = useLoopSwitch(loopLineAt !== undefined)
   const [open, setOpen] = usePersistedState('review.playerOpen', !(useMediaQuery('(max-width: 640px)') && kind === 'video')) // closed on a phone: an open video hides the lines
   const [ratePref, setRatePref] = usePersistedState('review.rate', 1)
   const rate = validRate(ratePref)
@@ -660,6 +660,16 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
       )}
     </div>
   )
+}
+
+/**
+ * The Loop line switch. A page that plays by seeking (loopLineAt) would hold the sound inside its first line for someone
+ * who left Loop line on in Review, so there it starts off each visit and neither reads nor writes Review's stored choice.
+ */
+function useLoopSwitch(byPage: boolean): [boolean, (on: boolean) => void] {
+  const [stored, setStored] = usePersistedState('review.loop', false)
+  const [visit, setVisit] = useState(false)
+  return byPage ? [visit, setVisit] : [stored, setStored]
 }
 
 /**

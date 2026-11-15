@@ -39,7 +39,7 @@ import '../workspace/stages/review/review.css'
 import { titleKind } from '../workspace/titleKind'
 import { NowCard } from './NowCard'
 import {
-  currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, openFix, ownScrollUntil,
+  currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, loopLineAt, openFix, ownScrollUntil,
   parkedOutcome, parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, spokenOrder,
   stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
 } from './watchLogic'
@@ -122,7 +122,12 @@ export default function WatchPage({ id }: { id: number }) {
   const player = useRef<PlayerHandle | null>(null)
   const list = useRef<HTMLOListElement | null>(null)
   const { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed } = useWatchClock(id, playable, ordered, player)
-  const { resume, scrollHandlers } = useFollow(list, currentId)
+  const { resume: backToSound, scrollHandlers } = useFollow(list, currentId)
+  // Every move of the playhead by the person also ends "Back where you stopped", which would name a place left behind.
+  const resume = useCallback(() => {
+    backToSound()
+    clearResumed()
+  }, [backToSound, clearResumed])
 
   const currentIndex = currentId === null ? -1 : lineIndex.get(currentId) ?? -1
   const current = currentIndex >= 0 ? ordered[currentIndex] : null
@@ -437,7 +442,7 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
 
   const clearResumed = useCallback(() => setResumedAt(null), [])
   // The line Loop line repeats, by the card's own rule, so the line repeated is the line the card shows.
-  const lineAt = useCallback((time: number) => currentLine(orderedRef.current, time), [])
+  const lineAt = useCallback((time: number) => loopLineAt(orderedRef.current, time), [])
   return { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed }
 }
 
@@ -464,8 +469,16 @@ function useFollow(list: RefObject<HTMLOListElement | null>, currentId: number |
 
   const scrollHandlers = useMemo(() => ({
     // Input during the page's own glide, whose scroll events count as the page's.
-    onWheel: scrolledByHand,
-    onTouchMove: scrolledByHand,
+    // A wheel or a touch ends the page's glide, and what follows is the person's: the glide's scrollend would land
+    // elsewhere and leave its mark standing, so later scrolls of the list would go uncounted.
+    onWheel: () => {
+      ownUntil.current = 0
+      scrolledByHand()
+    },
+    onTouchMove: () => {
+      ownUntil.current = 0
+      scrolledByHand()
+    },
     onScroll: () => {
       if (Date.now() >= ownUntil.current) scrolledByHand()
     },
