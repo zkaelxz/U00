@@ -117,7 +117,7 @@ test('a collapsible section shows a summary and starts closed on every visit', a
   await page.setViewportSize({ width: 400, height: 800 })
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Advanced')
-  const details = () => page.locator('details.section:has(> summary > .section-title:text-is("Server addresses"))')
+  const details = () => page.locator('details.section:has(> summary > .section-title:text-is("Program locations"))')
   await expect(details().locator('.section-summary')).toHaveText(/\d+ of \d+ set/)
   await expect(details()).not.toHaveAttribute('open', '')
 

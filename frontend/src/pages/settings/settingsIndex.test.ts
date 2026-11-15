@@ -40,8 +40,10 @@ describe('settings tabs', () => {
       'Advanced',
     ])
     expect(tabOfCard('notifications')).toBe('connections')
-    expect(tabOfCard('app-updates')).toBe('updates')
-    expect(tabOfCard('source-update')).toBe('updates')
+    expect(tabOfCard('updates')).toBe('updates')
+    expect(tabOfCard('server-addresses')).toBe('translation')
+    expect(tabOfCard('auto-backup')).toBeUndefined()
+    expect(tabOfCard('save-folder')).toBeUndefined()
     expect(tabOfCard('spend-history')).toBe('costs')
     expect(tabOfCard('past-costs')).toBe('costs')
     expect(tabOfCard('extension')).toBe('connections')
@@ -53,12 +55,10 @@ describe('settings tabs', () => {
 
   it('opens only the first card of every tab', () => {
     for (const tab of SETTINGS_TABS) {
-      // The Updates tab has two cards of which a copy shows only one, so both start open.
-      expect(tab.cards.filter((c) => settingsCardStartsOpen(c.id)).map((c) => c.id)).toEqual(tab.id === 'updates' ? ['app-updates', 'source-update'] : [tab.cards[0].id])
+      expect(tab.cards.filter((c) => settingsCardStartsOpen(c.id)).map((c) => c.id)).toEqual([tab.cards[0].id])
     }
     expect(settingsCardStartsOpen('notifications')).toBe(true)
-    expect(settingsCardStartsOpen('app-updates')).toBe(true)
-    expect(settingsCardStartsOpen('source-update')).toBe(true)
+    expect(settingsCardStartsOpen('updates')).toBe(true)
     expect(settingsCardStartsOpen('display')).toBe(false)
     expect(settingsCardStartsOpen('not-a-card')).toBe(false)
   })
@@ -96,7 +96,7 @@ describe('filterSettings', () => {
   })
 
   it('needs every word to match, ignoring case', () => {
-    expect(filterSettings('OLLAMA url', all).cardIds.has('advanced')).toBe(true)
+    expect(filterSettings('OLLAMA url', all).cardIds.has('server-addresses')).toBe(true)
     expect(filterSettings('ollama zzz', all).total).toBe(0)
   })
 
@@ -122,7 +122,7 @@ describe('filterElsewhere', () => {
 
   it('points a search for who can sign in or the address check at People and access', () => {
     expect(labels('sign in accounts')).toEqual(['People and access: Sign-in accounts'])
-    expect(filterElsewhere('address tunnel', everyone).map((entry) => entry.to)).toEqual([{ name: 'admin' }])
+    expect(filterElsewhere('address tunnel', everyone).map((entry) => entry.to)).toEqual([{ name: 'admin', card: 'address' }])
     expect(labels('audit')).toEqual(['People and access: Activity log'])
     expect(labels('accounts', (entry) => entry.requires !== 'admin.users.read')).toEqual([])
   })

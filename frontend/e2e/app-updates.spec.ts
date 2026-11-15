@@ -209,3 +209,28 @@ test('away from the PC the card is left out and asks nothing', async ({ page }) 
   await expect(card(page)).toHaveCount(0)
   expect(calls).toEqual([])
 })
+
+test('one Updates card lists the app, the phone app, packages and the extension', async ({ page }) => {
+  await mockUpdates(page)
+  await page.route((u) => u.pathname === '/api/diagnostics/install-presets', (route) =>
+    json(route, { tasks: [], packages: {}, outdated: ['torch', 'numpy'] }))
+  let fetched = 0
+  await page.route((u) => u.pathname === '/api/system/android-app/fetch', (route) => {
+    fetched += 1
+    return json(route, { changed: true, version_code: 42 })
+  })
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Updates')
+  const updates = page.getByRole('region', { name: 'Updates', exact: true })
+  await expect(card(page)).toBeVisible()
+
+  await updates.getByRole('region', { name: 'Phone app', exact: true }).getByRole('button', { name: 'Get the newest phone app' }).click()
+  await expect(updates.getByTestId('update-phone-line')).toHaveText('Phone app build 42 is ready for your phone.')
+  expect(fetched).toBe(1)
+
+  const packages = updates.getByRole('region', { name: 'Packages', exact: true })
+  await expect(packages.getByTestId('update-packages-line')).toContainText('2 packages have updates.')
+  await expect(updates.getByRole('region', { name: 'Browser extension updates' })).toContainText('never updates an extension loaded from a folder')
+  await packages.getByRole('link', { name: 'Open Diagnostics > Packages' }).click()
+  await expect(page).toHaveURL(/#\/diagnostics\?card=packages$/)
+})

@@ -1,6 +1,5 @@
-// Pure helpers for the automatic backup UI: the Settings "Automatic backups"
-// Card (settings/AutoBackupCard.tsx) and the Library tools snapshot block
-// (libraryAdmin/SnapshotBlock.tsx).
+// Pure helpers for the automatic backup UI on Library tools > Backup
+// (libraryTools/AutoBackupBlock.tsx, libraryAdmin/SnapshotBlock.tsx).
 import { ApiError } from '../api/client'
 import { describeError, safeDetail } from '../components/errorMessages'
 import type {
@@ -113,13 +112,6 @@ export function chooseCopyCandidates(e: unknown): CopyCandidate[] | null {
   return d.candidates.filter(
     (c): c is CopyCandidate => !!c && typeof c === 'object' && typeof (c as CopyCandidate).name === 'string',
   )
-}
-
-/** The Card's one-line meta: "Off" or "Weekly · database only". */
-export function settingsSummary(s: AutoBackupSettings): string {
-  if (!s.enabled) return 'Off'
-  const freq = FREQUENCY_OPTIONS.find(([v]) => v === s.frequency)?.[1] ?? 'On'
-  return `${freq} · ${s.include_media ? 'with media' : 'database only'}`
 }
 
 /**

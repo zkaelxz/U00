@@ -5,7 +5,7 @@ import type { AutoBackupSettings, RestoreDramaDone, SnapshotCopy, SnapshotDrama,
 import {
   CHOOSE_COPY_TEXT, FOLDER_RULES, changedSettings, chooseCopyCandidates, describeCopy, describeRestore, describeSnapshot,
   filterSnapshotDramas, folderChange, formatWhen, initialRestoreCopy, isManaged, isoDay, nextRunText, serverSentence,
-  settingsSummary, snapshotFacts, snapshotKindLabel, splitCopies, restoreNotes,
+  snapshotFacts, snapshotKindLabel, splitCopies, restoreNotes,
 } from './backupsFormat'
 
 const UTC = { locale: 'en-GB', timeZone: 'UTC' }
@@ -46,12 +46,6 @@ describe('dates and snapshot lines', () => {
     expect(describeSnapshot(snap({ exists: true, readable: false }))).toMatch(/can't be read/)
     expect(describeSnapshot(SNAP, UTC)).toBe('28 Sept 2026, 09:30 · Database only · 12.3 MB · 3 titles')
     expect(snapshotFacts(snap({ exists: true, kind: 'full', size: 900, drama_count: 1 }))).toBe('Database + media · 900 B · 1 title')
-  })
-
-  it('summarises the settings for the Card header', () => {
-    expect(settingsSummary(SETTINGS)).toBe('Off')
-    expect(settingsSummary({ ...SETTINGS, enabled: true })).toBe('Weekly · database only')
-    expect(settingsSummary({ ...SETTINGS, enabled: true, frequency: 'daily', include_media: true })).toBe('Daily · with media')
   })
 
   it('says when the next backup runs, or that it is due', () => {

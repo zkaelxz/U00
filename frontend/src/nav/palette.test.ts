@@ -134,7 +134,7 @@ describe('settingsEntries', () => {
     filterEntries(settingsEntries(ctx), q).map((e) => e.href)
 
   it('opens the card on the main PC', () => {
-    expect(settingsHits(owner_, 'backup')).toContain('#/settings?card=auto-backup')
+    expect(settingsHits(owner_, 'server addresses')).toContain('#/settings?card=server-addresses')
     expect(paletteEntries(owner_, { name: 'library' }).filter((e) => e.hint === 'Settings').length).toBeGreaterThan(10)
   })
 
@@ -151,8 +151,8 @@ describe('settingsEntries', () => {
 
   it('offers the update card away from the PC only to someone holding system.update', () => {
     const away = (permissions: string[]): NavContext => ({ ...member, session: sessionOf(permissions) })
-    expect(settingsHits(away(['library.read', 'system.update']), 'update')).toContain('#/settings?card=source-update')
-    expect(settingsHits(away(['library.read']), 'update')).not.toContain('#/settings?card=source-update')
+    expect(settingsHits(away(['library.read', 'system.update']), 'update')).toContain('#/settings?card=updates')
+    expect(settingsHits(away(['library.read']), 'update')).not.toContain('#/settings?card=updates')
   })
 })
 

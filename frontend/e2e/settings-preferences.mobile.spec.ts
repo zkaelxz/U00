@@ -7,8 +7,8 @@ import { guardWrites } from './mockHelpers'
 // seeded API; any write is aborted and recorded.
 
 // Cards open with Expand all; the Sections of the Offline, paths and limits card are opened here.
-const CARDS = ['Translation style', 'Spending']
-const SECTIONS = ['OCR', 'Offline models', 'Downloads', 'Program locations', 'Uploads', 'Server addresses']
+const CARDS = ['Translation style', 'Server addresses', 'Spending']
+const SECTIONS = ['OCR', 'Offline models', 'Downloads', 'Program locations', 'Uploads']
 
 test('settings preference sections fit a phone with 44px targets', async ({ page }) => {
   const unmocked = await guardWrites(page)

@@ -3,7 +3,7 @@
 // entry so "ollama" finds the card that holds them.
 import type { DiagnosticsCard } from '../diagnostics/diagnosticsTabs'
 import type { LibraryToolsTab } from '../libraryTools/libraryToolsTabs'
-import type { Route } from '../../router'
+import type { AdminCard, Route } from '../../router'
 
 export type SettingsTab = 'translation' | 'costs' | 'transcription' | 'connections' | 'updates' | 'account' | 'advanced'
 
@@ -17,6 +17,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     label: 'Engines and keys',
     cards: [
       { id: 'engine-routing' },
+      { id: 'server-addresses' },
       { id: 'defaults' },
       { id: 'language-packs' },
       { id: 'quick-video' },
@@ -55,8 +56,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     id: 'updates',
     label: 'Updates',
     cards: [
-      { id: 'app-updates' },
-      { id: 'source-update' },
+      { id: 'updates' },
     ],
   },
   {
@@ -76,8 +76,6 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     label: 'Advanced',
     cards: [
       { id: 'advanced' },
-      { id: 'auto-backup' },
-      { id: 'save-folder' },
       { id: 'developer-mode' },
     ],
   },
@@ -86,16 +84,14 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
 // Cards whose every action is a PC-only call (the settings POSTs are local_only): away from the PC
 // the page leaves them out instead of showing a "Run this on the main PC." note.
 export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
-  'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
-  'notifications', 'auto-backup', 'save-folder', 'app-updates',
+  'server-addresses', 'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
+  'notifications',
   'jellyfin', 'web-search', 'inbox', 'extension',
   'performance', 'advanced', 'timing-splitting', 'transcription-experiments', 'developer-mode',
 ])
 
 const TAB_OF_CARD = new Map(SETTINGS_TABS.flatMap((t) => t.cards.map((c) => [c.id, t.id] as const)))
-// A copy shows only one of the two update cards (installed app or checkout), so the second one must start
-// open too or the Updates tab would open with every card shut on a checkout.
-const OPEN_BY_DEFAULT = new Set([...SETTINGS_TABS.map((t) => t.cards[0].id), 'source-update'])
+const OPEN_BY_DEFAULT = new Set(SETTINGS_TABS.map((t) => t.cards[0].id))
 
 export const tabOfCard = (cardId: string): SettingsTab | undefined => TAB_OF_CARD.get(cardId)
 export const settingsCardStartsOpen = (cardId: string): boolean => OPEN_BY_DEFAULT.has(cardId)
@@ -106,6 +102,7 @@ const e = (cardId: string, label: string, keywords = ''): SettingsEntry => ({ ca
 
 export const SETTINGS_INDEX: SettingsEntry[] = [
   e('engine-routing', 'Which engine does what', 'engines keys api key test gemini openai deepl routing'),
+  e('server-addresses', 'Server addresses', 'ollama url server address endpoint local model'),
   e('defaults', 'Translation style', 'english variant locale style note default'),
   e('language-packs', 'Language packs', 'honorifics address terms kinship set phrases glossary built-in defaults'),
   e('quick-video', 'Quick video translate', 'link profile one button download watch once translation profile'),
@@ -116,12 +113,13 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   e('notifications', 'Notifications', 'alerts channels push email discord telegram webhook'),
   e('notifications', 'Notify when a job finishes', 'notify me completion'),
-  e('auto-backup', 'Automatic backups', 'backup copies schedule frequency'),
-  e('save-folder', 'Save folder', 'comic manga downloads folder'),
-  e('app-updates', 'App updates', 'version upgrade release'),
+  e('updates', 'Updates', 'app updates version upgrade release'),
+  e('updates', 'Update Baihe', 'upgrade restart git latest version check'),
+  e('updates', 'Phone app update', 'android apk newest build'),
+  e('updates', 'Package updates', 'python pip outdated'),
+  e('updates', 'Browser extension update', 'reload out of date older copy'),
 
   e('sharing', 'Sharing', 'share new items household library'),
-  e('source-update', 'Update Baihe', 'upgrade restart git latest version check'),
   e('display', 'Display', 'page width layout wide full text size font zoom bigger smaller density compact comfortable spacing tight style soft frost'),
   e('customize-menu', 'Menu items', 'customize menu navigation hide pages order'),
   e('devices', 'Signed-in devices', 'sessions sign out'),
@@ -136,8 +134,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('performance', 'Jobs and GPU', 'performance gpu use gpu limit jobs at once parallel free local-model memory unload ollama graphics'),
   e('performance', 'Resume interrupted batches', 'batch resume bulk auto resume startup translation batches'),
   e('performance', 'Keep free memory', 'vram ram graphics reserve other programs'),
-  e('advanced', 'Offline, paths and limits', 'advanced ocr offline models downloads uploads server addresses'),
-  e('advanced', 'Ollama URL', 'ollama server address endpoint local model'),
+  e('advanced', 'Offline, paths and limits', 'advanced ocr offline models downloads uploads'),
   e('advanced', 'Ollama context window', 'num_ctx tokens offline'),
   e('advanced', 'Offline Whisper model folder', 'faster-whisper hugging face'),
   e('advanced', 'OCR backend', 'tesseract paddleocr manga_ocr'),
@@ -182,9 +179,8 @@ const diag = (card: DiagnosticsCard, label: string, keywords: string): Elsewhere
 const tools = (tab: LibraryToolsTab, label: string, keywords: string, pcOnly = false): ElsewhereEntry =>
   ({ label, page: 'Library tools', to: { name: 'library-tools', tab }, keywords, requires: 'library.read', pcOnly })
 
-// The page has no per-card link, so these open it at the top.
-const people = (label: string, keywords: string, pcOnly = false): ElsewhereEntry =>
-  ({ label, page: 'People and access', to: { name: 'admin' }, keywords, requires: 'admin.users.read', pcOnly })
+const people = (card: AdminCard, label: string, keywords: string, pcOnly = false): ElsewhereEntry =>
+  ({ label, page: 'People and access', to: { name: 'admin', card }, keywords, requires: 'admin.users.read', pcOnly })
 
 export const ELSEWHERE_INDEX: ElsewhereEntry[] = [
   diag('recommended', 'Recommended installs', 'install setup first run packages'),
@@ -201,14 +197,15 @@ export const ELSEWHERE_INDEX: ElsewhereEntry[] = [
   tools('organize', 'Series and presets', 'series presets organize'),
   tools('voices', 'Voices', 'voices voice bank dubbing tts clone'),
   tools('activity', 'Activity', 'activity history log jobs'),
-  tools('backup', 'Back up or restore now', 'backup restore copy', true),
+  tools('backup', 'Backups: schedule, back up now, restore', 'backup restore copy automatic backups schedule frequency copies', true),
+  tools('organize', 'Save folder', 'comic manga downloads folder saved chapters cbz', true),
   tools('storage', 'Storage', 'disk space storage size cleanup', true),
   tools('data', 'Data folder', 'data folder location move library path', true),
-  people('Sign-in accounts', 'people users members accounts household invite password role permissions admin sign in login'),
-  people('Activity log', 'audit log who did what history'),
-  people('Public address check', 'remote access address tunnel cdn url away outside home internet'),
-  people('Uploads from away', 'allow uploads from away remote upload admin 7 days', true),
-  people('PC profiles', 'guest owner pin hide private titles brothers lock', true),
+  people('people', 'Sign-in accounts', 'people users members accounts household invite password role permissions admin sign in login'),
+  people('activity', 'Activity log', 'audit log who did what history'),
+  people('address', 'Public address check', 'remote access address tunnel cdn url away outside home internet'),
+  people('uploads', 'Uploads from away', 'allow uploads from away remote upload admin 7 days', true),
+  people('pc-profiles', 'PC profiles', 'guest owner pin hide private titles brothers lock', true),
 ]
 
 /** Same word rule as filterSettings; `allowed` drops what this person or device cannot open. */

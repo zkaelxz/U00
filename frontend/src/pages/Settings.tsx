@@ -26,11 +26,9 @@ import { canReadSettings, useSession } from '../hooks/useSession'
 import { routeHref, useRoute } from '../router'
 import { NeedsInstall } from './readiness/NeedsInstall'
 import { gpuOnText, gpuSettingNote } from './readiness/needs'
-import { AppUpdatesCard } from './settings/AppUpdatesCard'
-import { SourceUpdateCard } from './settings/SourceUpdateCard'
+import { UpdatesCard } from './settings/UpdatesCard'
 import { DeveloperModeCard } from './settings/DeveloperModeCard'
 import { DevicesCard } from './settings/DevicesCard'
-import { AutoBackupCard } from './settings/AutoBackupCard'
 import { EngineRoutingCard } from './settings/EngineRoutingCard'
 import { ExtensionDevicesCard } from './settings/ExtensionDevicesCard'
 import { ExtensionSection } from './settings/ExtensionSection'
@@ -45,11 +43,10 @@ import { PastCostsCard } from './settings/PastCostsCard'
 import { SpendHistoryCard } from './settings/SpendHistoryCard'
 import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
 import { DisplayCard } from './settings/DisplayCard'
-import { AdvancedCard, DefaultsCard, KeepFreeMemory, SpendingCard } from './settings/PreferencesSections'
+import { AdvancedCard, DefaultsCard, EndpointsCard, KeepFreeMemory, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
 import { TimingSettingsCard } from './settings/TimingSettingsCard'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
-import { SaveFolderCard } from './manga/SaveFolder'
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsSchemaRow, SettingsToggleKey } from '../types/settings'
 import { filterElsewhere, filterSettings, PC_ONLY_CARDS, SETTINGS_INDEX, SETTINGS_TABS, tabFoldKeys, tabOfCard, type SettingsTab } from './settings/settingsIndex'
@@ -61,7 +58,7 @@ import './settings/settings.css'
 
 // Members who get 403 on the settings call see only these cards: their own account tab, plus Update Baihe
 // for an admin on the household address, whose update works from a phone.
-const MEMBER_CARDS = new Set([...SETTINGS_TABS.find((t) => t.id === 'account')!.cards.map((c) => c.id), 'source-update'])
+const MEMBER_CARDS = new Set([...SETTINGS_TABS.find((t) => t.id === 'account')!.cards.map((c) => c.id), 'updates'])
 const ALL_CARDS = new Set(SETTINGS_INDEX.map((entry) => entry.cardId))
 
 const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
@@ -220,7 +217,7 @@ export default function SettingsPage() {
   const canUpdate = useHolds('system.update')
   const available: ReadonlySet<string> = useMemo(() => {
     const cards = loaded ? ALL_CARDS : MEMBER_CARDS
-    return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (canUpdate || id !== 'source-update')
+    return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (canUpdate || id !== 'updates')
       && !(remote && PC_ONLY_CARDS.has(id)) && !(id in FEATURE_CARDS && !featureOn(FEATURE_CARDS[id], features))))
   }, [loaded, ownKeyShown, canUpdate, remote, features])
   const shown = (id: string) => available.has(id)
@@ -322,6 +319,7 @@ export default function SettingsPage() {
                 onGeminiFreeTier={(next) => void toggle('gemini_free_tier', next)}
               />
             </SettingsCard>
+            {shown('server-addresses') && <SettingsCard id="server-addresses"><EndpointsCard {...prefProps} /></SettingsCard>}
             {shown('defaults') && <SettingsCard id="defaults"><DefaultsCard {...prefProps} /></SettingsCard>}
             <SettingsCard id="language-packs"><LanguagePacksCard /></SettingsCard>
             {shown('quick-video') && <SettingsCard id="quick-video"><QuickVideoCard /></SettingsCard>}
@@ -382,8 +380,7 @@ export default function SettingsPage() {
             manages their own devices and extension tokens, and Update Baihe needs only system.update. */}
         {panel('updates', (
           <>
-            {settings && shown('app-updates') && <SettingsCard id="app-updates"><AppUpdatesCard /></SettingsCard>}
-            <SettingsCard id="source-update"><SourceUpdateCard /></SettingsCard>
+            {shown('updates') && <SettingsCard id="updates"><UpdatesCard /></SettingsCard>}
           </>
         ))}
         {panel('account', (
@@ -403,8 +400,6 @@ export default function SettingsPage() {
                 <AdvancedCard {...prefProps} openSignal={advancedSignal} uploadsSignal={uploadsSignal} />
               </SettingsCard>
             )}
-            {shown('auto-backup') && <SettingsCard id="auto-backup"><AutoBackupCard /></SettingsCard>}
-            {shown('save-folder') && <SettingsCard id="save-folder"><SaveFolderCard /></SettingsCard>}
             <SettingsCard id="developer-mode"><DeveloperModeCard /></SettingsCard>
           </>
         ))}

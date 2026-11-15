@@ -102,7 +102,7 @@ async function mockSettings(page: Page) {
 
 // Defaults and Spending are Cards (the helper opens them); the rest are
 // Sections (folds) inside the Offline, paths and limits Card or the Jobs and GPU Card.
-const CARDS = ['Translation style', 'Spending']
+const CARDS = ['Translation style', 'Spending', 'Server addresses']
 const block = (page: Page, title: string) =>
   CARDS.includes(title)
     ? page.getByRole('region', { name: title, exact: true })
@@ -202,7 +202,7 @@ test('spending, offline and OCR fields check input before saving', async ({ page
 test('server addresses: a URL with a password is refused client-side; save and clear', async ({ page }) => {
   const { posts, unmocked } = await mockSettings(page)
   await page.goto('/#/settings')
-  await openSettingsGroups(page, 'Advanced')
+  await openSettingsGroups(page, 'Engines and keys')
   const s = await open(page, 'Server addresses')
   const ollama = s.getByTestId('endpoint-ollama_url')
   await ollama.getByLabel('Ollama URL', { exact: true }).fill('http://me:hunter2@192.168.1.5:11434')

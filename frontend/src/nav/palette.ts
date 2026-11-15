@@ -50,7 +50,7 @@ export const MIN_LINE_QUERY = 2
 // (filtered below to system.update), as on the page.
 const MEMBER_CARDS: ReadonlySet<string> = new Set([
   ...SETTINGS_TABS.find((t) => t.id === 'account')!.cards.map((c) => c.id),
-  'source-update',
+  'updates',
 ])
 
 /** One entry per settings index line, for the cards the Settings page would show this person. */
@@ -62,7 +62,7 @@ export function settingsEntries(ctx: NavContext): PaletteEntry[] {
     (s) =>
       (reads || MEMBER_CARDS.has(s.cardId)) &&
       (ownKey || s.cardId !== 'ollama-key') &&
-      (s.cardId !== 'source-update' || canUpdateApp(ctx.session)) &&
+      (s.cardId !== 'updates' || canUpdateApp(ctx.session)) &&
       !(away && PC_ONLY_CARDS.has(s.cardId)),
   ).map((s, i) => ({
     id: `settings-${s.cardId}-${i}`,

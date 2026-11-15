@@ -39,7 +39,8 @@ test('every tab starts with only its first card open', async ({ page }) => {
 
   await tab(page, 'Advanced').click()
   expect(await isOpen(page, 'Offline, paths and limits')).toBe(true)
-  for (const name of ['Automatic backups', 'Developer Mode']) expect(await isOpen(page, name)).toBe(false)
+  expect(await isOpen(page, 'Developer Mode')).toBe(false)
+  await expect(page.getByRole('region', { name: 'Automatic backups' })).toHaveCount(0)
   // A closed card still tells the current value.
   await fold(page, 'Offline, paths and limits').locator('> summary').click()
   await expect(fold(page, 'Offline, paths and limits').locator('> summary .section-summary')).toBeVisible()
@@ -64,12 +65,12 @@ test('Expand all and Collapse all act on the tab on screen only', async ({ page 
   await page.goto('/#/settings')
   await tab(page, 'Advanced').click()
   await page.getByRole('button', { name: 'Expand all' }).click()
-  for (const name of ['Offline, paths and limits', 'Automatic backups', 'Developer Mode'])
+  for (const name of ['Offline, paths and limits', 'Developer Mode'])
     await expect(fold(page, name)).toHaveAttribute('open', '')
   // One button: once every card is open it offers Collapse all instead.
   await expect(page.getByRole('button', { name: 'Expand all' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Collapse all' }).click()
-  for (const name of ['Offline, paths and limits', 'Automatic backups', 'Developer Mode'])
+  for (const name of ['Offline, paths and limits', 'Developer Mode'])
     await expect(fold(page, name)).not.toHaveAttribute('open', '')
   await expect(page.getByRole('button', { name: 'Collapse all' })).toHaveCount(0)
   await tab(page, 'Costs').click()
@@ -79,23 +80,21 @@ test('Expand all and Collapse all act on the tab on screen only', async ({ page 
   expect(await isOpen(page, 'Offline, paths and limits')).toBe(false)
 })
 
-test('searching "ollama url" switches to the Advanced tab, opens the card and its Server addresses, and Escape clears', async ({ page }) => {
+test('searching "ollama url" switches to Engines and keys, opens Server addresses, and Escape clears', async ({ page }) => {
   await page.goto('/#/settings')
   await tab(page, 'Engines and keys').waitFor()
   const search = page.getByRole('searchbox', { name: 'Search settings' })
   await search.fill('ollama url')
-  await expect(page.getByRole('tab', { name: /^Advanced\s*\d/ })).toBeVisible()
-  const advanced = page.getByRole('region', { name: 'Offline, paths and limits' })
-  await expect(advanced).toBeVisible()
-  await expect(fold(page, 'Offline, paths and limits')).toHaveAttribute('open', '')
-  await expect(advanced.locator('details.section:has(> summary > .section-title:text-is("Server addresses"))')).toHaveAttribute('open', '')
-  await expect(advanced.getByLabel('Ollama URL', { exact: true })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Developer Mode' })).toBeHidden()
+  await expect(page.getByRole('tab', { name: /^Engines and keys\s*\d/ })).toHaveAttribute('aria-selected', 'true')
+  const addresses = page.getByRole('region', { name: 'Server addresses', exact: true })
+  await expect(fold(page, 'Server addresses')).toHaveAttribute('open', '')
+  await expect(addresses.getByLabel('Ollama URL', { exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Translation style' })).toBeHidden()
   await expect(page.getByRole('status').filter({ hasText: /results?$/ })).toHaveText(/^\d+ results?$/)
 
   await search.press('Escape')
   await expect(search).toHaveValue('')
-  await expect(page.getByRole('tab', { name: /^Advanced\s*\d/ })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: /^Engines and keys\s*\d/ })).toHaveCount(0)
 })
 
 test('a search hit on a card the person closed opens it again, on its own tab', async ({ page }) => {
@@ -130,8 +129,10 @@ test('a search for who can sign in links to People and access', async ({ page })
   await page.goto('/#/settings')
   await page.getByRole('searchbox', { name: 'Search settings' }).fill('audit log')
   await page.getByRole('navigation', { name: 'On other pages' }).getByRole('link', { name: 'People and access: Activity log' }).click()
-  await expect(page).toHaveURL(/#\/admin$/)
+  await expect(page).toHaveURL(/#\/admin\?card=activity$/)
   await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
+  // The link opens the card it names, which is shut on a plain visit.
+  await expect(page.locator('#admin-card-activity details.section').first()).toHaveAttribute('open', '')
 })
 
 test('deep links land on the Advanced tab with the card open', async ({ page }) => {

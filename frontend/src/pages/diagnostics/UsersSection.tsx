@@ -35,14 +35,14 @@ type Busy = { id: number; what: Action | 'right' | 'limit' } | null
  * opened; hidden from anyone without admin.users.read, and read-only (no
  * buttons) without admin.users.
  */
-export function UsersSection({ pc, defaultOpen = false }: { pc: PcMode; defaultOpen?: boolean }) {
+export function UsersSection({ pc, defaultOpen = false, openSignal }: { pc: PcMode; defaultOpen?: boolean; openSignal?: number }) {
   const session = useSession()
   if (!canViewUsers(session)) return null
   const signInOff = session.status === 'ready' && !session.me.auth_enabled
-  return <UsersBody signInOff={signInOff} pc={pc} canChange={canChangeUsers(session)} defaultOpen={defaultOpen} />
+  return <UsersBody signInOff={signInOff} pc={pc} canChange={canChangeUsers(session)} defaultOpen={defaultOpen} openSignal={openSignal} />
 }
 
-function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boolean; pc: PcMode; canChange: boolean; defaultOpen: boolean }) {
+function UsersBody({ signInOff, pc, canChange, defaultOpen, openSignal }: { signInOff: boolean; pc: PcMode; canChange: boolean; defaultOpen: boolean; openSignal?: number }) {
   const [users, setUsers] = useState<AdminUser[] | null>(null)
   const [rights, setRights] = useState<string[]>([])
   const [error, setError] = useState<unknown>(null)
@@ -119,7 +119,7 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen }: { signInOff: boole
   }
 
   return (
-    <Section title="People" storageKey="admin.people" defaultOpen={defaultOpen} count={users?.length}
+    <Section title="People" storageKey="admin.people" defaultOpen={defaultOpen} openSignal={openSignal} count={users?.length}
       summary="Who can sign in">
       <div ref={openRef} className="diag-stack" data-testid="admin-users">
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
