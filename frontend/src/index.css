@@ -929,17 +929,37 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 
 /* Continue shelf */
 .stats-placeholder { min-height: 1.5em; }
-.continue-skeleton { min-height: 140px; }
 .continue-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-3); }
-.continue-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+.continue-item { container-type: inline-size; display: flex; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+/* Lines apart (space-between) so the buttons of tiles side by side line up at the bottom. */
+.continue-row { flex: 1; display: flex; flex-wrap: wrap; align-items: center; align-content: space-between; gap: var(--space-2) var(--space-3); min-width: 0; }
+.continue-tile { flex: none; }
+/* The button names the next step, so it can be long: rather than squeeze the title below about 8rem it drops to a
+   row of its own, where the growth (negligible beside the text's) makes it full width. */
+.continue-text { flex: 999 1 8rem; }
+.continue-row > .continue-next { flex: 1 0 auto; }
+/* A tile too narrow for most labels beside the title puts every button on its own row, so tiles side by side match
+   whatever their labels. */
+@container (max-width: 28rem) {
+  .continue-row > .continue-next { flex-basis: 100%; }
+}
 .continue-tile { display: grid; place-items: center; width: 36px; height: 48px; border-radius: var(--radius-sm); font-weight: var(--weight-bold); overflow: hidden; }
 .continue-tile img { width: 100%; height: 100%; object-fit: cover; }
 .continue-text { display: grid; min-width: 0; }
 .continue-title { font-family: var(--font-heading); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
 .continue-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; color: var(--muted); font-size: var(--text-sm); }
+/* The placeholder's tile, text and button as bars: --border, because the tile's own fill is the skeleton colour.
+   A text bar is drawn a little shorter than its line (clipped, so the tile keeps its height) and two lines read as
+   two bars. */
+.continue-placeholder :is(.continue-tile, .skeleton-text, .continue-next) { background: var(--border); border-color: transparent; }
+.continue-placeholder .skeleton-text { width: 80%; clip-path: inset(3px 0 round var(--radius-sm)); }
+.continue-placeholder .skeleton-text.short { width: 50%; }
 @media (max-width: 640px) {
   .continue-card { padding: var(--space-3); }
   .continue-item { padding: var(--space-2); }
+  /* A phone shows one tile at a time: its button always takes the row under the text, a full thumb target, so a
+     short label and a long one sit the same. */
+  .continue-row > .continue-next { flex-basis: 100%; min-height: 44px; }
 }
 
 /* Toolbar: search, scope, filters, view, select */
@@ -1072,7 +1092,10 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
   .toolbar-row { flex-basis: 100%; }
   .drama-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
   .drama-card-main { padding: var(--space-3); }
-  .drama-card-foot { gap: var(--space-3); }
+  /* At 320px three quiet buttons (Watch or Listen, Details, Review) are wider than the card: the last one takes a
+     second row rather than breaking its word. */
+  .drama-card-foot { gap: var(--space-3); flex-wrap: wrap; }
+  .drama-card-foot > .btn { flex-shrink: 0; }
   .drama-grid .card-check { top: var(--space-3); left: var(--space-3); width: 56px; height: 56px; }
   .drama-detail-actions { position: sticky; bottom: calc(-1 * var(--space-4)); z-index: 1; margin-inline: calc(-1 * var(--space-4)); padding: var(--space-3) var(--space-4); background: var(--bg); border-top: 1px solid var(--border); }
   .drama-detail-actions > .btn { flex: 1 1 0; }

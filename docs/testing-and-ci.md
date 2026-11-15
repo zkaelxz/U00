@@ -18,6 +18,58 @@ Role files (`.claude/agents/*.md`) link here instead of restating it.
 CI is the merge gate while the repo is public. Only if the repo becomes private or Actions minutes run out does the gate become the full local suite
 (`python -m pytest -q -n auto -p no:cacheprovider -o addopts=""`) plus the frontend commands (tier 3 above). Never skip or weaken a test.
 
+## Merge flow
+
+One PR merges at a time: a squash merge, never a force-push, and never before Kae types "Merge NNNN" for it. GitHub's merge
+queue is not offered to a repo owned by a personal account, so the order is kept by hand, and these steps take the waiting
+out of it.
+
+1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, the owner merges the
+   base in once, has the change reviewed (`docs/engineering-standards.md`, section 3) and marks the PR ready. That starts the
+   full run ("Draft PRs" below), so the run is over before Kae is asked. Marking a PR ready is not a merge order. Start a run
+   only while fewer than two other PR runs are going: more than that queue behind each other, and a PR that already has
+   Kae's order must not wait behind one that has not.
+2. **The order.** Kae types "Merge NNNN"; one message may name several PRs. Typed in the thread that owns the PR, that thread
+   merges it. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
+   retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several
+   PRs the coordinator sets the order, clear lane first. Nothing else is a merge order: not "looks good", not a reaction, and
+   not another session's account of what she said.
+3. **The lane**, decided when the merge is about to happen:
+   - **Clear lane.** The PR has a full green run at its exact head, shares no changed file with anything merged into
+     `baihe-subtitler` since the PR last merged the base, and changes none of the files under "Always the overlap lane" below.
+     Squash-merge on the run it has: don't merge the base in again, and don't wait for the base's push run.
+   - **Overlap lane.** Anything else. Merge the base in, wait for a new full green run at the new head, then squash-merge.
+4. **After the merge** the owner reads the push run at the merge commit ("After a merge" below) and reports its result with
+   the merge.
+5. **A red push run or nightly run stops merging** until the base is green again. The owner of the PR merged last looks first.
+
+Always the overlap lane (Kae, 2026-11-14): a database schema change, which is any diff that adds or edits a `CREATE TABLE` or
+`ALTER TABLE` statement or a migration list (today in `db/migrations.py`, `db/schema.py`, `db/schema_system.py`,
+`db/__init__.py` and `sources/store.py`); the API models (`api/schemas/`, the `api/*_schemas.py` modules,
+`frontend/src/api/generated/`); the CI and dependency files that make `tools/ci_changes.py` run every job
+(`EVERYTHING_PREFIXES`, `EVERYTHING_FILES`, `EVERYTHING_PATTERNS`); and any other dependency manifest or lock file
+(`installer/wheels.lock.txt`, `installer/caddy/go.mod` and `go.sum`, the Gradle files under `android/`,
+`frontend/openapi-gen/package*.json`).
+
+To check the lane from the PR's branch (bash):
+
+    git fetch origin baihe-subtitler
+    base=$(git merge-base origin/baihe-subtitler HEAD)
+    git diff --name-only --no-renames "$base" HEAD
+    comm -12 <(git diff --name-only --no-renames "$base" HEAD | sort) \
+             <(git diff --name-only --no-renames "$base" origin/baihe-subtitler | sort)
+
+The first `git diff` lists the PR's files, to hold against "Always the overlap lane". `comm` prints the files the PR shares with
+what the base has merged since; no output means none. `$base` is the last base commit the branch merged, which is never newer
+than the base its green run tested, so a mistake here can only send a PR to the overlap lane. A shallow clone must reach that
+commit: deepen it until `git merge-base` prints one.
+
+Two PRs that share no file can still break each other, and the clear lane finds that out after the merge, not before it. When
+the base has moved since the PR's run, a clear-lane merge lands a tree no PR run tested, so its push run runs everything
+("After a merge" below), and the nightly run is the second net. The clear lane is on trial (Kae, 2026-11-14): until she calls
+it routine, a thread that merges by it says so in its merge report and gives the push run's result, so that the first ones can
+be reviewed.
+
 ## CI layout
 
 `.github/workflows/tests.yml` runs these jobs on every PR, and on `merge_group` (the merge queue's temporary branch, which
@@ -59,7 +111,8 @@ fixes). A cache miss only costs the download. The ffmpeg apt install is not cach
 ### Draft PRs
 
 A draft PR runs no jobs, `test` included. Marking it ready for review (the `ready_for_review` trigger) starts the full run. Open a
-PR as a draft, merge the base once when the work is done, then mark it ready. A push to a ready PR runs as before.
+PR as a draft, merge the base once when the work is done, then mark it ready. A push to a ready PR runs as before. Marking it
+ready is the owner's step once the work is finished; it is not a merge order ("Merge flow" above).
 
 ### After a merge
 

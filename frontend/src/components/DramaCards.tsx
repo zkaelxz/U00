@@ -2,7 +2,7 @@ import type { DramaSummary } from '../api/types'
 import { mediaTypeLabel } from '../labels'
 import { Badge } from './Badge'
 import { ButtonLink } from './Button'
-import { cardNext, cardProgress, dramaName, newChaptersText, readHref, shownTags, tileHue, tileText, workspaceHref } from './libraryView'
+import { cardNext, cardProgress, dramaName, newChaptersText, readAction, shownTags, tileHue, tileText, workspaceHref } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { buttonClass } from './uiClasses'
 
@@ -16,13 +16,13 @@ interface Props {
   selectMode?: boolean
   checked?: ReadonlySet<number>
   onToggle?: (id: number) => void
-  // Titles with a saved reading position: their Read button says Continue.
+  // Titles with a saved reading position: their Watch / Listen / Read button says Continue.
   continuing?: ReadonlySet<number>
 }
 
 // The Library grid: a title tile, the title (the card's main action, opens
 // the workspace; its hit area covers the whole card), badges, and quiet
-// Read / Details buttons above it. No primaries.
+// Watch, Listen or Read / Details buttons above it. No primaries.
 // On phones the CSS turns each card into a row (tile left, text right).
 export function DramaCards({ items, selectedId, onSelect, selectMode, checked, onToggle, continuing }: Props) {
   if (selectMode && onToggle) return <SelectCards items={items} checked={checked} onToggle={onToggle} />
@@ -31,7 +31,7 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
       {items.map((d) => {
         const title = dramaName(d)
         const next = cardNext(d)
-        const readLabel = continuing?.has(d.id) ? 'Continue' : 'Read'
+        const read = readAction(d, continuing?.has(d.id))
         return (
           <li key={d.id} className={d.id === selectedId ? 'drama-card selected' : 'drama-card'}>
             <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true">{tileText(d)}</div>
@@ -39,8 +39,8 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
               <a className="drama-card-title" href={workspaceHref(d.id)} title={title}>{title}</a>
               <CardText d={d} />
               <div className="drama-card-foot">
-                <ButtonLink variant="ghost" size="sm" href={readHref(d)} aria-label={`${readLabel} ${title}`} className="drama-card-read">
-                  {readLabel}
+                <ButtonLink variant="ghost" size="sm" href={read.href} aria-label={`${read.label} ${title}`} className="drama-card-read">
+                  {read.label}
                 </ButtonLink>
                 <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => onSelect(d.id)} aria-label={`Details: ${title}`}>
                   Details
