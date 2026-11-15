@@ -742,6 +742,12 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
     background: color-mix(in srgb, var(--accent) 5%, var(--surface)); box-shadow: none;
   }
   .review-line.is-queue.is-active:focus-visible { box-shadow: inset 0 0 0 3px var(--focus); }
+  /* Where nothing is under the list and the card is no taller than its rows, the open card is the card's own bottom edge: its square tint and accent edge would stick out of the rounded corners. */
+  @media (max-width: 1399px) {
+    .review-list-card > .review-lines:last-child > .review-line.is-queue.is-active:last-child {
+      border-bottom-left-radius: calc(var(--radius-panel) - 1px); border-bottom-right-radius: calc(var(--radius-panel) - 1px);
+    }
+  }
   /* The grid's gap spaces the card's lines. */
   .review-line.is-queue.is-active > * { margin: 0; }
   .review-line.is-queue.is-active .review-line-meta { gap: var(--space-1) 12px; }
