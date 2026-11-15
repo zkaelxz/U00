@@ -175,7 +175,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
           </Field>
           <Field
             label="Tidy cue timing for players"
-            help="SRT only. Lengthens very short cues into silence (by up to 1 s) and leaves 2 frames between cues that touch, so players don't flash or merge them. It never moves a start, never shortens a cue past 2 frames, and your saved times are not changed."
+            help="SRT only. Lengthens very short cues into silence (up to 1 s) and leaves 2 frames between cues that touch, so players don't flash or merge them. Starts never move and your saved times are not changed."
           >
             <Toggle checked={form.tidyTiming} onChange={(v) => set('tidyTiming', v)} />
           </Field>
