@@ -23,12 +23,11 @@ def pr(*files, labels=()):
 
 
 @pytest.mark.parametrize("files", [
-    ["services/drama_service.py"],
     ["db.py", "tests/test_db.py"],
     ["scripts/x.py", "tools/repo_map.py"],
-    ["docs/user-guide.md", "services/x.py"],
+    ["sources/store.py", "extension/x.js"],
 ])
-def test_backend_only_change_skips_e2e_but_runs_all_pytest(files):
+def test_change_the_browser_cannot_reach_skips_e2e_but_runs_all_pytest(files):
     assert pr(*files) == {"run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,
                           "run_caddy": False, "run_app_checks": True, "run_sources_subset": False}
 
@@ -37,8 +36,11 @@ def test_backend_only_change_skips_e2e_but_runs_all_pytest(files):
     ["api/routers/x_routes.py"],
     ["api/schemas/common.py", "services/x.py"],
     ["frontend/src/App.tsx", "services/x.py"],
+    ["services/drama_service.py"],
+    ["db/lines.py", "tests/test_db.py"],
+    ["docs/user-guide.md", "services/x.py"],
 ])
-def test_touching_api_or_frontend_runs_e2e(files):
+def test_touching_api_frontend_services_or_db_runs_e2e(files):
     assert pr(*files)["run_e2e"] is True
 
 
@@ -212,7 +214,7 @@ def _run(argv, text=""):
 
 
 def test_cli_prints_outputs_for_github_output():
-    code, got = _run(["--event", "pull_request"], "services/x.py\n")
+    code, got = _run(["--event", "pull_request"], "tools/x.py\n")
     assert code == 0
     assert got == {"run_e2e": "false", "run_full_pytest": "true", "run_windows_scripts": "false",
                    "run_caddy": "false", "run_app_checks": "true",
