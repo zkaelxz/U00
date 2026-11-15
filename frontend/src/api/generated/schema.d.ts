@@ -2812,6 +2812,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/remote-setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** PC only: where the remote-access setup stands, one state per step */
+        get: operations["get_remote_setup_api_diagnostics_remote_setup_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/remote-setup/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: save the public name and the Google client id and secret in .env (write-only; key writes must be on) */
+        post: operations["save_remote_sign_in_api_diagnostics_remote_setup_sign_in_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/reset-library": {
         parameters: {
             query?: never;
@@ -22994,6 +23028,8 @@ export interface components {
             chapters?: boolean | null;
             /** Jobs */
             jobs?: boolean | null;
+            /** Private Titles */
+            private_titles?: boolean | null;
             /** Remote */
             remote?: boolean | null;
         };
@@ -23050,6 +23086,8 @@ export interface components {
             send_jobs: boolean;
             /** Send Remote */
             send_remote: boolean;
+            /** Show Private Titles */
+            show_private_titles: boolean;
         };
         /**
          * NotificationTarget
@@ -24863,6 +24901,52 @@ export interface components {
              * @enum {string}
              */
             state: "off" | "unknown" | "not_configured" | "ok" | "warn" | "critical";
+        };
+        /**
+         * RemoteSetup
+         * @description GET /api/diagnostics/remote-setup (PC only): one state per setup step
+         *     and fixed sentences. Never the public name, the Google id or secret, an
+         *     address or a path.
+         */
+        RemoteSetup: {
+            fields: components["schemas"]["RemoteSetupFields"];
+            /** Next */
+            next: string | null;
+            /**
+             * Restart Needed
+             * @default false
+             */
+            restart_needed: boolean;
+            /** Steps */
+            steps: components["schemas"]["RemoteSetupStep"][];
+        };
+        /** RemoteSetupFields */
+        RemoteSetupFields: {
+            /** Google Client Id */
+            google_client_id: boolean;
+            /** Google Client Secret */
+            google_client_secret: boolean;
+            /** Public Url */
+            public_url: boolean;
+        };
+        /** RemoteSetupStep */
+        RemoteSetupStep: {
+            /** Id */
+            id: string;
+            /** Message */
+            message: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "done" | "todo" | "problem" | "manual";
+            /** Title */
+            title: string;
+            /**
+             * Who
+             * @enum {string}
+             */
+            who: "app" | "you" | "menu";
         };
         /** ResearchApplied */
         ResearchApplied: {
@@ -39562,6 +39646,55 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_remote_setup_api_diagnostics_remote_setup_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteSetup"];
+                };
+            };
+        };
+    };
+    save_remote_sign_in_api_diagnostics_remote_setup_sign_in_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteSetup"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

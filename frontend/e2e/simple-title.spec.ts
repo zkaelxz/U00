@@ -413,14 +413,14 @@ test.describe('the check queue', () => {
     }
     await expect(card(page, 12).locator('.review-time')).toHaveText('0:22.0')
     await expect(page.locator('.review-line').getByTestId('line-flag')).toHaveCount(0)
-    await expect(card(page, 24).getByRole('link', { name: 'Open glossary' })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
+    await expect(card(page, 24).getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
     // The English under its label, boxed like a field; the fitting action first, with the green finishing step last.
     await expect(card(page, 24).locator('.review-queue-label')).toHaveText('English')
     const box = card(page, 24).getByTestId('line-en')
     expect(await box.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
     // Edit details and Dismiss flag are in the card's More sheet (and on D and F), not its row.
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
-      .toHaveText(['Open glossary', 'Improve translation', 'See the lines around it', '✗ Wrong', '〰 Mixed', 'Looks right, next'])
+      .toHaveText(['Glossary', 'Re-write', 'See the lines around it', '✗', '〰', 'Looks right, next'])
     await card(page, 24).getByRole('button', { name: 'More actions for line 24' }).click()
     for (const name of ['Edit details', 'Dismiss flag']) await expect(page.getByRole('dialog').getByRole('button', { name, exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
@@ -622,7 +622,7 @@ test.describe('the check queue', () => {
     await expect(header.getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
     await expect(header.getByRole('button', { name: 'Search', exact: true })).toBeVisible()
     await expect(header.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
-    for (const name of ['Add media', 'Redo transcription', 'Glossary']) await expect(page.getByRole('link', { name, exact: true })).toHaveCount(1)
+    for (const name of ['Add media', 'Redo transcription', 'Glossary']) await expect(header.getByRole('link', { name, exact: true })).toHaveCount(1)
     await expect(page.locator('.title-top-actions').getByRole('link').or(page.locator('.title-top-actions').getByRole('button')))
       .toHaveText(['Add media', 'Redo transcription', 'Glossary', 'Search', 'More'])
     // The switch sits after Search and before More, in the header's one row.
@@ -736,7 +736,7 @@ test.describe('the check queue', () => {
     await expect(card(page, 24).locator('.review-select')).toBeHidden()
     await expect(card(page, 24).getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
-      .toHaveText(['Play line', 'Open glossary', 'Improve translation', '✗ Wrong', '〰 Mixed', 'Looks right, next'])
+      .toHaveText(['Play line', 'Glossary', 'Re-write', '✗', '〰', 'Looks right, next'])
 
     // This line is the open tab, with the sound, the reason and the lines around it.
     const lineTab = page.getByRole('tab', { name: 'This line' })
@@ -746,7 +746,7 @@ test.describe('the check queue', () => {
     await expect(panel.getByRole('heading')).toHaveText(['Line 24 sound', 'Why it is listed', 'Around it'])
     await expect(panel.getByTestId('this-line-wave')).toBeVisible()
     await expect(panel.getByTestId('this-line-why')).toHaveText(GLOSSARY_SENTENCE)
-    await expect(panel.getByRole('link', { name: 'Open glossary' })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
+    await expect(panel.getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
     // #24 is the last line: the line before it and itself.
     await expect(panel.getByTestId('this-line-around').locator('.this-line-near-idx')).toHaveText(['#23', '#24'])
     expect(await page.evaluate(() => localStorage.getItem('baihe.pref.review.tools.tab.3'))).toBeNull()

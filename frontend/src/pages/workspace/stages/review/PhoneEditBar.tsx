@@ -1,4 +1,4 @@
-import { usePublishedHeight } from './usePublishedHeight'
+import { usePublishedHeight } from '../../../../hooks/usePublishedHeight'
 
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
@@ -41,7 +41,7 @@ export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCanc
             </button>
           )}
           {queue ? (
-            <button type="button" onClick={queue.onSkip}>Skip for now</button>
+            <button type="button" aria-label="Skip for now" title="Skip for now" onClick={queue.onSkip}>Skip</button>
           ) : (
             <>
               <button type="button" aria-label="Previous line" onClick={() => onMove(-1)}>‹ Prev</button>
@@ -54,7 +54,7 @@ export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCanc
             </button>
           )}
           {queue && !active.reviewed && (
-            <button type="button" className={buttonClass('ok', 'md', 'review-queue-done')} disabled={!active.en} onClick={queue.onLooksRight}>Looks right, next</button>
+            <button type="button" className={buttonClass('ok', 'md', 'review-queue-done')} disabled={!active.en} aria-label="Looks right, next" title="Looks right, next (R)" onClick={queue.onLooksRight}>Next</button>
           )}
         </>
       )}

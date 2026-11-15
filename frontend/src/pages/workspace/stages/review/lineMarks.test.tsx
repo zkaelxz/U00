@@ -42,7 +42,7 @@ describe('LineMarkButtons', () => {
   const html = (line: ReviewLine) => renderToStaticMarkup(<LineMarkButtons line={line} onMark={() => {}} />)
 
   it('offers Wrong and Mixed, shows the one the line has as pressed, and is off for an untranslated line', () => {
-    expect(html(LINE)).toMatch(/aria-pressed="false"[^>]*>.*Wrong.*aria-pressed="false"[^>]*>.*Mixed/s)
+    expect(html(LINE)).toMatch(/aria-pressed="false"[^>]*aria-label="Wrong".*aria-pressed="false"[^>]*aria-label="Mixed"/s)
     const mixed = html({ ...LINE, mark: 'mixed' })
     expect(mixed).toMatch(/review-mark-wrong[^>]*aria-pressed="false"/)
     expect(mixed).toMatch(/review-mark-mixed[^>]*aria-pressed="true"[^>]*title="Clear the mixed mark"/)
