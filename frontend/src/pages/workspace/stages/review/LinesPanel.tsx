@@ -286,7 +286,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const playerId = useId()
   const media = useQueueMedia(mediaKind === 'audio' && !emptyDrama, isPhone, sectionRef, playerId)
   const queue = useCheckQueue({ dramaId, simple, filter, searching, isPhone, jobRunning, canRetranscribeLine, retranscribeNeed, data, dataFilter, settled, allTotal, shown, activeId, page, pages, ctl, pending, st, changeFilter, onChanged, setError, mediaToggle: media.toggle })
-  useKeepPlace(place, { dramaId, activeId, shown, filter, searching, term, queue: queue.on, page, listRef, ownPickRef, goToLine, setStatus, setJumpedId })
+  useKeepPlace(place, { dramaId, activeId, shown, filter, searching, term, editing: edit?.lineId ?? null, queue: queue.on, page, listRef, ownPickRef, goToLine, setStatus, setJumpedId })
   const mediaFolded = queue.foldsMedia && media.folds
   const toggleReplace = () => {
     const next = !replaceOpen

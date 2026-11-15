@@ -22,6 +22,8 @@ interface Live {
   filter: LineFilter
   searching: boolean
   term: string
+  // The line being edited, if any.
+  editing: number | null
   queue: boolean
   page: number
   listRef: RefObject<HTMLUListElement | null>
@@ -148,6 +150,7 @@ function reopen(kept: KeptRef, setPage: SetPage, view: PlaceView, spot: Spot, cu
     },
   }
   kept.current.restoreLanded = move.landed
+  kept.current.undoMove = null
   return move
 }
 
@@ -217,8 +220,9 @@ export function useReviewPlace(dramaId: number, simple: boolean, pendingRef: Mut
         pendingRef.current = null
         k.restoreLanded = null
         k.undoMove?.()
-        k.undoMove = null
       }
+      // Whatever replaced the restore's move (the pager, a save and next) made the page the person's.
+      k.undoMove = null
     },
     /** The page a switch to `f` opens on: its view's kept line's, read now (with the move to it), else 1. */
     pageFor: (f: LineFilter): number => {
@@ -296,6 +300,13 @@ export function useKeepPlace(place: { kept: KeptRef; abandon: () => void }, live
     // Only a change of term counts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live.term])
+
+  // Opening an edit on the line already active changes no active line, and it is as much the person's move.
+  useEffect(() => {
+    if (live.editing !== null) place.abandon()
+    // Only an edit that opens, or moves to another line, counts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live.editing])
 
   // Comparing pages cannot tell a page the person went to and came back from.
   useEffect(() => {
