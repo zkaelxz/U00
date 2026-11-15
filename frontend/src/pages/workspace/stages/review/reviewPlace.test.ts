@@ -37,6 +37,13 @@ describe('reading the kept places', () => {
       expect(readPlaces(bad), JSON.stringify(bad)).toEqual(NO_PLACES)
     }
   })
+  it('reads a number too large to write into an address as no place', () => {
+    // 1e21 is an integer to Number.isInteger, and the page address would carry it as `1e+21`.
+    for (const huge of [1e21, 2 ** 53, Number.MAX_VALUE]) {
+      expect(readPlaces({ queue: { ...inQueue, page: huge }, lines: { ...inLines, lineId: huge } }), String(huge)).toEqual(NO_PLACES)
+    }
+    expect(readPlaces({ lines: { ...inLines, page: Number.MAX_SAFE_INTEGER } }).lines?.page).toBe(Number.MAX_SAFE_INTEGER)
+  })
   it('stores only the spots there are', () => {
     expect(storedPlaces(both)).toEqual({ queue: inQueue, lines: inLines })
     expect(storedPlaces({ queue: null, lines: inLines })).toEqual({ lines: inLines })

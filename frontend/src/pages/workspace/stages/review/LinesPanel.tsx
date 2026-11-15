@@ -112,7 +112,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [suspectOpen, setSuspectOpen] = useState(false)
   const selection = useLineSelectionContext()
   const pending = useRef<Pending | null>(null)
-  const { filter, setFilter, page, setPage, place } = useReviewPlace(dramaId, simple, !!goTo, pending)
+  const { filter, setFilter, page, setPage, place } = useReviewPlace(dramaId, simple, pending)
   const { input, setInput, term, setTerm } = useLinkedFind(dramaId)
   const [activeId, setActiveId] = useState<number | null>(null)
   const [edit, setEdit] = useState<EditState | null>(null)

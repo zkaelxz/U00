@@ -64,6 +64,36 @@ function countPages(page: Page): Map<number, number> {
   return seen
 }
 
+// Holds the first request for the lines that `which` picks until the returned function is called, so the person can act
+// while a restore is still waiting for its answer. Later requests go through at once.
+async function holdFirst(page: Page, which: (pageSize: number) => boolean): Promise<() => void> {
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => (release = resolve))
+  let held = false
+  await page.route('**/api/review/dramas/3/lines?*', async (route) => {
+    const url = new URL(route.request().url())
+    if (!held && which(Number(url.searchParams.get('page_size')))) {
+      held = true
+      await gate
+    }
+    await route.continue()
+  })
+  return release
+}
+const listPage = (size: number) => size === 40
+const wholeTitle = (size: number) => size > 40
+// Reading the whole title, by the requests made from here on.
+function countWholeTitle(page: Page): { n: number } {
+  const seen = { n: 0 }
+  page.on('request', (req) => {
+    const url = new URL(req.url())
+    if (/\/api\/review\/dramas\/3\/lines$/.test(url.pathname) && Number(url.searchParams.get('page_size')) > 40) seen.n += 1
+  })
+  return seen
+}
+// What a late move would have done by now: the local server answers in a few milliseconds.
+const settle = (page: Page) => page.waitForTimeout(800)
+
 async function expectInView(page: Page, n: number) {
   const box = await row(page, n).boundingBox()
   const height = page.viewportSize()!.height
@@ -125,11 +155,13 @@ test('a kept line whose id is gone reopens on the line that has its number now, 
   await leave(page)
   // New ids for the same 100 lines, as when a title is transcribed again.
   seedPlaceLines()
+  const reads = countWholeTitle(page)
   await page.goto('/#/drama/3/review')
   await expect(row(page, 55)).toHaveAttribute('aria-current', 'true')
   await expect(pageNumber(page)).toHaveValue('2')
   await expect(status(page)).toHaveText('Back where you stopped, on line 55.')
   await expect(page.getByRole('alert')).toHaveCount(0)
+  expect(reads.n, 'reads of the whole title').toBe(1)
 })
 
 test.describe('Simple', () => {
@@ -199,19 +231,22 @@ test('a glance at a filter or a search does not move the place in All', async ({
   seedPlaceLines()
   await keepLine55(page)
   const before = await kept(page)
+  // Each step waits for the line the list makes active by itself, which is when a wrong write would be made, and then
+  // reads the store until it holds the same value.
   await page.getByRole('radio', { name: /^Flagged/ }).check({ force: true })
   await expect(page.locator('.review-line')).toHaveCount(2)
-  expect(await kept(page)).toBe(before)
+  await expect(row(page, 12)).toHaveAttribute('aria-current', 'true')
+  await expect.poll(() => kept(page)).toBe(before)
   await page.getByRole('radio', { name: /^All lines/ }).check({ force: true })
   await expect(row(page, 55)).toHaveAttribute('aria-current', 'true')
-  expect(await kept(page)).toBe(before)
+  await expect.poll(() => kept(page)).toBe(before)
   await page.getByRole('searchbox', { name: 'Search lines' }).fill('Line 77')
   await expect(page.locator('.review-line')).toHaveCount(1)
-  await expect(row(page, 77)).toBeVisible()
-  expect(await kept(page)).toBe(before)
+  await expect(row(page, 77)).toHaveAttribute('aria-current', 'true')
+  await expect.poll(() => kept(page)).toBe(before)
   await page.getByRole('button', { name: 'Clear search' }).click()
   await expect(row(page, 41)).toBeVisible()
-  expect(await kept(page)).toBe(before)
+  await expect.poll(() => kept(page)).toBe(before)
   await leave(page)
   await page.goto('/#/drama/3/review')
   await expect(row(page, 55)).toHaveAttribute('aria-current', 'true')
@@ -261,6 +296,113 @@ test('work in Need a look keeps the place in All, and each view reopens on its o
   await expect(row(page, 7)).toHaveAttribute('aria-current', 'true')
   await allRadio(page).check({ force: true })
   await expect(row(page, 55)).toHaveAttribute('aria-current', 'true')
+})
+
+test('a ?find= link wins over the kept place and leaves it as it is', async ({ page }) => {
+  seedPlaceLines()
+  await keepLine55(page)
+  const before = await kept(page)
+  await leave(page)
+  await page.goto(`/#/drama/3/review?find=${encodeURIComponent('Line 77')}`)
+  await expect(page.getByRole('searchbox', { name: 'Search lines' })).toHaveValue('Line 77')
+  await expect(page.locator('.review-line')).toHaveCount(1)
+  await expect(row(page, 77)).toHaveAttribute('aria-current', 'true')
+  await settle(page)
+  await expect(status(page)).toHaveText('')
+  await expect(page.getByRole('searchbox', { name: 'Search lines' })).toHaveValue('Line 77')
+  expect(await kept(page)).toBe(before)
+})
+
+test.describe('a restore still on its way gives way to the person', () => {
+  test('a kept line looked for in the whole title is not jumped to after the person clicked another line', async ({ page }) => {
+    seedPlaceLines()
+    await keepLine55(page)
+    await leave(page)
+    seedPlaceLines()
+    const release = await holdFirst(page, wholeTitle)
+    const reads = countWholeTitle(page)
+    await page.goto('/#/drama/3/review')
+    await expect(realRow(page)).toBeVisible()
+    await row(page, 60).locator('.review-idx').click()
+    await expect(row(page, 60)).toHaveAttribute('aria-current', 'true')
+    release()
+    await settle(page)
+    await expect(row(page, 60)).toHaveAttribute('aria-current', 'true')
+    await expect(pageNumber(page)).toHaveValue('2')
+    await expect(status(page)).toHaveText('')
+    expect(reads.n, 'reads of the whole title').toBe(1)
+  })
+
+  test('a view picked before the kept line arrives is not taken back to All', async ({ page }) => {
+    seedPlaceLines()
+    await keepLine55(page)
+    await leave(page)
+    const release = await holdFirst(page, listPage)
+    await page.goto('/#/drama/3/review')
+    await page.getByRole('radio', { name: /^Flagged/ }).check({ force: true })
+    await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(2)
+    release()
+    await settle(page)
+    await expect(page.getByRole('radio', { name: /^Flagged/ })).toBeChecked()
+    await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(2)
+    await expect(row(page, 12)).toHaveAttribute('aria-current', 'true')
+    await expect(status(page)).toHaveText('')
+  })
+
+  test('a search typed before the kept line arrives is not wiped', async ({ page }) => {
+    seedPlaceLines()
+    await keepLine55(page)
+    await leave(page)
+    const release = await holdFirst(page, listPage)
+    await page.goto('/#/drama/3/review')
+    const box = page.getByRole('searchbox', { name: 'Search lines' })
+    await box.fill('Line 77')
+    await expect(row(page, 77)).toBeVisible()
+    release()
+    await settle(page)
+    await expect(box).toHaveValue('Line 77')
+    await expect(page.locator('.review-line')).toHaveCount(1)
+    await expect(row(page, 77)).toHaveAttribute('aria-current', 'true')
+    await expect(status(page)).toHaveText('')
+  })
+
+  test('a go-to that arrives while the first page loads wins over the kept line', async ({ page }) => {
+    seedPlaceLines()
+    await page.goto('/#/drama/3/review')
+    await expect(realRow(page)).toBeVisible()
+    await row(page, 20).locator('.review-idx').click()
+    await expect.poll(() => kept(page)).toContain('"lineNumber":20')
+    await leave(page)
+    const release = await holdFirst(page, listPage)
+    await page.goto('/#/drama/3/review')
+    const wholeRead = page.waitForResponse((r) => new URL(r.url()).searchParams.get('only') === 'all' && Number(new URL(r.url()).searchParams.get('page_size')) > 40)
+    const goTo = page.getByLabel('Go to line number')
+    await goTo.fill('30')
+    await goTo.press('Enter')
+    await wholeRead
+    // Past the point where the go-to has acted, before the page it is on has arrived.
+    await page.waitForTimeout(300)
+    release()
+    await expect(row(page, 30)).toHaveAttribute('aria-current', 'true')
+    await settle(page)
+    await expect(row(page, 30)).toHaveAttribute('aria-current', 'true')
+    await expect(status(page)).toHaveText('')
+  })
+
+  test('the main button still opens the first card, not the card kept in the queue', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    seedPlaceLines()
+    await page.goto('/#/drama/3')
+    await row(page, 7).locator('.review-idx').click()
+    await expect.poll(() => kept(page)).toContain('"queue":{')
+    await allRadio(page).check({ force: true })
+    await expect(row(page, 1)).toBeVisible()
+    await page.getByRole('button', { name: 'Check the 3 lines', exact: true }).click()
+    await expect(queueRadio(page)).toBeChecked()
+    await expect(row(page, 24)).toHaveAttribute('aria-current', 'true')
+    await settle(page)
+    await expect(row(page, 24)).toHaveAttribute('aria-current', 'true')
+  })
 })
 
 // The row's box against the area it scrolls in: below the sticky toolbar and above that area's bottom edge.

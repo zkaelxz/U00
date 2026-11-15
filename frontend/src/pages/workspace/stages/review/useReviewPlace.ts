@@ -12,6 +12,7 @@ import {
   backStatus, NO_PLACES, placeFallback, placeKey, readPlaces, spotForMove, spotToOpen, storedPlaces, withSpot,
   type Places, type PlaceView, type Spot,
 } from './reviewPlace'
+import type { Restore } from './linesNavigation'
 import type { LineTarget } from './reviewResults'
 
 interface Live {
@@ -20,30 +21,34 @@ interface Live {
   shown: ReviewLine[]
   filter: LineFilter
   searching: boolean
-  // The check queue is showing.
   queue: boolean
   page: number
   listRef: RefObject<HTMLUListElement | null>
   // useLinesLoad's: the line a load made active by itself, which is not a move to keep.
   ownPickRef: MutableRefObject<number | null>
-  goToLine: (t: LineTarget) => Promise<string | null>
+  goToLine: (t: LineTarget, restore?: Restore) => Promise<string | null>
   setStatus: Dispatch<SetStateAction<string | null>>
   setJumpedId: Dispatch<SetStateAction<number | null>>
 }
 
 interface Kept {
-  // The reopened row, to hold in view once it is drawn.
+  // Set where a reopened row is found and spent when the row is drawn: the row is not in the DOM when its page lands.
   holdId: number | null
-  // The row being held, and what stops holding it.
   held: { id: number; release: () => void } | null
-  // The sentence put on the status line, and the view it speaks for.
+  // The view is kept so that leaving it can take the sentence down.
   said: { text: string; view: PlaceView } | null
   live: Live | null
+  // The restore still waiting for its page. The person's own moves share the pending slot, so identity tells them apart.
+  reopening: Pending | null
+  // The line a restore moves to: its landing is not the person's move.
+  restoreId: number | null
+  // Bumped by whatever the person does (view, search, go-to, line), so a restore that awaits the whole title can tell.
+  acts: number
 }
 
 type KeptRef = MutableRefObject<Kept>
 
-// Room left between the sticky toolbar and a reopened row.
+// Without it the row's top edge would touch the toolbar's bottom edge.
 const TOOLBAR_GAP_PX = 8
 type SetPage = Dispatch<SetStateAction<number>>
 
@@ -70,24 +75,34 @@ function sayBack(kept: KeptRef, view: PlaceView, line: ReviewLine, wouldOpen: nu
 const shownView = (live: Live): PlaceView | null => (live.queue ? 'queue' : live.filter === 'all' && !live.searching ? 'lines' : null)
 
 // The kept line is not on its page any more (lines were added, removed, merged or transcribed again before it).
+// Reading the whole title takes a while on a long one, and the person may have started working meanwhile: then the
+// restore gives up without a trace.
 async function recover(kept: KeptRef, setPage: SetPage, spot: Spot, wouldOpen: number | null | undefined) {
-  const live = kept.current.live
-  if (!live) return
+  const start = kept.current.live
+  if (!start) return
+  const { filter, searching, page } = start
+  const acts = kept.current.acts
+  const stillHere = () => {
+    const now = kept.current.live
+    return !!now && now.filter === filter && now.searching === searching && now.page === page && kept.current.acts === acts
+  }
   let all: ReviewLine[]
   try {
-    all = await listAllLines(live.dramaId)
+    all = await listAllLines(start.dramaId)
   } catch {
     // Unreadable now: the page stays as loaded, and the spot is kept for the next visit.
     return
   }
+  if (!stillHere()) return
   const line = placeFallback(all, spot)
   if (!line) {
-    keep(live.dramaId, 'lines', null)
-    if (kept.current.live && kept.current.live.page !== 1) setPage(1)
+    keep(start.dramaId, 'lines', null)
+    if (page !== 1) setPage(1)
     return
   }
   kept.current.holdId = line.id
-  const message = await kept.current.live?.goToLine({ lineId: line.id })
+  kept.current.restoreId = line.id
+  const message = await kept.current.live?.goToLine({ lineId: line.id }, { all, stillHere })
   if (message !== null) {
     kept.current.holdId = null
     return
@@ -99,7 +114,7 @@ async function recover(kept: KeptRef, setPage: SetPage, spot: Spot, wouldOpen: n
 // otherwise have picked from, so nothing is said when it is the line the view would have opened on anyway.
 function reopen(kept: KeptRef, setPage: SetPage, view: PlaceView, spot: Spot, cur: number | null, first: boolean): Pending {
   const queue = view === 'queue'
-  return {
+  const move: Pending = {
     target: spot.lineId,
     landed: (lines, hit) => {
       const live = kept.current.live
@@ -109,6 +124,7 @@ function reopen(kept: KeptRef, setPage: SetPage, view: PlaceView, spot: Spot, cu
       if (line) {
         // A queue card sits near the top and the focus brings it into view; a line further down All is held in view.
         if (!queue) kept.current.holdId = line.id
+        kept.current.restoreId = line.id
         sayBack(kept, view, line, wouldOpen)
       } else if (!queue) {
         void recover(kept, setPage, spot, wouldOpen)
@@ -119,6 +135,8 @@ function reopen(kept: KeptRef, setPage: SetPage, view: PlaceView, spot: Spot, cu
       }
     },
   }
+  kept.current.reopening = move
+  return move
 }
 
 // Keeps `row` where `place` puts it while the page settles: the player, the waveform and the side video arrive after
@@ -159,26 +177,34 @@ function holdInView(row: HTMLElement, list: HTMLElement): () => void {
 
 /**
  * Where the list opens: its view (useInitialLinesFilter), and its page and pending move from the line kept for that
- * view, unless the link names lines (`focus`, `find`) or a go-to is already asked. Called before the list loads;
- * useKeepPlace does the rest.
+ * view, unless the link names lines (`focus`, `find`). A go-to that arrives later, like any other move of the person's,
+ * cancels a restore that is still on its way (`abandon`). Called before the list loads; useKeepPlace does the rest.
  */
-export function useReviewPlace(dramaId: number, simple: boolean, goToAsked: boolean, pendingRef: MutableRefObject<Pending | null>) {
+export function useReviewPlace(dramaId: number, simple: boolean, pendingRef: MutableRefObject<Pending | null>) {
   const route = useRoute()
   const [filter, setFilter] = useState<LineFilter>(useInitialLinesFilter(simple))
   const [opening] = useState(() => {
-    const link = goToAsked || (route.name === 'drama' && (route.focus !== undefined || route.find !== undefined))
+    const link = route.name === 'drama' && (route.focus !== undefined || route.find !== undefined)
     return spotToOpen(readKept(dramaId), filter, simple, link)
   })
   const [page, setPage] = useState(opening?.spot.page ?? 1)
-  const kept = useRef<Kept>({ holdId: null, held: null, said: null, live: null })
+  const kept = useRef<Kept>({ holdId: null, held: null, said: null, live: null, reopening: null, restoreId: null, acts: 0 })
   // Runs before the list's first load, which is an effect of a later hook: that load settles on the kept line.
   useEffect(() => {
     if (opening) pendingRef.current = reopen(kept, setPage, opening.view, opening.spot, null, true)
   }, [opening, pendingRef])
   const place = {
     kept,
+    /** The person has moved: a restore not yet landed is dropped, and so is a hold not yet placed. */
+    abandon: () => {
+      kept.current.acts += 1
+      if (kept.current.reopening !== null && pendingRef.current === kept.current.reopening) pendingRef.current = null
+      kept.current.holdId = null
+    },
     /** The page a switch to `f` opens on: its view's kept line's, read now (with the move to it), else 1. */
     pageFor: (f: LineFilter): number => {
+      // A restore still waiting is the old view's; only a move the person asked for (the main button, a jump) wins.
+      place.abandon()
       const to = spotToOpen(kept.current.live ? readKept(kept.current.live.dramaId) : NO_PLACES, f, simple, pendingRef.current !== null)
       if (!to) return 1
       pendingRef.current = reopen(kept, setPage, to.view, to.spot, kept.current.live?.activeId ?? null, false)
@@ -189,7 +215,7 @@ export function useReviewPlace(dramaId: number, simple: boolean, goToAsked: bool
 }
 
 /** Keeps the line the person moves to, and holds a reopened row in view. Called after the list's own focus effect, which it follows. */
-export function useKeepPlace(place: { kept: KeptRef }, live: Live) {
+export function useKeepPlace(place: { kept: KeptRef; abandon: () => void }, live: Live) {
   const { kept } = place
   useEffect(() => {
     kept.current.live = live
@@ -198,11 +224,12 @@ export function useKeepPlace(place: { kept: KeptRef }, live: Live) {
   useEffect(() => {
     const own = live.ownPickRef.current === live.activeId
     live.ownPickRef.current = null
-    // A move elsewhere ends the hold on a reopened row.
+    // The row left behind is no longer the one to keep in view.
     if (kept.current.held && kept.current.held.id !== live.activeId) {
       kept.current.held.release()
       kept.current.held = null
     }
+    if (!own && live.activeId !== kept.current.restoreId) place.abandon()
     const line = live.activeId !== null ? live.shown.find((l) => l.id === live.activeId) : undefined
     if (own || !line) return
     const { view, spot } = spotForMove(line, { queue: live.queue, all: live.filter === 'all' && !live.searching, page: live.page })

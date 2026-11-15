@@ -2,7 +2,7 @@ import type { Dispatch, RefObject, SetStateAction } from 'react'
 
 import { listAllLines } from '../../../../api/restructure'
 import { idxFromLineNumber, lineNumber } from '../../../../lineNumber'
-import type { LineFilter } from '../../../../types/review'
+import type { LineFilter, ReviewLine } from '../../../../types/review'
 import type { createLinesController, LinesState, Pending } from './linesController'
 import { pageForPosition } from './reviewLogic'
 import type { LineTarget } from './reviewResults'
@@ -16,14 +16,21 @@ interface LinesNavigationDeps {
   searching: boolean
   filter: LineFilter
   page: number
-  // The kept places (useReviewPlace): the page a view opens on when the person switches to it.
-  place: { pageFor: (f: LineFilter) => number }
+  // The kept places (useReviewPlace): the page a view opens on when the person switches to it, and the person's moves
+  // that cancel a restore still on its way.
+  place: { pageFor: (f: LineFilter) => number; abandon: () => void }
   setFilter: Dispatch<SetStateAction<LineFilter>>
   setPage: Dispatch<SetStateAction<number>>
   setInput: Dispatch<SetStateAction<string>>
   setTerm: Dispatch<SetStateAction<string>>
   setStatus: Dispatch<SetStateAction<string | null>>
   setError: Dispatch<SetStateAction<unknown>>
+}
+
+// A restore of the kept place goes through goToLine with the title it has already read, and stops if the person moved.
+export interface Restore {
+  all: ReviewLine[]
+  stillHere: () => boolean
 }
 
 // Filter, search and go-to-line: the moves that change which lines are shown.
@@ -38,6 +45,7 @@ const changeFilter = async (f: LineFilter) => {
   setTerm('')
 }
 const changeSearch = async (v: string) => {
+  place.abandon()
   // The box takes the keystroke at once: waiting for the save first dropped
   // typed characters. A draft that can't be saved stays in the edit banner,
   // and isn't sent again on every keystroke.
@@ -48,10 +56,12 @@ const changeSearch = async (v: string) => {
 }
 // By permanent id where the caller has one; typed numbers go by position.
 // Returns null once the line is open, else a plain message saying why not.
-const goToLine = async (t: LineTarget): Promise<string | null> => {
+const goToLine = async (t: LineTarget, restore?: Restore): Promise<string | null> => {
   const label = 'lineId' in t ? 'that line' : `#${t.lineNumber}`
+  // A go-to is the person's choice from the moment it is asked, even if the title is still being read.
+  if (!restore) place.abandon()
   try {
-    const all = await listAllLines(dramaId)
+    const all = restore?.all ?? (await listAllLines(dramaId))
     const pos =
       'lineId' in t
         ? all.findIndex((l) => l.id === t.lineId)
@@ -63,6 +73,8 @@ const goToLine = async (t: LineTarget): Promise<string | null> => {
       if (draft) listRef.current?.querySelector<HTMLElement>(`[data-line-id="${draft.lineId}"]`)?.scrollIntoView?.({ block: 'center' })
       return `Could not open ${label}: your edit to #${draft ? lineNumber(draft.base.idx) : '?'} is not saved yet.`
     }
+    // Only the restore reads this message, and it says nothing of it.
+    if (restore && !restore.stillHere()) return 'The person moved first.'
     const id = all[pos].id
     const pg = pageForPosition(pos)
     if (!searching && filter === 'all' && page === pg) ctl.focusTo(id)
