@@ -631,7 +631,7 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
         </span>
         {here && <span className="muted" data-testid="player-line">Line #{lineNumber(here.idx)}</span>}
         <span className="review-loop">
-          <Toggle id={loopId} checked={loop} onChange={setLoop} aria-label="Loop line" title="Repeat the line being played (L)" />
+          <Toggle id={loopId} checked={loop} onChange={setLoop} aria-label="Loop line" title="Key: L" />
           <label htmlFor={loopId} aria-hidden="true">
             Loop<span className="review-loop-word"> line</span>
           </label>

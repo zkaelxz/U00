@@ -81,7 +81,7 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
     })
       .then((r) => {
         setPreview(null)
-        setDone(`Merged ${r.merged_groups} group${r.merged_groups === 1 ? '' : 's'}.${undoHandleOf(r) ? '' : ' The previous lines are in Records → Line history.'}`)
+        setDone(`Merged ${r.merged_groups} group${r.merged_groups === 1 ? '' : 's'}.${undoHandleOf(r) ? '' : ' Undo in Records → Line history.'}`)
         const handle = undoHandleOf(r)
         if (handle) setUndo(handle)
         else retireUndoOffer()
@@ -164,7 +164,7 @@ export function AiExtrasMerge({ dramaId, jobRunning, onChanged }: Props) {
                 {preview.p.merges.length > SHOWN && <li className="muted">and {preview.p.merges.length - SHOWN} more</li>}
               </ul>
               <TypedConfirm word="merge" action="Merge lines" blocked={jobRunning ? JOB_RUNNING_MESSAGE : null} busy={busy} onConfirm={apply}>
-                <p className="muted">Your current lines are saved as a snapshot first (Records → Line history).</p>
+                <p className="muted">Saved to Line history first.</p>
               </TypedConfirm>
             </>
           )}

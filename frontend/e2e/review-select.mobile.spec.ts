@@ -120,7 +120,7 @@ db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句',
     await page.goto('about:blank')
     await page.goto('/#/drama/3/review')
     // The queue's cards have no tick box: a line ticked under All stays ticked when the queue is shown again.
-    await page.getByRole('button', { name: 'See the lines around it' }).tap()
+    await page.getByRole('button', { name: 'In context' }).tap()
     await page.locator('.review-line input[type=checkbox]').first().tap()
     await page.locator('.review-queue-row').getByRole('button', { name: 'Check the 14 lines', exact: true }).tap()
     await expect(page.getByTestId('queue-position')).toHaveText('1 of 14 to look at')
