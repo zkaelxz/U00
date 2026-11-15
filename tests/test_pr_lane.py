@@ -270,18 +270,19 @@ def test_a_criss_cross_history_cannot_be_decided(repo, capsys):
     assert "more than one merge base" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("narrow", [False, True], ids=["full refspec", "one-branch clone"])
-def test_the_base_is_fetched_first_so_a_stale_clone_cannot_clear_a_pr(tmp_path, capsys, narrow):
+@pytest.mark.parametrize("remote,narrow", [("origin", False), ("origin", True), ("upstream", True)],
+                         ids=["full refspec", "one-branch clone", "one-branch clone, remote with another name"])
+def test_the_base_is_fetched_first_so_a_stale_clone_cannot_clear_a_pr(tmp_path, capsys, remote, narrow):
     origin = tmp_path / "origin.git"
     origin.mkdir()
     git(origin, "init", "-q", "--bare")
     git(origin, "symbolic-ref", "HEAD", "refs/heads/main")
     work = new_repo(tmp_path / "work")
-    git(work, "remote", "add", "origin", str(origin))
-    git(work, "push", "-q", "origin", "main")
+    git(work, "remote", "add", remote, str(origin))
+    git(work, "push", "-q", remote, "main")
     if narrow:
         # A one-branch clone maps no other branch, so a plain `git fetch origin main` leaves origin/main where it was.
-        git(work, "config", "remote.origin.fetch", "+refs/heads/feature:refs/remotes/origin/feature")
+        git(work, "config", f"remote.{remote}.fetch", f"+refs/heads/feature:refs/remotes/{remote}/feature")
     git(work, "checkout", "-q", "-b", "feature")
     commit(work, {"shared.py": "x = 2\n"})
     other = tmp_path / "other"
@@ -289,7 +290,45 @@ def test_the_base_is_fetched_first_so_a_stale_clone_cannot_clear_a_pr(tmp_path, 
     commit(other, {"shared.py": "x = 3\n"})
     git(other, "push", "-q", "origin", "main")
     # This clone has not heard of the merge yet: without the fetch the PR would read as clear.
-    assert pr_lane.main(["--no-fetch", "--base", "origin/main", "--head", "feature"], root=work) == 0
+    assert pr_lane.main(["--no-fetch", "--base", f"{remote}/main", "--head", "feature"], root=work) == 0
     capsys.readouterr()
-    assert pr_lane.main(["--base", "origin/main", "--head", "feature"], root=work) == 1
+    assert pr_lane.main(["--base", f"{remote}/main", "--head", "feature"], root=work) == 1
     assert "Shared with what the base merged since: shared.py" in capsys.readouterr().out
+
+
+def test_a_failed_fetch_cannot_be_decided_and_is_not_cleared(repo, capsys):
+    assert pr_lane.main(["--base", "nowhere/main"], root=repo) == 2
+    assert capsys.readouterr().out.startswith("overlap\n  Could not decide")
+
+
+def test_a_file_that_is_there_but_cannot_be_read_is_not_taken_for_an_absent_one(repo, monkeypatch, capsys):
+    git(repo, "checkout", "-q", "-b", "feature")
+    commit(repo, {"a.py": "a = 2\n"})
+    real = pr_lane._git
+
+    def failing_show(root, *args):
+        if args[:1] == ("show",):
+            return subprocess.CompletedProcess(args, 128, "", "fatal: unable to read the object")
+        return real(root, *args)
+
+    monkeypatch.setattr(pr_lane, "_git", failing_show)
+    assert run(repo, "--head", "feature") == 2
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "overlap" and "git show" in out[1]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="needs a file name that is not valid UTF-8")
+def test_a_changed_path_that_is_not_valid_utf8_cannot_be_decided(repo, capsys):
+    git(repo, "checkout", "-q", "-b", "feature")
+    commit(repo, {os.fsdecode(b"db\xffx.py"): 'SQL = """\nCREATE TABLE t (\n    id INTEGER\n)\n"""\n'})
+    assert run(repo, "--head", "feature") == 2
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "overlap" and "not valid UTF-8" in out[1]
+
+
+def test_an_annotated_tag_as_the_head_reports_the_commit_it_points_to(repo, capsys):
+    git(repo, "checkout", "-q", "-b", "feature")
+    commit(repo, {"a.py": "a = 2\n"})
+    git(repo, "tag", "-a", "-m", "release", "v1")
+    assert run(repo, "--head", "v1") == 0
+    assert f"Head {git(repo, 'rev-parse', 'feature')[:7]}." in capsys.readouterr().out

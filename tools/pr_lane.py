@@ -149,6 +149,8 @@ def path_kind(path):
 
 def _text_at(root, rev, path):
     """The file's text at `rev`; empty when the file is not there (it was added or deleted by the branch)."""
+    if "\ufffd" in path:  # the name was decoded with replacement characters, so git cannot be asked for it by name
+        raise LaneError(f"a changed path is not valid UTF-8, so its text cannot be read: {path!a}")
     done = _git(root, "show", f"{rev}:{path}")
     if done.returncode == 0:
         return done.stdout
@@ -174,7 +176,7 @@ def decide(root, base, head):
         if why:
             always[path] = why
     both = sorted(pr_files & base_files)
-    return Verdict(head=_out(root, "rev-parse", head).strip(), merge_base=merge_base,
+    return Verdict(head=_out(root, "rev-parse", "--verify", f"{head}^{{commit}}").strip(), merge_base=merge_base,
                    base_tip=_out(root, "rev-parse", base).strip(), pr_files=len(pr_files), base_files=len(base_files),
                    always=always, shared=[p for p in both if not _is_user_guide(p)],
                    exempt=[p for p in both if _is_user_guide(p)])
