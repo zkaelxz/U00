@@ -114,11 +114,7 @@ export default function LivePage() {
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
   // The delayed player records on the PC and the server refuses it from away, so a choice
   // remembered on this browser is set aside there (the PC keeps it).
-  const language = prefs.source_language ?? formDefaults(opts).source_language
-  const form: LiveForm = {
-    ...formDefaults(opts), whisper_size: languageWhisperDefault(opts, language), ...prefs, url,
-    ...(pc === 'remote' ? { delayed_player: false } : {}),
-  }
+  const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
   // A Japanese-only model must not stay selected for another language: Start would refuse it.

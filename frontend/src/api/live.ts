@@ -137,12 +137,14 @@ export const LIVE_FORM_FALLBACK: LiveFormOptions = {
     ({ source_language, whisper_size, segment_seconds, overlap_seconds, max_minutes, player_height }))(DEFAULT_FORM),
 }
 
-/** The form a browser starts on: the server's defaults over DEFAULT_FORM. */
-export const formDefaults = (opts: LiveFormOptions): LiveForm => ({ ...DEFAULT_FORM, ...opts.defaults })
-
 /** The model a stream in this language starts on when this browser has not picked one. */
 export const languageWhisperDefault = (opts: LiveFormOptions, language: string): string =>
   opts.language_whisper_defaults?.[language] ?? opts.defaults.whisper_size
+
+/** The form a browser starts on: the server's defaults over DEFAULT_FORM, with the model that suits `language` (the form's own language when omitted). */
+export const formDefaults = (opts: LiveFormOptions, language?: string): LiveForm => ({
+  ...DEFAULT_FORM, ...opts.defaults, whisper_size: languageWhisperDefault(opts, language ?? opts.defaults.source_language),
+})
 
 export const DEFAULT_OPTIONS: LiveOptions = (({ url: _url, ...rest }) => rest)(DEFAULT_FORM)
 
