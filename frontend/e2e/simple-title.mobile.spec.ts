@@ -179,6 +179,24 @@ test.describe(() => {
     leaveSeries()
   })
 
+  test('Wrong and Mixed sit in the open card, are tall enough to tap at 320px, mark the line and clear it', async ({ page }) => {
+    seedCheckLines()
+    await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
+    await page.goto('/#/drama/3/review')
+    const card = page.locator('.review-line')
+    await expect(card.locator('.review-idx')).toHaveText('#24')
+    for (const width of [390, 320] as const) {
+      await page.setViewportSize({ width, height: 844 })
+      for (const name of [/Wrong/, /Mixed/]) await expectTall(card.getByRole('button', { name }), `${name} at ${width}px`)
+      await expectNoSidewaysScroll(page)
+    }
+    await card.getByRole('button', { name: /Wrong/ }).tap()
+    await expect(card.getByTestId('line-mark')).toContainText('Wrong')
+    await expect(card.getByRole('button', { name: /Wrong/ })).toHaveAttribute('aria-pressed', 'true')
+    await card.getByRole('button', { name: /Wrong/ }).tap()
+    await expect(card.getByTestId('line-mark')).toHaveCount(0)
+  })
+
   test('the check queue on a phone is one card at a time, with Skip for now, wrapped reasons and no sideways scroll', async ({ page }) => {
     seedCheckLines()
     await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
