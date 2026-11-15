@@ -28,11 +28,33 @@ class TestRegistry:
         assert KEY in transcribe_options_service._allowed_whisper_sizes()
         assert transcribe_pipeline._MODEL_DOWNLOAD_SIZES[KEY] == "~3.1 GB"
         assert memory_headroom.estimate_mb("whisper", KEY)
-        assert KEY not in wm.LIVE_WHISPER_SIZES
+        assert KEY in wm.LIVE_WHISPER_SIZES
 
-    def test_never_the_default(self):
+    def test_global_default_stays_large_v3(self):
         assert wm.DEFAULT_WHISPER_SIZE != KEY
         assert transcribe_options_service.default_whisper_size() != KEY
+
+    @pytest.mark.parametrize("language,cached,expected", [
+        ("zh", True, KEY), ("zh", False, "large-v3"), ("ja", True, "large-v3"), ("ko", True, "large-v3")])
+    def test_default_for_a_language_is_breeze_only_for_downloaded_chinese(
+            self, monkeypatch, language, cached, expected):
+        monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: cached and size == KEY)
+        assert wm.default_whisper_size_for(language) == expected
+
+    def test_a_title_with_no_saved_model_uses_it_but_a_saved_one_is_kept(self, monkeypatch):
+        monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
+        assert transcribe_options_service.stored_whisper_size({"source_language": "zh"}) == KEY
+        assert transcribe_options_service.stored_whisper_size(
+            {"source_language": "zh", "whisper_size": "large-v3"}) == "large-v3"
+        assert transcribe_options_service.stored_whisper_size({"source_language": "ko"}) == "large-v3"
+
+    def test_live_starts_chinese_on_it_only_when_downloaded(self, monkeypatch):
+        from services import live_service
+        monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: size == KEY)
+        monkeypatch.setattr(live_service.diagnostics_torch, "nvidia_driver_info", lambda: None)
+        assert live_service.form_options()["language_whisper_defaults"] == {"zh": KEY}
+        monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: False)
+        assert live_service.form_options()["language_whisper_defaults"] == {}
 
     @pytest.mark.parametrize("language,allowed", [("zh", True), ("ja", False), ("ko", False)])
     def test_selectable_only_for_chinese(self, language, allowed):

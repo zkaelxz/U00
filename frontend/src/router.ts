@@ -65,7 +65,7 @@ export type Route =
 // A package key from diagnostics.OPTIONAL_DEPENDENCIES ("audio-separator", "pyannote.audio"): nothing else is read from a link.
 const PACKAGE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/
 
-export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare' | 'all' | 'estimate' | 'sourceLink'
+export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare' | 'all' | 'estimate' | 'sourceLink' | 'voices'
 
 export const MAX_FIND_LENGTH = 200
 
@@ -176,7 +176,7 @@ export function parseRoute(hash: string): Route {
       name: 'drama',
       id: Number(a),
       stage,
-      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' || focus === 'all' || focus === 'estimate' || focus === 'sourceLink' ? { focus } : {}),
+      ...(focus === 'glossary' || focus === 'characters' || focus === 'flagged' || focus === 'compare' || focus === 'all' || focus === 'estimate' || focus === 'sourceLink' || focus === 'voices' ? { focus } : {}),
       ...(find && (stage === 'review' || stage === null) ? { find } : {}),
       ...(tools ? { tools } : {}),
       ...(stage === 'translate' ? (isTranslateTab(tab) ? { tab } : {}) : asMediaTab(tab) ? { tab: asMediaTab(tab) as MediaTab } : {}),
