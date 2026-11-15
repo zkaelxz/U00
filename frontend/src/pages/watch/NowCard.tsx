@@ -7,7 +7,7 @@ import type { ReviewLine } from '../../types/review'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
 import { CONFLICT_TEXT, CONFLICT_UNREAD_TEXT, fieldKey, lineHeading, type LineFix, type Verdict } from './watchLogic'
 
-const NOW_HINT = 'Press play. The line being spoken shows here.'
+const NOW_HINT = 'Press play to see lines here.'
 const NO_ENGLISH = 'No English yet'
 
 export interface NowCardProps {
@@ -56,7 +56,7 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
             {lineHeading(line)}
             <LineMarkBadge line={line} />
             {line.reviewed && <span className="watch-now-checked" data-testid="watch-now-checked">✓ Looks right</span>}
-            {line.flag && <span className="watch-now-flag" title="A check flagged this line">⚑ Flagged</span>}
+            {line.flag && <span className="watch-now-flag">⚑ Flagged</span>}
           </p>
           {line.zh && <p className="watch-now-zh" lang={line.lang || sourceLanguage}>{line.zh}</p>}
           {fix ? (
@@ -91,10 +91,10 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
                 onChange={(e) => onDraft(e.target.value)}
               />
               <div className="watch-now-actions">
-                <button type="submit" className={buttonClass('primary')} disabled={busy} aria-keyshortcuts="Control+Enter" title="Save and play (Ctrl+Enter)">
+                <button type="submit" className={buttonClass('primary')} disabled={busy} aria-keyshortcuts="Control+Enter" title="Ctrl+Enter">
                   {busy ? 'Saving…' : 'Save and play'}
                 </button>
-                <button type="button" className={buttonClass()} disabled={busy} onClick={onCancel} aria-keyshortcuts="Escape" title="Cancel (Esc)">Cancel</button>
+                <button type="button" className={buttonClass()} disabled={busy} onClick={onCancel} aria-keyshortcuts="Escape" title="Esc">Cancel</button>
                 {again}
               </div>
             </form>
@@ -107,7 +107,7 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
                   className={english ? 'watch-now-box' : 'watch-now-box is-empty'}
                   data-testid="watch-now-box"
                   lang={english ? 'en' : undefined}
-                  title="Fix this line (E)"
+                  title="Fix line (E)"
                   onClick={onOpen}
                 >
                   {english || NO_ENGLISH}
@@ -122,24 +122,24 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
                   {onMark && (
                     <>
                       <button type="button" className={buttonClass('secondary', 'md', 'watch-mark watch-mark-good')} aria-pressed={!!line.reviewed} disabled={busy || markBusy || !line.en}
-                              aria-keyshortcuts="G" aria-label="Looks right" title="Looks right: mark it checked (G)" onClick={(e) => press(e, () => onMark('good'))}><span aria-hidden="true">✓</span></button>
+                              aria-keyshortcuts="G" aria-label="Looks right" title="Looks right (G)" onClick={(e) => press(e, () => onMark('good'))}><span aria-hidden="true">✓</span></button>
                       <button type="button" className={buttonClass('secondary', 'md', 'watch-mark watch-mark-wrong')} aria-pressed={line.mark === 'wrong'} disabled={busy || markBusy || !line.en}
-                              aria-keyshortcuts="X" aria-label="Wrong" title="Mark this English wrong (X)" onClick={(e) => press(e, () => onMark('wrong'))}><span aria-hidden="true">✗</span></button>
+                              aria-keyshortcuts="X" aria-label="Wrong" title="Wrong (X)" onClick={(e) => press(e, () => onMark('wrong'))}><span aria-hidden="true">✗</span></button>
                       <button type="button" className={buttonClass('secondary', 'md', 'watch-mark watch-mark-mixed')} aria-pressed={line.mark === 'mixed'} disabled={busy || markBusy || !line.en}
-                              aria-keyshortcuts="M" aria-label="Mixed" title="Mark this English as partly right (M)" onClick={(e) => press(e, () => onMark('mixed'))}><span aria-hidden="true">〰</span></button>
+                              aria-keyshortcuts="M" aria-label="Mixed" title="Partly right (M)" onClick={(e) => press(e, () => onMark('mixed'))}><span aria-hidden="true">〰</span></button>
                     </>
                   )}
                   {onJump && (
                     <>
-                      <button type="button" className={buttonClass()} aria-keyshortcuts="P" title="Previous marked or flagged line (P)" onClick={(e) => press(e, () => onJump(-1))}>‹ Prev. Flag</button>
-                      <button type="button" className={buttonClass()} aria-keyshortcuts="N" title="Next marked or flagged line (N)" onClick={(e) => press(e, () => onJump(1))}>Next Flag ›</button>
+                      <button type="button" className={buttonClass()} aria-keyshortcuts="P" onClick={(e) => press(e, () => onJump(-1))}>‹ Prev. Flag</button>
+                      <button type="button" className={buttonClass()} aria-keyshortcuts="N" onClick={(e) => press(e, () => onJump(1))}>Next Flag ›</button>
                     </>
                   )}
                 </div>
               )}
               <div className="watch-now-actions">
                 {canEdit && (
-                  <button type="button" ref={fixButtonRef} className={buttonClass()} onClick={onOpen} aria-keyshortcuts="E" title="Fix this line (E)">
+                  <button type="button" ref={fixButtonRef} className={buttonClass()} onClick={onOpen} aria-keyshortcuts="E">
                     Fix Line
                   </button>
                 )}

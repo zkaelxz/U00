@@ -7,7 +7,7 @@ import type { ReviewLine } from '../../types/review'
 import { verdictChange, type Verdict } from './watchLogic'
 
 const SAID: Record<Verdict, string> = { good: 'Marked as looks right.', wrong: 'Marked wrong.', mixed: 'Marked mixed.' }
-const CHANGED = 'This line was changed since you read it. It is shown again as it is now; mark it again if you still want to.'
+const CHANGED = 'This line changed. Check it, then mark again.'
 const FAILED = 'The mark could not be saved. Try again in a moment.'
 
 export function useWatchMarks(id: number, setLines: Dispatch<SetStateAction<ReviewLine[] | null>>) {
