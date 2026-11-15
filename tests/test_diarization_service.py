@@ -144,6 +144,21 @@ class TestStartDiarizationRun:
         assert call["gpu_touching"] is True
         assert call["description"] == f"Diarization (title #{did})"
 
+    def test_registers_a_restart_that_repeats_the_call(self, isolated_db, monkeypatch):
+        """The GPU guard may stop a speaker detection to free the card and
+        start it again with this same call (jobs/gpu_guard.py)."""
+        from jobs import gpu_guard
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
+        did, _ = _drama_with_audio(isolated_db)
+        monkeypatch.setattr(job_launch, "start_process_job", lambda *a, **k: True)
+        seen = {}
+        monkeypatch.setattr(gpu_guard, "allow_restart", lambda jid, fn: seen.update({jid: fn}))
+        diarization_service.start_diarization_run(did, expected_speakers=3, min_speakers=None)
+        again = seen[f"diarize_{did}"]
+        assert again.func is diarization_service.start_diarization_run
+        assert again.keywords == {"drama_id": did, "expected_speakers": 3, "overwrite_manual": False,
+                                  "confirm": False, "min_speakers": None, "max_speakers": None}
+
     def test_expected_speakers_none_is_passed_through_as_none(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
         did, ddir = _drama_with_audio(isolated_db)
