@@ -45,7 +45,7 @@ const press = (e: MouseEvent<HTMLButtonElement>, act: () => void) => {
 // No hooks here, so a test can call it and press what it returns without a browser.
 export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, onMark, onJump, markBusy = false, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
   const again = (
-    <button type="button" className={buttonClass()} onClick={onAgain} disabled={busy}>Hear it again</button>
+    <button type="button" className={buttonClass()} onClick={onAgain} disabled={busy} title="Hear this line again">Listen</button>
   )
   const english = line?.en ?? ''
   return (
@@ -122,17 +122,17 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
                   {onMark && (
                     <>
                       <button type="button" className={buttonClass('secondary', 'md', 'watch-mark watch-mark-good')} aria-pressed={!!line.reviewed} disabled={busy || markBusy || !line.en}
-                              aria-keyshortcuts="G" title="Looks right: mark it checked (G)" onClick={(e) => press(e, () => onMark('good'))}><span aria-hidden="true">✓</span> Looks right</button>
+                              aria-keyshortcuts="G" aria-label="Looks right" title="Looks right: mark it checked (G)" onClick={(e) => press(e, () => onMark('good'))}><span aria-hidden="true">✓</span></button>
                       <button type="button" className={buttonClass('secondary', 'md', 'watch-mark watch-mark-wrong')} aria-pressed={line.mark === 'wrong'} disabled={busy || markBusy || !line.en}
-                              aria-keyshortcuts="X" title="Mark this English wrong (X)" onClick={(e) => press(e, () => onMark('wrong'))}><span aria-hidden="true">✗</span> Wrong</button>
+                              aria-keyshortcuts="X" aria-label="Wrong" title="Mark this English wrong (X)" onClick={(e) => press(e, () => onMark('wrong'))}><span aria-hidden="true">✗</span></button>
                       <button type="button" className={buttonClass('secondary', 'md', 'watch-mark watch-mark-mixed')} aria-pressed={line.mark === 'mixed'} disabled={busy || markBusy || !line.en}
-                              aria-keyshortcuts="M" title="Mark this English as partly right (M)" onClick={(e) => press(e, () => onMark('mixed'))}><span aria-hidden="true">〰</span> Mixed</button>
+                              aria-keyshortcuts="M" aria-label="Mixed" title="Mark this English as partly right (M)" onClick={(e) => press(e, () => onMark('mixed'))}><span aria-hidden="true">〰</span></button>
                     </>
                   )}
                   {onJump && (
                     <>
-                      <button type="button" className={buttonClass()} aria-keyshortcuts="P" title="Go to the line before this that is marked or flagged (P)" onClick={(e) => press(e, () => onJump(-1))}>‹ Previous marked or flagged</button>
-                      <button type="button" className={buttonClass()} aria-keyshortcuts="N" title="Go to the next line that is marked or flagged (N)" onClick={(e) => press(e, () => onJump(1))}>Next marked or flagged ›</button>
+                      <button type="button" className={buttonClass()} aria-keyshortcuts="P" title="Previous marked or flagged line (P)" onClick={(e) => press(e, () => onJump(-1))}>‹ Prev. Flag</button>
+                      <button type="button" className={buttonClass()} aria-keyshortcuts="N" title="Next marked or flagged line (N)" onClick={(e) => press(e, () => onJump(1))}>Next Flag ›</button>
                     </>
                   )}
                 </div>
@@ -140,7 +140,7 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
               <div className="watch-now-actions">
                 {canEdit && (
                   <button type="button" ref={fixButtonRef} className={buttonClass()} onClick={onOpen} aria-keyshortcuts="E" title="Fix this line (E)">
-                    Fix this line
+                    Fix Line
                   </button>
                 )}
                 {again}
