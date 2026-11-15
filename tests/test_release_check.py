@@ -176,7 +176,7 @@ def test_title_settings_run_the_app_pipeline_and_score_its_lines(tmp_path, monke
         return ("args",)
 
     monkeypatch.setattr(rc.transcribe_service, "worker_args_for_settings", fake_args)
-    monkeypatch.setattr(rc, "_transcribe_in_child", lambda args: {
+    monkeypatch.setattr(rc, "_transcribe_in_child", lambda args, fixed=False: {
         "lines": [core.Line(idx=0, start=1, end=2, zh="hello"), core.Line(idx=1, start=3, end=4, zh="world")],
         "raw_backend": "whisper", "raw_model": "large-v3"})
     row = rc.run_transcription(clip, rc.argparse.Namespace(use_gpu=False, whisper_model="large-v3"))
@@ -187,10 +187,39 @@ def test_title_settings_run_the_app_pipeline_and_score_its_lines(tmp_path, monke
     assert "2 lines, app pipeline" in row["detail"]
 
 
+def test_fixed_decoding_is_checked_and_reaches_the_child(tmp_path, monkeypatch):
+    base = {"id": "a", "kind": "transcription", "audio": "a.wav", "language": "zh", "reference_srt": "r.srt"}
+    for bad in ({**base, "fixed_decoding": True},
+                {**base, "title_settings": {"min_silence_ms": 300}, "fixed_decoding": "yes"}):
+        with pytest.raises(rc.Refusal, match="fixed_decoding"):
+            rc.load_manifest(_write(tmp_path, [bad]))
+    clip = rc.load_manifest(_write(tmp_path, [{**base, "title_settings": {"min_silence_ms": 300},
+                                               "fixed_decoding": True}]))["clips"][0]
+    seen = []
+    monkeypatch.setattr(rc.transcribe_service, "worker_args_for_settings", lambda *a: ())
+    monkeypatch.setattr(rc, "_transcribe_in_child", lambda args, fixed=False: seen.append(fixed) or {
+        "lines": [], "raw_backend": "whisper", "raw_model": "large-v3"})
+    rc.run_transcription(clip, rc.argparse.Namespace(use_gpu=False, whisper_model="large-v3"))
+    assert seen == [True]
+
+
+def test_pin_temperature_overrides_what_the_caller_passes():
+    from tools import release_check_worker
+
+    class Model:
+        def transcribe(self, audio, **kwargs):
+            return kwargs
+
+    release_check_worker.pin_temperature(Model)
+    assert Model().transcribe("a.wav", beam_size=5, temperature=[0.0, 0.2, 0.4]) == {
+        "beam_size": 5, "temperature": 0.0}
+    assert Model().transcribe("a.wav") == {"temperature": 0.0}
+
+
 def test_a_stopped_app_run_is_a_failure_not_a_zero(tmp_path, monkeypatch):
     clip = _app_clip(tmp_path)
     monkeypatch.setattr(rc.transcribe_service, "worker_args_for_settings", lambda *a: ())
-    monkeypatch.setattr(rc, "_transcribe_in_child", lambda args: {"failed_reason": "no_lines"})
+    monkeypatch.setattr(rc, "_transcribe_in_child", lambda args, fixed=False: {"failed_reason": "no_lines"})
     with pytest.raises(RuntimeError, match="no_lines"):
         rc.run_transcription(clip, rc.argparse.Namespace(use_gpu=False, whisper_model="large-v3"))
 

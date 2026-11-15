@@ -7,6 +7,7 @@ export type ListenTtsEngine = Schemas['DubTtsEngine']
 export type ListenConfig = Schemas['ListenConfig']
 
 export type ListenRunRequest = Schemas['ListenRunRequest']
+export type ListenTestVoiceRequest = Schemas['ListenTestVoiceRequest']
 
 // The engine Listen starts with: the one picked here or the server's default while it can run,
 // else the first engine that can, so the button never opens on "not installed" when another works.

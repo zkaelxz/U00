@@ -65,6 +65,7 @@ export interface SettingsPreferences extends TimingPreferences {
   default_style_note: string
   scene_aware_batches: boolean // translate batches start at scene breaks
   stream_plain_prompt: boolean // translate stream titles with the short plain prompt
+  ollama_cloud_default: boolean // a hosted Ollama model may be a default
   episode_brief: boolean // read the whole episode once before translating it in batches
   scanlate_chapter_brief: boolean // read the whole comic chapter once before translating its pages
   scanlate_page_image: boolean // send each comic page's picture with its OCR text when translating

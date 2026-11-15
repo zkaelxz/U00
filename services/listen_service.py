@@ -29,6 +29,11 @@ NO_ENGINE_INSTALLED_MESSAGE = "No voice engine is installed. Install one in Diag
 
 _NOT_NARRATED = "Listen is only for narrated novels."
 TRACK_NAME = "narration_track.wav"
+TEST_VOICE_DIR = "voice_test"
+TEST_VOICE_NAME = "sample.wav"
+TEST_VOICE_JOB_PREFIX = "voicetest_"
+# A test is a taste of the voice, not a chapter: long lines are cut so it finishes quickly.
+TEST_SENTENCE_MAX_CHARS = 120
 
 # Python module and display name of each engine's package. A dub.VENV_ENGINES engine
 # is never imported here: its module names the package inside its own venv.
@@ -66,6 +71,12 @@ def _speakers_without_voice(characters, lines, engine: str, text_field: str, dra
     return sorted(names.get(s) or s or UNLABELLED_SPEAKER_NAME for s in spoken if s not in clone_map)
 
 
+def _no_voice_message(names: list, engine: str) -> str:
+    return (f"{', '.join(names)} {'has' if len(names) == 1 else 'have'} no voice yet. "
+            f"{dub.engine_label(engine)} needs a reference clip or a voice description for every speaker; "
+            "only OmniVoice picks voices on its own.")
+
+
 def get_listen_config(drama_id: int) -> dict:
     """What Listen needs to show: the engines (each with why it can't run here),
     the language options, a blocker that applies whatever engine is picked, how
@@ -99,18 +110,29 @@ def get_listen_config(drama_id: int) -> dict:
     }
 
 
-def get_listen_track(drama_id: int) -> dict:
-    """Server-side file lookup for the finished narration track: {path (never
-    returned to clients), name}. NotFoundError for an unknown or non-narrated
-    title, or when no track exists (symlinks/escapes count as missing)."""
+def _drama_file(drama_id: int, name: str, missing: str) -> dict:
+    """{path (never returned to clients), name} for a file in the narrated title's folder;
+    NotFoundError(missing) when it is absent (symlinks and escapes count as missing)."""
     _require_narrated(drama_id)
     root = _drama_path(drama_id)
-    path = os.path.join(root, TRACK_NAME)
+    path = os.path.join(root, name)
     real_root = os.path.realpath(root)
     if (os.path.islink(path) or not os.path.isfile(path)
             or os.path.commonpath([real_root, os.path.realpath(path)]) != real_root):
-        raise NotFoundError("No narration track available.")
-    return {"path": path, "name": TRACK_NAME}
+        raise NotFoundError(missing)
+    return {"path": path, "name": name}
+
+
+def get_listen_track(drama_id: int) -> dict:
+    """Server-side file lookup for the finished narration track: {path (never
+    returned to clients), name}. NotFoundError for an unknown or non-narrated
+    title, or when no track exists."""
+    return _drama_file(drama_id, TRACK_NAME, "No narration track available.")
+
+
+def get_test_voice_clip(drama_id: int) -> dict:
+    """The last test sentence, as get_listen_track. The folder holds one clip, replaced by each test."""
+    return _drama_file(drama_id, os.path.join(TEST_VOICE_DIR, TEST_VOICE_NAME), "No voice test available.")
 
 
 def _engine_install_problem(engine: str):
@@ -240,10 +262,7 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
     voiceless = _speakers_without_voice(chars, lines, tts_engine, "zh" if narrate_original else "en",
                                         _drama_path(drama_id))
     if voiceless:
-        raise InvalidInputError(
-            f"{', '.join(voiceless)} {'has' if len(voiceless) == 1 else 'have'} no voice yet. "
-            f"{dub.engine_label(tts_engine)} needs a reference clip or a voice description for every speaker; "
-            "only OmniVoice picks voices on its own.")
+        raise InvalidInputError(_no_voice_message(voiceless, tts_engine))
 
     ddir = db.drama_dir(drama_id)
     clone_map = dub.clone_map_from_characters(
@@ -262,3 +281,51 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
     if not started:
         raise ConflictError(f"A dub job is already running for title {drama_id}.")
     return {"job_id": job_id}
+
+
+def start_test_voice(drama_id: int, speaker_label: str, tts_engine: str, narration_language=None) -> dict:
+    """Starts job `voicetest_<id>`: speaks the speaker's first line (cut short) in the voice a
+    full run would give them, so it can be heard before the whole narration is made. The clip is
+    read with get_test_voice_clip. {"job_id"}. Raises as start_listen does, plus NotFoundError
+    for a speaker with no text to speak."""
+    drama = _require_narrated(drama_id)
+    if not tts_engine:
+        raise InvalidInputError("No voice engine is available.")
+    if narration_language is not None and narration_language not in NARRATION_LANGUAGE_OPTIONS:
+        raise InvalidInputError("Unknown narration language.")
+    narrate_original = (narration_language or _narration_language(drama)) == "original"
+    source_lang = drama.get("source_language") or "zh"
+    chars = db.list_characters(drama_id)
+    require_can_generate(tts_engine, chars, narrate_original, source_lang)
+
+    text_field = "zh" if narrate_original else "en"
+    spoken = [(ln.speaker or None, (getattr(ln, text_field) or "").strip()) for ln in db.load_line_objects(drama_id)]
+    spoken = [(who, text) for who, text in spoken if text]
+    sentence = next((text for who, text in spoken if who == speaker_label), None)
+    if sentence is None:
+        raise NotFoundError("This speaker has no text to speak.")
+    # Every speaker with text is passed so a default voice is the one the full run gives this speaker.
+    clone_map = dub.clone_map_from_characters(chars, db.drama_dir(drama_id), default_engine=tts_engine,
+                                              speaker_labels={who for who, _ in spoken})
+    voice = clone_map.get(speaker_label)
+    if voice is None:
+        names = {c["speaker_label"]: c.get("character_name") or c["speaker_label"] for c in chars}
+        raise InvalidInputError(_no_voice_message([names.get(speaker_label) or speaker_label], tts_engine))
+
+    job_id = f"{TEST_VOICE_JOB_PREFIX}{drama_id}"
+    started = job_launch.start_job(
+        job_id, _test_voice_job, drama_id, voice, sentence[:TEST_SENTENCE_MAX_CHARS],
+        source_lang if narrate_original else "en",
+        gpu_touching=dub.clone_map_uses_local_model({speaker_label: voice}),
+        description=f"Voice test (title #{drama_id})", line_fields=())
+    if not started:
+        raise ConflictError(f"A voice test is already running for title {drama_id}.")
+    return {"job_id": job_id}
+
+
+def _test_voice_job(drama_id: int, voice: dict, sentence: str, language: str) -> None:
+    folder = os.path.join(db.drama_dir(drama_id), TEST_VOICE_DIR)
+    os.makedirs(folder, exist_ok=True)
+    error = dub_narration.speak_sample(sentence, voice, os.path.join(folder, TEST_VOICE_NAME), language)
+    if error:
+        raise RuntimeError(error)
