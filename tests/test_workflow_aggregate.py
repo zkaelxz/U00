@@ -73,3 +73,20 @@ def test_the_windows_bootstrap_shares_its_pushes_the_same_way():
 
     Retire this when GitHub's merge queue tests each merge before it lands on the base branch."""
     assert _concurrency(BOOTSTRAP) == _concurrency(WORKFLOW)
+
+
+def test_the_aggregate_fails_while_the_browser_tests_wait_for_approval():
+    """A PR whose browser tests were held back until auto-merge is turned on must not go green: the
+    skipped `e2e` job alone would read as passed, and `test` is the check that lets a PR merge."""
+    block = _job_blocks()["test"]
+    assert "E2E_DEFERRED: ${{ needs.changes.outputs.e2e_deferred }}" in block
+    assert re.search(r'if \[ "\$E2E_DEFERRED" = true \]; then\n(?:.*\n)*?\s+exit 1\n\s+fi', block)
+
+
+def test_turning_on_auto_merge_starts_the_run_with_the_browser_tests():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    types = re.search(r"^  pull_request:\n(?:    .*\n)*?    types: \[([^\]]*)\]", text, re.M).group(1)
+    assert "auto_merge_enabled" in {t.strip() for t in types.split(",")}
+    assert ('--merge-approved "$MERGE_APPROVED"' in text
+            and "MERGE_APPROVED: ${{ github.event.pull_request.auto_merge != null"
+                " || github.event.action == 'auto_merge_enabled' }}" in text)
