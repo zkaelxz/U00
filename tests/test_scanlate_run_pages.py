@@ -372,6 +372,18 @@ def test_the_chapter_brief_reaches_each_pages_translation_and_is_cached(harness,
     assert not any("comic chapter" in p for p in prompts)
 
 
+def test_a_chapter_run_records_its_read_brief_and_page_stages(harness, monkeypatch):
+    from services import job_timing_service
+    did, p1, p2, _ = _two_pages(monkeypatch)
+    _llm_calls(monkeypatch)
+    stages = []
+    monkeypatch.setattr(job_timing_service, "mark_stage", lambda jid, stage: stages.append(stage))
+
+    run_svc._run_job("j", did, "all", [p1, p2], "llm", _LLM(), "auto")
+
+    assert stages == ["Read every page", "Chapter brief", "Translate and typeset pages"]
+
+
 def test_the_bar_counts_pages_while_the_chapter_is_read_and_then_keeps_climbing(harness, monkeypatch):
     did, p1, p2, _ = _two_pages(monkeypatch)
     _llm_calls(monkeypatch)
