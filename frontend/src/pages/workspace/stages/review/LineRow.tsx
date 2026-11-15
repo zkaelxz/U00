@@ -135,6 +135,8 @@ interface Props {
   stronger?: StrongerOffer | null
   // Speakers to offer while the line has none.
   guesses?: SpeakerGuess[] | null
+  // Said under a queue card whose speaker was just set while another reason keeps it listed.
+  speakerNote?: string | null
   // The corrected times saved for this timing-flagged line, if any.
   timingSnap?: TimingSuggestion | null
   issue: RowIssue | null
@@ -478,7 +480,7 @@ function LineEnglish({ line, draft, discardWarning, isPhone, active, actions, on
   )
 }
 
-function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, guesses, timingSnap, issue, actions, simple = false, queue = false, retranscribe = null, linePanel = false, searchHit, jumped, focusRetranscribe }: Props) {
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, guesses, speakerNote, timingSnap, issue, actions, simple = false, queue = false, retranscribe = null, linePanel = false, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -623,6 +625,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         <TimingUncertainActions dramaId={dramaId} lineId={line.id} snap={queue ? null : timingSnap ?? null} actions={actions} jobRunning={jobRunning} />
       )}
       {!prose && !draft && <RowSpeakerGuesses line={line} guesses={guesses} active={active} isPhone={isPhone} actions={actions} />}
+      {queue && speakerNote && <p className="review-speaker-note" role="status" data-testid="speaker-note">{speakerNote}</p>}
       <div className="review-body">
         <div lang={textLang} className="review-zh">{line.zh}</div>
         {card ? (

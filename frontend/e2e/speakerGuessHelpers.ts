@@ -24,6 +24,16 @@ diarize.save_turns(db.drama_dir(3), [{'start': i * 2.0, 'end': i * 2.0 + 1.5, 's
 `)
 }
 
+// A flag on line n (1-based), so the line is in Simple's Need a look for more than its blank speaker.
+export function flagLine(n: number, flag: string, note: string): void {
+  py(`lines = db.load_line_objects(3)
+for ln in lines:
+    if ln.idx == ${n - 1}:
+        ln.flag, ln.flag_note = ${JSON.stringify(flag)}, ${JSON.stringify(note)}
+db.save_lines(3, lines, fields=("flag", "flag_note"))
+`)
+}
+
 export function clearTurns(): void {
   py(`import os
 p = os.path.join(db.drama_dir(3), 'diarization_turns.json')
