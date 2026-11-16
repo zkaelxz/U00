@@ -5941,7 +5941,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Download the finished narration track (WAV) */
+        /** Download the finished narration track (FLAC, or WAV for an older title) */
         get: operations["download_listen_track_api_listen_dramas__drama_id__track_get"];
         put?: never;
         post?: never;
@@ -15114,6 +15114,8 @@ export interface components {
         BenchmarkTranscribeDefaults: {
             /** Beam Size */
             beam_size: number;
+            /** Decode Randomness */
+            decode_randomness: string;
             /** Difficult Audio */
             difficult_audio: boolean;
             /** Hallucination Silence Sec */
@@ -15147,6 +15149,8 @@ export interface components {
         BenchmarkTranscribeOptions: {
             /** Beam Size */
             beam_size?: number | null;
+            /** Decode Randomness */
+            decode_randomness?: string | null;
             /** Difficult Audio */
             difficult_audio?: boolean | null;
             /** Hallucination Silence Sec */
@@ -30867,6 +30871,11 @@ export interface components {
             split_by_sentences: boolean;
             /** Transcript Mode */
             transcript_mode: string;
+            /**
+             * Use Gpu
+             * @default false
+             */
+            use_gpu: boolean;
             /** Use Groq */
             use_groq: boolean;
             /** Vad Threshold */

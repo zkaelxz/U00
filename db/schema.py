@@ -394,6 +394,9 @@ def _create_bulk_job_tables(conn):
             -- once results come back, so until then this is what holds its
             -- share of the monthly cap. NULL on rows from before the column.
             estimated_usd REAL,
+            -- The member it was sent for (NULL: the PC owner), so its cost
+            -- counts against their own monthly limit while pending and once billed.
+            user_id INTEGER,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
 

@@ -44,7 +44,7 @@ import type {
   UploadAndTranscribeResult,
   WorkflowProgress,
 } from '../types/workspace'
-import { getJson, postJson, postMultipart, queryOf, type Fetch } from './client'
+import { getJson, postJson, postMultipart, queryOf, uploadProgressFetch, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 export const getMediaStatus = (id: number, f?: Fetch) =>
@@ -52,11 +52,14 @@ export const getMediaStatus = (id: number, f?: Fetch) =>
 
 // confirmReplace: the drama already has audio/video (the server refuses with
 // 422 reason "confirm_replace_audio" otherwise); the old file is kept.
-export const uploadMedia = (id: number, file: File, confirmReplace: boolean, f?: Fetch) => {
+export const uploadMedia = (
+  id: number, file: File, confirmReplace: boolean, f?: Fetch,
+  onProgress?: (sent: number, total: number) => void,
+) => {
   const form = new FormData()
   form.append('file', file)
   if (confirmReplace) form.append('confirm_replace_audio', 'true')
-  return postMultipart<MediaUploadResult>(`/api/media/dramas/${id}/upload`, form, f)
+  return postMultipart<MediaUploadResult>(`/api/media/dramas/${id}/upload`, form, f ?? (onProgress && uploadProgressFetch(onProgress)))
 }
 
 // Options travel as form fields (the endpoint takes Form(...), not JSON).

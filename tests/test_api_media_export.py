@@ -129,6 +129,13 @@ def test_audiobook_ffmpeg_missing_503(local_client, drama, isolated_db, monkeypa
     assert "ffmpeg" in error_of(r)["message"]
 
 
+def test_audiobook_accepts_a_flac_narration_track(local_client, drama, isolated_db, monkeypatch):
+    _touch(isolated_db, drama, "narration_track.flac")
+    monkeypatch.setattr(media_export_service.shutil, "which", lambda name: None)
+    # Past the "no narration yet" check, so the next refusal is the missing ffmpeg.
+    assert local_client.post(f"/api/export/dramas/{drama}/audiobook").status_code == 503
+
+
 def test_audiobook_duplicate_409(local_client, drama, isolated_db):
     _touch(isolated_db, drama, "narration_track.wav")
     with job_table._lock:

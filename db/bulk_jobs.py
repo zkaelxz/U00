@@ -22,7 +22,8 @@ def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
     [(line_id, request_key, zh_hash, en_at_submit, state_at_submit), ...]
     -- a plain 4-tuple still works, with state_at_submit left NULL.
 
-    kind/stage/pipeline_id/estimated_usd: see the `bulk_jobs` table's own comment
+    kind/stage/pipeline_id/estimated_usd: see the `bulk_jobs` table's own comment.
+    The row's user_id is whoever the spending is for now (db.current_spender).
     Every existing call site left these at their defaults, so
     an old job is still exactly what it always was: a translate job."""
     now = clock.utcnow().isoformat()
@@ -32,11 +33,11 @@ def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
         cur = conn.execute("""
             INSERT INTO bulk_jobs (drama_id, engine, model, provider_batch_id, status,
                                    scheduled_for, translate_args, submitted_at, updated_at,
-                                   kind, stage, pipeline_id, estimated_usd)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   kind, stage, pipeline_id, estimated_usd, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (drama_id, engine, model, provider_batch_id, status, scheduled_for,
               json.dumps(translate_args, ensure_ascii=False) if translate_args is not None else None,
-              now, now, kind, stage, pipeline_id, estimated_usd))
+              now, now, kind, stage, pipeline_id, estimated_usd, db.current_spender()))
         job_id = db.inserted_id(cur)
         rows = []
         for row in lines:
@@ -119,19 +120,33 @@ def set_bulk_job_status_if(bulk_job_id: int, expected, new: str) -> bool:
         return cur.rowcount > 0
 
 
-def list_unbilled_bulk_estimates() -> list:
-    """(drama_id, kind, pipeline_id, estimated_usd) of every provider batch
-    whose usage is not logged yet. DeepSeek's off-peak rows are left out: they
-    run as a normal run that stops at the cap itself, so they hold none of it."""
+def _unbilled_where() -> tuple:
     # A job in "applying" has logged part of its usage already; counting all
-    # of its estimate too errs on the side of the cap.
+    # of its estimate too errs on the side of the cap. DeepSeek's off-peak rows
+    # are left out: they run as a normal run that stops at the cap itself, so
+    # they hold none of it.
     statuses = list(db.BULK_PENDING_STATUSES) + ["submitting", "running", "applying"]
+    return f"engine != 'deepseek' AND status IN ({','.join('?' * len(statuses))})", statuses
+
+
+def list_unbilled_bulk_estimates() -> list:
+    """(drama_id, kind, pipeline_id, estimated_usd, user_id) of every provider
+    batch whose usage is not logged yet."""
+    where, args = _unbilled_where()
     with contextlib.closing(db.get_conn()) as conn:
         rows = conn.execute(
-            f"SELECT drama_id, kind, pipeline_id, COALESCE(estimated_usd, 0) FROM bulk_jobs "
-            f"WHERE engine != 'deepseek' AND status IN ({','.join('?' * len(statuses))})",
-            statuses).fetchall()
+            f"SELECT drama_id, kind, pipeline_id, COALESCE(estimated_usd, 0), user_id "
+            f"FROM bulk_jobs WHERE {where}", args).fetchall()
     return [tuple(r) for r in rows]
+
+
+def unbilled_bulk_usd_by_user() -> dict:
+    """{user_id or None: summed estimate} of list_unbilled_bulk_estimates;
+    None is the PC owner's."""
+    totals = {}
+    for *_rest, usd, user_id in db.list_unbilled_bulk_estimates():
+        totals[user_id] = totals.get(user_id, 0.0) + usd
+    return totals
 
 
 def count_bulk_job_lines(bulk_job_id: int) -> int:

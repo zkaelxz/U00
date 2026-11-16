@@ -693,3 +693,68 @@ class TestQwen3VlHardsub:
 
     def test_without_a_cancel_check_there_is_no_stop_probe(self):
         assert hardsub_ocr._cancel_probe(None) is None
+
+
+class TestUnchangedBandIsNotReread:
+    """A frame whose caption strip is the same picture as the last one read reuses that
+    text, but a one-glyph change or a slow fade must still be read."""
+
+    @staticmethod
+    def _run(monkeypatch, tmp_path, bands, texts_by_name, on_timeout_names=()):
+        import cv2
+        frames = []
+        for i, band in enumerate(bands):
+            frame = np.full((100, 200, 3), 30, dtype=np.uint8)
+            frame[80:, :] = band
+            path = str(tmp_path / f"f{i}.png")
+            cv2.imwrite(path, frame)
+            frames.append((float(i), path))
+        monkeypatch.setattr(hardsub_ocr, "extract_frames",
+                            lambda video_path, out_dir, interval_sec, job_id=None: frames)
+        monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: (0.8, 1.0))
+        reads = []
+
+        def fake_ocr(path, region, lang, backend, tesseract_cmd=None, on_timeout=None):
+            name = os.path.basename(path)
+            reads.append(name)
+            if name in on_timeout_names:
+                on_timeout()
+                return ""
+            return texts_by_name[name]
+        monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region", fake_ocr)
+        cues = hardsub_ocr.extract_hardsub_subtitles("v.mp4", tmp_dir=str(tmp_path))
+        return cues, reads
+
+    @staticmethod
+    def _band(glyph_value=200):
+        band = np.full((20, 200, 3), 230, dtype=np.uint8)
+        band[5:15, 20:40] = glyph_value
+        return band
+
+    def test_static_caption_is_read_once_and_cues_match_a_full_read(self, monkeypatch, tmp_path):
+        same = self._band()
+        texts = {f"f{i}.png": "hello" for i in range(6)}
+        cues, reads = self._run(monkeypatch, tmp_path, [same] * 6, texts)
+        assert reads == ["f0.png"]
+        assert cues == [{"start": 0.0, "end": 6.0, "text": "hello"}]
+
+    def test_one_glyph_change_is_read(self, monkeypatch, tmp_path):
+        a, b = self._band(), self._band()
+        b[5:15, 60:70] = 0  # one more dark stroke on a bright strip
+        texts = {"f0.png": "hello", "f1.png": "hello", "f2.png": "hellp", "f3.png": "hellp"}
+        cues, reads = self._run(monkeypatch, tmp_path, [a, a, b, b], texts)
+        assert reads == ["f0.png", "f2.png"]
+        assert [c["text"] for c in cues] == ["hello", "hellp"]
+
+    def test_slow_fade_cannot_drift_past_the_last_frame_read(self, monkeypatch, tmp_path):
+        # each step is under the threshold from its neighbour but not from the frame read
+        bands = [self._band(200 - 8 * i) for i in range(5)]
+        texts = {f"f{i}.png": "x" for i in range(5)}
+        _, reads = self._run(monkeypatch, tmp_path, bands, texts)
+        assert len(reads) > 1
+
+    def test_frame_tesseract_timed_out_on_is_read_again(self, monkeypatch, tmp_path):
+        same = self._band()
+        texts = {f"f{i}.png": "hi" for i in range(3)}
+        _, reads = self._run(monkeypatch, tmp_path, [same] * 3, texts, on_timeout_names=("f0.png",))
+        assert reads == ["f0.png", "f1.png"]
