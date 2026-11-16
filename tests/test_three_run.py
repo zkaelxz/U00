@@ -32,13 +32,20 @@ def title(monkeypatch):
     return did, status
 
 
-_clock = itertools.count(int(time.time()) + 1000)
+_sequence = itertools.count(1)
+
+
+def _next_finish_time():
+    # Taken when the run is faked, not at import: a long full-suite run (the dependency canary
+    # takes over 1000 s from collection to this file) would otherwise leave the clock behind the
+    # review's own start time and every run would read as not new.
+    return time.time() + 1000 + next(_sequence)
 
 
 def _run(did, texts, status=None):
     """What a finished Translate run leaves: English per line, in order."""
     if status is not None:
-        status["finished_at"] = next(_clock)
+        status["finished_at"] = _next_finish_time()
     lines = db.load_line_objects(did)
     for ln, text in zip(lines, texts):
         ln.en = text
