@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 
+import { uploadProgressFetch } from '../../../api/client'
 import { analyzeMedia } from '../../../api/metadata'
 import { getSettings } from '../../../api/settings'
 import {
@@ -10,6 +11,7 @@ import {
   uploadAndTranscribe,
 } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { UploadProgress, type UploadSent } from '../../../components/UploadProgress'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
@@ -203,6 +205,7 @@ export default function TranscribeStage({
   // A refused run or save: name the option when the server's sentence does, else show the banner.
   const startingRef = useRef(false)
   const [starting, setStarting] = useState(false)
+  const [sent, setSent] = useState<UploadSent | null>(null)
   const fail = (e: unknown) => {
     if (needsReplaceConfirm(e)) onReplaceRefused()
     const p = runProblemFromError(e)
@@ -368,7 +371,12 @@ export default function TranscribeStage({
           realignLong: cf.realign_long_segments,
         })
       : null
-    const start = () => (uploadFile ? uploadAndTranscribe(dramaId, uploadFile, req, confirmReplace) : startTranscribe(dramaId, req))
+    const start = () => {
+      if (!uploadFile) return startTranscribe(dramaId, req)
+      setSent(null)
+      return uploadAndTranscribe(dramaId, uploadFile, req, confirmReplace,
+        uploadProgressFetch((loaded, total) => setSent({ loaded, total })))
+    }
     // Auto-save changed options first so the run uses what the form shows.
     const current = toUpdate(formFromConfig(config))
     const changed = (Object.keys(update) as (keyof TranscribeConfigUpdate)[]).some((k) => update[k] !== current[k])
@@ -642,6 +650,7 @@ export default function TranscribeStage({
           >
             Transcribe
           </button>
+          {starting && uploadFile && <UploadProgress sent={sent} />}
           {estimate && !busy && <span className="muted" role="note" data-testid="transcribe-estimate">{estimate}</span>}
           {cf?.separate_vocals_first && whisperRun && !busy && (
             <span className="muted" role="note" data-testid="separation-note">Vocal separation adds time, a lot on CPU.</span>

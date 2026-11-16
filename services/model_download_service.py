@@ -13,6 +13,7 @@ time, and "downloaded" is the same cache check a run's readiness test uses
 """
 
 import functools
+import os
 
 import background_jobs
 import model_pins
@@ -59,7 +60,7 @@ class ModelDownloadFailed(Exception):
     """A plain reason for the person; never carries a path or URL."""
 
 
-def _fetch_hub(repos, report, cancelled) -> None:
+def _fetch_hub(repos, report, cancelled, allow_patterns=None) -> None:
     try:
         import huggingface_hub
     except ImportError as exc:
@@ -84,7 +85,24 @@ def _fetch_hub(repos, report, cancelled) -> None:
         report(step / len(repos), f"Downloading {repo_id}…")
         with model_pins.fetching(repo_id):
             huggingface_hub.snapshot_download(
-                repo_id, revision=model_pins.revision(repo_id), etag_timeout=30, tqdm_class=Bar)
+                repo_id, revision=model_pins.revision(repo_id), etag_timeout=30, tqdm_class=Bar,
+                allow_patterns=allow_patterns)
+
+
+# Only what diarize_nemotron loads: the repo also holds a .nemo and a .gguf copy of the weights.
+_NEMOTRON_FILES = ["config.json", "processor_config.json", "model.safetensors"]
+
+
+def _nemotron_ready() -> bool:
+    import diarize_nemotron
+    if not readiness.hf_model_ready(diarize_nemotron.MODEL_ID):
+        return False
+    return os.path.isfile(os.path.join(readiness._hf_snapshot(diarize_nemotron.MODEL_ID), "processor_config.json"))
+
+
+def _fetch_nemotron(report, cancelled) -> None:
+    import diarize_nemotron
+    _fetch_hub([diarize_nemotron.MODEL_ID], report, cancelled, allow_patterns=_NEMOTRON_FILES)
 
 
 def _lama_ready() -> bool:
@@ -148,6 +166,11 @@ CATALOG = {
         "label": "manga-ocr",
         "ready": _manga_ocr_ready,
         "fetch": lambda report, cancelled: _fetch_hub(_manga_ocr_repos(), report, cancelled),
+    },
+    "nemotron_diarization": {
+        "label": "Nemotron-3-Diarization (speaker detection)",
+        "ready": _nemotron_ready,
+        "fetch": _fetch_nemotron,
     },
     "lama_manga": {
         "label": "LaMa-manga (Scanlate text cleanup)",

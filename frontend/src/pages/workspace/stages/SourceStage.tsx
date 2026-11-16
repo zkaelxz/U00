@@ -4,6 +4,7 @@ import { updateDramaMetadata } from '../../../api/library'
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
+import { UploadProgress, type UploadSent } from '../../../components/UploadProgress'
 import { ButtonLink } from '../../../components/Button'
 import { formatDecimalBytes } from '../../diskUsage/diskUsageModel'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -76,7 +77,7 @@ export default function SourceStage() {
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [sent, setSent] = useState<{ loaded: number; total: number } | null>(null)
+  const [sent, setSent] = useState<UploadSent | null>(null)
   const [replace, setReplace] = useState(false)
   // The server says the drama has audio/video even if the status we read did not.
   const [serverHasMedia, setServerHasMedia] = useState(false)
@@ -499,22 +500,5 @@ function KeepOriginal() {
       </Field>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </div>
-  )
-}
-
-// A big file from away from the PC takes minutes, so show how much has gone and that it is still moving.
-function UploadProgress({ sent }: { sent: { loaded: number; total: number } | null }) {
-  if (!sent) return <span className="muted" role="status">Starting the upload...</span>
-  const pct = Math.min(100, Math.floor((sent.loaded / sent.total) * 100))
-  const done = sent.loaded >= sent.total
-  return (
-    <span data-testid="upload-progress" role="status">
-      <progress max={sent.total} value={sent.loaded} aria-label="Upload progress" />{' '}
-      <span className="muted">
-        {done
-          ? 'Sent. The PC is saving the file; this can take a minute.'
-          : `${pct}% (${formatDecimalBytes(sent.loaded)} of ${formatDecimalBytes(sent.total)}). Still sending; keep this page open.`}
-      </span>
-    </span>
   )
 }
