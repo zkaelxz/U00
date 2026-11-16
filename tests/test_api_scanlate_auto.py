@@ -283,8 +283,8 @@ def test_tall_strip_sliced_by_default_and_optional(client):
 
 @needs_cv2
 def test_a_strip_over_the_slice_cap_is_rejected_not_left_whole(monkeypatch):
-    import scanlate_detect
-    monkeypatch.setattr(scanlate_detect, "_MAX_WEBTOON_SLICES", 2)
+    import scanlate_panels
+    monkeypatch.setattr(scanlate_panels, "_MAX_WEBTOON_SLICES", 2)
     with pytest.raises(limits.ImageRejected, match="slice limit"):
         limits.prepare_page(_png(200, 6000))
 

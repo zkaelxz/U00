@@ -33,10 +33,10 @@ import numpy as np
 from memory_headroom import HeadroomError
 from ocr import auto_ocr_backend
 
-from scanlate_detect import (
-    BubbleModelUnavailable, decode_page, detect_bubbles, detect_bubbles_cv, inset_box_for_ocr,
-    merge_fragment_boxes, page_gray, split_webtoon_strip,
-)
+from scanlate_box_merge import merge_fragment_boxes
+from scanlate_detect import BubbleModelUnavailable, detect_bubbles, detect_bubbles_cv, inset_box_for_ocr
+from scanlate_page_decode import decode_page, page_gray
+from scanlate_panels import split_webtoon_strip
 import scanlate_tuning
 from scanlate_regions import (analyze_page_regions, detect_script_language, lettering_fill,
                               split_separate_lettering, strip_stray_sfx_mark,
