@@ -38,6 +38,7 @@ import { InboxCard } from './settings/InboxCard'
 import { QuickVideoCard } from './settings/QuickVideoCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
+import { PcAlertsCard } from './settings/PcAlertsCard'
 import { OllamaKeyCard } from './settings/OllamaKeyCard'
 import { showOllamaKey } from './settings/ollamaKeyModel'
 import { PastCostsCard } from './settings/PastCostsCard'
@@ -375,6 +376,7 @@ export default function SettingsPage() {
                 <NotificationsSection notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
               </SettingsCard>
             )}
+            {shown('pc-alerts') && <SettingsCard id="pc-alerts"><PcAlertsCard /></SettingsCard>}
             {shown('jellyfin') && <SettingsCard id="jellyfin"><JellyfinSection /></SettingsCard>}
             {shown('web-search') && <SettingsCard id="web-search"><WebSearchSection /></SettingsCard>}
             {shown('inbox') && <SettingsCard id="inbox"><InboxCard /></SettingsCard>}

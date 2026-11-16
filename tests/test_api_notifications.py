@@ -1571,3 +1571,22 @@ def test_a_names_result_that_also_stopped_early_says_the_names_sentence():
     note = jobs_service.waiting_note({"waiting": {"text": "4 glossary names to review"},
                                       "stopped": paid_calls.CAP_STOP_REASON})
     assert note == {"text": "4 glossary names to review", "target": None}
+
+
+def test_resource_alert_routes_read_and_change_rules(env):
+    c = _client(key_writes=False)
+    rows = {r["id"]: r for r in c.get("/api/settings/resource-alerts").json()["rules"]}
+    assert rows["cpu"]["enabled"] is False and len(rows) == 7
+    r = c.post("/api/settings/resource-alerts", json={"rules": {"cpu": {"enabled": True, "limit": 90}}})
+    assert r.status_code == 200
+    assert {x["id"]: x for x in r.json()["rules"]}["cpu"]["limit"] == 90
+    assert c.post("/api/settings/resource-alerts", json={"rules": {"cpu": {"limit": 5}}}).status_code == 422
+    assert c.post("/api/settings/resource-alerts", json={"rules": {"nope": {}}}).status_code == 422
+    assert c.post("/api/settings/resource-alerts", json={"rules": {"cpu": {"x": 1}}}).status_code == 422
+
+
+def test_resource_alert_changes_are_pc_only(env):
+    remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE, raise_server_exceptions=False)
+    admin = _session(True)
+    assert remote.post("/api/settings/resource-alerts", json={"rules": {"cpu": {"enabled": True}}},
+                       headers=session_headers(admin)).status_code == 403
