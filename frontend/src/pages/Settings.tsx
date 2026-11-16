@@ -19,6 +19,7 @@ import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useFeatures } from '../hooks/useFeatures'
 import { featureOn, type FeatureName } from '../api/features'
 import { refreshReadiness, useReadiness } from '../hooks/useReadiness'
@@ -217,13 +218,15 @@ export default function SettingsPage() {
   const ownKeyShown = showOllamaKey(useSession())
   const pcMode = usePcOnly()
   const remote = pcMode === 'remote'
+  // The Android shell is the web app in a phone-width view; width, text size, spacing and nav position follow the phone there.
+  const phone = useMediaQuery('(max-width: 640px)')
   const features = useFeatures()
   const canUpdate = useHolds('system.update')
   const available: ReadonlySet<string> = useMemo(() => {
     const cards = loaded ? ALL_CARDS : MEMBER_CARDS
     return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (canUpdate || id !== 'updates')
-      && !(remote && PC_ONLY_CARDS.has(id)) && !(id in FEATURE_CARDS && !featureOn(FEATURE_CARDS[id], features))))
-  }, [loaded, ownKeyShown, canUpdate, remote, features])
+      && !(remote && PC_ONLY_CARDS.has(id)) && !(phone && id === 'display') && !(id in FEATURE_CARDS && !featureOn(FEATURE_CARDS[id], features))))
+  }, [loaded, ownKeyShown, canUpdate, remote, phone, features])
   const shown = (id: string) => available.has(id)
   const searching = query.trim() !== ''
   const match = useMemo(() => filterSettings(query, available), [query, available])
@@ -393,7 +396,7 @@ export default function SettingsPage() {
         {panel('account', (
           <>
             <SettingsCard id="sharing"><SharingCard /></SettingsCard>
-            <SettingsCard id="display"><DisplayCard /></SettingsCard>
+            {shown('display') && <SettingsCard id="display"><DisplayCard /></SettingsCard>}
             <SettingsCard id="customize-menu"><CustomizeMenuCard /></SettingsCard>
             <SettingsCard id="devices"><DevicesCard /></SettingsCard>
             <SettingsCard id="extension-devices"><ExtensionDevicesCard /></SettingsCard>
