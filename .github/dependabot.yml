@@ -38,6 +38,11 @@ updates:
     groups:
       openapi-gen-dependencies:
         patterns: ["*"]
+    # openapi-typescript 7 takes TypeScript 5 as a peer, so TypeScript 6 fails `npm ci` here.
+    # Drop this once an openapi-typescript release accepts TypeScript 6.
+    ignore:
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   # The Caddy build for the installer's remote-access service.
   - package-ecosystem: gomod
