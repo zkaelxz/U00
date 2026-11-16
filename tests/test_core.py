@@ -1810,13 +1810,13 @@ class TestTranscribeWithGroq:
         audio = tmp_path / "audio.wav"
         audio.write_bytes(b"x")
         monkeypatch.setattr("lib.http.pinned_get", lambda *a, **k: self._FakeResponse(
-            status_code=401, text="invalid api key"))
+            status_code=400, text="invalid api key"))
 
         try:
             whisper_transcribe.transcribe_with_groq(str(audio), "en", "bad-key")
             assert False, "expected GroqTranscriptionError"
         except whisper_transcribe.GroqTranscriptionError as exc:
-            assert "401" in str(exc) and "invalid api key" in str(exc)
+            assert "400" in str(exc) and "invalid api key" in str(exc)
 
     def test_a_network_error_is_raised_as_groq_transcription_error(self, monkeypatch, tmp_path):
         import whisper_transcribe

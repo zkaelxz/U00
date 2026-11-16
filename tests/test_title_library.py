@@ -3,6 +3,7 @@ tests/test_title_library.py -- tests for title_library.py's seed data
 and search/dedup logic.
 """
 
+import pytest
 from lib import http
 import json
 import sys
@@ -151,6 +152,13 @@ class _FakeResponse:
         pass
 
 
+@pytest.fixture
+def public_dns(monkeypatch):
+    from lib import url_guard
+    monkeypatch.setattr(url_guard, "resolve_public", lambda url: "93.184.216.34")
+
+
+@pytest.mark.usefixtures("public_dns")
 class TestSearchBaihehub:
     """Step 25f item 2: `data.get("data") or ... or data if isinstance(data,
     list) else []` parsed as `(... or data) if isinstance(data, list) else
@@ -213,6 +221,7 @@ class TestSearchBaihehub:
         assert title_library.search_baihehub("公主") is None
 
 
+@pytest.mark.usefixtures("public_dns")
 class TestBaihehubResponseCap:
     def test_an_oversized_response_is_skipped(self, monkeypatch):
         closed = []
@@ -244,3 +253,30 @@ class TestBaihehubResponseCap:
         monkeypatch.setattr(title_library, "BAIHEHUB_MAX_BYTES", 1000)
         monkeypatch.setattr(http, "pinned_get", lambda *a, **k: Endless())
         assert title_library.search_baihehub("公主") is None
+
+
+class TestBaihehubUrlSafety:
+    def test_a_dict_description_gives_an_empty_snippet(self, monkeypatch, public_dns):
+        item = {"documentId": "d1", "name": "N", "description": {"type": "doc"}}
+        monkeypatch.setattr(http, "pinned_get",
+                            lambda *a, **k: _FakeResponse({"data": [item]}))
+        results = title_library.search_baihehub("q")
+        assert results and all(r["snippet"] == "" for r in results)
+
+    def test_a_redirect_to_a_private_address_is_refused(self, monkeypatch):
+        from lib import url_guard
+        def resolve(url):
+            if "127.0.0.1" in url:
+                raise url_guard.UnsafeURLError("private")
+            return "93.184.216.34"
+        monkeypatch.setattr(url_guard, "resolve_public", resolve)
+        seen = []
+
+        def fake_get(url, ip, headers, timeout=None, method="GET", params=None):
+            seen.append(url)
+            class Redirect(_FakeResponse):
+                headers = {"Location": "http://127.0.0.1/x"}
+            return Redirect({}, 302)
+        monkeypatch.setattr(http, "pinned_get", fake_get)
+        assert title_library.search_baihehub("q") is None
+        assert not any("127.0.0.1" in u for u in seen)

@@ -14,7 +14,7 @@ from core import LANGUAGE_NAMES, LINE_LANGUAGES
 from whisper_transcribe import WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS
 from whisper_hallucination import filter_hallucinated_segments
 from whisper_models import forget_gpu_model, is_gpu_error, load_whisper_model, supports_word_timestamps
-from segment_splitting import settle_overlaps, tighten_to_words
+from segment_splitting import _word_dicts, settle_overlaps, tighten_to_words
 
 LANGUAGE_UNCERTAIN_FLAG = "language_uncertain"
 LANGUAGE_UNCERTAIN_NOTE = ("The spoken language of this line couldn't be confirmed: the text "
@@ -135,8 +135,13 @@ def _span_runners(model, audio, sr, source_language, beam_size, initial_prompt,
             text = s.text.strip()
             if any(ch.isalnum() for ch in text):
                 start, end = tighten_to_words(s.start, s.end, getattr(s, "words", None))
-                out.append({"start": span.start_s + start, "end": span.start_s + end,
-                            "text": text})
+                seg = {"start": span.start_s + start, "end": span.start_s + end, "text": text}
+                # Splitting a long line later cuts at word times; they are relative to the span, as the segment's were.
+                words = _word_dicts(getattr(s, "words", None))
+                if words:
+                    seg["words"] = [{**w, "start": w["start"] + span.start_s, "end": w["end"] + span.start_s}
+                                    for w in words]
+                out.append(seg)
         return settle_overlaps(out)
 
     def run_span(span):
