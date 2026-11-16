@@ -297,7 +297,8 @@ def test_burst_summary():
 
 # --- delivery ----------------------------------------------------------------
 
-def test_discord_delivery_has_timeout_no_redirects_and_safe_payload(env, dns, posts):
+def test_discord_delivery_has_timeout_no_redirects_and_safe_payload(env, dns, posts, monkeypatch):
+    monkeypatch.setattr(ns.socket, "gethostname", lambda: "DESKTOP-WEEE")
     _write(env, discord=DISCORD)
     assert ns._deliver("Finished: Translation - @everyone") == {
         "discord": "sent", "ntfy": "not_configured"}
@@ -308,7 +309,24 @@ def test_discord_delivery_has_timeout_no_redirects_and_safe_payload(env, dns, po
     import json
     body = json.loads(call["data"].decode("utf-8"))
     assert body["allowed_mentions"] == {"parse": []}
-    assert body["content"] == "Baihe Studio: Finished: Translation - @everyone"
+    assert body["content"] == "Baihe Studio (DESKTOP-WEEE): Finished: Translation - @everyone"
+
+
+def test_discord_card_footer_names_the_pc_and_no_name_leaves_it_out(monkeypatch):
+    import json
+    card = {"title": "Finished \u00b7 Translation", "color": ns.COLOR_OK}
+    monkeypatch.setattr(ns.socket, "gethostname", lambda: "V100-BOX")
+    body = json.loads(ns._payload("discord", "x", card)[0])
+    assert body["embeds"][0]["footer"] == {"text": "PC: V100-BOX"}
+    assert "footer" not in card
+    assert ns._payload("ntfy", "x")[0] == b"x"
+
+    def boom():
+        raise OSError
+    monkeypatch.setattr(ns.socket, "gethostname", boom)
+    body = json.loads(ns._payload("discord", "x", card)[0])
+    assert "footer" not in body["embeds"][0]
+    assert json.loads(ns._payload("discord", "x")[0])["content"] == "Baihe Studio: x"
 
 
 def test_ntfy_delivery(env, dns, posts):

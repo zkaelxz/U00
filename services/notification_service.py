@@ -600,15 +600,25 @@ def _pinned_post(url, ip, body: bytes, headers: dict):
         session.close()
 
 
+def _pc_name() -> str:
+    """The Windows computer name, so one Discord channel shared by several
+    PCs says which one sent a message. Empty when it cannot be read."""
+    try:
+        return _tidy(socket.gethostname(), 40)
+    except Exception:
+        return ""
+
+
 def _payload(channel, text, embed=None):
     if channel == "discord":
         import json
+        pc = _pc_name()
         # allowed_mentions: a drama title can never ping @everyone/@here.
         body: dict = {"allowed_mentions": {"parse": []}}
         if embed:
-            body["embeds"] = [embed]
+            body["embeds"] = [{**embed, "footer": {"text": f"PC: {pc}"}} if pc else embed]
         else:
-            body["content"] = f"{APP_NAME}: {text}"
+            body["content"] = f"{APP_NAME}{f' ({pc})' if pc else ''}: {text}"
         return (json.dumps(body, ensure_ascii=False).encode("utf-8"),
                 {"Content-Type": "application/json"})
     return text.encode("utf-8"), {"Title": APP_NAME, "Content-Type": "text/plain; charset=utf-8"}
