@@ -309,7 +309,7 @@ def test_the_cancellable_m4b_encode_has_a_deadline(tmp_path, monkeypatch):
     (tmp_path / "narration_track.wav").write_bytes(b"RIFF")
     seen = {}
     monkeypatch.setattr(bg, "run_cancellable", lambda job_id, cmd, **kw: seen.update(kw))
-    monkeypatch.setattr(dub_narration, "_wav_duration_ms", lambda path: 1000)
+    monkeypatch.setattr(dub_narration, "_track_duration_ms", lambda path: 1000)
     monkeypatch.setattr(dub_narration, "narration_paragraph_ends", lambda *a, **k: [])
     dub_narration.export_narration_m4b([], str(tmp_path), cancel_job_id="narr_1")
     assert seen == {"timeout": M4B_ENCODE_TIMEOUT_SECONDS}

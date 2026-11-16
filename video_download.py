@@ -78,7 +78,7 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
     resulting file.
 
     audio_only=True (the default -- matches most of this project's audio-
-    drama use case): extracts to a single downloaded_audio.wav via the
+    drama use case): extracts to a single downloaded_audio.flac via the
     same ffmpeg this project already requires, so it drops straight into
     the existing audio pipeline with no separate extraction step.
 
@@ -144,7 +144,7 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
         ydl_opts = {
             "format": "bestaudio/best",
             "outtmpl": os.path.join(out_dir, "downloaded_audio.%(ext)s"),
-            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "wav"}],
+            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "flac"}],
             "progress_hooks": [_hook],
             "quiet": True, "no_warnings": True, "noplaylist": True,
             "no_color": True,  # no ANSI codes in error text shown in the UI/log
@@ -199,7 +199,7 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
         # FFmpegExtractAudio rewrites the extension to the target codec
         # after the fact -- prepare_filename() reports the pre-conversion
         # name, so swap it to what's actually on disk.
-        final_path = os.path.splitext(final_path)[0] + ".wav"
+        final_path = os.path.splitext(final_path)[0] + ".flac"
 
     if not os.path.exists(final_path):
         raise DownloadError(

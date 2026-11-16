@@ -35,9 +35,9 @@ the upload accepts) is fetched by `_direct_download` instead, without
 yt-dlp: every hop re-validated and pinned (services.metadata_service,
 the same rule as safe_fetch), streamed under the same byte, wall-clock and
 cancel caps; its audio is converted with ffmpeg. Audio only: the extracted
-WAV becomes `source.wav`. Video: the
+FLAC becomes `source.flac`. Video: the
 audio is extracted with ffmpeg inside the temp folder first, then the
-video becomes `source<ext>` and the audio `audio.wav`. Files go in place
+video becomes `source<ext>` and the audio `audio.flac`. Files go in place
 through media_upload_service.install_media, as an upload does: never over
 an existing file (`-2`... while the old one is there), one field-scoped DB
 write as the commit point (audio_filename, [source_video_filename] and,
@@ -297,8 +297,8 @@ def _log_fetch_failure(job_id: str, exc: Exception) -> None:
         f"job {job_id}: download failed: {type(exc).__name__}: {_error_snippet(str(exc))}")
 
 
-def _extract_audio(job_id: str, src: str, wav: str, cwd: str):
-    cmd = _extract_cmd(src, wav)
+def _extract_audio(job_id: str, src: str, out: str, cwd: str):
+    cmd = _extract_cmd(src, out)
     try:
         background_jobs.run_cancellable(
             job_id, cmd, cwd=cwd, timeout=media_upload_service.EXTRACT_TIMEOUT_SECONDS)
@@ -739,12 +739,12 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
             path, title, link = _download(job_id, url, tmp, audio_only, options)
         ext = os.path.splitext(path)[1].lower()
         if audio_only and not direct_ext:
-            new_files = {"audio_filename": (path, "source", ".wav")}
+            new_files = {"audio_filename": (path, "source", ".flac")}
         elif direct_ext and (audio_only or ext in media_upload_service.AUDIO_EXTENSIONS):
             background_jobs.update_progress(job_id, 0.88, "Converting the audio...")
-            wav = os.path.join(tmp, "converted.wav")
-            _extract_audio(job_id, path, wav, tmp)
-            new_files = {"audio_filename": (wav, "source", ".wav")}
+            converted = os.path.join(tmp, "converted.flac")
+            _extract_audio(job_id, path, converted, tmp)
+            new_files = {"audio_filename": (converted, "source", ".flac")}
         else:
             if ext not in media_upload_service.VIDEO_EXTENSIONS:
                 if direct_ext or not ext:
@@ -753,10 +753,10 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
                 path = _remux_to_mkv(job_id, path, tmp)
                 ext = ".mkv"
             background_jobs.update_progress(job_id, 0.88, "Extracting audio from the video...")
-            wav = os.path.join(tmp, "audio.wav")
-            _extract_audio(job_id, path, wav, tmp)
+            audio = os.path.join(tmp, "audio.flac")
+            _extract_audio(job_id, path, audio, tmp)
             new_files = {"source_video_filename": (path, "source", ext),
-                         "audio_filename": (wav, "audio", ".wav")}
+                         "audio_filename": (audio, "audio", ".flac")}
         fields = {}
         drama = db.get_drama(drama_id) or {}  # re-read just before writing
         if title and not (drama.get("title_en") or drama.get("title_zh")):
