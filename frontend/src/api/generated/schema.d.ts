@@ -27643,6 +27643,11 @@ export interface components {
              */
             asmr_stop_threshold: number;
             /**
+             * Blocked Phrases
+             * @default
+             */
+            blocked_phrases: string;
+            /**
              * Claude Reasoning
              * @default default
              */
@@ -28055,6 +28060,8 @@ export interface components {
             asmr_start_threshold?: number | null;
             /** Asmr Stop Threshold */
             asmr_stop_threshold?: number | null;
+            /** Blocked Phrases */
+            blocked_phrases?: string | null;
             /** Bulk Auto Resume */
             bulk_auto_resume?: boolean | null;
             /** Claude Reasoning */

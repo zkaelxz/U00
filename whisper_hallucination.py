@@ -17,7 +17,8 @@ _STOCK_PHRASE_RES = [re.compile(p) for p in (
     r"thanks?youforwatching",
     r"thanksforwatching",
     r"(?:感谢|感謝|谢谢|謝謝)(?:您的?)?(?:观看|觀看)",
-    r"字幕由.{0,30}提供",
+    # The opening ("本集的") is Whisper's own wording around the same credit.
+    r"(?:本(?:集|期|影片|节目|節目)的?)?字幕由.{0,30}提供",
     r"由amaraorg社[群區区]提供的?字幕",
     r"[请請]不吝[点點][赞贊讚].*",
     r"ご視聴ありがとうございま(?:した|す)",
@@ -239,6 +240,47 @@ def collapse_phrase_loop(text):
         unit_end = kept[m.start() + len(m.group(1)) - 1][0] + 1
         run_end = kept[m.end() - 1][0] + 1
         text = text[:unit_end] + text[run_end:]
+
+
+# Phrases dropped wherever they sit in a line, whatever is around it: Whisper writes these over
+# speech too, so the silence check (STOCK_PHRASE_ISOLATION_SEC) lets them through. This is the
+# starting text of Settings > Blocked phrases, one phrase per line; the person edits it.
+BLOCKED_PHRASES_DEFAULT = "\n".join((
+    "please like, share and subscribe",
+    "like, share and subscribe",
+    "subtitles by Amara.org",
+    "Amara.org",
+    "點贊和分享",
+    "点赞和分享",
+    "訂閱我們的頻道",
+    "订阅我们的频道",
+    "頻道的臉書",
+    "频道的脸书",
+))
+# A shorter key would match inside ordinary speech.
+BLOCKED_PHRASE_MIN_LETTERS = 4
+
+
+def parse_blocked_phrases(text):
+    """The matching keys (see _stock_key) of a blocked-phrases text, one phrase per line.
+    A phrase with fewer than BLOCKED_PHRASE_MIN_LETTERS letters is ignored."""
+    keys = (_stock_key(line) for line in (text or "").splitlines())
+    return tuple(dict.fromkeys(k for k in keys if len(k) >= BLOCKED_PHRASE_MIN_LETTERS))
+
+
+def drop_blocked_phrases(segments, keys):
+    """`segments` without those whose text contains one of `keys` (parse_blocked_phrases),
+    each recorded as a stock-phrase drop."""
+    if not keys:
+        return segments
+    kept = []
+    for seg in segments:
+        key = _stock_key(seg["text"])
+        if any(k in key for k in keys):
+            _record_drop(seg, DROP_STOCK_PHRASE)
+        else:
+            kept.append(seg)
+    return kept
 
 
 def is_credit_like(text):

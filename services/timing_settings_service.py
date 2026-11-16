@@ -14,6 +14,7 @@ import sensitivity_preset
 import sentence_groups
 from lib import settings_schema
 from segment_splitting import PieceFloors
+from whisper_hallucination import parse_blocked_phrases
 from services import settings_service
 
 KEYS = tuple(s.key for s in settings_schema.SETTINGS if s.section in settings_schema.TIMING_SECTIONS)
@@ -35,6 +36,8 @@ def values() -> dict:
         if out[lower] >= out[upper]:
             for key in (lower, upper):
                 out[key] = settings_schema.default_of(settings_schema.BY_KEY[key])
+    # Not a Timing row (no field on that card), but a run is handed it with the rest.
+    out["blocked_phrases"] = settings_service.get("blocked_phrases")
     return out
 
 
@@ -65,6 +68,8 @@ def asr_tuning(vals: dict | None = None) -> asr_backend.AsrTuning:
                            v["split_min_piece_words"]),
         repeat_min_repeats=v["repeat_loop_min_repeats"],
         stock_isolation_sec=v["stock_phrase_isolation_seconds"],
+        blocked_phrases=(parse_blocked_phrases(v["blocked_phrases"]) if "blocked_phrases" in v
+                         else asr_backend.DEFAULT_TUNING.blocked_phrases),
         realign_min_seconds=v["realign_min_seconds"],
         realign_pause_seconds=v["realign_pause_seconds"],
         vad_threshold=v["qwen_vad_threshold"],
