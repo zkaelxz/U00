@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 import core as core_module
+import subtitle_ass
 import subtitle_formats
 from core import Line
 
@@ -40,12 +41,12 @@ class TestSfxExport:
         assert "\nHello\n" in vtt and "\n<i>[door slams]</i>\n" in vtt
 
     def test_ass_uses_a_distinct_italic_sfx_style(self):
-        ass = subtitle_formats.lines_to_ass(SFX_LINES, subtitle_formats.ASS_PRESETS["Clean"], "en",
+        ass = subtitle_ass.lines_to_ass(SFX_LINES, subtitle_ass.ASS_PRESETS["Clean"], "en",
                                             speaker_colors={"A": "#FFE066"})
         styles = {l.split(",")[0][7:]: l.split(",") for l in ass.splitlines()
                   if l.startswith("Style: ")}
         assert styles["SFX"][8] == "-1"                      # italic
-        assert styles["SFX"][3] == subtitle_formats.ass_color(subtitle_formats.SFX_COLOR)
+        assert styles["SFX"][3] == subtitle_ass.ass_color(subtitle_ass.SFX_COLOR)
         assert styles["SFX"][3] != styles["Default"][3]
         dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
         assert dialogue[0].split(",")[3] == "Speaker 1" and dialogue[0].endswith(",Hello")
@@ -82,8 +83,8 @@ class TestSfxAndNotesPositions:
     NOTES = {0: [{"term": "Qijutang", "note": "lit. 'Hall of Sitting Together'"}]}
 
     def _ass(self, separate=True, **style_extra):
-        style = {**subtitle_formats.ASS_PRESETS["Clean"], **style_extra}
-        return subtitle_formats.lines_to_ass(SFX_LINES, style, "en", self.NOTES,
+        style = {**subtitle_ass.ASS_PRESETS["Clean"], **style_extra}
+        return subtitle_ass.lines_to_ass(SFX_LINES, style, "en", self.NOTES,
                                              notes_as_separate_line=separate)
 
     @staticmethod
@@ -112,7 +113,7 @@ class TestSfxAndNotesPositions:
 
     def test_sfx_line_still_gets_its_separate_note(self):
         notes = {1: [{"term": "砰", "note": "onomatopoeia"}]}
-        ass = subtitle_formats.lines_to_ass(SFX_LINES, subtitle_formats.ASS_PRESETS["Clean"],
+        ass = subtitle_ass.lines_to_ass(SFX_LINES, subtitle_ass.ASS_PRESETS["Clean"],
                                             "en", notes, notes_as_separate_line=True)
         dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
         assert dialogue[1].split(",")[3] == "SFX" and dialogue[1].endswith(",[door slams]")

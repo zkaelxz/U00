@@ -29,6 +29,7 @@ import auto_qc
 import core as core_module
 import db
 import media_inspect
+import subtitle_ass
 import subtitle_formats
 from lib.safe_paths import is_device_name
 from services import (
@@ -204,11 +205,11 @@ def get_ass_style_options() -> dict:
     hard-coding it: presets, fonts, alignments, numeric ranges, and the
     default preset name."""
     return {
-        "presets": {name: dict(p) for name, p in subtitle_formats.ASS_PRESETS.items()},
+        "presets": {name: dict(p) for name, p in subtitle_ass.ASS_PRESETS.items()},
         "default_preset": "Clean",
-        "fonts": list(subtitle_formats.FONT_CHOICES),
+        "fonts": list(subtitle_ass.FONT_CHOICES),
         "custom_font_allowed": True,
-        "alignments": dict(subtitle_formats.ALIGNMENTS),
+        "alignments": dict(subtitle_ass.ALIGNMENTS),
         "size_range": list(_SIZE_RANGE),
         "outline_width_range": list(_OUTLINE_WIDTH_RANGE),
         "shadow_range": list(_SHADOW_RANGE),
@@ -226,7 +227,7 @@ def check_color(value, name):
 
 
 def build_ass_style(preset: str, style) -> dict:
-    if preset not in subtitle_formats.ASS_PRESETS:
+    if preset not in subtitle_ass.ASS_PRESETS:
         raise InvalidInputError("Unknown ASS preset.")
     style = style or {}
     if not isinstance(style, dict):
@@ -234,7 +235,7 @@ def build_ass_style(preset: str, style) -> dict:
     unknown = [k for k in style if k not in _STYLE_KEYS]
     if unknown:
         raise InvalidInputError("Unknown style key: " + ", ".join(sorted(map(str, unknown))) + ".")
-    merged = {**subtitle_formats.ASS_PRESETS[preset], **style}
+    merged = {**subtitle_ass.ASS_PRESETS[preset], **style}
     merged.setdefault("sfx_alignment", None)
     merged.setdefault("notes_alignment", None)
 
@@ -251,10 +252,10 @@ def build_ass_style(preset: str, style) -> dict:
             raise InvalidInputError(f"Style '{key}' must be true or false.")
     check_color(merged["primary"], "primary")
     check_color(merged["outline"], "outline")
-    if merged["alignment"] not in subtitle_formats.ALIGNMENTS:
+    if merged["alignment"] not in subtitle_ass.ALIGNMENTS:
         raise InvalidInputError("Style 'alignment' is not a valid position.")
     for key in ("sfx_alignment", "notes_alignment"):
-        if merged[key] is not None and merged[key] not in subtitle_formats.ALIGNMENTS:
+        if merged[key] is not None and merged[key] not in subtitle_ass.ALIGNMENTS:
             raise InvalidInputError(f"Style '{key}' is not a valid position.")
     return merged
 
@@ -286,7 +287,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     shadow, alignment, sfx_alignment, notes_alignment) override it, and
     missing keys keep the preset's values. speaker_colors is
     {speaker_label: "#RRGGBB"}; when omitted and per_speaker_colors is
-    true, subtitle_formats.default_speaker_colors picks one per speaker in
+    true, subtitle_ass.default_speaker_colors picks one per speaker in
     the drama; per_speaker_colors=False means one style for everyone.
     Overlapping cues keep their saved times (players stack them, which is
     how two speakers talking at once stay readable); SRT is the format that
@@ -337,15 +338,15 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     elif speaker_colors is not None:
         colors = dict(speaker_colors)
     else:
-        colors = subtitle_formats.default_speaker_colors(ln.speaker for ln in lines)
+        colors = subtitle_ass.default_speaker_colors(ln.speaker for ln in lines)
 
     speaker_names = {c["speaker_label"]: c["character_name"]
                      for c in db.list_characters_with_series_names(drama_id)
                      if c.get("character_name")}
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
-    ass_header, ass_header_key = subtitle_formats.ass_header_for(drama.get("ass_styles"), lines)
+    ass_header, ass_header_key = subtitle_ass.ass_header_for(drama.get("ass_styles"), lines)
 
-    return subtitle_formats.lines_to_ass(
+    return subtitle_ass.lines_to_ass(
         lines, merged_style, field, notes_by_idx,
         speaker_colors=colors, speaker_names=speaker_names,
         wrap_chars=build_wrap_chars(wrap_chars_en, wrap_chars_source),
