@@ -1369,3 +1369,76 @@ def test_a_clip_past_the_normal_cap_extends_the_wall_clock(client, env, monkeypa
     other = _drama()
     assert _run(client, other, allow_long=True)["status"] == "done"
     assert extended == []   # asked for "anyway" on a short video: still the normal clock
+
+
+# --- video quality ---------------------------------------------------------------
+
+def test_video_quality_sorts_by_the_chosen_height_and_default_is_the_best(client, env):
+    did = _drama()
+    assert _run(client, did, audio_only=False, max_height=720)["status"] == "done"
+    assert FakeYDL.last_opts["format_sort"] == ["res:720"]
+    background_jobs.clear_job(f"urlmedia_{did}")
+    other = _drama()
+    assert _run(client, other, audio_only=False)["status"] == "done"
+    assert "format_sort" not in FakeYDL.last_opts
+
+
+def test_video_quality_means_nothing_for_audio_only(client, env):
+    did = _drama()
+    assert _run(client, did, audio_only=True, max_height=480)["status"] == "done"
+    assert "format_sort" not in FakeYDL.last_opts
+
+
+@pytest.mark.parametrize("bad", [500, 0, "720", True])
+def test_an_unknown_video_quality_is_refused_before_anything_starts(client, env, bad):
+    r = _start(client, _drama(), audio_only=False, max_height=bad)
+    assert r.status_code == 422 and FakeYDL.calls == []
+
+
+# --- downloading the same link again ---------------------------------------------
+
+def _kept_media(did):
+    kept = os.path.join(db.drama_dir(did), "kept_media")
+    return sorted(os.listdir(kept)) if os.path.isdir(kept) else []
+
+
+def test_the_same_link_again_replaces_its_earlier_download_without_keeping_it(client, env):
+    did = _drama()
+    assert _run(client, did, audio_only=False)["status"] == "done"
+    first = db.get_drama(did)
+    background_jobs.clear_job(f"urlmedia_{did}")
+    st = _run(client, did, audio_only=False, max_height=480, confirm_replace_audio=True)
+    assert st["status"] == "done", st
+    after = db.get_drama(did)
+    folder = db.drama_dir(did)
+    assert os.path.isfile(os.path.join(folder, after["source_video_filename"]))
+    assert os.path.isfile(os.path.join(folder, after["audio_filename"]))
+    for old in (first["source_video_filename"], first["audio_filename"]):
+        assert old not in (after["source_video_filename"], after["audio_filename"])
+        assert not os.path.exists(os.path.join(folder, old))
+    assert _kept_media(did) == []
+
+
+def test_a_different_link_keeps_the_media_it_replaces(client, env):
+    did = _drama()
+    with open(os.path.join(db.drama_dir(did), "source.mp4"), "wb") as f:
+        f.write(b"my own upload")
+    db.update_drama(did, source_video_filename="source.mp4")
+    assert _run(client, did, audio_only=False, confirm_replace_audio=True)["status"] == "done"
+    assert len(_kept_media(did)) == 1
+    # The link now recorded is this one, but the next download is of another.
+    background_jobs.clear_job(f"urlmedia_{did}")
+    r = client.post(f"/api/media/dramas/{did}/download-url",
+                    json={"url": URL + "-other", "audio_only": False, "confirm_replace_audio": True})
+    assert r.status_code == 200, r.text
+    assert wait_for_job(f"urlmedia_{did}", missing_ok=True)["status"] == "done"
+    assert len(_kept_media(did)) == 3
+
+
+def test_the_same_link_again_still_keeps_the_old_files_of_a_title_that_keeps_originals(client, env):
+    did = _drama()
+    assert _run(client, did, audio_only=False)["status"] == "done"
+    db.update_drama(did, keep_original=1)
+    background_jobs.clear_job(f"urlmedia_{did}")
+    assert _run(client, did, audio_only=False, confirm_replace_audio=True)["status"] == "done"
+    assert len(_kept_media(did)) == 2
