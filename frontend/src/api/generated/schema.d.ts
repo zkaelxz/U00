@@ -24242,6 +24242,8 @@ export interface components {
             parent_pid: number;
             /** Pid */
             pid: number;
+            /** Private Bytes */
+            private_bytes?: number | null;
             /** Ram Bytes */
             ram_bytes: number;
             /**

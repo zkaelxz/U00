@@ -82,6 +82,7 @@ class ProcessMemoryRow(BaseModel):
     role: str
     relation: Literal["this_server", "child", "orphan", "other"]
     ram_bytes: int
+    private_bytes: Optional[int] = None
     vram_bytes: Optional[int] = None
     command: str
 

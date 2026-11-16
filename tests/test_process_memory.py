@@ -67,3 +67,31 @@ def test_get_process_memory_states(monkeypatch):
 def test_real_proc_read_finds_this_process():
     procs, _ = svc._read_proc_fs()
     assert any(p["pid"] == svc.os.getpid() and p["ram_bytes"] > 0 for p in procs)
+
+
+def test_own_gpu_probe_is_hidden_and_other_children_are_named_by_program():
+    probe = "powershell -NoProfile -Command Get-Counter '\\GPU Process Memory(*)\\Dedicated Usage'"
+    procs = [_p(100, 1, "python.exe", "python -m api"),
+             _p(101, 100, "powershell.exe", probe),
+             _p(102, 100, "ffmpeg.exe", "ffmpeg -i x")]
+    rows = {r["pid"]: r for r in svc.build_rows(procs, {}, server_pid=100)}
+    assert 101 not in rows
+    assert rows[102]["role"] == "Helper (ffmpeg.exe)"
+
+
+def test_windows_counters_read_means_absent_process_holds_none(monkeypatch):
+    import json
+    script_out = json.dumps({
+        "procs": [{"ProcessId": 10, "ParentProcessId": 1, "Name": "python.exe", "CommandLine": "python -m api",
+                   "WorkingSetSize": 100, "PrivatePageCount": 900},
+                  {"ProcessId": 11, "ParentProcessId": 10, "Name": "python.exe", "CommandLine": "python -c x",
+                   "WorkingSetSize": 5, "PrivatePageCount": 6}],
+        "gpu": [{"InstanceName": "pid_10_luid_0x0_0x1_phys_0", "CookedValue": 4096}]})
+    fake = type("R", (), {"timed_out": False, "returncode": 0, "stdout": script_out})()
+    monkeypatch.setattr(svc, "run_captured", lambda *a, **k: fake)
+    procs, vram = svc._read_windows()
+    assert vram == {10: 4096, 11: 0}
+    assert procs[0]["private_bytes"] == 900
+
+    fake.stdout = json.dumps({"procs": json.loads(script_out)["procs"], "gpu": []})
+    assert svc._read_windows()[1] == {}   # counters unreadable: "can't say", not "none"

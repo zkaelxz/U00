@@ -30,11 +30,18 @@ RELEVANT_NAMES = ("python", "pythonw", "ollama", "llama-server", "llama_server")
 # display (WDDM) mode, where nvidia-smi prints N/A.
 _WINDOWS_SCRIPT = (
     "$ErrorActionPreference='SilentlyContinue';"
-    "$p=@(Get-CimInstance Win32_Process|Select-Object ProcessId,ParentProcessId,Name,CommandLine,WorkingSetSize);"
+    "$p=@(Get-CimInstance Win32_Process|Select-Object ProcessId,ParentProcessId,Name,CommandLine,WorkingSetSize,PrivatePageCount);"
     "$g=@((Get-Counter '\\GPU Process Memory(*)\\Dedicated Usage').CounterSamples|"
     "Select-Object InstanceName,CookedValue);"
     "@{procs=$p;gpu=$g}|ConvertTo-Json -Depth 3 -Compress"
 )
+
+
+def _is_own_probe(name: str, command: str) -> bool:
+    # The PowerShell that reads these counters is a child of this server and is
+    # in its own process list; listing it would show the panel's own read as a
+    # leftover-looking "Python" process.
+    return name.lower().removesuffix(".exe") in ("powershell", "pwsh") and "GPU Process Memory" in command
 
 
 def _is_relevant(name: str) -> bool:
@@ -79,6 +86,8 @@ def _role(name: str, command: str) -> str:
         return "Voice worker"
     if re.search(r"(^|\s)-m\s+api(\s|$)", low):
         return "Baihe server"
+    if not _is_relevant(name):
+        return f"Helper ({name})"   # a child of this server that isn't Python (ffmpeg, a shell)
     return "Python"
 
 
@@ -102,6 +111,8 @@ def build_rows(procs: list, vram_by_pid: dict, server_pid: int) -> list:
     rows = []
     for p in procs:
         pid = p["pid"]
+        if _is_own_probe(p["name"], p["command"]):
+            continue
         if pid != server_pid and pid not in mine and not _is_relevant(p["name"]):
             continue
         if pid == server_pid:
@@ -114,6 +125,7 @@ def build_rows(procs: list, vram_by_pid: dict, server_pid: int) -> list:
             relation = "other"
         rows.append({"pid": pid, "parent_pid": p["ppid"], "role": _role(p["name"], p["command"]),
                      "relation": relation, "ram_bytes": p["ram_bytes"],
+                     "private_bytes": p.get("private_bytes"),
                      "vram_bytes": vram_by_pid.get(pid),
                      "command": sanitize_command(p["command"])})
     # What matters for the question "who holds the memory" first.
@@ -143,7 +155,8 @@ def _read_windows() -> tuple:
     data = json.loads(result.stdout)
     procs = [{"pid": int(p["ProcessId"]), "ppid": int(p["ParentProcessId"] or 0),
               "name": str(p["Name"] or ""), "command": str(p["CommandLine"] or ""),
-              "ram_bytes": int(p["WorkingSetSize"] or 0)}
+              "ram_bytes": int(p["WorkingSetSize"] or 0),
+              "private_bytes": int(p["PrivatePageCount"] or 0)}
              for p in _as_list(data.get("procs")) if p.get("ProcessId") is not None]
     vram: dict = {}
     for sample in _as_list(data.get("gpu")):
@@ -151,6 +164,12 @@ def _read_windows() -> tuple:
         if match:
             pid = int(match.group(1))
             vram[pid] = vram.get(pid, 0) + int(sample.get("CookedValue") or 0)
+    if vram:
+        # The counters list only processes that hold graphics memory. Once they
+        # were readable, a process missing from them holds none, which is a
+        # different answer from "Windows can't say".
+        for p in procs:
+            vram.setdefault(p["pid"], 0)
     return procs, vram
 
 
