@@ -18,7 +18,6 @@ import os
 import re
 import shutil
 import sys
-import tempfile
 
 import dependency_updates
 import diagnostics
@@ -26,6 +25,7 @@ import diagnostics_report
 import diagnostics_torch
 import install_registry
 import pending_install
+import storage
 from lib.proc import run_captured
 
 PLAN_TIMEOUT_SECONDS = 300
@@ -315,8 +315,7 @@ def explain_pip_failure(text: str):
 
 
 def _dry_run(argv: list, runner):
-    fd, report_path = tempfile.mkstemp(prefix="baihe-plan-", suffix=".json")
-    os.close(fd)
+    report_path = storage.new_partial_file("plan", ".json")
     try:
         # Not --quiet: it hides pip's "The conflict is caused by" lines.
         argv = argv + ["--dry-run", "--report", report_path]
