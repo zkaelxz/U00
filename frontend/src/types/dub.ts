@@ -6,4 +6,6 @@ type Schemas = components['schemas']
 
 export type NarrationConfig = Schemas['NarrationConfig']
 
+export type NarrationEstimate = Schemas['NarrationEstimate']
+
 export type NarrationRunRequest = Schemas['NarrationRunRequest']

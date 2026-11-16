@@ -1,6 +1,6 @@
 """Novel-mode prompt rules that stop unit conversion, name drift and gender slips."""
 from engine_backends import medium_prompts
-import translation_guide
+import glossary_extract
 
 
 def test_novel_rules_cover_units_names_and_gender():
@@ -25,12 +25,12 @@ def test_novel_glossary_prompt_asks_for_pronouns():
         seen.append(prompt)
         return "[]"
 
-    orig = translation_guide.call_llm_json
-    translation_guide.call_llm_json = fake_llm
+    orig = glossary_extract.call_llm_json
+    glossary_extract.call_llm_json = fake_llm
     try:
-        translation_guide.extract_glossary_from_novel("她走了。" * 10, Eng())
+        glossary_extract.extract_glossary_from_novel("她走了。" * 10, Eng())
     finally:
-        translation_guide.call_llm_json = orig
+        glossary_extract.call_llm_json = orig
     assert seen and "start the reason with the character's pronouns" in seen[0]
 
 

@@ -11,6 +11,10 @@ cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core
 
 import scanlate
 import scanlate_detect
+import scanlate_balloons
+import scanlate_box_merge
+import scanlate_page_decode
+import scanlate_panels
 import scanlate_regions
 import scanlate_render
 import scanlate_tuning
@@ -108,25 +112,25 @@ class TestMlBoxMerge:
     def test_a_text_box_inside_its_balloon_box_merges_into_the_balloon(self):
         balloon = {"x": 280, "y": 1071, "w": 125, "h": 185, "confidence": 0.94, "label": "bubble"}
         text = {"x": 301, "y": 1097, "w": 82, "h": 136, "confidence": 0.95, "label": "text_bubble"}
-        assert scanlate_detect._box_iou(balloon, text) < 0.5    # the case IoU alone missed
-        assert scanlate_detect.dedupe_overlapping_boxes([text, balloon]) == [
+        assert scanlate_box_merge._box_iou(balloon, text) < 0.5    # the case IoU alone missed
+        assert scanlate_box_merge.dedupe_overlapping_boxes([text, balloon]) == [
             dict(balloon, text_boxes=[{"x": 301, "y": 1097, "w": 82, "h": 136}])]
 
     def test_merged_fragments_keep_every_text_box(self):
         a = {"x": 0, "y": 0, "w": 100, "h": 100, "label": "bubble", "text_boxes": [{"x": 10, "y": 10, "w": 5, "h": 5}]}
         b = {"x": 2, "y": 2, "w": 96, "h": 96, "label": "bubble", "text_boxes": [{"x": 60, "y": 60, "w": 5, "h": 5}]}
-        merged = scanlate_detect.merge_fragment_boxes([a, b])
+        merged = scanlate_box_merge.merge_fragment_boxes([a, b])
         assert len(merged) == 1 and len(merged[0]["text_boxes"]) == 2
 
     def test_a_small_balloon_inside_a_big_balloon_s_box_stays(self):
         big = {"x": 0, "y": 0, "w": 300, "h": 300, "label": "bubble"}
         small = {"x": 200, "y": 200, "w": 80, "h": 80, "label": "bubble"}
-        assert len(scanlate_detect.dedupe_overlapping_boxes([big, small])) == 2
+        assert len(scanlate_box_merge.dedupe_overlapping_boxes([big, small])) == 2
 
     def test_neighbouring_balloons_stay_apart(self):
         a = {"x": 0, "y": 0, "w": 100, "h": 100, "label": "bubble"}
         b = {"x": 80, "y": 0, "w": 100, "h": 100, "label": "bubble"}
-        assert len(scanlate_detect.dedupe_overlapping_boxes([a, b])) == 2
+        assert len(scanlate_box_merge.dedupe_overlapping_boxes([a, b])) == 2
 
 
 class TestOrientation:
@@ -200,7 +204,7 @@ class TestReadingOrder:
         img = np.clip(img, 0, 255).astype(np.uint8)
         cv2.rectangle(img, (20, 20), (380, 580), 0, 4)
         cv2.rectangle(img, (420, 20), (780, 580), 0, 4)
-        assert len(scanlate_detect.detect_panels(_save(tmp_path, img))) == 2
+        assert len(scanlate_panels.detect_panels(_save(tmp_path, img))) == 2
 
 
 class TestKind:
@@ -209,7 +213,7 @@ class TestKind:
         cv2.ellipse(img, (200, 200), (120, 90), 0, 0, 360, (0, 0, 0), 3)
         for row in range(4):
             _letters(img, 120, 140 + row * 30, 6, size=26, step=28, gap=2)
-        out = scanlate_detect.classify_text_regions(_save(tmp_path, img),
+        out = scanlate_balloons.classify_text_regions(_save(tmp_path, img),
                                                     [{"x": 80, "y": 110, "w": 240, "h": 180}])
         assert out[0]["kind"] == "bubble"
 
@@ -270,7 +274,7 @@ class TestCleanup:
             for k in range(7):
                 cv2.rectangle(img, (left, 150 + k * 100), (left + 50, 210 + k * 100), 0, -1)
         box = {"x": 0, "y": 0, "w": 450, "h": 1000}
-        mask = scanlate_detect.bubble_erase_mask("unused", box, image=img)
+        mask = scanlate_balloons.bubble_erase_mask("unused", box, image=img)
         assert mask[150:210, 200:250].all() and mask[750:810, 290:340].all()
         assert not (mask & (img == art)).any()
 
@@ -278,7 +282,7 @@ class TestCleanup:
         img = np.full((800, 800), 255, np.uint8)
         cv2.ellipse(img, (400, 400), (150, 100), 0, 0, 360, 0, 3)
         box = {"x": 210, "y": 260, "w": 380, "h": 280}
-        mask = scanlate_detect.bubble_shape_mask("unused", box, margin=0, image=img)
+        mask = scanlate_balloons.bubble_shape_mask("unused", box, margin=0, image=img)
         assert mask is not None and not mask[0, 0] and mask[140, 190]
 
     def test_a_box_on_fine_screentone_is_quick(self):
@@ -287,7 +291,7 @@ class TestCleanup:
         tone[::4, :] = 0
         tone[:, ::4] = 0
         start = time.monotonic()
-        scanlate_detect.bubble_shape_mask("unused", {"x": 0, "y": 0, "w": 1500, "h": 1500}, image=tone)
+        scanlate_balloons.bubble_shape_mask("unused", {"x": 0, "y": 0, "w": 1500, "h": 1500}, image=tone)
         assert time.monotonic() - start < 10
 
     def test_a_box_erase_still_clears_its_whole_rectangle(self, tmp_path):
@@ -389,9 +393,9 @@ def _erase_mask(tmp_path, page, monkeypatch):
 
     monkeypatch.setattr(cv2, "inpaint", fake_inpaint)
     path = _save(tmp_path, page)
-    gray = scanlate_detect.page_gray(path, None)
+    gray = scanlate_page_decode.page_gray(path, None)
     box = {"x": 0, "y": 0, "w": 360, "h": 300}
-    inside = scanlate_detect.bubble_erase_mask(path, box, image=gray)
+    inside = scanlate_balloons.bubble_erase_mask(path, box, image=gray)
     inpaint_region(path, box, image=page.copy(), inside=inside, backend="cv")
     return seen["mask"] > 0
 

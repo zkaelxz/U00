@@ -74,6 +74,7 @@ def _extension_from_bytes(content: bytes) -> str:
 class Mh03Source(PlainImageDownload, SourceAdapter):
     name = "mh03"
     display_name = "mh03"
+    homepage = "https://www.mh03.com"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
     url_patterns = [r"mh03\.com/comic_[A-Za-z0-9_-]+\.html"]

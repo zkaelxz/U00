@@ -1,6 +1,6 @@
 """
 services/scanlate_render_service.py -- Scanlate typeset rendering and bulk
-export for the API (docs/archive/scanlate-api-spec.md S6 and S8).
+export for the API.
 
 - render_page: typesets one page from its regions IN THE DATABASE (never
   from a request body) with scanlate.process_page: regions with blank text
@@ -56,9 +56,9 @@ def _pages_dir(drama_id: int) -> str:
 
 def _custom_fonts(drama_id: int) -> dict:
     """The drama's own saved fonts (`fonts/<category>.ttf`)."""
-    import scanlate_render
+    import scanlate_fonts
     folder = os.path.join(db.drama_dir(drama_id), "fonts")
-    return {cat: os.path.join(folder, f"{cat}.ttf") for cat in scanlate_render.FONT_CATEGORIES
+    return {cat: os.path.join(folder, f"{cat}.ttf") for cat in scanlate_fonts.FONT_CATEGORIES
             if os.path.isfile(os.path.join(folder, f"{cat}.ttf"))
             and not os.path.islink(os.path.join(folder, f"{cat}.ttf"))}
 
@@ -169,6 +169,7 @@ def _render_job(jid: str, drama_id: int, page_ids: list):
             failed += 1
             append_notes(pid, [("error", f"Render failed: {type(exc).__name__}: {exc}")])
     msg = f"Rendered {done} page(s)" + (f", {failed} failed (see page notes)" if failed else "")
+    background_jobs.set_result(jid, {"kind": "render", "rendered": done, "failed": failed})
     background_jobs.update_progress(jid, 1.0, msg + ".")
 
 

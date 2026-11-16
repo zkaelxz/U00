@@ -119,6 +119,7 @@ def _withheld(what: str) -> ContentHidden:
 class FanjiaoComicSource(PlainImageDownload, SourceAdapter):
     name = "fanjiao_comic"
     display_name = "饭角漫画 Fanjiao Comics"
+    homepage = "https://www.fanjiao.co"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
     needs_browser = True

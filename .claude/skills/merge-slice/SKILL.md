@@ -8,7 +8,7 @@ description: Merge a finished migration branch into baihe-subtitler using the re
 Lands one finished branch on `baihe-subtitler`. Work on one branch at a time: each merge changes the base for the next one.
 
 ## 0. Preconditions
-- Merging is allowed only after Kae has typed "Merge NNNN" for this PR, and only in the thread that owns the PR or in the merge thread started for it (root `CLAUDE.md`, "How to work"; `docs/testing-and-ci.md`, "Merge flow"). Without that, stop and ask.
+- Merging is allowed only in the thread that owns the PR or in the merge thread started for it, and for a risky PR (schema, sign-in or auth, a real-PC test, release steps) only after Kae has typed "Merge NNNN" for it (root `CLAUDE.md`, "How to work"; `docs/testing-and-ci.md`, "Merge flow"). Without that, stop and ask.
 - The branch's own report (from an agent or a person) lists its tests. Read it, and flag any doubts it raised before merging.
 
 ## 1. Merge the base into the branch (never rebase, never force-push)
@@ -21,7 +21,7 @@ git merge --no-edit origin/baihe-subtitler
 ```
 
 ## 2. Resolve conflicts
-- Resolve conflicts by hand. Where a branch edits an existing class or function in place, which is most common in `api/schemas/*.py` (see "Known flags" in `docs/archive/migration-handoff.md`), take the base, then apply the branch's edit.
+- Resolve conflicts by hand. Where a branch edits an existing class or function in place, which is most common in `api/schemas/*.py`, take the base, then apply the branch's edit.
 - Code conflicts in import blocks: keep both sides, then remove duplicate imports.
 - If both sides changed the same logic and choosing one side would lose behaviour, stop and report.
 - Check that no conflict markers are left: `git diff --check` and `grep -rn '^<<<<<<<\|^>>>>>>>' -- . ':!*.md'`.

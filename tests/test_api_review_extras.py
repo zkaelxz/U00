@@ -693,7 +693,7 @@ class TestBurnPreview:
         monkeypatch.setattr(export_service, "video_frame_aspect", lambda path: None)
 
     def test_long_cjk_rows_fit_a_portrait_video(self, client, fake_ffmpeg, monkeypatch):
-        import subtitle_formats
+        import subtitle_ass
         from services import export_service
         text = "他说这件事我们明天再谈吧今天太晚了然后转身离开了房间"
         did, lid = _video_drama()
@@ -703,7 +703,7 @@ class TestBurnPreview:
         wait_for_job(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}).json()["job_id"])
         dialogue = next(l for l in fake_ffmpeg[0]["ass"].splitlines() if l.startswith("Dialogue:"))
         rows = dialogue.split(",", 9)[9].split("\\N")
-        limit = subtitle_formats.ass_cjk_row_limit(subtitle_formats.ASS_PRESETS["Clean"], 9 / 16)
+        limit = subtitle_ass.ass_cjk_row_limit(subtitle_ass.ASS_PRESETS["Clean"], 9 / 16)
         assert "".join(rows) == text and len(rows) > 1 and all(len(r) <= limit for r in rows)
 
     def test_render_then_stream_with_range(self, client, fake_ffmpeg):

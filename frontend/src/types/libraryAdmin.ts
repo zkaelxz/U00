@@ -26,6 +26,7 @@ export const ADMIN_JOB_IDS = {
   backup: 'library_backup',
   database: 'library_db_backup',
   userBackup: 'library_user_backup',
+  typesetComics: 'scanlate_typeset_all',
 } as const
 
 // error: not_found | job_running | upload_running | delete_failed | not_translated

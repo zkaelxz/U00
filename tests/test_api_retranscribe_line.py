@@ -554,6 +554,9 @@ class TestApply:
         assert out == {"drama_id": did, "line_id": ids[0], "zh": "新的文字"}
         lines = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
         assert lines[ids[0]].zh == "新的文字"
+        assert [(r["line_id"], r["path"], r["before_zh"], r["after_zh"])
+                for r in isolated_db.list_source_edits(did)] == [
+            (ids[0], "retranscribe", "你好", "新的文字")]
         # en, speaker, timing and the other line untouched; the kept English
         # no longer matches the source, so the line is flagged for review
         assert (lines[ids[0]].en, lines[ids[0]].speaker) == ("Hello", "A")

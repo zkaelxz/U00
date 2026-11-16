@@ -23,6 +23,7 @@ from api.schemas.app_update import *  # noqa: F401,F403
 from api.schemas.android_app import *  # noqa: F401,F403
 from api.schemas.setup import *  # noqa: F401,F403
 from api.schemas.settings import *  # noqa: F401,F403
+from api.schemas.resource_alerts import *  # noqa: F401,F403
 from api.schemas.loaded_models import *  # noqa: F401,F403
 from api.schemas.review import *  # noqa: F401,F403
 from api.schemas.characters import *  # noqa: F401,F403
