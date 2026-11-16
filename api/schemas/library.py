@@ -649,6 +649,8 @@ class MediaUrlDownloadRequest(BaseModel):
     part_start: Optional[StrictStr] = Field(default=None, max_length=12)
     part_end: Optional[StrictStr] = Field(default=None, max_length=12)
     exact_cuts: StrictBool = False
+    # "Video quality": the tallest picture to keep; left out means the best on offer.
+    max_height: Optional[Literal[2160, 1440, 1080, 720, 480, 360]] = None
 
 
 class MediaUrlDownloadStarted(BaseModel):

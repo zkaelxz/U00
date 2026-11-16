@@ -42,7 +42,8 @@ through media_upload_service.install_media, as an upload does: never over
 an existing file (`-2`... while the old one is there), one field-scoped DB
 write as the commit point (audio_filename, [source_video_filename] and,
 only when both titles are empty (re-read just before writing), title_zh),
-then the replaced files move to kept_media/. A blank author and release
+then the replaced files move to kept_media/ (or, when they are the same
+link's earlier whole download as install_media recorded it, are deleted). A blank author and release
 date are then filled from the video's own metadata
 (link_details_service.fill_after_download), never over typed text. The link is recorded after
 that like any import's (drama_service.set_source_url_once: cleaned form,
@@ -567,7 +568,7 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict |
     spec = {"url": url, "audio_only": audio_only, **cookies}
     if options.get("allow_long"):
         spec["max_seconds"] = ytdlp_child.HARD_MAX_DURATION_SECONDS
-    for key in ("part_start", "part_end", "exact_cuts"):
+    for key in ("part_start", "part_end", "exact_cuts", "max_height"):
         if options.get(key) is not None:
             spec[key] = options[key]
     watch = _SpaceWatch(tmp, floor=_free_floor)
@@ -759,10 +760,17 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
                          "audio_filename": (audio, "audio", ".flac")}
         fields = {}
         drama = db.get_drama(drama_id) or {}  # re-read just before writing
+        # A part is not recorded as this link's download: the same link
+        # later may be another part, and the cut can't be fetched again as it was.
+        options = options or {}
+        whole = options.get("part_start") is None and options.get("part_end") is None
+        origin = url if not direct_ext and whole else None
         if title and not (drama.get("title_en") or drama.get("title_zh")):
             fields["title_zh"] = str(title).strip()[:300]
         try:
             media_upload_service.install_media(drama_id, new_files, transcribe_new_audio=True,
+                                                origin_link=origin,
+                                                discard_replaced=not drama.get("keep_original"),
                                                 **fields)
         except (OSError, sqlite3.Error):
             raise RuntimeError(_SAVE_FAILED) from None
@@ -794,7 +802,7 @@ def parse_clock(text, label: str):
 
 
 def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, allow_long=False,
-                       part_start=None, part_end=None, exact_cuts=False) -> dict:
+                       part_start=None, part_end=None, exact_cuts=False, max_height=None) -> dict:
     """Starts `urlmedia_<drama_id>`; poll GET /api/jobs/{job_id}. The job
     waits in line when MAX_PARALLEL_DOWNLOADS are running or the last start
     was under START_SPACING_SECONDS ago. 422 bad or private URL, wrong
@@ -803,11 +811,17 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
     host doesn't resolve or yt-dlp is missing; 404 no drama; 409 while a
     job or upload runs for the drama, or the queue is full.
     allow_long raises the 6 h cap to 12 h for this download only;
-    part_start/part_end (h:mm:ss) download just that section."""
+    part_start/part_end (h:mm:ss) download just that section. max_height
+    (one of ytdlp_child.VIDEO_HEIGHTS) keeps a video no taller than that;
+    it means nothing for audio only or a direct file link."""
     flags = (audio_only, confirm_replace_audio, allow_long, exact_cuts)
     if not all(isinstance(f, bool) for f in flags):
         raise InvalidInputError("audio_only, confirm_replace_audio, allow_long and exact_cuts "
                                 "must be true or false.")
+    if max_height is not None and (isinstance(max_height, bool)
+                                   or max_height not in ytdlp_child.VIDEO_HEIGHTS):
+        raise InvalidInputError("Unknown video quality.",
+                                details={"allowed": list(ytdlp_child.VIDEO_HEIGHTS)})
     start, end = parse_clock(part_start, "start"), parse_clock(part_end, "end")
     if end is not None and end <= (start or 0):
         raise InvalidInputError("The end of the part must be after its start.")
@@ -824,7 +838,8 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
         if cookies.get("cookies_browser") or cookies.get("cookies_file"):
             raise InvalidInputError(_PART_NO_COOKIES)
     options = {"allow_long": allow_long, "part_start": start if ranged else None,
-               "part_end": end, "exact_cuts": exact_cuts if ranged else None}
+               "part_end": end, "exact_cuts": exact_cuts if ranged else None,
+               "max_height": None if audio_only else max_height}
     with media_upload_service.claims_lock:
         if drama_id in media_upload_service.claimed:
             raise ConflictError("Another upload is in progress for this title.")
