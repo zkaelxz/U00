@@ -1,8 +1,9 @@
 """
 tests/test_translate_engines.py -- tests for the engine_backends package's
 core logic: rate-limit backoff vs. fast-fail, crash-safe/resumable
-batch translation, locale + glossary prompt construction, and cost
-estimation. Uses mock engines instead of real API calls.
+batch translation, and locale + glossary prompt construction (providers,
+side tasks and costs are in test_engine_providers, test_engine_llm_tasks
+and test_engine_costs). Uses mock engines instead of real API calls.
 """
 
 import sys
