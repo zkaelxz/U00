@@ -274,37 +274,3 @@ def test_a_speaker_count_runs_pyannote_as_the_app_does(tmp_path, monkeypatch):
     row = rc.run_diarization(clip, rc.argparse.Namespace(use_gpu=False))
     assert hints == {"num_speakers": 3} and "pyannote" in row["detail"]
 
-
-def test_decode_seed_is_checked_and_reaches_the_child(tmp_path, monkeypatch):
-    base = {"id": "a", "kind": "transcription", "audio": "a.wav", "language": "zh", "reference_srt": "r.srt"}
-    settings = {"title_settings": {"min_silence_ms": 300}}
-    for bad in ({**base, "decode_seed": 3}, {**base, **settings, "decode_seed": "3"},
-                {**base, **settings, "decode_seed": True}, {**base, **settings, "decode_seed": 3, "fixed_decoding": True}):
-        with pytest.raises(rc.Refusal, match="decode_seed"):
-            rc.load_manifest(_write(tmp_path, [bad]))
-    clip = rc.load_manifest(_write(tmp_path, [{**base, **settings, "decode_seed": 3}]))["clips"][0]
-    seen = []
-    monkeypatch.setattr(rc.transcribe_service, "worker_args_for_settings", lambda *a: ())
-    monkeypatch.setattr(rc, "_transcribe_in_child", lambda args, fixed=False, seed=None: seen.append((fixed, seed)) or {
-        "lines": [], "raw_backend": "whisper", "raw_model": "large-v3"})
-    rc.run_transcription(clip, rc.argparse.Namespace(use_gpu=False, whisper_model="large-v3"))
-    assert seen == [(False, 3)]
-
-
-def test_seeds_expand_app_transcription_clips_and_report_the_spread():
-    fixed = {"id": "t", "kind": "transcription", "title_settings": {}, "fixed_decoding": True}
-    other = {"id": "d", "kind": "diarization"}
-    plain = {"id": "p", "kind": "transcription"}
-    out = rc.with_seeds([fixed, other, plain], [1, 2])
-    assert [c["id"] for c in out] == ["t@seed1", "t@seed2", "d", "p"]
-    assert out[0]["fixed_decoding"] is False and out[1]["decode_seed"] == 2
-    assert rc.with_seeds([fixed], []) == [fixed]
-    results = [{"id": "t@seed1", "score": 0.6}, {"id": "t@seed2", "score": 0.7}, {"id": "t@seed3", "score": 0.65}]
-    assert any("0.600 / 0.650 / 0.700 over 3 seeds" in line for line in rc._seed_spread(results))
-
-
-def test_a_seeded_row_is_compared_with_its_clips_previous_score():
-    run = {"when": "now", "machine": "m", "gpu": None, "whisper_model": "large-v3",
-           "results": [{"id": "t@seed1", "kind": "transcription", "metric": "cer", "score": 0.5}]}
-    previous = {"when": "before", "results": [{"id": "t", "kind": "transcription", "metric": "cer", "score": 0.642}]}
-    assert "WORSE" in rc.format_report(run, previous)

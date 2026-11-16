@@ -434,22 +434,15 @@ def language_mismatch_notice(model, audio_path, title_language):
 
 DECODE_DEFAULT = "default"
 DECODE_TEMPERATURE_0 = "temperature_0"
-DECODE_SEEDED = "seeded"
-DECODE_RANDOMNESS_CHOICES = (DECODE_DEFAULT, DECODE_TEMPERATURE_0, DECODE_SEEDED)
-DECODE_SEED = 1234
+DECODE_RANDOMNESS_CHOICES = (DECODE_DEFAULT, DECODE_TEMPERATURE_0)
 
 
 def _decode_randomness_kwargs(choice: str) -> dict:
     """The transcribe kwargs for `choice`. DECODE_DEFAULT leaves faster-whisper's own ladder, which
-    retries a failed window at sampled temperatures, so two runs of one file differ. DECODE_TEMPERATURE_0
-    never samples. DECODE_SEEDED keeps the ladder and fixes the sampler's seed, which is process-wide
-    in ctranslate2, so it is set here, before this run's first decode. Only the Benchmark Lab chooses;
-    titles keep the default."""
+    retries a failed window at sampled temperatures, so two runs of one file differ.
+    DECODE_TEMPERATURE_0 never samples. Only the Benchmark Lab chooses; titles keep the default."""
     if choice not in DECODE_RANDOMNESS_CHOICES:
         raise ValueError(f"Unknown decode_randomness {choice!r}.")
-    if choice == DECODE_SEEDED:
-        import ctranslate2
-        ctranslate2.set_random_seed(DECODE_SEED)
     return {"temperature": 0.0} if choice == DECODE_TEMPERATURE_0 else {}
 
 
