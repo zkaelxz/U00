@@ -69,8 +69,11 @@ test('From a URL: toggle, checks, download starts the urlmedia job', async ({ pa
   await expect(page.getByRole('switch', { name: 'Audio only' })).not.toBeChecked()
   await expect(page.getByText('Still needed: tick “Replace the current audio”.')).toBeVisible()
   await page.getByRole('checkbox', { name: 'Replace the current audio' }).check()
+  // Best available sends nothing; a chosen quality is sent as the tallest picture to keep.
+  await expect(page.getByTestId('url-video-quality')).toHaveValue('0')
+  await page.getByTestId('url-video-quality').selectOption('720')
   await download.click()
-  await expect.poll(() => s.bodies).toEqual([{ url: 'https://video.example/watch?v=1', audio_only: false, confirm_replace_audio: true }])
+  await expect.poll(() => s.bodies).toEqual([{ url: 'https://video.example/watch?v=1', audio_only: false, confirm_replace_audio: true, max_height: 720 }])
   await expect(page.getByTestId('job-status')).toContainText('Done')
 
   // The choice is remembered.
