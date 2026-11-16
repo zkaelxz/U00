@@ -14,7 +14,7 @@ import db
 import background_jobs
 from engine_backends import llm_tasks, translate_pipeline
 from engine_backends import paid_calls
-import translation_guide as tguide
+import translation_notes
 import emotion
 import whisper_models
 from services import fixflag_transcribe, fixflag_translate, paid_job_service, transcribe_options_service
@@ -142,7 +142,7 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
     """
     with paid_job_service.job_calls(job_id, drama_id, engine, engine_choice,
                                     "translation_notes") as limits:
-        found_notes = tguide.generate_translation_notes_llm(
+        found_notes = translation_notes.generate_translation_notes_llm(
             lines, engine,
             usage_cb=paid_calls.usage_logger(drama_id, engine_choice, engine, "translation_notes"),
             cancel_check=lambda: _raise_if_cancelled(job_id))

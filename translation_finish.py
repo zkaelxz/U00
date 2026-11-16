@@ -13,7 +13,7 @@ import db
 import sentence_groups
 import source_change
 from engine_backends import engine_registry, pricing, llm_tasks, paid_calls
-import translation_guide as tguide
+import glossary_substitution
 import word_replacements
 
 
@@ -239,7 +239,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     source_change.save_cleared_flags(drama_id, lines)
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
     substitute_terms, fixes_text = word_replacements.with_replacements(
-        tguide.build_hard_term_substituter(enforced), drama_id, bool(enforced))
+        glossary_substitution.build_hard_term_substituter(enforced), drama_id, bool(enforced))
     # One load only: the substitution's compare-and-set guards against
     # edits after this read, so deciding which lines are still the run's
     # from a second, earlier read would let an edit in between through.
