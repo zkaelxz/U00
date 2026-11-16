@@ -116,15 +116,21 @@ def wrap_text(text: str, max_chars: int | None, language=None, chinese_script: s
 # ---------------------------------------------------------- overlap clamp
 
 OVERLAP_FLAG = "timing_overlap"
+# Players drop a cue whose end is not after its start, text and all, so a
+# line that starts with (or just after) the one before it is moved this far
+# along rather than leaving the earlier one no time on screen. A tenth of a
+# second is still a distinct LRC stamp (centiseconds).
+MIN_CLAMPED_CUE_S = 0.1
 
 
 def clamp_overlaps(lines):
     """Returns (copies, clamped_idxs): copies of `lines` where any line
     ending after the next one starts is trimmed back to that start, so no
-    format ever gets an invalid, overlapping cue. The originals are left
-    alone; the caller flags clamped_idxs for review. Overlaps can appear
-    after a manual timing edit or merge, even though alignment itself
-    never produces them."""
+    format ever gets an invalid, overlapping cue. Where that would leave the
+    earlier line under MIN_CLAMPED_CUE_S, the next line's start moves
+    instead. The originals are left alone; the caller flags clamped_idxs for
+    review. Overlaps can appear after a manual timing edit or merge, even
+    though alignment itself never produces them."""
     out = [copy.copy(ln) for ln in lines]
     clamped = []
     # Pairs follow time order, not list order: after a manual retime a later
@@ -132,7 +138,10 @@ def clamp_overlaps(lines):
     by_time = sorted(out, key=lambda ln: ln.start)
     for cur, nxt in zip(by_time, by_time[1:]):
         if cur.end > nxt.start:
-            cur.end = max(nxt.start, cur.start)
+            if nxt.start < cur.start + MIN_CLAMPED_CUE_S:
+                nxt.start = cur.start + MIN_CLAMPED_CUE_S
+                nxt.end = max(nxt.end, nxt.start + MIN_CLAMPED_CUE_S)
+            cur.end = nxt.start
             clamped.append(cur.idx)
     return out, clamped
 

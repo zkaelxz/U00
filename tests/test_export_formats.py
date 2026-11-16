@@ -347,6 +347,25 @@ class TestOverlapClamp:
         assert lines[0].end == 3.4  # the saved line itself isn't silently changed
         assert "00:00:03,000" in lines_to_srt(export_lines).split("\n\n")[0]
 
+    @pytest.mark.parametrize("tidy", [False, True])
+    def test_lines_starting_together_both_keep_a_cue(self, tidy):
+        """Clamping the first of two same-start lines to the second's start
+        gave it no length, and players drop such a cue with its text."""
+        lines = [Line(idx=0, start=1.0, end=3.0, zh="a", en="First."),
+                 Line(idx=1, start=1.0, end=2.0, zh="b", en="Second.")]
+        export_lines, _ = sf.clamp_overlaps(lines)
+        if tidy:
+            export_lines, _ = sf.tidy_cue_timing(sorted(export_lines, key=lambda ln: ln.start), 24)
+        cues = [c.split("\n") for c in lines_to_srt(export_lines).strip().split("\n\n")]
+        assert [c[2] for c in cues] == ["First.", "Second."]
+        for c in cues:
+            start, end = c[1].split(" --> ")
+            assert end > start  # fixed-width stamps compare as text
+        stamps = [row[:10] for row in sf.lines_to_lrc(export_lines).splitlines()
+                  if row.endswith((".", "!"))]
+        assert len(stamps) == 2 and stamps[0] < stamps[1]
+        assert lines[0].start == lines[1].start == 1.0  # saved lines untouched
+
 
 class TestReadingSpeed:
     def test_too_dense_is_flagged_normal_is_not(self):

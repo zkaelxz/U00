@@ -74,6 +74,22 @@ class TestGetReaderPage:
         assert [ln.idx for ln in calls[1]["lines"]] == list(range(10, 20))
         assert [ln.idx for ln in calls[2]["lines"]] == list(range(20, 25))
 
+    def test_page_turn_reads_only_that_page_of_a_long_title(self, isolated_db, monkeypatch):
+        """Loading every line on each page turn took ~0.2 s on a 20 000-line
+        title, twice per turn (counts, then the document)."""
+        calls = _stub_render(monkeypatch)
+        did = _drama(isolated_db, title_en="D")
+        isolated_db.save_lines(did, _lines(1000))
+
+        def boom(*a, **k):
+            raise AssertionError("a page turn loaded the whole title")
+        monkeypatch.setattr(isolated_db, "load_lines", boom)
+        result = reader_service.get_reader_page(did, page=3, chapter_size=40)
+        assert result["page_count"] == 25 and result["total_lines"] == 1000
+        assert [ln.idx for ln in calls[0]["lines"]] == list(range(80, 120))
+        assert [ln.en for ln in calls[0]["lines"]] == [f"Hello {i}" for i in range(80, 120)]
+        assert all(ln.id is not None for ln in calls[0]["lines"])
+
     def test_unknown_drama_raises_not_found(self, isolated_db):
         with pytest.raises(NotFoundError):
             reader_service.get_reader_page(999999, page=1)
