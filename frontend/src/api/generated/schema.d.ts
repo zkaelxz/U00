@@ -18330,7 +18330,7 @@ export interface components {
             new_chapters: number;
             /**
              * Owned By Me
-             * @description The signed-in viewer created it. Only set in the Library list.
+             * @description The signed-in viewer may change its sharing: they created it, or they are an admin and it was made at the PC (or they are at the PC). Only set in the Library list.
              */
             owned_by_me: boolean | null;
             /**
@@ -18479,7 +18479,7 @@ export interface components {
             new_chapters: number;
             /**
              * Owned By Me
-             * @description The signed-in viewer created it. Only set in the Library list.
+             * @description The signed-in viewer may change its sharing: they created it, or they are an admin and it was made at the PC (or they are at the PC). Only set in the Library list.
              */
             owned_by_me: boolean | null;
             /**
@@ -18693,7 +18693,7 @@ export interface components {
             new_chapters: number;
             /**
              * Owned By Me
-             * @description The signed-in viewer created it. Only set in the Library list.
+             * @description The signed-in viewer may change its sharing: they created it, or they are an admin and it was made at the PC (or they are at the PC). Only set in the Library list.
              */
             owned_by_me: boolean | null;
             /**
@@ -21155,7 +21155,7 @@ export interface components {
             name: string;
             /**
              * Owned By Me
-             * @description The signed-in viewer created it.
+             * @description The signed-in viewer may change its sharing: they created it, or they are an admin and it was made at the PC (or they are at the PC).
              */
             owned_by_me: boolean;
         };

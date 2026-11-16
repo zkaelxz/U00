@@ -1305,8 +1305,31 @@ class TestLibrarySharingFlags:
         client = _client(_app())
         mine = client.get("/api/library/series", headers=w["a"]).json()["items"]
         assert mine[0]["is_private"] is True and mine[0]["owned_by_me"] is True
+        # "Owned" means may flip its sharing: an admin with the override may
+        # flip anything; from away, only what they made and PC-made items.
         admin = client.get("/api/library/series", headers=w["admin"]).json()["items"]
-        assert admin[0]["owned_by_me"] is False
+        assert admin[0]["owned_by_me"] is True
+        pc_series = db.create_series("PC series", is_private=True)
+        for n in ("pc1", "pc2"):
+            db.create_drama(title_en=n, source_language="zh", series_id=pc_series)
+        away = {s["id"]: s for s in
+                _household().get("/api/library/series", headers=w["admin"]).json()["items"]}
+        assert away[w["pseries"]]["owned_by_me"] is False
+        assert away[pc_series]["owned_by_me"] is True
+        member = {s["id"]: s for s in
+                  client.get("/api/library/series", headers=w["b"]).json()["items"]}
+        assert pc_series not in member
+
+    def test_admin_away_gets_the_sharing_control_on_pc_made_titles(self, world):
+        w = world
+        pc_title = db.create_drama(title_en="PC", source_language="zh")
+        away = {d["id"]: d for d in
+                _household().get("/api/library/dramas", headers=w["admin"]).json()["items"]}
+        assert away[pc_title]["owned_by_me"] is True
+        assert away[w["shared"]]["owned_by_me"] is False
+        b_items = {d["id"]: d for d in
+                   _client(_app()).get("/api/library/dramas", headers=w["b"]).json()["items"]}
+        assert pc_title not in b_items or b_items[pc_title]["owned_by_me"] is False
 
 
 class TestReleaseDate:

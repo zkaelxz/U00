@@ -312,7 +312,7 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
     if not row or not _visible(principal, kind, row):
         raise NotFoundError("Title not found." if kind == "drama" else "Series not found.")
     admin = _admin_anywhere(principal)
-    if not (may_override(principal) or _owns(principal, row.get("owner_user_id"), True)):
+    if not may_set_private(principal, row.get("owner_user_id")):
         raise ForbiddenError("Only the owner or an admin can change this.")
     # User decision 4: only whole series, or dramas with no series. A drama
     # in a series follows it, so neither direction is a real change.
@@ -330,6 +330,13 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
         raise ConflictError(_DRAMA_IN_SERIES_MESSAGE)   # it joined a series meanwhile
     # Otherwise those dramas would vanish for the people who own them.
     raise ConflictError("Move other people's titles out of this series first.")
+
+
+def may_set_private(principal, owner_user_id) -> bool:
+    """Whether to offer the Library's sharing button: set_private's own
+    permission rule (an admin away from the PC counts PC-made items as their
+    own), without the series-content checks that only the flip can judge."""
+    return may_override(principal) or _owns(principal, owner_user_id, True)
 
 
 SHARING_PAGE_MAX = 200
