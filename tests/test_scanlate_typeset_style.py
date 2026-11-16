@@ -6,7 +6,8 @@ pytest.importorskip("PIL")
 from PIL import Image
 
 import scanlate_render
-from scanlate_render import TypesetStyle
+import scanlate_text_layout
+from scanlate_fonts import TypesetStyle
 
 BOX = {"x": 0, "y": 0, "w": 200, "h": 120}
 TEXT = "Hello there friend"
@@ -16,7 +17,7 @@ def _render(style=None, **kw):
     image = Image.new("RGB", (200, 120), "white")
     report = {}
     mask = np.ones((120, 200), dtype=bool)
-    scanlate_render.render_text_in_box(image, BOX, TEXT, font_size=24, mask=mask, report=report,
+    scanlate_text_layout.render_text_in_box(image, BOX, TEXT, font_size=24, mask=mask, report=report,
                                        **({"style": style} if style else {}), **kw)
     return np.asarray(image.convert("L")), report
 
@@ -45,7 +46,7 @@ def test_minimum_font_size_stops_the_text_shrinking_below_it():
     for floor in (0, 14):
         image = Image.new("RGB", (60, 30), "white")
         report = {}
-        scanlate_render.render_text_in_box(image, tight, "a long sentence that must shrink", font_size=24,
+        scanlate_text_layout.render_text_in_box(image, tight, "a long sentence that must shrink", font_size=24,
                                            report=report, style=TypesetStyle(min_font=floor))
         sizes[floor] = report["size"]
     assert sizes[0] < 14 <= sizes[14]
@@ -54,7 +55,7 @@ def test_minimum_font_size_stops_the_text_shrinking_below_it():
 def test_outline_adds_dark_edge_pixels_around_white_text():
     def render(stroke):
         image = Image.new("RGB", (200, 120), (90, 90, 90))
-        scanlate_render.render_text_in_box(image, BOX, TEXT, font_size=24, fill=(255, 255, 255),
+        scanlate_text_layout.render_text_in_box(image, BOX, TEXT, font_size=24, fill=(255, 255, 255),
                                            style=TypesetStyle(stroke=stroke))
         return np.asarray(image.convert("L"))
     assert (render(True) < 60).sum() > (render(False) < 60).sum() == 0
