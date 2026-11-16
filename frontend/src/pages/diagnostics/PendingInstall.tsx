@@ -1,8 +1,13 @@
 import { useState } from 'react'
 
+import { api } from '../../api/client'
+import { restartAndInstall } from '../../api/pendingInstall'
+import { ErrorBanner } from '../../components/ErrorBanner'
+import { useInterval } from '../../hooks/useInterval'
+
 import { Badge } from '../../components/Badge'
 import { buttonClass } from '../../components/uiClasses'
-import type { PendingInstallPlan, PendingInstallStatus } from '../../types/pendingInstall'
+import type { PendingInstallPlan, PendingInstallQueued, PendingInstallStatus } from '../../types/pendingInstall'
 
 export interface PlannedInstall {
   label: string
@@ -13,6 +18,8 @@ export interface PlannedInstall {
   installNow: (acceptedRisks: string[]) => void
   // False for an update: the restart queue installs package keys, which for an installed package changes nothing.
   queueable?: boolean
+  // How an update (not a plain install) is queued for the restart.
+  queue?: (acceptRisk: boolean) => Promise<PendingInstallQueued>
 }
 
 // A plain preview is only worth a click when something is replaced, risky,
@@ -96,11 +103,92 @@ export function InstallPlanPanel({ planned, queueing = false, onQueue, onCancel 
   )
 }
 
+const RESTART_POLL_MS = 3000
+const RESTART_GIVE_UP_MS = 15 * 60 * 1000
+
+/** "Restart and install now": names the jobs a restart would stop and asks before it does anything. */
+export function RestartAndInstall({ status, onBack }: { status: PendingInstallStatus; onBack: () => void }) {
+  const { restart } = status
+  const [asking, setAsking] = useState(false)
+  const [stopJobs, setStopJobs] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const [waiting, setWaiting] = useState<{ since: number; sawDown: boolean } | null>(null)
+  const [notBack, setNotBack] = useState(false)
+  const jobs = restart.running_jobs
+  const blockedByJobs = restart.other_jobs || (jobs.length > 0 && !stopJobs)
+
+  useInterval(() => {
+    if (!waiting) return
+    api.health().then(
+      () => { if (waiting.sawDown) { setWaiting(null); onBack() } },
+      () => setWaiting((w) => (w ? { ...w, sawDown: true } : w)),
+    )
+    if (Date.now() - waiting.since > RESTART_GIVE_UP_MS) { setWaiting(null); setNotBack(true) }
+  }, waiting ? RESTART_POLL_MS : null)
+
+  const go = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await restartAndInstall(stopJobs)
+      setWaiting({ since: Date.now(), sawDown: false })
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (waiting) {
+    return <p role="status" data-testid="restart-install-waiting">
+      Restarting Baihe and installing {status.packages.join(', ')}. This can take several minutes. This page reloads when Baihe is back.
+    </p>
+  }
+  return (
+    <div className="diag-stack" data-testid="restart-install">
+      <ErrorBanner error={error} describe={{ pcOnly: true, serverText: true }} onDismiss={() => setError(null)} />
+      {notBack && <p role="status">Baihe hasn't come back yet. Check the PC.</p>}
+      {!restart.available && <p className="muted" data-testid="restart-install-reason">{restart.reason}</p>}
+      {restart.available && !asking && (
+        <div className="actions">
+          <button type="button" className={buttonClass('primary', 'sm')} onClick={() => setAsking(true)}>
+            Restart and install now…
+          </button>
+        </div>
+      )}
+      {restart.available && asking && (
+        <div className="diag-stack" role="group" aria-label="Restart and install">
+          <p>Baihe will close, install {status.packages.join(', ')}, and open again. The window reconnects by itself.</p>
+          {restart.other_jobs && <p className="error" role="alert">A job is running in another Baihe process. Let it finish first.</p>}
+          {jobs.length > 0 && (
+            <>
+              <p className="warn" role="alert">These jobs are running and a restart stops them: {jobs.join(', ')}.</p>
+              <label>
+                <input type="checkbox" checked={stopJobs} onChange={(e) => setStopJobs(e.target.checked)} />{' '}
+                Stop these jobs and restart anyway
+              </label>
+            </>
+          )}
+          <div className="actions">
+            <button type="button" className={buttonClass('primary', 'sm')} disabled={busy || blockedByJobs}
+              onClick={() => void go()}>
+              Confirm: restart and update
+            </button>
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => setAsking(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /** The queued install (with Cancel) and the last start-up outcome (with Dismiss). */
-export function PendingInstallBanner({ status, onCancel, onDismiss }: {
+export function PendingInstallBanner({ status, onCancel, onDismiss, onRestarted }: {
   status: PendingInstallStatus
   onCancel: () => void
   onDismiss: () => void
+  onRestarted: () => void
 }) {
   const result = status.result
   return (
@@ -116,6 +204,7 @@ export function PendingInstallBanner({ status, onCancel, onDismiss }: {
               Cancel install
             </button>
           </div>
+          <RestartAndInstall status={status} onBack={onRestarted} />
         </div>
       )}
       {status.problem && <p className="error" role="alert" data-testid="pending-install-problem">{status.problem}</p>}

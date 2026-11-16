@@ -5,11 +5,12 @@ household user can't see, queue or cancel one. Bodies carry registry package
 keys only, and responses carry no paths, URLs or secrets.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
-from api.auth import local_only
+from api.auth import local_only, principal_user_id
 from api.schemas import (PendingInstallPlan, PendingInstallPlanRequest,
-                         PendingInstallQueued, PendingInstallQueueRequest, PendingInstallStatus, error_responses)
+                         PendingInstallQueued, PendingInstallQueueRequest, PendingInstallRestartRequest,
+                         PendingInstallRestartStarted, PendingInstallStatus, error_responses)
 from services import pending_install_service as svc
 
 router = APIRouter(prefix="/api/diagnostics/pending-install", tags=["diagnostics"])
@@ -47,3 +48,10 @@ def post_cancel():
              summary="PC only: clear the last install outcome", responses=_ERRS)
 def post_dismiss():
     return svc.dismiss_result()
+
+
+@router.post("/restart", dependencies=[local_only()], response_model=PendingInstallRestartStarted,
+             status_code=202, responses=_ERRS,
+             summary="PC only: restart Baihe now so the queued install runs (confirm=true)")
+def post_restart(body: PendingInstallRestartRequest, request: Request):
+    return svc.restart_and_apply(body.confirm, body.stop_jobs, principal_user_id(request))

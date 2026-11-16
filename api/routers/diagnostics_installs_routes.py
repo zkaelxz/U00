@@ -49,7 +49,7 @@ from api.diagnostics_install_schemas import (DiagnosticsCudaRuntimeStatus,
                                              DiagnosticsUpgradeCheckState)
 from api.schemas import (DiagnosticsDependencyInstallRequest, DiagnosticsModelDownloads,
                          DiagnosticsGpuTorchSetupRequest, DiagnosticsUpgradePlanRequest,
-                         DiagnosticsUpgradeRequest, PendingInstallPlan, error_responses)
+                         DiagnosticsUpgradeRequest, PendingInstallPlan, PendingInstallQueued, error_responses)
 from services import cuda_runtime_service
 from services import diagnostics_installs_service as svc
 from services import model_download_service as model_download_svc
@@ -119,6 +119,15 @@ def post_upgrade_outdated_plan():
 def post_upgrade_outdated(body: DiagnosticsDependencyInstallRequest):
     return svc.start_outdated_upgrade(confirm=body.confirm, accept_risk=body.accept_risk,
                                       accepted_risks=body.accepted_risks)
+
+
+@router.post("/dependencies/upgrade-outdated/queue", dependencies=[local_only()],
+             response_model=PendingInstallQueued,
+             summary="PC only: queue updating every package below the app's minimum for the "
+                     "next start (confirm=true)",
+             responses=_ERRS)
+def post_upgrade_outdated_queue(body: DiagnosticsDependencyInstallRequest):
+    return svc.queue_outdated_upgrade(confirm=body.confirm, accept_risk=body.accept_risk)
 
 
 @router.post("/gpu-torch/setup", dependencies=[local_only()],

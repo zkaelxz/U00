@@ -32,6 +32,7 @@ from jobs import job_launch
 import db
 from services.source_service import drama_file_path
 import dub_narration
+import novel_text
 import storage
 import video_export
 from services import artifact_service, export_service, listen_service, ownership_service
@@ -150,7 +151,7 @@ def start_audiobook_export(drama_id: int) -> dict:
     if not lines:
         raise InvalidInputError("This title has no lines to export.")
     ddir = db.drama_dir(drama_id)
-    if not os.path.isfile(os.path.join(ddir, "narration_track.wav")):
+    if not novel_text.find_narration_track(ddir):
         raise InvalidInputError("There is no narration yet. Create it with Listen in the Reader first.")
     _require_ffmpeg()
     job_id = f"audiobook_{drama_id}"

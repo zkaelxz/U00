@@ -51,11 +51,11 @@ def download_test_voice(drama_id: int = Path(ge=1)):
 
 
 @router.get("/dramas/{drama_id}/track", dependencies=[require_permission("media.stream")],
-            summary="Download the finished narration track (WAV)",
+            summary="Download the finished narration track (FLAC, or WAV for an older title)",
             responses=error_responses(404))
 def download_listen_track(drama_id: int = Path(ge=1)):
     track = listen_service.get_listen_track(drama_id)
     require_readable(track["path"])
     return FileResponse(
-        track["path"], media_type="audio/wav",
+        track["path"], media_type="audio/flac" if track["name"].endswith(".flac") else "audio/wav",
         headers={"Content-Disposition": export_service.dub_track_disposition(drama_id, track["name"])})
