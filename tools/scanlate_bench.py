@@ -11,8 +11,7 @@ changed. `--set` overrides a value in scanlate_tuning for this run only, so two
 runs compare a change before it is made.
 
 Synthetic pages measure the pipeline's mechanics, not how it does on a given
-real series; docs/technical-notes.md ("Scanlate quality bench") says what
-each number means.
+real series.
 """
 import argparse
 import dataclasses

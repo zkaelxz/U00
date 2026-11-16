@@ -2,6 +2,7 @@
 
     python tools/ci_changes.py --event pull_request [--labels-json '["full-ci"]'] [--merge-approved false] < changed-files
     python tools/ci_changes.py --frontend-tests
+    python tools/ci_changes.py --docs-tests
     python tools/ci_changes.py --sources-tests
 
 Prints `name=true|false` lines for $GITHUB_OUTPUT. The rules are tabled in docs/testing-and-ci.md.
@@ -13,7 +14,6 @@ import json
 import os
 import sys
 
-NOTES_PREFIXES = ("docs/archive/research/",)
 FULL_CI_LABEL = "full-ci"
 # Changes to CI itself, test plumbing or dependencies can break any job, so they run all of them.
 EVERYTHING_PREFIXES = (".github/",)
@@ -53,7 +53,7 @@ SOURCES_TEST_FILES = (
 # What the browser tests can exercise through the running app; a backend-only change used to skip them
 # and show a broken screen only in the push run after the merge.
 BROWSER_PREFIXES = ("frontend/", "api/", "services/", "db/")
-OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest", "run_windows_scripts", "run_caddy", "run_app_checks",
+OUTPUTS = ("run_e2e", "run_full_pytest", "run_windows_scripts", "run_caddy", "run_app_checks",
            "run_sources_subset", "e2e_deferred")
 
 
@@ -107,7 +107,6 @@ def classify(files, event, labels=(), merge_approved=True):
 
 def _by_rule(files):
     return {
-        "notes_only": all(_starts(f, NOTES_PREFIXES) for f in files),
         "run_e2e": any(_reaches_browser(f) for f in files),
         "run_full_pytest": not all(_starts(f, ("frontend/", "docs/")) for f in files),
         "run_windows_scripts": any(_touches_windows_scripts(f) for f in files),
@@ -132,6 +131,21 @@ def frontend_reading_tests(root):
     return found
 
 
+def docs_reading_tests(root):
+    """Tests that read files under docs/ (route and settings tables, the agent docs): a docs-only
+    change must still run them, since the table they check is what it edited."""
+    tests_dir = os.path.join(root, "tests")
+    found = []
+    for name in sorted(os.listdir(tests_dir)):
+        if not (name.startswith("test_") and name.endswith(".py")):
+            continue
+        with open(os.path.join(tests_dir, name), encoding="utf-8") as f:
+            text = f.read()
+        if "docs/" in text or '"docs"' in text or "'docs'" in text:
+            found.append(f"tests/{name}")
+    return found
+
+
 def sources_tests(root):
     tests_dir = os.path.join(root, "tests")
     found = {n for g in SOURCES_TEST_GLOBS for n in fnmatch.filter(os.listdir(tests_dir), g)}
@@ -140,7 +154,7 @@ def sources_tests(root):
 
 
 def _all_true():
-    return {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True,
+    return {"run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True,
             "run_caddy": True, "run_app_checks": True, "run_sources_subset": False, "e2e_deferred": False}
 
 
@@ -151,11 +165,15 @@ def main(argv=None, stdin=None):
     # Anything but "false" counts as approved: a missing or garbled value runs the browser tests.
     parser.add_argument("--merge-approved", default="true")
     parser.add_argument("--frontend-tests", action="store_true")
+    parser.add_argument("--docs-tests", action="store_true")
     parser.add_argument("--sources-tests", action="store_true")
     args = parser.parse_args(argv)
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if args.frontend_tests:
         print(" ".join(frontend_reading_tests(root)))
+        return 0
+    if args.docs_tests:
+        print(" ".join(docs_reading_tests(root)))
         return 0
     if args.sources_tests:
         print(" ".join(sources_tests(root)))

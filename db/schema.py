@@ -390,6 +390,10 @@ def _create_bulk_job_tables(conn):
             -- row, just three siblings), so the Bulk jobs panel can group and
             -- show them as one pipeline instead of three unrelated entries.
             pipeline_id TEXT,
+            -- What the batch is expected to cost: its usage is only logged
+            -- once results come back, so until then this is what holds its
+            -- share of the monthly cap. NULL on rows from before the column.
+            estimated_usd REAL,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
 
