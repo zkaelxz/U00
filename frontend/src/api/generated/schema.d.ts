@@ -9777,6 +9777,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/resource-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Each PC alert's limit, minutes and switch, with ranges and defaults */
+        get: operations["get_rules_api_settings_resource_alerts_get"];
+        put?: never;
+        /** PC only: change PC alert limits, minutes or switches */
+        post: operations["set_rules_api_settings_resource_alerts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/schema": {
         parameters: {
             query?: never;
@@ -25341,6 +25359,63 @@ export interface components {
             /** Job Id */
             job_id: string;
         };
+        /** ResourceAlertChange */
+        ResourceAlertChange: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Limit */
+            limit?: number | null;
+            /** Minutes */
+            minutes?: number | null;
+        };
+        /** ResourceAlertRule */
+        ResourceAlertRule: {
+            /** Below */
+            below: boolean;
+            /** Default Enabled */
+            default_enabled: boolean;
+            /** Default Limit */
+            default_limit: number | null;
+            /** Default Minutes */
+            default_minutes: number;
+            /** Enabled */
+            enabled: boolean;
+            /** Has Limit */
+            has_limit: boolean;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Limit */
+            limit: number | null;
+            /** Limit Max */
+            limit_max: number | null;
+            /** Limit Min */
+            limit_min: number | null;
+            /** Minutes */
+            minutes: number;
+            /** Minutes Max */
+            minutes_max: number;
+            /** Minutes Min */
+            minutes_min: number;
+            /** Unit */
+            unit: string;
+        };
+        /** ResourceAlertRules */
+        ResourceAlertRules: {
+            /** Rules */
+            rules: components["schemas"]["ResourceAlertRule"][];
+        };
+        /**
+         * ResourceAlertsRequest
+         * @description Only the alerts named change; within one, only the fields sent.
+         */
+        ResourceAlertsRequest: {
+            /** Rules */
+            rules: {
+                [key: string]: components["schemas"]["ResourceAlertChange"];
+            };
+        };
         /**
          * ResplitResult
          * @description Either the finished summary (estimated timing) or, with align_to_audio,
@@ -28685,6 +28760,12 @@ export interface components {
              */
             health: string;
             health_detail: components["schemas"]["SourceHealth"];
+            /**
+             * Homepage
+             * @description The site's front page (https), empty when the source has no site.
+             * @default
+             */
+            homepage: string;
             /** Import Supported */
             import_supported: boolean;
             /** Languages */
@@ -29045,6 +29126,12 @@ export interface components {
              * @description green, yellow or red.
              */
             health: string;
+            /**
+             * Homepage
+             * @description The site's front page (https), empty when the source has no site.
+             * @default
+             */
+            homepage: string;
             /** Import Supported */
             import_supported: boolean;
             /** Languages */
@@ -61110,6 +61197,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotificationChannelResult"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_rules_api_settings_resource_alerts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceAlertRules"];
+                };
+            };
+        };
+    };
+    set_rules_api_settings_resource_alerts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResourceAlertsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceAlertRules"];
                 };
             };
             /** @description Unprocessable Content */

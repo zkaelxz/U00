@@ -96,6 +96,7 @@ def _chapter_url(series_id: str, label: str) -> str:
 class NihonKuniSource(SourceAdapter):
     name = "nihonkuni"
     display_name = "NihonKuni"
+    homepage = "https://nihonkuni.com"
     content_types = [ContentType.MANGA.value]
     languages = ["ja"]
     url_patterns = [r"nihonkuni\.com/(?:manga[-/]|read-)[a-z0-9]"]
