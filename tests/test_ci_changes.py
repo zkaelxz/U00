@@ -12,10 +12,10 @@ import ci_changes  # noqa: E402
 
 ALL = {"run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True, "run_caddy": True,
        "run_app_checks": True,
-       "run_sources_subset": False}
+       "run_sources_subset": False, "e2e_deferred": False}
 ALL_OUT = {"run_e2e": "true", "run_full_pytest": "true", "run_windows_scripts": "true",
            "run_caddy": "true", "run_app_checks": "true",
-           "run_sources_subset": "false"}
+           "run_sources_subset": "false", "e2e_deferred": "false"}
 
 
 def pr(*files, labels=()):
@@ -29,7 +29,7 @@ def pr(*files, labels=()):
 ])
 def test_change_the_browser_cannot_reach_skips_e2e_but_runs_all_pytest(files):
     assert pr(*files) == {"run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,
-                          "run_caddy": False, "run_app_checks": True, "run_sources_subset": False}
+                          "run_caddy": False, "run_app_checks": True, "run_sources_subset": False, "e2e_deferred": False}
 
 
 @pytest.mark.parametrize("files", [
@@ -67,10 +67,10 @@ def test_any_file_outside_frontend_and_docs_runs_full_pytest(files):
 def test_frontend_only_change_still_runs_e2e_and_docs_only_does_not():
     assert pr("frontend/src/a.ts") == {"run_e2e": True, "run_full_pytest": False,
                                        "run_windows_scripts": False, "run_caddy": False,
-                                       "run_app_checks": True, "run_sources_subset": False}
+                                       "run_app_checks": True, "run_sources_subset": False, "e2e_deferred": False}
     assert pr("docs/a.md") == {"run_e2e": False, "run_full_pytest": False,
                                "run_windows_scripts": False, "run_caddy": False,
-                               "run_app_checks": True, "run_sources_subset": False}
+                               "run_app_checks": True, "run_sources_subset": False, "e2e_deferred": False}
 
 
 @pytest.mark.parametrize("files", [
@@ -80,7 +80,7 @@ def test_frontend_only_change_still_runs_e2e_and_docs_only_does_not():
 ])
 def test_sources_and_tests_only_change_skips_smoke_and_frontend_but_runs_pytest(files):
     assert pr(*files) == {"run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,
-                          "run_caddy": False, "run_app_checks": False, "run_sources_subset": True}
+                          "run_caddy": False, "run_app_checks": False, "run_sources_subset": True, "e2e_deferred": False}
 
 
 @pytest.mark.parametrize("extra", ["services/x.py", "api/x.py", "frontend/src/a.ts", "docs/a.md", "tests/conftest.py"])
@@ -218,7 +218,7 @@ def test_cli_prints_outputs_for_github_output():
     assert code == 0
     assert got == {"run_e2e": "false", "run_full_pytest": "true", "run_windows_scripts": "false",
                    "run_caddy": "false", "run_app_checks": "true",
-                   "run_sources_subset": "false"}
+                   "run_sources_subset": "false", "e2e_deferred": "false"}
 
 
 def test_cli_reads_labels_json():
@@ -303,3 +303,27 @@ def test_sources_tests_list_names_existing_files_and_every_adapter_test():
     assert listed and all(os.path.exists(os.path.join(root, f)) for f in listed)
     assert "tests/test_sources_core.py" in listed and "tests/test_secret_redaction.py" in listed
     assert len(listed) == len(set(listed))
+
+
+def test_browser_tests_wait_for_merge_approval_and_say_so():
+    waiting = ci_changes.classify(["frontend/src/a.ts"], "pull_request", merge_approved=False)
+    assert waiting == {**pr("frontend/src/a.ts"), "run_e2e": False, "e2e_deferred": True}
+    assert ci_changes.classify([".github/workflows/tests.yml"], "pull_request",
+                               merge_approved=False) == {**ALL, "run_e2e": False, "e2e_deferred": True}
+
+
+def test_nothing_waits_when_the_change_needs_no_browser_tests():
+    assert ci_changes.classify(["tools/x.py"], "pull_request", merge_approved=False) == pr("tools/x.py")
+
+
+def test_full_ci_label_and_non_pr_events_never_wait():
+    assert ci_changes.classify(["frontend/src/a.ts"], "pull_request", ["full-ci"], merge_approved=False) == ALL
+    for event in ("push", "merge_group", "schedule"):
+        assert ci_changes.classify(["frontend/src/a.ts"], event, merge_approved=False) == ALL
+
+
+@pytest.mark.parametrize("value,deferred", [("false", "true"), ("true", "false"), ("", "false"), ("False", "false")])
+def test_cli_defers_only_on_an_exact_false(value, deferred):
+    _, got = _run(["--event", "pull_request", "--merge-approved", value], "frontend/src/a.ts\n")
+    assert got["e2e_deferred"] == deferred
+    assert got["run_e2e"] == ("false" if deferred == "true" else "true")
