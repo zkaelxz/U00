@@ -62,6 +62,12 @@ class FakeAudio:
     def __add__(self, other):
         return FakeAudio(self.ms + other.ms)
 
+    # No samples: level_clip leaves a fake clip alone.
+    channels, frame_rate, sample_width = 1, 16000, 2
+
+    def get_array_of_samples(self):
+        return []
+
     def overlay(self, other, position=0):
         return self
 

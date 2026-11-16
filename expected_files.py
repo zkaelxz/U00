@@ -13,6 +13,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "asr_backend.py",
     "asr_benchmark.py",
     "audio_extract.py",
+    "audio_levelling.py",
     "audio_preprocess.py",
     "auto_qc.py",
     "background_jobs.py",
