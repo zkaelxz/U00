@@ -766,3 +766,95 @@ class TestFlagDisagreements:
         other, _ = _drama(1)
         with pytest.raises(NotFoundError):
             svc.flag_disagreements(other, svc.compare_job_id(other))
+
+
+class TestSecondHearing:
+    SAME = "今天我们一起去公园玩吧"
+    OTHER = "完全不同的另一句话呢"
+
+    @pytest.fixture
+    def hearing(self):
+        from services import second_hearing_service
+        return second_hearing_service
+
+    def _title(self, confidences, backend="qwen3_asr"):
+        did = db.create_drama(title_en="D", audio_filename="audio.wav", whisper_size="small",
+                              source_language="zh", asr_backend_choice=backend)
+        with open(os.path.join(db.drama_dir(did), "audio.wav"), "wb") as f:
+            f.write(b"x")
+        db.save_lines(did, [Line(idx=i, start=float(i), end=i + 1.0, zh=self.SAME, confidence=c)
+                            for i, c in enumerate(confidences)])
+        return did
+
+    def _wait_compare(self, did):
+        for _ in range(300):
+            job = background_jobs.get_status(svc.compare_job_id(did))
+            if job and job["status"] not in ("running", "queued"):
+                return job
+            time.sleep(0.02)
+        raise AssertionError("job did not finish")
+
+    def test_only_the_least_sure_unflagged_lines_are_picked_worst_first_and_capped(self, hearing):
+        lines = [Line(idx=0, start=0, end=1, zh="甲", confidence=0.5),
+                 Line(idx=1, start=1, end=2, zh="乙", confidence=0.2),
+                 Line(idx=2, start=2, end=3, zh="丙", confidence=0.9),
+                 Line(idx=3, start=3, end=4, zh="丁", confidence=None),
+                 Line(idx=4, start=4, end=5, zh="戊", confidence=0.1, flag="check"),
+                 Line(idx=5, start=5, end=6, zh="己", confidence=0.1, reviewed=True)]
+        for i, ln in enumerate(lines):
+            ln.id = 100 + i
+        assert hearing.doubtful_line_ids(lines) == [101, 100]
+        many = [Line(idx=i, start=i, end=i + 1, zh="字", confidence=0.3) for i in range(50)]
+        for i, ln in enumerate(many):
+            ln.id = i
+        assert len(hearing.doubtful_line_ids(many)) == hearing.MAX_LINES
+
+    def test_off_by_default_starts_nothing(self, hearing):
+        did = self._title([0.2, 0.9, 0.3])
+        assert hearing.after_run(did) is False
+        assert background_jobs.get_status(svc.compare_job_id(did)) is None
+
+    def test_on_hears_doubtful_lines_while_the_transcription_job_ends_and_flags_the_differing(
+            self, hearing, monkeypatch, _env):
+        from services import settings_service
+        settings_service.set_settings({"second_hearing": True})
+        did = self._title([0.2, 0.9, 0.3])
+        texts = iter([self.OTHER, self.SAME])
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
+                            lambda path, model_size="medium", **kw:
+                            [{"start": 0.0, "end": 1.0, "text": next(texts)}])
+        with job_table._lock:
+            job_table._jobs[f"transcribe_{did}"] = {"status": "running", "progress": 0.9,
+                                                    "message": "", "started_at": time.time()}
+        try:
+            assert hearing.after_run(did) is True
+            job = self._wait_compare(did)
+        finally:
+            with job_table._lock:
+                job_table._jobs.pop(f"transcribe_{did}", None)
+        assert job["status"] == "done"
+        assert job["result"]["candidate_count"] == 2
+        lines = db.load_line_objects(did)
+        # Worst line first: heard differently, so flagged; the other agreed; text untouched.
+        assert [ln.flag for ln in lines] == [svc.DISAGREE_FLAG, None, None]
+        assert all(ln.zh == self.SAME for ln in lines)
+
+    def test_an_unavailable_second_engine_is_skipped_without_error(self, hearing, monkeypatch):
+        from services import settings_service
+        settings_service.set_settings({"second_hearing": True})
+        did = self._title([0.2])
+        monkeypatch.setattr(svc, "_backend_problem", lambda backend, language: "not installed")
+        assert hearing.after_run(did) is False
+        assert background_jobs.get_status(svc.compare_job_id(did)) is None
+
+    def test_a_person_started_compare_still_waits_for_a_running_transcription(self):
+        did = self._title([0.2], backend="whisper")
+        with job_table._lock:
+            job_table._jobs[f"transcribe_{did}"] = {"status": "running", "progress": 0.9,
+                                                    "message": "", "started_at": time.time()}
+        try:
+            with pytest.raises(ConflictError):
+                svc.start_compare(did, {"kind": "range", "from_number": 1, "to_number": 1})
+        finally:
+            with job_table._lock:
+                job_table._jobs.pop(f"transcribe_{did}", None)
