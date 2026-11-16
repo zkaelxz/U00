@@ -61,6 +61,8 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
     getRawChapters(id, 0, PAGE).then(
       (l) => {
         if (cancelled) return
+        // Again on arrival: a "Show more" pressed while this page was loading asked for the old list's offset.
+        listLoad.current += 1
         setList(l)
         setRows(l.chapters)
       },

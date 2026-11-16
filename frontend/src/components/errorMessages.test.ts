@@ -195,7 +195,7 @@ describe('describeError shows the real reason', () => {
   })
 
   it('a failed action whose server text is path- or key-like keeps the generic text and no detail', () => {
-    for (const msg of ['Could not open C:\\Users\\kae\\x.db', 'key sk-abcdef123456 refused', 'x'.repeat(601)]) {
+    for (const msg of ['Could not open C:\\Users\\kae\\x.db', 'key sk-abcdef123456 refused', 'x'.repeat(301)]) {
       expect(describeError(api(500, 'application_error', msg, 'POST'))).toEqual({
         title: 'The action failed. Nothing was changed unless stated otherwise.',
         detail: null,
