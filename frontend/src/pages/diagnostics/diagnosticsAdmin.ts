@@ -243,6 +243,17 @@ export const MODEL_DOWNLOAD_IDS: Record<string, string[]> = {
   ],
 }
 
+/**
+ * Rows that can say "not downloaded" but have no Download button here, and why. pyannote's
+ * weights are gated on Hugging Face, so a button without a token and accepted terms would
+ * only fail.
+ */
+export const NO_DOWNLOAD_BUTTON_NOTES: Record<string, string> = {
+  'pyannote diarization model': 'No Download button: it needs a free Hugging Face token (add it in Settings) and accepting the model terms. It downloads the first time you detect speakers.',
+}
+const GENERIC_NO_BUTTON_NOTE = 'No Download button here: it downloads the first time a feature needs it.'
+export const noDownloadButtonNote = (engineName: string): string => NO_DOWNLOAD_BUTTON_NOTES[engineName] ?? GENERIC_NO_BUTTON_NOTE
+
 /** Why the last download of a model did not finish, or null (nothing started, running, or done). */
 export function modelDownloadProblem(
   job: { status?: string | null; error?: string | null; result?: unknown } | null | undefined,

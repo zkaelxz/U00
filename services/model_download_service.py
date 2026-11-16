@@ -138,16 +138,18 @@ def _fetch_whisper(size: str):
     return fetch
 
 
+# The label names the model and its rough download size: Diagnostics lists these
+# side by side, so a bare "Download" would not say which one it fetches.
 # Whisper-family models need an entry because a run started from another device only
 # loads what is already on disk, and a first-use download cannot happen there.
 WHISPER_DOWNLOADS = {
-    "whisper_large_v3": ("large-v3", "Whisper large-v3"),
-    "whisper_large_v3_turbo": ("large-v3-turbo", "Whisper large-v3-turbo"),
-    "whisper_ja_1_5b": ("ja-1.5b", "Whisper Japanese 1.5B"),
-    "whisper_kotoba_v2": ("kotoba-v2", "Whisper Japanese kotoba v2"),
-    "whisper_medium": ("medium", "Whisper medium"),
-    "whisper_anime": ("anime-whisper", "anime-whisper (Japanese)"),
-    "whisper_breeze_asr_25": ("breeze-asr-25", "Breeze-ASR-25 (Chinese Whisper)"),
+    "whisper_large_v3": ("large-v3", "Whisper large-v3 (about 3 GB)"),
+    "whisper_large_v3_turbo": ("large-v3-turbo", "Whisper large-v3-turbo (about 1.6 GB)"),
+    "whisper_ja_1_5b": ("ja-1.5b", "Whisper Japanese 1.5B (about 3 GB)"),
+    "whisper_kotoba_v2": ("kotoba-v2", "Whisper Japanese kotoba v2 (about 1.5 GB)"),
+    "whisper_medium": ("medium", "Whisper medium (about 1.5 GB)"),
+    "whisper_anime": ("anime-whisper", "anime-whisper, Japanese (about 1.5 GB)"),
+    "whisper_breeze_asr_25": ("breeze-asr-25", "Breeze-ASR-25, Chinese (about 3 GB)"),
 }
 
 

@@ -97,6 +97,42 @@ test('Models holds one model list with sizes and Delete; speaker detection is a 
   expect(unmocked).toEqual([])
 })
 
+const WHISPER_DOWNLOADS = [
+  ['whisper_large_v3', 'Whisper large-v3 (about 3 GB)', true],
+  ['whisper_large_v3_turbo', 'Whisper large-v3-turbo (about 1.6 GB)', false],
+  ['whisper_ja_1_5b', 'Whisper Japanese 1.5B (about 3 GB)', false],
+  ['whisper_breeze_asr_25', 'Breeze-ASR-25, Chinese (about 3 GB)', false],
+] as const
+
+test('each model download names its model and its own state; pyannote says why it has no button', async ({ page }) => {
+  await guardWrites(page)
+  await mockDiagnostics(page, { cache: { hf_cache: [], hf_total_bytes: 0, model_files: [], model_files_total_bytes: 0 } })
+  await page.route('**/api/diagnostics/model-downloads', (r) => r.fulfill({
+    json: { models: WHISPER_DOWNLOADS.map(([id, label, downloaded]) => ({ id, label, downloaded, job_id: `model-download:${id}` })) },
+  }))
+  await page.route('**/api/jobs/**', (r) => r.fulfill({ status: 404, json: { detail: 'No such job.' } }))
+  await page.goto('/#/diagnostics')
+  await openDiagTab(page, 'Models')
+  await openSection(page, /^Models/)
+  const models = fold(page, /^Models/)
+  const list = models.getByRole('list', { name: 'Whisper (faster-whisper) models' })
+  await expect(list.locator('> li')).toHaveCount(4)
+  await expect(list.locator('li', { hasText: 'Whisper large-v3 (about 3 GB)' })).toContainText('downloaded')
+  await expect(list.locator('li', { hasText: 'Whisper large-v3 (about 3 GB)' }).getByRole('button')).toHaveCount(0)
+  const turbo = list.locator('li', { hasText: 'Whisper large-v3-turbo' })
+  await expect(turbo).toContainText('not downloaded')
+  await expect(turbo.getByRole('button', { name: 'Download Whisper large-v3-turbo (about 1.6 GB)' })).toBeVisible()
+  await expect(list.getByRole('button')).toHaveCount(3)
+  // The engine line does not repeat a vague "not downloaded" when its models list their own state.
+  await expect(models.locator('li', { hasText: 'Whisper (faster-whisper): 1.1.0' }).locator('> span').first()).not.toContainText('not downloaded')
+  const pyannote = models.locator('li', { hasText: 'pyannote diarization model' })
+  await expect(pyannote).toContainText('not downloaded')
+  await expect(pyannote.getByTestId('no-download-button')).toContainText('Hugging Face token')
+  await expect(pyannote.getByRole('button')).toHaveCount(0)
+  await models.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: test.info().outputPath('models-downloads.png'), fullPage: true })
+})
+
 test('Packages has no Missing packages fold; a task lists what it still needs', async ({ page }) => {
   const unmocked = await guardWrites(page)
   await mockDiagnostics(page)
