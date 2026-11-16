@@ -110,6 +110,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "qa.py",
     "raw_transcript.py",
     "reader.py",
+    "reading_speed_dismissal.py",
     "resegment.py",
     "review_thresholds.py",
     "run_tests.py",
