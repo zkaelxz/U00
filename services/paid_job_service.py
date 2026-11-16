@@ -86,36 +86,48 @@ def bulk_hold_key(drama_id: int, kind: str) -> tuple:
     return (drama_id, "translate" if kind in ("translate", "reflect") else kind)
 
 
-def _held_usd(exclude=None) -> float:
+def _held_usd(exclude=None, member: int | None = None) -> float:
     # Under _bulk_holds_lock. A row whose key is still held here is the same
-    # batch as the hold, so it isn't counted twice.
-    total = sum(usd for key, usd in _bulk_holds.items() if key != exclude)
-    for drama_id, kind, _pipeline, usd in db.list_unbilled_bulk_estimates():
+    # batch as the hold, so it isn't counted twice. member: only that
+    # member's batches (None: everyone's).
+    total = sum(usd for key, (usd, user) in _bulk_holds.items()
+                if key != exclude and member in (None, user))
+    for drama_id, kind, _pipeline, usd, user in db.list_unbilled_bulk_estimates():
         key = bulk_hold_key(drama_id, kind)
-        if key not in _bulk_holds and key != exclude:
+        if key not in _bulk_holds and key != exclude and member in (None, user):
             total += usd
     return total
 
 
+def _over_room(estimate_usd: float, limit: float, logged: float, held: float, whose: str) -> None:
+    room = limit - logged - held
+    if estimate_usd > room:
+        raise UnsupportedOperationError(
+            f"Not submitted: this batch's estimate (${estimate_usd:.2f}) is more than the "
+            f"${max(room, 0.0):.2f} left of {whose} once other pending bulk jobs "
+            f"(${held:.2f}) are counted. Wait for them to finish, or raise the limit.")
+
+
 def hold_bulk_spend(key: tuple, estimate_usd: float) -> None:
-    """Holds estimate_usd of this month's cap for a batch about to be sent, or
-    refuses it when the cap less spend and every other unbilled batch leaves
-    less than that. Release with release_bulk_spend once the batch's row
-    (which carries the estimate) exists, or the job ends."""
+    """Holds estimate_usd of this month's cap, and of the member's own limit
+    when they have one, for a batch about to be sent; refuses it when the cap
+    or limit less spend and every other unbilled batch leaves less than that.
+    Release with release_bulk_spend once the batch's row (which carries the
+    estimate) exists, or the job ends."""
     monthly = _monthly_cap()
+    user_id = db.current_spender()
+    member_limit = auth_service.paid_limit_usd(user_id)
     with _bulk_holds_lock:
         if key in _bulk_holds:
             # Releasing a refused twin's hold would drop this one's.
             raise ConflictError("A bulk job for this title is already being sent.")
         if monthly > 0:
-            held = _held_usd(exclude=key)
-            room = monthly - db.get_month_spend() - held
-            if estimate_usd > room:
-                raise UnsupportedOperationError(
-                    f"Not submitted: this batch's estimate (${estimate_usd:.2f}) is more than the "
-                    f"${max(room, 0.0):.2f} left of this month's cap once other pending bulk jobs "
-                    f"(${held:.2f}) are counted. Wait for them to finish, or raise the cap.")
-        _bulk_holds[key] = float(estimate_usd)
+            _over_room(estimate_usd, monthly, db.get_logged_month_spend(),
+                       _held_usd(exclude=key), "this month's cap")
+        if member_limit is not None and user_id is not None:
+            _over_room(estimate_usd, member_limit, db.get_logged_user_month_spend(user_id),
+                       _held_usd(exclude=key, member=user_id), "your own monthly limit")
+        _bulk_holds[key] = (float(estimate_usd), user_id)
 
 
 def release_bulk_spend(key: tuple) -> None:
