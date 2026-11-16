@@ -341,11 +341,13 @@ def test_chat_uses_its_own_engine(live, chat_pages):
 
 def test_stop_aborts_a_chat_request_already_in_flight(monkeypatch):
     from engine_backends.local import abort_check_var
-    from engine_backends.shared import TranslationCancelled, _cancel_check_var
+    import background_jobs
+    from engine_backends.shared import _cancel_check_var
     entered, seen = threading.Event(), {}
 
     class SlowTranslator:
-        """Stands in for an engine request: it gives up only when the caller's hooks say so."""
+        """Stands in for CueTranslator around an engine request: it gives up only when the
+        caller's hooks say so, and turns the engine's cancel into JobCancelled as CueTranslator does."""
 
         def translate_chunk(self, texts):
             seen["checks"] = (_cancel_check_var.get(), abort_check_var.get())
@@ -353,7 +355,7 @@ def test_stop_aborts_a_chat_request_already_in_flight(monkeypatch):
             check = seen["checks"][1]
             for _ in range(100):
                 if check is not None and check():
-                    raise TranslationCancelled("cancelled")
+                    raise background_jobs.JobCancelled("live translate")
                 threading.Event().wait(0.05)
             return {i: f"EN {t}" for i, t in enumerate(texts)}
 

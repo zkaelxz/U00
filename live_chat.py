@@ -278,8 +278,8 @@ class ChatWorker:
         return self._stop.is_set() or background_jobs.is_cancel_requested(self.session_id)
 
     def _run(self) -> None:
-        # Context variables do not cross threads: without these Stop could not abandon a chat request
-        # already sent, nor cut a retry wait short, and one more billed batch would run to the end.
+        # Context variables do not cross threads: without these Stop could not cut a retry wait or the
+        # queued sub-requests short (nor abandon a local model's request), so one more billed batch ran.
         from engine_backends.local import abort_check_var
         from engine_backends.shared import _cancel_check_var
         tokens = (_cancel_check_var.set(self._done), abort_check_var.set(self._done))
@@ -364,6 +364,9 @@ class ChatWorker:
         todo = todo[-MAX_BACKLOG:]
         for start in range(0, len(todo), BATCH_SIZE):
             if self._done():
+                # Left pending they would read "Translating..." under "Session ended" for good.
+                for entry in todo[start:]:
+                    self.board.finish(entry, "", SKIPPED)
                 return
             self._translate(todo[start:start + BATCH_SIZE])
 
@@ -371,6 +374,8 @@ class ChatWorker:
         try:
             found = self.translator.translate_chunk([e["text"] for e in entries])
         except background_jobs.JobCancelled:
+            for entry in entries:
+                self.board.finish(entry, "", FAILED)
             raise
         except Exception:
             found = {}
