@@ -30,7 +30,7 @@ a.palette-option[aria-selected='true'] { background: var(--surface); border-colo
 .palette-body > p.visually-hidden { margin: 0; }
 
 @media (pointer: coarse), (max-width: 640px) {
-  button.palette-btn { min-width: 40px; min-height: 40px; justify-content: center; padding-inline: 0; }
+  button.palette-btn { min-width: 44px; min-height: 44px; justify-content: center; padding-inline: 0; }
   button.palette-btn kbd { display: none; }
   a.palette-option { min-height: 48px; align-items: center; }
   button.palette-close { display: inline-flex; align-items: center; justify-content: center; }

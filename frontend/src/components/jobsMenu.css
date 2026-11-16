@@ -50,7 +50,7 @@ button.jobs-menu-btn[aria-expanded='true'] { color: var(--text); }
 .jobs-foot a { display: inline-flex; align-items: center; }
 
 @media (pointer: coarse), (max-width: 640px) {
-  button.jobs-menu-btn { min-width: 40px; min-height: 40px; padding-inline: 0; }
+  button.jobs-menu-btn { min-width: 44px; min-height: 44px; padding-inline: 0; }
   .jobs-foot a, .jobs-item-meta .jobs-cancel { min-height: 44px; }
 }
 @media (max-width: 640px) {
