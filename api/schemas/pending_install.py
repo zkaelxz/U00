@@ -11,6 +11,9 @@ __all__ = [
     "PendingInstallPlanRequest",
     "PendingInstallQueueRequest",
     "PendingInstallQueued",
+    "PendingInstallRestart",
+    "PendingInstallRestartRequest",
+    "PendingInstallRestartStarted",
     "PendingInstallStatus",
 ]
 
@@ -63,6 +66,24 @@ class PendingInstallOutcome(BaseModel):
     finished: Optional[int] = None
 
 
+class PendingInstallRestart(BaseModel):
+    available: bool = Field(description="Baihe can restart itself (a start.bat copy on Windows).")
+    reason: Optional[str] = Field(None, description="Plain words why it can't.")
+    running_jobs: List[str] = Field(description="Jobs a restart would stop.")
+    other_jobs: bool = Field(description="Another Baihe process has a job; a restart waits for it.")
+
+
+class PendingInstallRestartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    stop_jobs: StrictBool = False
+
+
+class PendingInstallRestartStarted(BaseModel):
+    restarting: bool
+    stopped_jobs: List[str]
+
+
 class PendingInstallStatus(BaseModel):
     packages: List[str]
     created: Optional[int] = None
@@ -70,3 +91,4 @@ class PendingInstallStatus(BaseModel):
     problem: Optional[str] = Field(None, description="Plain words when the queued file was refused.")
     result: Optional[PendingInstallOutcome] = None
     applying: bool
+    restart: PendingInstallRestart
