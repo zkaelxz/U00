@@ -9,7 +9,7 @@ import { CONFLICT_TEXT, CONFLICT_UNREAD_TEXT, openFix, type LineFix } from './wa
 
 const line = (id: number, start: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start, end: start + 1.5, zh: `第${id}句`, en: `Line ${id}`, speaker: null, speaker_manual: false, sfx: false,
-  flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
+  flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, unsure_words: null, ...over,
 })
 const lines = [line(1, 1), line(2, 4), line(3, 8)]
 

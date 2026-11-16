@@ -8,7 +8,7 @@ import { chipLabel, emptyMessage, inFilter } from './reviewLogic'
 
 const LINE: ReviewLine = {
   id: 7, idx: 6, start: 1, end: 3, zh: '你好', en: 'Hello', speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, unsure_words: null,
 }
 
 describe('the Marked view', () => {
