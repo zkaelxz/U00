@@ -17,7 +17,8 @@ import re
 from typing import Dict, List
 
 import db
-from services import edit_log_service, glossary_service, glossary_variants_service as gv
+from services import (edit_log_service, glossary_service, glossary_variants_service as gv,
+                      novel_line_chapters_service)
 from services.glossary_common import MAX_TERM_LEN, _drama
 from lib.errors import InvalidInputError, NotFoundError
 
@@ -55,14 +56,18 @@ def _compile(mapping: Dict[str, str]):
 
 
 def _rewrite(drama_id: int, mapping: Dict[str, str], log_path=None) -> dict:
-    changed_lines, before, replacements = [], [], 0
+    changed_lines, before, replacements, counts = [], [], 0, {}
     if not any(k != v for k, v in mapping.items()):
         return {"lines_changed": 0, "replacements": 0}
     pattern = _compile(mapping)
     lines = db.load_line_objects(drama_id)
-    for ln in lines:
+    # A novel's chapters are found by their title line's exact text, so rewriting a
+    # name inside a title would drop that chapter from the chapter list.
+    title_positions = {pos for _n, _t, pos in novel_line_chapters_service.starts_from_manifest(
+        drama_id, [novel_line_chapters_service.norm(ln.zh) for ln in lines])}
+    for pos, ln in enumerate(lines):
         text = ln.zh or ""
-        if not text or ln.sfx:
+        if not text or ln.sfx or pos in title_positions:
             continue
         count = 0
 
@@ -78,12 +83,18 @@ def _rewrite(drama_id: int, mapping: Dict[str, str], log_path=None) -> dict:
             ln.zh = new_text
             changed_lines.append(ln)
             replacements += count
+            counts[ln.id] = count
     if changed_lines:
         # Only the source text is written, by id, so edits to other fields survive.
-        db.save_lines(drama_id, changed_lines, fields=("zh",))
-        if log_path:
+        # Compared with what was read above, so a line edited in Review meanwhile is kept.
+        stale = set(db.save_lines(drama_id, changed_lines, fields=("zh",),
+                                  only_if_unchanged=True) or ())
+        saved = [(b, ln) for b, ln in zip(before, changed_lines) if ln.id not in stale]
+        replacements -= sum(counts[ln.id] for ln in changed_lines if ln.id in stale)
+        changed_lines = [ln for _b, ln in saved]
+        if log_path and saved:
             edit_log_service.record_source_edits(
-                drama_id, [(b, ln.zh) for b, ln in zip(before, changed_lines)], log_path)
+                drama_id, [(b, ln.zh) for b, ln in saved], log_path)
     return {"lines_changed": len(changed_lines), "replacements": replacements}
 
 

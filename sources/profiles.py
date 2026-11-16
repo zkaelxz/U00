@@ -297,10 +297,13 @@ def infer_novel_rules(page, data: dict):
 def _resolve_link(page, rule):
     if not rule:
         return None
-    el = select_one(page.soup, rule.get("selector"))
-    if el is not None and el.get("href"):
-        return urljoin(page.url, el["href"].strip())
     text = (rule.get("text") or "").strip()
+    el = select_one(page.soup, rule.get("selector"))
+    # A positional selector learned where a sibling link was missing (no
+    # "previous" on chapter 1) points at a different link on later pages.
+    if el is not None and el.get("href") and (
+            not text or el.get_text(strip=True) == text):
+        return urljoin(page.url, el["href"].strip())
     if text:
         hit = next((l for l in page.links if l.text.strip() == text), None)
         if hit:

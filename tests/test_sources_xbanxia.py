@@ -171,3 +171,17 @@ class TestParseUrl:
         assert kind == "chapter"
         assert chapter.series_id == "2001"
         assert chapter.chapter_id == "1"
+
+
+class TestFallbackRefusesNoticePages:
+    @pytest.mark.parametrize("body", [
+        "<div>网站维护中</div>",
+        "<div><a href='/a'>首页导航链接一</a><a href='/b'>排行榜导航链接二</a>"
+        "<a href='/c'>分类导航链接三</a>共四十余字的导航文字</div>",
+    ])
+    def test_a_notice_or_link_block_is_not_imported(self, body):
+        a, t = _adapter({f"{BASE}/books/2001/1.html": html(f"<html><body>{body}</body></html>")})
+        chapter = ChapterInfo("xbanxia", "2001", "1", "第一章 初遇", f"{BASE}/books/2001/1.html")
+        with pytest.raises(SourceError) as e:
+            a.get_chapter_text(chapter)
+        assert e.type.__name__ == "LayoutChanged"

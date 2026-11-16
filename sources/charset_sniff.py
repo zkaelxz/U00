@@ -7,7 +7,7 @@ scoring text; split out of sources/http.py to keep that module from growing.
 
 # Encodings tried, in order, for a page that declares no charset and is not
 # valid UTF-8. Order is the tie-break when two score the same.
-_SNIFF_CANDIDATES = ("gb18030", "big5", "cp932", "euc_jp", "euc_kr")
+_SNIFF_CANDIDATES = ("gb18030", "big5", "cp932", "euc_jp", "cp949")
 _SNIFF_SAMPLE = 64 * 1024
 
 
@@ -70,7 +70,7 @@ def sniff_decode(content: bytes) -> str:
         if text is None:
             continue
         score = _sniff_score(text, kana_counts=enc != "gb18030",
-                             hanja_weight=-1.0 if enc == "euc_kr" else 0.2)
+                             hanja_weight=-1.0 if enc == "cp949" else 0.2)
         if score > best_score:
             best, best_score = enc, score
     return content.decode(best or "utf-8", errors="replace")

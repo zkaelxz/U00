@@ -228,3 +228,8 @@ def test_manhuaku_stored_data_still_lists_and_is_skipped(client, isolated_db):
     assert summary["errors"] == {"Old Manhuaku Title": registry.SOURCE_REMOVED}
     with pytest.raises(KeyError, match="removed"):
         registry.get_adapter("manhuaku")
+
+
+def test_safe_url_refuses_non_http_schemes():
+    assert svc.safe_url("javascript://x.com/%0aalert(1)") == ""
+    assert svc.safe_url("data://x.com/a") == ""

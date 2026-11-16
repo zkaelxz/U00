@@ -148,10 +148,7 @@ def _origin(url: str):
     return p.scheme, p.hostname, p.port or (443 if p.scheme == "https" else 80)
 
 
-def _is_credential_header(name: str) -> bool:
-    n = name.lower()
-    return n in ("authorization", "proxy-authorization", "cookie") or any(
-        k in n for k in ("api-key", "apikey", "token", "secret"))
+_is_credential_header = url_guard.is_credential_header
 
 
 def _headers_for_hop(headers: Optional[dict], strip: bool) -> Optional[dict]:
