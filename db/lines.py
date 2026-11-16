@@ -312,10 +312,9 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
     by someone else since the lines were loaded is kept, not overwritten.
     A line without `orig` is then not written at all.
 
-    guard_fields (with only_if_unchanged): columns whose database value must
-    still equal this Line's own value -- the text the written fields were
-    computed from (a flag from `en` and its timing). A guard field that is
-    also written is held to its `orig` value instead.
+    guard_fields (with only_if_unchanged): columns whose database value must still
+    equal this Line's own value (`orig` when also written) -- the text the written
+    fields were computed from (a flag from `en` and its timing).
 
     guard_neighbours (with guard_fields): {line id: [Line, ...]} -- other
     lines a written line's value was computed from (an overlap flag reads
