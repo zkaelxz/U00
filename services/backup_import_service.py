@@ -261,12 +261,12 @@ def _drama_summaries(backup: _Backup) -> list:
 
 
 def _schema_differs(backup: _Backup) -> bool:
-    """True when the file's dramas/lines/characters tables have columns
-    this version doesn't know (a newer app made it; they are ignored)."""
+    """True when a table the import reads has columns this version doesn't
+    know (a newer app made the file; they are ignored)."""
     try:
         with contextlib.closing(_open_db(backup.db_path)) as conn, \
                 contextlib.closing(db.get_conn()) as dst:
-            for table in ("dramas", "lines", "characters"):
+            for table in _READ_TABLES:
                 if not drs.has_table(conn, table):
                     continue
                 if set(drs.columns(conn, table)) - set(drs.columns(dst, table)):

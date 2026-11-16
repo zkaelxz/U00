@@ -409,6 +409,19 @@ def test_schema_drift_tolerated(local_client):
                          (r.json()["imported"][0]["drama_id"],)).fetchone()[0] == 3
 
 
+def test_schema_differs_covers_every_copied_table(local_client):
+    """A column only a newer app knows, in a child table, is dropped too."""
+    _world()
+    dest = os.path.join(db.LIBRARY_DIR, "drift-child.db")
+    lbs._sanitized_snapshot(dest)
+    with contextlib.closing(sqlite3.connect(dest)) as c:
+        c.execute("ALTER TABLE translation_notes ADD COLUMN from_the_future TEXT")
+        c.commit()
+    with open(dest, "rb") as fh:
+        data = fh.read()
+    assert _post_list(local_client, data, "library.db").json()["schema_differs"] is True
+
+
 # ---- rejected input --------------------------------------------------------
 
 def test_wrong_confirmation_writes_nothing(local_client):
