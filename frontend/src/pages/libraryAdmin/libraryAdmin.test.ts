@@ -220,7 +220,7 @@ describe('BackupTab', () => {
     expect(out).not.toContain('Export all translated')
     for (const text of ['Backup and restore', 'Back up library', 'Database only',
       'Backup of just my stuff', 'Items owned at this PC', 'Back up just these items',
-      'Site sign-ins are never included.', 'accept=".zip"', 'Saved automatic copies']) {
+      'enter the keys again after a restore.', 'accept=".zip"', 'Saved automatic copies']) {
       expect(out).toContain(text)
     }
     expect(out).not.toContain('Backup &amp; storage')
