@@ -115,5 +115,6 @@ def require_bulk_ready(drama_id, engine_name, model, main_cap, reflect, force_re
     if est["estimate_above_cap"]:
         raise UnsupportedOperationError(
             "Not submitted: a bulk batch can't be stopped part-way, and its estimate "
-            "is above your cap. Raise the cap, or run a normal translation.")
+            "is above what's left of your cap once pending bulk jobs are counted. "
+            "Raise the cap, or run a normal translation.")
     return est["estimated_usd"]

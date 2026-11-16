@@ -372,7 +372,7 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict, cancel_
         return _leave_applying(job["id"], "needs_resubmit", result_summary=summary,
                                last_error="Waiting for an API key to send the next Reflect stage.")
     cap, error = pricing.resolve_cost_cap(
-        None, monthly_cap_usd, db.get_month_spend() if monthly_cap_usd else 0.0)
+        None, monthly_cap_usd, db.get_logged_month_spend() if monthly_cap_usd else 0.0)
     if not error and cap is not None:
         cap = max(0.0, cap - _held_by_other_batches(job["pipeline_id"]))
         error = _stage_over_cap(job, survivors, engine, cap)
@@ -407,7 +407,7 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict, cancel_
 def _held_by_other_batches(pipeline_id: str) -> float:
     """The estimates of every other unbilled batch: their usage is logged only
     when their results land, so the cap left for this stage excludes them."""
-    return sum(usd for _drama, _kind, pid, usd in db.list_unbilled_bulk_estimates()
+    return sum(usd for _drama, _kind, pid, usd, _user in db.list_unbilled_bulk_estimates()
                if pid != pipeline_id)
 
 
