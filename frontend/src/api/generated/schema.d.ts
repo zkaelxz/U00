@@ -28799,6 +28799,12 @@ export interface components {
              */
             health: string;
             health_detail: components["schemas"]["SourceHealth"];
+            /**
+             * Homepage
+             * @description The site's front page (https), empty when the source has no site.
+             * @default
+             */
+            homepage: string;
             /** Import Supported */
             import_supported: boolean;
             /** Languages */
@@ -29159,6 +29165,12 @@ export interface components {
              * @description green, yellow or red.
              */
             health: string;
+            /**
+             * Homepage
+             * @description The site's front page (https), empty when the source has no site.
+             * @default
+             */
+            homepage: string;
             /** Import Supported */
             import_supported: boolean;
             /** Languages */

@@ -63,6 +63,7 @@ def _clean(text) -> str:
 class NewXToonSource(SourceAdapter):
     name = "newxtoon"
     display_name = "NewXToon"
+    homepage = "https://newxtoon4.com"
     content_types = [ContentType.MANHWA.value]
     languages = ["ko"]
     url_patterns = [r"(?:newxtoon\d*\.com|xn--vg1b002axlc8ts\.com)/comics/\d+"]
