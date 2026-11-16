@@ -133,6 +133,5 @@ test('the drawer shows Theme once: the header controls\' words stay hidden outsi
   await page.goto('/#/library')
   await menuButton(page).tap()
   await expect(drawer(page)).toBeVisible()
-  await expect(drawer(page).locator('.hb-words:visible')).toHaveCount(0)
   await expect(drawer(page).getByText('Theme', { exact: true }).filter({ visible: true })).toHaveCount(1)
 })

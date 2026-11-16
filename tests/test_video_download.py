@@ -66,7 +66,7 @@ class TestAudioOnlyDownload:
     def teardown_method(self):
         _teardown()
 
-    def test_returns_wav_path_and_creates_out_dir(self, tmp_path):
+    def test_returns_flac_path_and_creates_out_dir(self, tmp_path):
         out_dir = str(tmp_path / "drama_1")
         calls = _install_fake_yt_dlp(extract_info_fn=lambda url: {"id": "abc", "ext": "m4a"})
 
@@ -75,10 +75,10 @@ class TestAudioOnlyDownload:
 
         # Simulate the actual file yt-dlp+ffmpeg would have produced on disk.
         os.makedirs(out_dir, exist_ok=True)
-        open(os.path.join(out_dir, "downloaded_audio.wav"), "wb").close()
+        open(os.path.join(out_dir, "downloaded_audio.flac"), "wb").close()
 
         path = video_download.download("https://youtu.be/xyz", out_dir, audio_only=True)
-        assert path == os.path.join(out_dir, "downloaded_audio.wav")
+        assert path == os.path.join(out_dir, "downloaded_audio.flac")
         assert calls["url"] == "https://youtu.be/xyz"
         assert calls["opts"]["format"] == "bestaudio/best"
         assert calls["opts"]["postprocessors"][0]["key"] == "FFmpegExtractAudio"
@@ -90,7 +90,7 @@ class TestAudioOnlyDownload:
         "Invalid js_runtimes format" and breaks every download."""
         out_dir = str(tmp_path)
         calls = _install_fake_yt_dlp(extract_info_fn=lambda url: {"id": "abc", "ext": "m4a"})
-        open(os.path.join(out_dir, "downloaded_audio.wav"), "wb").close()
+        open(os.path.join(out_dir, "downloaded_audio.flac"), "wb").close()
 
         import video_download
         video_download.download("https://youtu.be/xyz", out_dir, audio_only=True)
@@ -100,7 +100,7 @@ class TestAudioOnlyDownload:
     def test_progress_callback_receives_fraction_and_message(self, tmp_path):
         out_dir = str(tmp_path)
         calls = _install_fake_yt_dlp(extract_info_fn=lambda url: {"id": "abc", "ext": "m4a"})
-        open(os.path.join(out_dir, "downloaded_audio.wav"), "wb").close()
+        open(os.path.join(out_dir, "downloaded_audio.flac"), "wb").close()
 
         import video_download
         importlib.reload(video_download)
@@ -116,7 +116,7 @@ class TestAudioOnlyDownload:
         out_dir = str(tmp_path)
         _install_fake_yt_dlp(extract_info_fn=lambda url: {
             "id": "abc", "ext": "m4a", "title": "沈清疑的百合广播剧"})
-        open(os.path.join(out_dir, "downloaded_audio.wav"), "wb").close()
+        open(os.path.join(out_dir, "downloaded_audio.flac"), "wb").close()
 
         import video_download
         importlib.reload(video_download)
@@ -129,7 +129,7 @@ class TestAudioOnlyDownload:
     def test_title_cb_not_called_when_yt_dlp_has_no_title(self, tmp_path):
         out_dir = str(tmp_path)
         _install_fake_yt_dlp(extract_info_fn=lambda url: {"id": "abc", "ext": "m4a"})
-        open(os.path.join(out_dir, "downloaded_audio.wav"), "wb").close()
+        open(os.path.join(out_dir, "downloaded_audio.flac"), "wb").close()
 
         import video_download
         importlib.reload(video_download)
@@ -142,7 +142,7 @@ class TestAudioOnlyDownload:
     def test_missing_output_file_raises_download_error(self, tmp_path):
         out_dir = str(tmp_path)
         _install_fake_yt_dlp(extract_info_fn=lambda url: {"id": "abc", "ext": "m4a"})
-        # Deliberately don't create the expected .wav file.
+        # Deliberately don't create the expected .flac file.
 
         import video_download
         importlib.reload(video_download)
@@ -185,7 +185,7 @@ class TestVideoDownload:
         out_dir = str(tmp_path)
         ext = "m4a" if audio_only else "mp4"
         calls = _install_fake_yt_dlp(extract_info_fn=lambda url: {"id": "abc", "ext": ext})
-        name = "downloaded_audio.wav" if audio_only else "downloaded_video.mp4"
+        name = "downloaded_audio.flac" if audio_only else "downloaded_video.mp4"
         open(os.path.join(out_dir, name), "wb").close()
 
         import video_download
@@ -219,7 +219,7 @@ class TestCookieOptions:
 class TestDownloadCookiesReachYtDlp:
     def _stub_output(self, out_dir):
         os.makedirs(out_dir, exist_ok=True)
-        open(os.path.join(out_dir, "downloaded_audio.wav"), "wb").close()
+        open(os.path.join(out_dir, "downloaded_audio.flac"), "wb").close()
 
     def test_cookies_browser_reaches_ydl_opts(self, tmp_path):
         out_dir = str(tmp_path)

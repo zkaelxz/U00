@@ -48,11 +48,10 @@ export function ReportProblemButton({ hidden = false }: { hidden?: boolean }) {
   }
   return (
     <>
-      <button ref={buttonRef} type="button" className="report-btn" aria-label="Report a problem" aria-haspopup="dialog" onClick={openReportDialog} style={hidden ? { display: 'none' } : undefined}>
+      <button ref={buttonRef} type="button" className="report-btn" aria-label="Report a problem" title="Report a problem" aria-haspopup="dialog" onClick={openReportDialog} style={hidden ? { display: 'none' } : undefined}>
         <svg className="hb-icon" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" focusable="false">
           <path fill="currentColor" d="M5 3h2v18H5zM8 4h10l-2 4 2 4H8z" />
         </svg>
-        <span className="hb-words">Report a problem</span>
       </button>
       {open && <ReportProblemDialog onClose={close} />}
     </>

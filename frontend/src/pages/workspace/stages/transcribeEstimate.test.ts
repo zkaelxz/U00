@@ -88,10 +88,13 @@ describe('measured speaker detection', () => {
 })
 
 describe('transcribeEstimate', () => {
-  it('says rough, the model and CPU when GPU is off or unknown', () => {
+  it('says rough, the model and CPU when GPU is off', () => {
     expect(transcribeEstimate(base)).toBe('Rough estimate: about 1.5-4 h for this audio (large-v3 on CPU).')
-    expect(transcribeEstimate({ ...base, useGpu: null })).toContain('on CPU')
     expect(transcribeEstimate({ ...base, whisperSize: 'tiny' })).toBe('Rough estimate: about 6-20 min for this audio (tiny on CPU).')
+  })
+  it('shows both cases, not CPU alone, when the GPU setting is unknown', () => {
+    expect(transcribeEstimate({ ...base, useGpu: null })).toBe(
+      'Rough estimate: about 9-35 min if this PC uses its GPU, about 1.5-4 h on CPU (large-v3).')
   })
   it('names the GPU and adds speaker detection when it runs too', () => {
     expect(transcribeEstimate({ ...base, useGpu: true })).toBe('Rough estimate: about 9-35 min for this audio (large-v3 on GPU).')

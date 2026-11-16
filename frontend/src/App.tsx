@@ -130,7 +130,6 @@ function UserMenu({ user }: { user: AuthUser | null }) {
   const label = user ? (user.email ?? user.display_name ?? 'Signed in') : 'Account'
   const initial = accountInitial(user)
   // Never the address: it is long and private enough that it only shows inside the open panel.
-  const shownName = accountWords(user?.display_name)
 
   async function onSignOut() {
     setBusy(true)
@@ -145,7 +144,7 @@ function UserMenu({ user }: { user: AuthUser | null }) {
 
   return (
     <details className="user-menu" ref={ref}>
-      <summary className="hb-box" aria-label={`Account: ${user?.display_name ?? label}`}>
+      <summary className="hb-box" aria-label={`Account: ${user?.display_name ?? label}`} title={user?.display_name ?? label}>
         <span className="user-menu-avatar hb-icon" aria-hidden="true">
           {initial ?? (
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -153,9 +152,6 @@ function UserMenu({ user }: { user: AuthUser | null }) {
               <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
             </svg>
           )}
-        </span>
-        <span className="hb-words" aria-hidden="true">
-          {shownName} ▾
         </span>
       </summary>
       <div className="user-menu-panel">

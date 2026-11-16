@@ -102,12 +102,16 @@ def _remove(kind: str) -> None:
         pass
 
 
-def write_pending(keys, before: dict | None = None, now=time.time) -> dict:
+def write_pending(keys, before: dict | None = None, now=time.time, pins: dict | None = None) -> dict:
     """Queue `keys` (registry package keys) for the next start. `before` maps
     dists the plan replaces to their current versions; it is shown to the
-    owner, while the restore uses a fresh snapshot taken at apply time."""
+    owner, while the restore uses a fresh snapshot taken at apply time.
+    `pins` ({key: version}) makes the install an update to exactly that
+    version: a plain install of a package that is already there changes nothing."""
     payload = {"schema": SCHEMA, "packages": list(keys), "created": int(now()),
                "before": dict(before or {})}
+    if pins:
+        payload["pins"] = dict(pins)
     _write_json("pending", {"payload": payload, "sha256": digest(payload)})
     if not restore_owed():
         _remove("result")       # an owed restore still runs first on the next start
@@ -131,9 +135,23 @@ def read_pending():
             or not all(isinstance(k, str) and _NAME_RE.match(k) for k in keys)
             or not isinstance(payload.get("created"), int) or isinstance(payload.get("created"), bool)
             or not isinstance(before, dict)
-            or not all(isinstance(n, str) and isinstance(v, str) for n, v in before.items())):
+            or not all(isinstance(n, str) and isinstance(v, str) for n, v in before.items())
+            or not _pins_valid(payload.get("pins"), keys)):
         return None, "invalid"
     return payload, None
+
+
+def _pins_valid(pins, keys) -> bool:
+    """No pins, or a {key: version} for queued keys only, in the plain version shape."""
+    if pins is None:
+        return True
+    return (isinstance(pins, dict) and len(pins) > 0
+            and all(k in keys and isinstance(v, str) and _VERSION_RE.match(v) for k, v in pins.items()))
+
+
+def pins_arg(pins: dict | None) -> str:
+    """The pins as the `KEY=VERSION,...` text the derive child takes."""
+    return ",".join(f"{k}={v}" for k, v in (pins or {}).items())
 
 
 def cancel() -> bool:
@@ -428,7 +446,7 @@ def _argv_accepted(argv) -> TypeGuard[list[str]]:
     rest, i = argv[4:], 0
     while i < len(rest):
         arg = rest[i]
-        if arg in _PIP_FLAGS or arg == _NO_DEPS_FLAG or _NAME_RE.match(arg):
+        if arg in _PIP_FLAGS or arg == _NO_DEPS_FLAG or _NAME_RE.match(arg) or _pinned_requirement(arg):
             i += 1
         elif arg == "-c" and i + 1 < len(rest):
             if not (_norm(rest[i + 1]) == app_constraints or _is_pins_file(rest[i + 1])):
@@ -437,6 +455,11 @@ def _argv_accepted(argv) -> TypeGuard[list[str]]:
         else:
             return False
     return True
+
+
+def _pinned_requirement(arg: str) -> bool:
+    name, sep, version = arg.partition("==")
+    return bool(sep) and bool(_NAME_RE.match(name)) and bool(_VERSION_RE.match(version))
 
 
 def _uninstall_steps_accepted(steps) -> bool:
@@ -834,7 +857,7 @@ def apply(echo: bool = False, wait_seconds: float = OVERALL_SECONDS) -> dict:
                            "Nothing was changed."}, [])}
         keys = payload["packages"]
         _take_from_queue(keys)
-        plan = child_json("derive", ",".join(keys))
+        plan = child_json("derive", ",".join(keys), pins_arg(payload.get("pins")))
         if plan is None:
             # The checking child didn't start, crashed or ran out of time.
             return _refused(keys, "its package list couldn't be checked")

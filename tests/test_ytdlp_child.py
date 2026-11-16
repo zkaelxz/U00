@@ -58,7 +58,7 @@ class YoutubeDL:
             os._exit(3)
         info = {"title": "Clip", "ext": "m4a"}
         path = self.prepare_filename(info)
-        path = os.path.splitext(path)[0] + (".wav" if self.opts.get("postprocessors") else ".m4a")
+        path = os.path.splitext(path)[0] + (".flac" if self.opts.get("postprocessors") else ".m4a")
         with open(path, "wb") as f:
             f.write(b"x")
         return info

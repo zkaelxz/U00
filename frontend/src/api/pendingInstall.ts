@@ -22,3 +22,13 @@ export const cancelPendingInstall = (f?: Fetch) =>
 
 export const dismissInstallResult = (f?: Fetch) =>
   postJson<{ dismissed: boolean }>(`${BASE}/dismiss`, {}, pcOnlyFetch(f))
+
+// The outdated-package update, queued for the restart (the server pins each package to the version its plan shows).
+export const queueOutdatedUpdate = (acceptRisk: boolean, f?: Fetch) =>
+  postJson<PendingInstallQueued>('/api/diagnostics/dependencies/upgrade-outdated/queue',
+    { confirm: true, accept_risk: acceptRisk }, pcOnlyFetch(f))
+
+// Restarts Baihe now so the queued install runs first. stopJobs: the owner agreed to stop the jobs the status listed.
+export const restartAndInstall = (stopJobs: boolean, f?: Fetch) =>
+  postJson<{ restarting: boolean; stopped_jobs: string[] }>(`${BASE}/restart`,
+    { confirm: true, stop_jobs: stopJobs }, pcOnlyFetch(f))
