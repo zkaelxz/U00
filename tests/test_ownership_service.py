@@ -519,6 +519,28 @@ def test_admin_has_full_rights_on_series_whoever_owns_the_title(people):
     assert db.get_item_ownership("series", a_shared)["is_private"] == 1
 
 
+def test_remote_admin_move_keeps_the_guard_when_a_members_series_goes_private(people, monkeypatch):
+    """Away from the PC an admin may file a title in a member's series only
+    while it is shared; if it goes private between the check and the write,
+    the write's own guard still refuses (security review of #2711)."""
+    remote = _p(people["admin"]["user_id"], admin=True, override=False)
+    a_series = db.get_or_create_series("A open", owner_user_id=people["a_id"])
+    b_title = db.create_drama(title_zh="b", owner_user_id=people["b_id"])
+    real = db.assign_drama_series
+
+    def racing(drama_id, series_id, **kw):
+        assert db.set_item_private("series", a_series, True)
+        return real(drama_id, series_id, **kw)
+    monkeypatch.setattr(db, "assign_drama_series", racing)
+    with pytest.raises(ConflictError, match="only its owner's titles"):
+        own.assign_drama_series(remote, b_title, a_series)
+    assert db.get_drama(b_title)["series_id"] is None
+    # The admin at the PC may do it on purpose, so no guard is needed there.
+    db.set_item_private("series", a_series, False)
+    own.assign_drama_series(people["admin"], b_title, a_series)
+    assert db.get_drama(b_title)["series_id"] == a_series
+
+
 def test_db_private_series_guards_skip_only_when_asked(people):
     secret = db.get_or_create_series("S", owner_user_id=people["a_id"], is_private=True)
     b_title = db.create_drama(title_zh="b", owner_user_id=people["b_id"])

@@ -376,8 +376,9 @@ def check_series_assignment(principal, series_id, drama_owner_user_id) -> int:
     the principal can't see is a 404. A private series only takes dramas
     owned by its owner or by no one (the PC owner) -- otherwise a user
     could hide someone else's drama by moving it into their own private
-    series: 409. The write itself must still use db.assign_drama_series,
-    which re-checks the second rule atomically. Returns the series id."""
+    series: 409, except for admins. The write itself must still use
+    db.assign_drama_series, which re-checks the second rule atomically
+    (see assign_drama_series for when an admin skips it). Returns the series id."""
     series_id = _item_id(series_id)
     row = db.get_item_ownership("series", series_id)
     if not row or not _visible(principal, "series", row):
@@ -401,8 +402,13 @@ def assign_drama_series(principal, drama_id, series_id) -> None:
     if not drama:
         raise NotFoundError("Title not found.")
     series_id = check_series_assignment(principal, series_id, drama.get("owner_user_id"))
-    if not db.assign_drama_series(drama["id"], series_id,
-                                  allow_others_dramas=_admin_anywhere(principal)):
+    series = db.get_item_ownership("series", series_id) or {}
+    # The guard is dropped only where the admin's right over the series
+    # can't change before the write: an admin away from the PC reaches a
+    # member's series only while it is shared, and it may go private meanwhile.
+    unguarded = _admin_anywhere(principal) and (
+        may_override(principal) or _owns(principal, series.get("owner_user_id"), True))
+    if not db.assign_drama_series(drama["id"], series_id, allow_others_dramas=unguarded):
         raise ConflictError(_PRIVATE_SERIES_MESSAGE)   # the series went private meanwhile
 
 
