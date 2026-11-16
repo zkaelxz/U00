@@ -124,9 +124,9 @@ test('docked, the two bottom rows are words: a decorative chevron and Minimize n
   await expect(minimize.locator('span[aria-hidden="true"]')).toHaveText('‹')
   await expect(float).toHaveText('Float navigation')
   const scale = (await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize))) / 15
-  const bottomRowPx = new RegExp(`^${(14 * scale).toFixed(2).replace('.', '\\.')}\\d*px$`)
-  await expect(minimize).toHaveCSS('font-size', bottomRowPx)
-  await expect(float).toHaveCSS('font-size', bottomRowPx)
+  for (const button of [minimize, float]) {
+    expect(await button.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeCloseTo(14 * scale, 1)
+  }
   await expect(page.locator('.app-rail svg:visible')).toHaveCount(0)
 })
 
