@@ -27,6 +27,7 @@ import math
 import core as core_module
 import db
 import source_change
+import reading_speed_dismissal
 import subtitle_formats
 import timing_drift
 import translation_notes
@@ -34,7 +35,6 @@ from services import (
     edit_log_service,
     line_provenance_service,
     ownership_service,
-    reading_speed_dismissal_service,
     timing_check_service,
     translate_service,
 )
@@ -339,7 +339,7 @@ def dismiss_flag(drama_id: int, line_id: int) -> dict:
                                         f"{type(exc).__name__}")
     if was_reading_speed:
         try:
-            reading_speed_dismissal_service.note_dismissed(drama_id, line_id, english)
+            reading_speed_dismissal.note_dismissed(drama_id, line_id, english)
         except Exception as exc:
             import applog
             applog.get_logger().warning(f"reading-speed dismissal not remembered for drama "
