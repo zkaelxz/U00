@@ -534,8 +534,8 @@ def extract_text_paddle_vl_manga(image_path: str) -> str:
         if "_paddle_vl_manga_model" not in globals():
             cuda = torch.cuda.is_available()
             if cuda:
-                from services import vram_service
-                vram_service.check_fits("PaddleOCR-VL-For-Manga")
+                import vram
+                vram.check_fits("PaddleOCR-VL-For-Manga")
             with model_pins.fetching(_PADDLE_VL_PROCESSOR_REPO):
                 globals()["_paddle_vl_manga_processor"] = AutoProcessor.from_pretrained(
                     _PADDLE_VL_PROCESSOR_REPO, trust_remote_code=False,
@@ -651,8 +651,8 @@ def extract_text_qwen3_vl(image_path: str, backend: str = "qwen3_vl_4b", should_
     cache = globals().setdefault("_qwen3_vl_models", {})
     with _MODEL_LOCK:
         if backend not in cache:
-            from services import vram_service
-            vram_service.check_fits(repo, required_mb=vram_service.MODEL_VRAM_MB[repo])
+            import vram
+            vram.check_fits(repo, required_mb=vram.MODEL_VRAM_MB[repo])
             with model_pins.fetching(repo):
                 processor = AutoProcessor.from_pretrained(
                     repo, trust_remote_code=False, revision=model_pins.revision(repo),

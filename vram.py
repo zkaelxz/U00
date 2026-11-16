@@ -1,5 +1,5 @@
 """
-services/vram_service.py -- check that a GPU model will fit
+vram.py -- check that a GPU model will fit
 in free VRAM before loading it, so the user gets a plain message instead
 of a raw CUDA out-of-memory error halfway through a job.
 
