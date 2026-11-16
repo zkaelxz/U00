@@ -225,7 +225,7 @@ def set_categories(jobs=None, chapters=None, remote=None, private_titles=None,
     """Switches the external-push categories and the private-titles switch,
     and sets the PC name ("" clears it). None leaves one unchanged."""
     import db
-    changes = {name: bool(value) for name, value in
+    changes: dict = {name: bool(value) for name, value in
                (("jobs", jobs), ("chapters", chapters), ("remote", remote),
                 (PRIVATE_TITLES_KEY, private_titles)) if value is not None}
     if pc_name is not None:
