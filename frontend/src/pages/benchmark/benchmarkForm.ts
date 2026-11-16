@@ -90,7 +90,7 @@ const CHANGE_LABELS: Record<string, (v: unknown) => string> = {
   whisper_repeat_guard: (v) => (v ? 'repeat guard' : 'no repeat guard'),
   difficult_audio: (v) => (v ? 'difficult audio' : 'no difficult audio'),
   separate_vocals_first: (v) => (v ? 'vocals separated' : 'vocals not separated'),
-  decode_randomness: (v) => (v === 'temperature_0' ? 'temperature 0' : v === 'seeded' ? 'fixed seed' : 'default randomness'),
+  decode_randomness: (v) => (v === 'temperature_0' ? 'temperature 0' : 'default randomness'),
   initial_prompt: () => 'initial prompt',
 }
 
