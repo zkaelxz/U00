@@ -371,9 +371,7 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
     Returns "" once the text is in the file, else the error to report
     (none of the chapter's text left in the file). Raises only if a failed
     write could not be cut off again, so nothing is appended after it."""
-    loaded = chapter_body(text)
-    if ch.title:
-        loaded = f"{ch.title}\n\n{loaded}"
+    loaded = _novel_block(text, ch.title)
     path = os.path.join(db.drama_dir(drama_id), RAW_NOVEL_FILENAME)
     key = (source, ch.series_id, drama_id, ch.chapter_id)
 

@@ -16,7 +16,28 @@ from sources.store import (connect, get_setting, set_setting)
 # Generic-import image memory (cross-chapter duplicate filter)
 # ---------------------------------------------------------------------------
 
+# Query keys that only say how the reader got to the page, never which chapter
+# it is; every other key stays, because sites like read.php?id=5 name the
+# chapter in the query.
+_TRACKING_KEYS = frozenset({"from", "ref", "source", "fbclid", "gclid", "spm"})
+
+
+def _chapter_key(url: str) -> str:
+    """The chapter URL without scheme, fragment, trailing slash or tracking
+    keys, so reaching the same chapter from the contents page or over http
+    and https is not a different chapter."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit
+    p = urlsplit(url or "")
+    query = sorted((k, v) for k, v in parse_qsl(p.query, keep_blank_values=True)
+                   if k.lower() not in _TRACKING_KEYS and not k.lower().startswith("utm_"))
+    key = f"{(p.hostname or '').lower()}{p.path.rstrip('/')}"
+    if key and query:
+        key += "?" + urlencode(query)
+    return key or (url or "")
+
+
 def remember_images(domain: str, chapter_url: str, hashes):
+    chapter_url = _chapter_key(chapter_url)
     with connect() as conn:
         conn.executemany("INSERT OR IGNORE INTO seen_images(domain, sha256, chapter_url) "
                          "VALUES(?, ?, ?)", [(domain, h, chapter_url) for h in hashes])
@@ -28,11 +49,13 @@ def hashes_seen_elsewhere(domain: str, chapter_url: str, hashes) -> set:
     hashes = list(hashes)
     if not hashes:
         return set()
+    # Rows written before the key existed hold the raw URL.
+    raw, chapter_url = chapter_url, _chapter_key(chapter_url)
     marks = ",".join("?" * len(hashes))
     with connect() as conn:
         rows = conn.execute(f"SELECT DISTINCT sha256 FROM seen_images WHERE domain=? "
-                            f"AND chapter_url<>? AND sha256 IN ({marks})",
-                            (domain, chapter_url, *hashes)).fetchall()
+                            f"AND chapter_url<>? AND chapter_url<>? AND sha256 IN ({marks})",
+                            (domain, chapter_url, raw, *hashes)).fetchall()
     return {r["sha256"] for r in rows}
 
 
