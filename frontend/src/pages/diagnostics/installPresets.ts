@@ -66,6 +66,17 @@ export function groupsNeedingInstallFirst(tasks: DiagnosticsInstallTask[]): Task
   return groupTasks(tasks).map((g) => ({ ...g, tasks: sortTasksNeedingInstall(g.tasks) }))
 }
 
+/** Says what Packages' Install all leaves out: it does not set up GPU PyTorch, which has its own confirmation and a 2.5 GB download. */
+export const INSTALL_ALL_NOTE =
+  'Install all adds every package listed below that is still missing. It does not set up GPU PyTorch: use GPU PyTorch further down, or Install all under Setup > Recommended installs, which does that first.'
+
+/** One task standing for every task's missing packages, each once (tasks share packages); null when nothing is missing. */
+export function installAllTask(tasks: DiagnosticsInstallTask[], packages: Record<string, DiagnosticsPackageInfo>): DiagnosticsInstallTask | null {
+  const toInstall = [...new Set(tasks.flatMap((t) => t.to_install))]
+  if (!tasks[0] || !toInstall.length) return null
+  return { ...tasks[0], id: 'all-tasks', label: 'all tasks', to_install: toInstall, approx_mb: toInstall.reduce((mb, n) => mb + (packages[n]?.approx_mb ?? 0), 0) }
+}
+
 /** The closed group's one-liner: how many of its tasks still need something installed. */
 export function taskGroupSummary(tasks: DiagnosticsInstallTask[]): string {
   const need = tasks.filter((t) => !taskReady(t)).length

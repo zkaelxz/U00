@@ -10,7 +10,7 @@ from typing import Optional
 
 import background_jobs
 import db
-import translation_guide as tguide
+import glossary_extract
 from engine_backends import paid_calls
 from engine_backends import shared as engine_shared
 from engine_backends.shared import TranslationCancelled
@@ -60,7 +60,7 @@ def _add_new_terms(drama, proposals: list) -> list:
 
 def _scan_one(drama, engine, engine_name, lines) -> list:
     known = db.list_run_glossary_terms(drama)
-    proposals = tguide.extract_terms_llm(
+    proposals = glossary_extract.extract_terms_llm(
         lines, engine, source_language=drama.get("source_language") or "zh", known_terms=known,
         usage_cb=paid_calls.usage_logger(drama["id"], engine_name, engine, "extract_terms"))
     proposals = [{k: v for k, v in p.items() if k != "renderings"} for p in proposals if isinstance(p, dict)]
