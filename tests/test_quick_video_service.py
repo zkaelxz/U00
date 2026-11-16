@@ -101,16 +101,16 @@ def test_a_later_step_does_not_start_after_an_unfinished_one_wherever_it_sits(jo
     _start(_profile())
     items = q._load()["items"]
     with pytest.raises(ConflictError):
-        qv.require_chain_finished(items[1], items)
-    qv.require_chain_finished(items[0], items)
+        q._require_chain_finished(items[1], items)
+    q._require_chain_finished(items[0], items)
     # Moved ahead of the download, or the download removed: still refused.
     with pytest.raises(ConflictError):
-        qv.require_chain_finished(items[3], [items[3], items[0], items[1], items[2]])
+        q._require_chain_finished(items[3], [items[3], items[0], items[1], items[2]])
     with pytest.raises(ConflictError):
-        qv.require_chain_finished(items[1], items[1:])
+        q._require_chain_finished(items[1], items[1:])
     for i in items[:3]:
         i["status"] = "done"
-    qv.require_chain_finished(items[3], [items[3]] + items[:3])
+    q._require_chain_finished(items[3], [items[3]] + items[:3])
 
 
 def test_runs_show_progress_without_the_link(jobs, started_downloads):

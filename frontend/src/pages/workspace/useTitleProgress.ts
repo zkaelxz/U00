@@ -1,6 +1,7 @@
 // Owns the counts the Simple view's steps column is drawn from, shared by the title page and the stage pages beside it.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { getTitleFlow } from '../../api/queue'
 import { listLines } from '../../api/review'
 import { getTranscribeConfig, getWorkflowProgress } from '../../api/workspace'
 
@@ -65,6 +66,18 @@ export function useTitleProgress(id: number, comic: boolean) {
     if (comic) return
     let cancelled = false
     getTranscribeConfig(id).then((c) => !cancelled && setAudioReady(c.audio_available), () => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [id, comic])
+
+  // A run the PC is still carrying on keeps its button and progress when the page is opened again mid-run.
+  useEffect(() => {
+    if (comic) return
+    let cancelled = false
+    getTitleFlow(id).then((r) => {
+      if (!cancelled && (r.state === 'waiting' || r.state === 'running')) setFlowOn(true)
+    }, () => undefined)
     return () => {
       cancelled = true
     }
