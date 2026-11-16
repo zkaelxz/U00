@@ -279,3 +279,13 @@ def test_member_cannot_pause_a_profile_they_cannot_see(people):
         f"series:{db.get_drama(did)['series_id']}")["profile"]
     assert review_extras_service.set_style_applied(
         did, False, principal=admin)["profile"]["applied"] is False
+
+
+def test_a_deleted_titles_kept_edits_reach_no_ones_style(people):
+    _admin, member, _other = people
+    gone = db.create_drama(title_zh="Gone")
+    db.record_edit_sample(gone, "中", "AI", "Edit")
+    db.delete_drama(gone)
+    did = db.create_drama(title_zh="Mine")
+    view = review_extras_service.get_style(did, member)
+    assert view["edit_count"] == 0 and view["drama_edit_count"] == 0

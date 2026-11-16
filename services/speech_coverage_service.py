@@ -255,11 +255,14 @@ def _run_job(job_id: str, drama_id: int, audio_path: str, min_gap_seconds: float
     background_jobs.set_result(job_id, report)
 
 
-def start_speech_coverage(drama_id: int, min_gap_seconds: float = DEFAULT_MIN_GAP_SECONDS) -> dict:
+def start_speech_coverage(drama_id: int, min_gap_seconds: float = DEFAULT_MIN_GAP_SECONDS,
+                          after_transcription: bool = False) -> dict:
     """Starts the check over this title's stored audio. NotFoundError,
     UnsupportedOperationError (no stored audio), InvalidInputError (gap
     length out of range), ConflictError (a transcription of this title is
-    running, so its lines are about to change, or a check is already running)."""
+    running, so its lines are about to change, or a check is already running;
+    `after_transcription` is the transcription's own hook, which runs after
+    its lines are saved but while its job still counts as running)."""
     drama = ownership_service.require_drama(drama_id)
     if (isinstance(min_gap_seconds, bool) or not isinstance(min_gap_seconds, (int, float))
             or not MIN_GAP_SECONDS_MIN <= min_gap_seconds <= MIN_GAP_SECONDS_MAX):
@@ -268,12 +271,11 @@ def start_speech_coverage(drama_id: int, min_gap_seconds: float = DEFAULT_MIN_GA
     audio_path = drama_audio_path(drama_id, drama)
     if audio_path is None:
         raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
-    if background_jobs.is_running(f"transcribe_{drama_id}"):
+    if not after_transcription and background_jobs.is_running(f"transcribe_{drama_id}"):
         raise ConflictError("A transcription is running for this title. "
                             "Check the coverage when it finishes.")
-    # The screen starts this check after every transcription; a failed or empty run leaves a
-    # title with no lines to compare against. A different error class than the "already
-    # running" conflict, so the panel can show this one as text.
+    # A title with no lines has nothing to compare against. A different error class than the
+    # "already running" conflict, so the panel can show this one as text.
     if not db.load_line_ids(drama_id):
         raise UnsupportedOperationError("This title has no lines yet, so there is nothing to check.")
     job_id = speech_coverage_job_id(drama_id)
@@ -282,6 +284,22 @@ def start_speech_coverage(drama_id: int, min_gap_seconds: float = DEFAULT_MIN_GA
             description=f"Speech coverage check (title #{drama_id})", line_fields=()):
         raise ConflictError("A coverage check is already running for this title.")
     return {"job_id": job_id}
+
+
+def after_run(drama_id: int) -> bool:
+    """Called after every saved transcription, so a run from the queue or a closed screen is
+    checked too. Never raises: the transcription already succeeded and this is an extra. The
+    check only reads (CPU, no GPU slot), and the stretches it finds are never filled by itself:
+    gap-filling has invented lines before."""
+    try:
+        start_speech_coverage(drama_id, after_transcription=True)
+        return True
+    except (UnsupportedOperationError, ConflictError):
+        return False
+    except Exception as exc:
+        applog.get_logger().warning(
+            f"speech coverage check not started for drama {drama_id}: {redact_secrets(str(exc))}")
+        return False
 
 
 def get_speech_coverage(drama_id: int) -> dict:

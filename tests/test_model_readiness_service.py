@@ -644,7 +644,7 @@ def test_scanlate_render_and_export_start_offline_for_a_member(isolated_db, monk
 def test_lama_loads_the_cached_file_only_when_marked(monkeypatch):
     import sys
     import types
-    import scanlate_inpaint
+    import scanlate_lama
     calls = []
 
     def hf_hub_download(repo_id, filename, token=None, **kwargs):
@@ -660,16 +660,16 @@ def test_lama_loads_the_cached_file_only_when_marked(monkeypatch):
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
     monkeypatch.setitem(sys.modules, "safetensors", st)
     monkeypatch.setitem(sys.modules, "safetensors.torch", st_torch)
-    monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+    monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
     with pytest.raises(RuntimeError, match="stop after"):
-        scanlate_inpaint._load_lama_generator()
+        scanlate_lama._load_lama_generator()
 
     def member():
         model_offline.set_offline(True)
-        scanlate_inpaint._load_lama_generator()
+        scanlate_lama._load_lama_generator()
     with pytest.raises(RuntimeError, match="not downloaded yet"):
         _in_own_context(member)
-    pinned = {"revision": model_pins.REVISIONS[scanlate_inpaint._LAMA_ML_REPO], "etag_timeout": 30}
+    pinned = {"revision": model_pins.REVISIONS[scanlate_lama._LAMA_ML_REPO], "etag_timeout": 30}
     assert calls == [pinned, {**pinned, "local_files_only": True}]
 
 

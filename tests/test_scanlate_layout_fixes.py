@@ -7,6 +7,8 @@ cv2 = pytest.importorskip("cv2")
 import ocr_layout
 import scanlate
 import scanlate_detect
+import scanlate_balloons
+import scanlate_box_merge
 import scanlate_inpaint
 import scanlate_regions
 
@@ -34,7 +36,7 @@ def test_two_columns_of_one_balloon_become_one_box():
     _letters(img, 175, 80, 24, 140)
     _letters(img, 120, 90, 24, 120)
     left, right = _box(115, 85, 35, 130), _box(168, 75, 38, 150)
-    out = scanlate_detect.merge_fragment_boxes([left, right], img)
+    out = scanlate_box_merge.merge_fragment_boxes([left, right], img)
     assert len(out) == 1
     assert (out[0]["x"], out[0]["y"]) == (115, 75)
 
@@ -43,7 +45,7 @@ def test_boxes_of_two_separate_balloons_stay_apart():
     img = _page([(90, 150, 60, 100), (215, 150, 60, 100)])
     _letters(img, 80, 90, 24, 120)
     _letters(img, 205, 90, 24, 120)
-    out = scanlate_detect.merge_fragment_boxes([_box(70, 80, 45, 140), _box(195, 80, 45, 140)], img)
+    out = scanlate_box_merge.merge_fragment_boxes([_box(70, 80, 45, 140), _box(195, 80, 45, 140)], img)
     assert len(out) == 2
 
 
@@ -51,7 +53,7 @@ def test_adjacent_balloons_with_touching_boxes_stay_apart():
     img = _page([(95, 150, 55, 100), (200, 150, 55, 100)])
     _letters(img, 85, 90, 22, 120)
     _letters(img, 190, 90, 22, 120)
-    out = scanlate_detect.merge_fragment_boxes([_box(60, 70, 100, 160), _box(150, 70, 100, 160)], img)
+    out = scanlate_box_merge.merge_fragment_boxes([_box(60, 70, 100, 160), _box(150, 70, 100, 160)], img)
     assert len(out) == 2
 
 
@@ -84,7 +86,7 @@ def test_balloon_on_dark_art_is_erased_inside_its_outline_only():
     img = _page([(150, 150, 70, 100)])
     _letters(img, 135, 90, 24, 120)
     box = {"x": 70, "y": 40, "w": 160, "h": 220}   # reaches past the balloon on every side
-    mask = scanlate_detect.bubble_erase_mask("x.png", box, image=img)
+    mask = scanlate_balloons.bubble_erase_mask("x.png", box, image=img)
     assert mask is not None and not mask.all()
     assert not mask[150 - box["y"], 150 - 69 - box["x"]]      # on the outline ring, 69 px left of centre
     assert mask[150 - box["y"], 150 - box["x"]]
@@ -305,8 +307,8 @@ def _form(rule=True, drop=16):
 
 def test_form_labels_parted_by_a_rule_stay_apart():
     labels = [_box(45, 20, 100, 45, "text_free"), _box(45, 95, 100, 45, "text_free")]
-    assert len(scanlate_detect.merge_fragment_boxes(labels, _form())) == 2
-    assert len(scanlate_detect.merge_fragment_boxes(labels, _form(rule=False))) == 1
+    assert len(scanlate_box_merge.merge_fragment_boxes(labels, _form())) == 2
+    assert len(scanlate_box_merge.merge_fragment_boxes(labels, _form(rule=False))) == 1
 
 
 def _detect_with_scores(monkeypatch, img, scored):
@@ -354,7 +356,7 @@ def _cut_line_page(top):
 def test_lettering_cut_off_by_the_page_edge_is_erased():
     img = _cut_line_page(0)
     box = {"x": 110, "y": 0, "w": 160, "h": 80}
-    mask = scanlate_detect.bubble_erase_mask("x.png", box, image=img)
+    mask = scanlate_balloons.bubble_erase_mask("x.png", box, image=img)
     assert mask is not None
     strokes = (img[:80, 110:270] == 0) & (np.arange(80)[:, None] < 22)
     assert mask[strokes].all()
@@ -365,7 +367,7 @@ def test_a_balloon_outline_cut_off_by_the_page_edge_is_not_erased():
     img[0:22, 186:190] = img[0:22, 210:214] = img[18:22, 186:214] = 0   # a glyph the page cuts
     _letters(img, 170, 28, 60, 12)
     box = {"x": 100, "y": 0, "w": 200, "h": 90}
-    mask = scanlate_detect.bubble_erase_mask("x.png", box, image=img)
+    mask = scanlate_balloons.bubble_erase_mask("x.png", box, image=img)
     assert mask is not None
     outline = img[:90, 100:300] == 0
     outline[:50, 65:135] = False                        # the lettering, which may go
@@ -382,7 +384,7 @@ def test_art_in_the_notch_of_two_lobes_cut_off_by_the_page_edge_is_not_erased():
     for x in (135, 260):                                # glyphs the page cuts, one per lobe
         img[0:22, x:x + 4] = img[0:22, x + 24:x + 28] = img[18:22, x:x + 28] = 0
     box = {"x": 110, "y": 0, "w": 200, "h": 100}
-    mask = scanlate_detect.bubble_erase_mask("x.png", box, image=img)
+    mask = scanlate_balloons.bubble_erase_mask("x.png", box, image=img)
     notch = np.zeros((100, 200), bool)
     notch[:45, 85:105] = True                           # between the lobes, at the page edge
     notch &= img[:100, 110:310] < 128

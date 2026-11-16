@@ -139,6 +139,7 @@ def _text(fields: dict, num: int) -> str:
 class ZerosumOnlineSource(PlainImageDownload, SourceAdapter):
     name = "zerosumonline"
     display_name = "ゼロサムオンライン Zero-Sum Online"
+    homepage = "https://zerosumonline.com"
     content_types = [ContentType.MANGA.value]
     languages = ["ja"]
     pacing_profile = PacingProfile(

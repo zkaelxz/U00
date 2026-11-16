@@ -29,6 +29,16 @@ const floatingNav = (port: number) => ({
   }],
 })
 
+// CI runs the phone project in jobs of its own and every other project in the rest (the e2e job in
+// .github/workflows/tests.yml): Playwright shards by test count, and a phone test takes about twice as long.
+// "desktop" means everything but phone, so a new project can never fall out of CI.
+function projectGroup<T extends { name: string }>(name: string | undefined, all: T[]): T[] {
+  if (name === 'phone') return all.filter(p => p.name === 'phone')
+  if (name === 'desktop') return all.filter(p => p.name !== 'phone')
+  if (name) throw new Error(`E2E_PROJECT_GROUP must be phone or desktop, not ${name}`)
+  return all
+}
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
@@ -51,7 +61,7 @@ export default defineConfig({
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH }
       : {},
   },
-  projects: [
+  projects: projectGroup(process.env.E2E_PROJECT_GROUP, [
     // Every other spec runs at the default desktop viewport.
     { name: 'desktop', testIgnore: /mobile\.spec\.ts/, grepInvert: /@catalogue/, use: { storageState: floatingNav(WEB_PORT) } },
     // Only the @catalogue tests, against the build that has the Catalogue tab on.
@@ -75,7 +85,7 @@ export default defineConfig({
         userAgent: devices['iPhone 13'].userAgent,
       },
     },
-  ],
+  ]),
   webServer: [
     {
       command: `${python} e2e/serve_seeded_api.py ${API_PORT}`,

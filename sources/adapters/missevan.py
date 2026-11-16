@@ -116,6 +116,7 @@ def _from_rendered(html: str) -> dict:
 class MissEvanSource(SourceAdapter):
     name = "missevan"
     display_name = "猫耳FM MissEvan"
+    homepage = "https://www.missevan.com"
     content_types = [ContentType.AUDIO_DRAMA.value]
     languages = ["zh"]
     url_patterns = [r"missevan\.com/mdrama/(?:drama/)?(\d+)", r"missevan\.com/sound/(\d+)"]

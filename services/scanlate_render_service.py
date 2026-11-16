@@ -169,6 +169,7 @@ def _render_job(jid: str, drama_id: int, page_ids: list):
             failed += 1
             append_notes(pid, [("error", f"Render failed: {type(exc).__name__}: {exc}")])
     msg = f"Rendered {done} page(s)" + (f", {failed} failed (see page notes)" if failed else "")
+    background_jobs.set_result(jid, {"kind": "render", "rendered": done, "failed": failed})
     background_jobs.update_progress(jid, 1.0, msg + ".")
 
 
