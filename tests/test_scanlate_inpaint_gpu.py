@@ -69,15 +69,16 @@ class _Torch:
 
 @pytest.fixture
 def gpu(monkeypatch):
-    from services import settings_service, vram_service
+    import vram
+    from services import settings_service
     state = {"use_gpu": True, "fits": True, "asked_mb": []}
     monkeypatch.setattr(settings_service, "get", lambda key: state[key] if key == "use_gpu" else None)
 
     def check_fits(what, required_mb=None, free_mb=None):
         state["asked_mb"].append(required_mb)
         if not state["fits"]:
-            raise vram_service.InsufficientVramError("full")
-    monkeypatch.setattr(vram_service, "check_fits", check_fits)
+            raise vram.InsufficientVramError("full")
+    monkeypatch.setattr(vram, "check_fits", check_fits)
     monkeypatch.setattr(scanlate_lama, "_lama_gpu", {})
     monkeypatch.setattr(scanlate_lama, "_lama_gpu_broken", [])
     return state

@@ -542,8 +542,8 @@ def test_vl_manga_with_both_repos_cached_passes_the_requirement(monkeypatch):
 
 def _refusal(kind):
     import memory_headroom
-    from services import vram_service
-    return {"vram": vram_service.InsufficientVramError,
+    import vram
+    return {"vram": vram.InsufficientVramError,
             "headroom": memory_headroom.HeadroomError}[kind](
         "Not enough free memory: C:\\Users\\me\\x would eat into your Keep free setting.")
 
