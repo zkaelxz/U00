@@ -81,6 +81,7 @@ def _https(url) -> str:
 class MangaKSource(SourceAdapter):
     name = "mangak"
     display_name = "MangaK"
+    homepage = "https://mangak.io"
     content_types = [ContentType.MANGA.value, ContentType.MANHWA.value, ContentType.MANHUA.value]
     languages = ["en"]
     url_patterns = [r"mangak\.io/[A-Za-z0-9]"]
