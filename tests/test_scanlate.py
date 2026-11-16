@@ -16,7 +16,10 @@ cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cle
 
 import model_pins
 import scanlate
+import scanlate_fonts
+import scanlate_ink
 import scanlate_render
+import scanlate_text_layout
 import scanlate_detect
 import scanlate_inpaint
 
@@ -136,8 +139,8 @@ class TestInpaintDarkBalloon:
         dark = Image.new("RGB", (50, 50), (10, 10, 10))
         light = Image.new("RGB", (50, 50), (240, 240, 240))
         box = {"x": 0, "y": 0, "w": 50, "h": 50}
-        assert scanlate_render._text_fill(dark, box) == (255, 255, 255)
-        assert scanlate_render._text_fill(light, box) == (0, 0, 0)
+        assert scanlate_ink._text_fill(dark, box) == (255, 255, 255)
+        assert scanlate_ink._text_fill(light, box) == (0, 0, 0)
 
 
 class TestRenderTextInBox:
@@ -145,7 +148,7 @@ class TestRenderTextInBox:
         from PIL import Image
         img = Image.open(synthetic_page).convert("RGB")
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
-        result = scanlate_render.render_text_in_box(img, box, "A reasonably short test line.")
+        result = scanlate_text_layout.render_text_in_box(img, box, "A reasonably short test line.")
         assert result.size == (600, 400)  # unchanged canvas size
 
     def test_render_handles_empty_text_without_crashing(self, synthetic_page):
@@ -153,7 +156,7 @@ class TestRenderTextInBox:
         img = Image.open(synthetic_page).convert("RGB")
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
         # should not raise even with nothing to draw
-        scanlate_render.render_text_in_box(img, box, "")
+        scanlate_text_layout.render_text_in_box(img, box, "")
 
     def test_render_shrinks_font_for_long_text_in_small_box(self, synthetic_page):
         from PIL import Image
@@ -161,7 +164,7 @@ class TestRenderTextInBox:
         small_box = {"x": 100, "y": 80, "w": 80, "h": 30}
         long_text = "This is a much longer sentence than the tiny box can comfortably fit."
         # should not raise -- font auto-shrink should handle it gracefully
-        scanlate_render.render_text_in_box(img, small_box, long_text, font_size=24)
+        scanlate_text_layout.render_text_in_box(img, small_box, long_text, font_size=24)
 
     def test_font_category_resolves_to_a_different_real_font_than_regular(self, synthetic_page):
         # Uses the real bold/regular DejaVu system fonts if present -- proves
@@ -172,12 +175,12 @@ class TestRenderTextInBox:
         from PIL import Image
         img = Image.open(synthetic_page).convert("RGB")
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
-        bold_path = scanlate_render._find_font(category="bold")
-        regular_path = scanlate_render._find_font(category="regular")
+        bold_path = scanlate_fonts._find_font(category="bold")
+        regular_path = scanlate_fonts._find_font(category="regular")
         assert bold_path != regular_path
         # Both categories render without error.
-        scanlate_render.render_text_in_box(img.copy(), box, "Hi", font_category="bold")
-        scanlate_render.render_text_in_box(img.copy(), box, "Hi", font_category="regular")
+        scanlate_text_layout.render_text_in_box(img.copy(), box, "Hi", font_category="bold")
+        scanlate_text_layout.render_text_in_box(img.copy(), box, "Hi", font_category="regular")
 
     def test_custom_font_is_actually_used_for_rendering(self, synthetic_page):
         from PIL import Image
@@ -188,59 +191,59 @@ class TestRenderTextInBox:
             pytest.skip("DejaVu fonts not present on this system")
         # Doesn't raise, and the custom font (not a system fallback) is
         # what actually gets resolved for this render.
-        scanlate_render.render_text_in_box(img, box, "Hi", font_category="handwritten",
+        scanlate_text_layout.render_text_in_box(img, box, "Hi", font_category="handwritten",
                                      custom_fonts={"handwritten": real_font})
-        assert scanlate_render._find_font(category="handwritten",
+        assert scanlate_fonts._find_font(category="handwritten",
                                     custom_fonts={"handwritten": real_font}) == real_font
 
 
 class TestFindFont:
     def test_the_bundled_comic_face_is_the_default_for_regular_and_bold(self):
-        regular = scanlate_render._find_font(category="regular")
-        bold = scanlate_render._find_font(category="bold")
+        regular = scanlate_fonts._find_font(category="regular")
+        bold = scanlate_fonts._find_font(category="bold")
         assert os.path.basename(regular) == "ComicNeue-Regular.ttf" and os.path.exists(regular)
         assert os.path.basename(bold) == "ComicNeue-Bold.ttf" and os.path.exists(bold)
 
     def test_a_bundled_font_covers_the_punctuation_the_typesetter_draws(self):
         from PIL import ImageFont
-        font = ImageFont.truetype(scanlate_render._find_font(category="regular"), 20)
+        font = ImageFont.truetype(scanlate_fonts._find_font(category="regular"), 20)
         for ch in "…—’“”é!?":
             assert font.getmask(ch).getbbox() is not None, ch
 
     def test_explicit_font_path_always_wins(self, tmp_path):
         real_font = tmp_path / "custom.ttf"
         real_font.write_bytes(b"fake ttf bytes")
-        result = scanlate_render._find_font(str(real_font), category="handwritten",
+        result = scanlate_fonts._find_font(str(real_font), category="handwritten",
                                       custom_fonts={"handwritten": "/nonexistent/other.ttf"})
         assert result == str(real_font)
 
     def test_a_nonexistent_explicit_path_falls_through_to_the_rest(self, tmp_path):
         custom = tmp_path / "custom_bold.ttf"
         custom.write_bytes(b"fake")
-        result = scanlate_render._find_font("/nonexistent/explicit.ttf", category="bold",
+        result = scanlate_fonts._find_font("/nonexistent/explicit.ttf", category="bold",
                                       custom_fonts={"bold": str(custom)})
         assert result == str(custom)
 
     def test_custom_font_for_the_category_is_used_before_system_fallbacks(self, tmp_path):
         custom = tmp_path / "my_handwriting.ttf"
         custom.write_bytes(b"fake")
-        result = scanlate_render._find_font(category="handwritten", custom_fonts={"handwritten": str(custom)})
+        result = scanlate_fonts._find_font(category="handwritten", custom_fonts={"handwritten": str(custom)})
         assert result == str(custom)
 
     def test_custom_font_for_a_different_category_is_ignored(self, tmp_path):
         custom = tmp_path / "my_bold.ttf"
         custom.write_bytes(b"fake")
         # A handwritten custom font must not leak into a "bold" lookup.
-        result = scanlate_render._find_font(category="bold", custom_fonts={"handwritten": str(custom)})
+        result = scanlate_fonts._find_font(category="bold", custom_fonts={"handwritten": str(custom)})
         assert result != str(custom)
 
     def test_unknown_category_falls_back_to_regular_system_fonts(self):
         # Doesn't crash on a category with no dedicated candidates list.
-        result = scanlate_render._find_font(category="not_a_real_category")
+        result = scanlate_fonts._find_font(category="not_a_real_category")
         assert result is None or os.path.exists(result)
 
     def test_categories_constant_matches_sample_text_style_output(self):
-        assert set(scanlate_render.FONT_CATEGORIES) == {"regular", "bold", "handwritten"}
+        assert set(scanlate_fonts.FONT_CATEGORIES) == {"regular", "bold", "handwritten"}
 
 
 class TestSampleTextStyle:
@@ -250,11 +253,11 @@ class TestSampleTextStyle:
         # caller doing result["suggested_style"] could KeyError depending
         # on which path was hit -- .get() masked this rather than fixing it.
         missing_path = str(tmp_path / "does_not_exist.png")
-        result = scanlate_render.sample_text_style(missing_path, {"x": 0, "y": 0, "w": 10, "h": 10})
+        result = scanlate_fonts.sample_text_style(missing_path, {"x": 0, "y": 0, "w": 10, "h": 10})
         assert result["suggested_style"] == "regular"
 
     def test_degenerate_box_also_includes_suggested_style(self, synthetic_page):
-        result = scanlate_render.sample_text_style(synthetic_page, {"x": 0, "y": 0, "w": 0, "h": 0})
+        result = scanlate_fonts.sample_text_style(synthetic_page, {"x": 0, "y": 0, "w": 0, "h": 0})
         assert result["suggested_style"] == "regular"
 
     def test_a_dense_bold_looking_region_is_flagged_bold(self, temp_dir):
@@ -264,7 +267,7 @@ class TestSampleTextStyle:
         cv2.rectangle(img, (10, 10), (90, 90), 0, -1)
         path = os.path.join(temp_dir, "bold.png")
         cv2.imwrite(path, img)
-        result = scanlate_render.sample_text_style(path, {"x": 0, "y": 0, "w": 100, "h": 100})
+        result = scanlate_fonts.sample_text_style(path, {"x": 0, "y": 0, "w": 100, "h": 100})
         assert result["suggested_style"] == "bold"
 
     def test_a_light_sparse_region_is_flagged_regular(self, temp_dir):
@@ -272,7 +275,7 @@ class TestSampleTextStyle:
         cv2.rectangle(img, (45, 45), (55, 55), 0, -1)  # tiny mark, low ink ratio
         path = os.path.join(temp_dir, "regular.png")
         cv2.imwrite(path, img)
-        result = scanlate_render.sample_text_style(path, {"x": 0, "y": 0, "w": 100, "h": 100})
+        result = scanlate_fonts.sample_text_style(path, {"x": 0, "y": 0, "w": 100, "h": 100})
         assert result["suggested_style"] == "regular"
 
 
@@ -1323,6 +1326,6 @@ class TestRenderReportsTheDrawnSize:
         from PIL import Image
         img = Image.new("RGB", (80, 60), "white")
         report = {}
-        scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": 80, "h": 60}, "A longer line "
+        scanlate_text_layout.render_text_in_box(img, {"x": 0, "y": 0, "w": 80, "h": 60}, "A longer line "
                                            "of text that must shrink", font_size=40, report=report)
         assert 8 <= report["size"] < 40
