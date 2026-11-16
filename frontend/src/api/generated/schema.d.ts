@@ -3461,6 +3461,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/{drama_id}/settings-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where each of a title's settings gets its value: the title, its series default or the Settings default */
+        get: operations["get_settings_sources_api_dramas__drama_id__settings_sources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/{drama_id}/source-link": {
         parameters: {
             query?: never;
@@ -9522,6 +9539,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/keys-file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which keys-file and environment settings are set (yes or no, never a value) */
+        get: operations["get_keys_file_status_api_settings_keys_file_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/settings/keys/{engine}": {
         parameters: {
             query?: never;
@@ -9720,6 +9754,24 @@ export interface paths {
         put?: never;
         /** PC only: remove a Discord webhook or ntfy topic URL from .env */
         post: operations["clear_channel_api_settings_notifications__channel__clear_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/resource-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Each PC alert's limit, minutes and switch, with ranges and defaults */
+        get: operations["get_rules_api_settings_resource_alerts_get"];
+        put?: never;
+        /** PC only: change PC alert limits, minutes or switches */
+        post: operations["set_rules_api_settings_resource_alerts_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -18871,6 +18923,24 @@ export interface components {
             /** Model */
             model?: string | null;
         };
+        /** EnvSettingRow */
+        EnvSettingRow: {
+            /** From File */
+            from_file: boolean;
+            /** Group */
+            group: string;
+            /** Label */
+            label: string;
+            /** Name */
+            name: string;
+            /** Set */
+            set: boolean;
+        };
+        /** EnvSettingsStatus */
+        EnvSettingsStatus: {
+            /** Settings */
+            settings: components["schemas"]["EnvSettingRow"][];
+        };
         /** EpisodeSummaryGenerate */
         EpisodeSummaryGenerate: {
             /** Engine */
@@ -25278,6 +25348,63 @@ export interface components {
             /** Job Id */
             job_id: string;
         };
+        /** ResourceAlertChange */
+        ResourceAlertChange: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Limit */
+            limit?: number | null;
+            /** Minutes */
+            minutes?: number | null;
+        };
+        /** ResourceAlertRule */
+        ResourceAlertRule: {
+            /** Below */
+            below: boolean;
+            /** Default Enabled */
+            default_enabled: boolean;
+            /** Default Limit */
+            default_limit: number | null;
+            /** Default Minutes */
+            default_minutes: number;
+            /** Enabled */
+            enabled: boolean;
+            /** Has Limit */
+            has_limit: boolean;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Limit */
+            limit: number | null;
+            /** Limit Max */
+            limit_max: number | null;
+            /** Limit Min */
+            limit_min: number | null;
+            /** Minutes */
+            minutes: number;
+            /** Minutes Max */
+            minutes_max: number;
+            /** Minutes Min */
+            minutes_min: number;
+            /** Unit */
+            unit: string;
+        };
+        /** ResourceAlertRules */
+        ResourceAlertRules: {
+            /** Rules */
+            rules: components["schemas"]["ResourceAlertRule"][];
+        };
+        /**
+         * ResourceAlertsRequest
+         * @description Only the alerts named change; within one, only the fields sent.
+         */
+        ResourceAlertsRequest: {
+            /** Rules */
+            rules: {
+                [key: string]: components["schemas"]["ResourceAlertChange"];
+            };
+        };
         /**
          * ResplitResult
          * @description Either the finished summary (estimated timing) or, with align_to_audio,
@@ -27665,6 +27792,11 @@ export interface components {
              */
             scene_break_gap_seconds: number;
             /**
+             * Second Hearing
+             * @default false
+             */
+            second_hearing: boolean;
+            /**
              * Sensitive Vad Threshold
              * @default 0.35
              */
@@ -27956,6 +28088,8 @@ export interface components {
             scene_aware_batches?: boolean | null;
             /** Scene Break Gap Seconds */
             scene_break_gap_seconds?: number | null;
+            /** Second Hearing */
+            second_hearing?: boolean | null;
             /** Sensitive Vad Threshold */
             sensitive_vad_threshold?: number | null;
             /** Sentence Group Gap Seconds */
@@ -28615,6 +28749,12 @@ export interface components {
              */
             health: string;
             health_detail: components["schemas"]["SourceHealth"];
+            /**
+             * Homepage
+             * @description The site's front page (https), empty when the source has no site.
+             * @default
+             */
+            homepage: string;
             /** Import Supported */
             import_supported: boolean;
             /** Languages */
@@ -28975,6 +29115,12 @@ export interface components {
              * @description green, yellow or red.
              */
             health: string;
+            /**
+             * Homepage
+             * @description The site's front page (https), empty when the source has no site.
+             * @default
+             */
+            homepage: string;
             /** Import Supported */
             import_supported: boolean;
             /** Languages */
@@ -30377,6 +30523,46 @@ export interface components {
             id: number;
             /** Title */
             title: string;
+        };
+        /** TitleSettingSource */
+        TitleSettingSource: {
+            /** Differs From Series */
+            differs_from_series: boolean;
+            /**
+             * Group
+             * @description translate or transcribe
+             */
+            group: string;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Series Value
+             * @description The series default, when it has one
+             */
+            series_value: unknown;
+            /**
+             * Source
+             * @description title (its own value), series (equal to the series default) or settings_default (the title has none)
+             */
+            source: string;
+            /**
+             * Value
+             * @description What a run uses
+             */
+            value: unknown;
+        };
+        /** TitleSettingSources */
+        TitleSettingSources: {
+            /** Drama Id */
+            drama_id: number;
+            /** Series Id */
+            series_id: number | null;
+            /** Series Name */
+            series_name: string | null;
+            /** Settings */
+            settings: components["schemas"]["TitleSettingSource"][];
         };
         /** TitleVdbNames */
         TitleVdbNames: {
@@ -41825,6 +42011,46 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_settings_sources_api_dramas__drama_id__settings_sources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleSettingSources"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -60612,6 +60838,26 @@ export interface operations {
             };
         };
     };
+    get_keys_file_status_api_settings_keys_file_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvSettingsStatus"];
+                };
+            };
+        };
+    };
     set_engine_key_api_settings_keys__engine__post: {
         parameters: {
             query?: never;
@@ -60914,6 +61160,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotificationChannelResult"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_rules_api_settings_resource_alerts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceAlertRules"];
+                };
+            };
+        };
+    };
+    set_rules_api_settings_resource_alerts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResourceAlertsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceAlertRules"];
                 };
             };
             /** @description Unprocessable Content */

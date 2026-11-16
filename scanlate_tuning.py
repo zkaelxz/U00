@@ -2,7 +2,7 @@
 scanlate_tuning.py -- the tunable numbers of the Scanlate pipeline, in one place.
 
 The values were set against the synthetic-page bench (`python -m
-tools.scanlate_bench`, docs/technical-notes.md); its `--set NAME=VALUE` tries
+tools.scanlate_bench`); its `--set NAME=VALUE` tries
 another value for one run without editing this file. Pipeline code reads them
 as `scanlate_tuning.NAME` at call time, never as a default argument, so an
 override reaches the next page.

@@ -681,6 +681,12 @@ _ml_failure = None            # (monotonic time, message)
 ML_FALLBACK_SENTENCE = "Falling back to the free heuristic for this page."
 
 
+def release_bubble_model() -> None:
+    """Drops the cached ML bubble detector; it reloads on the next ML page."""
+    globals().pop("_bubble_ml_model", None)
+    globals().pop("_bubble_ml_processor", None)
+
+
 def forget_ml_failure() -> None:
     global _ml_failure
     _ml_failure = None

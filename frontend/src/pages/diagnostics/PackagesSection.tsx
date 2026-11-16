@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
 import { checkPackageUpdates, getInstallPresets, installDependency, planUpgrade, planUpgradeOutdated, setupGpuTorch, upgradeDependency, upgradeOutdated } from '../../api/diagnostics'
-import { getUpgradeCheck, testUpgrade } from '../../api/diagnosticsInstalls'
+import { getCudaRuntimeStatus, getUpgradeCheck, testUpgrade } from '../../api/diagnosticsInstalls'
 import { cancelPendingInstall, dismissInstallResult, getPendingInstall } from '../../api/pendingInstall'
 import { Badge } from '../../components/Badge'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -39,6 +39,9 @@ import {
   taskTone, updateOutdatedLabel, updateOutdatedText,
   type TaskRunResult,
 } from './installPresets'
+
+// The two NVIDIA wheels that only back up the CUDA files GPU PyTorch already carries.
+const CUDA_RUNTIME_PACKAGES = ['nvidia-cublas-cu12', 'nvidia-cudnn-cu12']
 
 type Kind = 'install' | 'upgrade'
 export type Outcome =
@@ -89,6 +92,13 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     getInstallPresets().then(setPresets, () => undefined)
   }, [])
   useEffect(() => loadPresets(), [loadPresets])
+  // The server re-checks where Whisper can find cuBLAS and cuDNN; "not missing" means GPU PyTorch (or an earlier install) already supplies them, or there is no NVIDIA GPU to use them.
+  const [cudaNotNeeded, setCudaNotNeeded] = useState(false)
+  useEffect(() => {
+    let live = true
+    getCudaRuntimeStatus().then((s) => live && setCudaNotNeeded(!s.missing), () => undefined)
+    return () => { live = false }
+  }, [])
   const [gpuKey, setGpuKey] = useState(0)
   const changed = () => {
     onChanged()
@@ -286,10 +296,17 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     }
   }
 
+  // Every task's missing packages once each (tasks share packages), run as one install like a single task's.
+  const allToInstall = [...new Set((presets?.tasks ?? []).flatMap((t) => t.to_install))]
+  const allTasks: DiagnosticsInstallTask | null = presets?.tasks[0] && allToInstall.length > 0
+    ? { ...presets.tasks[0], id: 'all-tasks', label: 'all tasks', to_install: allToInstall, approx_mb: allToInstall.reduce((mb, n) => mb + (presets.packages[n]?.approx_mb ?? 0), 0) }
+    : null
+
   const taskRow = (t: DiagnosticsInstallTask) => presets && (
   <TaskRow key={t.id} task={t} packages={presets.packages} torchInstalled={torchInstalled}
     queued={queued}
     installOne={(n) => (queued.has(n) ? null : action('install', n))}
+    cudaNotNeeded={cudaNotNeeded}
     action={local && t.to_install.length > 0 && (
       <ConfirmButton
         name={t.label}
@@ -376,6 +393,25 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
           <div className="diag-stack" data-testid="install-tasks" role="group" aria-labelledby={tasksId}>
             <h2 id={tasksId} className="subhead">Install by task</h2>
             <p className="muted">Pick a task; only the packages it needs are installed.</p>
+            {local && allTasks && (
+              <>
+                <div className="actions">
+                  <ConfirmButton
+                    name={allTasks.label}
+                    label="Install all…"
+                    ariaLabel="Install all missing packages for every task"
+                    verb="install"
+                    tone="primary"
+                    confirmLabel={taskConfirmLabel(allTasks)}
+                    disabled={!!blocked}
+                    describedBy={running ? runningId : blocked ? reasonId : undefined}
+                    busy={!!busy && taskRunning === allTasks.id}
+                    onConfirm={() => void withPlan(allTasks.label, allTasks.to_install, (accepted) => runTask(allTasks, accepted))}
+                  />
+                </div>
+                <p className="muted">Install all adds every package listed below that is still missing. GPU PyTorch is set up separately, further down.</p>
+              </>
+            )}
             {local && outdated.length > 0 && (
               <div className="actions">
                 <ConfirmButton
@@ -512,7 +548,7 @@ function PackageText({ name, text, info, torchInstalled, installed = false, upda
   )
 }
 
-function TaskRow({ task, packages, action, torchInstalled, installOne, queued }: {
+function TaskRow({ task, packages, action, torchInstalled, installOne, queued, cudaNotNeeded }: {
   task: DiagnosticsInstallTask
   packages: Record<string, DiagnosticsPackageInfo>
   action: ReactNode
@@ -520,6 +556,8 @@ function TaskRow({ task, packages, action, torchInstalled, installOne, queued }:
   queued: Set<string>
   // The Install… button for one package (optional extras are installed one by one).
   installOne: (name: string) => ReactNode
+  // cuBLAS and cuDNN are already available to Whisper, so their buttons are replaced by a note.
+  cudaNotNeeded: boolean
 }) {
   const missing = task.packages.filter((n) => packages[n] && !packages[n].installed)
   const notes = taskNotes(task, packages)
@@ -558,7 +596,9 @@ function TaskRow({ task, packages, action, torchInstalled, installOne, queued }:
               {missing.map((n) => (
                 <li key={n}>
                   <PackageText name={n} text={packages[n].powers} info={packages[n]} torchInstalled={torchInstalled} quiet queued={queued.has(n)} />
-                  {task.optional_missing?.includes(n) && installOne(n)}
+                  {task.optional_missing?.includes(n) && (cudaNotNeeded && CUDA_RUNTIME_PACKAGES.includes(n)
+                    ? <span className="muted" data-testid={`cuda-not-needed-${n}`}>Not needed on this PC: Whisper already has the GPU files it needs (GPU PyTorch supplies them), or there is no NVIDIA GPU.</span>
+                    : installOne(n))}
                 </li>
               ))}
             </ul>

@@ -272,6 +272,7 @@ def _locked(chapter: dict) -> bool:
 class LightnovelFunSource(SourceAdapter):
     name = "lightnovel_fun"
     display_name = "轻之国度 (lightnovel.fun)"
+    homepage = "https://www.lightnovel.fun"
     content_types = [ContentType.NOVEL.value]
     languages = ["zh"]
     url_patterns = [r"lightnovel\.fun/(?:book|reader)/[0-9]+"]

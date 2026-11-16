@@ -105,6 +105,7 @@ _CHAPTER_URL = re.compile(
 class BilibiliMangaSource(SourceAdapter):
     name = "bilibili_manga"
     display_name = "哔哩哔哩漫画 Bilibili Manga"
+    homepage = "https://manga.bilibili.com"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
     needs_browser = True

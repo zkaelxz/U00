@@ -191,6 +191,25 @@ def forget_gpu_model(model_size: str, local_model_path: str | None = None):
     gc.collect()
 
 
+def release_whisper_models():
+    """Drops only the cached Whisper models and hands CUDA's cached memory back.
+    Run between Whisper's pass and a Qwen3 pass over the same audio: both would
+    otherwise sit on the GPU at once, and a load that fails for memory there
+    throws away the transcription Whisper just finished."""
+    import gc
+    import sys
+    _whisper_model_cache.clear()
+    _whisper_device_info.clear()
+    gc.collect()
+    torch = sys.modules.get("torch")
+    if torch is not None:
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass  # a broken CUDA install must not fail the stage that follows
+
+
 def release_gpu_models():
     """Call after a GPU stage (transcription, alignment, diarization)
     finishes: drops the cached Whisper / Qwen3-ASR / forced-aligner models (and the comic
@@ -210,6 +229,9 @@ def release_gpu_models():
         module = sys.modules.get(module_name)
         if module is not None:
             getattr(module, cache_name).clear()
+    detect_module = sys.modules.get("scanlate_detect")
+    if detect_module is not None:
+        detect_module.release_bubble_model()
     ocr_module = sys.modules.get("ocr")
     if ocr_module is not None:
         ocr_module.release_models(empty_cuda=False)

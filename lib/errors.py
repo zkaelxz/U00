@@ -132,3 +132,27 @@ class UnauthenticatedError(ServiceError):
     """No valid session. HTTP 401 `unauthenticated`. Generic message only."""
 
     code = "unauthenticated"
+
+
+# What a bare exception class says when its message is empty (a timeout, an assertion, a
+# plain RuntimeError()): the class name alone tells a person nothing, and the frontend strips it.
+_EMPTY_MESSAGE_HINTS = {
+    "TimeoutError": "Something took too long and was stopped.",
+    "MemoryError": "The PC ran out of memory.",
+    "ConnectionError": "A connection closed unexpectedly.",
+    "ConnectionResetError": "A connection closed unexpectedly.",
+    "BrokenPipeError": "A connection closed unexpectedly.",
+    "EOFError": "A file or stream ended earlier than expected.",
+    "OSError": "A file or device could not be used.",
+    "PermissionError": "A file or folder could not be used (permission).",
+}
+_EMPTY_MESSAGE_DEFAULT = "It stopped without saying why."
+
+
+def exception_text(exc_type: str, message: str) -> str:
+    """"ValueError: bad value", or for an empty message a plain sentence in its place,
+    so the Jobs list never has only a class name to show."""
+    if str(message).strip():
+        return f"{exc_type}: {message}"
+    hint = _EMPTY_MESSAGE_HINTS.get(exc_type, _EMPTY_MESSAGE_DEFAULT)
+    return f"{exc_type}: {hint} Details are in the app log."

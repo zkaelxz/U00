@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { cancelChaptersGlossary, getChaptersGlossary, startChaptersGlossary } from '../../../api/autotuneGlossary'
 import { getLineChapters } from '../../../api/novelChapters'
+import { describeError } from '../../../components/errorMessages'
 import { buttonClass } from '../../../components/uiClasses'
 import { isActiveStatus, novelGlossaryStartErrorText } from './autotuneGlossary'
 import { bumpGlossaryTerms } from './useGlossaryRun'
@@ -31,7 +32,7 @@ export function ScanAllChapters({ dramaId }: { dramaId: number }) {
   const start = () => {
     setProblem(null)
     startChaptersGlossary(dramaId).then(refresh, (e: unknown) => {
-      setProblem(novelGlossaryStartErrorText(e) ?? 'Could not start the scan.')
+      setProblem(novelGlossaryStartErrorText(e) ?? `Could not start the scan. ${describeError(e).title}`)
       refresh()
     })
   }

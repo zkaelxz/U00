@@ -1,6 +1,6 @@
 """
-services/scanlate_pages_service.py -- Scanlate pages for the API
-(docs/archive/scanlate-api-spec.md S1 and S2): the panel's config, one page's
+services/scanlate_pages_service.py -- Scanlate pages for the API:
+the panel's config, one page's
 detail (regions keyed by their stable id, the page rev and its run notes),
 page import (upload or a link import, SO06) with fixed limits, and the comic
 editor's one-text-box edit, add, delete and undo (compare-and-set on the
@@ -318,10 +318,10 @@ def _check_region_values(values: dict, label: str):
     if nulls:
         raise InvalidInputError(f"{label}: {', '.join(sorted(nulls))} can't be empty.")
     if values.get("font_category") is not None:
-        import scanlate_render
-        if values["font_category"] not in scanlate_render.FONT_CATEGORIES:
+        import scanlate_fonts
+        if values["font_category"] not in scanlate_fonts.FONT_CATEGORIES:
             raise InvalidInputError("font_category must be one of "
-                                    f"{', '.join(scanlate_render.FONT_CATEGORIES)}.")
+                                    f"{', '.join(scanlate_fonts.FONT_CATEGORIES)}.")
     if values.get("kind") is not None:
         import scanlate_regions
         if values["kind"] not in scanlate_regions.REGION_KINDS:

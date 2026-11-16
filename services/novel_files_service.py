@@ -188,7 +188,7 @@ def _checked_text(raw: str, empty_message: str) -> str:
     if not text:
         raise InvalidInputError(empty_message)
     if len(text) > MAX_TEXT_CHARS:
-        raise InvalidInputError("The novel text is too large.")
+        raise InvalidInputError(f"The novel text is too large (at most {MAX_TEXT_CHARS:,} characters).")
     return text
 
 

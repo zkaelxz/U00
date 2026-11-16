@@ -1117,6 +1117,18 @@ class TestProcessJobOnDone:
         assert seen == [(job_id, {"v": 1}, "running")]
         bg.clear_job(job_id)
 
+    def test_an_exception_with_no_message_still_gives_a_reason(self):
+        def fail():
+            raise TimeoutError()
+
+        job_id = "test_empty_message_error"
+        bg.clear_job(job_id)
+        assert job_launch.start_job(job_id, fail) is True
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "error"
+        assert status["error"].startswith("TimeoutError: Something took too long")
+        bg.clear_job(job_id)
+
     def test_hook_raising_marks_error_with_redacted_message(self, monkeypatch):
         _install_fake_process(monkeypatch, run_target_on_start=True)
 
@@ -1886,6 +1898,23 @@ class TestNotifyOnCompletion:
         monkeypatch.setattr(job_settings.desktop_session, "has_desktop", lambda: True)
         job_settings._notify_job_finished("A job", "done")
         assert len(calls) == 1
+
+    def test_failed_popup_says_why_it_failed(self, monkeypatch):
+        import sys
+        import types
+        fake_plyer = types.ModuleType("plyer")
+        fake_notification = types.ModuleType("plyer.notification")
+        calls = []
+        fake_notification.notify = lambda **kw: calls.append(kw)
+        fake_plyer.notification = fake_notification
+        monkeypatch.setitem(sys.modules, "plyer", fake_plyer)
+        monkeypatch.setitem(sys.modules, "plyer.notification", fake_notification)
+        monkeypatch.setattr(job_settings.desktop_session, "has_desktop", lambda: True)
+        job_settings.set_notify_on_completion(True)
+        job_settings._notify_job_finished("Dub generation", "error", reason="The disk is full.")
+        assert calls[-1]["message"] == "Failed: Dub generation: The disk is full."
+        job_settings._notify_job_finished("Dub generation", "error")
+        assert calls[-1]["message"] == "Failed: Dub generation"
 
     def test_has_desktop_is_true_off_windows(self, monkeypatch):
         import sys
@@ -2937,9 +2966,9 @@ def test_a_done_job_with_an_unlisted_failure_reason_notifies_as_failed(monkeypat
     and the toast must too, though the stored status stays done for the stage panels."""
     calls = []
     monkeypatch.setattr(job_runner, "_notify_job_finished", lambda *a, **k: calls.append((a, k)))
-    job_id = "test_thread_soft_failed_timeout"
+    job_id = "test_thread_soft_failed_unlisted"
     bg.clear_job(job_id)
-    assert job_launch.start_job(job_id, lambda: bg.set_result(job_id, {"failed_reason": "timeout"})) is True
+    assert job_launch.start_job(job_id, lambda: bg.set_result(job_id, {"failed_reason": "a_reason_with_no_sentence"})) is True
     _wait(job_id)
     assert _wait_for_status(job_id, "running")["status"] == "done"
     _wait_for(lambda: calls)

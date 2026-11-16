@@ -47,7 +47,9 @@ METRICS: dict[str, dict[str, Any]] = {
             "margin": 3, "range": (50, 100)},
     "disk_free": {"label": "Free disk space", "unit": " GB", "limit": 10, "minutes": 5, "enabled": True,
                   "margin": 2, "range": (1, 100000), "low": True},
-    "gpu_memory": {"label": "GPU memory use", "unit": "%", "limit": 100, "minutes": 15, "enabled": False,
+    "gpu_memory_warn": {"label": "GPU memory (nearly full)", "unit": "%", "limit": 85, "minutes": 15,
+                        "enabled": True, "margin": 3, "range": (50, 100)},
+    "gpu_memory": {"label": "GPU memory (full)", "unit": "%", "limit": 100, "minutes": 15, "enabled": False,
                    "margin": 3, "range": (50, 100)},
     "cpu": {"label": "CPU use", "unit": "%", "limit": 95, "minutes": 30, "enabled": False,
             "margin": 3, "range": (50, 100)},
@@ -82,6 +84,55 @@ def get_rules() -> dict:
                        "limit": limit,
                        "minutes": _number(own.get("minutes"), *MINUTES_RANGE, meta["minutes"])}
     return rules
+
+
+def describe_rules() -> list[dict]:
+    """What the PC alerts card shows: each metric's label, unit, current rule,
+    allowed ranges and defaults, in METRICS order."""
+    rules = get_rules()
+    out = []
+    for name, meta in METRICS.items():
+        has_limit = meta["limit"] is not None
+        out.append({"id": name, "label": meta["label"], "unit": meta["unit"].strip(),
+                    "has_limit": has_limit, "below": bool(meta.get("low")),
+                    **rules[name],
+                    "limit_min": meta["range"][0] if has_limit else None,
+                    "limit_max": meta["range"][1] if has_limit else None,
+                    "minutes_min": MINUTES_RANGE[0], "minutes_max": MINUTES_RANGE[1],
+                    "default_enabled": meta["enabled"], "default_limit": meta["limit"],
+                    "default_minutes": meta["minutes"]})
+    return out
+
+
+def set_rules(changes: dict) -> list[dict]:
+    """Applies {metric: {enabled, limit, minutes}} (any subset) and saves.
+    Unlike get_rules, which quietly falls back on a bad stored value, a bad
+    request is refused whole so the card never shows a limit that was not kept."""
+    from lib.errors import InvalidInputError
+    merged = get_rules()
+    for name, change in changes.items():
+        meta = METRICS.get(name)
+        if meta is None:
+            raise InvalidInputError(f"'{name}' is not an alert.")
+        rule = merged[name]
+        if "enabled" in change:
+            rule["enabled"] = bool(change["enabled"])
+        if "limit" in change:
+            if meta["limit"] is None:
+                raise InvalidInputError(f"{meta['label']} has no limit to change.")
+            low, high = meta["range"]
+            if _number(change["limit"], low, high, None) is None:
+                raise InvalidInputError(f"{meta['label']} limit must be between {low} and {high}.")
+            rule["limit"] = change["limit"]
+        if "minutes" in change:
+            low, high = MINUTES_RANGE
+            if _number(change["minutes"], low, high, None) is None:
+                raise InvalidInputError(f"{meta['label']} minutes must be between {low} and {high}.")
+            rule["minutes"] = change["minutes"]
+    # Only the touched metrics are stored, so an untouched one keeps following its default.
+    db.update_app_setting(RULES_SETTING, lambda stored: {
+        **(stored if isinstance(stored, dict) else {}), **{n: merged[n] for n in changes}})
+    return describe_rules()
 
 
 # --- readings ----------------------------------------------------------------
@@ -289,6 +340,8 @@ def sample() -> dict:
             readings.update(reader())
         except Exception:
             pass
+    # Two rules judge the same reading, at different limits.
+    readings["gpu_memory_warn"] = readings["gpu_memory"]
     for name, reader in (("ram", _read_ram_percent), ("disk_free", _disk_free_gb)):
         try:
             readings[name] = reader()
