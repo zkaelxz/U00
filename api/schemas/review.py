@@ -2,7 +2,7 @@
 versions, restructure and resegment, and the Review AI extras.
 """
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
@@ -138,6 +138,10 @@ class ReviewLinesLine(BaseModel):
     mark: Optional[Literal["wrong", "mixed"]] = Field(default=None, description=(
         "A person's mark on the English: wrong, mixed, or null for none. Editing `en` "
         "clears it; a marked line is never `reviewed`."))
+    unsure_words: Optional[List[Tuple[int, int]]] = Field(default=None, description=(
+        "[start, end) character offsets into `zh` of the words Whisper was unsure of; "
+        "[] when it was sure of every word, null when the line keeps no word scores "
+        "(another engine, an older row, or edited source text)."))
 
 
 class ReviewLinesPage(BaseModel):

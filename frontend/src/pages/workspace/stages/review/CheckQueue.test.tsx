@@ -7,7 +7,7 @@ import type { QueueCounts } from './checkQueueModel'
 
 const line = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start: id, end: id + 1, zh: '你好', en: 'Hello', speaker: null, speaker_manual: false,
-  sfx: false, flag: 'reading_speed', flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
+  sfx: false, flag: 'reading_speed', flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, unsure_words: null, ...over,
 })
 const page = (lines: ReviewLine[]): ReviewLinesPage => ({
   lines, page: 1, page_size: 40, total: lines.length, flagged_count: 0, untranslated_count: 0, unreviewed_count: 0, shaky_count: 0, risk_count: lines.length, marked_count: 0, no_speaker_count: 0,
