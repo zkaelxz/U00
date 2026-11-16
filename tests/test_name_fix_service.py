@@ -87,7 +87,6 @@ def test_after_transcription_swallows_failures(isolated_db, monkeypatch):
 def test_alias_inside_a_novel_chapter_title_line_is_left_alone(isolated_db):
     from sources import pipeline
     from sources.models import ChapterInfo
-    from services import novel_chapters_service
     did, sid = _title([], [("ヤロ", ["ヤロー"])])
     for n, (title, body) in enumerate([("ヤロー来る", "ヤローが来た"), ("次", "終わり")], 1):
         ch = ChapterInfo(source="xbanxia", series_id="s1", chapter_id=f"c{n}", title=title)
