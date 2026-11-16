@@ -196,6 +196,7 @@ def _series_id_from_href(href: str) -> str:
 class ManhuaguiSource(SourceAdapter):
     name = "manhuagui"
     display_name = "漫画柜 ManHuaGui"
+    homepage = "https://www.manhuagui.com"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
     # Chapters within a section are split across several <ul> blocks whose

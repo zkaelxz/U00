@@ -375,6 +375,8 @@ def _migrate_bulk_job_columns(conn):
         db._safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN stage TEXT")
     if "pipeline_id" not in bulk_job_cols:
         db._safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN pipeline_id TEXT")
+    if "estimated_usd" not in bulk_job_cols:
+        db._safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN estimated_usd REAL")
     bulk_job_line_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_job_lines)").fetchall()}
     if "result_text" not in bulk_job_line_cols:
         db._safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN result_text TEXT")
@@ -418,6 +420,17 @@ def _migrate_vocab_and_style_columns(conn):
                 WHERE l.drama_id = wiki_entries.drama_id AND l.idx = wiki_entries.known_through_line_idx
                 ORDER BY l.id LIMIT 1)
             WHERE known_through_line_idx IS NOT NULL""")
+    edit_cols = {r[1] for r in conn.execute("PRAGMA table_info(edit_samples)").fetchall()}
+    # What produced the English a person corrected, so corrections can be counted per
+    # engine, prompt version and flag. NULL on edits saved before these existed, and
+    # engine/model/prompt_version stay NULL when the corrected text wasn't machine output.
+    for col, kind in (("line_id", "INTEGER"), ("engine", "TEXT"), ("model", "TEXT"),
+                      ("prompt_version", "TEXT"), ("flag", "TEXT"), ("mark", "TEXT"),
+                      ("deleted_drama_id", "INTEGER"), ("deleted_title", "TEXT")):
+        if col not in edit_cols:
+            db._safe_alter(conn, f"ALTER TABLE edit_samples ADD COLUMN {col} {kind}")
+    # A full sync unlinks a removed line's edits by line_id alone.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_edit_samples_line ON edit_samples(line_id)")
     style_cols = {r[1] for r in conn.execute("PRAGMA table_info(style_profile)").fetchall()}
     if "history_json" not in style_cols:
         # Earlier learned-style profiles (newest first, at most

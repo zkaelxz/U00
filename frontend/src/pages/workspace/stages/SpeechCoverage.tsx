@@ -33,15 +33,12 @@ interface Props {
   hasAudio: boolean
   // Another job for this drama (transcribe, diarize, upload) is running.
   busy: boolean
-  // A transcription was started from this screen: check its result when the job ends.
-  autoCheck: boolean
-  onAutoChecked: () => void
 }
 
 // Transcribe → "Speech coverage": lists stretches of the audio where the
 // speech detector hears speech but no subtitle line sits, and says whether
 // Whisper's raw output had text there. Read-only; runs on the CPU.
-export function SpeechCoverage({ hasAudio, busy, autoCheck, onAutoChecked }: Props) {
+export function SpeechCoverage({ hasAudio, busy }: Props) {
   const { dramaId } = useStage()
   const isPhone = useMediaQuery('(max-width: 640px)')
   const { status, error: loadError, refresh, clearError } = useRunStatus(dramaId, getSpeechCoverage)
@@ -71,18 +68,13 @@ export function SpeechCoverage({ hasAudio, busy, autoCheck, onAutoChecked }: Pro
       .finally(() => setStarting(false))
   }
 
-  // A transcription started here just finished: its lines are new, so check them.
-  // Other jobs (a download, an upload) ending must not start a check.
+  // The server starts the check when a transcription saves its lines; look for it once the
+  // title is no longer busy.
   const wasBusy = useRef(busy)
-  const startRef = useRef(start)
-  startRef.current = start
   useEffect(() => {
-    if (wasBusy.current && !busy && autoCheck) {
-      onAutoChecked()
-      if (hasAudio) startRef.current()
-    }
+    if (wasBusy.current && !busy) refresh()
     wasBusy.current = busy
-  }, [busy, hasAudio, autoCheck, onAutoChecked])
+  }, [busy, refresh])
 
   const cancel = () => {
     if (!status) return
@@ -127,7 +119,7 @@ export function SpeechCoverage({ hasAudio, busy, autoCheck, onAutoChecked }: Pro
       <div className="speech-coverage" data-testid="speech-coverage">
         <p className="muted">
           Finds stretches where speech is heard but no line covers it, using a more sensitive speech
-          detector than transcription. It runs on the CPU, and right after a transcription you start here.
+          detector than transcription. It runs on the CPU, and starts by itself after every transcription.
         </p>
         {active && status ? (
           <p className="actions" role="status" data-testid="speech-coverage-running">

@@ -14,14 +14,15 @@ BULK_PENDING_STATUSES = ("submitted", "scheduled", "auth_error", "needs_resubmit
 def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
                     provider_batch_id: str | None = None, scheduled_for: str | None = None,
                     translate_args: dict | None = None, kind: str = "translate",
-                    stage: str | None = None, pipeline_id: str | None = None) -> int:
+                    stage: str | None = None, pipeline_id: str | None = None,
+                    estimated_usd: float | None = None) -> int:
     """lines: [(line_id, request_key, zh_hash, en_at_submit), ...], or,
     for a non-translate kind that needs something to compare against once
     results come back (see the `bulk_job_lines` table's own comment),
     [(line_id, request_key, zh_hash, en_at_submit, state_at_submit), ...]
     -- a plain 4-tuple still works, with state_at_submit left NULL.
 
-    kind/stage/pipeline_id: see the `bulk_jobs` table's own comment
+    kind/stage/pipeline_id/estimated_usd: see the `bulk_jobs` table's own comment
     Every existing call site left these at their defaults, so
     an old job is still exactly what it always was: a translate job."""
     now = clock.utcnow().isoformat()
@@ -31,11 +32,11 @@ def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
         cur = conn.execute("""
             INSERT INTO bulk_jobs (drama_id, engine, model, provider_batch_id, status,
                                    scheduled_for, translate_args, submitted_at, updated_at,
-                                   kind, stage, pipeline_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   kind, stage, pipeline_id, estimated_usd)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (drama_id, engine, model, provider_batch_id, status, scheduled_for,
               json.dumps(translate_args, ensure_ascii=False) if translate_args is not None else None,
-              now, now, kind, stage, pipeline_id))
+              now, now, kind, stage, pipeline_id, estimated_usd))
         job_id = db.inserted_id(cur)
         rows = []
         for row in lines:
@@ -116,6 +117,21 @@ def set_bulk_job_status_if(bulk_job_id: int, expected, new: str) -> bool:
             [new, clock.utcnow().isoformat(), bulk_job_id] + expected)
         conn.commit()
         return cur.rowcount > 0
+
+
+def list_unbilled_bulk_estimates() -> list:
+    """(drama_id, kind, pipeline_id, estimated_usd) of every provider batch
+    whose usage is not logged yet. DeepSeek's off-peak rows are left out: they
+    run as a normal run that stops at the cap itself, so they hold none of it."""
+    # A job in "applying" has logged part of its usage already; counting all
+    # of its estimate too errs on the side of the cap.
+    statuses = list(db.BULK_PENDING_STATUSES) + ["submitting", "running", "applying"]
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute(
+            f"SELECT drama_id, kind, pipeline_id, COALESCE(estimated_usd, 0) FROM bulk_jobs "
+            f"WHERE engine != 'deepseek' AND status IN ({','.join('?' * len(statuses))})",
+            statuses).fetchall()
+    return [tuple(r) for r in rows]
 
 
 def count_bulk_job_lines(bulk_job_id: int) -> int:

@@ -12,6 +12,8 @@ const STATUS = {
   send_chapters: true,
   send_remote: true,
   show_private_titles: false,
+  pc_name: '',
+  pc_name_default: 'PC',
 }
 
 const reply = (body: unknown, status = 200) =>

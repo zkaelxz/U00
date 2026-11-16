@@ -390,6 +390,10 @@ def _create_bulk_job_tables(conn):
             -- row, just three siblings), so the Bulk jobs panel can group and
             -- show them as one pipeline instead of three unrelated entries.
             pipeline_id TEXT,
+            -- What the batch is expected to cost: its usage is only logged
+            -- once results come back, so until then this is what holds its
+            -- share of the monthly cap. NULL on rows from before the column.
+            estimated_usd REAL,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
 
@@ -570,6 +574,31 @@ def _create_review_tables(conn):
             created_at TEXT,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
+
+        -- Source-text (zh) corrections, kept apart from edit_samples because learned
+        -- style reads that table as English pairs. `path` says what made the change
+        -- (person, compare, retranscribe, retranscribe_many, name_fix) so machine
+        -- fixes aren't counted as a person's corrections. engine/model name the
+        -- transcription that heard `before_zh`, NULL when it wasn't that run's text;
+        -- confidence, flag and mark are the line's before the edit, which clears them.
+        -- Deleting a title keeps its rows here and in edit_samples (db.delete_drama).
+        CREATE TABLE IF NOT EXISTS source_edits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            drama_id INTEGER,
+            line_id INTEGER,
+            path TEXT,
+            before_zh TEXT,
+            after_zh TEXT,
+            engine TEXT,
+            model TEXT,
+            confidence REAL,
+            flag TEXT,
+            mark TEXT,
+            created_at TEXT,
+            deleted_drama_id INTEGER,
+            deleted_title TEXT,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        );
     """)
 
 
@@ -735,6 +764,8 @@ def _create_core_indexes(conn):
         CREATE INDEX IF NOT EXISTS idx_versions_drama ON translation_versions(drama_id);
         CREATE INDEX IF NOT EXISTS idx_wiki_drama ON wiki_entries(drama_id);
         CREATE INDEX IF NOT EXISTS idx_edits_drama ON edit_samples(drama_id);
+        CREATE INDEX IF NOT EXISTS idx_source_edits_drama ON source_edits(drama_id);
+        CREATE INDEX IF NOT EXISTS idx_source_edits_line ON source_edits(line_id);
         CREATE INDEX IF NOT EXISTS idx_benchmark_runs_case ON benchmark_runs(case_id);
         CREATE INDEX IF NOT EXISTS idx_translate_history_created ON translate_history(created_at);
         CREATE INDEX IF NOT EXISTS idx_voice_bank_name ON voice_bank(name);

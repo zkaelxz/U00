@@ -18,7 +18,7 @@ export function statusBadge(status: string): { label: string; tone: BadgeTone } 
   return STATUS_BADGES[status as EngineStatus] ?? STATUS_BADGES.untested
 }
 
-// translate_engines.CAP_* tags in plain words.
+// engine_backends.engine_registry CAP_* tags in plain words.
 const TAG_LABELS: Record<string, string> = {
   translate: 'Translates',
   instructions: 'Follows instructions',

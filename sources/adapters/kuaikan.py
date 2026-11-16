@@ -432,6 +432,7 @@ def _extract_nuxt_state(html: str):
 class KuaikanSource(PlainImageDownload, SourceAdapter):
     name = "kuaikan"
     display_name = "快看漫画 Kuaikan Manhua"
+    homepage = "https://www.kuaikanmanhua.com"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
     # A chapter is hundreds of strip slices, which the site's own reader loads

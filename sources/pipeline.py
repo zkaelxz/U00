@@ -41,6 +41,11 @@ from .models import (ChallengeDetected, ChapterInfo, FailureReason, SourceError,
 # formats it always has.
 _NATIVE_EXTS = {".png", ".jpg", ".jpeg"}
 
+# A chapter's pages are all held in memory until they are written together
+# (so a failure keeps none of them); each is capped at 20 MB, which alone
+# would allow gigabytes for a long chapter.
+_MAX_CHAPTER_BYTES = 500 * 1024 * 1024
+
 RAW_NOVEL_FILENAME = "raw_novel_context.txt"
 
 _PAGE_FILE = re.compile(r"^page_(\d+)\.[A-Za-z0-9]+$")
@@ -565,10 +570,17 @@ def _import_page_chapter(adapter, source: str, ch, drama_id: int, state: dict, p
     skipped = [redact_secrets(r) for r in (report(ch) if report else ())]
     state["pages"] = len(pages)
     images = []
+    held = 0
     for j, page in enumerate(pages, start=1):
         state["page"] = j
         publish(adapter.client.snapshot())
-        images.append(adapter.download_page(page))
+        image = adapter.download_page(page)
+        held += len(image[0])
+        if held > _MAX_CHAPTER_BYTES:
+            raise SourceError("This chapter's pages add up to more than "
+                              f"{_MAX_CHAPTER_BYTES // (1024 * 1024)} MB; nothing was saved for it.",
+                              FailureReason.HTTP_ERROR)
+        images.append(image)
     try:
         _mark_in_flight(source, ch, drama_id)
     except Exception:

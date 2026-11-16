@@ -30,6 +30,7 @@ from api.schemas import (
     LibraryStoragePreset, LibraryStorageScan, LibraryUserBackupRequest, error_responses)
 from lib.safe_paths import download_name
 from services import library_admin_service as las
+from services import scanlate_typeset_all_service
 from services import library_backup_restore_service as lbr
 from services import library_backup_service as lbs
 from services import library_user_backup_service as lub
@@ -109,6 +110,13 @@ def post_bulk_translate(body: LibraryBulkTranslateRequest, request: Request):
 def post_export(body: LibraryExportRequest | None = None):
     return lbs.start_export_zip(body.drama_ids if body else None,
                                 include_originals=bool(body and body.include_originals))
+
+
+@router.post("/typeset-comics", dependencies=[local_only()], response_model=LibraryJobStarted,
+             responses=error_responses(409, 422),
+             summary="Job: typeset every comic again from its saved translations (free, keeps edits)")
+def post_typeset_comics():
+    return scanlate_typeset_all_service.start_typeset_all()
 
 
 @router.post("/backup", dependencies=[local_only()], response_model=LibraryJobStarted,
