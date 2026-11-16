@@ -21,7 +21,8 @@ on:
     branches: [baihe-subtitler]
     # `labeled` so adding `full-ci` starts a run that honours it.
     # `ready_for_review` starts the run that a draft skipped.
-    types: [opened, synchronize, reopened, labeled, ready_for_review]
+    # `auto_merge_enabled` starts the run with the browser tests that waited for that approval.
+    types: [opened, synchronize, reopened, labeled, ready_for_review, auto_merge_enabled]
 
 # Read-only token: CI runs code from the PR head before anyone reviews it.
 permissions:
@@ -68,6 +69,7 @@ jobs:
       run_caddy: ${{ steps.diff.outputs.run_caddy }}
       run_app_checks: ${{ steps.diff.outputs.run_app_checks }}
       run_sources_subset: ${{ steps.diff.outputs.run_sources_subset }}
+      e2e_deferred: ${{ steps.diff.outputs.e2e_deferred }}
       pytest_shards: ${{ steps.shards.outputs.pytest_shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -79,15 +81,17 @@ jobs:
         id: diff
         env:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          # The event's own copy of the PR may predate the approval that triggered it.
+          MERGE_APPROVED: ${{ github.event.pull_request.auto_merge != null || github.event.action == 'auto_merge_enabled' }}
           # Only the push lookup needs it; a PR run's step runs the PR's own code.
           GITHUB_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
         run: |
-          all_true=$'run_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true\nrun_app_checks=true\nrun_sources_subset=false'
+          all_true=$'run_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true\nrun_app_checks=true\nrun_sources_subset=false\ne2e_deferred=false'
           # The checkout is the merge commit; its first parent is the base.
           # --no-renames lists both ends of a rename, so moving a file out
           # of frontend/ still counts as touching it. tools/ci_changes.py
           # runs everything for any event but a pull request.
-          out=$(git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_changes.py --event "$GITHUB_EVENT_NAME" --labels-json "$PR_LABELS") || out=$all_true
+          out=$(git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_changes.py --event "$GITHUB_EVENT_NAME" --labels-json "$PR_LABELS" --merge-approved "$MERGE_APPROVED") || out=$all_true
           # A squash merge of a tree a green PR run already tested runs only what that run skipped.
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             # A slow API must not time the job out (that would turn the run red, not run more).
@@ -99,7 +103,8 @@ jobs:
             printf '%s\n' "$out" | grep -qx 'run_windows_scripts=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_caddy=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_app_checks=\(true\|false\)' && \
-            printf '%s\n' "$out" | grep -qx 'run_sources_subset=\(true\|false\)' || out=$all_true
+            printf '%s\n' "$out" | grep -qx 'run_sources_subset=\(true\|false\)' && \
+            printf '%s\n' "$out" | grep -qx 'e2e_deferred=\(true\|false\)' || out=$all_true
           printf '%s\n' "$out" | tee -a "$GITHUB_OUTPUT"
           # The tree this run tests (the PR merged into the base) and what it runs, for the push after a merge.
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
@@ -363,7 +368,7 @@ jobs:
   # same rule: skipped is fine (the change touched no Windows script or
   # frontend), failed or cancelled is not, so a red browser shard blocks merge.
   test:
-    needs: [changes, guards, frontend, test-shard, optional-tests, windows-scripts, e2e, smoke, caddy]
+    needs: [changes, guards, frontend, test-shard, optional-tests, windows-scripts, e2e, smoke, caddy, browser-gate]
     # Skipped with its needs on a draft: a draft cannot be merged, and marking
     # it ready starts a full run.
     if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
@@ -381,8 +386,9 @@ jobs:
           E2E: ${{ needs.e2e.result }}
           SMOKE: ${{ needs.smoke.result }}
           CADDY: ${{ needs.caddy.result }}
+          BROWSER_GATE: ${{ needs.browser-gate.result }}
         run: |
-          echo "changes=$CHANGES guards=$GUARDS frontend=$FRONTEND test-shard=$SHARDS optional-tests=$OPTIONAL windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY"
+          echo "changes=$CHANGES guards=$GUARDS frontend=$FRONTEND test-shard=$SHARDS optional-tests=$OPTIONAL windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY browser-gate=$BROWSER_GATE"
           [ "$CHANGES" = success ] || exit 1
           [ "$GUARDS" = success ] || [ "$GUARDS" = skipped ] || exit 1
           [ "$FRONTEND" = success ] || [ "$FRONTEND" = skipped ] || exit 1
@@ -392,6 +398,46 @@ jobs:
           [ "$E2E" = success ] || [ "$E2E" = skipped ] || exit 1
           [ "$SMOKE" = success ] || [ "$SMOKE" = skipped ] || exit 1
           [ "$CADDY" = success ] || [ "$CADDY" = skipped ] || exit 1
+          [ "$BROWSER_GATE" = success ] || [ "$BROWSER_GATE" = skipped ] || exit 1
+
+  # Sets the `browser-tests` commit status on the PR head, a required check beside `test`. While the
+  # browser tests wait for auto-merge it stays pending (yellow), which blocks the merge without a red
+  # run or a "run failed" email; a skipped job would count as passed, so a status carries the wait.
+  # Not on a cancelled run: a newer run of the PR reports instead. The job runs no PR code, so the
+  # write token never meets it. A fork's token cannot write; the status is then missing, which also
+  # blocks the merge.
+  browser-gate:
+    needs: [changes, e2e]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      statuses: write
+    steps:
+      - name: Report the browser-tests status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHANGES: ${{ needs.changes.result }}
+          E2E: ${{ needs.e2e.result }}
+          E2E_DEFERRED: ${{ needs.changes.outputs.e2e_deferred }}
+        run: |
+          if [ "$CHANGES" != success ]; then
+            state=failure; desc="CI could not tell which tests this PR needs"
+          elif [ "$E2E_DEFERRED" = true ]; then
+            state=pending; desc="Waiting for the merge order: runs once auto-merge is on"
+          elif [ "$E2E" = success ]; then
+            state=success; desc="Browser tests passed"
+          elif [ "$E2E" = skipped ]; then
+            state=success; desc="This change needs no browser tests"
+          else
+            state=failure; desc="Browser tests did not pass"
+          fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$state" -f context=browser-tests \
+            -f description="$desc" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null \
+            || echo "::warning::Could not set the browser-tests status (a read-only token); the merge stays blocked."
+          echo "browser-tests: $state ($desc)"
+          [ "$state" != failure ]
 
   # The real server, not the mocked suite: tools/smoke_test.py starts
   # `python -m api` on a throwaway data folder and runs the owner's main flows
