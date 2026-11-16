@@ -280,6 +280,7 @@ function SharingItems({ owners }: { owners: boolean }) {
                   </span>
                   {owners && (
                     <select
+                      className="sharing-owner"
                       aria-label={`Owner of ${kindLabel.toLowerCase()} “${title}”`}
                       value={item.owner_user_id == null ? 'pc' : String(item.owner_user_id)}
                       disabled={busyKey === key}
