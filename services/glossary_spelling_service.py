@@ -24,7 +24,8 @@ import background_jobs
 import db
 from engine_backends import shared
 from engine_backends import llm_tasks, paid_calls
-from engine_backends.shared import TranslationCancelled, language_name
+from engine_backends.shared import TranslationCancelled
+from engine_backends.line_text import language_name
 from services import glossary_extract_service as extract
 from services import glossary_service
 from services.glossary_common import MAX_TERM_LEN, _drama, _text

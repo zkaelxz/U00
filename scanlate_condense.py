@@ -53,7 +53,7 @@ def ask_for_shorter(engine, source_name: str, wanted: dict, usage_cb=None) -> di
     """{key: shorter English} from one engine call for the signs in `wanted` ({key: (text,
     max_chars)}); answers are matched by key, and anything not an exact key is dropped."""
     from engine_backends.llm_tasks import call_llm_json
-    from engine_backends.shared import extract_first_json_value
+    from engine_backends.line_text import extract_first_json_value
     payload = json.dumps({k: {"text": t, "max_chars": n} for k, (t, n) in wanted.items()},
                          ensure_ascii=False)
     prompt = (f"These are English texts for signs in a {source_name} comic. Each is too long for the "

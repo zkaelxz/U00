@@ -60,7 +60,7 @@ import storage
 import story_context
 import subtitle_formats
 from engine_backends import engine_registry, llm_tasks
-from engine_backends import shared as engine_shared
+from engine_backends import line_text
 import universe_wiki
 import vocab_export
 from engine_backends import paid_calls
@@ -478,7 +478,7 @@ def _define_words_llm(words: list, context_lines: list, engine, source_language:
         if not text:
             continue
         stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-        data = engine_shared.extract_first_json_value(stripped)
+        data = line_text.extract_first_json_value(stripped)
         if not isinstance(data, dict):
             continue
         for i, w in enumerate(batch, 1):

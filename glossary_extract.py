@@ -8,7 +8,7 @@ from core import LANGUAGE_NAMES
 from glossary_io import MIN_ALIAS_LEN, TERM_CATEGORIES, TERM_POLICIES
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.llm_tasks import call_llm_json
-from engine_backends.shared import parse_json_array
+from engine_backends.line_text import parse_json_array
 
 
 # ---------------------------------------------------------------------------

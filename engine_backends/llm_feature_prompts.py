@@ -10,7 +10,7 @@ nothing from llm_tasks, so it can be imported on its own.
 import re
 
 from .flag_reasons import FLAG_REASONS, SYSTEM_FLAG_REASONS
-from .shared import language_name
+from .line_text import language_name
 
 
 def smart_segment_lines(en_lines, target_wpm: float = 160, min_seconds: float = 1.2,

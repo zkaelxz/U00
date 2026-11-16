@@ -21,6 +21,7 @@ from engine_backends import (
     engine_registry,
 )
 from engine_backends import shared as engine_shared
+from engine_backends import line_text
 from engine_backends import fallback as engine_fallback
 from engine_backends import gemini as engine_gemini
 from engine_backends import claude as engine_claude
@@ -719,12 +720,12 @@ class TestPerLineLanguage:
         lines = [Line(idx=0, start=0, end=1, zh="a", lang="ja"),
                  Line(idx=1, start=1, end=2, zh="b", lang="ko"),
                  Line(idx=2, start=2, end=3, zh="c")]
-        assert engine_shared.tagged_line_languages(lines, "ja") == [None, "ko", None]
-        assert engine_shared.tagged_line_languages([lines[0], lines[2]], "ja") is None
-        assert engine_shared.tagged_source_texts(lines, "ja") == ["a", "(spoken in Korean) b", "c"]
+        assert line_text.tagged_line_languages(lines, "ja") == [None, "ko", None]
+        assert line_text.tagged_line_languages([lines[0], lines[2]], "ja") is None
+        assert line_text.tagged_source_texts(lines, "ja") == ["a", "(spoken in Korean) b", "c"]
 
     def test_numbered_lines_tag_the_spoken_language(self):
-        result = engine_shared.build_numbered_lines([1, 2], ["a", "b"], languages=[None, "ko"])
+        result = line_text.build_numbered_lines([1, 2], ["a", "b"], languages=[None, "ko"])
         assert result == "1. a\n2. (spoken in Korean) b"
 
     def test_request_retry_prompt_carries_the_tag(self):
@@ -756,17 +757,17 @@ class TestPerLineLanguage:
 
 class TestBuildNumberedLines:
     def test_lines_with_no_speaker_names_have_no_prefix(self):
-        result = engine_shared.build_numbered_lines([1, 2], ["你好", "再见"])
+        result = line_text.build_numbered_lines([1, 2], ["你好", "再见"])
         assert result == "1. 你好\n2. 再见"
 
     def test_known_speaker_is_prefixed_in_brackets(self):
-        result = engine_shared.build_numbered_lines([1, 2], ["你好", "再见"], speaker_names=["Xiaoling", None])
+        result = line_text.build_numbered_lines([1, 2], ["你好", "再见"], speaker_names=["Xiaoling", None])
         assert result == "1. [Xiaoling] 你好\n2. 再见"
 
     def test_ids_need_not_start_at_one(self):
         # Used for retrying only the missing ids from a partial response --
         # their ORIGINAL batch ids must be preserved, not renumbered.
-        result = engine_shared.build_numbered_lines([3, 5], ["a", "b"])
+        result = line_text.build_numbered_lines([3, 5], ["a", "b"])
         assert result == "3. a\n5. b"
 
 
@@ -2359,7 +2360,7 @@ class TestFlagPassDefects:
                                                 (2, 2), (2.5, None), (True, None), ("x", None),
                                                 ([2], None), (None, None)])
     def test_parse_line_id(self, value, expected):
-        assert engine_shared.parse_line_id(value) == expected
+        assert line_text.parse_line_id(value) == expected
 
     def test_system_flagged_lines_are_not_sent_to_the_model(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="A", flag="timing_uncertain"),
