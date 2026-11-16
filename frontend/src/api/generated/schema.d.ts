@@ -15080,6 +15080,8 @@ export interface components {
         BenchmarkTranscribeDefaults: {
             /** Beam Size */
             beam_size: number;
+            /** Decode Randomness */
+            decode_randomness: string;
             /** Difficult Audio */
             difficult_audio: boolean;
             /** Hallucination Silence Sec */
@@ -15113,6 +15115,8 @@ export interface components {
         BenchmarkTranscribeOptions: {
             /** Beam Size */
             beam_size?: number | null;
+            /** Decode Randomness */
+            decode_randomness?: string | null;
             /** Difficult Audio */
             difficult_audio?: boolean | null;
             /** Hallucination Silence Sec */
