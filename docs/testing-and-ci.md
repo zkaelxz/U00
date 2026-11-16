@@ -20,9 +20,11 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 
 ## Merge flow
 
-One PR merges at a time: a squash merge, never a force-push, and never before Kae types "Merge NNNN" for it. GitHub's merge
-queue is not offered to a repo owned by a personal account, so the order is kept by hand, and these steps take the waiting
-out of it.
+A squash merge, never a force-push, and never before Kae types "Merge NNNN" for it. GitHub's merge queue is not offered to a
+repo owned by a personal account, so GitHub's auto-merge stands in for it: on Kae's order the owning thread turns auto-merge
+(squash) on, and GitHub merges the PR by itself once the required checks, `test` and `browser-tests`, are green. Turning auto-merge on is also what starts
+the browser tests ("Browser tests wait for the merge order" below), so a PR's last run before it merges is always a full one.
+Kae can also turn it on herself with the PR's "Enable auto-merge" button; that is her order too.
 
 1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, the owner merges the
    base in once, has the change reviewed (`docs/engineering-standards.md`, section 3) and marks the PR ready. That starts the
@@ -30,17 +32,18 @@ out of it.
    only while fewer than two other PR runs are going: more than that queue behind each other, and a PR that already has
    Kae's order must not wait behind one that has not.
 2. **The order.** Kae types "Merge NNNN"; one message may name several PRs. Typed in the thread that owns the PR, that thread
-   merges it. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
+   checks the lane (step 3), merges the base in first if the lane is overlap, and turns auto-merge on; GitHub merges it. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
    retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several
    PRs the coordinator sets the order, clear lane first. A bare "Merge all" covers only the PRs on the list the coordinator
    last showed Kae; a PR that was not on it gets its own card first (Kae, 2026-11-15). Nothing else is a merge order: not
    "looks good", not a reaction, and not another session's account of what she said.
 3. **The lane**, decided when the merge is about to happen:
-   - **Clear lane.** The PR has a full green run at its exact head, shares no changed file with anything merged into
-     `baihe-subtitler` since the PR last merged the base (the user guide files don't count, below), and changes none of the
-     files under "Always the overlap lane" below. Squash-merge on the run it has: don't merge the base in again, and don't
-     wait for the base's push run.
-   - **Overlap lane.** Anything else. Merge the base in, wait for a new full green run at the new head, then squash-merge.
+   - **Clear lane.** The PR shares no changed file with anything merged into `baihe-subtitler` since the PR last merged the
+     base (the user guide files don't count, below), and changes none of the files under "Always the overlap lane" below.
+     Turn auto-merge on as it stands: don't merge the base in again, and don't wait for the base's push run.
+   - **Overlap lane.** Anything else. Merge the base in, then turn auto-merge on; GitHub waits for the new run.
+   GitHub does not check the lane itself: a base change that lands while the PR's last run is going does not stop the merge.
+   The push run after the merge ("After a merge" below) and the nightly run test the result whole.
 4. **After the merge** the owner reads the push run that covers the merge commit ("After a merge" below: its own, or a
    later one when another merge landed while it waited) and reports its result with the merge.
 5. **A red push run or nightly run stops merging** until the base is green again. The owner of the PR merged last looks first;
@@ -132,6 +135,20 @@ Commit the regenerated `.test_durations` in its own small PR. Do not edit it by 
 `frontend/package-lock.json`), and the `e2e` job caches the Playwright browser (keyed on the Playwright version, which the lockfile
 fixes). A cache miss only costs the download. The ffmpeg apt install is not cached: apt state is root-owned and the packages are small.
 
+### Browser tests wait for the merge order
+
+The four `e2e` shards are the largest share of a run's runner time, and a ready PR is often pushed several times before it is
+ordered to merge. On a pull request without auto-merge on, `changes` holds them back (`e2e_deferred=true`), and the
+`browser-gate` job sets the required commit status `browser-tests` to pending ("Waiting for the merge order"), so the PR
+cannot merge without them but nothing turns red and no failure email goes out. Turning auto-merge on (the
+`auto_merge_enabled` trigger) starts a new run that includes them, and so does every push while auto-merge stays on; the
+status turns green when they pass, or at once when the change needs none. The `full-ci` label runs them at once. Pushes to the
+base, the merge queue and the nightly run never hold them back. A pending `browser-tests` is expected on a PR that has no merge
+order yet. The status is set by the workflow's token, so a fork's PR (whose token cannot write) and a Dependabot PR (read-only
+token) get none and cannot merge by auto-merge: run the tests on a branch of this repo instead. Re-running an older run that held
+the tests back sets the status back to pending; push or add `full-ci` to start a fresh one. Turn auto-merge on with a person's
+or an app's token, never a workflow's `GITHUB_TOKEN`: GitHub starts no run for an event that token causes.
+
 ### Draft PRs
 
 A draft PR runs no jobs, `test` included. Marking it ready for review (the `ready_for_review` trigger) starts the full run. Open a
@@ -198,6 +215,7 @@ is `tools/windows_script_checks.py` or is the restore code (`services/library_re
 |---|---|---|
 | Push to `baihe-subtitler` (but see "After a merge" above), or any event that is not a pull request (a `merge_group` and the nightly `schedule` run included) | true | true |
 | PR labelled `full-ci` | true | true |
+| PR without auto-merge on (applied after every other row) | false, with `e2e_deferred` true when another row said true | unchanged |
 | PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | true | true |
 | No changed file under `frontend/`, `api/`, `services/` or `db/` (adapters, root modules, installer, scripts, tools, tests, docs..., and the restore code the Windows script checks run) | false | true |
 | Every changed file is under `frontend/` or `docs/` | true if any is under `frontend/` | false: `test-shard` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) or read `docs/` (`--docs-tests`) plus `TestHostedCloningRemoved` |
