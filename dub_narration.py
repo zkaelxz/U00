@@ -11,6 +11,7 @@ from novel_text import (  # noqa: F401 (re-exported)
     NARRATION_TRACK_NAMES, NOVEL_SOURCE_FILENAME, find_narration_track, is_chapter_heading,
     narration_paragraph_ends)
 
+from audio_levelling import level_clip
 from dub import (NO_VOICE_ERROR, engine_refusal, M4B_ENCODE_TIMEOUT_SECONDS, VENV_ENGINES, VENV_LINE_FAILED,
                  clip_signature, speak_in_venv, _voice_for_signature)
 
@@ -199,7 +200,8 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
                 track += AudioSegment.silent(duration=gap_ms)
             continue
 
-        clip = AudioSegment.from_file(item["clip_path"])
+        # Levelled here, not in the clip file, so a cached clip and its clip_signature stay valid.
+        clip = level_clip(AudioSegment.from_file(item["clip_path"]))
         start_ms, end_ms = cursor_ms, cursor_ms + len(clip)
         members = item["lines"]
         # Split proportionally by whichever text was actually
