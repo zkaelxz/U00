@@ -89,7 +89,7 @@ def classify(files, event, labels=(), merge_approved=True):
     """`merge_approved` is false for a pull request without auto-merge turned on. Its browser tests
     then wait (`e2e_deferred`), and the required `browser-tests` status stays pending until a run after
     the approval has run them:
-    the four shards are the largest share of a run's runner time, and a PR is often pushed several
+    the browser-test jobs are the largest share of a run's runner time, and a PR is often pushed several
     times before anyone asks for it to merge."""
     files = [f.strip().replace("\\", "/") for f in files if f.strip()]
     everything = _all_true()
