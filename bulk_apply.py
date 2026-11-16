@@ -13,7 +13,8 @@ import emotion
 import source_change
 from engine_backends import pricing, shared, flag_reasons
 from engine_backends.translation_guard import allowed_source_runs, unusable_reply
-import translation_guide as tguide
+import glossary_substitution
+import translation_notes
 import word_replacements
 from lib.errors import NotFoundError
 from translation_finish import mark_translated_if_complete, untranslated_line_count
@@ -157,7 +158,7 @@ def _apply_bulk_results_once(bulk_job_id: int, results: list, logged: set) -> di
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
     substitute_terms, fixes_text = word_replacements.with_replacements(
-        tguide.build_hard_term_substituter(enforced), job["drama_id"], bool(enforced))
+        glossary_substitution.build_hard_term_substituter(enforced), job["drama_id"], bool(enforced))
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "kept_your_edit": 0, "missing": 0, "failed_requests": 0, "unknown_requests": 0,
               "rejected": 0}
@@ -427,7 +428,7 @@ def apply_notes_results(bulk_job_id: int, results) -> dict:
                 continue
             for n in by_id.get(lid, []):
                 n["line_id"] = lid
-                n["note_type"] = n.get("note_type") if n.get("note_type") in tguide.NOTE_TYPES else "cultural"
+                n["note_type"] = n.get("note_type") if n.get("note_type") in translation_notes.NOTE_TYPES else "cultural"
                 notes.append(n)
                 counts["applied"] += 1
 

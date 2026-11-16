@@ -15,8 +15,10 @@ import numpy as np
 
 import scanlate_tuning
 
-from scanlate_detect import (TEXT_REGION_KINDS, _holds_balloon_interior, classify_text_regions, detect_panels,
-                             inset_box_for_ocr, page_gray)
+from scanlate_balloons import TEXT_REGION_KINDS, _holds_balloon_interior, classify_text_regions
+from scanlate_detect import inset_box_for_ocr
+from scanlate_page_decode import page_gray
+from scanlate_panels import detect_panels
 
 
 # Region kinds whose text is fitted to the bubble's own outline rather than

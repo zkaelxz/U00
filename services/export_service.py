@@ -181,7 +181,7 @@ def build_wrap_chars(wrap_chars_en, wrap_chars_source):
 
 
 def _load_notes_by_idx(drama_id: int):
-    from translation_guide import group_notes_by_line
+    from translation_notes import group_notes_by_line
     notes = db.list_translation_notes(drama_id)
     return group_notes_by_line(notes) if notes else None
 

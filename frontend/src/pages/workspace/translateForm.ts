@@ -50,6 +50,8 @@ export interface RunForm {
   female_pronouns: boolean // she/her default for ambiguous pronouns
   genre_notes: boolean // baihe/GL genre guidance in the prompt
   memory_examples: boolean // this run only: approved translation-memory pairs of the series as prompt examples
+  chapter_from: string // a novel's chapters for this run only; '' = from the first
+  chapter_to: string // '' = to the last
 }
 
 // Engines that only translate (no free-form prompting) cannot run Reflect.
@@ -315,7 +317,19 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
     female_pronouns: c.default_female_pronouns ?? preset.default_female_pronouns ?? false,
     genre_notes: c.include_genre_notes ?? preset.include_genre_notes ?? true,
     memory_examples: false,
+    chapter_from: '',
+    chapter_to: '',
   }
+}
+
+export const CHAPTER_RANGE_MESSAGE = 'Chapters must be whole numbers from 1, and the first cannot be after the last.'
+
+/** {} for no choice (all chapters), the chosen bounds, or null when a box holds something else. */
+export function chapterRange(from: string, to: string): { chapter_from?: number; chapter_to?: number } | null {
+  const a = from.trim() === '' ? undefined : intIn(from, 1, 100000)
+  const b = to.trim() === '' ? undefined : intIn(to, 1, 100000)
+  if (a === null || b === null || (a !== undefined && b !== undefined && a > b)) return null
+  return { ...(a !== undefined ? { chapter_from: a } : {}), ...(b !== undefined ? { chapter_to: b } : {}) }
 }
 
 function intIn(raw: string, min: number, max: number): number | null {
@@ -356,6 +370,8 @@ export function validateRun(
   const chain = [eff, ...f.fallbacks]
   if (new Set(chain).size !== chain.length) return 'An engine cannot appear twice in the fallback chain.'
   if (fallbackKindMismatch(eff, f.fallbacks)) return FALLBACK_KIND_MESSAGE
+  const chapters = chapterRange(f.chapter_from, f.chapter_to)
+  if (chapters === null) return CHAPTER_RANGE_MESSAGE
   if (f.force && !f.forceConfirmed) return 'Tick the confirmation box to replace existing English text.'
   return null
 }
@@ -382,6 +398,7 @@ export function buildRunBody(f: RunForm): TranslateRunStartBody {
     default_female_pronouns: f.female_pronouns,
     include_genre_notes: f.genre_notes,
     ...(f.memory_examples ? { memory_examples: true } : {}),
+    ...(chapterRange(f.chapter_from, f.chapter_to) ?? {}),
   }
 }
 
@@ -397,6 +414,7 @@ export function buildEstimateParams(f: RunForm): EstimateParams | null {
     ...(f.reflect ? { reflect: true } : {}),
     ...(f.bulk ? { bulk: true } : {}),
     thinking: f.thinking,
+    ...(chapterRange(f.chapter_from, f.chapter_to) ?? {}),
     // Only a valid size: a half-typed one must not turn the estimate into a 422.
     ...(intIn(f.batch_size, BATCH_SIZE_MIN, BATCH_SIZE_MAX) !== null ? { batch_size: Number(f.batch_size) } : {}),
   }

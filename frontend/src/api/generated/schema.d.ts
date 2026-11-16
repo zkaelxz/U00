@@ -5198,6 +5198,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/admin/typeset-comics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job: typeset every comic again from its saved translations (free, keeps edits) */
+        post: operations["post_typeset_comics_api_library_admin_typeset_comics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/continue": {
         parameters: {
             query?: never;
@@ -6728,6 +6745,23 @@ export interface paths {
         };
         /** Read-only chunk-and-tag options for one drama */
         get: operations["get_narration_config_api_narration_dramas__drama_id__config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/narration/dramas/{drama_id}/estimate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cost estimate for chunking and tagging the chosen chapters */
+        get: operations["get_narration_estimate_api_narration_dramas__drama_id__estimate_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9754,6 +9788,24 @@ export interface paths {
         put?: never;
         /** PC only: remove a Discord webhook or ntfy topic URL from .env */
         post: operations["clear_channel_api_settings_notifications__channel__clear_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/resource-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Each PC alert's limit, minutes and switch, with ranges and defaults */
+        get: operations["get_rules_api_settings_resource_alerts_get"];
+        put?: never;
+        /** PC only: change PC alert limits, minutes or switches */
+        post: operations["set_rules_api_settings_resource_alerts_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -23064,6 +23116,11 @@ export interface components {
         };
         /** NarrationConfig */
         NarrationConfig: {
+            /**
+             * Chapter Count
+             * @default 0
+             */
+            chapter_count: number;
             /** Default Engine */
             default_engine: string;
             /** Drama Id */
@@ -23090,6 +23147,31 @@ export interface components {
             /** Key Configured */
             key_configured: boolean;
         };
+        /** NarrationEstimate */
+        NarrationEstimate: {
+            /** Cap Applies */
+            cap_applies: boolean;
+            /** Chapters */
+            chapters: number;
+            /** Chunk Count */
+            chunk_count: number;
+            /** Effective Cap Usd */
+            effective_cap_usd: number | null;
+            /** Engine */
+            engine: string;
+            /** Estimate Above Cap */
+            estimate_above_cap: boolean;
+            /** Estimated Usd */
+            estimated_usd: number;
+            /** Has Key */
+            has_key: boolean;
+            /** Model */
+            model: string;
+            /** Monthly Cap Set */
+            monthly_cap_set: boolean;
+            /** Monthly Refusal */
+            monthly_refusal: boolean;
+        };
         /** NarrationRunRequest */
         NarrationRunRequest: {
             /**
@@ -23097,10 +23179,19 @@ export interface components {
              * @default false
              */
             append?: boolean;
+            /** Chapter From */
+            chapter_from?: number | null;
+            /** Chapter To */
+            chapter_to?: number | null;
             /** Engine */
             engine?: string | null;
             /** Model */
             model?: string | null;
+            /**
+             * One Narrator
+             * @default false
+             */
+            one_narrator?: boolean;
         };
         /** NarrationRunResult */
         NarrationRunResult: {
@@ -25323,6 +25414,63 @@ export interface components {
             drama_id: number;
             /** Job Id */
             job_id: string;
+        };
+        /** ResourceAlertChange */
+        ResourceAlertChange: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Limit */
+            limit?: number | null;
+            /** Minutes */
+            minutes?: number | null;
+        };
+        /** ResourceAlertRule */
+        ResourceAlertRule: {
+            /** Below */
+            below: boolean;
+            /** Default Enabled */
+            default_enabled: boolean;
+            /** Default Limit */
+            default_limit: number | null;
+            /** Default Minutes */
+            default_minutes: number;
+            /** Enabled */
+            enabled: boolean;
+            /** Has Limit */
+            has_limit: boolean;
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Limit */
+            limit: number | null;
+            /** Limit Max */
+            limit_max: number | null;
+            /** Limit Min */
+            limit_min: number | null;
+            /** Minutes */
+            minutes: number;
+            /** Minutes Max */
+            minutes_max: number;
+            /** Minutes Min */
+            minutes_min: number;
+            /** Unit */
+            unit: string;
+        };
+        /** ResourceAlertRules */
+        ResourceAlertRules: {
+            /** Rules */
+            rules: components["schemas"]["ResourceAlertRule"][];
+        };
+        /**
+         * ResourceAlertsRequest
+         * @description Only the alerts named change; within one, only the fields sent.
+         */
+        ResourceAlertsRequest: {
+            /** Rules */
+            rules: {
+                [key: string]: components["schemas"]["ResourceAlertChange"];
+            };
         };
         /**
          * ResplitResult
@@ -27711,6 +27859,11 @@ export interface components {
              */
             scene_break_gap_seconds: number;
             /**
+             * Second Hearing
+             * @default false
+             */
+            second_hearing: boolean;
+            /**
              * Sensitive Vad Threshold
              * @default 0.35
              */
@@ -28002,6 +28155,8 @@ export interface components {
             scene_aware_batches?: boolean | null;
             /** Scene Break Gap Seconds */
             scene_break_gap_seconds?: number | null;
+            /** Second Hearing */
+            second_hearing?: boolean | null;
             /** Sensitive Vad Threshold */
             sensitive_vad_threshold?: number | null;
             /** Sentence Group Gap Seconds */
@@ -28661,6 +28816,12 @@ export interface components {
              */
             health: string;
             health_detail: components["schemas"]["SourceHealth"];
+            /**
+             * Homepage
+             * @description The site's front page (https), empty when the source has no site.
+             * @default
+             */
+            homepage: string;
             /** Import Supported */
             import_supported: boolean;
             /** Languages */
@@ -29021,6 +29182,12 @@ export interface components {
              * @description green, yellow or red.
              */
             health: string;
+            /**
+             * Homepage
+             * @description The site's front page (https), empty when the source has no site.
+             * @default
+             */
+            homepage: string;
             /** Import Supported */
             import_supported: boolean;
             /** Languages */
@@ -31286,6 +31453,10 @@ export interface components {
              * @default false
              */
             bulk?: boolean;
+            /** Chapter From */
+            chapter_from?: number | null;
+            /** Chapter To */
+            chapter_to?: number | null;
             /** Context Window */
             context_window?: number | null;
             /** Context Window Ahead */
@@ -46876,6 +47047,44 @@ export interface operations {
             };
         };
     };
+    post_typeset_comics_api_library_admin_typeset_comics_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryJobStarted"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_continue_api_library_continue_get: {
         parameters: {
             query?: {
@@ -51517,6 +51726,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_narration_estimate_api_narration_dramas__drama_id__estimate_get: {
+        parameters: {
+            query?: {
+                engine?: string | null;
+                model?: string | null;
+                chapter_from?: number | null;
+                chapter_to?: number | null;
+                /** @description Price only the text an add left without lines */
+                append?: boolean;
+            };
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NarrationEstimate"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -61061,6 +61326,59 @@ export interface operations {
             };
         };
     };
+    get_rules_api_settings_resource_alerts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceAlertRules"];
+                };
+            };
+        };
+    };
+    set_rules_api_settings_resource_alerts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResourceAlertsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceAlertRules"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_schema_api_settings_schema_get: {
         parameters: {
             query?: never;
@@ -68188,6 +68506,8 @@ export interface operations {
                 job_cost_cap_usd?: number | null;
                 batch_size?: number | null;
                 line_ids?: number[] | null;
+                chapter_from?: number | null;
+                chapter_to?: number | null;
             };
             header?: never;
             path: {

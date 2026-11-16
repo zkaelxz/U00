@@ -152,6 +152,8 @@ class SourceAdapter:
     name = ""
     #: Human-facing name.
     display_name = ""
+    #: The site's front page, for the Sources list link. Empty when the source has no site (the offline demo).
+    homepage = ""
     #: [ContentType values]
     content_types = []
     #: ISO-639-1 codes

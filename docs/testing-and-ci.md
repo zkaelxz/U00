@@ -20,19 +20,23 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 
 ## Merge flow
 
-A squash merge, never a force-push, and never before Kae types "Merge NNNN" for it. GitHub's merge queue is not offered to a
-repo owned by a personal account, so GitHub's auto-merge stands in for it: on Kae's order the owning thread turns auto-merge
-(squash) on, and GitHub merges the PR by itself once the required checks, `test` and `browser-tests`, are green. Turning auto-merge on is also what starts
+A squash merge, never a force-push. GitHub's merge queue is not offered to a repo owned by a personal account, so GitHub's
+auto-merge stands in for it: when a PR is finished and reviewed, the owning thread turns auto-merge (squash) on, and GitHub merges the PR by itself once the required checks, `test` and `browser-tests`, are green. Turning auto-merge on is also what starts
 the browser tests ("Browser tests wait for the merge order" below), so a PR's last run before it merges is always a full one.
-Kae can also turn it on herself with the PR's "Enable auto-merge" button; that is her order too.
+Kae can also turn it on herself with the PR's "Enable auto-merge" button.
+
+No word from Kae is needed for that (Kae, 2026-11-16), except for a **risky PR**, which still waits for her typed "Merge NNNN"
+(step 2): a database schema change (as under "Always the overlap lane" below), sign-in or auth (`api/auth.py`, the auth, OIDC
+and session services, remote access), anything that needs a test on a real PC before it ships (a real GPU, model, key,
+installer or site), and release or Promote steps. When in doubt, treat a PR as risky and ask.
 
 1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, the owner merges the
    base in once, has the change reviewed (`docs/engineering-standards.md`, section 3) and marks the PR ready. That starts the
-   full run ("Draft PRs" below), so the run is over before Kae is asked. Marking a PR ready is not a merge order. Start a run
-   only while fewer than two other PR runs are going: more than that queue behind each other, and a PR that already has
-   Kae's order must not wait behind one that has not.
-2. **The order.** Kae types "Merge NNNN"; one message may name several PRs. Typed in the thread that owns the PR, that thread
-   checks the lane (step 3), merges the base in first if the lane is overlap, and turns auto-merge on; GitHub merges it. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
+   full run ("Draft PRs" below). Marking a PR ready is not a merge order. Start a run, and turn auto-merge on (which starts
+   the full one), only while fewer than two other PR runs are going: more than that queue behind each other.
+2. **The order.** A PR that is not risky needs none: the owner checks the lane (step 3), merges the base in first if the lane
+   is overlap, and turns auto-merge on; GitHub merges it. For a risky PR Kae types "Merge NNNN"; one message may name several
+   PRs. Typed in the thread that owns the PR, that thread does the same. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
    retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several
    PRs the coordinator sets the order, clear lane first. A bare "Merge all" covers only the PRs on the list the coordinator
    last showed Kae; a PR that was not on it gets its own card first (Kae, 2026-11-15). Nothing else is a merge order: not

@@ -36,7 +36,7 @@ export function SimpleTitlePage({ id, drama, onView }: { id: number; drama: Dram
         <TitleViewSwitch view="simple" onChange={onView} />
         <OpenFolderButton open={() => openDramaFolder(id)} size="sm" className="ws-folder" title="Show this title's files on the PC" />
       </header>
-      <div className="actions">
+      <div className="actions title-actions">
         <ButtonLink href={routeHref({ name: 'comic', id, page: null })} variant="primary">Open in Scanlate</ButtonLink>
         <ButtonLink href={stage('source', 'add')}>Add pages</ButtonLink>
         <ButtonLink href={stage('translate', 'glossary')}>Glossary</ButtonLink>
