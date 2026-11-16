@@ -13,7 +13,10 @@ describe('Reader term tools', () => {
     )
     expect(out).toContain('姑姑')
     expect(out).toContain('Gugu')
-    expect(out).toContain('>Delete term<')
+    // Deleting takes a second press (ConfirmButton), so a stray tap in the Reader can't drop the term.
+    expect(out).toContain('class="confirm-button"')
+    expect(out).toContain('aria-label="Delete term 姑姑"')
+    expect(out).toContain('>Delete term…<')
     expect(out).not.toContain('Original')
   })
 
@@ -23,7 +26,7 @@ describe('Reader term tools', () => {
         onClose={noop} onChanged={noop} />,
     )
     expect(out).toContain('Original')
-    expect(out).not.toContain('>Delete term<')
+    expect(out).not.toContain('Delete term')
   })
 
   it('names the selected text in the replace panel', () => {

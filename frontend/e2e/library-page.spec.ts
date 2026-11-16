@@ -179,6 +179,34 @@ test('a 130-character title clamps on its card and keeps the whole title in a ti
   expect(box.x + box.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
 })
 
+test('line search shows the latest search when an earlier reply comes back last', async ({ page }) => {
+  const hit = { drama_id: 1, idx: 0, title_en: 'Old', title_zh: null, zh: '旧', en: 'old answer' }
+  let releaseFirst = () => undefined as void
+  const firstHeld = new Promise<void>((r) => { releaseFirst = r })
+  await page.route('**/api/library/search?*', async (route) => {
+    const q = new URL(route.request().url()).searchParams.get('q')
+    if (q === 'first') {
+      await firstHeld
+      return route.fulfill({ json: { items: [hit], count: 1 } })
+    }
+    return route.fulfill({ json: { items: [], count: 0 } })
+  })
+  await page.goto('/')
+  await page.getByRole('radio', { name: 'Lines' }).check()
+  const box = page.getByLabel('Search all lines')
+  const search = page.getByRole('button', { name: 'Search', exact: true })
+  await box.fill('first')
+  await search.click()
+  await box.fill('second')
+  await search.click()
+  await expect(page.getByTestId('search-count')).toHaveText('0 matches')
+  const late = page.waitForResponse((r) => r.url().includes('q=first'))
+  releaseFirst()
+  await late
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 50))))
+  await expect(page.getByTestId('search-count')).toHaveText('0 matches')
+})
+
 test('line search without permission to read lines: a plain note, no error banner', async ({ page }) => {
   await page.route('**/api/library/search?*', (route) =>
     route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'Not allowed.' } } }),

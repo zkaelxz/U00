@@ -195,7 +195,7 @@ describe('describeError shows the real reason', () => {
   })
 
   it('a failed action whose server text is path- or key-like keeps the generic text and no detail', () => {
-    for (const msg of ['Could not open C:\\Users\\kae\\x.db', 'key sk-abcdef123456 refused', 'x'.repeat(201)]) {
+    for (const msg of ['Could not open C:\\Users\\kae\\x.db', 'key sk-abcdef123456 refused', 'x'.repeat(601)]) {
       expect(describeError(api(500, 'application_error', msg, 'POST'))).toEqual({
         title: 'The action failed. Nothing was changed unless stated otherwise.',
         detail: null,
@@ -213,6 +213,14 @@ describe('describeError shows the real reason', () => {
     expect(describeError(api(409, 'conflict', 'A translate job is already running.', 'POST'))).toMatchObject({
       detail: 'A translate job is already running.',
     })
+  })
+
+  it('a long server sentence that tells the user how to recover is still shown', () => {
+    const stuck = 'A chapter move on this title was interrupted and can\'t be finished or undone safely '
+      + '(its lines or text changed afterwards, or its record of the move is damaged). Restore the lines from the line history '
+      + '(\u201cbefore moving a chapter\u201d) and ask for help clearing the stopped move.'
+    expect(stuck.length).toBeGreaterThan(200)
+    expect(describeError(api(409, 'conflict', stuck, 'POST')).detail).toBe(stuck)
   })
 })
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { openDramaFolder } from '../../api/library'
@@ -23,7 +23,7 @@ import { NovelLinkStart } from './NovelLinkStart'
 import { NovelCastCard } from './stages/NovelCastCard'
 import { NovelChapterRetranslate } from './stages/NovelChapterRetranslate'
 import { mainButton } from './novelLinkChain'
-import { chaptersHeadline, lineProgress, readerPageOf, rowMeta, rowTitle } from './stages/novelChapters'
+import { appendChapters, chaptersHeadline, lineProgress, readerPageOf, rowMeta, rowTitle } from './stages/novelChapters'
 import './stages/novelChapters.css'
 
 const PAGE = 100
@@ -50,8 +50,14 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
   const refresh = () => setTick((t) => t + 1)
   const title = drama.title_en || drama.title_zh || `Title #${id}`
 
+  // Bumped by every first-page load, so a "Show more" page fetched for the old list is dropped.
+  const listLoad = useRef(0)
+  const [moreBusy, setMoreBusy] = useState(false)
+  const moreInFlight = useRef(false)
+
   useEffect(() => {
     let cancelled = false
+    listLoad.current += 1
     getRawChapters(id, 0, PAGE).then(
       (l) => {
         if (cancelled) return
@@ -107,11 +113,20 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
   const [again, setAgain] = useState<number | null>(null)
 
   // One page at a time: the API refuses a page above its own maximum, so a long novel can't be fetched in one call.
-  const showMore = () =>
+  const showMore = () => {
+    // A second press before the page arrives would ask for the same offset again.
+    if (moreInFlight.current) return
+    moreInFlight.current = true
+    setMoreBusy(true)
+    const load = listLoad.current
     getRawChapters(id, rows.length, PAGE).then(
-      (l) => setRows((r) => [...r, ...l.chapters]),
-      (e: unknown) => setError(e),
-    )
+      (l) => load === listLoad.current && setRows((r) => appendChapters(r, l.chapters)),
+      (e: unknown) => load === listLoad.current && setError(e),
+    ).finally(() => {
+      moreInFlight.current = false
+      setMoreBusy(false)
+    })
+  }
   const marks = !!list && list.translation_chars > 0
   const readerSize = loadPrefs(browserStorage()).chapterSize
   // With no lines yet the Translate tab has nothing to translate, so Translate runs the link chain (lines, speakers, glossary scan) instead.
@@ -231,7 +246,7 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
         )}
         {list && rows.length < list.total && (
           <div className="actions">
-            <button type="button" onClick={showMore}>Show more chapters</button>
+            <button type="button" disabled={moreBusy} onClick={showMore}>Show more chapters</button>
             <span className="muted">{rows.length.toLocaleString()} of {list.total.toLocaleString()}</span>
           </div>
         )}

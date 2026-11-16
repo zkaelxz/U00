@@ -114,6 +114,8 @@ export function LibraryList({
   const [error, setError] = useState<unknown>(null)
   const [hits, setHits] = useState<LibrarySearchHit[] | null>(null)
   const [hitsError, setHitsError] = useState<unknown>(null)
+  // A slow earlier search must not replace the hits of the one typed after it.
+  const lineSearchSeq = useRef(0)
   const phone = useMediaQuery('(max-width: 640px)')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const onItemsRef = useLatest(onItems)
@@ -172,9 +174,10 @@ export function LibraryList({
     e.preventDefault()
     const term = search.trim()
     if (scope !== 'lines' || !term) return
+    const seq = ++lineSearchSeq.current
     searchLines(term).then(
-      (r) => { setHits(r.items); setHitsError(null) },
-      (err: unknown) => setHitsError(err),
+      (r) => { if (seq === lineSearchSeq.current) { setHits(r.items); setHitsError(null) } },
+      (err: unknown) => { if (seq === lineSearchSeq.current) setHitsError(err) },
     )
   }
 
