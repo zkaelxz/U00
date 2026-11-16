@@ -2,7 +2,7 @@
 exclude: '^(frontend/package-lock\.json|\.test_durations|tests/fixtures/|.*\.min\.(js|css)|.*snapshots?/.*)$'
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.8
+    rev: v0.17.5
     hooks:
       - id: ruff-check
         # Run on the whole tree so a changed file can't hide a pyflakes error elsewhere.
