@@ -37,7 +37,6 @@ ignore_imports =
     sources.chapter_check -> services.auth_service
     sources.chapter_check -> services.ownership_service
     sources.chapter_check -> services.sources_save_service
-    sources.generic_import -> services.page_import_limits
     sources.pipeline -> jobs.job_launch
     sources.pipeline -> services.drama_service
     engine_backends.local -> services.member_key_service

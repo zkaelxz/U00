@@ -38,7 +38,8 @@ from api.scanlate_schemas import (ScanlateRegionRedoRequest, ScanlateConfig, Sca
 from api.schemas import (ComicRegionCreateRequest, ComicRegionEditRequest,
                          ComicRegionUndoRequest, error_responses)
 from lib.capped_request import read_capped_form
-from services import (scanlate_region_redo_service, model_readiness_service, page_import_limits, scanlate_pages_service,
+import page_import_limits
+from services import (scanlate_region_redo_service, model_readiness_service, scanlate_pages_service,
                       scanlate_render_service, scanlate_run_service)
 from lib.errors import InvalidInputError
 
