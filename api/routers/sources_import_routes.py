@@ -47,7 +47,7 @@ from api.schemas import (SourcesChapterImportRequest, SourcesChapterSaveRequest,
                          SourcesJobStarted, SourcesUrlPreviewRequest, error_responses)
 from api.sources_extraction_schemas import (SourcesAiRecoverRequest,
                                             SourcesUrlImportFollowRequest)
-from api.sources_import_schemas import SourcesImportState
+from api.schemas import SourcesImportState
 from services import sources_extraction_service as extraction
 from services import sources_import_service as svc
 from services import sources_save_service as save_svc

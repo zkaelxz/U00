@@ -26,7 +26,7 @@ from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import FileResponse, Response
 
 from api.auth import require_permission
-from api.comic_schemas import (ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest, ComicSourceChapters,
+from api.schemas import (ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest, ComicSourceChapters,
                               ComicStartChapterRequest, ComicStartChapterResult,
                               ComicViewPrefs, ComicViewPrefsView, ComicVisibilityRequest, ComicVisibilityResult)
 from api.schemas import error_responses

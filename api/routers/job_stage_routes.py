@@ -11,7 +11,7 @@ and job_timing.
 from fastapi import APIRouter, Path, Request
 
 from api.auth import require_permission
-from api.job_stage_schemas import JobStageTimings
+from api.schemas import JobStageTimings
 from api.schemas import error_responses
 from services import jobs_service
 
