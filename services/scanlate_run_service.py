@@ -732,7 +732,7 @@ def _chapter_brief(jid: str, drama_id: int, drama: dict, page_ids: list, ahead: 
                    start_detect, engine, engine_name: str) -> str:
     """Reads the whole run's pages first, then returns one brief of the chapter
     for every page's translation call to carry. The brief is cached beside the
-    title under a hash of the pages' text, the engine and its model, so running
+    title under a hash of the pages' text, the language, the engine and its model, so running
     the same chapter again on the same engine costs no call. Never stops the run: any failure but a cancel, a memory
     refusal or a timeout (which end the run for every page anyway) gives ""."""
     import hashlib
@@ -750,8 +750,10 @@ def _chapter_brief(jid: str, drama_id: int, drama: dict, page_ids: list, ahead: 
     texts = _page_texts_when_read(drama_id, page_ids, ahead, jid)
     background_jobs.update_progress(jid, _READ_SHARE, "Writing the chapter brief")
     job_timing_service.mark_stage(jid, "Chapter brief")
-    # The brief's prompt is the pages' text alone (no glossary), so only what writes it joins them in the key.
-    key_text = chr(10).join([engine_name, getattr(engine, "model", "") or "", *texts])
+    # The brief's prompt is the pages' text and the source language (no glossary), so only
+    # those and what writes it make the key.
+    key_text = chr(10).join([engine_name, getattr(engine, "model", "") or "",
+                             drama.get("source_language") or "zh", *texts])
     key = hashlib.sha1(key_text.encode("utf-8")).hexdigest()[:16]
     cache = os.path.join(db.drama_dir(drama_id), f"chapter_brief_{key}.txt")
     try:

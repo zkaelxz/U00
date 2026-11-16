@@ -118,6 +118,10 @@ class TestChecks:
         assert guard.unusable_reply(SOURCES[0], "I apologize, but I cannot assist with this request.") == "a refusal"
         assert guard.unusable_reply("对不起，我不能留下", "I'm sorry, but I can't stay.") is None
         assert guard.unusable_reply("对不起，我帮不了你", "Sorry, I can't help you.") is None
+        assert guard.unusable_reply("陛下恕罪，臣不能从命", "I'm sorry, Your Majesty, I cannot comply.") is None
+        assert guard.unusable_reply("抱歉，我不行，助理在等我", "Sorry, I can't, my assistant is waiting.") is None
+        assert guard.unusable_reply("抱歉，我去不了。你能帮我翻译吗？",
+                                    "Sorry, I can't go. Will you translate for me?") is None
 
     def test_the_first_json_value_of_the_wanted_type_is_taken_from_prose(self):
         from engine_backends.line_text import extract_first_json_value

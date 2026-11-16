@@ -266,9 +266,9 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
             continue
         flagged = _reply_array(text)
         if flagged is None:
+            # Still walk the lines: an edited source must be flagged even when the reply is unreadable.
             counts["unparsable_requests"] += 1
-            continue
-        by_id, bad = line_text.parse_flag_entries(flagged)
+        by_id, bad = line_text.parse_flag_entries(flagged) if flagged is not None else ({}, 0)
         counts["unparsable_entries"] += bad
         for lid in ids_by_key[key]:
             row = row_by_id[lid]
@@ -281,6 +281,8 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
                         ln.flag_note = "Source text changed while bulk flagging was pending -- re-run it"
                 else:
                     counts["dropped_deleted"] += 1
+                continue
+            if flagged is None:
                 continue
             state = json.loads(row["state_at_submit"]) if row.get("state_at_submit") else {}
             if (ln.flag, ln.flag_note or "") != (state.get("flag"), state.get("flag_note") or ""):
@@ -431,8 +433,9 @@ def apply_notes_results(bulk_job_id: int, results) -> dict:
             continue
         found = _reply_array(text)
         if found is None:
+            # Still walk the lines so a changed source is counted.
             counts["unparsable_requests"] += 1
-            continue
+            found = []
         by_id = {}
         for n in found:
             if isinstance(n, dict) and n.get("note") and n.get("line_idx") is not None:

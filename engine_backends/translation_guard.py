@@ -42,10 +42,12 @@ _ENGLISH_QUOTE = re.compile(r'["“”]')
 _SOURCE_TAG = re.compile(r'[道說说问問叫喊答][：:]\s*[“「"『]|[”」"』][，,]?[^“”「」『』，。！？]{1,8}[道說说问問叫喊答]')
 _PUNCT = re.compile(r"[^\w\s]", re.UNICODE)
 # A refusal written in place of the line. An apology alone is ordinary dialogue
-# ("I'm sorry, but I can't stay."), so it must also speak of the task.
+# ("I'm sorry, but I can't stay.", "Sorry, Your Majesty, I cannot comply."), so the
+# same sentence must also speak of the task.
 _TASK_REFUSAL = re.compile(
     r"^(?:i'?m sorry|i am sorry|sorry|i apologi[sz]e)\b[^.!?]*?\b(?:can'?t|cannot|can not|won'?t|unable|not able)\b"
-    r".*\b(?:translat\w*|assist\w*|this request|this content|comply)\b", re.IGNORECASE | re.DOTALL)
+    r"[^.!?]*\b(?:translat\w*|assist (?:you )?with|help (?:you )?with (?:this|that)|this request|this content)\b",
+    re.IGNORECASE)
 
 
 def _english_words(text: str) -> int:

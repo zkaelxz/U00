@@ -834,6 +834,19 @@ class TestBulkFlag:
         assert summary["unparsable_requests"] == 1 and summary["applied"] == 0
         assert bulk_poll.poller_outcome("no-job", {"result_summary": summary}) == {"partial": True}
 
+    def test_an_unreadable_reply_still_flags_a_source_edited_meanwhile(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2, en="translated")
+        lines = isolated_db.load_line_objects(did)
+        jid = bulk_translate.submit_bulk_flag(did, lines, engine, "claude")
+        key = engine.client.messages.batches.created[0]["custom_id"]
+        edited = isolated_db.load_line_objects(did)
+        edited[0].zh = "改过的原文"
+        isolated_db.save_lines(did, edited, fields=("zh",))
+        summary = bulk_apply.apply_flag_results(jid, [(key, "no JSON here", {}, None)])
+        assert summary["unparsable_requests"] == 1 and summary["flagged_source_changed"] == 1
+        assert isolated_db.load_line_objects(did)[0].flag == "bulk_source_changed"
+
     def test_engines_without_a_batch_api_are_rejected(self, isolated_db):
         did = _drama(isolated_db, n=1, en="x")
         with pytest.raises(ValueError, match="batch API"):
