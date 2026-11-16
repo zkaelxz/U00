@@ -352,7 +352,7 @@ def flag_dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED
     and its note are written: line times are never changed. `lines` are in
     time order, so the next one bounds the free time after a cue.
     `dismissed` is {(line id, text hash)} from
-    reading_speed_dismissal_service: those lines stay unflagged while their
+    reading_speed_dismissal: those lines stay unflagged while their
     English is the text that was dismissed."""
     gap = MIN_GAP_FRAMES / _frame_rate(fps)
 
