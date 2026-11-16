@@ -12,6 +12,8 @@ orchestration tests, the same way the transcription tests mock
 transcribe_for_timing.
 """
 import os
+import shutil
+import subprocess
 import sys
 
 import numpy as np
@@ -758,3 +760,18 @@ class TestUnchangedBandIsNotReread:
         texts = {f"f{i}.png": "hi" for i in range(3)}
         _, reads = self._run(monkeypatch, tmp_path, [same] * 3, texts, on_timeout_names=("f0.png",))
         assert reads == ["f0.png", "f1.png"]
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs real ffmpeg")
+def test_frame_labels_match_the_time_each_frame_shows(tmp_path):
+    """A video whose brightness is its own clock: each sampled frame's label must be near the time it shows."""
+    video = tmp_path / "clock.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                    "color=c=black:s=64x64:r=25:d=10,geq=lum='255*T/10':cb=128:cr=128",
+                    "-pix_fmt", "yuv420p", str(video)], check=True)
+    frames = hardsub_ocr.extract_frames(str(video), str(tmp_path / "f"), interval_sec=2.0)
+    assert frames
+    for label, path in frames:
+        gray = float(hardsub_ocr.cv2.imread(path, 0).mean())
+        shown = (gray * 219 / 255 + 16) / 255 * 10  # undo the decoder's limited-to-full range stretch
+        assert abs(label - shown) < 0.15, (label, shown)

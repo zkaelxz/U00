@@ -669,6 +669,13 @@ GROQ_DEFAULT_MODEL = "whisper-large-v3-turbo"
 # limit keeps a single file far below what would fill this.
 GROQ_RESPONSE_MAX_BYTES = 32 * 1024 * 1024
 GROQ_ERROR_MAX_BYTES = 64 * 1024
+# Groq's documented upload cap; a bigger file is refused only after the whole upload.
+GROQ_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+_GROQ_STATUS_MESSAGES = {
+    401: "Groq didn't accept the API key. Check it in Settings.",
+    413: "Groq refused this audio as too large. Use local Whisper.",
+    429: "Groq's rate limit was reached. Wait a minute and try again.",
+}
 
 
 class GroqTranscriptionError(RuntimeError):
@@ -732,6 +739,14 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     unreachable = "Couldn't reach Groq's API."
     not_json = "Groq's reply wasn't valid JSON."
     try:
+        size = _os.path.getsize(audio_path)
+    except OSError:
+        size = 0
+    if size > GROQ_MAX_UPLOAD_BYTES:
+        raise GroqTranscriptionError(
+            f"Groq takes files up to {GROQ_MAX_UPLOAD_BYTES // (1024 * 1024)} MB; "
+            f"this audio is {size / (1024 * 1024):.0f} MB. Use local Whisper.")
+    try:
         with open(audio_path, "rb") as f:
             resp = http.post(
                 GROQ_TRANSCRIBE_URL, timeout=600, max_bytes=GROQ_RESPONSE_MAX_BYTES,
@@ -745,6 +760,8 @@ def transcribe_with_groq(audio_path: str, language: str, api_key: str,
     except http.FetchError:
         # lib.http's own text says "the page", which misleads for an API call.
         raise GroqTranscriptionError(unreachable) from None
+    if resp.status in _GROQ_STATUS_MESSAGES:
+        raise GroqTranscriptionError(_GROQ_STATUS_MESSAGES[resp.status])
     if resp.status != 200:
         raise GroqTranscriptionError(shared.redact_secrets(
             f"Groq API returned {resp.status}: "

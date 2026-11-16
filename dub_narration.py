@@ -7,6 +7,7 @@ voice and clip helpers, never the other way round.
 import contextlib
 import os
 import re
+import video_export
 from novel_text import (  # noqa: F401 (re-exported)
     NARRATION_TRACK_NAMES, NOVEL_SOURCE_FILENAME, find_narration_track, is_chapter_heading,
     narration_paragraph_ends)
@@ -120,6 +121,19 @@ def _keep_partial(partial: str, clip_path: str):
         return VENV_LINE_FAILED
 
 
+def join_segments(pieces):
+    """The pieces end to end, as repeated `+=` would give. pydub's `+` copies both
+    sides, so adding one clip at a time is quadratic for a book of thousands of clips;
+    joining neighbours in rounds copies the audio only log2(n) times."""
+    pieces = list(pieces)
+    while len(pieces) > 1:
+        joined = [pieces[i] + pieces[i + 1] for i in range(0, len(pieces) - 1, 2)]
+        if len(pieces) % 2:
+            joined.append(pieces[-1])
+        pieces = joined
+    return pieces[0]
+
+
 def build_narration_track(lines, drama_dir: str, character_clone_map: dict, progress_cb=None,
                            gap_ms: int = 350,
                            narrate_original: bool = False, source_language: str = "zh"):
@@ -185,7 +199,7 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
 
     _generate_units(units, record, source_language if narrate_original else "en", clips_dir)
 
-    track = AudioSegment.silent(duration=0)
+    pieces = [AudioSegment.silent(duration=0)]
     cursor_ms = 0
     for kind, item in steps:
         if kind == "blank":
@@ -197,7 +211,7 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
                 ln.start = cursor_ms / 1000.0
                 cursor_ms += gap_ms
                 ln.end = cursor_ms / 1000.0
-                track += AudioSegment.silent(duration=gap_ms)
+                pieces.append(AudioSegment.silent(duration=gap_ms))
             continue
 
         # Levelled here, not in the clip file, so a cached clip and its clip_signature stay valid.
@@ -215,13 +229,22 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
             ln.dub_filename = dub_filename
             ln.start = edges[k] / 1000.0
             ln.end = edges[k + 1] / 1000.0
-        track += clip
+        pieces.append(clip)
         cursor_ms = end_ms
-        track += AudioSegment.silent(duration=gap_ms)
+        pieces.append(AudioSegment.silent(duration=gap_ms))
         cursor_ms += gap_ms
 
     out_path = os.path.join(drama_dir, NARRATION_TRACK_NAMES[0])
-    track.export(out_path, format="flac")
+    track = join_segments(pieces)
+    # Written beside the final name and renamed, so a kill mid-export can't leave a
+    # truncated track that the Reader would serve as complete.
+    part_path = out_path + ".part"
+    try:
+        track.export(part_path, format="flac")
+        os.replace(part_path, out_path)
+    finally:
+        if os.path.exists(part_path):
+            os.remove(part_path)
     # A regenerated title must not keep serving, or backing up, its old WAV copy.
     legacy = os.path.join(drama_dir, NARRATION_TRACK_NAMES[1])
     if os.path.isfile(legacy):
@@ -323,15 +346,25 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
     with open(meta_path, "w", encoding="utf-8") as f:
         f.write(narration_ffmetadata(chapters, total_ms, title))
     out_path = out_path or os.path.join(drama_dir, "narration.m4b")
-    cmd = ["ffmpeg", "-y", "-i", track_path, "-i", meta_path, "-map", "0:a",
+    # The track can come from a backup import, so ffmpeg may open only local files, as the
+    # formats this app writes. Encoded beside the final name and renamed, so a kill leaves
+    # no truncated audiobook under it.
+    part_path = out_path + ".part"
+    cmd = ["ffmpeg", "-y", *video_export.local_input("flac,wav"), "-i", track_path,
+           *video_export.local_input("ffmetadata"), "-i", meta_path, "-map", "0:a",
            "-map_metadata", "1", "-map_chapters", "1", "-c:a", "aac", "-b:a", "64k",
-           "-f", "ipod", out_path]
-    if cancel_job_id:
-        import background_jobs
-        background_jobs.run_cancellable(cancel_job_id, cmd, timeout=M4B_ENCODE_TIMEOUT_SECONDS)
-    else:
-        subprocess.run(cmd, check=True, capture_output=True,
-                       timeout=M4B_ENCODE_TIMEOUT_SECONDS)
+           "-f", "ipod", part_path]
+    try:
+        if cancel_job_id:
+            import background_jobs
+            background_jobs.run_cancellable(cancel_job_id, cmd, timeout=M4B_ENCODE_TIMEOUT_SECONDS)
+        else:
+            subprocess.run(cmd, check=True, capture_output=True,
+                           timeout=M4B_ENCODE_TIMEOUT_SECONDS)
+        os.replace(part_path, out_path)
+    finally:
+        if os.path.exists(part_path):
+            os.remove(part_path)
     return out_path
 
 

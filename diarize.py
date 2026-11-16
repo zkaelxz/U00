@@ -21,9 +21,9 @@ diarize() pre-loads the audio with soundfile.read() and passes pyannote
 a {"waveform", "sample_rate"} dict rather than a bare file path -- a
 bare path makes pyannote.audio 4.x decode it through torchcodec, which
 this app never installs. soundfile (libsndfile-based) reads it instead:
-every audio_path reaching diarize() is always this app's own normalized
-audio.wav (see audio_extract.extract_audio_from_video/extract_audio_slice, both
-plain 16kHz mono PCM WAV), which soundfile handles directly with no
+audio_path is usually this app's own normalized audio.wav, but an uploaded
+.m4a is stored as it came, so audio_extract.sndfile_readable decodes anything
+that is not wav/flac first; soundfile then reads it with no
 compiled-per-FFmpeg-version binary of its own -- unlike torchcodec, and
 more robust on Windows than pinning torchaudio to an older release would
 be, since torchaudio's own audio-loading path is being phased out
@@ -363,7 +363,9 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int | None = None, ret
     applog.get_logger().info(f"diarization: running {model} on {device}")
     import soundfile as sf
     import torch
-    waveform, sample_rate = sf.read(audio_path, dtype="float32", always_2d=True)
+    import audio_extract
+    with audio_extract.sndfile_readable(audio_path) as readable:
+        waveform, sample_rate = sf.read(readable, dtype="float32", always_2d=True)
     frame_count = (getattr(waveform, "shape", None) or (0,))[0]
     waveform = torch.from_numpy(waveform.T)  # (frames, channels) -> (channels, frames)
     hints = {"num_speakers": num_speakers}
