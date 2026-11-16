@@ -374,6 +374,21 @@ def test_confirmed_replace_keeps_the_old_original(client, isolated_db):
     assert sorted(_kept(did).values()) == [b"first", b"second"]
 
 
+def test_replacing_audio_drops_the_vocals_separated_from_the_old_audio(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+    vocals = os.path.join(db.drama_dir(did), "vocals.wav")
+    with open(vocals, "wb") as f:
+        f.write(b"RIFF")
+    assert _up(client, did, "b.mp3", b"second").status_code == 422
+    assert os.path.exists(vocals)   # a refused replace changes nothing
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    assert not os.path.exists(vocals)
+
+
 def test_existing_source_video_needs_confirm(client, isolated_db):
     import db
     did = db.create_drama(title_en="D")

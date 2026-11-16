@@ -18,6 +18,10 @@ import threading
 import time
 
 
+# transcribe_pipeline writes the separated vocals under this name beside the
+# title's audio.
+VOCALS_NAME = "vocals.wav"
+
 # What each category is, and whether losing it is recoverable.
 # "regenerable" = the app can rebuild it; safe to clean.
 # "source" = irreplaceable, never auto-cleaned.
@@ -44,6 +48,14 @@ CLEANABLE_CATEGORIES = {
         "regenerable": True,
         "note": "Re-renderable from saved bubbles at no API cost.",
     },
+    "separated_vocals": {
+        "label": "Separated vocals",
+        "pattern_names": [VOCALS_NAME],
+        "regenerable": True,
+        "note": "The voice-only copy a \"Separate vocals first\" run leaves beside the "
+                "audio. Until the next full transcription separates it again, hearing a "
+                "line again uses the full audio.",
+    },
     "temp_files": {
         "label": "Leftover temp files",
         "pattern_suffixes": [".tmp.png", ".tmp"],
@@ -56,17 +68,20 @@ STORAGE_QUALITY_PRESETS = {
     "archival": {
         "label": "Archival — keep everything",
         "keep_dub_clips": True, "keep_typeset_pages": True, "keep_ocr_temp": True,
+        "keep_vocals": True,
         "note": "Nothing auto-removed. Largest footprint, fastest re-export.",
     },
     "balanced": {
         "label": "Balanced — keep finals, drop intermediates",
         "keep_dub_clips": False, "keep_typeset_pages": True, "keep_ocr_temp": False,
-        "note": "Keeps finished output, clears per-line clips and OCR scratch. "
+        "keep_vocals": False,
+        "note": "Keeps finished output, clears per-line clips, separated vocals and OCR scratch. "
                 "Recommended for most libraries.",
     },
     "minimal": {
         "label": "Minimal — sources and text only",
         "keep_dub_clips": False, "keep_typeset_pages": False, "keep_ocr_temp": False,
+        "keep_vocals": False,
         "note": "Smallest footprint. Re-export anything you need again.",
     },
 }
@@ -207,6 +222,17 @@ def clean_drama_storage(drama_dir: str, categories, keep=()) -> dict:
     return {"freed_bytes": freed, "removed": removed}
 
 
+def drop_separated_vocals(drama_dir: str) -> bool:
+    """Removes the title's separated vocals, which were cut from audio the
+    title no longer has. True if a file was removed; a file that can't be
+    removed (open in a player) stays for the next storage cleanup."""
+    try:
+        os.remove(os.path.join(drama_dir, VOCALS_NAME))
+    except OSError:
+        return False
+    return True
+
+
 def categories_for_preset(preset_key: str):
     """Which categories a storage-quality preset would clean."""
     preset = STORAGE_QUALITY_PRESETS.get(preset_key, STORAGE_QUALITY_PRESETS["balanced"])
@@ -215,6 +241,8 @@ def categories_for_preset(preset_key: str):
         cats.append("dub_clips")
     if not preset["keep_ocr_temp"]:
         cats.append("ocr_temp")
+    if not preset["keep_vocals"]:
+        cats.append("separated_vocals")
     if not preset["keep_typeset_pages"]:
         cats.append("typeset_pages")
     return cats
