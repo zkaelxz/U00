@@ -238,3 +238,25 @@ class TestShareByDefault:
                       json={"share_by_default": True}).status_code == 200
         assert db.get_app_setting(ownership_service.HOUSEHOLD_SHARE_KEY) is True
         assert ownership_service.new_item_defaults(None)["is_private"] == 0
+
+
+class TestOwner:
+    def test_admin_gives_an_item_to_someone_and_the_list_shows_it(self, world):
+        c = _client(_app())
+        r = c.post(f"/api/sharing/dramas/{world['solo']}/owner", headers=world["admin"],
+                   json={"owner_user_id": world["b_id"]})
+        assert r.status_code == 200, r.text
+        assert r.json()["owner_user_id"] == world["b_id"]
+        items = c.get("/api/sharing/items", headers=world["admin"]).json()["items"]
+        row = next(i for i in items if i["kind"] == "drama" and i["id"] == world["solo"])
+        assert row["owner_user_id"] == world["b_id"]
+        assert c.post(f"/api/sharing/series/{world['series']}/owner", headers=world["admin"],
+                      json={"owner_user_id": None}).json()["owner_name"] == "PC owner"
+
+    def test_members_are_refused(self, world):
+        c = _client(_app())
+        r = c.post(f"/api/sharing/dramas/{world['solo']}/owner", headers=world["a"],
+                   json={"owner_user_id": world["b_id"]})
+        assert r.status_code == 403
+        assert c.get("/api/sharing/items", headers=world["a"]).status_code == 403
+        assert db.get_item_ownership("drama", world["solo"])["owner_user_id"] == world["a_id"]

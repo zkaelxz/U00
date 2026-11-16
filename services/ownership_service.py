@@ -362,13 +362,45 @@ def list_sharing(principal, offset: int = 0, limit: int = 100) -> dict:
         raise InvalidInputError(f"offset must be 0 or more and limit 1 to {SHARING_PAGE_MAX}.")
     total, rows = db.list_item_sharing(limit, offset)
     items = [{"kind": r["kind"], "id": r["id"], "title": r["title"] or "",
-              "owner_name": _owner_name(r), "created_at_pc": r["owner_user_id"] is None,
+              "owner_name": _owner_name(r), "owner_user_id": r["owner_user_id"],
+              "created_at_pc": r["owner_user_id"] is None,
               "is_private": bool(r["is_private"]),
               "series_id": r["series_id"], "series_name": r["series_name"],
               "series_is_private": None if r["series_is_private"] is None
               else bool(r["series_is_private"])}
              for r in rows]
     return {"total": total, "offset": offset, "limit": limit, "items": items}
+
+
+def set_owner(principal, kind: str, item_id, owner_user_id) -> dict:
+    """An admin gives an item to another account, or to the PC (None).
+    Away from the PC an admin changes only what set_private lets them flip
+    there (their own items and PC-made ones), so another member's item still
+    changes owner only at the PC (2026-09-30 rule)."""
+    if kind not in _KINDS:
+        raise InvalidInputError("Unknown item kind.")
+    if not _admin_anywhere(principal):
+        raise ForbiddenError("Only an admin can change who owns an item.")
+    item_id = _item_id(item_id)
+    row = db.get_item_ownership(kind, item_id)
+    if not row or not _visible(principal, kind, row, guest_aware=False):
+        raise _not_found(kind)
+    if not may_set_private(principal, row.get("owner_user_id")):
+        raise ForbiddenError(_ADMIN_CHANGE_AT_PC)
+    if owner_user_id is not None:
+        user = db.auth_get_user(_item_id(owner_user_id))
+        if not user or not user.get("is_active"):
+            raise InvalidInputError("Pick an active account, or the PC.")
+    if not db.set_item_owner(kind, item_id, owner_user_id):
+        raise _not_found(kind)
+    from services import auth_service
+    auth_service.write_audit(user_id(principal), "sharing.set_owner",
+                             f"{kind} {item_id}: owner={owner_user_id}")
+    owner = db.auth_get_user(owner_user_id) if owner_user_id is not None else None
+    name = _owner_name({"owner_user_id": owner_user_id,
+                        "owner_found": owner and owner["id"],
+                        "owner_display_name": owner and owner.get("display_name")})
+    return {"kind": kind, "id": item_id, "owner_user_id": owner_user_id, "owner_name": name}
 
 
 def check_series_assignment(principal, series_id, drama_owner_user_id) -> int:

@@ -1332,6 +1332,23 @@ class TestLibrarySharingFlags:
         assert pc_title not in b_items or b_items[pc_title]["owned_by_me"] is False
 
 
+class TestSharingListAway:
+    def test_admin_away_lists_everything_and_reassigns_only_pc_made_items(self, world):
+        w = world
+        pc_title = db.create_drama(title_en="PC", source_language="zh")
+        away = _household()
+        r = away.get("/api/sharing/items", headers=w["admin"])
+        assert r.status_code == 200, r.text
+        assert {i["id"] for i in r.json()["items"] if i["kind"] == "drama"} >= {pc_title, w["private"]}
+        ok = away.post(f"/api/sharing/dramas/{pc_title}/owner", headers=w["admin"],
+                       json={"owner_user_id": w["b_id"]})
+        assert ok.status_code == 200, ok.text
+        refused = away.post(f"/api/sharing/dramas/{w['private']}/owner", headers=w["admin"],
+                            json={"owner_user_id": w["b_id"]})
+        assert refused.status_code == 403
+        assert db.get_item_ownership("drama", w["private"])["owner_user_id"] == w["a_id"]
+
+
 class TestReleaseDate:
     def test_member_cannot_see_or_set_the_date_of_a_title_they_cannot_see(self, world):
         db.update_drama(world["private"], release_date="2025-05-05")

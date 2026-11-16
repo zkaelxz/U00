@@ -10001,6 +10001,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sharing/dramas/{drama_id}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Give a drama to another account, or to the PC (admins) */
+        post: operations["set_drama_owner_api_sharing_dramas__drama_id__owner_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sharing/dramas/{drama_id}/private": {
         parameters: {
             query?: never;
@@ -10029,6 +10046,23 @@ export interface paths {
         get: operations["get_items_api_sharing_items_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sharing/series/{series_id}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Give a series to another account, or to the PC (admins) */
+        post: operations["set_series_owner_api_sharing_series__series_id__owner_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -27497,6 +27531,25 @@ export interface components {
              */
             skipped: number;
         };
+        /** SetOwnerRequest */
+        SetOwnerRequest: {
+            /** Owner User Id */
+            owner_user_id: number | null;
+        };
+        /** SetOwnerResult */
+        SetOwnerResult: {
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "series" | "drama";
+            /** Owner Name */
+            owner_name: string;
+            /** Owner User Id */
+            owner_user_id: number | null;
+        };
         /** SetPrivateRequest */
         SetPrivateRequest: {
             /** Private */
@@ -28440,6 +28493,8 @@ export interface components {
             kind: "series" | "drama";
             /** Owner Name */
             owner_name: string;
+            /** Owner User Id */
+            owner_user_id: number | null;
             /** Series Id */
             series_id: number | null;
             /** Series Is Private */
@@ -61905,6 +61960,68 @@ export interface operations {
             };
         };
     };
+    set_drama_owner_api_sharing_dramas__drama_id__owner_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetOwnerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetOwnerResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     set_drama_private_api_sharing_dramas__drama_id__private_post: {
         parameters: {
             query?: never;
@@ -61986,6 +62103,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SharingList"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_series_owner_api_sharing_series__series_id__owner_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetOwnerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetOwnerResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Unprocessable Content */

@@ -142,6 +142,18 @@ def set_item_private(kind: str, item_id: int, private: bool,
         return cur.rowcount > 0
 
 
+def set_item_owner(kind: str, item_id: int, owner_user_id) -> bool:
+    """Field-scoped write of owner_user_id only. False for an unknown item."""
+    table = {"series": "series", "drama": "dramas"}.get(kind)
+    if table is None:
+        raise ValueError(f"unknown ownership kind: {kind!r}")
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute(f"UPDATE {table} SET owner_user_id = ? WHERE id = ?",
+                           (owner_user_id, item_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
 def series_has_unowned_drama(series_id: int) -> bool:
     """Whether a series holds a drama with no owner (made at the PC)."""
     with contextlib.closing(db.get_conn()) as conn:

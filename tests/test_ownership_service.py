@@ -702,3 +702,37 @@ def test_bulk_series_with_every_title_refused_creates_no_new_series(people):
 
     assert [x.get("error") for x in r["results"]] == ["not_allowed"]
     assert db.get_series_id_by_name("Brand New") is None
+
+
+def test_set_owner_admins_only_and_pc_only_for_other_members_items(people):
+    """Kae, 2026-11-16: "assign the user" on the Sharing list."""
+    admin_id = people["admin"]["user_id"]
+    remote = _p(admin_id, admin=True, override=False)
+    a_title = db.create_drama(title_zh="a", owner_user_id=people["a_id"], is_private=1)
+    pc_series = db.get_or_create_series("PC", is_private=1)
+    # Members can't, not even on their own item.
+    with pytest.raises(ForbiddenError):
+        own.set_owner(people["a"], "drama", a_title, people["b_id"])
+    # The admin at the PC gives anything to anyone, or to the PC.
+    out = own.set_owner(people["admin"], "drama", a_title, people["b_id"])
+    assert out["owner_user_id"] == people["b_id"]
+    assert own.can_see_drama(people["b"], a_title) and not own.can_see_drama(people["a"], a_title)
+    own.set_owner(LOCAL, "drama", a_title, None)
+    assert db.get_item_ownership("drama", a_title)["owner_user_id"] is None
+    # Away: PC-made and own items only.
+    own.set_owner(remote, "series", pc_series, admin_id)
+    own.set_owner(remote, "series", pc_series, None)
+    b_title = db.create_drama(title_zh="b", owner_user_id=people["b_id"])
+    with pytest.raises(ForbiddenError, match="only at the PC"):
+        own.set_owner(remote, "drama", b_title, admin_id)
+    # Only an existing, active account.
+    for bad in (10**6,):
+        with pytest.raises(InvalidInputError):
+            own.set_owner(people["admin"], "drama", a_title, bad)
+    db.auth_update_user(people["b_id"], is_active=0)
+    with pytest.raises(InvalidInputError):
+        own.set_owner(people["admin"], "drama", a_title, people["b_id"])
+    with pytest.raises(NotFoundError):
+        own.set_owner(people["admin"], "drama", 10**6, None)
+    rows = [r for r in db.auth_list_audit(50) if r["action"] == "sharing.set_owner"]
+    assert len(rows) == 4

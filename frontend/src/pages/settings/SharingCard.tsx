@@ -5,12 +5,15 @@
  * its owner and a Shared/Private switch; the server allows a flip only by
  * the owner or an admin and explains a refusal (409) in plain words, which
  * is shown as is. Other people's per-item switches live only here, for admins.
+ * Admins also pick each item's owner (an account or the PC); away from the PC
+ * the server allows that, like a flip, only for their own and PC-made items.
  * Items with no owner (made at the PC or with sign-in off) are stored private,
  * so the list notes that, badges them and can filter to the private ones.
  */
 import { useEffect, useState } from 'react'
 
-import { getShareByDefault, listSharing, setItemPrivate, setShareByDefault } from '../../api/sharing'
+import { listAdminUsers } from '../../api/adminUsers'
+import { getShareByDefault, listSharing, setItemOwner, setItemPrivate, setShareByDefault } from '../../api/sharing'
 import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
@@ -25,6 +28,8 @@ import {
   PC_ITEMS_NOTE,
   SHARE_DEFAULT_LABEL,
   applyFlip,
+  applyOwner,
+  canChangeOwners,
   canSeeAllItems,
   filterPcPrivate,
   followsSeries,
@@ -119,18 +124,27 @@ export function SharingCard() {
           {error}
         </p>
       )}
-      {admin && <SharingItems />}
       {remoteAdmin && (
         <p className="settings-note" data-testid="remote-admin-sharing-note">
-          {REMOTE_ADMIN_NOTE} Sharing for your own items is set from the Library.
+          {REMOTE_ADMIN_NOTE} Here you change your own items and the ones made at the PC.
         </p>
       )}
+      {admin && <SharingItems owners={canChangeOwners(session)} />}
     </Card>
   )
 }
 
-function SharingItems() {
+type Owner = { id: number; name: string }
+
+/** Like the server's owner names: never an email, even one typed in as a display name. */
+function ownerLabel(id: number, displayName: string): string {
+  const name = displayName.trim()
+  return name && !name.includes('@') ? name : `User ${id}`
+}
+
+function SharingItems({ owners }: { owners: boolean }) {
   const [items, setItems] = useState<SharingItem[] | null>(null)
+  const [people, setPeople] = useState<Owner[]>([])
   const [total, setTotal] = useState(0)
   const [hidden, setHidden] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -158,7 +172,36 @@ function SharingItems() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!owners) return
+    let live = true
+    // Without the list the picker only offers the current owner and the PC.
+    listAdminUsers().then(
+      (r) => live && setPeople(r.users.filter((u) => u.is_active).map((u) => ({ id: u.id, name: ownerLabel(u.id, u.display_name) }))),
+      () => undefined,
+    )
+    return () => {
+      live = false
+    }
+  }, [owners])
+
   if (hidden) return null
+
+  const changeOwner = (item: SharingItem, value: string) => {
+    const key = itemKey(item)
+    setBusyKey(key)
+    setRowError(null)
+    setItemOwner(item.kind, item.id, value === 'pc' ? null : Number(value)).then(
+      (r) => {
+        setItems((cur) => (cur ? applyOwner(cur, r) : cur))
+        setBusyKey(null)
+      },
+      (e: unknown) => {
+        setRowError({ key, text: sharingErrorText(e) })
+        setBusyKey(null)
+      },
+    )
+  }
 
   const more = () => {
     if (!items) return
@@ -235,6 +278,22 @@ function SharingItems() {
                     </span>
                     {item.created_at_pc && <span className={badgeClass('neutral')}>Created at the PC</span>}
                   </span>
+                  {owners && (
+                    <select
+                      aria-label={`Owner of ${kindLabel.toLowerCase()} “${title}”`}
+                      value={item.owner_user_id == null ? 'pc' : String(item.owner_user_id)}
+                      disabled={busyKey === key}
+                      onChange={(e) => changeOwner(item, e.target.value)}
+                    >
+                      <option value="pc">PC owner</option>
+                      {item.owner_user_id != null && !people.some((p) => p.id === item.owner_user_id) && (
+                        <option value={String(item.owner_user_id)}>{item.owner_name}</option>
+                      )}
+                      {people.map((p) => (
+                        <option key={p.id} value={String(p.id)}>{p.name}</option>
+                      ))}
+                    </select>
+                  )}
                   <span className="sharing-status">{sharingStatusLabel(item)}</span>
                   {!followsSeries(item) && (
                     <Toggle
