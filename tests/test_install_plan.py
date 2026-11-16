@@ -186,7 +186,8 @@ def test_dry_run_runs_the_registry_argv_with_dry_run_and_report():
     argv = run.seen["argv"]
     assert why is None and doc["install"]
     assert argv[1:4] == ["-m", "pip", "install"] and "--dry-run" in argv
-    assert argv[argv.index("paddleocr"):argv.index("paddleocr") + 2] == ["paddleocr", "paddlepaddle"]
+    assert argv[argv.index("paddleocr==3.7.0"):argv.index("paddleocr==3.7.0") + 2] == ["paddleocr==3.7.0", "paddlepaddle==3.3.1"]
+    assert "--no-deps" in argv
     assert run.seen["timeout"] == plan_mod.PLAN_TIMEOUT_SECONDS
     assert not any(a.startswith("--index-url") for a in argv)
     assert not os.path.exists(argv[argv.index("--report") + 1])        # temp report removed
