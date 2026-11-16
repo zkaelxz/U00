@@ -104,6 +104,35 @@ def _fetch_lama(report, cancelled) -> None:
     report(0.99, "Downloaded LaMa-manga")
 
 
+def _fetch_whisper(size: str):
+    def fetch(report, cancelled) -> None:
+        import whisper_models
+        from services import settings_service
+        report(0.0, f"Downloading {size}…")
+        token = settings_service.resolve_key("hf_token")
+        # The same fetch a first run uses, so the files land at the pinned revision a run checks for.
+        if size == whisper_models.ANIME_WHISPER_KEY:
+            whisper_models._fetch_anime_whisper(token)
+        elif size in whisper_models.PINNED_CT2_REPOS:
+            whisper_models._fetch_pinned_model(size, token)
+        else:
+            whisper_models._download_model(size, token)
+    return fetch
+
+
+# Whisper-family models need an entry because a run started from another device only
+# loads what is already on disk, and a first-use download cannot happen there.
+WHISPER_DOWNLOADS = {
+    "whisper_large_v3": ("large-v3", "Whisper large-v3"),
+    "whisper_large_v3_turbo": ("large-v3-turbo", "Whisper large-v3-turbo"),
+    "whisper_ja_1_5b": ("ja-1.5b", "Whisper Japanese 1.5B"),
+    "whisper_kotoba_v2": ("kotoba-v2", "Whisper Japanese kotoba v2"),
+    "whisper_medium": ("medium", "Whisper medium"),
+    "whisper_anime": ("anime-whisper", "anime-whisper (Japanese)"),
+    "whisper_breeze_asr_25": ("breeze-asr-25", "Breeze-ASR-25 (Chinese Whisper)"),
+}
+
+
 CATALOG = {
     "qwen3_asr": {
         "label": "Qwen3-ASR and its aligner",
@@ -124,6 +153,14 @@ CATALOG = {
         "label": "LaMa-manga (Scanlate text cleanup)",
         "ready": _lama_ready,
         "fetch": _fetch_lama,
+    },
+    **{
+        model_id: {
+            "label": label,
+            "ready": functools.partial(readiness.whisper_ready, size),
+            "fetch": _fetch_whisper(size),
+        }
+        for model_id, (size, label) in WHISPER_DOWNLOADS.items()
     },
 }
 

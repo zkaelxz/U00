@@ -28,7 +28,8 @@ const RULES: { name: string; re: RegExp; allowed?: (file: string) => boolean; wh
   // (how export.ts's ASS POST went out without X-CSRF-Token).
   { name: 'fetch called on apiUrl()', re: /(\w|\))\s*\(\s*apiUrl\s*\(|\bfetchImpl\s*\(/, allowed: (f) => f === CLIENT, where: 'api/client.ts' },
   { name: 'request method literal', re: /\bmethod\s*:\s*['"`]/, allowed: API_LAYER, where: 'api/' },
-  { name: 'XMLHttpRequest', re: /\bXMLHttpRequest\b/ },
+  // Only client.ts's uploadProgressFetch, whose Response goes back through send() for CSRF, 401 and errors.
+  { name: 'XMLHttpRequest', re: /\bXMLHttpRequest\b/, allowed: (f) => f === CLIENT, where: 'api/client.ts' },
   { name: 'navigator.sendBeacon', re: /\bsendBeacon\b/ },
   // The one push stream (a GET: no CSRF token or local header to add; a 401
   // shows up on the pages' own GETs, which go through client.ts).

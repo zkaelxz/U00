@@ -232,11 +232,14 @@ export function reconcileModels(engines: ModelEngineVersion[], hf: DiagnosticsHf
 }
 
 /** The engines whose weights the server can download from the Models card, by the id it uses. */
-export const MODEL_DOWNLOAD_IDS: Record<string, string> = {
-  'Qwen3-ASR': 'qwen3_asr',
-  'SenseVoice (FunASR)': 'sensevoice',
-  'manga-ocr': 'manga_ocr',
-  'LaMa-manga': 'lama_manga',
+export const MODEL_DOWNLOAD_IDS: Record<string, string[]> = {
+  'Qwen3-ASR': ['qwen3_asr'],
+  'SenseVoice (FunASR)': ['sensevoice'],
+  'manga-ocr': ['manga_ocr'],
+  'LaMa-manga': ['lama_manga'],
+  'Whisper (faster-whisper)': [
+    'whisper_large_v3', 'whisper_large_v3_turbo', 'whisper_ja_1_5b', 'whisper_kotoba_v2', 'whisper_medium', 'whisper_anime', 'whisper_breeze_asr_25',
+  ],
 }
 
 /** Why the last download of a model did not finish, or null (nothing started, running, or done). */

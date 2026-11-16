@@ -30793,6 +30793,11 @@ export interface components {
             split_by_sentences: boolean;
             /** Transcript Mode */
             transcript_mode: string;
+            /**
+             * Use Gpu
+             * @default false
+             */
+            use_gpu: boolean;
             /** Use Groq */
             use_groq: boolean;
             /** Vad Threshold */

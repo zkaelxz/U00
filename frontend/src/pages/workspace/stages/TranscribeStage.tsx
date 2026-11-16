@@ -129,7 +129,8 @@ export default function TranscribeStage({
   // that already differ from the defaults count as saved too. It only picks which fold opens first.
   const [savedBefore, setSavedBefore] = usePersistedState(`source.optionsSaved.${dramaId}`, false)
   const defaultLanguage = drama.source_language ?? 'zh'
-  const [useGpu, setUseGpu] = useState<boolean | null>(null)
+  // Settings are not readable from away from the PC, so the run config's copy of the flag backs it up.
+  const [settingsGpu, setUseGpu] = useState<boolean | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   // A refused option, shown on its own field instead of a generic banner.
@@ -146,6 +147,7 @@ export default function TranscribeStage({
     runDiarize, setRunDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, diar,
     overwriteManual, setOverwriteManual, overwriteAck, setOverwriteAck, resetUndo, resetToDefaults,
   } = form
+  const useGpu = settingsGpu ?? config?.use_gpu ?? null
   const panelRef = useRef<HTMLDivElement>(null)
   const transcriptRef = useRef<HTMLTextAreaElement>(null)
   // The stored media's length, for the time estimates (null = unknown).
