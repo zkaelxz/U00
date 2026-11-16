@@ -89,6 +89,10 @@ CHUNK = 64 * 1024
 # The whole installer download, however slowly the bytes trickle in; the
 # per-read timeout alone would let a slow connection hold it for hours.
 DOWNLOAD_DEADLINE_SECONDS = 30 * 60
+# A flat 30 minutes fails a 600 MB installer on anything under ~340 KB/s even
+# though the connection is alive, so the deadline grows with the size at this
+# slowest accepted rate.
+MIN_DOWNLOAD_BYTES_PER_SECOND = 100 * 1024
 READ_DEADLINE_SECONDS = 60  # a small JSON/hash body, not the installer
 # baihe_* in %TEMP% is also what a clean uninstall removes.
 SETUP_TEMP_PREFIX = "baihe_setup_"
@@ -622,6 +626,10 @@ def _progress(n):
         _state["downloaded_bytes"] = n
 
 
+def download_deadline_seconds(cap: int) -> float:
+    return max(DOWNLOAD_DEADLINE_SECONDS, cap / MIN_DOWNLOAD_BYTES_PER_SECOND)
+
+
 def fetch_verified(url, final, size, max_bytes, expected, public_key, signature, name, progress,
                    what="installer") -> None:
     """Streams `url` to `final` and keeps it only when its size, SHA-256 and
@@ -629,7 +637,7 @@ def fetch_verified(url, final, size, max_bytes, expected, public_key, signature,
     part = final + ".part"
     cap = min(max_bytes, size or max_bytes)
     sha, total = hashlib.sha256(), 0
-    deadline = _monotonic() + DOWNLOAD_DEADLINE_SECONDS
+    deadline = _monotonic() + download_deadline_seconds(cap)
     resp = _open(url, DOWNLOAD_HOSTS, "application/octet-stream")
     try:
         declared = _declared_length(resp)
