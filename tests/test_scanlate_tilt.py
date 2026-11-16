@@ -9,7 +9,7 @@ cv2 = pytest.importorskip("cv2")
 from PIL import Image, ImageDraw
 
 import scanlate_tilt
-from scanlate_render import render_text_in_box
+from scanlate_text_layout import render_text_in_box
 
 BOX = {"x": 20, "y": 20, "w": 200, "h": 160}
 

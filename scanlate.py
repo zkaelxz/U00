@@ -42,7 +42,7 @@ from scanlate_regions import (analyze_page_regions, detect_script_language, lett
                               split_separate_lettering, strip_stray_sfx_mark,
                               lettering_size, reclassify_wordy_sfx, flag_katakana_effects,
                               region_excluded_from_auto)
-from scanlate_render import sample_text_style
+from scanlate_fonts import sample_text_style
 from scanlate_translate import translate_page_bubbles
 from scanlate_watermark import flag_site_marks
 

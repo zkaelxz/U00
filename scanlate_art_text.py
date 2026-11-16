@@ -297,7 +297,7 @@ def draw_caption(pil_img, box: dict, text: str, style: dict | None = None, font_
     original strokes were. Without a glow (lettering on a light background) a
     dark outline keeps it readable."""
     from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
-    from scanlate_render import _find_font
+    from scanlate_fonts import _find_font
     style = style or {"fill": (255, 255, 255), "glow": None}
     align = style.get("align", "center")
     # Bold is the default for a style that carries no measured weight.
