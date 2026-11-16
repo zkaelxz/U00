@@ -1,5 +1,5 @@
-"""Adaptive style: the lines a translator rewrote, and the style profile learned
-from them with its restorable history."""
+"""The edit log (English rewrites and source-text corrections), and the learned
+style profile built from the English rewrites with its restorable history."""
 
 import contextlib
 from lib import clock
@@ -37,6 +37,39 @@ def list_edit_samples(drama_id: int | None = None, limit: int = 100):
         else:
             rows = conn.execute(
                 "SELECT * FROM edit_samples ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def record_source_edits(drama_id: int, rows) -> int:
+    """Logs source-text changes. Each row is a dict with line_id, path,
+    before_zh, after_zh and optionally engine, model, confidence, flag, mark;
+    a row whose text didn't change is skipped. Returns how many were stored."""
+    now = clock.utcnow().isoformat()
+    values = [(drama_id, r["line_id"], r["path"], r["before_zh"], r["after_zh"],
+               r.get("engine"), r.get("model"), r.get("confidence"), r.get("flag") or None,
+               r.get("mark") or None, now)
+              for r in rows if (r["before_zh"] or "") != (r["after_zh"] or "")]
+    if not values:
+        return 0
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.executemany(
+            "INSERT INTO source_edits (drama_id, line_id, path, before_zh, after_zh, engine, "
+            "model, confidence, flag, mark, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            values)
+        conn.commit()
+    return len(values)
+
+
+def list_source_edits(drama_id: int | None = None, limit: int = 100):
+    """Newest first; limit -1 for every row."""
+    with contextlib.closing(db.get_conn()) as conn:
+        if drama_id:
+            rows = conn.execute(
+                "SELECT * FROM source_edits WHERE drama_id = ? ORDER BY id DESC LIMIT ?",
+                (drama_id, limit)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM source_edits ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 

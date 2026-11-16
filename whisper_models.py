@@ -225,10 +225,13 @@ def release_gpu_models():
     _whisper_device_info.clear()
     for module_name, cache_name in (("asr_backend", "_asr_model_cache"),
                                     ("forced_align", "_aligner_model_cache"),
-                                    ("scanlate_inpaint", "_lama_gpu")):
+                                    ("scanlate_lama", "_lama_gpu")):
         module = sys.modules.get(module_name)
         if module is not None:
             getattr(module, cache_name).clear()
+    detect_module = sys.modules.get("scanlate_detect")
+    if detect_module is not None:
+        detect_module.release_bubble_model()
     ocr_module = sys.modules.get("ocr")
     if ocr_module is not None:
         ocr_module.release_models(empty_cuda=False)

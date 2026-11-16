@@ -1,11 +1,11 @@
 # Remote access decision (replaces D6: Tailscale)
 
 Decided by the user on 2026-09-29, from a discussion session. No repo changes were made by that session; this file records the outcome.
-It replaces D6 (Tailscale + Tailscale Serve) in [`migration-review.md`](archive/migration-review.md) and supersedes [`remote-access-design.md`](archive/remote-access-design.md).
+It replaces the earlier decision D6 (Tailscale + Tailscale Serve) and the first remote-access design; both documents have since been removed from the repo.
 **D5 stays** (admin actions are PC-only, on a separate loopback listener); built, see [`remote-access-listeners.md`](remote-access-listeners.md).
 
 **Key entry (decided 2026-09-29):** the launcher (`start.bat`) sets `BAIHE_API_ALLOW_KEY_WRITES=1` unless the user already set it (an explicit `0` opts out), so API keys can be entered in the React Settings form at the PC, or by editing `.env`. Key writes stay `local_only()` and still require a direct loopback peer and Host, no proxy headers, and Origin, if sent, is loopback (`api/routers/settings_routes.py:_require_local_admin`); values are written to `.env` and never returned. `python -m api` started directly leaves the flag off.
-Status: sign-in, ownership, the D5 listeners and sharing are merged; the files listed under "Where the as-built detail is" describe them as built. Left for the owner: the LAN test with a real certificate and the router port. Implementation steps are proposed as 133-140 in [`baihe-roadmap-master.md`](archive/baihe-roadmap-master.md) section 5.
+Status: sign-in, ownership, the D5 listeners and sharing are merged; the files listed under "Where the as-built detail is" describe them as built. Left for the owner: the LAN test with a real certificate and the router port.
 
 ## Context
 

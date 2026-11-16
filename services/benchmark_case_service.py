@@ -15,6 +15,7 @@ import benchmark
 import db
 import long_line_split
 import storage
+import whisper_transcribe
 import sensitivity_preset as presets
 from engine_backends import shared, pricing, engine_registry
 import whisper_models
@@ -49,9 +50,11 @@ _LAB_NEVER_DOWNLOADS = " Run it once from a title's Transcribe page to download 
 _IGNORED_OPTIONS = {
     "whisper": ("refine_timing",),
     "qwen3_asr_vad": ("beam_size", "min_silence_ms", "vad_threshold", "sensitivity_preset",
-                      "hallucination_silence_sec", "whisper_repeat_guard", "initial_prompt", "speech_pad_ms"),
+                      "hallucination_silence_sec", "whisper_repeat_guard", "initial_prompt", "speech_pad_ms",
+                      "decode_randomness"),
     "anime_whisper": ("beam_size", "min_silence_ms", "vad_threshold", "sensitivity_preset",
-                      "hallucination_silence_sec", "initial_prompt", "speech_pad_ms", "refine_timing"),
+                      "hallucination_silence_sec", "initial_prompt", "speech_pad_ms", "refine_timing",
+                      "decode_randomness"),
 }
 
 
@@ -214,6 +217,9 @@ def _whisper_kwargs(options: dict, timing: dict | None, tuning, progress_cb) -> 
     # A Difficult audio run uses the Sensitive preset, as a title's run does.
     run_row = presets.difficult_audio_view(row)
     return {
+        # Left out while default, so a default arm calls Whisper exactly as it always did.
+        **({} if options["decode_randomness"] == whisper_transcribe.DECODE_DEFAULT
+           else {"decode_randomness": options["decode_randomness"]}),
         "initial_prompt": options["initial_prompt"], "beam_size": options["beam_size"],
         "min_silence_duration_ms": options["min_silence_ms"],
         "vad_threshold": timing_settings_service.vad_threshold_for(run_row),

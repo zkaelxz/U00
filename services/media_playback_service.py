@@ -13,6 +13,7 @@ import.
 import os
 
 import db
+import subtitle_ass
 import subtitle_formats
 from services import ownership_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
@@ -61,8 +62,8 @@ def burn_preview_ass(lines, line, style_state, pad=2.0):
     start, end = max(line.start - pad, 0.0), line.end + pad
     field = "en" if line.en.strip() else "zh"
     clip_lines = subtitle_formats.lines_for_clip(lines, start, end)
-    ass = subtitle_formats.lines_to_ass(
-        clip_lines, style_state.get("style") or subtitle_formats.ASS_PRESETS["Clean"], field,
+    ass = subtitle_ass.lines_to_ass(
+        clip_lines, style_state.get("style") or subtitle_ass.ASS_PRESETS["Clean"], field,
         speaker_colors=style_state.get("speaker_colors"),
         speaker_names=style_state.get("speaker_names"),
         wrap_chars=style_state.get("wrap_chars"),

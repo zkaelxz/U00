@@ -5,6 +5,8 @@ transcription, speaker detection and translation code on this PC, and writes one
 table plus a JSON file. A transcription clip with "title_settings" runs the app's whole
 transcription pipeline with those stored title settings; one without runs plain Whisper.
 "fixed_decoding": true on such a clip pins Whisper's temperature at 0, so its score repeats exactly.
+"decode_seed": N on such a clip keeps the default decode but fixes its sampler seed; --seeds 1,2,3 runs every such
+clip once per seed (ids "clip@seed1") and the report adds each clip's spread over the seeds.
 --repeats runs each transcription clip several times and scores the median, because Whisper's
 default decoding differs from run to run. Scores: 1 - CER (1 - WER for spaced languages), diarization error rate,
 translation chrF against a reference, speed as a multiple of real time, and peak GPU memory.
@@ -52,6 +54,8 @@ REPORT_TITLE = "# Baihe real-hardware release check"
 KINDS = ("transcription", "diarization", "translation")
 # A drop bigger than this between runs is flagged; smaller moves are within run-to-run noise on one clip.
 REGRESSION_MARGIN = 0.02
+# A --seeds run names its rows "<clip>@seed<N>"; they are compared with the clip's own previous score.
+SEED_MARK = "@seed"
 DIARIZATION_FRAME_S = 0.01
 TRANSLATE_BATCH = 20
 MAX_CELL_CHARS = 120
@@ -110,6 +114,11 @@ def load_manifest(path: str) -> dict:
         if clip.get("fixed_decoding") is not None and (
                 not isinstance(clip["fixed_decoding"], bool) or not (clip["kind"] == "transcription" and settings is not None)):
             raise Refusal(f'Clip "{cid}": "fixed_decoding" is true or false, and only a transcription clip with "title_settings" takes it.')
+        if clip.get("decode_seed") is not None and (
+                isinstance(clip["decode_seed"], bool) or not isinstance(clip["decode_seed"], int)
+                or clip.get("fixed_decoding") or not (clip["kind"] == "transcription" and settings is not None)):
+            raise Refusal(f'Clip "{cid}": "decode_seed" is a whole number, only a transcription clip with "title_settings" '
+                          'takes it, and not together with "fixed_decoding".')
         if clip.get("backend") is not None and clip["backend"] not in diarize.SPEAKER_MODELS:
             raise Refusal(f'Clip "{cid}": "backend" must be one of {", ".join(diarize.SPEAKER_MODELS)}.')
     return data
@@ -267,15 +276,18 @@ def run_transcription(clip: dict, opts) -> dict:
             "vram_mb": vram, "detail": f"{len(segments)} lines, model {opts.whisper_model}"}
 
 
-def _transcribe_in_child(args: tuple, fixed_decoding: bool = False) -> dict:
+def _transcribe_in_child(args: tuple, fixed_decoding: bool = False, seed: int | None = None) -> dict:
     """The worker's outcome, run in a spawned process as the app runs it: a fresh process gets a
     clean GPU each time, which matters when one clip runs several times."""
     from services import transcribe_pipeline
 
     target = release_check_worker.fixed_decoding_worker if fixed_decoding else transcribe_pipeline._transcribe_worker
+    lead = ()
+    if seed is not None:
+        target, lead = release_check_worker.seeded_decoding_worker, (seed,)
     context = multiprocessing.get_context("spawn")
     results = context.Queue()
-    proc = context.Process(target=target, args=(*args, results), daemon=True)
+    proc = context.Process(target=target, args=(*lead, *args, results), daemon=True)
     proc.start()
     try:
         while True:
@@ -304,7 +316,8 @@ def run_app_transcription(clip: dict, opts) -> dict:
             {**clip["title_settings"], "source_language": language}, clip["audio"], scratch,
             opts.use_gpu, clip.get("initial_prompt") or "")
         started = time.monotonic()
-        outcome = _transcribe_in_child(args, bool(clip.get("fixed_decoding")))
+        seed = clip.get("decode_seed")
+        outcome = _transcribe_in_child(args, bool(clip.get("fixed_decoding")), **({} if seed is None else {"seed": seed}))
         wall = time.monotonic() - started
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
@@ -415,6 +428,35 @@ def _cell(text) -> str:
     return _clean(text).replace("|", "/").replace("\n", " ")[:MAX_CELL_CHARS]
 
 
+def _seed_spread(results: list) -> list:
+    """One line per clip that ran under several seeds: lowest, median and highest score, so a seed that
+    only passes by luck shows up as a wide spread."""
+    by_clip: dict = {}
+    for r in results:
+        if SEED_MARK in r["id"] and r.get("score") is not None:
+            by_clip.setdefault(r["id"].split(SEED_MARK)[0], []).append(r["score"])
+    if not by_clip:
+        return []
+    return ["Seed spread (lowest / median / highest score):", ""] + [
+        f"- {_cell(clip)}: {_fmt(min(s))} / {_fmt(statistics.median(s))} / {_fmt(max(s))} over {len(s)} seeds"
+        for clip, s in by_clip.items()] + [""]
+
+
+def with_seeds(clips: list, seeds: list) -> list:
+    """`clips` with every transcription clip that has title settings repeated once per seed, on the
+    default decode; other clips stay as they are."""
+    if not seeds:
+        return clips
+    out = []
+    for clip in clips:
+        if clip["kind"] == "transcription" and clip.get("title_settings") is not None:
+            out += [{**clip, "id": f"{clip['id']}{SEED_MARK}{seed}", "fixed_decoding": False, "decode_seed": seed}
+                    for seed in seeds]
+        else:
+            out.append(clip)
+    return out
+
+
 def format_report(run: dict, previous: dict | None) -> str:
     before = {r["id"]: r for r in (previous or {}).get("results", [])}
     lines = [REPORT_TITLE, "",
@@ -431,7 +473,7 @@ def format_report(run: dict, previous: dict | None) -> str:
               "|---|---|---|---|---|---|---|---|"]
     flagged = 0
     for r in run["results"]:
-        prev = before.get(r["id"])
+        prev = before.get(r["id"].split(SEED_MARK)[0])
         prev_score = _baseline(prev) if prev else None
         if r.get("error"):
             result = "FAILED: " + _cell(r["error"])
@@ -443,6 +485,7 @@ def format_report(run: dict, previous: dict | None) -> str:
                      f"{_fmt(prev_score)} | {_fmt(r.get('speed_x'), 1)} | {r.get('vram_mb') or '-'} | {result} |")
     failed = sum(1 for r in run["results"] if r.get("error"))
     lines += ["", f"{len(run['results'])} clips, {failed} failed, {flagged} worse than the previous run.", ""]
+    lines += _seed_spread(run["results"])
     notes = [f"- {_cell(r['id'])}: {_cell(r['detail'])}" for r in run["results"] if r.get("detail")]
     return "\n".join(lines + (["Details", ""] + notes + [""] if notes else []))
 
@@ -476,8 +519,9 @@ def run_all(manifest: dict, opts) -> dict:
     results = []
     repeats = getattr(opts, "repeats", 1)
     with gpu_guard(opts.use_gpu, "Release check"):
-        for n, clip in enumerate(manifest["clips"]):
-            print(f"[{n + 1}/{len(manifest['clips'])}] {clip['id']} ({clip['kind']}) ...", flush=True)
+        clips = with_seeds(manifest["clips"], getattr(opts, "seeds", None) or [])
+        for n, clip in enumerate(clips):
+            print(f"[{n + 1}/{len(clips)}] {clip['id']} ({clip['kind']}) ...", flush=True)
             row = {"id": clip["id"], "kind": clip["kind"]}
             try:
                 if clip["kind"] == "transcription":
@@ -505,6 +549,9 @@ def main(argv=None) -> int:
     parser.add_argument("--engine", default="ollama", help="translation engine for clips that name none (default: free local)")
     parser.add_argument("--repeats", type=int, default=1,
                         help="run each transcription clip this many times and score the median (default 1)")
+    parser.add_argument("--seeds", type=lambda t: [int(x) for x in t.split(",") if x.strip()], default=[],
+                        metavar="1,2,3", help="run each app-pipeline transcription clip once per sampler seed on the "
+                        "default decode (replaces its fixed_decoding)")
     parser.add_argument("--cpu", action="store_true", help="run on the CPU instead of the GPU")
     parser.add_argument("--allow-paid", action="store_true", help="let translation use a paid engine")
     parser.add_argument("--max-usd", type=float, default=1.0, help="stop paid translation past this spend (default 1.00)")
@@ -524,7 +571,7 @@ def main(argv=None) -> int:
                     previous = json.load(fh)
             except (OSError, ValueError):
                 raise Refusal("Can't read the previous results JSON.") from None
-        for clip in manifest["clips"]:
+        for clip in with_seeds(manifest["clips"], opts.seeds):
             print(f"{clip['id']:<24}{clip['kind']}")
         if not opts.yes:
             print("\nDry run only: nothing was loaded and nothing was written. Add --yes to run it for real.")

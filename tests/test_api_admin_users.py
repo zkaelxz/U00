@@ -826,6 +826,23 @@ def test_a_paid_call_is_logged_for_the_account_it_ran_for(isolated_db):
     assert db.get_month_spend_by_user() == {m["id"]: 1.25}
 
 
+def test_a_members_pending_batches_count_against_their_own_limit(isolated_db):
+    from lib.errors import UnsupportedOperationError
+    from services import paid_job_service
+    m, _ = _paid_member(limit=5.0)
+    did = db.create_drama(title_zh="D")
+    with db.spending_for(m["id"]):
+        db.create_bulk_job(did, "claude", "m", "submitted", [], estimated_usd=4.0)
+        # The library has no cap; the member's own $1 left is what refuses it.
+        with pytest.raises(UnsupportedOperationError, match="your own monthly limit"):
+            paid_job_service.hold_bulk_spend(paid_job_service.bulk_hold_key(did, "flag"), 2.0)
+        assert paid_job_service._bulk_holds == {}
+        assert not auth_service.paid_limit_reached(m["id"])
+        db.log_usage(None, "claude", "m", "translate", 1, 1, 1.0)
+    assert db.get_month_spend_by_user() == {m["id"]: 5.0}
+    assert auth_service.paid_limit_reached(m["id"])
+
+
 def test_people_list_shows_each_accounts_spend_and_the_members_limit(isolated_db):
     c = _remote(_app())
     a, s = _admin()

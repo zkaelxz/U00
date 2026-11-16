@@ -15,9 +15,12 @@ import pytest
 import db
 import scanlate
 import scanlate_regions
+import scanlate_fonts
 import scanlate_render
+import scanlate_text_layout
 import scanlate_translate
-import scanlate_detect
+import scanlate_balloons
+import scanlate_panels
 from engine_backends import llm_tasks
 
 
@@ -83,7 +86,7 @@ class TestStructuredRegions:
         assert r.confidence == pytest.approx(0.87)
         assert r.orientation in ("horizontal", "vertical")
         assert r.panel_id is None or isinstance(r.panel_id, int)
-        assert r.kind in scanlate_detect.TEXT_REGION_KINDS
+        assert r.kind in scanlate_balloons.TEXT_REGION_KINDS
         assert r.page_id == 7
 
     def test_to_bubble_is_the_flat_shape_save_bubbles_takes(self, bubble_page):
@@ -125,7 +128,7 @@ class TestStructuredRegions:
         path = _write(tmp_path / "panels.png", img)
         left_box = {"x": 60, "y": 60, "w": 100, "h": 80}
         right_box = {"x": 460, "y": 300, "w": 100, "h": 80}
-        panels = scanlate_detect.detect_panels(path)
+        panels = scanlate_panels.detect_panels(path)
         assert len(panels) >= 2
         regions = scanlate_regions.analyze_page_regions(path, [left_box, right_box], "ja")
         by_x = {r.x: r for r in regions}
@@ -271,7 +274,7 @@ class TestShapeAwareFitting:
         cv2 = pytest.importorskip("cv2")
         canvas = Image.new("RGB", (600, 400), (255, 255, 255))
         text = " ".join(["word"] * 40)
-        scanlate_render.render_text_in_box(canvas, self.BOX, text, font_size=22, mask=mask)
+        scanlate_text_layout.render_text_in_box(canvas, self.BOX, text, font_size=22, mask=mask)
         ink = np.array(canvas.convert("L")) < 128
         oval = np.zeros((400, 600), dtype=np.uint8)
         cv2.ellipse(oval, (300, 200), (200, 110), 0, 0, 360, 1, -1)
@@ -279,7 +282,7 @@ class TestShapeAwareFitting:
         return int((ink & (oval == 0)).sum())
 
     def test_mask_follows_the_oval_not_the_rectangle(self, oval_page):
-        mask = scanlate_detect.bubble_shape_mask(oval_page, self.BOX)
+        mask = scanlate_balloons.bubble_shape_mask(oval_page, self.BOX)
         assert mask is not None and mask.shape == (220, 400)
         assert not mask[0, 0] and not mask[-1, -1]   # rectangle corners are outside
         assert mask[110, 200]                         # centre is inside
@@ -303,15 +306,15 @@ class TestShapeAwareFitting:
     def test_a_balloon_shaded_grey_inside_is_still_found_as_an_oval(self, tmp_path):
         page = self._grey_balloon_page(tmp_path)
         box = {"x": 150, "y": 60, "w": 300, "h": 280}
-        mask = scanlate_detect.bubble_shape_mask(page, box)
+        mask = scanlate_balloons.bubble_shape_mask(page, box)
         assert mask is not None
         assert mask[140, 150] and not mask[0, 0] and not mask[-1, -1]
-        assert scanlate_detect.bubble_erase_mask(page, box)[0, 0] == 0
+        assert scanlate_balloons.bubble_erase_mask(page, box)[0, 0] == 0
 
     def test_a_grey_shaded_balloon_is_classified_as_a_bubble_not_a_sign(self, tmp_path):
         page = self._grey_balloon_page(tmp_path, canvas=(800, 1000))
         box = {"x": 350, "y": 250, "w": 300, "h": 300}
-        assert scanlate_detect.classify_text_regions(page, [box])[0]["kind"] == "bubble"
+        assert scanlate_balloons.classify_text_regions(page, [box])[0]["kind"] == "bubble"
 
     def test_a_grey_patch_of_art_without_an_outline_is_not_a_balloon(self, tmp_path):
         cv2 = pytest.importorskip("cv2")
@@ -320,10 +323,10 @@ class TestShapeAwareFitting:
         img = cv2.GaussianBlur(img, (0, 0), 25)
         path = str(tmp_path / "fade.png")
         cv2.imwrite(path, img)
-        assert scanlate_detect.bubble_shape_mask(path, {"x": 150, "y": 60, "w": 300, "h": 280}) is None
+        assert scanlate_balloons.bubble_shape_mask(path, {"x": 150, "y": 60, "w": 300, "h": 280}) is None
 
     def test_text_stays_inside_an_oval_bubble(self, oval_page):
-        mask = scanlate_detect.bubble_shape_mask(oval_page, self.BOX)
+        mask = scanlate_balloons.bubble_shape_mask(oval_page, self.BOX)
         # Rectangle layout spills into the corners outside the oval...
         assert self._ink_outside(oval_page, None) > 0
         # ...the shape-aware layout doesn't.
@@ -331,12 +334,12 @@ class TestShapeAwareFitting:
 
     def test_all_words_are_still_drawn_with_a_mask(self, oval_page):
         from PIL import Image, ImageDraw
-        mask = scanlate_detect.bubble_shape_mask(oval_page, self.BOX)
-        font = scanlate_render._find_font(None)
+        mask = scanlate_balloons.bubble_shape_mask(oval_page, self.BOX)
+        font = scanlate_fonts._find_font(None)
         from PIL import ImageFont
         draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
         text = "one two three four five six seven eight nine ten"
-        laid = scanlate_render._layout_in_mask(
+        laid = scanlate_text_layout._layout_in_mask(
             draw, text, mask, 22,
             lambda sz: ImageFont.truetype(font, sz) if font else ImageFont.load_default())
         assert laid is not None
@@ -344,7 +347,7 @@ class TestShapeAwareFitting:
 
     def test_no_light_region_means_no_mask(self, tmp_path):
         dark = _write(tmp_path / "dark.png", np.full((200, 200, 3), 20, dtype=np.uint8))
-        assert scanlate_detect.bubble_shape_mask(dark, {"x": 20, "y": 20, "w": 100, "h": 100}) is None
+        assert scanlate_balloons.bubble_shape_mask(dark, {"x": 20, "y": 20, "w": 100, "h": 100}) is None
 
 
 # ---------------------------------------------------------------------------
@@ -580,7 +583,7 @@ class TestChunkedPageTranslation:
 def test_windows_fonts_are_looked_for_in_the_real_windows_folder():
     import subprocess
     import sys
-    code = ("import scanlate_render as r; "
+    code = ("import scanlate_fonts as r; "
             "print('\\n'.join(c for v in r._SYSTEM_FONT_CANDIDATES.values() for c in v))")
     env = {**os.environ, "WINDIR": "D:\\WinOS"}
     out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True,

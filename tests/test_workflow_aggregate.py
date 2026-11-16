@@ -73,3 +73,30 @@ def test_the_windows_bootstrap_shares_its_pushes_the_same_way():
 
     Retire this when GitHub's merge queue tests each merge before it lands on the base branch."""
     assert _concurrency(BOOTSTRAP) == _concurrency(WORKFLOW)
+
+
+def test_waiting_browser_tests_hold_the_merge_with_a_pending_status():
+    """While the browser tests wait for auto-merge, the required `browser-tests` status must be pending:
+    a skipped `e2e` job alone reads as passed, and a red run would email a failure that is not one.
+    Success only when the tests passed or the change needs none; a cancelled run reports nothing."""
+    block = _job_blocks()["browser-gate"]
+    assert "if: ${{ !cancelled() && github.event_name == 'pull_request'" in block
+    assert "statuses: write" in block and "actions/checkout" not in block
+    assert "HEAD_SHA: ${{ github.event.pull_request.head.sha }}" in block
+    script = block.split("run: |", 1)[1]
+    branches = re.findall(r'(?:if|elif) \[ "\$(\w+)" (!?=) (\w+) \]; then\n\s+state=(\w+)', script)
+    assert branches == [("CHANGES", "!=", "success", "failure"), ("E2E_DEFERRED", "=", "true", "pending"),
+                        ("E2E", "=", "success", "success"), ("E2E", "=", "skipped", "success")]
+    assert re.search(r"else\n\s+state=failure", script)
+    assert "context=browser-tests" in script and '[ "$state" != failure ]' in script
+    # A read-only token (a fork, Dependabot) must leave the status missing, not turn `test` red.
+    assert re.search(r'>/dev/null \\\n\s+\|\| echo "::warning::', script)
+
+
+def test_turning_on_auto_merge_starts_the_run_with_the_browser_tests():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    types = re.search(r"^  pull_request:\n(?:    .*\n)*?    types: \[([^\]]*)\]", text, re.M).group(1)
+    assert "auto_merge_enabled" in {t.strip() for t in types.split(",")}
+    assert ('--merge-approved "$MERGE_APPROVED"' in text
+            and "MERGE_APPROVED: ${{ github.event.pull_request.auto_merge != null"
+                " || github.event.action == 'auto_merge_enabled' }}" in text)

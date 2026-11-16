@@ -49,7 +49,7 @@ def get_status():
              responses=error_responses(422))
 def set_categories(body: NotificationCategoriesRequest):
     return svc.set_categories(jobs=body.jobs, chapters=body.chapters, remote=body.remote,
-                              private_titles=body.private_titles)
+                              private_titles=body.private_titles, pc_name=body.pc_name)
 
 
 @router.post("/test", dependencies=[local_only()], response_model=NotificationTestResult,

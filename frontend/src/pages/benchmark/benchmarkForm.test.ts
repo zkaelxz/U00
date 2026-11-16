@@ -26,7 +26,7 @@ const options: BenchmarkOptions = {
   transcription_backends: [{ name: 'qwen3_asr_vad', label: 'Qwen3-ASR', problem: null }, { name: 'anime_whisper', label: 'anime-whisper', problem: null }],
   transcribe_defaults: {
     beam_size: 5, min_silence_ms: 300, vad_threshold: 0.5, sensitivity_preset: 'normal', hallucination_silence_sec: 0,
-    whisper_repeat_guard: false, difficult_audio: false, separate_vocals_first: false, initial_prompt: '',
+    whisper_repeat_guard: false, difficult_audio: false, separate_vocals_first: false, decode_randomness: 'default', initial_prompt: '',
     speech_pad_ms: 400, refine_timing: false, split_max_seconds: 8, split_max_chars: 40,
   },
   transcribe_options_ignored: { whisper: [], qwen3_asr_vad: ['beam_size'], anime_whisper: ['beam_size'] },

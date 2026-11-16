@@ -432,6 +432,27 @@ def language_mismatch_notice(model, audio_path, title_language):
     return f"The audio sounds like {heard}, but this title is set to {chosen}."
 
 
+DECODE_DEFAULT = "default"
+DECODE_TEMPERATURE_0 = "temperature_0"
+DECODE_SEEDED = "seeded"
+DECODE_RANDOMNESS_CHOICES = (DECODE_DEFAULT, DECODE_TEMPERATURE_0, DECODE_SEEDED)
+DECODE_SEED = 1234
+
+
+def _decode_randomness_kwargs(choice: str) -> dict:
+    """The transcribe kwargs for `choice`. DECODE_DEFAULT leaves faster-whisper's own ladder, which
+    retries a failed window at sampled temperatures, so two runs of one file differ. DECODE_TEMPERATURE_0
+    never samples. DECODE_SEEDED keeps the ladder and fixes the sampler's seed, which is process-wide
+    in ctranslate2, so it is set here, before this run's first decode. Only the Benchmark Lab chooses;
+    titles keep the default."""
+    if choice not in DECODE_RANDOMNESS_CHOICES:
+        raise ValueError(f"Unknown decode_randomness {choice!r}.")
+    if choice == DECODE_SEEDED:
+        import ctranslate2
+        ctranslate2.set_random_seed(DECODE_SEED)
+    return {"temperature": 0.0} if choice == DECODE_TEMPERATURE_0 else {}
+
+
 def transcribe_for_timing(audio_path: str, model_size: str = "medium", language: str = "zh",
                            use_gpu: bool = False, local_model_path: str | None = None,
                            hf_token: str | None = None, initial_prompt: str = "",
@@ -444,7 +465,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            difficult_audio: bool = False, no_speech_threshold: float | None = None,
                            log_prob_threshold: float | None = None, speech_pad_ms: int | None = None,
                            on_notice=None, chinese_script: str | None = None, prompt_every_window: bool = True,
-                           resume_segments=None, on_unit=None):
+                           resume_segments=None, on_unit=None, decode_randomness: str = DECODE_DEFAULT):
     """
     speech_pad_ms: padding faster-whisper keeps around each detected speech stretch; None
     leaves its own default (400 ms) in place.
@@ -544,7 +565,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
                             "threshold": vad_threshold},
         "word_timestamps": whisper_models.supports_word_timestamps(model_size),
-        **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard),
+        **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard), **_decode_randomness_kwargs(decode_randomness),
     }
     if speech_pad_ms is not None:
         kwargs["vad_parameters"]["speech_pad_ms"] = int(speech_pad_ms)

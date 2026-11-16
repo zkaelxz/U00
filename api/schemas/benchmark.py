@@ -443,6 +443,7 @@ class BenchmarkTranscribeOptions(BaseModel):
     whisper_repeat_guard: Optional[StrictBool] = None
     difficult_audio: Optional[StrictBool] = None
     separate_vocals_first: Optional[StrictBool] = None
+    decode_randomness: Optional[str] = Field(default=None, max_length=20)
     initial_prompt: Optional[str] = Field(default=None, max_length=1000)
     # Timing settings only the Lab varies.
     speech_pad_ms: Optional[StrictInt] = None
@@ -480,6 +481,7 @@ class BenchmarkTranscribeDefaults(BaseModel):
     whisper_repeat_guard: bool
     difficult_audio: bool
     separate_vocals_first: bool
+    decode_randomness: str
     initial_prompt: str
     speech_pad_ms: int
     refine_timing: bool

@@ -3,16 +3,16 @@ import { useEffect, useState } from 'react'
 import { narrationApi } from '../../../api/dub'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
-import { ModelSelect } from '../../../components/ModelSelect'
 import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { NarrationConfig } from '../../../types/dub'
-import { AI_ENGINE_LABEL } from '../../../helpText'
 import { stageLabel } from '../stages'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { EngineGateNote } from './EngineGateNote'
+import { TagChoices } from './TagChoices'
+import { EMPTY_TAG_CHOICE, effectiveTagEngine, tagChoiceProblem, tagRunBody, type TagChoice } from './tagChoice'
 import { useEngineGate, useTitleEngines } from './useEngineGate'
 
 interface Props {
@@ -26,8 +26,8 @@ const ATTACH_NOVEL = `Attach the novel text on the ${stageLabel('source', 'novel
 
 export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
   const [cfg, setCfg] = useState<NarrationConfig | null>(null)
-  const [engine, setEngine] = useState('')
-  const [model, setModel] = useState('')
+  const [choice, setChoice] = useState<TagChoice>(EMPTY_TAG_CHOICE)
+  const [blocked, setBlocked] = useState<string | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   // Not remembered: resuming an interrupted run is the default.
   const [startOver, setStartOver] = useState(false)
@@ -38,11 +38,7 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
   useEffect(() => {
     let cancelled = false
     narrationApi.config(dramaId).then(
-      (c) => {
-        if (cancelled) return
-        setCfg(c)
-        setEngine((current) => current || c.default_engine)
-      },
+      (c) => !cancelled && setCfg(c),
       (e: unknown) => !cancelled && setError(e),
     )
     return () => {
@@ -50,69 +46,48 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
     }
   }, [dramaId, filesVersion])
 
+  const engine = cfg ? effectiveTagEngine(choice, cfg) : ''
   // The title's engine list knows the SDK and Ollama; this panel's own key flags are the ones its run checks.
   const titleEngines = useTitleEngines(dramaId)
   const ownEngines = cfg?.engines.map((o) => ({ name: o.key, label: o.key, free: false, models: null, key_configured: o.key_configured }))
-  // The title's list knows each engine's models (Ollama's installed tags, the cloud engines' known ones); an engine without a list keeps the typed box.
-  const modelEngine = titleEngines.engines?.find((e) => e.name === engine)
-  const hasModelList = (modelEngine?.models?.length ?? 0) > 0
   const titleGate = useEngineGate(titleEngines.engines, engine)
   const ownGate = useEngineGate(ownEngines, engine)
   // A missing key does not block this run: it cuts the text and marks every line Narrator.
   const found = titleGate ?? ownGate
-  const gate = found?.id === 'engine_key' ? null : found
+  const gate = choice.oneNarrator || found?.id === 'engine_key' ? null : found
 
   if (!cfg) return error ? <ErrorBanner error={error} /> : null
   if (!cfg.is_narration) return null
 
-  const needsConfirm = cfg.replaces_existing_lines
+  const partial = !!(choice.from.trim() || choice.to.trim())
+  // Chosen chapters replace only their own lines, so there is nothing to confirm.
+  const needsConfirm = cfg.replaces_existing_lines && !partial
   const disabled =
-    busy || cfg.job_running || !cfg.has_novel_source || !engine || !!gate || (needsConfirm && !confirmed)
+    busy || cfg.job_running || !cfg.has_novel_source || !engine || !!gate || !!blocked || (needsConfirm && !confirmed)
 
-  const start = () =>
-    narrationApi
-      .run(dramaId, { engine, ...(model.trim() ? { model: model.trim() } : {}) }, undefined, { fresh: startOver })
-      .then((r) => {
-        setError(null)
-        setConfirmed(false)
-        onJobStarted(r.job_id)
-      }, setError)
+  const start = () => {
+    const bad = tagChoiceProblem(choice)
+    if (bad) return setError(new Error(bad))
+    return narrationApi.run(dramaId, tagRunBody(choice, cfg.default_engine), undefined, { fresh: startOver }).then((r) => {
+      setError(null)
+      setConfirmed(false)
+      onJobStarted(r.job_id)
+    }, setError)
+  }
 
+  const scope = partial ? ` · chapters ${choice.from.trim() || 1}-${choice.to.trim() || cfg.chapter_count}` : ''
   const summary = !cfg.has_novel_source
     ? ATTACH_NOVEL
     : cfg.job_running
       ? 'A chunk-and-tag job is already running'
-      : `${engine ? humanize('engine', engine) : 'no engine'}${model.trim() ? ` · ${model.trim()}` : ''}`
+      : choice.oneNarrator
+        ? `One narrator${scope}`
+        : `${engine ? humanize('engine', engine) : 'no engine'}${choice.model.trim() ? ` · ${choice.model.trim()}` : ''}${scope}`
 
   return (
     <Section storageKey="dub.narration" title="Chunk and tag speakers" summary={summary}>
       {!cfg.has_novel_source && <p className="muted">{ATTACH_NOVEL}.</p>}
-      <div className="dub-grid">
-        <Field
-          label={AI_ENGINE_LABEL}
-          help={`Splits the novel into narration lines of up to ${cfg.max_chunk_chars} characters and tags who speaks each one.`}
-        >
-          <select value={engine} onChange={(e) => {
-              setEngine(e.target.value)
-              // A model name belongs to one engine, so it would be wrong for the next.
-              setModel('')
-            }}>
-            {cfg.engines.map((o) => (
-              <option key={o.key} value={o.key}>
-                {humanize('engine', o.key)}
-                {o.key_configured ? '' : ' (no key set)'}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {hasModelList ? (
-          <ModelSelect engine={modelEngine} value={model} onChange={setModel} help="Optional; leave on Engine default to use the engine's own." />
-        ) : (
-          <Field label="Model" help="Optional; leave blank for the engine's default.">
-            <input value={model} onChange={(e) => setModel(e.target.value)} />
-          </Field>
-        )}
-      </div>
+      <TagChoices dramaId={dramaId} cfg={cfg} value={choice} onChange={setChoice} onBlocked={setBlocked} />
       <EngineGateNote gate={gate} />
       {needsConfirm && (
         <div className="setting-list">
@@ -127,6 +102,7 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
         </Field>
       </div>
       {cfg.job_running && <p className="muted">A chunk-and-tag job is already running.</p>}
+      {blocked && <p className="muted">{blocked}</p>}
       <div className="dub-actions">
         <button type="button" className={buttonClass('secondary')} disabled={disabled} onClick={start}>
           Chunk and tag

@@ -177,6 +177,12 @@ export const getDefaultsPreview = (id: number, mode: ApplyMode, f?: Fetch) =>
 export const applySeriesDefaults = (id: number, mode: ApplyMode, f?: Fetch) =>
   postJson<SeriesDefaultsApplyResult>(`/api/series/${id}/defaults/apply`, { mode }, f)
 
+// Where a title's settings get their value (api/routers/drama_routes.py, series_defaults_service.title_sources).
+export type TitleSettingSources = components['schemas']['TitleSettingSources']
+
+export const getTitleSettingSources = (dramaId: number, f?: Fetch) =>
+  getJson<TitleSettingSources>(`/api/dramas/${dramaId}/settings-sources`, f)
+
 // Cross-episode consistency report (series_consistency_service): read-only; a flagged rendering's line ids feed the glossary-flagged redo.
 export interface ConsistencyRendering {
   text: string
