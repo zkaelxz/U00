@@ -22,10 +22,11 @@ def get_narration_config(drama_id: int = Path(ge=1)):
 @router.get("/dramas/{drama_id}/estimate", dependencies=[require_permission("library.read")], response_model=NarrationEstimate,
             summary="Cost estimate for chunking and tagging the chosen chapters",
             responses=error_responses(404, 409, 422))
-def get_narration_estimate(drama_id: int = Path(ge=1), engine: str | None = Query(None, max_length=40),
+def get_narration_estimate(request: Request, drama_id: int = Path(ge=1), engine: str | None = Query(None, max_length=40),
                            model: str | None = Query(None, max_length=200),
                            chapter_from: int | None = Query(None, ge=1), chapter_to: int | None = Query(None, ge=1),
                            append: bool = Query(False, description="Price only the text an add left without lines")):
+    require_engines_allowed(request, engine or narration_service.DEFAULT_ENGINE, model=model)
     return narration_service.estimate_tag_cost(drama_id, engine, model, chapter_from, chapter_to, append)
 
 
