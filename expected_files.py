@@ -120,6 +120,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "scanlate_fonts.py",
     "scanlate_ink.py",
     "scanlate_inpaint.py",
+    "scanlate_lama.py",
     "scanlate_page_decode.py",
     "scanlate_panels.py",
     "scanlate_regions.py",

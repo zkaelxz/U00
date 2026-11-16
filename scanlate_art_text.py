@@ -203,7 +203,8 @@ def paint_out_captions(page, boxes: list, backend: str = "auto"):
     isn't downloaded or can't load, or a caption was too large for it. Nothing
     is raised: the caller shows the OpenCV result with a note."""
     import cv2
-    from scanlate_inpaint import _resolve_inpaint_backend, _run_ml_inpaint
+    from scanlate_inpaint import _resolve_inpaint_backend
+    from scanlate_lama import _run_ml_inpaint
     model_usable = _resolve_inpaint_backend(backend) == "ml"
     all_by_model = model_usable
     for box in boxes:
