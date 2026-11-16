@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DiagnosticsInstallTask, DiagnosticsPackageInfo } from '../../types/diagnostics'
 import {
-  belowMinText, firstHint, formatApproxMb, groupTasks, minVersionText, missingTranscription, optionalMissingText, packageSizeText, roleLabel,
+  belowMinText, firstHint, formatApproxMb, groupTasks, groupsNeedingInstallFirst, minVersionText, missingTranscription, optionalMissingText, packageSizeText, roleLabel,
   safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskReady, taskResultText, taskStatus, taskTone, updateOutdatedLabel, updateOutdatedText,
   type TaskRunResult,
 } from './installPresets'
@@ -39,6 +39,12 @@ describe('install presets helpers', () => {
   it('groups tasks in server order', () => {
     const g = groupTasks([task({ id: '1' }), task({ id: '2', group: 'Dubbing' }), task({ id: '3' })])
     expect(g.map((x) => [x.group, x.tasks.map((t) => t.id)])).toEqual([['Audio', ['1', '3']], ['Dubbing', ['2']]])
+  })
+
+  it('keeps the groups in server order when a later group still needs something', () => {
+    const ready = { installed_count: 3, to_install: [] }
+    const g = groupsNeedingInstallFirst([task({ id: 'a1', ...ready }), task({ id: 'b1', group: 'Dubbing' }), task({ id: 'a2' }), task({ id: 'b2', group: 'Dubbing', ...ready })])
+    expect(g.map((x) => [x.group, x.tasks.map((t) => t.id)])).toEqual([['Audio', ['a2', 'a1']], ['Dubbing', ['b1', 'b2']]])
   })
 
   it('shows status and moves ready tasks last', () => {

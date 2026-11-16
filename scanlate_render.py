@@ -19,8 +19,8 @@ import scanlate_art_text
 import scanlate_sfx
 import scanlate_tilt
 import scanlate_tuning
-from scanlate_detect import (balloon_outside_mask, bubble_erase_mask, bubble_shape_mask, decode_page,
-                             page_gray)
+from scanlate_balloons import balloon_outside_mask, bubble_erase_mask, bubble_shape_mask
+from scanlate_page_decode import decode_page, page_gray
 from scanlate_fonts import _CJK_PUNCTUATION, _PLAIN, TypesetStyle, _find_font, _note_missing_cjk_font
 from scanlate_ink import _fade_lettering, _sampled_inks, _text_fill, chosen_color
 from scanlate_inpaint import (
@@ -344,7 +344,7 @@ def _draw_glosses(pil_img, page, bubbles: list, art_signs: list, font_path) -> N
             scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
     if not art_signs:
         return
-    from scanlate_detect import detect_panels
+    from scanlate_panels import detect_panels
     from scanlate_regions import _panel_for_box
     try:
         panels = detect_panels("", image=page)

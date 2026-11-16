@@ -21,6 +21,8 @@ import scanlate_ink
 import scanlate_render
 import scanlate_text_layout
 import scanlate_detect
+import scanlate_box_merge
+import scanlate_panels
 import scanlate_inpaint
 import scanlate_lama
 
@@ -560,7 +562,7 @@ class TestDedupeOverlappingBoxes:
             {"x": 51, "y": 51, "w": 198, "h": 98, "confidence": 0.99, "label": "text_bubble"},
             {"x": 49, "y": 49, "w": 202, "h": 101, "confidence": 0.7, "label": "bubble"},
         ]
-        merged = scanlate_detect.dedupe_overlapping_boxes(triple)
+        merged = scanlate_box_merge.dedupe_overlapping_boxes(triple)
         assert len(merged) == 1
         assert merged[0]["label"] == "bubble"
 
@@ -571,7 +573,7 @@ class TestDedupeOverlappingBoxes:
             {"x": 10, "y": 10, "w": 50, "h": 50, "confidence": 0.4},
             {"x": 11, "y": 11, "w": 49, "h": 49, "confidence": 0.8},
         ]
-        merged = scanlate_detect.dedupe_overlapping_boxes(pair)
+        merged = scanlate_box_merge.dedupe_overlapping_boxes(pair)
         assert len(merged) == 1
         assert merged[0]["confidence"] == 0.8
 
@@ -582,10 +584,10 @@ class TestDedupeOverlappingBoxes:
             {"x": 0, "y": 0, "w": 100, "h": 100, "label": "bubble"},
             {"x": 90, "y": 90, "w": 100, "h": 100, "label": "bubble"},
         ]
-        assert len(scanlate_detect.dedupe_overlapping_boxes(barely_touching)) == 2
+        assert len(scanlate_box_merge.dedupe_overlapping_boxes(barely_touching)) == 2
 
     def test_empty_list_returns_empty_list(self):
-        assert scanlate_detect.dedupe_overlapping_boxes([]) == []
+        assert scanlate_box_merge.dedupe_overlapping_boxes([]) == []
 
 
 class TestInpaintMaskRegion:
@@ -1076,13 +1078,13 @@ class TestWebtoonOverlapOnlyThroughArt:
 
     def test_a_cut_on_a_gutter_row_shares_no_band(self, temp_dir):
         path = self._noisy_strip(temp_dir, 3000, gutter_rows=range(1590, 1600))
-        a, b = scanlate_detect.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
+        a, b = scanlate_panels.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
         assert 1590 <= a["y_end"] <= 1600
         assert b["y_start"] == a["y_end"]
 
     def test_a_cut_through_artwork_keeps_the_shared_band(self, temp_dir):
         path = self._noisy_strip(temp_dir, 3000)
-        a, b = scanlate_detect.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
+        a, b = scanlate_panels.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
         assert b["y_start"] == a["y_end"] - 100
 
 
@@ -1094,11 +1096,11 @@ class TestWebtoonSliceCap:
 
     def test_a_strip_needing_more_than_200_slices_raises(self, temp_dir):
         with pytest.raises(ValueError, match="200"):
-            scanlate_detect.split_webtoon_strip(self._strip(temp_dir, 2010), target_height=10,
+            scanlate_panels.split_webtoon_strip(self._strip(temp_dir, 2010), target_height=10,
                                                 overlap=0)
 
     def test_two_hundred_slices_still_cover_the_whole_strip(self, temp_dir):
-        slices = scanlate_detect.split_webtoon_strip(self._strip(temp_dir, 2000), target_height=10,
+        slices = scanlate_panels.split_webtoon_strip(self._strip(temp_dir, 2000), target_height=10,
                                                      overlap=0)
         assert len(slices) == 200
         assert slices[-1]["y_end"] == 2000
