@@ -32,6 +32,7 @@ import emotion
 import source_change
 from engine_backends import shared, llm_tasks, pricing
 import translation_guide as tguide
+import translation_notes
 
 
 BULK_ENGINES = ("claude", "gemini", "deepseek")
@@ -274,7 +275,7 @@ def _notes_batches(lines: list, batch_size: int = 40) -> list:
     batches = []
     for start in range(0, len(eligible), batch_size):
         batch = eligible[start:start + batch_size]
-        prompt = tguide.build_translation_notes_prompt(batch, id_fn=lambda ln: ln.id)
+        prompt = translation_notes.build_translation_notes_prompt(batch, id_fn=lambda ln: ln.id)
         batches.append(([ln.id for ln in batch], prompt, batch))
     return batches
 
@@ -354,7 +355,7 @@ def submit_bulk_emotion(drama_id: int, lines: list, engine, engine_choice: str, 
 def submit_bulk_translation_notes(drama_id: int, lines: list, engine, engine_choice: str,
                                   provider=None, batch_size: int = 40,
                                   estimated_usd: float | None = None) -> int:
-    """Translation notes (translation_guide.generate_translation_notes_llm),
+    """Translation notes (translation_notes.generate_translation_notes_llm),
     bulk. No state_fn -- notes are additive (db.save_translation_notes
     upserts per drama+line+term), never overwriting a whole field the way
     flag/emotion do, so there's no "did the user already change this"
