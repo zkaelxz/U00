@@ -47,7 +47,7 @@ from engine_backends import fallback as engine_fallback
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
 from services import (auth_service, bulk_submit_service, engine_routing_service,
-                      novel_files_service, ownership_service, profile_service,
+                      novel_files_service, ownership_service, paid_job_service, profile_service,
                       run_settings_service, settings_service, translate_service,
                       translate_run_options, workspace_job_service)
 from services.translate_run_options import ollama_reachable  # also read as translate_run_service.ollama_reachable
@@ -268,12 +268,14 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
                             reflect: bool = False, force_retranslate: bool = False,
                             bulk: bool = False, gemini_free_tier: bool | None = None,
                             job_cost_cap_usd: float | None = None, line_ids=None,
-                            batch_size: int | None = None) -> dict:
+                            batch_size: int | None = None, chapter_from: int | None = None,
+                            chapter_to: int | None = None) -> dict:
     """line_ids (optional): estimate only these lines (of those the run
     would translate). batch_size (optional): the run's own batch size, which
     sets how many times the instructions are sent; omitted, the engine's default."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = ownership_service.require_drama(drama_id)
+    line_ids = translate_run_options.chapter_line_ids(drama_id, chapter_from, chapter_to, line_ids)
     engine_name = (engine_name or drama.get("translation_engine")
                    or engine_routing_service.resolve_capability("translation.cheap"))
     if engine_name not in engine_registry.ENGINES:
@@ -431,7 +433,8 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
                         bulk: bool = False, default_female_pronouns: bool | None = None,
                         include_genre_notes: bool | None = None, allow_paid_summary: bool = True,
                         own_lines_only: bool = False, expected_en: dict | None = None, thinking: bool | None = None,
-                        record_run: bool = True, memory_examples: bool = False) -> dict:
+                        record_run: bool = True, memory_examples: bool = False,
+                        chapter_from: int | None = None, chapter_to: int | None = None) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
     `en` writes by permanent line id (run_translate_job), then the shared
@@ -476,9 +479,11 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
     NotFoundError (drama), InvalidInputError, UnsupportedOperationError
     (nothing to translate / cap refusal / mode not available for the
     engine), DependencyUnavailableError (no key), ConflictError (already
-    running). gemini_free_tier None means the saved Settings value."""
+    running). gemini_free_tier None means the saved Settings value.
+    chapter_from / chapter_to (1-based): line_ids for those chapters' lines, the rest only context."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = ownership_service.require_drama(drama_id)
+    line_ids = translate_run_options.chapter_line_ids(drama_id, chapter_from, chapter_to, line_ids)
     opts = _resolve_run_options(
         drama, engine_name, model, style_preset, style_note, locale, context_window,
         context_window_ahead, batch_size, job_cost_cap_usd, gemini_free_tier)
@@ -492,13 +497,9 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
     chain, built, caps = _build_engine_chain(
         engine_name, model, fallback_chain, gemini_free_tier, job_cost_cap_usd)
 
-    job_id = f"translate_{drama_id}"
-    if bulk:
-        translate_run_options.require_bulk_ready(
-            drama_id, engine_name, model, caps[0], reflect, force_retranslate,
-            gemini_free_tier, job_cost_cap_usd, estimate_translate_cost)
-        job_id = bulk_job_id(drama_id)
-    _refuse_if_busy(job_id)
+    job_id, bulk_estimate = _job_id_and_bulk_estimate(
+        drama_id, bulk, engine_name, model, caps[0], reflect, force_retranslate, gemini_free_tier,
+        job_cost_cap_usd)
 
     engines, engine, cost_cap = translate_run_options.instantiate_engines(built, chain, caps)
 
@@ -510,7 +511,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
     if bulk:
         _launch_bulk(job_id, drama_id, drama, engines[0], opts, reflect, novel_reference,
                      glossary_terms, style_guidelines, force_retranslate, job_cost_cap_usd,
-                     thinking, run_settings, include_genre_notes, default_female_pronouns)
+                     thinking, run_settings, include_genre_notes, default_female_pronouns, bulk_estimate)
         return {**resp, "fallback_engines": []}
 
     _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, opts, reflect,
@@ -521,6 +522,19 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
         # expected_en may have dropped some of the caller's ids.
         resp["line_ids"] = sorted(ln.id for ln in eligible)
     return resp
+
+
+def _job_id_and_bulk_estimate(drama_id, bulk, engine_name, model, cap, reflect, force_retranslate,
+                              gemini_free_tier, job_cost_cap_usd):
+    """(job id, bulk estimate or None); refuses when that job is already busy."""
+    job_id, bulk_estimate = f"translate_{drama_id}", None
+    if bulk:
+        bulk_estimate = translate_run_options.require_bulk_ready(
+            drama_id, engine_name, model, cap, reflect, force_retranslate,
+            gemini_free_tier, job_cost_cap_usd, estimate_translate_cost)
+        job_id = bulk_job_id(drama_id)
+    _refuse_if_busy(job_id)
+    return job_id, bulk_estimate
 
 
 def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts, reflect, bulk,
@@ -550,17 +564,29 @@ def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts,
 
 def _launch_bulk(job_id, drama_id, drama, engine, opts, reflect, novel_reference,
                  glossary_terms, style_guidelines, force_retranslate, job_cost_cap_usd,
-                 thinking, run_settings, include_genre_notes, default_female_pronouns) -> None:
+                 thinking, run_settings, include_genre_notes, default_female_pronouns,
+                 estimate_usd=None) -> None:
     submit = bulk_submit_service.bulk_submitter(
         drama_id, drama, engine, opts.engine_name, reflect, novel_reference, glossary_terms,
         style_guidelines, opts.style_note or "", opts.locale, opts.style_preset,
         opts.context_window, opts.context_window_ahead, opts.batch_size, force_retranslate,
-        job_cost_cap_usd, drama.get("series_id"), thinking)
-    started = job_launch.start_job(
-        job_id, run_bulk_translate_job, job_id, engine, opts.engine_name, submit,
-        month_cap_usd() or None,
-        description=f"Bulk {'Reflect ' if reflect else ''}translation (title #{drama_id})",
-        run_settings=run_settings, line_fields=("en", "flag", "flag_note"))
+        job_cost_cap_usd, drama.get("series_id"), thinking, estimate_usd)
+    runner = run_bulk_translate_job
+    if estimate_usd is not None:
+        key = paid_job_service.bulk_hold_key(drama_id, "translate")
+        paid_job_service.hold_bulk_spend(key, estimate_usd)
+        submit = paid_job_service.holding_bulk_spend(key, submit)
+        runner = paid_job_service.holding_bulk_spend(key, run_bulk_translate_job)
+    started = False
+    try:
+        started = job_launch.start_job(
+            job_id, runner, job_id, engine, opts.engine_name, submit,
+            month_cap_usd() or None,
+            description=f"Bulk {'Reflect ' if reflect else ''}translation (title #{drama_id})",
+            run_settings=run_settings, line_fields=("en", "flag", "flag_note"))
+    finally:
+        if estimate_usd is not None and not started:
+            paid_job_service.release_bulk_spend(key)
     if not started:
         raise ConflictError("A translation is already running for this title.")
     _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns)

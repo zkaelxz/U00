@@ -10,7 +10,7 @@ from services import characters_service, glossary_extract_service, ownership_ser
 
 MAX_PEOPLE = 40
 MAX_APPLY = 200
-# The scan prompt (translation_guide._PERSON_PRONOUN_INSTRUCTION) makes the note start with the pronouns.
+# The scan prompt (glossary_extract._PERSON_PRONOUN_INSTRUCTION) makes the note start with the pronouns.
 _LEAD = re.compile(r"^\W*(?:pronouns?\W+)?(she/her|he/him|they/them)\b[\s.,;:\-–—]*", re.IGNORECASE)
 
 

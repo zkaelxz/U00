@@ -32,6 +32,15 @@
     #translate { width: 100%; min-height: 46px; }
     #translateText, #saveNovel, #continueNovel, #continueComic, #cancelCapture, #retryMissed { width: 100%; overflow-wrap: anywhere; }
     #dramaTitle { overflow-wrap: anywhere; }
+    .row { display: flex; align-items: center; gap: 6px; }
+    .row > label, .row > h2 { flex: 1; margin: 0; }
+    .help { flex: none; display: inline-flex; }
+    .help-btn { width: 22px; height: 22px; min-height: 0; padding: 0; border-radius: 999px; font-size: 12px; line-height: 1;
+                font-style: italic; color: var(--muted); position: relative; }
+    .help-btn::after { content: ""; position: absolute; inset: -6px; }
+    .help-text { position: fixed; z-index: 10; width: max-content; max-width: 280px; padding: 8px 10px; border: 1px solid var(--border);
+                 border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 13px; font-weight: 400;
+                 box-shadow: 0 4px 14px rgba(23,32,47,.18); }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -53,7 +62,7 @@
       <div class="switches">
         <label class="switch"><input type="checkbox" role="switch" id="store" checked><span>Also save into that drama (and text history)</span></label>
         <label class="switch"><input type="checkbox" role="switch" id="overlay" checked><span>Draw over page</span></label>
-        <label class="switch"><input type="checkbox" role="switch" id="typeset"><span>Clean and typeset pages</span></label>
+        <div class="row"><label class="switch"><input type="checkbox" role="switch" id="typeset"><span>Clean and typeset pages</span></label><span class="help"><button type="button" class="help-btn" aria-label="Help: Clean and typeset pages" aria-describedby="help-typeset" aria-expanded="false">i</button><span id="help-typeset" role="tooltip" class="help-text" hidden>Off: pages are saved with their text and the preview is drawn over the page. On: Baihe also erases the original lettering and puts the English in, in saved pages too. It adds a few seconds per page on the PC running Baihe.</span></span></div>
       </div>
       <div id="typesetStyle">
         <label for="typesetAlign">Text alignment</label>
@@ -74,10 +83,8 @@
         <input id="typesetErase" type="range" min="1" max="3" step="0.1" value="1">
         <label for="typesetFill">Balloon fill (% toward flat paper)</label>
         <input id="typesetFill" type="range" min="0" max="100" step="5" value="0">
-        <label class="switch"><input type="checkbox" role="switch" id="typesetStroke"><span>Outline the text</span></label>
-        <p class="hint">These shape the cleaned page drawn over the reader when it is not saved.</p>
+        <div class="row"><label class="switch"><input type="checkbox" role="switch" id="typesetStroke"><span>Outline the text</span></label><span class="help"><button type="button" class="help-btn" aria-label="Help: typeset style" aria-describedby="help-typeset-style" aria-expanded="false">i</button><span id="help-typeset-style" role="tooltip" class="help-text" hidden>These settings shape the cleaned page drawn over the reader when it is not saved.</span></span></div>
       </div>
-      <p class="hint">Draw over page only previews on the page you are reading. Clean and typeset makes Baihe erase the original lettering and put the English in, on the page you are reading and in saved pages (a few seconds per page).</p>
     </div>
 
     <div class="tabs" role="tablist" aria-label="Actions">
@@ -102,23 +109,21 @@
       </div>
       <div class="pane">
         <div>
-          <label for="seriesCount">Chapters to capture</label>
+          <div class="row"><label for="seriesCount">Chapters to capture</label><span class="help"><button type="button" class="help-btn" aria-label="Help: Chapters to capture" aria-describedby="help-series" aria-expanded="false">i</button><span id="help-series" role="tooltip" class="help-text" hidden>Follows the site's next-chapter link and stops at a sign-in or purchase page, so free chapters only. Each chapter is translated like a single capture, so a paid engine costs more as the count grows.</span></span></div>
           <input id="seriesCount" type="number" min="1" max="50" value="5">
         </div>
         <button id="continueComic" type="button">Capture and continue</button>
       </div>
-      <p class="hint">Follows the site's next-chapter link. Free chapters only; it stops at a sign-in or purchase page. Each chapter is translated like a single capture, so with a paid engine the cost grows with the chapter count.</p>
       <div id="novelSection" class="pane" aria-label="Save text into a title" hidden>
-        <h2>Save this chapter</h2>
+        <div class="row"><h2>Save this chapter</h2><span class="help"><button type="button" class="help-btn" aria-label="Help: Save this chapter" aria-describedby="help-novel" aria-expanded="false">i</button><span id="help-novel" role="tooltip" class="help-text" hidden>Uses your selection, or the page's main text. It is added as a new raw chapter to the title picked above, or to an automatic one.</span></span></div>
         <button id="saveNovel" type="button">Save text into a title</button>
         <button id="continueNovel" type="button">Save and continue to next chapters</button>
-        <p class="hint">Uses your selection, or the page's main text. Added as a new raw chapter to the title picked above, or to an automatic one.</p>
       </div>
     </section>
 
     <section id="panel-text" class="pane" role="tabpanel" aria-labelledby="tab-text" hidden>
       <div>
-        <label for="textDirection">Languages</label>
+        <div class="row"><label for="textDirection">Languages</label><span class="help"><button type="button" class="help-btn" aria-label="Help: Translate text" aria-describedby="help-text-tab" aria-expanded="false">i</button><span id="help-text-tab" role="tooltip" class="help-text" hidden>Uses your selection, or the page's main text. It is saved to Standalone translate history unless the save switch above is off.</span></span></div>
         <select id="textDirection">
           <option value="zh:en">Chinese → English</option>
           <option value="ja:en">Japanese → English</option>
@@ -129,21 +134,18 @@
         </select>
       </div>
       <button id="translateText" class="primary" type="button">Translate text</button>
-      <p class="hint">Uses your selection, or the page's main text. Saved to Standalone translate history unless the save switch above is off.</p>
     </section>
 
     <section id="panel-auto" class="pane" role="tabpanel" aria-labelledby="tab-auto" hidden>
+      <div class="row"><h2>Titles</h2><span class="help"><button type="button" class="help-btn" aria-label="Help: automatic titles" aria-describedby="help-auto" aria-expanded="false">i</button><span id="help-auto" role="tooltip" class="help-text" hidden>Used while “Send pages to” is on Auto. A matching title only gets its blank fields filled; merge or move titles afterwards in Baihe.</span></span></div>
       <div class="switches">
         <label class="switch"><input type="checkbox" role="switch" id="autoCreate" checked><span>Create a new title when none matches</span></label>
         <label class="switch"><input type="checkbox" role="switch" id="autoFill" checked><span>Fill name and source link from the page</span></label>
         <label class="switch"><input type="checkbox" role="switch" id="autoSeries" checked><span>Put the title in a series</span></label>
       </div>
       <div class="switches">
-        <label class="switch"><input type="checkbox" role="switch" id="screenshot"><span>Use a screenshot when a page can't be read</span></label>
+        <div class="row"><label class="switch"><input type="checkbox" role="switch" id="screenshot"><span>Use a screenshot when a page can't be read</span></label><span class="help"><button type="button" class="help-btn" aria-label="Help: screenshot capture" aria-describedby="help-screenshot" aria-expanded="false">i</button><span id="help-screenshot" role="tooltip" class="help-text" hidden>For readers that draw pages so the browser blocks reading them. It captures the visible window one page at a time, so each page must fit on screen and capture is slower. Off by default.</span></span></div>
       </div>
-      <p class="hint">Off: a page is saved with its text and the preview is drawn over the page. On: Baihe also erases the original lettering and typesets the translation, so Typeset is already on when you open the title. It adds a few seconds per page on the PC running Baihe.</p>
-      <p class="hint">For readers that draw pages so the browser blocks reading them. It takes a picture of the visible window one page at a time, so each page must fit on screen (zoom out if needed) and capture is slower. Off by default.</p>
-      <p class="hint">Used while “Send pages to” is on Auto. A matching title only gets its blank fields filled. Merge or move titles afterwards in Baihe.</p>
     </section>
 
     <p id="status" class="status" role="status" aria-live="polite">Checking the app…</p>
@@ -155,6 +157,7 @@
   </main>
   <script src="site_access.js"></script>
   <script src="shared.js"></script>
+  <script src="help_tip.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

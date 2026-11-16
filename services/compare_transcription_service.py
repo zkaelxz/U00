@@ -311,8 +311,11 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str | None = Non
                   retranslate_current: bool = False, engine_name: str | None = None,
                   model: str | None = None, gemini_free_tier: bool | None = None,
                   job_cost_cap_usd: float | None = None, initial_prompt: str = "",
-                  extra_names: str = "") -> dict:
-    """Starts the GPU-queued compare job for the selected lines. Returns
+                  extra_names: str = "", after_transcription: bool = False) -> dict:
+    """Starts the GPU-queued compare job for the selected lines. With
+    `after_transcription` (the second hearing the transcription itself asks for)
+    the title's own, still-ending transcription job does not block the start, and
+    the finished run flags the lines that were heard differently. Returns
     {job_id, drama_id, line_count}; poll GET /api/jobs/{job_id}, then read
     the proposals with get_compare_result. One candidate setting per run.
 
@@ -332,7 +335,11 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str | None = Non
     size, backend = _validate_candidate(drama, whisper_size, asr_backend_choice)
     prompt = transcribe_service._resolve_initial_prompt(drama_id, initial_prompt or "",
                                                         extra_names or "")
-    ensure_no_active_jobs(drama_id, retranscribe_line_service._RETRANSCRIBE_BLOCKING_PREFIXES,
+    blocking = retranscribe_line_service._RETRANSCRIBE_BLOCKING_PREFIXES
+    if after_transcription:
+        # Its lines are already saved; the GPU queue starts this when that job lets go of the GPU.
+        blocking = tuple(p for p in blocking if p != "transcribe_")
+    ensure_no_active_jobs(drama_id, blocking,
                           "Another job is changing this title's lines. Try again when it finishes.")
     job_id = compare_job_id(drama_id)
     if background_jobs.is_running(job_id):
@@ -348,7 +355,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str | None = Non
                        "principal": ownership_service.acting_principal()}
     tuning = transcribe_options_service._DEFAULT_TUNING
     started = job_launch.start_job(
-        job_id, run_compare_job, job_id, drama_id, [ln.id for ln in picked], audio_path,
+        job_id, run_second_hearing_job if after_transcription else run_compare_job, job_id, drama_id, [ln.id for ln in picked], audio_path,
         {"whisper_size": size, "backend": backend, "prompt": prompt,
          "language": drama.get("source_language") or "zh",
          "beam_size": drama.get("beam_size") or tuning["beam_size"],
@@ -364,7 +371,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str | None = Non
          "use_gpu": settings_service.get("use_gpu")},
         translation, gpu_touching=True,
         description=f"Comparing transcription of {len(picked)} line(s) (title #{drama_id})",
-        line_fields=())
+        line_fields=("flag", "flag_note") if after_transcription else ())
     if not started:
         raise ConflictError("A transcription comparison is already running for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "line_count": len(picked)}
@@ -471,6 +478,15 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     if cancelled and not proposals:
         result = {"failed_reason": "cancelled"}
     background_jobs.set_result(job_id, result)
+    return result
+
+
+def run_second_hearing_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
+    """A compare run that also flags what the other engine heard differently. Flags only:
+    two engines' text is never merged."""
+    result = run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation)
+    if isinstance(result.get("proposals"), list):
+        _flag_from_result(drama_id, result)
 
 
 def _translation_context(drama_id, cfg, translation) -> tuple:
@@ -740,7 +756,10 @@ def flag_disagreements(drama_id: int, job_id) -> dict:
     finished run."""
     if not isinstance(job_id, str) or job_id != compare_job_id(drama_id):
         raise InvalidInputError("job_id is not this title's transcription comparison.")
-    result = _finished_job(drama_id)["result"]
+    return _flag_from_result(drama_id, _finished_job(drama_id)["result"])
+
+
+def _flag_from_result(drama_id: int, result: dict) -> dict:
     backend = result.get("asr_backend") or ""
     by_id = {p["line_id"]: p for p in result["proposals"]}
     with _apply_lock:

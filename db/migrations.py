@@ -375,6 +375,8 @@ def _migrate_bulk_job_columns(conn):
         db._safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN stage TEXT")
     if "pipeline_id" not in bulk_job_cols:
         db._safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN pipeline_id TEXT")
+    if "estimated_usd" not in bulk_job_cols:
+        db._safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN estimated_usd REAL")
     bulk_job_line_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_job_lines)").fetchall()}
     if "result_text" not in bulk_job_line_cols:
         db._safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN result_text TEXT")

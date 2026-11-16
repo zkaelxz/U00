@@ -12,6 +12,7 @@ import { humanize } from '../../components/labels'
 import { Tabs, type TabInfo } from '../../components/Tabs'
 import { tabButtonId, tabPanelId } from '../../components/tabIds'
 import { routeHref } from '../../router'
+import { SettingSources } from './SettingSources'
 import { initialForm, loadPresetStart } from './translateForm'
 import './titlePanel.css'
 
@@ -84,6 +85,7 @@ export function TitlePanel({ id, episodes }: { id: number; episodes: ReactNode }
             <ButtonLink href={stage('translate')}>Change</ButtonLink>
             <ButtonLink href={routeHref({ name: 'drama', id, stage: 'translate', focus: 'estimate' })}>Estimate cost</ButtonLink>
           </div>
+          {active === 'translate' && <SettingSources id={id} />}
         </>
       ))}
       {panel('glossary', (

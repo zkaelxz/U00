@@ -29,7 +29,7 @@ import db
 import source_change
 import subtitle_formats
 import timing_drift
-import translation_guide
+import translation_notes
 from services import (
     edit_log_service,
     line_provenance_service,
@@ -431,8 +431,8 @@ def add_note(drama_id: int, line_id: int, term: str, note_type: str, note: str) 
     note = _text("note", note, MAX_NOTE_CHARS).strip()
     if not term or not note:
         raise InvalidInputError("term and note must not be empty.")
-    if note_type not in translation_guide.NOTE_TYPES:
-        raise InvalidInputError(f"note_type must be one of {sorted(translation_guide.NOTE_TYPES)}.")
+    if note_type not in translation_notes.NOTE_TYPES:
+        raise InvalidInputError(f"note_type must be one of {sorted(translation_notes.NOTE_TYPES)}.")
     _, _, ln = load(drama_id, line_id)
     db.save_translation_notes(drama_id, [{"line_id": ln.id, "line_idx": ln.idx, "term": term,
                                           "note_type": note_type, "note": note}])
