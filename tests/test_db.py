@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import db
 from core import Line
 from jobs import gpu_slots
+from tests.conftest import rmtree_retrying
 
 
 class TestDramaCRUD:
@@ -2662,7 +2663,7 @@ class TestInitDbSchema:
         db.init_db()
         yield db
         db.configure_library_dir(previous)
-        shutil.rmtree(parent_dir, ignore_errors=True)
+        rmtree_retrying(parent_dir)
 
     def test_running_init_db_again_changes_nothing(self, isolated_db):
         before = _exact_snapshot(isolated_db.DB_PATH)
