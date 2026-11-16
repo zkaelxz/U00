@@ -198,6 +198,8 @@ class TranscribeConfig(BaseModel):
     whisper_installed: bool = True
     # CUDA runtime DLLs Whisper needs on the GPU: status ok / missing / unknown, with fixed-text reason.
     gpu_runtime: GpuRuntimeStatus = Field(default_factory=lambda: GpuRuntimeStatus(status="unknown"))
+    # The PC's "Use GPU" setting, here because a device that cannot read Settings still needs it for the time estimate.
+    use_gpu: bool = False
     beam_size: int
     min_silence_ms: int
     vad_threshold: float

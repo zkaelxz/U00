@@ -285,11 +285,11 @@ describe('browser extension', () => {
 
 describe('model downloads', () => {
   it('names the server id for each engine that can be downloaded', () => {
-    expect(MODEL_DOWNLOAD_IDS['Qwen3-ASR']).toBe('qwen3_asr')
-    expect(MODEL_DOWNLOAD_IDS['SenseVoice (FunASR)']).toBe('sensevoice')
-    expect(MODEL_DOWNLOAD_IDS['manga-ocr']).toBe('manga_ocr')
-    expect(MODEL_DOWNLOAD_IDS['LaMa-manga']).toBe('lama_manga')
-    expect(MODEL_DOWNLOAD_IDS['Whisper (faster-whisper)']).toBeUndefined()
+    expect(MODEL_DOWNLOAD_IDS['Qwen3-ASR']).toEqual(['qwen3_asr'])
+    expect(MODEL_DOWNLOAD_IDS['SenseVoice (FunASR)']).toEqual(['sensevoice'])
+    expect(MODEL_DOWNLOAD_IDS['manga-ocr']).toEqual(['manga_ocr'])
+    expect(MODEL_DOWNLOAD_IDS['LaMa-manga']).toEqual(['lama_manga'])
+    expect(MODEL_DOWNLOAD_IDS['Whisper (faster-whisper)']).toContain('whisper_breeze_asr_25')
   })
 
   it('says why a download stopped, and nothing for a job that is fine or never started', () => {

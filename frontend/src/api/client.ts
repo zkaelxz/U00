@@ -265,6 +265,25 @@ export function postMultipart<T>(
   )
 }
 
+// A Fetch that sends through XMLHttpRequest, because fetch cannot report how much of
+// an upload has left the browser. It answers with a Response, so the error handling,
+// CSRF header and sign-out check in `send` apply unchanged.
+export function uploadProgressFetch(onProgress: (sent: number, total: number) => void): Fetch {
+  return (input, init) => new Promise<Response>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open(init?.method ?? 'POST', String(input))
+    for (const [k, v] of Object.entries((init?.headers ?? {}) as Record<string, string>)) xhr.setRequestHeader(k, v)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded, e.total)
+    }
+    xhr.onload = () => resolve(new Response(xhr.responseText, { status: xhr.status }))
+    xhr.onerror = () => reject(new TypeError('network error'))
+    xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'))
+    init?.signal?.addEventListener('abort', () => xhr.abort())
+    xhr.send(init?.body as XMLHttpRequestBodyInit | null)
+  })
+}
+
 // The full URL for an API path ("/api/..."), for links and for the few
 // callers that fetch non-JSON bodies themselves.
 export function apiUrl(path: string): string {

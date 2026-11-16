@@ -46,6 +46,10 @@ MODEL_ENGINE_REGISTRY = [
      "url": "https://huggingface.co/pyannote/speaker-diarization-community-1",
      "help": "The actual model weights pyannote.audio uses to tell speakers apart -- a gated "
              "Hugging Face download, not a pip package."},
+    {"name": "Nemotron-3-Diarization", "kind": "repo", "repo_ids": ["nvidia/Nemotron-3-Diarization"],
+     "url": "https://huggingface.co/nvidia/Nemotron-3-Diarization",
+     "help": "NVIDIA's speaker detection model (about 0.4 GB). When it is chosen in Settings but "
+             "not downloaded, speaker detection falls back to pyannote."},
     {"name": "manga-ocr", "kind": "package", "package": "manga-ocr",
      "url": "https://github.com/kha-white/manga-ocr",
      "help": "Reads Japanese text out of manga page images (Scanlate's OCR step)."},

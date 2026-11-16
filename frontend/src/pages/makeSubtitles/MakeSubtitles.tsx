@@ -4,6 +4,7 @@ import { ButtonLink } from '../../components/Button'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { UploadProgress } from '../../components/UploadProgress'
 import { humanize } from '../../components/labels'
 import { RetryBanner } from '../../components/RetryBanner'
 import { Section } from '../../components/Section'
@@ -73,6 +74,7 @@ export function FileRunStatus({ run }: { run: FileRun }) {
                 </li>
               ))}
             </ol>
+            {stepNow === 'upload' && <UploadProgress sent={run.sent} />}
             {job?.message && <p className="muted">{job.message}</p>}
           </>
         ) : (
