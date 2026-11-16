@@ -9,6 +9,7 @@ import { buttonClass } from '../../components/uiClasses'
 import type { SourceHealth, SourcePace, SourcesSettings, SourceSummary } from '../../types/sources'
 import { ManageCard } from './ManageCard'
 import { PaceSelect } from './PaceSelect'
+import { SiteLink } from './SiteLink'
 import { SourceDetail } from './SourceDetail'
 import { FAST_NOTE, healthText, healthTone } from './sourcesFormat'
 import { settingsSummary } from './sourcesSettings'
@@ -99,6 +100,7 @@ export function SitesTab({ phone, sources, settings, onSource, onHealth }: Props
   const nameCell = (s: SourceSummary) => (
     <>
       <strong>{s.display_name}</strong>
+      <SiteLink s={s} />
       {s.auth_supported && s.has_saved_signin && <small className="muted source-signed-in"> Signed in</small>}
     </>
   )

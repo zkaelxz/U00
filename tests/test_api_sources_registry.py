@@ -57,6 +57,12 @@ def test_every_adapter_serializes(client):
         assert client.get(f"/api/sources/{x['name']}/attempts").status_code == 200
 
 
+def test_every_real_source_has_an_https_homepage(client):
+    rows = client.get("/api/sources").json()
+    assert all(x["homepage"].startswith("https://") for x in rows)
+    assert client.get("/api/sources/rawkuma").json()["homepage"] == "https://rawkuma.net"
+
+
 def test_needs_browser_marks_exactly_the_browser_only_adapters(client):
     by = {x["name"]: x for x in client.get("/api/sources").json()}
     assert {n for n, x in by.items() if x["needs_browser"]} == {"fanjiao", "fanjiao_comic", "bilibili_manga"}

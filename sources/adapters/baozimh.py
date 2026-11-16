@@ -165,6 +165,7 @@ def _container_children(soup):
 class BaozimhSource(PlainImageDownload, SourceAdapter):
     name = "baozimh"
     display_name = "包子漫画 Baozimh/GoDaManhua"
+    homepage = "https://baozimh.org"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
     url_patterns = [r"(?:baozimh\.org|godamh\.com|baozimh\.one|bzmh\.org|g-mh\.org)/manga/[^/?#]+"]
