@@ -197,7 +197,19 @@ def test_extraction_codec_follows_the_output_name():
     flac = ve.extract_audio_cmd("in.mp4", "out.flac")
     wav = ve.extract_audio_cmd("in.mp4", "out.wav")
     assert flac[flac.index("-acodec") + 1] == "flac" and flac[-1] == "out.flac"
+    assert flac[flac.index("-sample_fmt") + 1] == "s16"
     assert wav[wav.index("-acodec") + 1] == "pcm_s16le"
+
+
+@_needs_ffmpeg
+def test_extracted_flac_is_16_bit_from_a_24_bit_source(tmp_path):
+    src, out = str(tmp_path / "in24.wav"), str(tmp_path / "out.flac")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *_TONE, "-c:a", "pcm_s24le", src],
+                   check=True, timeout=60)
+    subprocess.run(ve.extract_audio_cmd(src, out), check=True, capture_output=True, timeout=60)
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=sample_fmt",
+                            "-of", "csv=p=0", out], capture_output=True, text=True, timeout=60)
+    assert probe.stdout.strip() == "s16"
 
 
 @_needs_ffmpeg
