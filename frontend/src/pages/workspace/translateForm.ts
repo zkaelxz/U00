@@ -53,7 +53,7 @@ export interface RunForm {
 }
 
 // Engines that only translate (no free-form prompting) cannot run Reflect.
-// Mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
+// Mirrors engine_backends.engine_registry.TRANSLATION_ONLY_ENGINES.
 // Mutable only so tests can register a stand-in; the app never changes it.
 export const TRANSLATION_ONLY: string[] = []
 
@@ -408,7 +408,7 @@ export function estimateKeyFor(f: RunForm): string | null {
   return params ? JSON.stringify(params) : null
 }
 
-// A monthly cap of 0 (or less) means "no cap" (translate_engines.resolve_cost_cap),
+// A monthly cap of 0 (or less) means "no cap" (engine_backends.pricing.resolve_cost_cap),
 // so it must not read as "$X of $0.00", which looks like the cap was reached.
 export function monthSpendText(spend: number, cap: number): string {
   return cap > 0

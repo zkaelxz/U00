@@ -30,7 +30,7 @@ from bulk_providers import make_provider, next_deepseek_offpeak_start
 import db
 import emotion
 import source_change
-from engine_backends import shared, llm_tasks
+from engine_backends import shared, llm_tasks, pricing
 import translation_guide as tguide
 
 
@@ -130,7 +130,8 @@ def _require_batch_engine(provider, engine_choice: str,
 
 
 def submit_bulk_translation(drama_id: int, lines, engine, engine_choice: str, context: dict,
-                            provider=None, translate_args: dict | None = None, **build_kwargs) -> int:
+                            provider=None, translate_args: dict | None = None,
+                            estimated_usd: float | None = None, **build_kwargs) -> int:
     """Submits every batch in one provider batch and records it. Returns
     the bulk job id. The row is written before submitting and marked
     failed if submission raises, so a crash mid-submit never leaves a
@@ -143,7 +144,8 @@ def submit_bulk_translation(drama_id: int, lines, engine, engine_choice: str, co
     if not requests_:
         raise ValueError("Nothing to translate -- every line already has a translation.")
     bulk_job_id = db.create_bulk_job(drama_id, engine_choice, getattr(engine, "model", ""),
-                                     "submitting", line_rows, translate_args=translate_args)
+                                     "submitting", line_rows, translate_args=translate_args,
+                                     estimated_usd=estimated_usd)
     try:
         batch_id = provider.submit(requests_)
     except Exception as e:
@@ -206,7 +208,7 @@ def build_generic_bulk_requests(drama_id: int, provider, batches: list, max_toke
 def submit_generic_bulk_job(drama_id: int, kind: str, provider, batches: list, engine_choice: str,
                             model: str, state_fn=None, translate_args: dict | None = None,
                             stage: str | None = None, pipeline_id: str | None = None,
-                            max_tokens: int = 3000) -> int:
+                            max_tokens: int = 3000, estimated_usd: float | None = None) -> int:
     """Shared submission path for every generic kind above plus each
     Reflect stage. state_fn(ln), if given, snapshots whatever field(s)
     this kind is about to write, as they stand right now -- so its own
@@ -225,7 +227,7 @@ def submit_generic_bulk_job(drama_id: int, kind: str, provider, batches: list, e
            for lid, key, h in id_key_hash_rows]
     bulk_job_id = db.create_bulk_job(drama_id, engine_choice, model, "submitting", rows,
                                      translate_args=translate_args, kind=kind, stage=stage,
-                                     pipeline_id=pipeline_id)
+                                     pipeline_id=pipeline_id, estimated_usd=estimated_usd)
     try:
         batch_id = provider.submit(requests_)
     except Exception as e:
@@ -236,64 +238,122 @@ def submit_generic_bulk_job(drama_id: int, kind: str, provider, batches: list, e
     return bulk_job_id
 
 
-def submit_bulk_flag(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
-                     batch_size: int = 30, source_language=None) -> int:
-    """The review-queue pass (llm_tasks.flag_uncertain_lines),
-    bulk. state_fn captures each line's own current .flag/.flag_note, so
-    a flag the user set or cleared by hand while the batch was pending is
-    kept rather than silently overwritten once results arrive."""
-    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
+def _flag_batches(lines: list, batch_size: int = 30, source_language=None) -> list:
     eligible = llm_tasks.flaggable_lines(lines)
     batches = []
     for start in range(0, len(eligible), batch_size):
         batch = eligible[start:start + batch_size]
         prompt = llm_tasks.build_flag_prompt(batch, lambda ln: ln.id, source_language)
         batches.append(([ln.id for ln in batch], prompt, batch))
-    return submit_generic_bulk_job(
-        drama_id, "flag", provider, batches, engine_choice, getattr(engine, "model", ""),
-        state_fn=lambda ln: {"flag": ln.flag, "flag_note": ln.flag_note}, max_tokens=2000)
+    return batches
 
 
-def submit_bulk_consistency(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
-                            batch_size: int = 60, source_language=None) -> int:
-    """The consistency check (llm_tasks.check_consistency_llm),
-    bulk. No state_fn -- an issue names a term, not a line, so there's no
-    per-line "did the user already change this" to guard against; the
-    whole-window drop-if-stale check in apply_consistency_results is
-    this kind's only staleness guard."""
-    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
+def _consistency_batches(lines: list, batch_size: int = 60, source_language=None) -> list:
     eligible = [ln for ln in lines if (ln.en or "").strip()]
     batches = []
     for start in range(0, len(eligible), batch_size):
         batch = eligible[start:start + batch_size]
         prompt = llm_tasks.build_consistency_prompt(batch, source_language)
         batches.append(([ln.id for ln in batch], prompt, batch))
-    return submit_generic_bulk_job(drama_id, "consistency", provider, batches, engine_choice,
-                                   getattr(engine, "model", ""), max_tokens=2000)
+    return batches
 
 
-def submit_bulk_emotion(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
-                        batch_size: int = 40, use_audio_cues: bool = False) -> int:
-    """Emotion tagging (emotion.detect_emotions), bulk. state_fn captures
-    each line's own current tag (if any), same reasoning as
-    submit_bulk_flag's."""
-    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
+def _emotion_batches(lines: list, batch_size: int = 40, use_audio_cues: bool = False) -> list:
     eligible = [ln for ln in lines if (ln.zh or "").strip()]
-    existing = db.load_emotions(drama_id)  # keyed by CURRENT idx, same as detect_emotions' own return
-    existing_by_id = {ln.id: existing.get(ln.idx) for ln in lines}
     batches = []
     for start in range(0, len(eligible), batch_size):
         batch = eligible[start:start + batch_size]
         prompt = emotion.build_emotion_prompt(batch, use_audio_cues=use_audio_cues,
                                               id_fn=lambda ln: ln.id)
         batches.append(([ln.id for ln in batch], prompt, batch))
+    return batches
+
+
+def _notes_batches(lines: list, batch_size: int = 40) -> list:
+    eligible = [ln for ln in lines if (ln.en or "").strip()]
+    batches = []
+    for start in range(0, len(eligible), batch_size):
+        batch = eligible[start:start + batch_size]
+        prompt = tguide.build_translation_notes_prompt(batch, id_fn=lambda ln: ln.id)
+        batches.append(([ln.id for ln in batch], prompt, batch))
+    return batches
+
+
+# kind -> (batch builder, max output tokens per request)
+_GENERIC_KINDS = {
+    "flag": (_flag_batches, 2000),
+    "consistency": (_consistency_batches, 2000),
+    "emotion": (_emotion_batches, 3000),
+    "translation_notes": (_notes_batches, 3000),
+}
+
+# The reply allowance per line for the estimate: an id plus a short tag,
+# note or reason. Most lines get less (a flag pass answers only for the
+# lines it flags), so this leans high; a request never exceeds max_tokens.
+_ESTIMATE_OUTPUT_TOKENS_PER_LINE = 60
+
+
+def estimate_generic_bulk_usd(kind: str, lines: list, engine, **submit_kwargs) -> float:
+    """Dollars a flag / consistency / emotion / translation_notes batch over
+    these lines is expected to cost, at the batch price. submit_kwargs: the
+    same batch_size / source_language / use_audio_cues the submit gets."""
+    build, max_tokens = _GENERIC_KINDS[kind]
+    batches = build(lines, **submit_kwargs)
+    inp = sum(pricing.estimate_text_tokens(prompt) for _ids, prompt, _batch in batches)
+    out = sum(min(max_tokens, _ESTIMATE_OUTPUT_TOKENS_PER_LINE * len(batch))
+              for _ids, _prompt, batch in batches)
+    return pricing.estimate_cost_for_engine(engine, int(inp), out) * BATCH_PRICE_FACTOR
+
+
+def submit_bulk_flag(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
+                     batch_size: int = 30, source_language=None,
+                     estimated_usd: float | None = None) -> int:
+    """The review-queue pass (llm_tasks.flag_uncertain_lines),
+    bulk. state_fn captures each line's own current .flag/.flag_note, so
+    a flag the user set or cleared by hand while the batch was pending is
+    kept rather than silently overwritten once results arrive."""
+    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
     return submit_generic_bulk_job(
-        drama_id, "emotion", provider, batches, engine_choice, getattr(engine, "model", ""),
-        state_fn=lambda ln: existing_by_id.get(ln.id), max_tokens=3000)
+        drama_id, "flag", provider, _flag_batches(lines, batch_size, source_language),
+        engine_choice, getattr(engine, "model", ""),
+        state_fn=lambda ln: {"flag": ln.flag, "flag_note": ln.flag_note}, max_tokens=2000,
+        estimated_usd=estimated_usd)
+
+
+def submit_bulk_consistency(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
+                            batch_size: int = 60, source_language=None,
+                            estimated_usd: float | None = None) -> int:
+    """The consistency check (llm_tasks.check_consistency_llm),
+    bulk. No state_fn -- an issue names a term, not a line, so there's no
+    per-line "did the user already change this" to guard against; the
+    whole-window drop-if-stale check in apply_consistency_results is
+    this kind's only staleness guard."""
+    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
+    return submit_generic_bulk_job(drama_id, "consistency", provider,
+                                   _consistency_batches(lines, batch_size, source_language),
+                                   engine_choice, getattr(engine, "model", ""), max_tokens=2000,
+                                   estimated_usd=estimated_usd)
+
+
+def submit_bulk_emotion(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
+                        batch_size: int = 40, use_audio_cues: bool = False,
+                        estimated_usd: float | None = None) -> int:
+    """Emotion tagging (emotion.detect_emotions), bulk. state_fn captures
+    each line's own current tag (if any), same reasoning as
+    submit_bulk_flag's."""
+    provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
+    existing = db.load_emotions(drama_id)  # keyed by CURRENT idx, same as detect_emotions' own return
+    existing_by_id = {ln.id: existing.get(ln.idx) for ln in lines}
+    return submit_generic_bulk_job(
+        drama_id, "emotion", provider, _emotion_batches(lines, batch_size, use_audio_cues),
+        engine_choice, getattr(engine, "model", ""),
+        state_fn=lambda ln: existing_by_id.get(ln.id), max_tokens=3000,
+        estimated_usd=estimated_usd)
 
 
 def submit_bulk_translation_notes(drama_id: int, lines: list, engine, engine_choice: str,
-                                  provider=None, batch_size: int = 40) -> int:
+                                  provider=None, batch_size: int = 40,
+                                  estimated_usd: float | None = None) -> int:
     """Translation notes (translation_guide.generate_translation_notes_llm),
     bulk. No state_fn -- notes are additive (db.save_translation_notes
     upserts per drama+line+term), never overwriting a whole field the way
@@ -301,14 +361,10 @@ def submit_bulk_translation_notes(drama_id: int, lines: list, engine, engine_cho
     check to make; a stale line is still dropped in
     apply_notes_results, same as every other kind."""
     provider = _require_batch_engine(provider or make_provider(engine_choice, engine), engine_choice)
-    eligible = [ln for ln in lines if (ln.en or "").strip()]
-    batches = []
-    for start in range(0, len(eligible), batch_size):
-        batch = eligible[start:start + batch_size]
-        prompt = tguide.build_translation_notes_prompt(batch, id_fn=lambda ln: ln.id)
-        batches.append(([ln.id for ln in batch], prompt, batch))
-    return submit_generic_bulk_job(drama_id, "translation_notes", provider, batches, engine_choice,
-                                   getattr(engine, "model", ""), max_tokens=3000)
+    return submit_generic_bulk_job(drama_id, "translation_notes", provider,
+                                   _notes_batches(lines, batch_size), engine_choice,
+                                   getattr(engine, "model", ""), max_tokens=3000,
+                                   estimated_usd=estimated_usd)
 
 
 def _character_names(drama_id: int) -> dict:

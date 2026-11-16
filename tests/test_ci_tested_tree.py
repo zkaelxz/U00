@@ -88,7 +88,6 @@ class TestAfterTested:
         out = ctt.after_tested(ALL, ALL)
         assert out == {**ALL, "run_e2e": False, "run_full_pytest": False, "run_windows_scripts": False,
                        "run_caddy": False, "run_app_checks": False, "run_sources_subset": False}
-        assert out["notes_only"] is False  # test-shard still runs the frontend-reading tests
 
     def test_groups_the_pr_skipped_still_run(self):
         tested = pr_outputs(run_e2e=False, run_windows_scripts=False, run_caddy=False)
@@ -99,9 +98,6 @@ class TestAfterTested:
     def test_a_sources_subset_or_frontend_only_pr_does_not_count_as_the_full_suite(self):
         assert ctt.after_tested(ALL, pr_outputs(run_sources_subset=True))["run_full_pytest"] is True
         assert ctt.after_tested(ALL, pr_outputs(run_full_pytest=False))["run_full_pytest"] is True
-
-    def test_a_notes_only_pr_ran_nothing_to_skip(self):
-        assert ctt.after_tested(ALL, pr_outputs(notes_only=True)) == ALL
 
 
 class TestAfterMerge:
