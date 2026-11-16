@@ -282,17 +282,21 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
 
 
 def _check_backup_zip(path: str):
-    """Raises OSError unless the zip at `path` reads back whole with a sound
-    library.db. Runs on the partial file, before it is named as a backup,
-    so a failed check only ever removes that file."""
+    """Raises OSError unless the zip at `path` passes what a restore and the
+    auto backup check: the restore's zip checks (CRCs, unsafe or encrypted
+    members), a sound library.db and, when present, a sound sources.db, which
+    a restore would refuse. Runs on the partial file, before it is named as a
+    backup, so a failed check only ever removes that file."""
+    # Imported here: both modules import this one.
+    from services import auto_backup_files as abf
+    from services import library_backup_restore_service as lbr
     try:
+        lbr.validate_backup_file(path, check_disk=False, check_limits=False)
         with zipfile.ZipFile(path) as zf, storage.job_workdir("backup_check") as tmp:
-            if zf.testzip() is not None:
-                raise OSError("backup zip is damaged")
-            db_copy = zf.extract("library.db", tmp)
-            if sqlite_check.damaged(db_copy):
-                raise OSError("backup database is damaged")
-    except (zipfile.BadZipFile, KeyError, EOFError, zlib.error):
+            abf.extract_db(zf, tmp)
+            if "sources.db" in zf.namelist():
+                abf._check_sources_db(zf, tmp)
+    except (InvalidInputError, zipfile.BadZipFile, KeyError, EOFError, zlib.error):
         raise OSError("backup zip is damaged") from None
 
 

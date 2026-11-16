@@ -422,6 +422,20 @@ def test_schema_differs_covers_every_copied_table(local_client):
     assert _post_list(local_client, data, "library.db").json()["schema_differs"] is True
 
 
+def test_a_table_this_install_no_longer_has_is_not_schema_drift(local_client):
+    """A backup holding a table a fresh install no longer makes loses nothing
+    to it, so the list does not warn about dropped columns."""
+    _world()
+    dest = os.path.join(db.LIBRARY_DIR, "older-table.db")
+    lbs._sanitized_snapshot(dest)
+    with open(dest, "rb") as fh:
+        data = fh.read()
+    with _conn() as c:
+        c.execute("DROP TABLE translation_notes")
+        c.commit()
+    assert _post_list(local_client, data, "library.db").json()["schema_differs"] is False
+
+
 # ---- rejected input --------------------------------------------------------
 
 def test_wrong_confirmation_writes_nothing(local_client):

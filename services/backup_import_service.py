@@ -267,7 +267,9 @@ def _schema_differs(backup: _Backup) -> bool:
         with contextlib.closing(_open_db(backup.db_path)) as conn, \
                 contextlib.closing(db.get_conn()) as dst:
             for table in _READ_TABLES:
-                if not drs.has_table(conn, table):
+                # A table this install lacks (one a fresh install no longer makes) is created
+                # by the copy, so nothing in it is left out.
+                if not drs.has_table(conn, table) or not drs.has_table(dst, table):
                     continue
                 if set(drs.columns(conn, table)) - set(drs.columns(dst, table)):
                     return True

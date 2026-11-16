@@ -321,7 +321,7 @@ class TestExportBackupArtifacts:
         data = self._download(client, "backup", "application/zip")
         lbr.validate_backup_zip(data)
 
-    @pytest.mark.parametrize("damage", ["crc", "database"])
+    @pytest.mark.parametrize("damage", ["crc", "database", "sources"])
     def test_backup_that_fails_its_check_fails_the_job(self, client, monkeypatch, damage):
         """A damaged write must not be offered as a backup, and the backup
         made before it must survive the failed one."""
@@ -341,6 +341,10 @@ class TestExportBackupArtifacts:
                     data = fh.read()
                 with open(dest, "wb") as fh:
                     fh.write(data.replace(b"A" * 4096, b"B" * 4096, 1))
+            elif damage == "sources":
+                # A restore refuses a damaged sources.db, so the backup must too.
+                with zipfile.ZipFile(dest, "a") as zf:
+                    zf.writestr("sources.db", b"SQLite format 3\x00" + b"\xff" * 4096)
             else:
                 with zipfile.ZipFile(dest, "w") as zf:
                     zf.writestr("library.db", b"SQLite format 3\x00" + b"\xff" * 4096)
