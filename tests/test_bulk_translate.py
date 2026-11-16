@@ -767,7 +767,7 @@ class TestBulkFlag:
         summary = isolated_db.get_bulk_job(jid)["result_summary"]
         assert summary == {"applied": 1, "dropped_deleted": 0, "flagged_source_changed": 1,
                            "kept_your_edit": 1, "failed_requests": 0, "unknown_requests": 0,
-                           "unparsable_entries": 0}
+                           "unparsable_requests": 0, "unparsable_entries": 0}
         final = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
         assert final[ids[0]].flag == "slang_idiom" and final[ids[0]].flag_note == "manual"
         assert final[ids[1]].flag == "bulk_source_changed"
@@ -821,6 +821,19 @@ class TestBulkFlag:
         summary = bulk_apply.apply_flag_results(jid, results)
         assert summary["dropped_deleted"] == 1 and summary["applied"] == 1
 
+    @pytest.mark.parametrize("cut_off", [True, False])
+    def test_a_cut_off_or_unreadable_reply_is_counted_and_reads_as_partly_done(self, isolated_db, cut_off):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2, en="translated")
+        lines = isolated_db.load_line_objects(did)
+        jid = bulk_translate.submit_bulk_flag(did, lines, engine, "claude")
+        key = engine.client.messages.batches.created[0]["custom_id"]
+        text = (engine_shared.TruncatedReply(f'[{{"line_idx": {lines[0].id}, "reason": "slang_idiom"}}, {{"line_')
+                if cut_off else "Sorry, here are the flags: none.")
+        summary = bulk_apply.apply_flag_results(jid, [(key, text, {}, None)])
+        assert summary["unparsable_requests"] == 1 and summary["applied"] == 0
+        assert bulk_poll.poller_outcome("no-job", {"result_summary": summary}) == {"partial": True}
+
     def test_engines_without_a_batch_api_are_rejected(self, isolated_db):
         did = _drama(isolated_db, n=1, en="x")
         with pytest.raises(ValueError, match="batch API"):
@@ -848,8 +861,18 @@ class TestBulkConsistency:
                   (keys[1], json.dumps([{"term": "kept", "variants": ["y"], "note": "n"}]), {}, None)]
         summary = bulk_apply.apply_consistency_results(jid, results)
         assert summary == {"issues_found": 1, "dropped_windows": 1, "failed_requests": 0,
-                           "unknown_requests": 0}
+                           "unknown_requests": 0, "unparsable_requests": 0}
         assert [i["term"] for i in isolated_db.load_consistency_issues(did)] == ["kept"]
+
+    def test_an_unreadable_window_is_counted_and_keeps_the_existing_issues(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2, en="translated")
+        isolated_db.save_consistency_issues(did, [{"term": "keep me", "variants": [], "note": ""}])
+        jid = bulk_translate.submit_bulk_consistency(did, isolated_db.load_line_objects(did), engine, "claude")
+        key = engine.client.messages.batches.created[0]["custom_id"]
+        summary = bulk_apply.apply_consistency_results(jid, [(key, '[{"term": "cut', {}, None)])
+        assert summary["unparsable_requests"] == 1
+        assert [i["term"] for i in isolated_db.load_consistency_issues(did)] == ["keep me"]
 
     def test_no_usable_windows_leaves_existing_issues_untouched(self, isolated_db):
         engine = _claude_engine()
@@ -926,9 +949,17 @@ class TestBulkTranslationNotes:
         summary = bulk_apply.apply_notes_results(jid, [(key, json.dumps(payload), {}, None)])
 
         assert summary == {"applied": 1, "dropped_deleted": 1, "flagged_source_changed": 1,
-                           "failed_requests": 0, "unknown_requests": 0}
+                           "failed_requests": 0, "unknown_requests": 0, "unparsable_requests": 0}
         notes = isolated_db.list_translation_notes(did)
         assert len(notes) == 1 and notes[0]["line_id"] == ids[0]
+
+    def test_a_cut_off_reply_is_counted(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=1, en="translated")
+        jid = bulk_translate.submit_bulk_translation_notes(did, isolated_db.load_line_objects(did), engine, "claude")
+        key = engine.client.messages.batches.created[0]["custom_id"]
+        summary = bulk_apply.apply_notes_results(jid, [(key, engine_shared.TruncatedReply('[{"line_idx": 1, "term": "x", "note": "cut'), {}, None)])
+        assert summary["unparsable_requests"] == 1 and summary["applied"] == 0
 
     def test_notes_are_additive_not_overwritten(self, isolated_db):
         """Unlike flag/emotion, notes have no "kept your edit" check --

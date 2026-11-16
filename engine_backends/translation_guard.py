@@ -3,6 +3,7 @@ complete and still wrong: two lines merged into one reply, text shifted onto a
 neighbouring id, or source script left in the English. Pure functions; the
 retry and flagging live in translate_pipeline."""
 
+import functools
 import json
 import math
 import re
@@ -40,6 +41,11 @@ _ENGLISH_QUOTE = re.compile(r'["“”]')
 # 道/说/问... right before the colon that opens a quote, or right after one that closes it.
 _SOURCE_TAG = re.compile(r'[道說说问問叫喊答][：:]\s*[“「"『]|[”」"』][，,]?[^“”「」『』，。！？]{1,8}[道說说问問叫喊答]')
 _PUNCT = re.compile(r"[^\w\s]", re.UNICODE)
+# A refusal written in place of the line. An apology alone is ordinary dialogue
+# ("I'm sorry, but I can't stay."), so it must also speak of the task.
+_TASK_REFUSAL = re.compile(
+    r"^(?:i'?m sorry|i am sorry|sorry|i apologi[sz]e)\b[^.!?]*?\b(?:can'?t|cannot|can not|won'?t|unable|not able)\b"
+    r".*\b(?:translat\w*|assist\w*|this request|this content|comply)\b", re.IGNORECASE | re.DOTALL)
 
 
 def _english_words(text: str) -> int:
@@ -56,10 +62,27 @@ def _norm(text: str) -> str:
     return " ".join(_PUNCT.sub(" ", text.casefold()).split())
 
 
+@functools.lru_cache(maxsize=1)
+def _app_guidance_texts() -> tuple:
+    # Imported here: translation_guide imports engine_backends.shared, which imports this module.
+    import translation_guide as tguide
+    from glossary_io import TERM_POLICIES
+    texts = [p["guidance"] for p in tguide.STYLE_PRESETS.values()]
+    texts += [tguide.BASE_TRANSLATION_PRINCIPLES, tguide.BAIHE_SPECIFIC_GUIDANCE,
+              tguide.FEMALE_PRONOUN_DEFAULT_GUIDANCE]
+    texts += [p["guidance"] for p in TERM_POLICIES.values()]
+    return tuple(sorted({t for t in texts if t}, key=len, reverse=True))
+
+
 def allowed_source_runs(glossary_terms=None, style_guidelines: str = "") -> set:
     """Source-script runs the title deliberately keeps in the English: any run
-    in a glossary term or in the style guidelines (which carry the glossary)."""
-    runs = set(_CJK_RUN.findall(style_guidelines or ""))
+    in a glossary term or in the title's own part of the style guidelines
+    (which carry the glossary). The app's fixed guidance is left out: it names
+    她 and 姐姐 as examples, which would otherwise pass a reply that kept them."""
+    text = style_guidelines or ""
+    for block in _app_guidance_texts():
+        text = text.replace(block, " ")
+    runs = set(_CJK_RUN.findall(text))
     for term in glossary_terms or []:
         for key in ("term_original", "term_translation"):
             runs.update(_CJK_RUN.findall(term.get(key) or ""))
@@ -86,8 +109,8 @@ def _parses_as_json(text: str) -> bool:
 
 def unusable_reply(source: str, reply: str, allowed_runs=()):
     """Why this reply can't be written as the English for source at all
-    (None when it can): empty, JSON, reasoning markers, source script left
-    in it, or absurdly long. Stricter checks that only make a line suspect
+    (None when it can): empty, JSON, reasoning markers, a refusal, source
+    script left in it, or absurdly long. Stricter checks that only make a line suspect
     live in line_problems."""
     text = reply.strip()
     if not text:
@@ -96,6 +119,8 @@ def unusable_reply(source: str, reply: str, allowed_runs=()):
         return "JSON instead of a line"
     if _REASONING_MARKER.search(text):
         return "reasoning text"
+    if _TASK_REFUSAL.match(text.replace("’", "'")):
+        return "a refusal"
     if leftover_source_script(text, allowed_runs):
         return "source text left in it"
     if _english_words(text) > ABSURD_LONG_FACTOR * _expected_words(source) + ABSURD_SLACK_WORDS:

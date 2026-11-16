@@ -67,8 +67,8 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     start (ownership_service.acting_principal).
     memory_examples: add the series' approved translation-memory pairs closest
     to these lines to the prompt (off unless the Translate form asks).
-    engine_name/model: the run's engine; only a Translate run and the Library batch pass
-    them, and the plain stream prompt applies only to a Gemma 4 run (see plain_stream_prompt)."""
+    engine_name/model: the run's engine (Translate, the Library batch, Fix flagged and line
+    AI pass them); the plain stream prompt applies only to a Gemma 4 run (see plain_stream_prompt)."""
     include_genre_notes, default_female_pronouns = resolve_style_toggles(
         drama, include_genre_notes, default_female_pronouns)
     series_id = (drama or {}).get("series_id")

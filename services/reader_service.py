@@ -478,7 +478,7 @@ def _define_words_llm(words: list, context_lines: list, engine, source_language:
         if not text:
             continue
         stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-        data = line_text.extract_first_json_value(stripped)
+        data = line_text.extract_first_json_value(stripped, expect=dict)
         if not isinstance(data, dict):
             continue
         for i, w in enumerate(batch, 1):

@@ -439,7 +439,8 @@ def _unchanged_where(drama_id: int, ln, changed, orig: dict, guard_cols, guard_n
     """(WHERE clause, args) holding a row to the caller's `orig` values, its guard fields and its
     guard neighbours (save_lines' only_if_unchanged)."""
     expected = [(f, orig.get(f)) for f in changed]
-    expected += _guard_values(ln, guard_cols)
+    # A guard field this save writes is already held to its `orig` value above.
+    expected += _guard_values(ln, [f for f in guard_cols if f not in changed])
     where, args = _guard_sql(expected), [v for _f, v in expected]
     for other in (guard_neighbours or {}).get(ln.id, ()):
         theirs = [("idx", other.idx)] + _guard_values(other, guard_cols)

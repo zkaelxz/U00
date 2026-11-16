@@ -120,6 +120,17 @@ class TestDetectEmotionsProgress:
         assert result == {}  # neither batch's garbage response parsed
 
 
+class TestDetectEmotionsIds:
+    def test_a_tag_for_a_line_outside_the_batch_is_dropped(self):
+        class ExtraId(FakeClaudeLikeEngine):
+            def create(self, model, max_tokens, messages):
+                tagged = [{"line_idx": i, "emotion": "angry", "intensity": 0.9} for i in (10, 999)]
+                return type("Resp", (), {"content": [_FakeTextBlock(json.dumps(tagged))]})()
+
+        lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in (10, 11)]
+        assert list(em.detect_emotions(lines, ExtraId())) == [10]
+
+
 class TestParseEmotionTagNote:
     def test_non_string_note_becomes_empty(self):
         for bad in (5, ["a"], {"x": 1}, None):

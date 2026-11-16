@@ -183,7 +183,8 @@ def detect_emotions(lines, engine, batch_size: int = 40, use_audio_cues: bool = 
             # attempted, so progress keeps moving instead of stalling on
             # one bad batch out of many.
             progress_cb((bi + 1) / n_batches)
-        results.update(parse_emotion_tags(text))
+        asked = {ln.idx for ln in batch}
+        results.update((k, v) for k, v in parse_emotion_tags(text).items() if k in asked)
     return results
 
 
