@@ -24,6 +24,7 @@ import scanlate_detect
 import scanlate_box_merge
 import scanlate_panels
 import scanlate_inpaint
+import scanlate_lama
 
 
 @pytest.fixture
@@ -463,13 +464,13 @@ class TestAutoBackendSelection:
         cached_file.write_bytes(b"x")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename, revision=None: str(cached_file))
-        assert scanlate_inpaint.lama_ml_weights_cached() is True
+        assert scanlate_lama.lama_ml_weights_cached() is True
 
     def test_lama_ml_weights_cached_false_when_no_cache_hit(self, monkeypatch):
         huggingface_hub = pytest.importorskip("huggingface_hub")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename, revision=None: None)
-        assert scanlate_inpaint.lama_ml_weights_cached() is False
+        assert scanlate_lama.lama_ml_weights_cached() is False
 
     def test_detect_bubbles_auto_never_calls_ml_when_not_cached(self, monkeypatch, synthetic_page):
         monkeypatch.setattr(scanlate_detect, "bubble_ml_weights_cached", lambda: False)
@@ -957,14 +958,14 @@ class TestHfTokenIsNotWrittenToTheEnvironment:
         monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
         monkeypatch.setitem(sys.modules, "safetensors.torch",
                             types.SimpleNamespace(load_file=lambda path: {"w": 0}))
-        monkeypatch.setattr(scanlate_inpaint, "_build_lama_generator", FakeGenerator)
+        monkeypatch.setattr(scanlate_lama, "_build_lama_generator", FakeGenerator)
         monkeypatch.delenv("HF_TOKEN", raising=False)
         monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
-        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
         try:
-            scanlate_inpaint._load_lama_generator(hf_token="secret-token")
+            scanlate_lama._load_lama_generator(hf_token="secret-token")
         finally:
-            scanlate_inpaint.__dict__.pop("_lama_model", None)
+            scanlate_lama.__dict__.pop("_lama_model", None)
         assert seen["token"] == "secret-token"
         assert "HF_TOKEN" not in os.environ
 
@@ -972,7 +973,7 @@ class TestHfTokenIsNotWrittenToTheEnvironment:
 class TestLamaGeneratorLayout:
     def test_generator_uses_the_checkpoint_key_names(self):
         pytest.importorskip("torch")
-        keys = set(scanlate_inpaint._build_lama_generator().state_dict())
+        keys = set(scanlate_lama._build_lama_generator().state_dict())
         # Names and shapes the big-lama-manga checkpoint stores (minus its "model." prefix).
         assert "1.ffc.convl2l.weight" in keys
         assert "4.ffc.convl2g.weight" in keys
@@ -985,30 +986,30 @@ class TestLamaGeneratorLayout:
         torch = pytest.importorskip("torch")
         # One residual block keeps the in-memory "checkpoint" small; the layer
         # names and shapes are the real ones.
-        monkeypatch.setattr(scanlate_inpaint, "_LAMA_BLOCKS", 1)
-        source = scanlate_inpaint._build_lama_generator()
+        monkeypatch.setattr(scanlate_lama, "_LAMA_BLOCKS", 1)
+        source = scanlate_lama._build_lama_generator()
         published = {f"model.{k}": v for k, v in source.state_dict().items()}
         monkeypatch.setitem(sys.modules, "huggingface_hub", types.SimpleNamespace(
             hf_hub_download=lambda repo_id, filename, token=None, **kw: "/fake/" + filename))
         monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
         monkeypatch.setitem(sys.modules, "safetensors.torch",
                             types.SimpleNamespace(load_file=lambda path: published))
-        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
         try:
-            generator = scanlate_inpaint._load_lama_generator()
+            generator = scanlate_lama._load_lama_generator()
             with torch.no_grad():
                 out = generator(torch.zeros(1, 4, 64, 64))
         finally:
-            scanlate_inpaint.__dict__.pop("_lama_model", None)
+            scanlate_lama.__dict__.pop("_lama_model", None)
         assert out.shape == (1, 3, 64, 64)
 
     def test_a_region_over_the_size_cap_is_refused_before_the_model_loads(self, monkeypatch):
         def must_not_load(*a, **k):
             raise AssertionError("the model must not load for an oversized region")
-        monkeypatch.setattr(scanlate_inpaint, "_load_lama_generator", must_not_load)
+        monkeypatch.setattr(scanlate_lama, "_load_lama_generator", must_not_load)
         roi = np.zeros((2000, 2000, 3), np.uint8)
         with pytest.raises(ValueError, match="megapixels"):
-            scanlate_inpaint._run_ml_inpaint(roi, np.ones((2000, 2000), np.uint8))
+            scanlate_lama._run_ml_inpaint(roi, np.ones((2000, 2000), np.uint8))
 
     def test_an_oversized_box_falls_back_to_opencv(self, monkeypatch, temp_dir):
         monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
@@ -1034,11 +1035,11 @@ class TestLamaGeneratorLayout:
         monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
         monkeypatch.setitem(sys.modules, "safetensors.torch",
                             types.SimpleNamespace(load_file=lambda path: {}))
-        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
         with pytest.raises(OSError):
-            scanlate_inpaint._load_lama_generator(allow_download=False)
+            scanlate_lama._load_lama_generator(allow_download=False)
         assert seen == {"local_files_only": True, "etag_timeout": 30,
-                        "revision": model_pins.REVISIONS[scanlate_inpaint._LAMA_ML_REPO]}
+                        "revision": model_pins.REVISIONS[scanlate_lama._LAMA_ML_REPO]}
 
     def test_an_unusable_checkpoint_is_read_once_per_process(self, monkeypatch):
         import types
@@ -1053,16 +1054,16 @@ class TestLamaGeneratorLayout:
         monkeypatch.setitem(sys.modules, "safetensors.torch",
                             types.SimpleNamespace(load_file=load_file))
         pytest.importorskip("torch")
-        monkeypatch.setattr(scanlate_inpaint, "_LAMA_BLOCKS", 1)
-        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
-        monkeypatch.setattr(scanlate_inpaint, "_lama_load_error", None)
+        monkeypatch.setattr(scanlate_lama, "_LAMA_BLOCKS", 1)
+        monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
+        monkeypatch.setattr(scanlate_lama, "_lama_load_error", None)
         for _ in range(3):
             with pytest.raises(RuntimeError):
-                scanlate_inpaint._load_lama_generator()
+                scanlate_lama._load_lama_generator()
         assert len(reads) == 1
 
     def test_the_weights_file_is_the_one_the_repo_publishes(self):
-        assert scanlate_inpaint._LAMA_ML_FILE == "lama-manga.safetensors"
+        assert scanlate_lama._LAMA_ML_FILE == "lama-manga.safetensors"
 
 
 class TestWebtoonOverlapOnlyThroughArt:
