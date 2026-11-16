@@ -102,7 +102,7 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
               return (
               <li key={engine.name}>
                 <span>{engineRow(engine)}{showNotDownloaded && <span className="muted"> · not downloaded</span>}</span>
-                {showNotDownloaded && pc !== 'remote' && <span className="muted" data-testid="no-download-button"> · {noDownloadButtonNote(engine.name)}</span>}
+                {showNotDownloaded && pc !== 'remote' && <span className="muted" data-testid="no-download-button"> · {noDownloadButtonNote()}</span>}
                 {!engine.installed && (
                   <span className="muted" data-testid="engine-not-installed">
                     {engine.help && <> · {engine.help}</>}

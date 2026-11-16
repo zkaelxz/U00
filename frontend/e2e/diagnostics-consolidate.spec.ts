@@ -102,9 +102,10 @@ const WHISPER_DOWNLOADS = [
   ['whisper_large_v3_turbo', 'Whisper large-v3-turbo (about 1.6 GB)', false],
   ['whisper_ja_1_5b', 'Whisper Japanese 1.5B (about 3 GB)', false],
   ['whisper_breeze_asr_25', 'Breeze-ASR-25, Chinese (about 3 GB)', false],
+  ['pyannote_diarization', 'pyannote speaker model community-1 (needs your Hugging Face token)', false],
 ] as const
 
-test('each model download names its model and its own state; pyannote says why it has no button', async ({ page }) => {
+test('each model download names its model and its own state; pyannote gets its own Download', async ({ page }) => {
   await guardWrites(page)
   await mockDiagnostics(page, { cache: { hf_cache: [], hf_total_bytes: 0, model_files: [], model_files_total_bytes: 0 } })
   await page.route('**/api/diagnostics/model-downloads', (r) => r.fulfill({
@@ -127,8 +128,7 @@ test('each model download names its model and its own state; pyannote says why i
   await expect(models.locator('li', { hasText: 'Whisper (faster-whisper): 1.1.0' }).locator('> span').first()).not.toContainText('not downloaded')
   const pyannote = models.locator('li', { hasText: 'pyannote diarization model' })
   await expect(pyannote).toContainText('not downloaded')
-  await expect(pyannote.getByTestId('no-download-button')).toContainText('Hugging Face token')
-  await expect(pyannote.getByRole('button')).toHaveCount(0)
+  await expect(pyannote.getByRole('button', { name: /^Download pyannote speaker model community-1/ })).toBeVisible()
   await models.scrollIntoViewIfNeeded()
   await page.screenshot({ path: test.info().outputPath('models-downloads.png'), fullPage: true })
 })

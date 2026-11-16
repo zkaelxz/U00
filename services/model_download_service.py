@@ -44,7 +44,35 @@ def _manga_ocr_ready() -> bool:
     return readiness.ocr_ready("manga_ocr", "")
 
 
+# SenseVoiceSmall's weights are about 0.9 GB; only used to show a fraction.
+_SENSEVOICE_APPROX_BYTES = 0.94e9
+# ModelScope gives snapshot_download no hook for progress or a timeout, so the bytes that
+# landed in its cache are watched instead. Two idle minutes means a blocked or crawling
+# server, which would otherwise show "Running" for ever.
+_STALL_SECONDS = 120
+_POLL_SECONDS = 2
+
+
+def _bytes_under(root: str, needle: str) -> int:
+    total = 0
+    for folder, _dirs, files in os.walk(root):
+        if needle not in folder:
+            continue
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(folder, name))
+            except OSError:
+                pass
+    return total
+
+
+def _modelscope_cache_root() -> str:
+    return os.environ.get("MODELSCOPE_CACHE") or os.path.join(os.path.expanduser("~"), ".cache", "modelscope")
+
+
 def _fetch_modelscope(report, cancelled) -> None:
+    import threading
+    import time
     import sensevoice_tags
     try:
         from modelscope.hub.snapshot_download import snapshot_download
@@ -53,7 +81,35 @@ def _fetch_modelscope(report, cancelled) -> None:
             "SenseVoice needs its package first: install SenseVoice (FunASR) in "
             "Packages and installs.") from exc
     report(0.0, "Downloading SenseVoice…")
-    snapshot_download(sensevoice_tags.MODEL_ID)
+    outcome: dict = {}
+
+    def work():
+        try:
+            snapshot_download(sensevoice_tags.MODEL_ID)
+        except BaseException as exc:  # handed to the job thread below
+            outcome["error"] = exc
+        finally:
+            outcome["done"] = True
+
+    threading.Thread(target=work, daemon=True, name="sensevoice-download").start()
+    root, needle = _modelscope_cache_root(), sensevoice_tags.MODEL_ID.split("/")[-1]
+    last_bytes, last_change = -1, time.monotonic()
+    while not outcome.get("done"):
+        time.sleep(_POLL_SECONDS)
+        if cancelled():
+            raise background_jobs.JobCancelled()
+        got = _bytes_under(root, needle)
+        if got != last_bytes:
+            last_bytes, last_change = got, time.monotonic()
+            report(min(got / _SENSEVOICE_APPROX_BYTES, 0.98),
+                   f"Downloading SenseVoice… {got / 1e6:.0f} MB so far")
+        elif time.monotonic() - last_change > _STALL_SECONDS:
+            raise ModelDownloadFailed(
+                "SenseVoice downloads from ModelScope (not Hugging Face) and received nothing for "
+                "2 minutes. That server may be blocked or very slow from this network. Try again "
+                "later or on another connection.")
+    if "error" in outcome:
+        raise outcome["error"]
 
 
 class ModelDownloadFailed(Exception):
@@ -87,6 +143,34 @@ def _fetch_hub(repos, report, cancelled, allow_patterns=None) -> None:
             huggingface_hub.snapshot_download(
                 repo_id, revision=model_pins.revision(repo_id), etag_timeout=30, tqdm_class=Bar,
                 allow_patterns=allow_patterns)
+
+
+def _fetch_pyannote(report, cancelled) -> None:
+    # Unpinned on purpose (model_pins): it is the owner's own gated download, the same files
+    # pyannote's Pipeline.from_pretrained would fetch on the first run, but with the token
+    # read from .env or the environment and a plain reason when Hugging Face refuses.
+    import diarize
+    from services import settings_service
+    token = settings_service.resolve_key("hf_token")
+    if not token:
+        raise ModelDownloadFailed(diarize.NO_TOKEN_NOTICE)
+    try:
+        import huggingface_hub
+    except ImportError as exc:
+        raise ModelDownloadFailed(
+            "The Hugging Face download library is not installed. Install pyannote.audio in "
+            "Packages and installs first.") from exc
+    repo_id = diarize.DIARIZATION_MODELS[0]
+    report(0.0, f"Downloading {repo_id}…")
+    try:
+        huggingface_hub.snapshot_download(repo_id, token=token, etag_timeout=30)
+    except Exception as exc:
+        if diarize._hf_access_refused(exc):
+            raise ModelDownloadFailed(
+                f"Hugging Face refused access to {repo_id}. Sign in to the account that owns "
+                f"your token, accept the terms at https://huggingface.co/{repo_id}, and make "
+                "sure the token can read gated models. Then try again.") from exc
+        raise
 
 
 # Only what diarize_nemotron loads: the repo also holds a .nemo and a .gguf copy of the weights.
@@ -173,6 +257,11 @@ CATALOG = {
         "label": "Nemotron-3-Diarization (speaker detection)",
         "ready": _nemotron_ready,
         "fetch": _fetch_nemotron,
+    },
+    "pyannote_diarization": {
+        "label": "pyannote speaker model community-1 (needs your Hugging Face token)",
+        "ready": readiness.diarization_ready,
+        "fetch": _fetch_pyannote,
     },
     "lama_manga": {
         "label": "LaMa-manga (Scanlate text cleanup)",
