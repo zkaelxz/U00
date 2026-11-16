@@ -63,7 +63,7 @@ from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 
 from ocr import default_hardsub_backend
 from services import difficult_audio_service as difficult
 from services import (asr_options_service, diarization_service, job_timing_service, ownership_service, run_settings_service,
-                      name_fix_service, settings_service, source_service, timing_check_service, timing_settings_service,
+                      name_fix_service, settings_service, source_service, speech_coverage_service, timing_check_service, timing_settings_service,
                       transcribe_checkpoint_service, transcribe_pipeline,
                       vocabulary_hint_service)
 from services.transcribe_options_service import (
@@ -171,6 +171,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         # Loading ctranslate2 or cuBLAS here would lock their DLLs in the
         # server; the isolated GPU check measures it in a child.
         "gpu_runtime": diagnostics_torch.get_gpu_status_isolated()["gpu_runtime"],
+        "use_gpu": bool(settings_service.get("use_gpu")),
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         "vad_threshold": drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
@@ -639,8 +640,7 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
     db.update_drama(drama_id, status="aligned")
     # The lines are saved: the units that could have resumed this run are moot.
     transcribe_checkpoint_service.clear(drama_id)
-    timing_check_service.after_run(drama_id, outcome)
-    name_fix_service.after_transcription(drama_id)
+    _run_after_save_hooks(drama_id, outcome)
 
     diarize_started, diarize_skipped_reason = _chain_diarization(
         job_id, drama_id, hf_token, diarize_audio_path, expected_speakers, min_speakers,
@@ -688,6 +688,17 @@ def _record_groq_usage(drama_id, groq_usage) -> None:
         import applog
         applog.get_logger().warning(
             f"Groq usage was not logged: {whisper_models.short_reason(exc)}")
+
+
+def _run_after_save_hooks(drama_id: int, outcome: dict) -> None:
+    """The checks a saved transcription starts; none of them may fail the run. Name fixes go
+    first so the coverage and second-hearing checks see the final text."""
+    timing_check_service.after_run(drama_id, outcome)
+    name_fix_service.after_transcription(drama_id)
+    speech_coverage_service.after_run(drama_id)
+    # Imported late: the compare service imports this module.
+    from services import second_hearing_service
+    second_hearing_service.after_run(drama_id)
 
 
 def _chain_diarization(job_id, drama_id, hf_token, diarize_audio_path, expected_speakers,

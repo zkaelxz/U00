@@ -1,5 +1,5 @@
 plugins {
-    id("com.android.application") version "9.5.0" apply false
+    id("com.android.application") version "9.5.1" apply false
 }
 
 // The Android Gradle Plugin pulls these onto the build classpath at older
@@ -10,13 +10,13 @@ plugins {
 buildscript {
     dependencies {
         constraints {
-            classpath("org.bouncycastle:bcprov-jdk18on:1.86")
-            classpath("org.bouncycastle:bcpkix-jdk18on:1.86")
-            classpath("org.bouncycastle:bcutil-jdk18on:1.86")
+            classpath("org.bouncycastle:bcprov-jdk18on:1.87")
+            classpath("org.bouncycastle:bcpkix-jdk18on:1.87")
+            classpath("org.bouncycastle:bcutil-jdk18on:1.87")
             classpath("org.jdom:jdom2:2.0.6.1")
             classpath("com.google.guava:guava:33.8.0-jre")
             classpath("org.bitbucket.b_c:jose4j:0.9.7")
-            classpath("org.apache.commons:commons-lang3:3.21.0")
+            classpath("org.apache.commons:commons-lang3:3.22.0")
             classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.21")
         }
     }
@@ -26,13 +26,13 @@ buildscript {
 // copies of these libraries, which the buildscript constraints above don't
 // reach. Build-time only; nothing here ships in the APK.
 val patchedBuildToolLibraries = mapOf(
-    "org.bouncycastle:bcprov-jdk18on" to "1.86",
-    "org.bouncycastle:bcpkix-jdk18on" to "1.86",
-    "org.bouncycastle:bcutil-jdk18on" to "1.86",
+    "org.bouncycastle:bcprov-jdk18on" to "1.87",
+    "org.bouncycastle:bcpkix-jdk18on" to "1.87",
+    "org.bouncycastle:bcutil-jdk18on" to "1.87",
     "org.jdom:jdom2" to "2.0.6.1",
     "com.google.guava:guava" to "33.8.0-jre",
     "org.bitbucket.b_c:jose4j" to "0.9.7",
-    "org.apache.commons:commons-lang3" to "3.21.0",
+    "org.apache.commons:commons-lang3" to "3.22.0",
     "org.apache.httpcomponents:httpclient" to "4.5.14",
 )
 

@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_launch, job_table
 import core
-import translation_guide as tguide
+import glossary_extract
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -118,7 +118,7 @@ class TestLinesGlossaryService:
                      "policy": "translate", "reason": ""},
                     {"term": "沈清", "suggested_translation": "Shen Qing", "category": "bogus",
                      "policy": "bogus", "reason": ""}]
-        monkeypatch.setattr(tguide, "extract_terms_llm", fake_extract)
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", fake_extract)
         out = gs.start_lines_glossary_run(did)
         assert out == {"job_id": f"lines_glossary_{did}", "engine": "claude", "line_count": 2}
         assert fake_engine["key"] == SECRET and SECRET not in repr(out)
@@ -138,7 +138,7 @@ class TestLinesGlossaryService:
         import threading
         did, _ = _lines_drama(isolated_db)
         release = threading.Event()
-        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: release.wait(5) and [])
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", lambda *a, **kw: release.wait(5) and [])
         out = gs.start_lines_glossary_run(did)
         time.sleep(0.3)
         live = background_jobs.get_status(out["job_id"])
@@ -159,7 +159,7 @@ class TestLinesGlossaryService:
         engine = type("E", (), {"name": "deepseek", "model": "m", "client": type("C", (), {
             "chat": type("Ch", (), {"completions": type("Co", (), {
                 "create": staticmethod(lambda **k: release.wait(10))})()})()})()})()
-        monkeypatch.setattr(tguide, "extract_terms_llm", hang)
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", hang)
         monkeypatch.setattr(glossary_extract_service, "_glossary_engine",
                             lambda d, n=None: ("deepseek", engine))
         out = gs.start_lines_glossary_run(did)
@@ -175,7 +175,7 @@ class TestLinesGlossaryService:
     def test_model_supplied_renderings_are_not_alternatives(self, isolated_db, monkeypatch,
                                                             fake_engine):
         did, _ = _lines_drama(isolated_db)
-        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: [
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", lambda *a, **kw: [
             {"term": "青云宗", "suggested_translation": "Qingyun Sect",
              "renderings": ["Azure Sect"]}])
         st = wait_for_job(gs.start_lines_glossary_run(did)["job_id"], timeout=4.0)
@@ -187,7 +187,7 @@ class TestLinesGlossaryService:
 
         def boom(*a, **kw):
             raise RuntimeError(f"401 for key {SECRET}")
-        monkeypatch.setattr(tguide, "extract_terms_llm", boom)
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", boom)
         st = wait_for_job(gs.start_lines_glossary_run(did)["job_id"], timeout=4.0)
         assert st["status"] == "error" and SECRET not in repr(st)
         assert "Glossary extraction failed (engine: " in st["error"]
@@ -200,7 +200,7 @@ class TestLinesGlossaryService:
         def extract(*a, **kw):
             background_jobs.request_cancel(job_id)
             return [{"term": "青云宗", "suggested_translation": "Qingyun Sect"}]
-        monkeypatch.setattr(tguide, "extract_terms_llm", extract)
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", extract)
         st = wait_for_job(gs.start_lines_glossary_run(did)["job_id"], timeout=4.0)
         assert st["status"] == "cancelled" and not st.get("result")
 
@@ -359,7 +359,7 @@ class TestLinesGlossaryService:
 
     def test_status_names_the_run(self, isolated_db, monkeypatch, fake_engine):
         did, _ = _lines_drama(isolated_db)
-        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: [])
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", lambda *a, **kw: [])
         wait_for_job(gs.start_lines_glossary_run(did)["job_id"], timeout=4.0)
         first = gs.get_lines_glossary_status(did)["run_id"]
         wait_for_job(gs.start_lines_glossary_run(did)["job_id"], timeout=4.0)
@@ -404,7 +404,7 @@ class TestGlossaryWaitingMessage:
     def test_lines_run_with_names_waits_for_you(self, isolated_db, monkeypatch, fake_engine, bell):
         did, sid = _lines_drama(isolated_db)
         isolated_db.upsert_glossary_term(sid, "师尊", "Master")   # already known: not to review
-        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: self.NAMES)
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", lambda *a, **kw: self.NAMES)
         job_id = gs.start_lines_glossary_run(did)["job_id"]
         e = bell(job_id)
         assert e["kind"] == "waiting"
@@ -416,14 +416,14 @@ class TestGlossaryWaitingMessage:
         did, sid = _lines_drama(isolated_db)
         isolated_db.add_glossary_dismissals(sid, ["沈清"])
         isolated_db.upsert_glossary_term(sid, "师尊", "Master")
-        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: self.NAMES)
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", lambda *a, **kw: self.NAMES)
         e = bell(gs.start_lines_glossary_run(did)["job_id"])
         assert e["text"] == "Waiting for you: 1 glossary name to review - L (S)"
 
     def test_no_new_names_stays_finished(self, isolated_db, monkeypatch, fake_engine, bell):
         did, sid = _lines_drama(isolated_db)
         isolated_db.upsert_glossary_term(sid, "师尊", "Master")
-        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: self.NAMES[2:])
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", lambda *a, **kw: self.NAMES[2:])
         e = bell(gs.start_lines_glossary_run(did)["job_id"])
         assert (e["kind"], e["text"]) == ("job_done", "Finished: Glossary from lines - L (S)")
         assert "target" not in e
@@ -434,7 +434,7 @@ class TestGlossaryWaitingMessage:
         with open(os.path.join(isolated_db.drama_dir(did), gs.RAW_NOVEL_FILENAME), "w",
                   encoding="utf-8") as f:
             f.write("沈清来了。青云宗的师尊。")
-        monkeypatch.setattr(tguide, "extract_glossary_from_novel", lambda *a, **kw: self.NAMES[:1])
+        monkeypatch.setattr(glossary_extract, "extract_glossary_from_novel", lambda *a, **kw: self.NAMES[:1])
         e = bell(gs.start_novel_glossary_run(did)["job_id"])
         assert (e["kind"], e["text"]) == ("waiting", "Waiting for you: 1 glossary name to review - L (S)")
         assert e["target"] == {"page": "glossary", "drama_id": did}
@@ -449,7 +449,7 @@ def _gl(did, tail=""):
 class TestLinesGlossaryRoutes:
     def test_start_status_and_apply(self, local_client, isolated_db, monkeypatch, fake_engine):
         did, sid = _lines_drama(isolated_db)
-        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: [
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", lambda *a, **kw: [
             {"term": "青云宗", "suggested_translation": "Qingyun Sect", "category": "sect",
              "policy": "hybrid", "reason": "r"}])
         idle = local_client.get(_gl(did))
@@ -477,7 +477,7 @@ class TestLinesGlossaryRoutes:
                                                            fake_engine):
         did, _ = _lines_drama(isolated_db, zh=("第一章", "青云宗来了", "第二章", "沈清走了", "她笑了"))
         seen = []
-        monkeypatch.setattr(tguide, "extract_terms_llm", lambda lines, *a, **kw: seen.append(list(lines)) or [])
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", lambda lines, *a, **kw: seen.append(list(lines)) or [])
         r = local_client.post(_gl(did) + "?chapter=2")
         assert r.status_code == 200 and r.json()["line_count"] == 3, r.text
         wait_for_job(f"lines_glossary_{did}", timeout=4.0)
@@ -491,7 +491,7 @@ class TestLinesGlossaryRoutes:
 
         def boom(*a, **kw):
             raise RuntimeError(f"401 for key {SECRET}")
-        monkeypatch.setattr(tguide, "extract_terms_llm", boom)
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", boom)
         local_client.post(_gl(did))
         wait_for_job(f"lines_glossary_{did}", timeout=4.0)
         r = local_client.get(_gl(did))

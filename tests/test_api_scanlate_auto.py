@@ -1,5 +1,4 @@
-"""Automatic Scanlate path (docs/archive/scanlate-api-spec.md S1, S2, S5, S6,
-S8): config and page detail, page import with its limits, the one-job-per-
+"""Automatic Scanlate path: config and page detail, page import with its limits, the one-job-per-
 drama detect/OCR/translate/render run, re-render and ZIP/PDF export.
 
 Mocked: detection/OCR is a fake, translation is the fake engine or a stub
@@ -284,8 +283,8 @@ def test_tall_strip_sliced_by_default_and_optional(client):
 
 @needs_cv2
 def test_a_strip_over_the_slice_cap_is_rejected_not_left_whole(monkeypatch):
-    import scanlate_detect
-    monkeypatch.setattr(scanlate_detect, "_MAX_WEBTOON_SLICES", 2)
+    import scanlate_panels
+    monkeypatch.setattr(scanlate_panels, "_MAX_WEBTOON_SLICES", 2)
     with pytest.raises(limits.ImageRejected, match="slice limit"):
         limits.prepare_page(_png(200, 6000))
 

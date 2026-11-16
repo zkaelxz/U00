@@ -223,6 +223,7 @@ export function NotificationBell() {
         type="button"
         className="notify-bell-btn hb-box"
         aria-label={bellLabel(count)}
+        title="Alerts"
         aria-expanded={open}
         aria-controls={panelId}
         onClick={toggle}
@@ -233,7 +234,6 @@ export function NotificationBell() {
             d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-6v-5a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1z"
           />
         </svg>
-        <span className="hb-words" aria-hidden="true">Alerts</span>
         {count > 0 && (
           <span className="notify-count" aria-hidden="true" data-testid="notify-count">
             <Badge tone="accent">{count}</Badge>

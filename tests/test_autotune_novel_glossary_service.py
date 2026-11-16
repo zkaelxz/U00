@@ -12,6 +12,7 @@ import line_alignment
 import whisper_models
 import whisper_transcribe
 import translation_guide as tguide
+import glossary_extract
 from services import glossary_service as gs
 from services import autotune_service as at, settings_service, translate_service
 from lib.errors import (ConflictError, DependencyUnavailableError,
@@ -254,7 +255,7 @@ class TestNovelGlossary:
                      "policy": "translate", "reason": ""},
                     {"term": "沈清", "suggested_translation": "Shen Qing", "category": "bogus",
                      "policy": "bogus", "reason": ""}]
-        monkeypatch.setattr(tguide, "extract_glossary_from_novel", fake_extract)
+        monkeypatch.setattr(glossary_extract, "extract_glossary_from_novel", fake_extract)
         out = gs.start_novel_glossary_run(did)
         assert out == {"job_id": f"novel_glossary_{did}", "engine": "claude", "paired": True}
         assert fake_engine["key"] == SECRET and SECRET not in repr(out)
@@ -333,7 +334,7 @@ class TestNovelGlossary:
     def test_novel_only_is_source(self, isolated_db, monkeypatch, fake_engine):
         did, _ = _novel_drama(isolated_db, orig=None)
         seen = {}
-        monkeypatch.setattr(tguide, "extract_glossary_from_novel",
+        monkeypatch.setattr(glossary_extract, "extract_glossary_from_novel",
                             lambda src, e, **kw: seen.update(src=src, en=kw["english_translation"]) or [])
         out = gs.start_novel_glossary_run(did)
         assert out["paired"] is False
@@ -345,7 +346,7 @@ class TestNovelGlossary:
 
         def boom(*a, **kw):
             raise RuntimeError(f"401 for key {SECRET}")
-        monkeypatch.setattr(tguide, "extract_glossary_from_novel", boom)
+        monkeypatch.setattr(glossary_extract, "extract_glossary_from_novel", boom)
         st = wait_for_job(gs.start_novel_glossary_run(did)["job_id"], timeout=4.0)
         assert st["status"] == "error" and SECRET not in repr(st)
 
@@ -416,7 +417,7 @@ class TestNovelGlossary:
               "policy": "hybrid", "reason": "first"}],
             [{"term": "青云宗", "suggested_translation": "Blue Cloud Sect", "category": "place",
               "policy": "translate", "reason": "second"}]])
-        monkeypatch.setattr(tguide, "extract_glossary_from_novel", lambda *a, **kw: next(answers))
+        monkeypatch.setattr(glossary_extract, "extract_glossary_from_novel", lambda *a, **kw: next(answers))
         wait_for_job(gs.start_novel_glossary_run(did)["job_id"], timeout=4.0)
         first = gs.get_novel_glossary_status(did)["run_id"]
         assert first and isinstance(first, str)

@@ -327,3 +327,146 @@ def test_bulk_submission_gets_the_engines_default_batch_size(isolated_db, monkey
         bulk_submit_service.bulk_submitter(did, db.get_drama(did), engine, "claude", False, None, [], "", "",
                             "en-US", "audio_drama", 6, 2, batch, False, None, None, None)()
         assert sent["batch_size"] == expected
+
+
+def _other_title_batch(estimated_usd, engine="claude", status="submitted"):
+    other = _seed([("别", "")])
+    db.create_bulk_job(other, engine, "m", status, [(db.load_lines(other)[0]["id"], "k", "h", "")],
+                       estimated_usd=estimated_usd)
+    return other
+
+
+def test_another_titles_pending_batch_holds_its_share_of_the_cap(isolated_db, monkeypatch):
+    # Cap $50: a batch on another title still waiting for results holds
+    # $49.99 of it, so this one (whose own estimate fits $50) is refused.
+    did = _seed([("你好" * 200, "")])
+    _current["did"] = did
+    _fake_engines(monkeypatch)
+    _other_title_batch(49.99999)
+    with pytest.raises(UnsupportedOperationError, match="pending bulk jobs"):
+        svc.start_translate_run(did, bulk=True)
+    assert db.list_bulk_jobs(did) == []
+    from services import paid_job_service
+    assert paid_job_service._bulk_holds == {}
+
+
+def test_a_pending_batch_counts_against_a_normal_run(isolated_db, monkeypatch):
+    # Cap $50, all of it held by another title's batch still waiting for
+    # results: a live run would spend money the batch will be billed.
+    did = _seed([("你好", "")])
+    _current["did"] = did
+    _fake_engines(monkeypatch)
+    _other_title_batch(50.0)
+    with pytest.raises(UnsupportedOperationError):
+        svc.start_translate_run(did)
+    assert not background_jobs.is_running(f"translate_{did}")
+
+
+def test_an_offpeak_run_leaves_room_for_other_pending_batches(isolated_db):
+    _other_title_batch(30.0)
+    offpeak = _other_title_batch(100.0, engine="deepseek", status="scheduled")
+    cap, refusal = bulk_providers.offpeak_cap(db.list_bulk_jobs(offpeak)[0], 50.0)
+    # Its own row holds none of the cap: it stops at the cap by itself.
+    assert refusal is None and cap == pytest.approx(20.0)
+    _other_title_batch(20.0)
+    assert bulk_providers.offpeak_cap(db.list_bulk_jobs(offpeak)[0], 50.0)[1]
+
+
+def test_a_batchs_cost_is_logged_for_the_member_who_sent_it(isolated_db):
+    did = _seed([("一", "")])
+    lid = db.load_lines(did)[0]["id"]
+    with db.spending_for(42):
+        bid = db.create_bulk_job(did, "claude", "claude-sonnet-5-5", "submitted",
+                                 [(lid, "k", bulk_translate.zh_hash("一"), "")],
+                                 provider_batch_id="b", estimated_usd=1.0)
+    assert db.get_user_month_spend(42) == pytest.approx(1.0)
+
+    class Ended:
+        def poll(self, batch_id):
+            return "ended"
+
+        def results(self, batch_id):
+            yield "k", json.dumps({str(lid): "One"}), {"input_tokens": 1000, "output_tokens": 100}, None
+
+    # Polled with no one signed in, as the background poller is.
+    assert bulk_poll.check_once(bid, Ended()) == "applied"
+    with db.get_conn() as conn:
+        rows = conn.execute("SELECT user_id, estimated_cost_usd FROM usage_log").fetchall()
+    assert [r[0] for r in rows] == [42]
+    # Billed now, so the estimate no longer counts on top.
+    assert db.get_user_month_spend(42) == pytest.approx(rows[0][1])
+
+
+def test_a_batch_records_its_estimate_and_releases_its_hold(isolated_db, monkeypatch):
+    did = _seed([("你好" * 200, "")])
+    _current["did"] = did
+    _fake_engines(monkeypatch)
+    _other_title_batch(1.0)
+    # A DeepSeek off-peak row stops at the cap by itself, so it holds none.
+    _other_title_batch(100.0, engine="deepseek", status="scheduled")
+    expected = svc.estimate_translate_cost(did, bulk=True)["estimated_usd"]
+    job = wait_for_job(svc.start_translate_run(did, bulk=True)["job_id"])
+    assert job["status"] == "done", job
+    row = db.list_bulk_jobs(did)[0]
+    assert row["estimated_usd"] == pytest.approx(expected) and expected > 0
+    from services import paid_job_service
+    assert paid_job_service._bulk_holds == {}
+
+
+def test_a_batch_accepted_but_not_yet_recorded_holds_the_cap(isolated_db, monkeypatch):
+    # Two titles sent close together: the first one's row doesn't exist yet
+    # while its job builds the requests, but its estimate is already held.
+    from services import paid_job_service
+    did = _seed([("你好" * 200, "")])
+    _current["did"] = did
+    _fake_engines(monkeypatch)
+    paid_job_service.hold_bulk_spend(paid_job_service.bulk_hold_key(999, "translate"), 49.99999)
+    try:
+        with pytest.raises(UnsupportedOperationError, match="other pending bulk jobs"):
+            svc.start_translate_run(did, bulk=True)
+    finally:
+        paid_job_service.release_bulk_spend(paid_job_service.bulk_hold_key(999, "translate"))
+    wait_for_job(svc.start_translate_run(did, bulk=True)["job_id"])
+    assert db.list_bulk_jobs(did)[0]["status"] == "applied"
+
+
+def test_a_held_batch_and_its_own_row_are_counted_once(isolated_db):
+    from services import paid_job_service
+    other = _other_title_batch(30.0)
+    keys = [paid_job_service.bulk_hold_key(other, "reflect"), paid_job_service.bulk_hold_key(other, "flag")]
+    paid_job_service.hold_bulk_spend(keys[0], 30.0)  # the same batch as the row
+    paid_job_service.hold_bulk_spend(keys[1], 5.0)
+    try:
+        with paid_job_service._bulk_holds_lock:
+            assert paid_job_service._held_usd() == pytest.approx(35.0)
+        with pytest.raises(ConflictError):
+            paid_job_service.hold_bulk_spend(keys[1], 1.0)
+    finally:
+        for key in keys:
+            paid_job_service.release_bulk_spend(key)
+
+
+def test_reflect_stages_carry_the_rest_of_the_pipelines_estimate(isolated_db, monkeypatch):
+    did = _seed([("一", ""), ("二", "")])
+    job = _run_reflect(did, monkeypatch)
+    assert job["status"] == "done", job
+    by_stage = {j["stage"]: j["estimated_usd"] for j in db.list_bulk_jobs(did)}
+    assert by_stage["faithful"] > 0
+    assert by_stage["reflect"] == pytest.approx(by_stage["faithful"] * 2 / 3)
+    assert by_stage["expressive"] == pytest.approx(by_stage["faithful"] / 3)
+
+
+def test_next_reflect_stage_is_not_sent_when_other_batches_hold_the_cap(isolated_db, monkeypatch):
+    did = _seed([("一", ""), ("二", "")])
+    ids = {r["zh"]: r["id"] for r in db.load_lines(did)}
+    other = _seed([("别", "")])
+    # Another title's batch is accepted while the first stage is out.
+    FakeProvider.on_results = {"faithful": lambda: db.create_bulk_job(
+        other, "claude", "m", "submitted", [], estimated_usd=49.99999)}
+    job = _run_reflect(did, monkeypatch)
+    assert job["status"] == "done", job
+    rows = {r["zh"]: r["en"] for r in db.load_lines(did)}
+    assert rows == {"一": f"faithful-{ids['一']}", "二": f"faithful-{ids['二']}"}
+    faithful = next(j for j in db.list_bulk_jobs(did) if j["stage"] == "faithful")
+    assert "other pending bulk jobs" in faithful["last_error"]
+    assert len(FakeProvider.submitted) == 1

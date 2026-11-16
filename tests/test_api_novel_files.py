@@ -301,7 +301,8 @@ def test_paste_errors(client, monkeypatch):
     assert client.post(_ref(999) + "/text", json={"text": "x"}).status_code == 404
     assert client.post(_raw(999) + "/text", json={"text": "x"}).status_code == 404
     monkeypatch.setattr(svc, "MAX_TEXT_CHARS", 5)
-    assert client.post(_ref(did) + "/text", json={"text": "123456"}).status_code == 422
+    r = client.post(_ref(did) + "/text", json={"text": "123456"})
+    assert r.status_code == 422 and "at most 5 characters" in r.json()["error"]["message"]
     monkeypatch.setattr(svc, "MAX_TEXT_BYTES", 20)
     r = client.post(_raw(did) + "/text", json={"text": "x" * 30})
     assert r.status_code == 422 and "too large" in r.json()["error"]["message"]

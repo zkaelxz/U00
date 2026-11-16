@@ -287,8 +287,7 @@ INSTALL_TASKS = [
                   "transformers", "torch", "safetensors", "huggingface_hub", "sentencepiece"],
      "recommended": ["manga_ocr", "pypdf", "transformers", "torch",
                      "safetensors", "huggingface_hub"],
-     # PaddleOCR pins numpy and OpenCV below what Baihe needs, so a recommended install
-     # that included it was always blocked; RapidOCR covers Chinese and Korean.
+     # Not recommended: it is heavy, and RapidOCR covers Chinese and Korean.
      "optional": ["paddleocr", "paddlepaddle", "sentencepiece"]},
     {"id": "ocr_rapidocr", "group": "Scanlate", "label": "RapidOCR (Chinese, Japanese, Korean text)",
      "help": "Light OCR for pages and captions that runs without PaddlePaddle.",

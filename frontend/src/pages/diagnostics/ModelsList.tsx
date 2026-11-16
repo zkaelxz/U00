@@ -103,10 +103,9 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
                     {engine.package && <> · <CardLink card="packages" onGoTo={onGoTo}>Install it in Packages and installs</CardLink></>}
                   </span>
                 )}
-                {pc !== 'remote' && engine.installed && (() => {
-                  const missing = downloads.find((d) => d.id === MODEL_DOWNLOAD_IDS[engine.name] && !d.downloaded)
-                  return missing ? <ModelDownload key={missing.id} model={missing} onFinished={downloadFinished} /> : null
-                })()}
+                {pc !== 'remote' && engine.installed && downloads
+                  .filter((d) => (MODEL_DOWNLOAD_IDS[engine.name] ?? []).includes(d.id) && !d.downloaded)
+                  .map((d) => <ModelDownload key={d.id} model={d} onFinished={downloadFinished} />)}
                 {cached.length > 0 && (
                   <ul className="diag-rows diag-cache" aria-label={`${engine.name} downloads`}>{cached.map(hfRow)}</ul>
                 )}

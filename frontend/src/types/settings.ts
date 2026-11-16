@@ -64,6 +64,7 @@ export interface SettingsPreferences extends TimingPreferences {
   default_locale: string
   default_style_note: string
   scene_aware_batches: boolean // translate batches start at scene breaks
+  blocked_phrases: string // lines containing one of these are dropped from a new transcription
   stream_plain_prompt: boolean // translate stream titles with the short plain prompt
   ollama_cloud_default: boolean // a hosted Ollama model may be a default
   episode_brief: boolean // read the whole episode once before translating it in batches
@@ -82,6 +83,7 @@ export interface SettingsPreferences extends TimingPreferences {
   ollama_num_ctx_override: number // 0: sized from the prompt
   keep_free_vram_gb: number // 0: off
   keep_free_ram_gb: number // 0: off
+  second_hearing: boolean // hear the least sure lines a second time after a transcription
   gpu_guard: boolean // hold GPU jobs while the card is short of memory or hot
   gpu_guard_temp_c: number
   gpu_guard_stop_minutes: number // 0: never stop a running job

@@ -400,7 +400,7 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   if (filter === 'all') return `All${n}`
   if (filter === 'flagged') return short ? `⚑${n}` : `Flagged${n}`
   if (filter === 'unreviewed') return short ? `Unrev.${n}` : `Unreviewed${n}`
-  if (filter === 'shaky') return short ? `Shaky${n}` : `Least confident${n}`
+  if (filter === 'shaky') return short ? `Unsure${n}` : `Least confident${n}`
   if (filter === 'risk') return short ? `Risk${n}` : `Riskiest${n}`
   if (filter === 'marked') return `Marked${n}`
   return short ? `Untr.${n}` : `Untranslated${n}`

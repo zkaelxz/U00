@@ -21,7 +21,8 @@ on:
     branches: [baihe-subtitler]
     # `labeled` so adding `full-ci` starts a run that honours it.
     # `ready_for_review` starts the run that a draft skipped.
-    types: [opened, synchronize, reopened, labeled, ready_for_review]
+    # `auto_merge_enabled` starts the run with the browser tests that waited for that approval.
+    types: [opened, synchronize, reopened, labeled, ready_for_review, auto_merge_enabled]
 
 # Read-only token: CI runs code from the PR head before anyone reviews it.
 permissions:
@@ -62,13 +63,13 @@ jobs:
       actions: read
       pull-requests: read
     outputs:
-      notes_only: ${{ steps.diff.outputs.notes_only }}
       run_e2e: ${{ steps.diff.outputs.run_e2e }}
       run_full_pytest: ${{ steps.diff.outputs.run_full_pytest }}
       run_windows_scripts: ${{ steps.diff.outputs.run_windows_scripts }}
       run_caddy: ${{ steps.diff.outputs.run_caddy }}
       run_app_checks: ${{ steps.diff.outputs.run_app_checks }}
       run_sources_subset: ${{ steps.diff.outputs.run_sources_subset }}
+      e2e_deferred: ${{ steps.diff.outputs.e2e_deferred }}
       pytest_shards: ${{ steps.shards.outputs.pytest_shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -80,28 +81,30 @@ jobs:
         id: diff
         env:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          # The event's own copy of the PR may predate the approval that triggered it.
+          MERGE_APPROVED: ${{ github.event.pull_request.auto_merge != null || github.event.action == 'auto_merge_enabled' }}
           # Only the push lookup needs it; a PR run's step runs the PR's own code.
           GITHUB_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
         run: |
-          all_true=$'notes_only=false\nrun_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true\nrun_app_checks=true\nrun_sources_subset=false'
+          all_true=$'run_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true\nrun_app_checks=true\nrun_sources_subset=false\ne2e_deferred=false'
           # The checkout is the merge commit; its first parent is the base.
           # --no-renames lists both ends of a rename, so moving a file out
           # of frontend/ still counts as touching it. tools/ci_changes.py
           # runs everything for any event but a pull request.
-          out=$(git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_changes.py --event "$GITHUB_EVENT_NAME" --labels-json "$PR_LABELS") || out=$all_true
+          out=$(git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_changes.py --event "$GITHUB_EVENT_NAME" --labels-json "$PR_LABELS" --merge-approved "$MERGE_APPROVED") || out=$all_true
           # A squash merge of a tree a green PR run already tested runs only what that run skipped.
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             # A slow API must not time the job out (that would turn the run red, not run more).
             out=$(printf '%s\n' "$out" | timeout 90 python3 tools/ci_tested_tree.py --after-merge) || out=$all_true
           fi
           # Fail open: an empty or partial answer runs everything.
-          printf '%s\n' "$out" | grep -qx 'notes_only=\(true\|false\)' && \
-            printf '%s\n' "$out" | grep -qx 'run_e2e=\(true\|false\)' && \
+          printf '%s\n' "$out" | grep -qx 'run_e2e=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_full_pytest=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_windows_scripts=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_caddy=\(true\|false\)' && \
             printf '%s\n' "$out" | grep -qx 'run_app_checks=\(true\|false\)' && \
-            printf '%s\n' "$out" | grep -qx 'run_sources_subset=\(true\|false\)' || out=$all_true
+            printf '%s\n' "$out" | grep -qx 'run_sources_subset=\(true\|false\)' && \
+            printf '%s\n' "$out" | grep -qx 'e2e_deferred=\(true\|false\)' || out=$all_true
           printf '%s\n' "$out" | tee -a "$GITHUB_OUTPUT"
           # The tree this run tests (the PR merged into the base) and what it runs, for the push after a merge.
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
@@ -157,7 +160,7 @@ jobs:
             constraints.txt
 
       - name: Install dependencies
-        run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
+        run: pip install -r requirements-core.txt -r requirements-ci.txt -c constraints.txt
 
       # The checked-in API types must match the routes and models; fix a
       # failure with `cd frontend/openapi-gen && npm ci`, then
@@ -171,10 +174,16 @@ jobs:
       # S113 (requests call without timeout=) lives in ruff.toml; the pinned
       # version matches .pre-commit-config.yaml.
       - name: Lint (ruff)
-        run: pip install ruff==0.16.8 && ruff check . --config ruff.toml
+        run: pip install ruff==0.17.5 && ruff check . --config ruff.toml
 
       - name: Quick guards
         run: python run_tests.py -q -n auto $(cat tests/ci_guards.txt)
+
+      # The package layer order in .importlinter. Its ignore_imports list is the
+      # wrong-way imports that predate the check; an unmatched one fails, so the
+      # list can only shrink.
+      - name: Import layers (import-linter)
+        run: pip install import-linter==2.15 && lint-imports
 
       # Fails on a type error missing from .basedpyright/baseline.json. A fixed error
       # drops out of the baseline on the run, so the diff fails until the smaller
@@ -190,12 +199,6 @@ jobs:
       - name: Check requirements, constraints and installer lock agree
         run: python scripts/check_constraints.py
 
-      # The one full-suite test that reads every file in the repo, so a notes
-      # file naming something the code has removed still fails before merge.
-      - name: Repo-wide word scan (notes-only changes)
-        if: needs.changes.outputs.notes_only == 'true'
-        run: python run_tests.py -q tests/test_dub.py::TestHostedCloningRemoved::test_no_references_remain
-
   # The mocked suite in four shards that run at the same time. pytest-split
   # assigns whole tests to shards from the recorded durations in
   # .test_durations (refresh steps: docs/testing-and-ci.md), so the shards
@@ -208,7 +211,6 @@ jobs:
   # before this finishes. Before sharding the single job took 12-15 minutes.
   test-shard:
     needs: changes
-    if: needs.changes.outputs.notes_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -234,11 +236,10 @@ jobs:
         with:
           node-version: "22"
 
-      # pytest-split and jsonschema (tests/test_e2e_fixture_schemas.py) are CI-only
-      # tools, so they are pinned here, not in constraints.txt (which describes the
-      # app's environment).
+      # The CI-only tools (pytest-split, jsonschema for tests/test_e2e_fixture_schemas.py ...)
+      # are pinned in requirements-ci.txt, not constraints.txt, which describes the app's environment.
       - name: Install dependencies
-        run: pip install -r requirements-core.txt pytest pytest-xdist "pytest-split==0.10.0" "pytest-timeout==2.4.0" "jsonschema==4.26.0" httpx -c constraints.txt
+        run: pip install -r requirements-core.txt -r requirements-ci.txt -c constraints.txt
 
       # Tests guarded by shutil.which("ffmpeg") / ("ffprobe") skip without the
       # binaries, and the runner image does not reliably ship them. apt's
@@ -290,14 +291,16 @@ jobs:
             $(python tools/ci_changes.py --sources-tests) 2>&1 | tee pytest.log
 
       # A change under frontend/ and docs/ only: run the tests that read
-      # frontend files (so backend/frontend drift still fails) plus the
+      # frontend or docs files (so backend/frontend drift and a broken docs
+      # table still fail) plus the
       # repo-wide word scan. `guards` runs the rest of the quick guards.
-      - name: Run tests that read frontend files
+      - name: Run tests that read frontend or docs files
         if: needs.changes.outputs.run_full_pytest != 'true'
         run: |
           set -o pipefail
           python run_tests.py -q -n auto --ff --durations=25 \
             $(python tools/ci_changes.py --frontend-tests) \
+            $(python tools/ci_changes.py --docs-tests) \
             tests/test_dub.py::TestHostedCloningRemoved::test_no_references_remain \
             $(sed 's/^/--ignore=/' tests/ci_guards.txt) 2>&1 | tee pytest.log
 
@@ -346,7 +349,7 @@ jobs:
 
       # opencv headless: the runner has no libGL for the full wheel.
       - name: Install dependencies
-        run: pip install -r requirements-core.txt pytest pytest-xdist "pytest-timeout==2.4.0" "jsonschema==4.26.0" httpx jieba pypinyin opencc-python-reimplemented ebooklib genanki soundfile opencv-contrib-python-headless -c constraints.txt
+        run: pip install -r requirements-core.txt -r requirements-ci.txt jieba pypinyin opencc-python-reimplemented ebooklib genanki soundfile opencv-contrib-python-headless -c constraints.txt
 
       - name: Install ffmpeg
         run: |
@@ -364,13 +367,13 @@ jobs:
             tests/test_video_export.py tests/test_vocab_export.py
 
   # The one required check name. It stays `test` so branch protection does not
-  # change: it passes when every shard passed or the whole matrix was skipped
-  # (a notes-only change), and fails if any shard failed or was cancelled, or
+  # change: it passes when every shard passed or the whole matrix was skipped,
+  # and fails if any shard failed or was cancelled, or
   # if `changes` itself failed. `windows-scripts` and `e2e` are held to the
   # same rule: skipped is fine (the change touched no Windows script or
   # frontend), failed or cancelled is not, so a red browser shard blocks merge.
   test:
-    needs: [changes, guards, frontend, test-shard, optional-tests, windows-scripts, e2e, smoke, caddy]
+    needs: [changes, guards, frontend, test-shard, optional-tests, windows-scripts, e2e, smoke, caddy, browser-gate]
     # Skipped with its needs on a draft: a draft cannot be merged, and marking
     # it ready starts a full run.
     if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
@@ -388,8 +391,9 @@ jobs:
           E2E: ${{ needs.e2e.result }}
           SMOKE: ${{ needs.smoke.result }}
           CADDY: ${{ needs.caddy.result }}
+          BROWSER_GATE: ${{ needs.browser-gate.result }}
         run: |
-          echo "changes=$CHANGES guards=$GUARDS frontend=$FRONTEND test-shard=$SHARDS optional-tests=$OPTIONAL windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY"
+          echo "changes=$CHANGES guards=$GUARDS frontend=$FRONTEND test-shard=$SHARDS optional-tests=$OPTIONAL windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY browser-gate=$BROWSER_GATE"
           [ "$CHANGES" = success ] || exit 1
           [ "$GUARDS" = success ] || [ "$GUARDS" = skipped ] || exit 1
           [ "$FRONTEND" = success ] || [ "$FRONTEND" = skipped ] || exit 1
@@ -399,6 +403,46 @@ jobs:
           [ "$E2E" = success ] || [ "$E2E" = skipped ] || exit 1
           [ "$SMOKE" = success ] || [ "$SMOKE" = skipped ] || exit 1
           [ "$CADDY" = success ] || [ "$CADDY" = skipped ] || exit 1
+          [ "$BROWSER_GATE" = success ] || [ "$BROWSER_GATE" = skipped ] || exit 1
+
+  # Sets the `browser-tests` commit status on the PR head, a required check beside `test`. While the
+  # browser tests wait for auto-merge it stays pending (yellow), which blocks the merge without a red
+  # run or a "run failed" email; a skipped job would count as passed, so a status carries the wait.
+  # Not on a cancelled run: a newer run of the PR reports instead. The job runs no PR code, so the
+  # write token never meets it. A fork's token cannot write; the status is then missing, which also
+  # blocks the merge.
+  browser-gate:
+    needs: [changes, e2e]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      statuses: write
+    steps:
+      - name: Report the browser-tests status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHANGES: ${{ needs.changes.result }}
+          E2E: ${{ needs.e2e.result }}
+          E2E_DEFERRED: ${{ needs.changes.outputs.e2e_deferred }}
+        run: |
+          if [ "$CHANGES" != success ]; then
+            state=failure; desc="CI could not tell which tests this PR needs"
+          elif [ "$E2E_DEFERRED" = true ]; then
+            state=pending; desc="Waiting for the merge order: runs once auto-merge is on"
+          elif [ "$E2E" = success ]; then
+            state=success; desc="Browser tests passed"
+          elif [ "$E2E" = skipped ]; then
+            state=success; desc="This change needs no browser tests"
+          else
+            state=failure; desc="Browser tests did not pass"
+          fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -f state="$state" -f context=browser-tests \
+            -f description="$desc" -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null \
+            || echo "::warning::Could not set the browser-tests status (a read-only token); the merge stays blocked."
+          echo "browser-tests: $state ($desc)"
+          [ "$state" != failure ]
 
   # The real server, not the mocked suite: tools/smoke_test.py starts
   # `python -m api` on a throwaway data folder and runs the owner's main flows
@@ -407,12 +451,11 @@ jobs:
   # member refused an admin route). It is in `test`'s needs, so a red smoke
   # blocks merge, and a v0.1.0 tag is not cut over one. It needs no key, GPU or
   # paid engine; the only download is the 75 MB tiny model, cached below.
-  # Skipped for a notes-only change, which cannot change what the app does.
   # Runtime: about a minute of install plus under a minute of test on a warm
   # cache; the step limit is the "under 5 minutes" budget.
   smoke:
     needs: changes
-    if: needs.changes.outputs.notes_only != 'true' && needs.changes.outputs.run_app_checks == 'true'
+    if: needs.changes.outputs.run_app_checks == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -534,7 +577,7 @@ jobs:
 
       - name: Windows primitives (mutexes, job objects, process handles) for real
         run: |
-          pip install -r requirements-core.txt pytest httpx -c constraints.txt
+          pip install -r requirements-core.txt -r requirements-ci.txt -c constraints.txt
           python -m pytest -q -o addopts= tests/test_windows_real.py
 
   # The React frontend: typecheck + production build, unit tests and lint.
@@ -546,7 +589,7 @@ jobs:
   # now only headroom against a hung install or build.
   frontend:
     needs: changes
-    if: needs.changes.outputs.notes_only != 'true' && needs.changes.outputs.run_app_checks == 'true'
+    if: needs.changes.outputs.run_app_checks == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -575,9 +618,14 @@ jobs:
       - name: Lint
         run: npm run lint
 
-  # The browser tests, split into four shards that run at the same time. Each
-  # shard starts its own seeded API and library, so specs that share state keep
-  # running together exactly as they did in the single-worker run.
+  # The browser tests, in six jobs that run at the same time. Each job starts
+  # its own seeded API and library, so specs that share state keep running
+  # together exactly as they did in the single-worker run. Playwright shards
+  # by test count, not time, and a phone test takes about twice as long as a
+  # desktop one: four plain shards put all 414 phone tests in the last one,
+  # which took 18 minutes while the others took 11 (run 43810799674, 11-16).
+  # So the phone project gets two jobs of its own and every other project four
+  # (E2E_PROJECT_GROUP in frontend/playwright.config.ts).
   e2e:
     needs: changes
     if: needs.changes.outputs.run_e2e == 'true'
@@ -586,7 +634,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        include:
+          - { group: desktop, part: 1, of: 4 }
+          - { group: desktop, part: 2, of: 4 }
+          - { group: desktop, part: 3, of: 4 }
+          - { group: desktop, part: 4, of: 4 }
+          - { group: phone, part: 1, of: 2 }
+          - { group: phone, part: 2, of: 2 }
     defaults:
       run:
         working-directory: frontend
@@ -614,7 +668,7 @@ jobs:
       # the floor matches requirements-media.txt.
       - name: Install Python dependencies (for the e2e API server)
         working-directory: .
-        run: pip install -r requirements-core.txt "opencv-python-headless>=4.8.1.78" -c constraints.txt
+        run: pip install -r requirements-core.txt "opencv-python-headless>=5.0.0.93,<6" -c constraints.txt
 
       - name: Install Node dependencies
         run: npm ci
@@ -636,12 +690,13 @@ jobs:
           BAIHE_E2E_CATALOGUE=1 npx vite build --outDir dist-catalogue --emptyOutDir
 
       # No --with-deps: ubuntu-latest already carries Chromium's system libraries.
-      - name: End-to-end (shard ${{ matrix.shard }} of 4)
+      - name: End-to-end (${{ matrix.group }}, part ${{ matrix.part }} of ${{ matrix.of }})
         env:
           E2E_PREBUILT: '1'
+          E2E_PROJECT_GROUP: ${{ matrix.group }}
         run: |
           npx playwright install chromium
-          npx playwright test --shard=${{ matrix.shard }}/4
+          npx playwright test --shard=${{ matrix.part }}/${{ matrix.of }}
 
       # Playwright counts a skipped test as passed; this fails on any skip not on frontend/e2e/skip-allowlist.json.
       - name: Fail on unexpected skipped tests
@@ -652,7 +707,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
-          name: playwright-report-shard-${{ matrix.shard }}
+          name: playwright-report-${{ matrix.group }}-${{ matrix.part }}
           path: |
             frontend/playwright-report
             frontend/test-results

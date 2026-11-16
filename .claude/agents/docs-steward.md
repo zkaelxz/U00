@@ -18,7 +18,7 @@ You keep Baihe's docs matched to the code on the branch the lead names.
 
 **Rules:**
 - Keep edits factual and minimal. Don't rewrite prose or reorganize docs unless the lead asks.
-- Don't touch `CLAUDE.md` rules or roadmap decisions, and leave `docs/archive/` as it is.
+- Don't touch `CLAUDE.md` rules or roadmap decisions.
 - Commit on the named branch with trailers naming the model you ran on, and push only if the lead said to.
 
 **Report:** each change with its evidence, and the code-side gaps found.

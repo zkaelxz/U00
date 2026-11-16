@@ -382,11 +382,11 @@ def test_the_apply_step_does_not_import_what_pip_is_about_to_replace():
 def test_derive_builds_a_fixed_literal_argv_from_keys(monkeypatch):
     import diagnostics
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: None)
-    out = child.derive("paddleocr,paddlepaddle,pypdf")
+    out = child.derive("pypdf,pytesseract")
     argv = out["argv"]
     assert argv[1:4] == ["-m", "pip", "install"]
     assert list(diagnostics.PIP_INSTALL_FLAGS) == argv[4:4 + len(diagnostics.PIP_INSTALL_FLAGS)]
-    assert argv[4 + len(diagnostics.PIP_INSTALL_FLAGS):][:3] == ["paddleocr", "paddlepaddle", "pypdf"]
+    assert argv[4 + len(diagnostics.PIP_INSTALL_FLAGS):][:2] == ["pypdf", "pytesseract"]
     assert "-c" in argv and argv[argv.index("-c") + 1].endswith("constraints.txt")
     assert not any(a.startswith("--index-url") or a.startswith("http") for a in argv)
 
@@ -709,11 +709,19 @@ def test_a_failed_lock_write_does_not_keep_the_os_lock(data, monkeypatch):
 
 # --- the plain-OpenCV swap: one fixed `pip uninstall -y NAME`, then the install ---
 
+@pytest.fixture
+def contrib_swap(monkeypatch):
+    """No shipping key needs the contrib build now (PaddleOCR installs without its
+    dependencies), so the swap is exercised with a key that does."""
+    import install_registry
+    monkeypatch.setattr(install_registry, "NEEDS_CV2_CONTRIB", frozenset({"paddleocr"}))
+
+
 def _uninstall(name="opencv-python"):
     return [sys.executable, "-m", "pip", "uninstall", "-y", name]
 
 
-def test_derive_adds_the_uninstall_step_for_a_plain_opencv(monkeypatch):
+def test_derive_adds_the_uninstall_step_for_a_plain_opencv(monkeypatch, contrib_swap):
     monkeypatch.setattr(pi, "snapshot", lambda: {"opencv-python-headless": "4.10.0.84"})
     out = child.derive("paddleocr,paddlepaddle")
     assert out["uninstall"] == [_uninstall("opencv-python-headless")]
@@ -721,12 +729,12 @@ def test_derive_adds_the_uninstall_step_for_a_plain_opencv(monkeypatch):
 
 
 @pytest.mark.parametrize("installed", [{"opencv-python": "4.10", "opencv-contrib-python": "4.10"}, {}])
-def test_derive_adds_no_uninstall_step_otherwise(monkeypatch, installed):
+def test_derive_adds_no_uninstall_step_otherwise(monkeypatch, installed, contrib_swap):
     monkeypatch.setattr(pi, "snapshot", lambda: installed)
     assert child.derive("paddleocr")["uninstall"] == []
 
 
-def test_derive_adds_no_uninstall_step_for_a_key_that_needs_no_contrib(monkeypatch):
+def test_derive_adds_no_uninstall_step_for_a_key_that_needs_no_contrib(monkeypatch, contrib_swap):
     monkeypatch.setattr(pi, "snapshot", lambda: {"opencv-python": "4.10"})
     assert child.derive("paddlepaddle")["uninstall"] == []
 
@@ -789,9 +797,10 @@ def test_uninstall_argv_refuses_any_other_name():
             install_registry.uninstall_argv(bad)
 
 
-def test_a_task_that_pulls_contrib_does_not_also_ask_for_plain_opencv():
+def test_a_task_that_pulls_contrib_does_not_also_ask_for_plain_opencv(contrib_swap):
     import install_registry
-    assert install_registry.install_dists(["cv2", "paddleocr", "pypdf"]) == ["paddleocr", "pypdf"]
+    assert [d for d in install_registry.install_dists(["cv2", "paddleocr", "pypdf"])
+            if d in ("cv2", "opencv-python", "paddleocr==3.7.0", "pypdf")] == ["paddleocr==3.7.0", "pypdf"]
     assert "opencv-python" in install_registry.install_dists(["cv2", "pypdf"])
 
 
@@ -1234,3 +1243,40 @@ def test_a_full_disk_after_a_failed_install_keeps_the_record_that_retries_the_re
     with pytest.raises(OSError):
         pi.apply()
     assert pi.read_result()["status"] == "running" and pi.restore_owed()
+
+
+# --- an update queued for the restart: pinned to the versions the owner saw ----
+
+def test_pins_must_name_queued_keys_and_plain_versions(data):
+    pi.write_pending(["sentencepiece"], {}, pins={"sentencepiece": "0.2.3"})
+    assert pi.read_pending()[0]["pins"] == {"sentencepiece": "0.2.3"}
+    for pins in ({"other": "1.0"}, {"sentencepiece": "1.0 --index-url x"}, {"sentencepiece": ""}, "x"):
+        payload = {"schema": pi.SCHEMA, "packages": ["sentencepiece"], "created": 1, "before": {}, "pins": pins}
+        pi._write_json("pending", {"payload": payload, "sha256": pi.digest(payload)})
+        assert pi.read_pending() == (None, "invalid"), pins
+
+
+def test_apply_hands_the_pins_to_the_derive_child(data, monkeypatch):
+    pi.write_pending(["sentencepiece"], {}, pins={"sentencepiece": "0.2.3"})
+    fake = Fake(monkeypatch, [{"sentencepiece": "0.2.2"}])
+    seen = []
+    orig = fake.child_json
+    monkeypatch.setattr(pi, "child_json", lambda *a, **k: (seen.append(a), orig(*a, **k))[1])
+    pi.apply()
+    assert seen[0] == ("derive", "sentencepiece", "sentencepiece=0.2.3")
+
+
+def test_derive_pins_an_update_and_adds_no_uninstall(monkeypatch):
+    import diagnostics
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: None)
+    out = child.derive("sentencepiece,ebooklib", "sentencepiece=0.2.3,ebooklib=0.21")
+    assert out["ok"] and out["uninstall"] == []
+    assert "sentencepiece==0.2.3" in out["argv"] and "ebooklib==0.21" in out["argv"]
+    assert pi._argv_accepted(out["argv"])
+
+
+def test_a_pinned_requirement_is_the_only_equals_form_accepted():
+    assert pi._argv_accepted(_good_argv() + ["sentencepiece==0.2.3"])
+    for bad in ("sentencepiece==", "sentencepiece>=1", "sentencepiece==1.0;os_name", "==1.0",
+                "sentencepiece==1.0 --index-url=http://x"):
+        assert not pi._argv_accepted(_good_argv() + [bad]), bad

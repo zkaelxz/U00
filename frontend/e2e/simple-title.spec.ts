@@ -975,16 +975,15 @@ test.describe('the check queue', () => {
       const resp = await route.fetch()
       await route.fulfill({ response: resp, json: { ...(await resp.json()), audio_available: true } })
     })
-    // Transcribing writes the lines; the glossary run then stays running, so the flow waits on it with its progress text.
-    await page.route('**/api/transcribe/dramas/3/run', (route) => {
-      lines = 24
-      return route.fulfill({ json: { job_id: 'e2e-flow' } })
+    // The press queues the run on the PC; its transcription writes the lines and the names step then stays running.
+    let run = { state: 'idle', step: null as string | null, reason: null }
+    await page.route('**/api/queue/title-flow/3', (route) => {
+      if (route.request().method() === 'POST') {
+        lines = 24
+        run = { state: 'running', step: 'names', reason: null }
+      }
+      return route.fulfill({ json: run })
     })
-    await page.route('**/api/jobs/e2e-flow', (route) => route.fulfill({ json: {
-      job_id: 'e2e-flow', status: 'done', progress: null, message: '', error: null, description: null,
-      gpu_touching: false, started_at: 1, finished_at: 2, updated_at: 2,
-    } }))
-    await page.route('**/api/glossary/dramas/3/from-lines', (route) => route.fulfill({ json: { status: 'running', message: '', run_id: 'e2e' } }))
     await simple(page)
     await expect(page.getByRole('complementary', { name: 'Title panel' })).toBeVisible()
     const flow = page.getByRole('button', { name: 'Transcribe and translate', exact: true })
@@ -1025,7 +1024,7 @@ test.describe('the check queue', () => {
       await expect(chip).toHaveText('Too fast to read: 25 characters a second')
       await expect(closed.locator('.review-speaker')).toBeHidden()
       await expect(closed.getByTestId('line-cps')).toBeHidden()
-      await expect(closed.getByText(/^Shaky/)).toBeHidden()
+      await expect(closed.getByText(/^Unsure/)).toBeHidden()
       await expect(card(page, 24).locator('.review-speaker')).toHaveText('Wei Wuxian')
     }
     // The line only Whisper doubted keeps its score in the chip, as its badge is not shown.

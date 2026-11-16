@@ -48,7 +48,10 @@ def test_lists_each_model_with_whether_it_is_on_disk(client, models):
     state["sensevoice"] = True
     body = client.get("/api/diagnostics/model-downloads").json()
     assert {m["id"]: m["downloaded"] for m in body["models"]} == {
-        "qwen3_asr": False, "sensevoice": True, "manga_ocr": False, "lama_manga": False}
+        "qwen3_asr": False, "sensevoice": True, "manga_ocr": False, "lama_manga": False, "nemotron_diarization": False,
+        "whisper_large_v3": False, "whisper_large_v3_turbo": False, "whisper_ja_1_5b": False,
+        "whisper_kotoba_v2": False, "whisper_medium": False, "whisper_anime": False,
+        "whisper_breeze_asr_25": False}
     assert body["models"][0]["job_id"] == "model_download_qwen3_asr"
 
 
@@ -167,3 +170,24 @@ def test_start_is_pc_only_and_reading_needs_admin(models):
 def _admin_session():
     u = auth_service.grant_admin_local("admin@example.com")
     return auth_service.create_session(u["id"])
+
+
+def test_a_whisper_download_fetches_the_pinned_model_with_the_saved_token(monkeypatch):
+    import whisper_models
+    from services import settings_service
+    calls = []
+    monkeypatch.setattr(settings_service, "resolve_key", lambda key: "tok" if key == "hf_token" else None)
+    monkeypatch.setattr(whisper_models, "_fetch_pinned_model", lambda size, token: calls.append(("pinned", size, token)))
+    monkeypatch.setattr(whisper_models, "_fetch_anime_whisper", lambda token: calls.append(("anime", token)))
+    monkeypatch.setattr(whisper_models, "_download_model", lambda size, token: calls.append(("generic", size, token)))
+    svc._fetch_whisper("breeze-asr-25")(lambda *a: None, lambda: False)
+    svc._fetch_whisper("large-v3")(lambda *a: None, lambda: False)
+    svc._fetch_whisper("anime-whisper")(lambda *a: None, lambda: False)
+    assert calls == [("pinned", "breeze-asr-25", "tok"), ("generic", "large-v3", "tok"), ("anime", "tok")]
+
+
+def test_nemotron_download_fetches_only_the_files_the_loader_reads(monkeypatch):
+    calls = []
+    monkeypatch.setattr(svc, "_fetch_hub", lambda repos, report, cancelled, allow_patterns=None: calls.append((repos, allow_patterns)))
+    svc._fetch_nemotron(lambda *a: None, lambda: False)
+    assert calls == [(["nvidia/Nemotron-3-Diarization"], ["config.json", "processor_config.json", "model.safetensors"])]

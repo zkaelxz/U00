@@ -274,9 +274,9 @@ function ShakyBadge({ line, help }: { line: ReviewLine; help: boolean }) {
   return (
     <>
       <span data-testid="line-shaky" title={SHAKY_HELP}>
-        <Badge tone="warn">Shaky {Math.round((line.confidence ?? 0) * 100)}%</Badge>
+        <Badge tone="warn">Unsure: {Math.round((line.confidence ?? 0) * 100)}% sure</Badge>
       </span>
-      {help && <HelpTip label="Shaky" id={`line-shaky-help-${line.id}`}>{SHAKY_HELP}</HelpTip>}
+      {help && <HelpTip label="Unsure" id={`line-shaky-help-${line.id}`}>{SHAKY_HELP}</HelpTip>}
     </>
   )
 }

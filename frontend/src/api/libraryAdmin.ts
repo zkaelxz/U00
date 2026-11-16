@@ -52,6 +52,10 @@ export const startExport = (drama_ids?: number[], f?: Fetch, include_originals =
     pcOnlyFetch(f),
   )
 
+// Free: redraws comic pages from their saved translations; reads and translates nothing.
+export const startTypesetComics = (f?: Fetch) =>
+  postJson<LibraryJobStarted>(`${BASE}/typeset-comics`, {}, pcOnlyFetch(f))
+
 export const startBackup = (database_only: boolean, f?: Fetch) =>
   postJson<LibraryJobStarted>(`${BASE}/backup`, { database_only }, pcOnlyFetch(f))
 

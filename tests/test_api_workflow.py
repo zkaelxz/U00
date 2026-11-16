@@ -58,6 +58,14 @@ def test_translate_current_with_counts(client):
     assert _states(b) == {"source": "done", "translate": "current", "review": "pending", "export": "pending"}
 
 
+def test_a_flac_narration_track_counts(client):
+    did = db.create_drama(title_en="D", audio_filename="audio.flac")
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="中", en="x", speaker="A")])
+    with open(os.path.join(db.drama_dir(did), "narration_track.flac"), "wb") as f:
+        f.write(b"fLaC")
+    assert client.get(_url(did)).json()["has_narration_track"] is True
+
+
 def test_review_then_dub_track_then_exported(client):
     did = db.create_drama(title_en="D", audio_filename="audio.wav")
     db.save_lines(did, [Line(idx=0, start=0, end=1, zh="中", en="x", speaker="A")])

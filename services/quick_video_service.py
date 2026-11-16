@@ -19,7 +19,7 @@ from typing import Optional
 
 import db
 from engine_backends import engine_registry, shared
-from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError
+from lib.errors import ForbiddenError, InvalidInputError, NotFoundError
 from services import drama_service, language_pack_service, profile_service, url_media_service
 
 _log = logging.getLogger(__name__)
@@ -35,7 +35,6 @@ _NO_PROFILE = "Choose a translation profile for Quick video translate in Setting
 _NO_LANGUAGE = "This profile has no source language. Set one in the profile's Quick video translate section."
 _NOT_TEMPORARY = "This title was not made as a watch-once title, so it is not removed here."
 _PAID = "This profile translates with a paid engine, which your account can't use."
-_UNFINISHED = "An earlier step of this run did not finish."
 _RUN_STEPS = ("download", "transcribe", "translate", "export")
 
 
@@ -123,15 +122,6 @@ def _remember(run: dict) -> None:
 def _forget(drama_id: int) -> None:
     with _lock:
         _write_runs([r for r in _read_runs() if r["drama_id"] != drama_id])
-
-
-def require_chain_finished(item: dict, items: list) -> None:
-    """Raises unless every step before this item's step has a done item in its chain, whatever their
-    positions in the queue: moving or removing an item must not run a step on a title that did not get
-    its media or lines."""
-    done = {other["step"] for other in items if other.get("chain") == item["chain"] and other["status"] == "done"}
-    if not set(_RUN_STEPS[:_RUN_STEPS.index(item["step"])]) <= done:
-        raise ConflictError(_UNFINISHED)
 
 
 def start_download(drama: dict, url) -> str:
