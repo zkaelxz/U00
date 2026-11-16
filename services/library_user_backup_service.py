@@ -60,7 +60,7 @@ USER_BACKUP_TABLES = {
     "personal_notes": ("profile_drama", "other household profiles' notes stay behind"),
     "reading_history": ("profile_drama", "other household profiles' history stays behind"),
     "translation_versions": ("drama", ""), "bug_reports": ("drama", ""),
-    "wiki_entries": ("drama", ""), "edit_samples": ("drama", ""),
+    "wiki_entries": ("drama", ""), "edit_samples": ("drama", ""), "source_edits": ("drama", ""),
     "line_provenance": ("drama", ""), "metadata_research_results": ("drama", ""),
     "metadata_field_provenance": ("drama", ""),
     "capture_notes": ("drama", ""),

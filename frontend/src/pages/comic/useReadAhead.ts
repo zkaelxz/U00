@@ -15,9 +15,11 @@ import { isReadTranslated } from './comicLogic'
 export const READ_AHEAD_DELAY_MS = 2000
 const POLL_MS = 4000
 
-// Whether any of the pages ahead still lacks text, and has not been tried this visit.
+// Whether any of the pages ahead still lacks text or its typeset image, and has not been tried this visit.
+// A page with text but no image (its render failed or was cut short) is finished by the same "missing" run;
+// without this it showed the original page with the translation only in the text panel.
 export function needsReadAhead(ahead: ComicPageInfo[], tried: ReadonlySet<number>): boolean {
-  return ahead.some((p) => !p.has_regions && !tried.has(p.id))
+  return ahead.some((p) => (!p.has_regions || !p.has_rendered) && !tried.has(p.id))
 }
 
 interface Options {
@@ -54,7 +56,7 @@ export function useReadAhead({ titleId, pages, visible, position, count, canType
   finished.current = onFinished
 
   const pageId = page?.id
-  const aheadKey = ahead.map((p) => `${p.id}:${p.has_regions ? 1 : 0}`).join(',')
+  const aheadKey = ahead.map((p) => `${p.id}:${p.has_regions ? 1 : 0}${p.has_rendered ? 1 : 0}`).join(',')
   useEffect(() => {
     if (!enabled || pageId === undefined || stopped.current || !needsReadAhead(ahead, tried.current)) return
     const timer = window.setTimeout(() => {

@@ -7,17 +7,17 @@ import pytest
 import page_server
 import scanlate
 import scanlate_detect
-import scanlate_inpaint
+import scanlate_lama
 
 
 @pytest.fixture
 def models(monkeypatch):
     state = {"detector_cached": True, "eraser_cached": True, "detect": [], "erase": []}
     monkeypatch.setattr(scanlate_detect, "bubble_ml_weights_cached", lambda: state["detector_cached"])
-    monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: state["eraser_cached"])
+    monkeypatch.setattr(scanlate_lama, "lama_ml_weights_cached", lambda: state["eraser_cached"])
     monkeypatch.setattr(scanlate, "detect_bubbles",
                         lambda path, backend="auto", image=None: state["detect"].append(backend) or [])
-    monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint",
+    monkeypatch.setattr(scanlate_lama, "_run_ml_inpaint",
                         lambda roi, mask, allow_download=True: state["erase"].append(allow_download) or roi)
     return state
 

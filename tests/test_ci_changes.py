@@ -10,12 +10,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import ci_changes  # noqa: E402
 
-ALL = {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True, "run_caddy": True,
+ALL = {"run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True, "run_caddy": True,
        "run_app_checks": True,
-       "run_sources_subset": False}
-ALL_OUT = {"notes_only": "false", "run_e2e": "true", "run_full_pytest": "true", "run_windows_scripts": "true",
+       "run_sources_subset": False, "e2e_deferred": False}
+ALL_OUT = {"run_e2e": "true", "run_full_pytest": "true", "run_windows_scripts": "true",
            "run_caddy": "true", "run_app_checks": "true",
-           "run_sources_subset": "false"}
+           "run_sources_subset": "false", "e2e_deferred": "false"}
 
 
 def pr(*files, labels=()):
@@ -23,40 +23,24 @@ def pr(*files, labels=()):
 
 
 @pytest.mark.parametrize("files", [
-    ["docs/archive/research/reports/a.md"],
-    ["docs/archive/research/research_notes/x/y.md", "docs/archive/research/reports/b.md"],
-])
-def test_notes_only_changes_skip_everything_but_guards(files):
-    assert pr(*files)["notes_only"] is True
-
-
-@pytest.mark.parametrize("files", [
-    ["docs/archive/research/reports/a.md", "services/x.py"],
-    ["docs/testing-and-ci.md"],
-    ["docs/archive/researchx/a.md"],
-    ["docs/archive/research/reports/a.md", "docs/archive/session-harvest/2026.md"],
-])
-def test_mixed_or_other_docs_are_not_notes_only(files):
-    assert pr(*files)["notes_only"] is False
-
-
-@pytest.mark.parametrize("files", [
-    ["services/drama_service.py"],
     ["db.py", "tests/test_db.py"],
     ["scripts/x.py", "tools/repo_map.py"],
-    ["docs/user-guide.md", "services/x.py"],
+    ["sources/store.py", "extension/x.js"],
 ])
-def test_backend_only_change_skips_e2e_but_runs_all_pytest(files):
-    assert pr(*files) == {"notes_only": False, "run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,
-                          "run_caddy": False, "run_app_checks": True, "run_sources_subset": False}
+def test_change_the_browser_cannot_reach_skips_e2e_but_runs_all_pytest(files):
+    assert pr(*files) == {"run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,
+                          "run_caddy": False, "run_app_checks": True, "run_sources_subset": False, "e2e_deferred": False}
 
 
 @pytest.mark.parametrize("files", [
     ["api/routers/x_routes.py"],
     ["api/schemas/common.py", "services/x.py"],
     ["frontend/src/App.tsx", "services/x.py"],
+    ["services/drama_service.py"],
+    ["db/lines.py", "tests/test_db.py"],
+    ["docs/user-guide.md", "services/x.py"],
 ])
-def test_touching_api_or_frontend_runs_e2e(files):
+def test_touching_api_frontend_services_or_db_runs_e2e(files):
     assert pr(*files)["run_e2e"] is True
 
 
@@ -81,12 +65,12 @@ def test_any_file_outside_frontend_and_docs_runs_full_pytest(files):
 
 
 def test_frontend_only_change_still_runs_e2e_and_docs_only_does_not():
-    assert pr("frontend/src/a.ts") == {"notes_only": False, "run_e2e": True, "run_full_pytest": False,
+    assert pr("frontend/src/a.ts") == {"run_e2e": True, "run_full_pytest": False,
                                        "run_windows_scripts": False, "run_caddy": False,
-                                       "run_app_checks": True, "run_sources_subset": False}
-    assert pr("docs/a.md") == {"notes_only": False, "run_e2e": False, "run_full_pytest": False,
+                                       "run_app_checks": True, "run_sources_subset": False, "e2e_deferred": False}
+    assert pr("docs/a.md") == {"run_e2e": False, "run_full_pytest": False,
                                "run_windows_scripts": False, "run_caddy": False,
-                               "run_app_checks": True, "run_sources_subset": False}
+                               "run_app_checks": True, "run_sources_subset": False, "e2e_deferred": False}
 
 
 @pytest.mark.parametrize("files", [
@@ -95,8 +79,8 @@ def test_frontend_only_change_still_runs_e2e_and_docs_only_does_not():
     ["tests/test_sources_core.py"],
 ])
 def test_sources_and_tests_only_change_skips_smoke_and_frontend_but_runs_pytest(files):
-    assert pr(*files) == {"notes_only": False, "run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,
-                          "run_caddy": False, "run_app_checks": False, "run_sources_subset": True}
+    assert pr(*files) == {"run_e2e": False, "run_full_pytest": True, "run_windows_scripts": False,
+                          "run_caddy": False, "run_app_checks": False, "run_sources_subset": True, "e2e_deferred": False}
 
 
 @pytest.mark.parametrize("extra", ["services/x.py", "api/x.py", "frontend/src/a.ts", "docs/a.md", "tests/conftest.py"])
@@ -131,19 +115,19 @@ def test_lookalike_paths_do_not_run_everything(path):
     assert pr(path) != ALL
 
 
-def test_full_ci_label_runs_everything_even_for_notes():
-    assert pr("docs/archive/research/reports/a.md", labels=["full-ci"]) == ALL
+def test_full_ci_label_runs_everything_even_for_docs():
+    assert pr("docs/research/a.md", labels=["full-ci"]) == ALL
     assert pr("docs/a.md", labels=["bug", "full-ci"]) == ALL
     assert pr("docs/a.md", labels=["bug"])["run_full_pytest"] is False
 
 
 @pytest.mark.parametrize("event", ["push", "workflow_dispatch", "schedule", "merge_group", ""])
 def test_anything_but_a_pull_request_runs_everything(event):
-    assert ci_changes.classify(["docs/archive/research/reports/a.md"], event) == ALL
+    assert ci_changes.classify(["docs/research/a.md"], event) == ALL
     assert ci_changes.classify(["docs/a.md"], event) == ALL
 
 
-def test_merge_group_runs_everything_even_for_a_notes_only_diff():
+def test_merge_group_runs_everything_even_for_a_docs_only_diff():
     # The queue's merged result is what lands, so no path filter may skip a job there.
     _, got = _run(["--event", "merge_group", "--labels-json", "[]"], "reports/a.md\n")
     assert got == ALL_OUT
@@ -230,11 +214,11 @@ def _run(argv, text=""):
 
 
 def test_cli_prints_outputs_for_github_output():
-    code, got = _run(["--event", "pull_request"], "services/x.py\n")
+    code, got = _run(["--event", "pull_request"], "tools/x.py\n")
     assert code == 0
-    assert got == {"notes_only": "false", "run_e2e": "false", "run_full_pytest": "true", "run_windows_scripts": "false",
+    assert got == {"run_e2e": "false", "run_full_pytest": "true", "run_windows_scripts": "false",
                    "run_caddy": "false", "run_app_checks": "true",
-                   "run_sources_subset": "false"}
+                   "run_sources_subset": "false", "e2e_deferred": "false"}
 
 
 def test_cli_reads_labels_json():
@@ -272,6 +256,20 @@ def test_the_repos_frontend_reading_tests_include_the_drift_checks():
     assert all(os.path.exists(f) for f in found)
 
 
+def test_docs_reading_tests_lists_files_that_read_docs(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_a.py").write_text("p = 'docs/route-permissions.md'\n")
+    (tmp_path / "tests" / "test_b.py").write_text("os.path.join(root, 'docs', 'x.md')\n")
+    (tmp_path / "tests" / "test_c.py").write_text("nothing\n")
+    (tmp_path / "tests" / "helper.py").write_text("docs/\n")
+    assert ci_changes.docs_reading_tests(str(tmp_path)) == ["tests/test_a.py", "tests/test_b.py"]
+
+
+def test_the_repos_docs_reading_tests_include_the_route_table_check():
+    found = ci_changes.docs_reading_tests(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    assert "tests/test_api_permissions.py" in found
+
+
 @pytest.mark.parametrize("files", [
     ["sources/adapters/bilibili.py", "tests/test_db.py"],
     ["sources/adapters/bilibili.py", "sources/fetch.py"],
@@ -305,3 +303,27 @@ def test_sources_tests_list_names_existing_files_and_every_adapter_test():
     assert listed and all(os.path.exists(os.path.join(root, f)) for f in listed)
     assert "tests/test_sources_core.py" in listed and "tests/test_secret_redaction.py" in listed
     assert len(listed) == len(set(listed))
+
+
+def test_browser_tests_wait_for_merge_approval_and_say_so():
+    waiting = ci_changes.classify(["frontend/src/a.ts"], "pull_request", merge_approved=False)
+    assert waiting == {**pr("frontend/src/a.ts"), "run_e2e": False, "e2e_deferred": True}
+    assert ci_changes.classify([".github/workflows/tests.yml"], "pull_request",
+                               merge_approved=False) == {**ALL, "run_e2e": False, "e2e_deferred": True}
+
+
+def test_nothing_waits_when_the_change_needs_no_browser_tests():
+    assert ci_changes.classify(["tools/x.py"], "pull_request", merge_approved=False) == pr("tools/x.py")
+
+
+def test_full_ci_label_and_non_pr_events_never_wait():
+    assert ci_changes.classify(["frontend/src/a.ts"], "pull_request", ["full-ci"], merge_approved=False) == ALL
+    for event in ("push", "merge_group", "schedule"):
+        assert ci_changes.classify(["frontend/src/a.ts"], event, merge_approved=False) == ALL
+
+
+@pytest.mark.parametrize("value,deferred", [("false", "true"), ("true", "false"), ("", "false"), ("False", "false")])
+def test_cli_defers_only_on_an_exact_false(value, deferred):
+    _, got = _run(["--event", "pull_request", "--merge-approved", value], "frontend/src/a.ts\n")
+    assert got["e2e_deferred"] == deferred
+    assert got["run_e2e"] == ("false" if deferred == "true" else "true")

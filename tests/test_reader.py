@@ -69,3 +69,12 @@ def test_longer_term_wins_over_the_shorter_one_inside_it():
 def test_read_only_page_has_no_highlights_or_term_script():
     page = _term_page("Auntie", _TERMS, editable=False)
     assert 'data-term-id=' not in page and "function termClick" not in page
+
+
+def test_page_reports_its_scroll_and_restores_it_for_the_live_refresh():
+    from types import SimpleNamespace as L
+    import reader
+    # The host reloads the frame while a translation adds English; without these the reader loses their place.
+    html = reader.build_reader_html([L(idx=0, start=0, end=1, zh="你好", en="", id=1)], "zh", {})
+    assert "baiheReader: 'scroll'" in html
+    assert "m.baiheReader === 'restore'" in html

@@ -7,7 +7,7 @@ model carries a webhook URL, host, topic, path or job id.
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 
 from api.schemas import NotificationStatus, NotificationTarget
 
@@ -18,6 +18,8 @@ class NotificationSettingsStatus(NotificationStatus):
     send_chapters: bool
     send_remote: bool
     show_private_titles: bool
+    pc_name: str
+    pc_name_default: str
 
 
 class NotificationCategoriesRequest(BaseModel):
@@ -27,6 +29,8 @@ class NotificationCategoriesRequest(BaseModel):
     chapters: Optional[StrictBool] = None
     remote: Optional[StrictBool] = None
     private_titles: Optional[StrictBool] = None
+    # "" clears the name, which then falls back to the Windows computer name.
+    pc_name: Optional[StrictStr] = Field(default=None, max_length=40)
 
 
 class NotificationEvent(BaseModel):

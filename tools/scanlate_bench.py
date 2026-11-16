@@ -11,8 +11,7 @@ changed. `--set` overrides a value in scanlate_tuning for this run only, so two
 runs compare a change before it is made.
 
 Synthetic pages measure the pipeline's mechanics, not how it does on a given
-real series; docs/technical-notes.md ("Scanlate quality bench") says what
-each number means.
+real series.
 """
 import argparse
 import dataclasses
@@ -498,7 +497,7 @@ def run_oracle_ocr(page: Page, path: str, args) -> list:
     """OCR on the true balloon boxes, so OCR is scored apart from detection."""
     import scanlate
     from scanlate_regions import estimate_text_orientation
-    from scanlate_detect import decode_page, page_gray
+    from scanlate_page_decode import decode_page, page_gray
     image = decode_page(path)
     gray = page_gray(path, image)
     out = []
@@ -520,7 +519,7 @@ def run_typeset(page: Page, path: str, detected: list) -> dict:
     font_size and kind the render gets, as it would in the app."""
     import cv2
     import scanlate_render
-    from scanlate_detect import decode_page
+    from scanlate_page_decode import decode_page
     rng = random.Random(f"typeset-{page.name}")
     bubbles = []
     for b, det in zip(page.balloons, detected):

@@ -142,6 +142,7 @@ def _summary(name: str, cls) -> dict:
     return {
         "name": name,
         "display_name": cls.display_name or name,
+        "homepage": cls.homepage,
         "content_types": list(cls.content_types),
         "languages": list(cls.languages),
         "supports": {m: bool(adapter.supports(m)) for m in
