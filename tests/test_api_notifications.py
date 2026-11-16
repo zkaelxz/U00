@@ -297,7 +297,8 @@ def test_burst_summary():
 
 # --- delivery ----------------------------------------------------------------
 
-def test_discord_delivery_has_timeout_no_redirects_and_safe_payload(env, dns, posts):
+def test_discord_delivery_has_timeout_no_redirects_and_safe_payload(env, dns, posts, monkeypatch):
+    monkeypatch.setattr(ns.socket, "gethostname", lambda: "DESKTOP-WEEE")
     _write(env, discord=DISCORD)
     assert ns._deliver("Finished: Translation - @everyone") == {
         "discord": "sent", "ntfy": "not_configured"}
@@ -308,7 +309,24 @@ def test_discord_delivery_has_timeout_no_redirects_and_safe_payload(env, dns, po
     import json
     body = json.loads(call["data"].decode("utf-8"))
     assert body["allowed_mentions"] == {"parse": []}
-    assert body["content"] == "Baihe Studio: Finished: Translation - @everyone"
+    assert body["content"] == "Baihe Studio (DESKTOP-WEEE): Finished: Translation - @everyone"
+
+
+def test_discord_card_footer_names_the_pc_and_no_name_leaves_it_out(monkeypatch):
+    import json
+    card = {"title": "Finished \u00b7 Translation", "color": ns.COLOR_OK}
+    monkeypatch.setattr(ns.socket, "gethostname", lambda: "V100-BOX")
+    body = json.loads(ns._payload("discord", "x", card)[0])
+    assert body["embeds"][0]["footer"] == {"text": "PC: V100-BOX"}
+    assert "footer" not in card
+    assert ns._payload("ntfy", "x")[0] == b"x"
+
+    def boom():
+        raise OSError
+    monkeypatch.setattr(ns.socket, "gethostname", boom)
+    body = json.loads(ns._payload("discord", "x", card)[0])
+    assert "footer" not in body["embeds"][0]
+    assert json.loads(ns._payload("discord", "x")[0])["content"] == "Baihe Studio: x"
 
 
 def test_ntfy_delivery(env, dns, posts):
@@ -796,7 +814,8 @@ def test_status_is_booleans_only(env):
     assert r.status_code == 200
     assert r.json() == {"discord_configured": True, "ntfy_configured": True,
                         "ntfy_allow_local": False, "send_jobs": True, "send_chapters": True,
-                        "send_remote": True, "show_private_titles": False}
+                        "send_remote": True, "show_private_titles": False,
+                        "pc_name": "", "pc_name_default": ns._windows_name()}
     _no_secret(r.text)
 
 
@@ -1138,6 +1157,39 @@ def test_private_titles_switch_route_is_pc_only(env):
     assert ns.show_private_titles() is False
     r = _client().post("/api/settings/notifications/categories", json={"private_titles": True})
     assert r.status_code == 200 and r.json()["show_private_titles"] is True
+
+
+def test_pc_name_replaces_the_windows_name_until_cleared(env, monkeypatch):
+    import json
+    monkeypatch.setattr(ns.socket, "gethostname", lambda: "DESKTOP-WEEE")
+    card = {"title": "Finished", "color": ns.COLOR_OK}
+
+    def footer():
+        return json.loads(ns._payload("discord", "x", card)[0])["embeds"][0]["footer"]["text"]
+
+    assert footer() == "PC: DESKTOP-WEEE"
+    status = ns.set_categories(pc_name="  V100  ")
+    assert status["pc_name"] == "V100" and status["pc_name_default"] == "DESKTOP-WEEE"
+    assert footer() == "PC: V100"
+    assert ns.set_categories(jobs=False)["pc_name"] == "V100"        # untouched
+    assert ns.set_categories(pc_name="x" * 90)["pc_name"] == "x" * 39 + "\u2026"
+    assert ns.set_categories(pc_name="")["pc_name"] == ""
+    assert footer() == "PC: DESKTOP-WEEE"
+
+
+def test_pc_name_route_is_pc_only_and_bounded(env):
+    remote = TestClient(create_app(ApiSettings(auth_mode="on", allow_key_writes=True)),
+                        base_url=REMOTE, raise_server_exceptions=False)
+    assert remote.post("/api/settings/notifications/categories", json={"pc_name": "Mine"},
+                       headers=session_headers(_session(True))).status_code == 403
+    assert ns.saved_pc_name() == ""
+    c = _client()
+    assert c.post("/api/settings/notifications/categories",
+                  json={"pc_name": "x" * 41}).status_code == 422
+    assert c.post("/api/settings/notifications/categories",
+                  json={"pc_name": 5}).status_code == 422
+    r = c.post("/api/settings/notifications/categories", json={"pc_name": "3080"})
+    assert r.status_code == 200 and r.json()["pc_name"] == "3080"
 
 
 def test_ids_increase_but_do_not_count_hidden_events(env, no_timer, monkeypatch):
@@ -1571,3 +1623,22 @@ def test_a_names_result_that_also_stopped_early_says_the_names_sentence():
     note = jobs_service.waiting_note({"waiting": {"text": "4 glossary names to review"},
                                       "stopped": paid_calls.CAP_STOP_REASON})
     assert note == {"text": "4 glossary names to review", "target": None}
+
+
+def test_resource_alert_routes_read_and_change_rules(env):
+    c = _client(key_writes=False)
+    rows = {r["id"]: r for r in c.get("/api/settings/resource-alerts").json()["rules"]}
+    assert rows["cpu"]["enabled"] is False and len(rows) == 7
+    r = c.post("/api/settings/resource-alerts", json={"rules": {"cpu": {"enabled": True, "limit": 90}}})
+    assert r.status_code == 200
+    assert {x["id"]: x for x in r.json()["rules"]}["cpu"]["limit"] == 90
+    assert c.post("/api/settings/resource-alerts", json={"rules": {"cpu": {"limit": 5}}}).status_code == 422
+    assert c.post("/api/settings/resource-alerts", json={"rules": {"nope": {}}}).status_code == 422
+    assert c.post("/api/settings/resource-alerts", json={"rules": {"cpu": {"x": 1}}}).status_code == 422
+
+
+def test_resource_alert_changes_are_pc_only(env):
+    remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE, raise_server_exceptions=False)
+    admin = _session(True)
+    assert remote.post("/api/settings/resource-alerts", json={"rules": {"cpu": {"enabled": True}}},
+                       headers=session_headers(admin)).status_code == 403

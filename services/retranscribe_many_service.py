@@ -28,7 +28,7 @@ import db
 import sensitivity_preset as presets
 import source_change
 import storage
-from services import (compare_transcription_service as compare, difficult_audio_service, settings_service, timing_settings_service,
+from services import (compare_transcription_service as compare, difficult_audio_service, edit_log_service, settings_service, timing_settings_service,
                       transcribe_pipeline, transcribe_service, translate_service, retranscribe_line_service,
                       transcribe_options_service)
 from services.retranscribe_worker import (apply_retranscribe_many_outcome, cpu_retry_args, MANY_USE_GPU_ARG,
@@ -197,5 +197,9 @@ def apply_retranscribe_many(drama_id: int, job_id, items) -> dict:
     applied = [lid for lid in order if lid not in skipped]
     if applied:
         translate_service.sync_translation_status(drama_id)
+        new_zh = {lid: values["zh"] for lid, values, _e in writes}
+        edit_log_service.record_source_edits(
+            drama_id, [(current[lid], new_zh[lid]) for lid in applied],
+            edit_log_service.RETRANSCRIBE_MANY)
     return {"applied": applied, "skipped": [lid for lid in order if lid in skipped],
             "untranslated_count": translation_finish.untranslated_line_count(drama_id)}

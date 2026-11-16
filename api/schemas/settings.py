@@ -7,7 +7,7 @@ from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
-__all__ = ["SettingsSchemaChoice", "SettingsSchemaRow", "SettingsSchema"]
+__all__ = ["SettingsSchemaChoice", "SettingsSchemaRow", "SettingsSchema", "EnvSettingRow", "EnvSettingsStatus"]
 
 
 class SettingsSchemaChoice(BaseModel):
@@ -37,3 +37,15 @@ class SettingsSchemaRow(BaseModel):
 
 class SettingsSchema(BaseModel):
     settings: List[SettingsSchemaRow]
+
+
+class EnvSettingRow(BaseModel):
+    name: str
+    label: str
+    group: str
+    from_file: bool
+    set: bool
+
+
+class EnvSettingsStatus(BaseModel):
+    settings: List[EnvSettingRow]

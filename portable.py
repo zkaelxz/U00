@@ -93,7 +93,7 @@ def is_installed() -> bool:
 # made after their release, while that release itself opens it. Bump it to the
 # next version right after tagging (release/CHECKLIST.md); a test fails if a
 # newer release note exists.
-SOURCE_VERSION = "0.1.5-dev"
+SOURCE_VERSION = "0.1.6-dev"
 
 
 def installed_app_version():

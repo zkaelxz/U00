@@ -11,6 +11,7 @@ __all__ = [
     "NarrationEngineOption",
     "NarrationConfig",
     "NarrationRunRequest",
+    "NarrationEstimate",
     "NarrationRunResult",
     "DubRunStarted",
     "ListenConfig",
@@ -53,6 +54,7 @@ class NarrationConfig(BaseModel):
     existing_line_count: int
     replaces_existing_lines: bool
     job_running: bool
+    chapter_count: int = 0
 
 
 class NarrationRunRequest(BaseModel):
@@ -62,6 +64,25 @@ class NarrationRunRequest(BaseModel):
     # Adding chapters to a title that has lines: cut only the text the add left without lines (the server
     # holds how much) and append its lines after the saved ones.
     append: bool = False
+    # Only these chapters (1-based, inclusive; one alone leaves that side open); the others are not touched.
+    chapter_from: Optional[int] = Field(default=None, ge=1)
+    chapter_to: Optional[int] = Field(default=None, ge=1)
+    # One voice reads the whole novel: every line is Narrator, with no AI call and no cost.
+    one_narrator: bool = False
+
+
+class NarrationEstimate(BaseModel):
+    engine: str
+    model: str
+    chunk_count: int
+    chapters: int
+    estimated_usd: float
+    has_key: bool
+    cap_applies: bool
+    monthly_cap_set: bool
+    effective_cap_usd: Optional[float] = None
+    monthly_refusal: bool
+    estimate_above_cap: bool
 
 
 class NarrationRunResult(BaseModel):

@@ -41,7 +41,7 @@ export function buildAffectedRunBody(
   includeHandEdited: boolean,
 ): GlossaryAffectedRunBody {
   const termIds = preview.selected_term_ids
-  const { force_retranslate: _force, bulk: _bulk, ...settings } = buildRunBody(f)
+  const { force_retranslate: _force, bulk: _bulk, chapter_from: _from, chapter_to: _to, ...settings } = buildRunBody(f)
   return {
     ...settings,
     line_ids: ids,

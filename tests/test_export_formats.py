@@ -6,7 +6,9 @@ hardsub styling (ASS burned directly, no force_style).
 
 import pytest
 
+import subtitle_ass
 import subtitle_formats as sf
+import subtitle_parse
 from core import Line, lines_to_srt, lines_to_bilingual_srt
 
 
@@ -109,15 +111,15 @@ class TestVtt:
         lines[0].en = "I <3 you & --> her"
         assert "\nI <3 you & --> her\n" in lines_to_srt(lines, "en")
         assert "\nI <3 you & --> her\n" in lines_to_bilingual_srt(lines)
-        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "en")
+        ass = subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"], "en")
         assert "I <3 you & --> her" in ass and "&lt;" not in ass and "&amp;" not in ass
 
 
 class TestAss:
     def test_style_and_one_colour_per_speaker(self):
-        style = dict(sf.ASS_PRESETS["Streamer clip"], font="Meiryo", size=33, outline_width=5)
+        style = dict(subtitle_ass.ASS_PRESETS["Streamer clip"], font="Meiryo", size=33, outline_width=5)
         colors = {"SPEAKER_00": "#FF0000", "SPEAKER_01": "#00FF00"}
-        ass = sf.lines_to_ass(_lines(), style, speaker_colors=colors,
+        ass = subtitle_ass.lines_to_ass(_lines(), style, speaker_colors=colors,
                               speaker_names={"SPEAKER_00": "Xiaoling"})
         styles = {l.split(",")[0][7:]: l.split(",") for l in ass.splitlines() if l.startswith("Style: ")}
         assert styles["Speaker 1"][1:3] == ["Meiryo", "33"]
@@ -132,14 +134,14 @@ class TestAss:
     def test_text_is_escaped(self):
         lines = _lines()
         lines[0].en = "a {\\b1} trick\nsecond line"
-        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"])
+        ass = subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"])
         assert "a \\{\\b1\\} trick\\Nsecond line" in ass
 
     def test_a_backslash_is_drawn_once_and_never_starts_a_break(self):
         # libass has no backslash escape: a doubled one is drawn twice.
         lines = _lines()
         lines[0].en = "\u00af\\_(\u30c4)_/\u00af C:\\new \\h \\"
-        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"])
+        ass = subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"])
         dialogue = next(l for l in ass.splitlines() if l.startswith("Dialogue:"))
         assert "\u00af\\_(\u30c4)_/\u00af" in dialogue
         assert "C:\\\u2060new \\\u2060h \\" in dialogue
@@ -149,20 +151,20 @@ class TestAss:
         import subtitle_parse
         lines = _lines()
         lines[0].en = "C:\\new and \\h"
-        cues = subtitle_parse.parse_ass(sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"]))
+        cues = subtitle_parse.parse_ass(subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"]))
         assert cues[0].text == "C:\\new and \\h"
 
     def test_line_breaks_other_than_newline_cannot_start_a_new_dialogue_line(self):
         lines = _lines()
         lines[0].en = "a\r\nb\rc\u2028d\u2029e\x85f"
-        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"])
+        ass = subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"])
         assert "a\\Nb\\Nc\\Nd\\Ne\\Nf" in ass
-        assert len(ass.splitlines()) == len(sf.lines_to_ass(_lines(), sf.ASS_PRESETS["Clean"]).splitlines())
+        assert len(ass.splitlines()) == len(subtitle_ass.lines_to_ass(_lines(), subtitle_ass.ASS_PRESETS["Clean"]).splitlines())
 
     def test_other_control_characters_become_spaces(self):
         lines = _lines()
         lines[0].en = "a\x0bb\x0cc\x1cd\x1ee\x00f\x7fg\th"
-        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"])
+        ass = subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"])
         assert "a b c d e f g\th" in ass
         assert not any(ch in ass for ch in "\x0b\x0c\x1c\x1d\x1e\x00\x7f")
 
@@ -175,49 +177,49 @@ class TestAss:
     @pytest.mark.parametrize("preset", ["Clean", "Streamer clip"])
     def test_long_cjk_rows_are_broken_to_fit_the_frame(self, preset):
         # libass only breaks at spaces, so an unbroken sentence ran off both edges.
-        style = sf.ASS_PRESETS[preset]
-        limit = sf.ass_cjk_row_limit(style)
+        style = subtitle_ass.ASS_PRESETS[preset]
+        limit = subtitle_ass.ass_cjk_row_limit(style)
         lines = [Line(idx=0, start=0, end=5, zh=self.LONG_ZH, en="He said so.")]
         for field in ("zh", "bilingual"):
-            rows = self._rows(sf.lines_to_ass(lines, style, field))
+            rows = self._rows(subtitle_ass.lines_to_ass(lines, style, field))
             zh_rows = rows[1:] if field == "bilingual" else rows
             assert "".join(zh_rows) == self.LONG_ZH
             assert len(zh_rows) > 1 and all(len(r) <= limit for r in zh_rows)
-        assert self._rows(sf.lines_to_ass(lines, style, "bilingual"))[0] == "He said so."
+        assert self._rows(subtitle_ass.lines_to_ass(lines, style, "bilingual"))[0] == "He said so."
 
     def test_row_limit_follows_the_size_and_outline(self):
-        clean = sf.ass_cjk_row_limit(sf.ASS_PRESETS["Clean"])
+        clean = subtitle_ass.ass_cjk_row_limit(subtitle_ass.ASS_PRESETS["Clean"])
         assert clean == 15
-        assert sf.ass_cjk_row_limit(dict(sf.ASS_PRESETS["Clean"], size=60)) < clean
-        assert sf.ass_cjk_row_limit(dict(sf.ASS_PRESETS["Clean"], outline_width=10)) < clean
+        assert subtitle_ass.ass_cjk_row_limit(dict(subtitle_ass.ASS_PRESETS["Clean"], size=60)) < clean
+        assert subtitle_ass.ass_cjk_row_limit(dict(subtitle_ass.ASS_PRESETS["Clean"], outline_width=10)) < clean
 
     def test_a_tighter_wrap_wins_and_latin_and_short_rows_are_left_to_libass(self):
         lines = [Line(idx=0, start=0, end=5, zh=self.LONG_ZH, en="word " * 30)]
-        tight = self._rows(sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "zh", wrap_chars={"zh": 8}))
+        tight = self._rows(subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"], "zh", wrap_chars={"zh": 8}))
         assert all(len(r) <= 8 for r in tight)
-        assert self._rows(sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "en")) == ["word " * 30]
+        assert self._rows(subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"], "en")) == ["word " * 30]
         lines[0].zh = "你好"
-        assert self._rows(sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "zh")) == ["你好"]
+        assert self._rows(subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"], "zh")) == ["你好"]
 
     def test_a_long_cjk_note_on_its_own_line_is_broken_too(self):
         lines = [Line(idx=0, start=0, end=5, zh="你好", en="Hi")]
         notes = {0: [{"term": "说法", "note": self.LONG_ZH}]}
-        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "en", notes,
+        ass = subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"], "en", notes,
                               notes_as_separate_line=True)
         note = next(l for l in ass.splitlines() if ",Notes," in l).split(",", 9)[9]
         # The note is drawn at 70% size, so more of it fits on a row.
-        note_limit = sf.ass_cjk_row_limit(dict(sf.ASS_PRESETS["Clean"], size=17))
-        assert note_limit > sf.ass_cjk_row_limit(sf.ASS_PRESETS["Clean"])
+        note_limit = subtitle_ass.ass_cjk_row_limit(dict(subtitle_ass.ASS_PRESETS["Clean"], size=17))
+        assert note_limit > subtitle_ass.ass_cjk_row_limit(subtitle_ass.ASS_PRESETS["Clean"])
         rows = note.split("\\N")
         assert len(rows) > 1 and all(len(r) <= note_limit for r in rows)
 
     def test_portrait_video_gets_shorter_rows(self):
-        clean = sf.ASS_PRESETS["Clean"]
-        portrait = sf.ass_cjk_row_limit(clean, 9 / 16)
-        assert portrait < sf.ass_cjk_row_limit(clean) == sf.ass_cjk_row_limit(clean, 16 / 9)
-        assert sf.ass_cjk_row_limit(clean, float("nan")) == sf.ass_cjk_row_limit(clean)
+        clean = subtitle_ass.ASS_PRESETS["Clean"]
+        portrait = subtitle_ass.ass_cjk_row_limit(clean, 9 / 16)
+        assert portrait < subtitle_ass.ass_cjk_row_limit(clean) == subtitle_ass.ass_cjk_row_limit(clean, 16 / 9)
+        assert subtitle_ass.ass_cjk_row_limit(clean, float("nan")) == subtitle_ass.ass_cjk_row_limit(clean)
         lines = [Line(idx=0, start=0, end=5, zh=self.LONG_ZH, en="")]
-        rows = self._rows(sf.lines_to_ass(lines, clean, "zh", frame_aspect=9 / 16))
+        rows = self._rows(subtitle_ass.lines_to_ass(lines, clean, "zh", frame_aspect=9 / 16))
         assert "".join(rows) == self.LONG_ZH and all(len(r) <= portrait for r in rows)
 
     def test_portrait_rows_use_the_margins_libass_draws(self):
@@ -225,19 +227,19 @@ class TestAss:
         # glyphs by its height. Rendered with libass 0.17 on 1080x1920, six
         # full-width glyphs at the Clean size fit inside the margins and seven
         # run off the picture; counting the margins at glyph scale gave five.
-        clean = sf.ASS_PRESETS["Clean"]
-        assert sf.ass_cjk_row_limit(clean, 9 / 16) == 6
-        assert sf.ass_cjk_row_limit(clean, 3 / 4) == 8
-        assert sf.ass_cjk_row_limit(sf.ASS_PRESETS["Streamer clip"], 9 / 16) == 4
-        assert sf.ass_cjk_row_limit(clean, 4 / 3) == 15
+        clean = subtitle_ass.ASS_PRESETS["Clean"]
+        assert subtitle_ass.ass_cjk_row_limit(clean, 9 / 16) == 6
+        assert subtitle_ass.ass_cjk_row_limit(clean, 3 / 4) == 8
+        assert subtitle_ass.ass_cjk_row_limit(subtitle_ass.ASS_PRESETS["Streamer clip"], 9 / 16) == 4
+        assert subtitle_ass.ass_cjk_row_limit(clean, 4 / 3) == 15
 
     def test_presets_differ_and_clean_is_the_old_hardsub_look(self):
-        assert sf.ASS_PRESETS["Clean"]["size"] == 24 and sf.ASS_PRESETS["Clean"]["outline_width"] == 2
-        assert sf.ASS_PRESETS["Streamer clip"]["bold"] is True
-        assert sf.ASS_PRESETS["Streamer clip"]["outline_width"] > sf.ASS_PRESETS["Clean"]["outline_width"]
+        assert subtitle_ass.ASS_PRESETS["Clean"]["size"] == 24 and subtitle_ass.ASS_PRESETS["Clean"]["outline_width"] == 2
+        assert subtitle_ass.ASS_PRESETS["Streamer clip"]["bold"] is True
+        assert subtitle_ass.ASS_PRESETS["Streamer clip"]["outline_width"] > subtitle_ass.ASS_PRESETS["Clean"]["outline_width"]
 
     def test_speaker_colours_are_distinct_by_default(self):
-        colors = sf.default_speaker_colors(["A", "B", "C", None])
+        colors = subtitle_ass.default_speaker_colors(["A", "B", "C", None])
         assert len(set(colors.values())) == 3 and None not in colors
 
 
@@ -247,20 +249,20 @@ class TestAssShadow:
     slider now threads a real value through instead."""
 
     def test_shadow_value_reaches_the_style_line(self):
-        style = dict(sf.ASS_PRESETS["Clean"], shadow=4)
-        ass = sf.lines_to_ass(_lines(), style)
+        style = dict(subtitle_ass.ASS_PRESETS["Clean"], shadow=4)
+        ass = subtitle_ass.lines_to_ass(_lines(), style)
         default_style = [l for l in ass.splitlines() if l.startswith("Style: Default,")][0]
         assert default_style.split(",")[17] == "4"  # Shadow field
 
     def test_missing_shadow_key_falls_back_to_1(self):
-        style = {k: v for k, v in sf.ASS_PRESETS["Clean"].items() if k != "shadow"}
-        ass = sf.lines_to_ass(_lines(), style)
+        style = {k: v for k, v in subtitle_ass.ASS_PRESETS["Clean"].items() if k != "shadow"}
+        ass = subtitle_ass.lines_to_ass(_lines(), style)
         default_style = [l for l in ass.splitlines() if l.startswith("Style: Default,")][0]
         assert default_style.split(",")[17] == "1"
 
     def test_both_presets_default_to_shadow_1(self):
-        assert sf.ASS_PRESETS["Clean"]["shadow"] == 1
-        assert sf.ASS_PRESETS["Streamer clip"]["shadow"] == 1
+        assert subtitle_ass.ASS_PRESETS["Clean"]["shadow"] == 1
+        assert subtitle_ass.ASS_PRESETS["Streamer clip"]["shadow"] == 1
 
 
 class TestAssNotesAsSeparateLine:
@@ -276,15 +278,15 @@ class TestAssNotesAsSeparateLine:
 
     def test_off_by_default_keeps_the_inline_suffix(self):
         lines, notes_by_idx = self._lines_with_note()
-        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], notes_by_idx=notes_by_idx)
+        ass = subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"], notes_by_idx=notes_by_idx)
         dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
         assert len(dialogue) == 2  # no extra note line
         assert "Qijutang" in dialogue[0]
 
     def test_on_produces_a_second_smaller_dialogue_line(self):
         lines, notes_by_idx = self._lines_with_note()
-        style = sf.ASS_PRESETS["Clean"]
-        ass = sf.lines_to_ass(lines, style, notes_by_idx=notes_by_idx, notes_as_separate_line=True)
+        style = subtitle_ass.ASS_PRESETS["Clean"]
+        ass = subtitle_ass.lines_to_ass(lines, style, notes_by_idx=notes_by_idx, notes_as_separate_line=True)
         dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
         assert len(dialogue) == 3  # line 0's main + its note, then line 1's main
         assert "Qijutang" not in dialogue[0]  # main cue stays clean
@@ -295,7 +297,7 @@ class TestAssNotesAsSeparateLine:
 
     def test_a_line_with_no_note_gets_no_extra_dialogue_line(self):
         lines, notes_by_idx = self._lines_with_note()
-        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], notes_by_idx=notes_by_idx,
+        ass = subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"], notes_by_idx=notes_by_idx,
                               notes_as_separate_line=True)
         dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
         assert len(dialogue) == 3  # line 0's note, but nothing extra for line 1
@@ -332,7 +334,7 @@ class TestLongLines:
         wrap = {"en": 25, "zh": 16}
         assert "already,\nyou" in lines_to_srt(sf.wrap_lines(lines, wrap), "en")
         assert "already,\nyou" in sf.lines_to_vtt(lines, "en", wrap_chars=wrap)
-        assert "already,\\Nyou" in sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], wrap_chars=wrap)
+        assert "already,\\Nyou" in subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"], wrap_chars=wrap)
 
 
 class TestOverlapClamp:
@@ -535,7 +537,7 @@ class TestCjkWordAwareWrap:
         first = self.TEXT[:10]
         assert first + "\nさし" in sf.lines_to_vtt(lines, "zh", wrap_chars=wrap, **kw)
         assert first + " " in sf.lines_to_lrc(lines, "zh", wrap_chars=wrap, **kw)
-        assert first + "\\N" in sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "zh", wrap_chars=wrap, **kw)
+        assert first + "\\N" in subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"], "zh", wrap_chars=wrap, **kw)
         assert sf.wrap_lines(lines, wrap, **kw)[0].zh.split("\n")[0] == first
         assert set(calls) == {("ja", "traditional")}
 
@@ -571,41 +573,41 @@ def _with_events(lines):
 
 
 def test_ass_without_a_header_is_baihes_384x288_output():
-    out = sf.lines_to_ass(_lines(), sf.ASS_PRESETS["Clean"])
+    out = subtitle_ass.lines_to_ass(_lines(), subtitle_ass.ASS_PRESETS["Clean"])
     assert "PlayResX: 384" in out and "PlayResY: 288" in out and "Baihe Default" not in out
 
 
 def test_imported_default_style_wins_its_name_and_baihes_moves_aside():
-    out = sf.lines_to_ass(_with_events(_lines()), sf.ASS_PRESETS["Clean"], ass_header=_HEADER).splitlines()
+    out = subtitle_ass.lines_to_ass(_with_events(_lines()), subtitle_ass.ASS_PRESETS["Clean"], ass_header=_HEADER).splitlines()
     assert "PlayResX: 1920" in out and "PlayResY: 1080" in out
     styles = [r.split(",")[0] for r in out if r.startswith("Style:")]
     assert styles.count("Style: Default") == 1 and "Style: Baihe Default" in styles
     # Missing columns take libass defaults rather than leaving a short row
     imported = next(r for r in out if r.startswith("Style: Default,"))
-    assert len(imported.split(",")) == len(sf.ASS_STYLE_COLUMNS)
+    assert len(imported.split(",")) == len(subtitle_parse.ASS_STYLE_COLUMNS)
 
 
 def test_header_is_ignored_when_no_line_carries_an_event():
-    out = sf.lines_to_ass(_lines(), sf.ASS_PRESETS["Clean"], ass_header=_HEADER)
+    out = subtitle_ass.lines_to_ass(_lines(), subtitle_ass.ASS_PRESETS["Clean"], ass_header=_HEADER)
     assert "PlayResX: 384" in out and "Baihe Default" not in out
 
 
 def test_a_playres_with_one_side_fills_the_other_like_libass():
-    assert sf.imported_play_res({"playresx": "1920"}) == (1920, 1440)
-    assert sf.imported_play_res({"playresy": "1080"}) == (1440, 1080)
-    assert sf.imported_play_res({}) is None
-    assert sf.imported_play_res({"playresx": "abc", "playresy": "1e999"}) is None
+    assert subtitle_ass.imported_play_res({"playresx": "1920"}) == (1920, 1440)
+    assert subtitle_ass.imported_play_res({"playresy": "1080"}) == (1440, 1080)
+    assert subtitle_ass.imported_play_res({}) is None
+    assert subtitle_ass.imported_play_res({"playresx": "abc", "playresy": "1e999"}) is None
 
 
 def test_decode_ass_json_rejects_anything_but_an_object():
-    assert sf.decode_ass_json('{"a": 1}') == {"a": 1}
+    assert subtitle_ass.decode_ass_json('{"a": 1}') == {"a": 1}
     for bad in (None, "", "{x", "[1]", "5", "null"):
-        assert sf.decode_ass_json(bad) is None
+        assert subtitle_ass.decode_ass_json(bad) is None
 
 
 def test_line_with_a_hostile_event_stays_one_dialogue_record():
     ln = Line(idx=0, start=0.0, end=1.0, zh="a", en="b",
               ass_event='{"style": "X\\nDialogue: 0", "effect": "a,b\\r\\nStyle: Evil", "lead": "{\\\\an8}\\nx"}')
-    out = sf.lines_to_ass([ln], sf.ASS_PRESETS["Clean"], ass_header=_HEADER)
+    out = subtitle_ass.lines_to_ass([ln], subtitle_ass.ASS_PRESETS["Clean"], ass_header=_HEADER)
     assert len([r for r in out.splitlines() if r.startswith("Dialogue:")]) == 1
     assert not [r for r in out.splitlines() if r.startswith("Style: Evil")]

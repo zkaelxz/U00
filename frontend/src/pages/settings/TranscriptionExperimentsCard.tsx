@@ -122,7 +122,7 @@ function Controls() {
         <div className="setting-list">
           <Field
             label="Refine line timing with the forced aligner"
-            help="Qwen3 ASR with speech detection backend only. Tightens each line's start and end inside its speech span. Slower; lines with estimated timing are flagged. Off keeps the speech spans as they are."
+            help="For the experimental Qwen3 ASR with speech detection engine only; Whisper ignores it. Tightens each line's start and end inside its speech span. Slower; lines with estimated timing are flagged. Off keeps the speech spans as they are."
           >
             <Toggle
               checked={opts.qwen_vad_refine_timing}
