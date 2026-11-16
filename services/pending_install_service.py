@@ -12,12 +12,14 @@ import copy
 import threading
 import time
 
+import background_jobs
 from jobs import job_launch
 import install_plan
 import install_registry
 import pending_install
 from services import diagnostics_admin_service as admin_svc
-from lib.errors import ConflictError
+from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
+from services import source_update_service
 
 PLAN_CACHE_SECONDS = 600
 _LOCK = threading.Lock()
@@ -134,10 +136,44 @@ def dismiss_result() -> dict:
     return {"dismissed": True}
 
 
+def restart_info() -> dict:
+    """Whether Baihe can restart itself to run the queued install, and the jobs
+    that would be stopped by it."""
+    jobs = background_jobs.active_job_ids()
+    return {"available": source_update_service.restart_problem() is None,
+            "reason": source_update_service.restart_problem(),
+            "running_jobs": jobs,
+            # Another Baihe process's job can't be listed or stopped from here.
+            "other_jobs": _jobs_running() and not jobs}
+
+
+def restart_and_apply(confirm: bool, stop_jobs: bool, actor_id=None) -> dict:
+    """Restarts Baihe so the queued install runs before anything is loaded.
+    Never stops a running job unless the owner said so (stop_jobs); a job in
+    another process is never stopped."""
+    if confirm is not True:
+        raise InvalidInputError("Confirm to restart Baihe and install the queued packages.")
+    if pending_install.read_pending()[0] is None:
+        raise ConflictError("Nothing is waiting to be installed.")
+    if pending_install.apply_running():
+        raise ConflictError("An install is already running.")
+    problem = source_update_service.restart_problem()
+    if problem:
+        raise UnsupportedOperationError(problem)
+    info = restart_info()
+    if info["other_jobs"]:
+        raise ConflictError("Another running Baihe process has a job. Let it finish first.")
+    if info["running_jobs"] and stop_jobs is not True:
+        raise ConflictError("Jobs are running: " + ", ".join(info["running_jobs"])
+                            + ". Restarting stops them; confirm that too, or wait for them to finish.")
+    source_update_service.restart_through_start_bat(actor_id, "queued package install")
+    return {"restarting": True, "stopped_jobs": info["running_jobs"] if stop_jobs else []}
+
+
 def get_status() -> dict:
     state = pending_install.status()
     pending = state["pending"] or {}
     return {"packages": pending.get("packages", []), "created": pending.get("created"),
             "before": pending.get("before", {}),
             "problem": _PROBLEMS.get(state["problem"]),
-            "result": state["result"], "applying": state["applying"]}
+            "result": state["result"], "applying": state["applying"], "restart": restart_info()}

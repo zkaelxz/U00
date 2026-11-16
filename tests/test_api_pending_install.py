@@ -294,3 +294,97 @@ def test_a_no_preview_plan_can_still_be_queued_from_the_cache(client, env, monke
     b = queue(client).json()
     assert b["queued"] is True and b["install_now"] is False
     assert "install when you restart" in b["plan"]["note"]
+
+
+# --- queue the outdated-package update, then restart to apply it ----------------
+
+@pytest.fixture
+def outdated(env, monkeypatch, tmp_path):
+    from services import diagnostics_installs_service as installs
+    seen = {}
+    monkeypatch.setattr(installs.packages_svc, "outdated_upgrade_specs",
+                        lambda: (["sentencepiece", "nagisa"], ["sentencepiece==0.2.3", "nagisa==0.3.2"]))
+
+    def build_plan(keys, jobs_running=False, specs=None):
+        seen["specs"] = specs
+        return dict(env["plan"], keys=list(keys))
+    monkeypatch.setattr(installs.install_plan, "build_plan", build_plan)
+    return seen
+
+
+def queue_outdated(client, **kw):
+    return client.post("/api/diagnostics/dependencies/upgrade-outdated/queue", json={"confirm": True, **kw})
+
+
+def test_the_outdated_update_is_queued_pinned_to_the_shown_versions(client, outdated, tmp_path):
+    r = queue_outdated(client, accept_risk=True)
+    assert r.status_code == 200 and r.json()["queued"] is True
+    assert outdated["specs"] == ["sentencepiece==0.2.3", "nagisa==0.3.2"]
+    doc = json.loads((tmp_path / "pending_install" / "pending.json").read_text())
+    assert doc["payload"]["packages"] == ["sentencepiece", "nagisa"]
+    assert doc["payload"]["pins"] == {"sentencepiece": "0.2.3", "nagisa": "0.3.2"}
+
+
+def test_the_outdated_queue_needs_confirm_and_is_refused_when_blocked_or_risky(client, outdated, env):
+    assert client.post("/api/diagnostics/dependencies/upgrade-outdated/queue", json={}).status_code == 422
+    env["plan"] = make_plan([], blocked=["No."])
+    assert queue_outdated(client).status_code in (409, 422)
+    env["plan"] = make_plan([], confirm=["Downgrades numpy."])
+    assert queue_outdated(client).status_code == 409
+    assert pending_install.read_pending() == (None, None)
+
+
+def test_the_outdated_queue_does_not_overwrite_a_waiting_install(client, outdated):
+    assert queue_outdated(client, accept_risk=True).status_code == 200
+    assert queue_outdated(client, accept_risk=True).status_code == 409
+
+
+def _restart_env(monkeypatch, problem=None, jobs=()):
+    started = []
+    monkeypatch.setattr(svc.source_update_service, "restart_problem", lambda: problem)
+    monkeypatch.setattr(svc.source_update_service, "restart_through_start_bat",
+                        lambda actor, why: started.append(why))
+    monkeypatch.setattr(svc.background_jobs, "active_job_ids", lambda: list(jobs))
+    return started
+
+
+def test_restart_runs_when_something_is_queued_and_no_job_is_running(client, env, monkeypatch):
+    started = _restart_env(monkeypatch)
+    queue(client, accept_risk=True)
+    r = client.post(f"{BASE}/restart", json={"confirm": True})
+    assert r.status_code == 202 and r.json() == {"restarting": True, "stopped_jobs": []}
+    assert len(started) == 1
+
+
+def test_restart_refuses_without_confirm_or_without_a_queued_install(client, env, monkeypatch):
+    started = _restart_env(monkeypatch)
+    assert client.post(f"{BASE}/restart", json={"confirm": True}).status_code == 409
+    queue(client, accept_risk=True)
+    assert client.post(f"{BASE}/restart", json={}).status_code == 422
+    assert started == []
+
+
+def test_restart_never_stops_a_job_unless_told_to(client, env, monkeypatch):
+    started = _restart_env(monkeypatch, jobs=["translate_5"])
+    queue(client, accept_risk=True)
+    assert client.get(BASE).json()["restart"]["running_jobs"] == ["translate_5"]
+    r = client.post(f"{BASE}/restart", json={"confirm": True})
+    assert r.status_code == 409 and "translate_5" in r.text and started == []
+    r = client.post(f"{BASE}/restart", json={"confirm": True, "stop_jobs": True})
+    assert r.status_code == 202 and r.json()["stopped_jobs"] == ["translate_5"] and len(started) == 1
+
+
+def test_restart_refuses_a_job_in_another_process(client, env, monkeypatch):
+    started = _restart_env(monkeypatch)
+    env["jobs"] = True
+    queue(client, accept_risk=True)
+    r = client.post(f"{BASE}/restart", json={"confirm": True, "stop_jobs": True})
+    assert r.status_code == 409 and started == []
+
+
+def test_restart_says_why_a_copy_cannot_restart_itself(client, env, monkeypatch):
+    started = _restart_env(monkeypatch, problem="This copy was installed with Setup.")
+    queue(client, accept_risk=True)
+    assert client.get(BASE).json()["restart"]["available"] is False
+    r = client.post(f"{BASE}/restart", json={"confirm": True})
+    assert r.status_code >= 400 and "Setup" in r.text and started == []

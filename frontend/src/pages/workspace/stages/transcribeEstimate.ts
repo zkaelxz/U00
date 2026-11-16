@@ -50,7 +50,7 @@ const FAST_MODE_FACTOR = 0.5
 interface WhisperEstimateInput {
   audioSeconds: number | null // null or 0 = unknown
   whisperSize: string
-  useGpu: boolean | null // null = unknown, estimated as CPU (the slower case)
+  useGpu: boolean | null // null = unknown (settings not readable from this device): the estimate shows both cases
   fastMode?: boolean
   measuredSpeed?: number | null // seconds of audio per second of work: the median of the recent runs here
   measuredRuns?: number // how many runs that median covers; more runs, a narrower range
@@ -127,10 +127,18 @@ export function transcribeEstimate(i: TranscribeEstimateInput): string | null {
   const est = whisperEstimateSeconds(i)
   if (!est || !i.audioSeconds) return null
   const measured = typeof i.measuredSpeed === 'number' && i.measuredSpeed > 0
-  const where = i.useGpu ? 'GPU' : 'CPU'
   const speakers = i.detectSpeakers ? `, plus ${diarizeRange(i.audioSeconds, i.measuredDiarizeSpeed, i.measuredDiarizeRuns)} to detect speakers` : ''
   const basis = !measured ? '' : (i.measuredRuns ?? 1) >= 2 ? `, based on your last ${i.measuredRuns} runs` : ', based on your last run'
   const download = i.modelCached === false ? ' First use also downloads the model.' : ''
+  if (i.useGpu === null && !measured) {
+    // A device that cannot read the GPU setting must not claim CPU: the run itself uses whatever the PC is set to.
+    const gpu = whisperEstimateSeconds({ ...i, useGpu: true })
+    const cpu = whisperEstimateSeconds({ ...i, useGpu: false })
+    if (gpu && cpu) {
+      return `Rough estimate: ${roughRange(gpu.low_s, gpu.high_s)} if this PC uses its GPU, ${roughRange(cpu.low_s, cpu.high_s)} on CPU (${i.whisperSize})${speakers}.${download}`
+    }
+  }
+  const where = i.useGpu ? 'GPU' : 'CPU'
   return `Rough estimate: ${roughRange(est.low_s, est.high_s)} for this audio (${i.whisperSize} on ${where}${basis})${speakers}.${download}`
 }
 

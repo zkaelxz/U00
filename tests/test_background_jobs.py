@@ -9,7 +9,6 @@ of switching to another tab and coming back later.
 import sys
 import os
 import queue
-import shutil
 import sqlite3
 import tempfile
 import threading
@@ -23,6 +22,7 @@ from jobs import gpu_queue, job_launch, job_runner, job_settings, job_table, pro
 import db
 import diagnostics_torch
 from jobs import gpu_slots, user_caps
+from tests.conftest import rmtree_retrying
 
 
 def _isolate_library():
@@ -41,7 +41,7 @@ def _isolate_library():
 
 def _restore_library(previous, temp_dir):
     db.configure_library_dir(previous)
-    shutil.rmtree(temp_dir, ignore_errors=True)
+    rmtree_retrying(temp_dir)
 
 
 @pytest.fixture(autouse=True)

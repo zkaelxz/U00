@@ -110,6 +110,7 @@ class TestGetTranscribeConfig:
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": result["whisper_installed"],
             "gpu_runtime": result["gpu_runtime"],
+            "use_gpu": result["use_gpu"],
             "beam_size": 5,
             "min_silence_ms": 300,
             "vad_threshold": 0.5,
@@ -2540,6 +2541,13 @@ class TestTranscribeSpeedCalibration:
         monkeypatch.setattr(isolated_db, "get_app_setting", boom)
         assert transcribe_speed_service.measured_transcribe_speed("base", False) is None
         transcribe_speed_service.record_transcribe_speed("base", False, 600, 300)
+
+    def test_config_carries_the_gpu_setting_for_devices_that_cannot_read_settings(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        settings_service.set_settings({"use_gpu": True})
+        assert transcribe_service.get_transcribe_config(did)["use_gpu"] is True
+        settings_service.set_settings({"use_gpu": False})
+        assert transcribe_service.get_transcribe_config(did)["use_gpu"] is False
 
     def test_config_reports_the_speed_for_the_stored_model_and_device(self, isolated_db):
         settings_service.set_settings({"use_gpu": False})   # these assert the CPU path
