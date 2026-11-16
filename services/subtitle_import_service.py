@@ -25,7 +25,7 @@ from typing import Optional
 import core as core_module
 import db
 import source_change
-import subtitle_formats
+import subtitle_ass
 import subtitle_parse
 import subtitle_sidecar
 import translation_finish
@@ -65,7 +65,7 @@ def _event_json(cue, header_key) -> Optional[str]:
 
 def _kept_headers(stored, header) -> str:
     """The title's ass_styles with this import's header added (newest last)."""
-    old = subtitle_formats.decode_ass_json(stored)
+    old = subtitle_ass.decode_ass_json(stored)
     headers = old.get("headers") if old else None
     headers = dict(headers) if isinstance(headers, dict) else {}
     key = _header_key(header)

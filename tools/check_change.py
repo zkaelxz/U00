@@ -15,6 +15,7 @@ Stdlib only.
 """
 import argparse
 import ast
+import configparser
 import json
 import re
 import subprocess
@@ -35,6 +36,8 @@ GUARDS = tuple((ROOT / "tests" / "ci_guards.txt").read_text(encoding="utf-8").sp
 # pytest.ini's error::PytestUnhandledThreadExceptionWarning, and a crashing thread would pass.
 # The checker reads pyrightconfig.json and its baseline; CI's guards job pins the same version.
 TYPE_CHECK = "pip install basedpyright==1.40.2 && basedpyright"
+# The layer contract in .importlinter; CI's guards job pins the same version.
+IMPORT_CHECK = "pip install import-linter==2.15 && lint-imports"
 LEAN_PYTEST = ("python -m pytest -q -o addopts= -W ignore::DeprecationWarning -W ignore::SyntaxWarning "
                "--no-header -x --tb=short")
 
@@ -150,6 +153,14 @@ def type_steps(changed):
     return [TYPE_CHECK] if checked else []
 
 
+def import_steps(changed):
+    config = configparser.ConfigParser()
+    config.read(ROOT / ".importlinter", encoding="utf-8")
+    roots = tuple(config["importlinter"]["root_packages"].split())
+    checked = [c for c in changed if c.endswith(".py") and c.split("/")[0] in roots]
+    return [IMPORT_CHECK] if checked else []
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--base", default=DEFAULT_BASE)
@@ -159,7 +170,7 @@ def main(argv=None):
     changed, note = changed_files(args.base)
     kept, total = plan(changed, args.max)
     pytest_cmd = f"{LEAN_PYTEST} {' '.join(kept + list(GUARDS))}"
-    steps = [pytest_cmd] + type_steps(changed) + frontend_steps(changed)
+    steps = [pytest_cmd] + type_steps(changed) + import_steps(changed) + frontend_steps(changed)
     if args.run:
         for step in steps:
             print("$", step[:200], flush=True)

@@ -5,6 +5,7 @@ cleanup rules every novel import shares (site chrome lines, ruby readings,
 OCR line joins, chapter headings, legacy encodings).
 """
 
+import bisect
 import json
 import os
 import re
@@ -93,6 +94,33 @@ def chapter_count(text: str) -> int:
     if not starts:
         return 1
     return len(starts) + (1 if text[:starts[0][0]].strip() else 0)
+
+
+def chapter_spans(text: str) -> list:
+    """[(start, end)] char ranges of the chapters of a whole-book text, numbered the way
+    chapter_count counts them: text before the first heading is chapter 1, and a text
+    without headings is one chapter. Empty for blank text."""
+    if not text.strip():
+        return []
+    starts = [offset for offset, _title in chapter_starts(text)]
+    if not starts:
+        return [(0, len(text))]
+    bounds = ([0] if text[:starts[0]].strip() else []) + starts
+    return [(bounds[n], bounds[n + 1] if n + 1 < len(bounds) else len(text))
+            for n in range(len(bounds))]
+
+
+def chapter_line_ranges(line_texts: list) -> list:
+    """[(first, last)] positions in `line_texts` of each chapter's lines, numbered like chapter_spans
+    (the lines are one per paragraph or chunk, so a chapter always starts on a line)."""
+    offsets, total = [], 0
+    for text in line_texts:
+        offsets.append(total)
+        total += len(text) + 1
+    spans = chapter_spans("\n".join(line_texts))
+    firsts = [bisect.bisect_left(offsets, start) for start, _end in spans]
+    return [(first, (firsts[n + 1] if n + 1 < len(firsts) else len(line_texts)) - 1)
+            for n, first in enumerate(firsts)]
 
 
 _CLOSERS = r"[」』”’）)\]】\"']*"

@@ -18,8 +18,7 @@ not followed unless `allow_redirects=True` is passed. A redirect to another
 origin never carries the caller's credential headers.
 
 A guarded fetch ignores environment proxies (`HTTP(S)_PROXY`): a proxy would
-re-resolve the name and defeat the pin. See "Guarded fetches ignore proxies"
-in docs/technical-notes.md.
+re-resolve the name and defeat the pin.
 
 `session()` is the same front door for callers that need a real
 `requests.Session` (keep-alive, a cookie jar, their own adapter) and read the

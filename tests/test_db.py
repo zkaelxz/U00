@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import db
 from core import Line
 from jobs import gpu_slots
+from tests.conftest import rmtree_retrying
 
 
 class TestDramaCRUD:
@@ -2518,12 +2519,13 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "bubbles": ("font_category", "kind", "kind_confidence", "confidence", "language",
                 "orientation", "panel_id", "include_sfx", "text_color"),
     "pages": ("rev", "context_summary", "run_notes", "edit_history"),
-    "bulk_jobs": ("kind", "stage", "pipeline_id"),
+    "bulk_jobs": ("kind", "stage", "pipeline_id", "estimated_usd", "user_id"),
     "bulk_job_lines": ("result_text", "state_at_submit"),
     "vocab_lookups": ("export_rich", "first_seen_line_id"),
     "wiki_entries": ("first_seen_line_id", "known_through_line_id"),
     "style_profile": ("history_json",),
-    "edit_samples": ("line_id", "engine", "model", "prompt_version", "flag", "mark"),
+    "edit_samples": ("line_id", "engine", "model", "prompt_version", "flag", "mark",
+                     "deleted_drama_id", "deleted_title"),
     "users": ("share_by_default", "monthly_paid_cap_usd"),
     "progress": ("view_prefs",),
     "translate_history": ("user_id",),
@@ -2661,7 +2663,7 @@ class TestInitDbSchema:
         db.init_db()
         yield db
         db.configure_library_dir(previous)
-        shutil.rmtree(parent_dir, ignore_errors=True)
+        rmtree_retrying(parent_dir)
 
     def test_running_init_db_again_changes_nothing(self, isolated_db):
         before = _exact_snapshot(isolated_db.DB_PATH)

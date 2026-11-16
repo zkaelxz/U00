@@ -1,0 +1,45 @@
+# Checked in CI (tests.yml, guards job): lint-imports
+# Single-file modules in the repo root can't be root_packages here, so the
+# root-module rules live in tests/test_static_analysis.py (TestLayering).
+[importlinter]
+root_packages =
+    api
+    services
+    jobs
+    sources
+    engine_backends
+    db
+    lib
+
+[importlinter:contract:layers]
+name = Packages import only downward (CLAUDE.md, Layout)
+type = layers
+layers =
+    api
+    services
+    jobs | sources
+    engine_backends
+    db
+    lib
+# Wrong-way imports that existed when the contract was added (2026-11-15).
+# Most reach a low-level helper that lives in services/; moving the helper
+# down clears them. Remove a line when you fix it (a stale line fails the
+# check); never add one.
+ignore_imports =
+    jobs.gpu_guard -> services.ownership_service
+    jobs.gpu_guard -> services.settings_service
+    jobs.job_launch -> services.member_key_service
+    jobs.job_launch -> services.ownership_service
+    jobs.job_runner -> services.job_timing_service
+    jobs.job_runner -> services.jobs_service
+    jobs.job_settings -> services.notification_service
+    jobs.job_store -> services.jobs_service
+    sources.chapter_check -> jobs.job_launch
+    sources.chapter_check -> services.auth_service
+    sources.chapter_check -> services.ownership_service
+    sources.chapter_check -> services.sources_save_service
+    sources.generic_import -> services.page_import_limits
+    sources.pipeline -> jobs.job_launch
+    sources.pipeline -> services.drama_service
+    engine_backends.llm_tasks -> services.job_timing_service
+    engine_backends.local -> services.member_key_service

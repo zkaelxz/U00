@@ -15,7 +15,7 @@ import background_jobs
 import db
 import emotion
 from engine_backends import engine_registry, llm_tasks
-import translation_guide
+import translation_notes
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -210,7 +210,7 @@ def test_emotion_usage_is_logged_as_emotion_detect(monkeypatch):
 
 def test_notes_saved(monkeypatch):
     did = _seed()
-    monkeypatch.setattr(translation_guide, "generate_translation_notes_llm",
+    monkeypatch.setattr(translation_notes, "generate_translation_notes_llm",
                         lambda lines, engine, **kw: [{"line_idx": 0, "term": "你好",
                                                       "note_type": "idiom", "note": "hi"}])
     out = svc.start_translation_notes(did, engine_name="claude")
@@ -378,7 +378,7 @@ def test_notes_cancel_skips_save(monkeypatch):
     did = _seed()
     saved = []
     monkeypatch.setattr(db, "save_translation_notes", lambda *a, **k: saved.append(a))
-    monkeypatch.setattr(translation_guide, "generate_translation_notes_llm",
+    monkeypatch.setattr(translation_notes, "generate_translation_notes_llm",
                         _cancel_then_check(f"notes_{did}"))
     job = wait_for_job(svc.start_translation_notes(did, engine_name="claude")["job_id"])
     assert job["status"] == "cancelled" and saved == []

@@ -40,8 +40,7 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
   check (code `csrf_failed`, so the client can tell it apart from a
   PC-only refusal). Messages are generic. `local_only()` needs no session but requires a
   direct loopback connection (peer, Host, no proxy headers, loopback
-  Origin): the owner at the PC. That is a safeguard, not authentication
-  (see the key-write note in docs/archive/migration-handoff.md); the real admin
+  Origin): the owner at the PC. That is a safeguard, not authentication; the real admin
   isolation is the separate admin listener (below).
 - Household listener (`BAIHE_API_HOUSEHOLD_PORT`, see
   `api/api_config.py`): the app other devices reach through the reverse

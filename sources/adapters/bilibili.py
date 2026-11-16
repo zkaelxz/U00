@@ -37,6 +37,7 @@ class BilibiliDownloadError(SourceError):
 class BilibiliSource(SourceAdapter):
     name = "bilibili"
     display_name = "Bilibili"
+    homepage = "https://www.bilibili.com"
     content_types = [ContentType.VIDEO.value]
     languages = ["zh"]
     url_patterns = _URL_PATTERNS
