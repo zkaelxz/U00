@@ -34,8 +34,8 @@ import { UpgradeTestResult } from './UpgradeTest'
 import { testConfirmLabel } from './upgradeTestText'
 import { useServerJobStatus } from './useServerJobStatus'
 import {
-  belowMinText, firstHint, groupTasks, minVersionText, missingTranscription, optionalMissingText, packageSizeText, roleLabel, safeSourceUrl,
-  sortTasksNeedingInstall, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskResultText, taskStatus,
+  belowMinText, firstHint, minVersionText, missingTranscription, optionalMissingText, packageSizeText, roleLabel, safeSourceUrl,
+  groupsNeedingInstallFirst, INSTALL_ALL_NOTE, installAllTask, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskResultText, taskStatus,
   taskTone, updateOutdatedLabel, updateOutdatedText,
   type TaskRunResult,
 } from './installPresets'
@@ -296,11 +296,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     }
   }
 
-  // Every task's missing packages once each (tasks share packages), run as one install like a single task's.
-  const allToInstall = [...new Set((presets?.tasks ?? []).flatMap((t) => t.to_install))]
-  const allTasks: DiagnosticsInstallTask | null = presets?.tasks[0] && allToInstall.length > 0
-    ? { ...presets.tasks[0], id: 'all-tasks', label: 'all tasks', to_install: allToInstall, approx_mb: allToInstall.reduce((mb, n) => mb + (presets.packages[n]?.approx_mb ?? 0), 0) }
-    : null
+  const allTasks = presets ? installAllTask(presets.tasks, presets.packages) : null
 
   const taskRow = (t: DiagnosticsInstallTask) => presets && (
   <TaskRow key={t.id} task={t} packages={presets.packages} torchInstalled={torchInstalled}
@@ -409,7 +405,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                     onConfirm={() => void withPlan(allTasks.label, allTasks.to_install, (accepted) => runTask(allTasks, accepted))}
                   />
                 </div>
-                <p className="muted">Install all adds every package listed below that is still missing. GPU PyTorch is set up separately, further down.</p>
+                <p className="muted">{INSTALL_ALL_NOTE}</p>
               </>
             )}
             {local && outdated.length > 0 && (
@@ -427,7 +423,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                 />
               </div>
             )}
-            {groupTasks(sortTasksNeedingInstall(presets.tasks.filter((t) => t !== noTranscription))).map((g) => (
+            {groupsNeedingInstallFirst(presets.tasks.filter((t) => t !== noTranscription)).map((g) => (
               <Section key={g.group} title={g.group} count={g.tasks.length} storageKey={`diagnostics.tasks.${g.group}`}
                 summary={taskGroupSummary(g.tasks)}>
                 <ul aria-label={`${g.group} tasks`} className="pkg-list task-list">

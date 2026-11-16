@@ -94,12 +94,12 @@ def test_a_sign_without_a_band_has_no_fitted_size():
 
 
 def test_the_run_shortens_a_long_sign_and_says_so(monkeypatch):
-    import scanlate_detect
+    import scanlate_page_decode
     from services import scanlate_run_service as run
     monkeypatch.setattr(run.db, "get_page", lambda *a, **k: {})
     monkeypatch.setattr(run.render_svc, "original_path", lambda *a, **k: "page.png")
     monkeypatch.setattr(run.render_svc, "_custom_fonts", lambda drama_id: {})
-    monkeypatch.setattr(scanlate_detect, "decode_page", lambda path: object())
+    monkeypatch.setattr(scanlate_page_decode, "decode_page", lambda path: object())
     monkeypatch.setattr(scanlate_render, "sign_fitted_size", lambda page, b, text, fonts: 9)
     monkeypatch.setattr(scanlate_condense, "ask_for_shorter", lambda *a, **k: {"0": "Trains stopped"})
     bubbles = [{"kind": "sign", "translated_text": "Traffic is jammed. All AB line trains have stopped."}]

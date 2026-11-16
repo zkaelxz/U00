@@ -6,6 +6,7 @@ language-from-characters and LRC export. Pure functions: no database.
 
 import pytest
 
+import subtitle_ass
 import subtitle_formats
 import subtitle_parse as sp
 import subtitle_sidecar as sc
@@ -79,7 +80,7 @@ class TestAss:
 
     def test_braces_survive_a_round_trip_through_the_export(self):
         lines = [Line(idx=0, start=1.0, end=2.0, zh="", en="{\\an8}top {aside} \\{x}")]
-        cues = sp.parse_ass(subtitle_formats.lines_to_ass(lines, subtitle_formats.ASS_PRESETS["Clean"]))
+        cues = sp.parse_ass(subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"]))
         assert cues[0].text == "{\\an8}top {aside} \\{x}"
 
     def test_ssa_without_a_format_line_uses_the_default_layout(self):

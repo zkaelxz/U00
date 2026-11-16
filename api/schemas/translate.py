@@ -265,6 +265,9 @@ class TranslateRunStart(BaseModel):
     memory_examples: bool = False
     # With line_ids: glossary substitution and flags touch only those lines, not their neighbours.
     own_lines_only: bool = False
+    # A novel's chapters (1-based, inclusive; one alone leaves that side open) instead of line_ids.
+    chapter_from: Optional[int] = Field(None, ge=1)
+    chapter_to: Optional[int] = Field(None, ge=1)
 
 
 class TranslateRunStarted(BaseModel):

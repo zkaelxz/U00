@@ -5198,6 +5198,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/admin/typeset-comics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job: typeset every comic again from its saved translations (free, keeps edits) */
+        post: operations["post_typeset_comics_api_library_admin_typeset_comics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/continue": {
         parameters: {
             query?: never;
@@ -6728,6 +6745,23 @@ export interface paths {
         };
         /** Read-only chunk-and-tag options for one drama */
         get: operations["get_narration_config_api_narration_dramas__drama_id__config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/narration/dramas/{drama_id}/estimate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cost estimate for chunking and tagging the chosen chapters */
+        get: operations["get_narration_estimate_api_narration_dramas__drama_id__estimate_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -23088,6 +23122,11 @@ export interface components {
         };
         /** NarrationConfig */
         NarrationConfig: {
+            /**
+             * Chapter Count
+             * @default 0
+             */
+            chapter_count: number;
             /** Default Engine */
             default_engine: string;
             /** Drama Id */
@@ -23114,6 +23153,31 @@ export interface components {
             /** Key Configured */
             key_configured: boolean;
         };
+        /** NarrationEstimate */
+        NarrationEstimate: {
+            /** Cap Applies */
+            cap_applies: boolean;
+            /** Chapters */
+            chapters: number;
+            /** Chunk Count */
+            chunk_count: number;
+            /** Effective Cap Usd */
+            effective_cap_usd: number | null;
+            /** Engine */
+            engine: string;
+            /** Estimate Above Cap */
+            estimate_above_cap: boolean;
+            /** Estimated Usd */
+            estimated_usd: number;
+            /** Has Key */
+            has_key: boolean;
+            /** Model */
+            model: string;
+            /** Monthly Cap Set */
+            monthly_cap_set: boolean;
+            /** Monthly Refusal */
+            monthly_refusal: boolean;
+        };
         /** NarrationRunRequest */
         NarrationRunRequest: {
             /**
@@ -23121,10 +23185,19 @@ export interface components {
              * @default false
              */
             append?: boolean;
+            /** Chapter From */
+            chapter_from?: number | null;
+            /** Chapter To */
+            chapter_to?: number | null;
             /** Engine */
             engine?: string | null;
             /** Model */
             model?: string | null;
+            /**
+             * One Narrator
+             * @default false
+             */
+            one_narrator?: boolean;
         };
         /** NarrationRunResult */
         NarrationRunResult: {
@@ -23140,6 +23213,8 @@ export interface components {
             chapters?: boolean | null;
             /** Jobs */
             jobs?: boolean | null;
+            /** Pc Name */
+            pc_name?: string | null;
             /** Private Titles */
             private_titles?: boolean | null;
             /** Remote */
@@ -23192,6 +23267,10 @@ export interface components {
             ntfy_allow_local: boolean;
             /** Ntfy Configured */
             ntfy_configured: boolean;
+            /** Pc Name */
+            pc_name: string;
+            /** Pc Name Default */
+            pc_name_default: string;
             /** Send Chapters */
             send_chapters: boolean;
             /** Send Jobs */
@@ -31408,6 +31487,10 @@ export interface components {
              * @default false
              */
             bulk?: boolean;
+            /** Chapter From */
+            chapter_from?: number | null;
+            /** Chapter To */
+            chapter_to?: number | null;
             /** Context Window */
             context_window?: number | null;
             /** Context Window Ahead */
@@ -46998,6 +47081,44 @@ export interface operations {
             };
         };
     };
+    post_typeset_comics_api_library_admin_typeset_comics_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryJobStarted"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_continue_api_library_continue_get: {
         parameters: {
             query?: {
@@ -51639,6 +51760,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_narration_estimate_api_narration_dramas__drama_id__estimate_get: {
+        parameters: {
+            query?: {
+                engine?: string | null;
+                model?: string | null;
+                chapter_from?: number | null;
+                chapter_to?: number | null;
+                /** @description Price only the text an add left without lines */
+                append?: boolean;
+            };
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NarrationEstimate"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -68363,6 +68540,8 @@ export interface operations {
                 job_cost_cap_usd?: number | null;
                 batch_size?: number | null;
                 line_ids?: number[] | null;
+                chapter_from?: number | null;
+                chapter_to?: number | null;
             };
             header?: never;
             path: {

@@ -18,6 +18,15 @@
 .diag-card > .card-fold { display: block; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; backdrop-filter: none; }
 .diag-card > .card-fold > details.section { border: 1px solid var(--glass-edge); border-radius: var(--radius-panel); padding: var(--space-2) var(--space-4); }
 .diag-card > .card-fold > details.section > summary .section-title { font-size: inherit; font-weight: 600; }
+/* People and access: Uploads from away and PC profiles are folding Cards among plain Sections, so drop the Card's box, taller row and larger title to match the rows beside them. */
+.admin-card-slot > .card-fold { display: block; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; backdrop-filter: none; }
+.admin-card-slot > .card-fold > details.section { border: 1px solid transparent; border-top-color: var(--border); border-radius: 0; padding: var(--space-2) var(--space-4); }
+.admin-card-slot > .card-fold > details.section > summary { align-items: baseline; }
+/* The 44px touch target stays on phones and touch screens, where the plain sections have it too. */
+@media (pointer: fine) and (min-width: 641px) {
+  .admin-card-slot > .card-fold > details.section > summary { min-height: 0; }
+}
+.admin-card-slot > .card-fold > details.section > summary .section-title { font-size: inherit; font-weight: 600; }
 /* A fold inside a fold (Missing / Installed packages) is a divided row, not a box in a box. */
 .diag-card details.section details.section { margin: 0; padding-inline: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; }
 @media (pointer: coarse), (max-width: 640px) {

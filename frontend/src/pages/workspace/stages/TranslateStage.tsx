@@ -145,6 +145,7 @@ function advancedSummary(f: RunForm, base: RunForm, reviewFirst: boolean): strin
     parts.push(`context ${f.context_window}/${f.context_window_ahead}`)
   }
   if (f.cost_cap.trim()) parts.push(`cap $${f.cost_cap.trim()}`)
+  if (f.chapter_from.trim() || f.chapter_to.trim()) parts.push(`chapters ${f.chapter_from.trim() || 1}-${f.chapter_to.trim() || 'end'}`)
   if (f.genre_notes !== base.genre_notes) parts.push(f.genre_notes ? 'genre notes on' : 'genre notes off')
   if (f.female_pronouns !== base.female_pronouns) parts.push(f.female_pronouns ? 'she/her default' : 'no she/her default')
   if (f.memory_examples) parts.push('approved examples')
@@ -582,6 +583,16 @@ function RunPanel({
           >
             <input type="number" min={0} step="0.01" value={f.cost_cap} onChange={(e) => set('cost_cap', e.target.value)} />
           </Field>
+          {titleKind(drama.media_type, drama.content_mode) === 'novel' && (
+            <>
+              <Field label="First chapter" help="Translate only some chapters this time: the first one to include. Leave both blank for all. Chapters already translated are skipped; the rest of the book is left alone.">
+                <input type="number" min={1} value={f.chapter_from} placeholder="1" onChange={(e) => set('chapter_from', e.target.value)} />
+              </Field>
+              <Field label="Last chapter" help="The last chapter to include; the same number as the first translates just that chapter.">
+                <input type="number" min={1} value={f.chapter_to} placeholder="last" onChange={(e) => set('chapter_to', e.target.value)} />
+              </Field>
+            </>
+          )}
           {batchOverridden && (
             <p className="muted batch-size-note advanced-wide" data-testid="batch-size-note">
               Batch size: Using {batchOverridden.value} (set by you). Default for this engine is {batchOverridden.engineDefault}.{' '}
