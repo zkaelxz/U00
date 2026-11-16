@@ -268,16 +268,16 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
             locale=settings.get("locale"), allow_paid_summary=paid)["job_id"]
     from services import narration_service
     lines = lines_choice(drama_id, settings)
-    chapters = {"chapter_from": lines.get("chapter_from"), "chapter_to": lines.get("chapter_to")}
+    first, last = lines.get("chapter_from"), lines.get("chapter_to")
     if not lines["one_narrator"]:
         _require_free_or_paid(principal, lines["engine"], "makes lines")
         if not lines["cost_accepted"]:
             # Priced here, not when added: before the text step has run there is no text to price.
-            cost = narration_service.estimate_tag_cost(drama_id, lines["engine"], lines.get("model"), **chapters)
+            cost = narration_service.estimate_tag_cost(drama_id, lines["engine"], lines.get("model"), first, last)
             if cost["has_key"] and cost["cap_applies"] and not cost["monthly_cap_set"] and cost["estimated_usd"] > 0:
                 raise InvalidInputError(
                     f"Splitting and tagging would cost about ${cost['estimated_usd']:.2f} and no monthly spending "
                     "cap is set. Tick the box to accept the cost, then press Continue.")
     return narration_service.start_narration_run(
         drama_id, engine_name=lines["engine"], model=lines.get("model"), one_narrator=lines["one_narrator"],
-        **chapters)["job_id"]
+        chapter_from=first, chapter_to=last)["job_id"]
