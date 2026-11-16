@@ -11,7 +11,7 @@ import {
 
 const line = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start: id, end: id + 1, zh: '你好', en: 'Hello', speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, unsure_words: null, ...over,
 })
 
 const page = (lines: ReviewLine[], over: Partial<ReviewLinesPage> = {}): ReviewLinesPage => ({
