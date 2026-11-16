@@ -166,7 +166,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        context_window_ahead=3, batch_size=20, summary_engine=None,
                        summary_engine_choice=None, target_ids=None,
                        summary_monthly_cap_usd=None, own_lines_only=False, thinking=None,
-                       summary_skip_reason=""):
+                       summary_skip_reason="", replace_flags=frozenset()):
     """
     The actual translation work, run inside a background thread. Touches
     only plain Python objects and the database, both of which are safe
@@ -231,7 +231,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
         **timing_settings_service.translate_limits(),
         **_saved_translate_options(engine_choice),
-        thinking=thinking, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
+        thinking=thinking, replace_flags=replace_flags, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes, sentence_groups_cb=(sentence_parts := []).extend,
         detail_cb=lambda frac, message: background_jobs.update_progress(

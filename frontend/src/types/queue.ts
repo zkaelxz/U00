@@ -31,3 +31,5 @@ export type QueueStepSettings = Schemas['QueueStepSettings']
 
 // GET/POST /api/queue/title-flow/{id}: how far a title's one-button run got.
 export type TitleFlowRun = Schemas['TitleFlowRun']
+// POST /api/queue/novel-flow/{id}: the link, and the choices the lines step makes them with.
+export type NovelFlowStart = Schemas['NovelFlowStart']

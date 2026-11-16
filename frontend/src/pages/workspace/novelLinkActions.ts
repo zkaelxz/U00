@@ -9,6 +9,7 @@ import { isTerminalStatus } from '../../types/jobs'
 import { defaultTermSelection } from './stages/autotuneGlossary'
 import { applyRequest } from './stages/glossaryExtract'
 import { applyStartToForm, buildRunBody, initialForm, loadPresetStart } from './translateForm'
+import { EMPTY_TAG_CHOICE, needsCostConfirm, tagRunBody, type TagChoice } from './stages/tagChoice'
 
 const POLL_MS = 2000
 // A job id answers 404 for a moment after its start in some paths; give it a few reads before calling it lost.
@@ -39,7 +40,7 @@ export async function waitForJob(jobId: string): Promise<void> {
  * (those with a suggested translation; the series glossary is where they go, so a title without a series
  * adds none) and starts the translation with the form's own defaults, the same body the Translate button sends.
  */
-export async function translateWithoutReview(id: number, hasSeries: boolean): Promise<string> {
+export async function translateWithoutReview(id: number, hasSeries: boolean, tag?: TagChoice): Promise<string> {
   if (hasSeries) {
     const status = await getNovelGlossary(id)
     const proposals = status.proposals ?? []
@@ -50,6 +51,15 @@ export async function translateWithoutReview(id: number, hasSeries: boolean): Pr
   }
   const config = await getTranslateConfig(id)
   const form = applyStartToForm(initialForm(config, loadPresetStart(id)), config.translate_start, config)
+  if (tag) {
+    // The AI engine and chapters the person chose for the step before are the ones this step uses too.
+    if (!tag.oneNarrator) {
+      form.engine = tag.engine || (await narrationApi.config(id)).default_engine
+      form.model = tag.model.trim()
+    }
+    form.chapter_from = tag.from
+    form.chapter_to = tag.to
+  }
   return (await startTranslateRun(id, buildRunBody(form))).job_id
 }
 
@@ -65,6 +75,7 @@ export type AddStep = 'import' | 'text' | 'lines'
  */
 export async function addChaptersFromLink(
   id: number, url: string, onStep: (s: AddStep) => void, chaptersBefore?: number,
+  tag: TagChoice = EMPTY_TAG_CHOICE, costAccepted: () => boolean = () => false,
 ): Promise<number> {
   onStep('import')
   const started = await startNovelUrlImport(url, id, {})
@@ -76,8 +87,15 @@ export async function addChaptersFromLink(
   if (waiting > 0) {
     onStep('lines')
     const cfg = await narrationApi.config(id)
-    const engine = cfg.engines.find((e) => e.key_configured)?.key ?? cfg.default_engine
-    await waitForJob((await narrationApi.run(id, { engine, append: true })).job_id)
+    // The engine the person picked (chapters do not apply: only the new text is cut), never the first one with a key.
+    const body = tagRunBody({ ...tag, from: '', to: '' }, cfg.default_engine)
+    if (!tag.oneNarrator) {
+      const estimate = await narrationApi.estimate(id, { engine: body.engine, model: body.model, append: true })
+      if (needsCostConfirm(estimate) && !costAccepted()) {
+        throw new StepFailed(`Tagging the new chapters would cost about $${estimate.estimated_usd.toFixed(2)} and no monthly spending cap is set. Tick the box to accept the cost, then press Add from link again.`)
+      }
+    }
+    await waitForJob((await narrationApi.run(id, { ...body, append: true })).job_id)
   }
   return Math.max(result.added_chars, waiting)
 }

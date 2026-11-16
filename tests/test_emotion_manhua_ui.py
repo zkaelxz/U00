@@ -9,8 +9,10 @@ import pytest
 import numpy as np
 cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cleanly without it
 import emotion as em
-import scanlate_render
+import scanlate_fonts
 import scanlate_detect
+import scanlate_balloons
+import scanlate_panels
 from core import Line
 
 
@@ -149,13 +151,13 @@ class TestManhuaPanels:
     def test_detects_panels(self):
         d = tempfile.mkdtemp()
         try:
-            assert len(scanlate_detect.detect_panels(self._page(d))) >= 1
+            assert len(scanlate_panels.detect_panels(self._page(d))) >= 1
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_missing_file_raises(self):
         try:
-            scanlate_detect.detect_panels("/nonexistent/x.png")
+            scanlate_panels.detect_panels("/nonexistent/x.png")
             assert False, "should raise"
         except ValueError:
             pass
@@ -173,14 +175,14 @@ class TestWebtoonSlicing:
     def test_tall_strip_is_sliced(self):
         d = tempfile.mkdtemp()
         try:
-            assert len(scanlate_detect.split_webtoon_strip(self._strip(d), target_height=1600)) > 1
+            assert len(scanlate_panels.split_webtoon_strip(self._strip(d), target_height=1600)) > 1
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_slices_cover_entire_strip(self):
         d = tempfile.mkdtemp()
         try:
-            sl = scanlate_detect.split_webtoon_strip(self._strip(d, 5000), target_height=1600)
+            sl = scanlate_panels.split_webtoon_strip(self._strip(d, 5000), target_height=1600)
             assert sl[0]["y_start"] == 0
             assert sl[-1]["y_end"] == 5000
         finally:
@@ -189,7 +191,7 @@ class TestWebtoonSlicing:
     def test_all_slices_have_positive_height(self):
         d = tempfile.mkdtemp()
         try:
-            for s in scanlate_detect.split_webtoon_strip(self._strip(d), target_height=1600):
+            for s in scanlate_panels.split_webtoon_strip(self._strip(d), target_height=1600):
                 assert s["y_end"] > s["y_start"]
         finally:
             shutil.rmtree(d, ignore_errors=True)
@@ -199,7 +201,7 @@ class TestWebtoonSlicing:
         try:
             p = os.path.join(d, "s.png")
             cv2.imwrite(p, np.full((500, 400, 3), 255, dtype=np.uint8))
-            assert len(scanlate_detect.split_webtoon_strip(p, target_height=1600)) == 1
+            assert len(scanlate_panels.split_webtoon_strip(p, target_height=1600)) == 1
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
@@ -212,18 +214,18 @@ class TestTextRegionClassification:
             cv2.rectangle(img, (50, 50), (350, 150), (255, 255, 255), -1)
             cv2.rectangle(img, (50, 50), (350, 150), (0, 0, 0), 3)
             cv2.imwrite(p, img)
-            out = scanlate_detect.classify_text_regions(p, [{"x": 50, "y": 50, "w": 300, "h": 100}])
-            assert out[0]["kind"] in scanlate_detect.TEXT_REGION_KINDS
+            out = scanlate_balloons.classify_text_regions(p, [{"x": 50, "y": 50, "w": 300, "h": 100}])
+            assert out[0]["kind"] in scanlate_balloons.TEXT_REGION_KINDS
             assert 0.0 <= out[0]["kind_confidence"] <= 1.0
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_missing_file_defaults_to_bubble(self):
-        out = scanlate_detect.classify_text_regions("/nope/x.png", [{"x": 0, "y": 0, "w": 10, "h": 10}])
+        out = scanlate_balloons.classify_text_regions("/nope/x.png", [{"x": 0, "y": 0, "w": 10, "h": 10}])
         assert out[0]["kind"] == "bubble"
 
     def test_all_kinds_documented(self):
-        for k, v in scanlate_detect.TEXT_REGION_KINDS.items():
+        for k, v in scanlate_balloons.TEXT_REGION_KINDS.items():
             assert isinstance(v, str) and v
 
     def test_font_style_sampling_returns_suggestion(self):
@@ -231,13 +233,13 @@ class TestTextRegionClassification:
         try:
             p = os.path.join(d, "p.png")
             cv2.imwrite(p, np.full((200, 200, 3), 255, dtype=np.uint8))
-            s = scanlate_render.sample_text_style(p, {"x": 10, "y": 10, "w": 100, "h": 50})
+            s = scanlate_fonts.sample_text_style(p, {"x": 10, "y": 10, "w": 100, "h": 50})
             assert s["suggested_style"] in ("handwritten", "bold", "regular")
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_font_sampling_missing_file_fallback(self):
-        s = scanlate_render.sample_text_style("/nope/x.png", {"x": 0, "y": 0, "w": 5, "h": 5})
+        s = scanlate_fonts.sample_text_style("/nope/x.png", {"x": 0, "y": 0, "w": 5, "h": 5})
         assert s["weight"] == "regular"
 
 

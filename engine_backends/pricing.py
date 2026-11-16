@@ -389,15 +389,6 @@ def estimate_episode_summary_tokens(zh_lines: list) -> tuple:
     return int(source_tokens) + REPLY_TOKENS_PER_LINE * len(zh_lines) + 250, 200
 
 
-def estimate_reflect_mode_cost(engine, zh_lines: list, batch_size: int | None = None) -> float:
-    """Rough pre-run estimate for Reflect mode, shown before the
-    user starts it (it costs real money to run and can't be cancelled
-    mid-line the way a single bad batch can). Reflect mode is three LLM
-    calls instead of translate_batch's one, so this is a normal run's
-    estimate times 3."""
-    return estimate_translation_cost(engine, zh_lines, batch_size) * 3
-
-
 def resolve_cost_cap(job_cap_usd=None, monthly_cap_usd=None, month_spend_usd: float = 0.0):
     """(cap, refusal) for a job about to start. cap is the tighter of the
     per-job cap and whatever is left of the monthly cap, or None when

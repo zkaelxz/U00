@@ -470,6 +470,9 @@ class TestApply:
         assert out == {"applied": [ids[0], ids[1]], "skipped": [], "untranslated_count": 0}
         lines = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
         assert (lines[ids[0]].zh, lines[ids[0]].en) == ("新0", "Old 0")
+        assert sorted((r["line_id"], r["path"], r["after_zh"])
+                      for r in isolated_db.list_source_edits(did)) == [
+            (ids[0], "retranscribe_many", "新0"), (ids[1], "retranscribe_many", "新2")]
         assert (lines[ids[1]].zh, lines[ids[1]].en) == ("新2", "Old 1")
         # The kept English no longer matches the source: flagged for review.
         assert (lines[ids[0]].flag, lines[ids[0]].flag_note) == ("source_changed", "")

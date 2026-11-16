@@ -114,11 +114,16 @@ def start_title_flow(principal, drama_id: int, holds_paid: bool, *, at_pc: bool)
 
 # --- novels --------------------------------------------------------------------
 
-def lines_engine(drama_id: int) -> str:
-    """The engine that cuts a novel into lines: the first with a key, as the novel page picked it."""
+def lines_choice(drama_id: int, choice: dict) -> dict:
+    """The lines step's settings from the page's choice: the engine named (the title's default when
+    none is), never the first engine that happens to have a key."""
     from services import narration_service
-    cfg = narration_service.get_narration_config(drama_id)
-    return next((e["key"] for e in cfg["engines"] if e["key_configured"]), cfg["default_engine"])
+    out = {"engine": choice.get("engine") or narration_service.get_narration_config(drama_id)["default_engine"],
+           "one_narrator": bool(choice.get("one_narrator")), "cost_accepted": bool(choice.get("cost_accepted"))}
+    for key in ("model", "chapter_from", "chapter_to"):
+        if choice.get(key):
+            out[key] = choice[key]
+    return out
 
 
 def _novel_state(drama_id: int) -> dict:
@@ -144,11 +149,12 @@ def novel_steps(drama_id: int) -> list:
     return steps + [q.NAMES]
 
 
-def start_novel_flow(principal, drama_id: int, url: str, *, at_pc: bool, local: bool,
+def start_novel_flow(principal, drama_id: int, url: str, lines: dict, *, at_pc: bool, local: bool,
                      text_allowed: bool, holds_import: bool) -> dict:
     """Adds the novel run (import the link when no chapter is saved, make the text and the lines
     when there are none, then Find names), to start at once, and returns novel_flow. The caller
-    checks the lines and names engines against the paid-engine permission. `local` is the import's
+    checks the lines and names engines against the paid-engine permission. `lines` is the lines
+    step's settings (lines_choice). `local` is the import's
     fetch mode (the request came from the PC); `text_allowed` is whether the caller could prepare
     the text themselves."""
     from services import sources_extension_service, sources_url_service
@@ -168,7 +174,7 @@ def start_novel_flow(principal, drama_id: int, url: str, *, at_pc: bool, local: 
                 raise ForbiddenError(_TEXT_AT_PC)
             steps.append((step, {}))
         elif step == q.LINES:
-            steps.append((step, {"engine": lines_engine(drama_id)}))
+            steps.append((step, lines))
         else:
             steps.append((step, {"source": _NOVEL}))
     return _add(principal, drama_id, steps, at_pc, _NOVEL)
@@ -261,6 +267,17 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
             translate_run_service.start_translate_run, drama_id, None, False, engine_name=engine,
             locale=settings.get("locale"), allow_paid_summary=paid)["job_id"]
     from services import narration_service
-    engine = settings.get("engine") or lines_engine(drama_id)
-    _require_free_or_paid(principal, engine, "makes lines")
-    return narration_service.start_narration_run(drama_id, engine_name=engine)["job_id"]
+    lines = lines_choice(drama_id, settings)
+    chapters = {"chapter_from": lines.get("chapter_from"), "chapter_to": lines.get("chapter_to")}
+    if not lines["one_narrator"]:
+        _require_free_or_paid(principal, lines["engine"], "makes lines")
+        if not lines["cost_accepted"]:
+            # Priced here, not when added: before the text step has run there is no text to price.
+            cost = narration_service.estimate_tag_cost(drama_id, lines["engine"], lines.get("model"), **chapters)
+            if cost["has_key"] and cost["cap_applies"] and not cost["monthly_cap_set"] and cost["estimated_usd"] > 0:
+                raise InvalidInputError(
+                    f"Splitting and tagging would cost about ${cost['estimated_usd']:.2f} and no monthly spending "
+                    "cap is set. Tick the box to accept the cost, then press Continue.")
+    return narration_service.start_narration_run(
+        drama_id, engine_name=lines["engine"], model=lines.get("model"), one_narrator=lines["one_narrator"],
+        **chapters)["job_id"]

@@ -36,6 +36,7 @@ import {
   CATEGORIES,
   CATEGORIES_NOTE,
   CHANNELS,
+  PC_NAME_HELP,
   type CategoryField,
   categoryChange,
   isConfigured,
@@ -194,6 +195,7 @@ function NotificationControls({ notifyToggle }: { notifyToggle: ReactNode }) {
             </div>
             <p className="settings-note">{CATEGORIES_NOTE}</p>
           </div>
+          <PcNameField status={status} onSaved={setStatus} onError={setError} />
           <p className="settings-note" data-testid="ntfy-local-note">
             {status.ntfy_allow_local
               ? 'A local ntfy server (on this PC or your home network) is allowed.'
@@ -203,6 +205,55 @@ function NotificationControls({ notifyToggle }: { notifyToggle: ReactNode }) {
         </>
       )}
     </Card>
+  )
+}
+
+// Saved on the button, not on every keystroke: each save is a request, and a
+// half-typed name would otherwise reach Discord.
+function PcNameField({
+  status,
+  onSaved,
+  onError,
+}: {
+  status: NotificationStatus
+  onSaved: (s: NotificationStatus) => void
+  onError: (e: unknown) => void
+}) {
+  const [draft, setDraft] = useState(status.pc_name)
+  const [busy, setBusy] = useState(false)
+  const changed = draft.trim() !== status.pc_name
+  const save = () => {
+    setBusy(true)
+    setNotificationCategories({ pc_name: draft.trim() }).then(
+      (s) => {
+        onSaved(s)
+        setDraft(s.pc_name)
+        setBusy(false)
+      },
+      (e: unknown) => {
+        onError(e)
+        setBusy(false)
+      },
+    )
+  }
+  return (
+    <Field label="PC name" help={PC_NAME_HELP}>
+      <div className="settings-actions">
+        <input
+          type="text"
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={40}
+          value={draft}
+          placeholder={status.pc_name_default || 'This PC'}
+          disabled={busy}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || !changed} onClick={save}>
+          Save name
+        </button>
+      </div>
+    </Field>
   )
 }
 

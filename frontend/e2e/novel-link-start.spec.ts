@@ -12,7 +12,7 @@ test.afterEach(async ({ page }) => {
 })
 
 type Run = { state: string; step: string | null; reason: string | null }
-interface Server { chapters: number; text: boolean; lines: number; run: Run; posts: { url: string }[] }
+interface Server { chapters: number; text: boolean; lines: number; run: Run; posts: Record<string, unknown>[] }
 
 async function mockServer(page: Page, start: Partial<Server> = {}, end: Run = { state: 'review', step: null, reason: null }): Promise<Server> {
   const s: Server = { chapters: 0, text: false, lines: 0, run: { state: 'idle', step: null, reason: null }, posts: [], ...start }
@@ -25,7 +25,7 @@ async function mockServer(page: Page, start: Partial<Server> = {}, end: Run = { 
     flagged_count: 0, has_audio: false, has_dub_track: false, exported: false, stages: [] } }))
   await page.route('**/api/queue/novel-flow/2', (r) => {
     if (r.request().method() === 'POST') {
-      s.posts.push(r.request().postDataJSON() as { url: string })
+      s.posts.push(r.request().postDataJSON() as Record<string, unknown>)
       const first = { state: 'running', step: s.chapters ? 'lines' : 'import', reason: null }
       const answer = s.run.state === 'running' ? s.run : first
       s.run = end
@@ -33,6 +33,12 @@ async function mockServer(page: Page, start: Partial<Server> = {}, end: Run = { 
     }
     return r.fulfill({ json: s.run })
   })
+  await page.route('**/api/narration/dramas/2/config', (r) => r.fulfill({ json: {
+    drama_id: 2, is_narration: true, has_novel_source: true, engines: [{ key: 'gemini', key_configured: true }],
+    default_engine: 'gemini', max_chunk_chars: 1000, existing_line_count: 0, replaces_existing_lines: false, job_running: false, chapter_count: 5 } }))
+  await page.route('**/api/narration/dramas/2/estimate*', (r) => r.fulfill({ json: {
+    engine: 'gemini', model: 'm', chunk_count: 40, chapters: 5, estimated_usd: 0, has_key: true, cap_applies: false,
+    monthly_cap_set: false, effective_cap_usd: null, monthly_refusal: false, estimate_above_cap: false } }))
   return s
 }
 
@@ -43,7 +49,8 @@ test('the link starts the run, which stops at the glossary review', async ({ pag
   await page.getByRole('button', { name: 'Import from link' }).click()
   const review = page.getByRole('link', { name: 'Review glossary and translate' })
   await expect(review).toHaveAttribute('href', '#/drama/2/translate?tab=translate')
-  expect(s.posts).toEqual([{ url: 'https://example.com/book/1' }])
+  // Before the text exists there is no engine to show, so the server's default makes the lines.
+  expect(s.posts).toEqual([{ url: 'https://example.com/book/1', cost_accepted: false }])
 })
 
 test('a run that stopped says why and offers Continue', async ({ page }) => {
@@ -71,7 +78,8 @@ test('a refused start shows its error and offers Continue', async ({ page }) => 
 test('opening the title mid-run shows the run, not a button to start it again', async ({ page }) => {
   await mockServer(page, { chapters: 3, text: true, run: { state: 'running', step: 'names', reason: null } })
   await page.goto('/#/drama/2')
-  await expect(page.getByRole('status')).toHaveText('Finding names for the glossary')
+  // The first status is the run's; the chunk-and-tag choices under it have their own for the estimate.
+  await expect(page.getByRole('status').first()).toHaveText('Finding names for the glossary')
   await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled()
 })
 
@@ -79,9 +87,11 @@ test('with chapters saved, Continue starts the run without a link', async ({ pag
   const s = await mockServer(page, { chapters: 3, text: true })
   await page.goto('/#/drama/2')
   await expect(page.getByLabel('Link to the novel')).toHaveCount(0)
+  await page.getByRole('spinbutton', { name: 'First chapter' }).fill('2')
   await page.getByRole('button', { name: 'Continue' }).click()
   await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toBeVisible()
-  expect(s.posts).toEqual([{ url: '' }])
+  // The engine shown in the options is the one the lines step is told to use.
+  expect(s.posts).toEqual([{ url: '', engine: 'gemini', chapter_from: 2, cost_accepted: false }])
 })
 
 test('Translate on a novel with chapters and no lines starts the run to the glossary review', async ({ page }) => {
@@ -99,7 +109,7 @@ test('Enter in the link box starts the run', async ({ page }) => {
   await page.getByLabel('Link to the novel').fill('https://example.com/book/1')
   await page.getByLabel('Link to the novel').press('Enter')
   await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toBeVisible()
-  expect(s.posts[0]).toEqual({ url: 'https://example.com/book/1' })
+  expect(s.posts[0]).toEqual({ url: 'https://example.com/book/1', cost_accepted: false })
 })
 
 test('Import from link stays disabled until a link is typed', async ({ page }) => {

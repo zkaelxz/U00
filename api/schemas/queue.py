@@ -138,9 +138,17 @@ class TitleFlowRun(BaseModel):
 
 
 class NovelFlowStart(BaseModel):
-    """POST /api/queue/novel-flow/{id}. `url` is read only when no chapter is saved yet."""
+    """POST /api/queue/novel-flow/{id}. `url` is read only when no chapter is saved yet; the rest
+    is what the lines step makes the lines with, as the chunk-and-tag run takes it."""
     model_config = ConfigDict(extra="forbid")
     url: StrictStr = Field(default="", max_length=2000)
+    engine: Optional[StrictStr] = Field(default=None, max_length=40)
+    model: Optional[StrictStr] = Field(default=None, max_length=200)
+    chapter_from: Optional[int] = Field(default=None, ge=1)
+    chapter_to: Optional[int] = Field(default=None, ge=1)
+    one_narrator: bool = False
+    # The page showed the estimate for a paid engine with no monthly cap and the person accepted it.
+    cost_accepted: bool = False
 
 
 class FileRunStart(BaseModel):

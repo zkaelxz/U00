@@ -24,7 +24,7 @@ export const LINK_FORMATS = ['audio_drama', 'novel', 'manhua', 'manhwa', 'manga'
 export const PLATFORM_TYPES = ['novel', 'manhwa', 'manga', 'manhua', 'audio_drama']
 export const TARGET_LANGUAGES = ['English', 'Vietnamese', 'Chinese', 'Japanese', 'Korean']
 
-// Engines the server accepts here (translate_engines supports_reference).
+// Engines the server accepts here (the engine_backends classes with supports_reference).
 const DISCOVER_ENGINE_IDS = new Set(['claude', 'deepseek', 'gemini', 'openai', 'ollama'])
 
 /** Picker entries: engines the Discover routes accept that have a key (or need none). */

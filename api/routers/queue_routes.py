@@ -145,13 +145,13 @@ def get_novel_flow(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
              responses=error_responses(400, 403, 404, 409, 422, 503))
 def start_novel_flow(body: NovelFlowStart, request: Request, drama_id: int = Path(ge=1, lt=2**63)):
     # Each step's engine is held to the gate of the button it replaces (narration run, Glossary tab).
-    engines = [glossary_extract_service.novel_glossary_engine(drama_id)]
-    if "lines" in page_run_service.novel_steps(drama_id):
-        engines.append(page_run_service.lines_engine(drama_id))
-    require_engines_allowed(request, *engines)
+    require_engines_allowed(request, glossary_extract_service.novel_glossary_engine(drama_id))
+    lines = page_run_service.lines_choice(drama_id, body.model_dump(exclude={"url"}))
+    if "lines" in page_run_service.novel_steps(drama_id) and not lines["one_narrator"]:
+        require_engines_allowed(request, lines["engine"], model=lines.get("model"))
     local = is_local_request(request)
     return page_run_service.start_novel_flow(
-        request.state.principal, drama_id, body.url, at_pc=is_at_pc(request), local=local,
+        request.state.principal, drama_id, body.url, lines, at_pc=is_at_pc(request), local=local,
         # The text step was local_only(): with sign-in on, only a request from the PC may add it.
         text_allowed=local or not is_auth_enabled(request.app), holds_import=holds(request, "sources.import"))
 

@@ -15,6 +15,7 @@ import ocr
 import scanlate
 import scanlate_art_text as art
 import scanlate_inpaint
+import scanlate_lama
 import scanlate_render
 
 
@@ -242,7 +243,7 @@ class TestPaintOut:
 
         def too_big(roi, mask, **kw):
             raise ValueError("too large")
-        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", too_big)
+        monkeypatch.setattr(scanlate_lama, "_run_ml_inpaint", too_big)
         page = _dark_page_with_white_text()
         assert art.paint_out_captions(page, [{"x": 90, "y": 140, "w": 330, "h": 80}]) is False
         assert page[180, 130].max() < 100
@@ -255,7 +256,7 @@ class TestPaintOut:
         def fake(roi, mask, **kw):
             kwargs.update(kw)
             return np.full_like(roi, 7)
-        monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", fake)
+        monkeypatch.setattr(scanlate_lama, "_run_ml_inpaint", fake)
         page = _dark_page_with_white_text()
         assert art.paint_out_captions(page, [{"x": 90, "y": 140, "w": 330, "h": 80}]) is True
         assert kwargs == {"allow_download": False}
@@ -446,7 +447,7 @@ def test_outlined_caption_on_dark_art_is_painted_out_with_the_art_tone_without_t
     # or the model smears a grey patch over the art.
     def no_model(*a, **k):
         raise AssertionError("the art fill should have handled this caption")
-    monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", no_model)
+    monkeypatch.setattr(scanlate_lama, "_run_ml_inpaint", no_model)
     page = _outlined_red_lettering_on_dark_art()
     box = {"x": 70, "y": 120, "w": 460, "h": 140}
     art.paint_out_captions(page, [box])

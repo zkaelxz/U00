@@ -107,7 +107,7 @@ def _empty() -> dict:
 
 _SETTING_KEYS = {"transcribe": transcribe_options_service.QUEUE_SETTING_KEYS,
                  "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS, DOWNLOAD: ("url",), NAMES: ("source",),
-                 IMPORT: ("url", "local"), TEXT: (), LINES: ("engine",), FOLLOW: ("job_id",),
+                 IMPORT: ("url", "local"), TEXT: (), LINES: ("engine", "model", "chapter_from", "chapter_to", "one_narrator", "cost_accepted"), FOLLOW: ("job_id",),
                  RUN_TRANSLATE: ("engine", "locale")}
 
 

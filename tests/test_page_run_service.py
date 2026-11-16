@@ -179,19 +179,25 @@ def novel(names, monkeypatch):
 
     monkeypatch.setattr(sources_import_service, "start_url_import", start_import)
     monkeypatch.setattr(novel_attach_service, "attach_from_sources", attach)
-    monkeypatch.setattr(narration_service, "start_narration_run",
-                        lambda drama_id, engine_name=None, **kw: names._start(f"narration_{drama_id}"))
+    calls["lines"] = []
+
+    def make_lines(drama_id, engine_name=None, **kw):
+        calls["lines"].append({"engine": engine_name, **kw})
+        return names._start(f"narration_{drama_id}")
+    monkeypatch.setattr(narration_service, "start_narration_run", make_lines)
+    calls["cost"] = {"has_key": True, "cap_applies": False, "monthly_cap_set": False, "estimated_usd": 0.0}
+    monkeypatch.setattr(narration_service, "estimate_tag_cost", lambda *a, **kw: dict(calls["cost"]))
     monkeypatch.setattr(glossary_extract_service, "start_novel_glossary_run",
                         lambda drama_id, engine_name=None: names._start(f"novel_glossary_{drama_id}"))
     monkeypatch.setattr(runs, "_novel_state", lambda drama_id: dict(calls["state"]))
-    monkeypatch.setattr(runs, "lines_engine", lambda drama_id: "ollama")
+    monkeypatch.setattr(narration_service, "get_narration_config", lambda drama_id: {"default_engine": "ollama"})
     names.calls = calls
     return names
 
 
-def _novel_start(did, **kw):
+def _novel_start(did, choice=None, **kw):
     args = {"at_pc": True, "local": True, "text_allowed": True, "holds_import": True, **kw}
-    return runs.start_novel_flow(None, did, kw.pop("url", "https://example.com/ch1"), **{
+    return runs.start_novel_flow(None, did, kw.pop("url", "https://example.com/ch1"), runs.lines_choice(did, choice or {}), **{
         k: v for k, v in args.items() if k != "url"})
 
 
@@ -209,6 +215,8 @@ def test_a_novel_link_run_imports_makes_the_text_and_lines_then_finds_names(nove
     assert novel.calls["text"] == 1
     q.tick()
     assert novel.started[-1] == f"narration_{did}"
+    # No engine was named: the title's default makes the lines, not the first engine with a key.
+    assert novel.calls["lines"][0]["engine"] == "ollama"
     novel.finish(f"narration_{did}")
     q.tick()
     assert novel.started[-1] == f"novel_glossary_{did}"
@@ -224,6 +232,39 @@ def test_a_novel_with_saved_chapters_and_text_starts_at_its_lines(novel):
     did = _drama("Novel", lines=(), media_type="novel")
     _novel_start(did, url="")
     assert [s for s, _ in _flow(did)] == ["lines", "names"]
+
+
+def test_the_lines_step_uses_the_engine_model_and_chapters_the_page_chose(novel):
+    novel.calls["state"] = {"chapters": 3, "text": True, "lines": False}
+    did = _drama("Novel", lines=(), media_type="novel")
+    _novel_start(did, {"engine": "gemini", "model": "m", "chapter_from": 2, "chapter_to": 3}, url="")
+    q.tick()
+    assert novel.calls["lines"] == [{"engine": "gemini", "model": "m", "one_narrator": False,
+                                     "chapter_from": 2, "chapter_to": 3}]
+
+
+def test_an_unaccepted_paid_estimate_stops_the_lines_step_and_an_accepted_one_starts_it(novel):
+    novel.calls["state"] = {"chapters": 3, "text": True, "lines": False}
+    novel.calls["cost"] = {"has_key": True, "cap_applies": True, "monthly_cap_set": False, "estimated_usd": 1.5}
+    did = _drama("Novel", lines=(), media_type="novel")
+    _novel_start(did, {"engine": "gemini"}, url="")
+    q.tick()
+    q.tick()
+    view = runs.novel_flow(None, did)
+    assert view["state"] == "stopped" and "$1.50" in view["reason"]
+    assert novel.calls["lines"] == []
+    _novel_start(did, {"engine": "gemini", "cost_accepted": True}, url="")
+    q.tick()
+    assert [c["engine"] for c in novel.calls["lines"]] == ["gemini"]
+
+
+def test_one_narrator_makes_the_lines_without_pricing_them(novel):
+    novel.calls["state"] = {"chapters": 3, "text": True, "lines": False}
+    novel.calls["cost"] = {"has_key": True, "cap_applies": True, "monthly_cap_set": False, "estimated_usd": 1.5}
+    did = _drama("Novel", lines=(), media_type="novel")
+    _novel_start(did, {"one_narrator": True}, url="")
+    q.tick()
+    assert novel.calls["lines"][0]["one_narrator"] is True
 
 
 def test_the_text_step_stays_at_the_pc_and_the_import_needs_its_permission(novel):

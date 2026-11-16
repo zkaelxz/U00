@@ -22,12 +22,12 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Request
 from api.auth import (LOOPBACK_HOSTS, PROXY_HEADERS, host_name, is_local_request,
                       is_loopback_peer, local_only, require_permission)
-from api.schemas import (EndpointUrlResult, EndpointUrlSetRequest, EngineKeyClearRequest,
+from api.schemas import (EndpointUrlResult, EnvSettingsStatus, EndpointUrlSetRequest, EngineKeyClearRequest,
                          EngineKeyResult, EngineKeySetRequest, MonthCounterResetResult,
                          SettingsOverview, SettingsSchema,
                          SettingsUpdateRequest)
 from lib.errors import ForbiddenError
-from services import settings_schema_service, settings_service
+from services import env_settings_service, settings_schema_service, settings_service
 from lib.errors import InvalidInputError
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -47,6 +47,13 @@ def get_overview(request: Request):
             summary="Declared settings (labels, types, limits, choices); never a value")
 def get_schema():
     return settings_schema_service.get_schema()
+
+
+# PC-only like the rest of Advanced: it names which keys-file lines exist on this PC.
+@router.get("/keys-file", dependencies=[local_only()], response_model=EnvSettingsStatus,
+            summary="Which keys-file and environment settings are set (yes or no, never a value)")
+def get_keys_file_status():
+    return env_settings_service.get_status()
 
 
 # PC-only: the preferences include paths the server itself uses (the

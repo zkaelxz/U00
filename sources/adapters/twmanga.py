@@ -140,6 +140,7 @@ def _same_series(link_slug: str, series_id: str) -> bool:
 class TwmangaSource(SourceAdapter):
     name = "twmanga"
     display_name = "包子漫畫 Twmanga/Twbzmg"
+    homepage = "https://www.twmanga.com"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
     url_patterns = [r"(?:twmanga|twbzmg)\.com/(?:comic/|user/page_direct\?)"]
