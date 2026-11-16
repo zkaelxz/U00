@@ -332,6 +332,14 @@ installed packages and the platform, so the config pins `pythonPlatform` to Linu
 A per-line ignore must name its rule (`# pyright: ignore[reportOptionalMemberAccess]`); a bare one is an error.
 `python tools/check_change.py` prints the command when a changed `.py` file is in scope.
 
+The `guards` job also runs `lint-imports` (import-linter, pinned to 2.15) on the contract in `.importlinter`: the
+packages import only downward (`api`, `services`, `jobs | sources`, `engine_backends`, `db`, `lib`). Its
+`ignore_imports` are the wrong-way imports that existed when the check was added; one that no longer matches fails the
+run, so the list only shrinks. import-linter can't treat single-file root modules as packages, so
+`tests/test_static_analysis.py` (`TestLayering`) checks their two directions (root modules don't import `services`
+or `api`, `db` doesn't import root modules) against frozen lists of the same kind. `python tools/check_change.py`
+prints the command when a changed `.py` file is in one of the contract's packages.
+
 `pytest.ini` sets `-v`, so a passing run prints hundreds of lines. The lean form prints a few hundred bytes and is what
 `tools/start-local-coder.ps1` exports as `PYTEST_ADDOPTS` for the local model:
 
