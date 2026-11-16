@@ -501,6 +501,14 @@ def _separate_vocals_chunked(audio_path: str, out_path: str, process_chunk_fn,
     Uses soundfile (not torchaudio) for the plain-WAV reads/writes here,
     same reasoning as diarize()'s torchaudio workaround: no compiled-per-FFmpeg-version DLLs.
     """
+    import audio_extract
+    with audio_extract.sndfile_readable(audio_path) as readable:
+        return _separate_readable(readable, out_path, process_chunk_fn, chunk_seconds,
+                                  overlap_seconds, progress_cb, cancel_check_cb)
+
+
+def _separate_readable(audio_path, out_path, process_chunk_fn, chunk_seconds, overlap_seconds,
+                       progress_cb, cancel_check_cb):
     import soundfile as sf
 
     info = sf.info(audio_path)
