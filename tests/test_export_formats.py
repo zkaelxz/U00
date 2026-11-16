@@ -359,8 +359,9 @@ class TestOverlapClamp:
         cues = [c.split("\n") for c in lines_to_srt(export_lines).strip().split("\n\n")]
         assert [c[2] for c in cues] == ["First.", "Second."]
         for c in cues:
-            start, end = c[1].split(" --> ")
-            assert end > start  # fixed-width stamps compare as text
+            start, end = (sum(float(x) * m for x, m in zip(t.replace(",", ".").split(":"), (3600, 60, 1)))
+                          for t in c[1].split(" --> "))
+            assert end - start >= sf.MIN_CLAMPED_CUE_S - 0.001  # a sub-frame cue is dropped too
         stamps = [row[:10] for row in sf.lines_to_lrc(export_lines).splitlines()
                   if row.endswith((".", "!"))]
         assert len(stamps) == 2 and stamps[0] < stamps[1]

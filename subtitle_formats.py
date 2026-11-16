@@ -191,7 +191,8 @@ def tidy_cue_timing(lines, fps=None):
             extended += 1
         elif nxt is not None and nxt.start - ln.end < gap - _TIMING_EPSILON:
             trim = min(gap - (nxt.start - ln.end), gap)
-            if ln.end - trim > ln.start:
+            # A cue clamping already cut to its floor keeps it: a sub-frame cue is dropped by players.
+            if ln.end - trim - ln.start >= MIN_CLAMPED_CUE_S - _TIMING_EPSILON:
                 ln.end -= trim
                 trimmed += 1
     left_long = [i + 1 for i, ln in enumerate(out) if ln.end - ln.start > MAX_DURATION_S]
@@ -200,7 +201,8 @@ def tidy_cue_timing(lines, fps=None):
 
 def overlap_note(ln, next_start: float) -> str:
     return (f"Overlapped the next line by {ln.end - next_start:.2f}s; exports trim its end to "
-            f"{next_start:.2f}s. Adjust the timing to fix it for good.")
+            f"{next_start:.2f}s (or, when both start within {MIN_CLAMPED_CUE_S:.1f}s, start the next "
+            f"line {MIN_CLAMPED_CUE_S:.1f}s after this one). Adjust the timing to fix it for good.")
 
 
 def lines_for_clip(lines, start: float, end: float):
