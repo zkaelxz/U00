@@ -207,6 +207,13 @@ def status() -> dict:
             "since": state["since"], "pending_restarts": pending}
 
 
+def restart_pending(job_id: str) -> bool:
+    """True while job_id is stopped by the guard and will be started again: its run
+    reads "cancelled", but whoever waits on it should keep waiting."""
+    with _guard_lock:
+        return job_id in _pending
+
+
 # --- restartable jobs --------------------------------------------------------
 
 def allow_restart(job_id: str, restart) -> None:
