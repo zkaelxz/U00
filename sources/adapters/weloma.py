@@ -90,6 +90,7 @@ def _item_values(pattern, html: str) -> list:
 class WelomaSource(SourceAdapter):
     name = "weloma"
     display_name = "Weloma"
+    homepage = "https://weloma.net"
     content_types = [ContentType.MANGA.value]
     languages = ["ja"]
     url_patterns = [r"weloma\.net/m/[A-Za-z0-9]"]

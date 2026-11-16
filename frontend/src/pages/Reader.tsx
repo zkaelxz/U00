@@ -35,8 +35,9 @@ import type {
 import type { TranslateEngine } from '../types/translate'
 import type { GlossaryTerm } from '../types/translateStage'
 import { isComicType } from './comic/comicLogic'
-import { ActionError } from './reader/ReaderAction'
+import { ActionError, EditToggle } from './reader/ReaderAction'
 import { ListenWatch } from './reader/ListenWatch'
+import { useLiveFrame } from './reader/useLiveRefresh'
 import { ChapterJump } from './reader/ReaderChapters'
 import { ReaderTermPanels } from './reader/ReaderTermTools'
 import { lineEditPatch } from './reader/readerLineEdit'
@@ -319,6 +320,8 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     return () => window.removeEventListener('message', onMessage)
   }, [editMode, page, save.busy])
 
+  const live = useLiveFrame(id, page, prefs.chapterSize, frameRef, editing !== null || save.busy, () => setPageTick((n) => n + 1))
+
   const overviewReady = overview !== null
   // Read inside the page effect without re-running it when the shown page changes.
   const shownRef = useRef<number | null>(null)
@@ -428,21 +431,14 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   )
 
   const editToggle = !empty && canEdit && (
-    <button
-      data-testid="reader-edit-toggle"
-      type="button"
-      className="reader-edit-toggle"
-      aria-label="Edit"
-      aria-pressed={editMode}
-      title="Edit"
-      onClick={() => {
+    <EditToggle
+      pressed={editMode}
+      onToggle={() => {
         setEditMode((v) => !v)
         setEditing(null)
         setEditNote(null)
       }}
-    >
-      ✎
-    </button>
+    />
   )
 
   return (
@@ -488,6 +484,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
               {metrics && <span className="muted" data-testid="reader-metrics">{metrics}</span>}
             </div>
           )}
+          {live.note && <p className="muted reader-translating" role="status">{live.note}…</p>}
           {editNote && <p className="error" role="alert">{editNote}</p>}
           {editing && editing.page === page && (
             <form
@@ -525,6 +522,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
               referrerPolicy="no-referrer"
               src={pageSrc.url}
               aria-busy={pageLoading}
+              onLoad={live.onFrameLoad}
             />
           )}
           {!data && !loadError && !pageError && <p className="muted">Loading…</p>}

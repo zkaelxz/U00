@@ -1005,6 +1005,14 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
   .btn.btn-sm { min-height: 32px; position: relative; }
   .btn.btn-sm::after { content: ''; position: absolute; inset: -7px -5px; }
   .card { padding: var(--space-4); border-radius: var(--radius-lg); }
+/* Toolbar rows (title page actions, comic bar) look 38px tall and tighter so they fit on one line, but keep a 44px hit
+   area through ::after like .btn-sm. The wide gap keeps neighbouring hit areas from overlapping. */
+@media (max-width: 640px) {
+  :is(.title-actions > .btn:not(.btn-sm), .comic-top .btn:not(.btn-sm), .comic-top button:not(.comic-pager > button)) {
+    min-height: 38px; padding: 6px 12px; font-size: var(--text-sm); position: relative;
+  }
+  :is(.title-actions > .btn:not(.btn-sm), .comic-top .btn:not(.btn-sm), .comic-top button:not(.comic-pager > button))::after { content: ''; position: absolute; inset: -3px -2px; }
+}
 }
 
 /* ==== Library (pages/Library.tsx, LibraryList, DramaCards, DramaDetailPanel; spec §3.1–3.2) ==== */

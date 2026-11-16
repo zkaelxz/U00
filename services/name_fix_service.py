@@ -11,12 +11,13 @@ A transcription rewrites lines, so the fixes run on the new lines in the same sa
 and never raise into it. Title visibility is checked by the route's `{drama_id}` path
 guard (api/auth.py). No FastAPI import.
 """
+import copy
 import logging
 import re
 from typing import Dict, List
 
 import db
-from services import glossary_service, glossary_variants_service as gv
+from services import edit_log_service, glossary_service, glossary_variants_service as gv
 from services.glossary_common import MAX_TERM_LEN, _drama
 from lib.errors import InvalidInputError, NotFoundError
 
@@ -53,8 +54,8 @@ def _compile(mapping: Dict[str, str]):
     return re.compile("|".join(parts))
 
 
-def _rewrite(drama_id: int, mapping: Dict[str, str]) -> dict:
-    changed_lines, replacements = [], 0
+def _rewrite(drama_id: int, mapping: Dict[str, str], log_path=None) -> dict:
+    changed_lines, before, replacements = [], [], 0
     if not any(k != v for k, v in mapping.items()):
         return {"lines_changed": 0, "replacements": 0}
     pattern = _compile(mapping)
@@ -73,19 +74,25 @@ def _rewrite(drama_id: int, mapping: Dict[str, str]) -> dict:
 
         new_text = pattern.sub(sub, text)
         if new_text != text:
+            before.append(copy.copy(ln))
             ln.zh = new_text
             changed_lines.append(ln)
             replacements += count
     if changed_lines:
         # Only the source text is written, by id, so edits to other fields survive.
         db.save_lines(drama_id, changed_lines, fields=("zh",))
+        if log_path:
+            edit_log_service.record_source_edits(
+                drama_id, [(b, ln.zh) for b, ln in zip(before, changed_lines)], log_path)
     return {"lines_changed": len(changed_lines), "replacements": replacements}
 
 
-def apply_known_aliases(drama_id: int) -> dict:
-    """Rewrite spellings the owner already confirmed as aliases. Offline and free."""
+def apply_known_aliases(drama_id: int, log_path=None) -> dict:
+    """Rewrite spellings the owner already confirmed as aliases. Offline and free.
+    log_path names the change in the edit log; the pass after a transcription logs
+    nothing, since those lines are new rather than corrected."""
     terms = glossary_service.effective_glossary_terms(drama_id)
-    return _rewrite(drama_id, _replacement_map(terms))
+    return _rewrite(drama_id, _replacement_map(terms), log_path)
 
 
 def after_transcription(drama_id: int) -> dict:
@@ -146,5 +153,5 @@ def apply_fixes(drama_id: int, fixes) -> dict:
         if new:
             glossary_service.upsert_glossary_term(
                 drama_id, {"id": term_id, "aliases": terms[term_id]["aliases"] + new})
-    result = apply_known_aliases(drama_id)
+    result = apply_known_aliases(drama_id, edit_log_service.NAME_FIX)
     return {**result, "aliases_added": sum(len(v) for v in additions.values())}

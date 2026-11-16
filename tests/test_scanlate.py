@@ -21,7 +21,10 @@ import scanlate_ink
 import scanlate_render
 import scanlate_text_layout
 import scanlate_detect
+import scanlate_box_merge
+import scanlate_panels
 import scanlate_inpaint
+import scanlate_lama
 
 
 @pytest.fixture
@@ -461,13 +464,13 @@ class TestAutoBackendSelection:
         cached_file.write_bytes(b"x")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename, revision=None: str(cached_file))
-        assert scanlate_inpaint.lama_ml_weights_cached() is True
+        assert scanlate_lama.lama_ml_weights_cached() is True
 
     def test_lama_ml_weights_cached_false_when_no_cache_hit(self, monkeypatch):
         huggingface_hub = pytest.importorskip("huggingface_hub")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename, revision=None: None)
-        assert scanlate_inpaint.lama_ml_weights_cached() is False
+        assert scanlate_lama.lama_ml_weights_cached() is False
 
     def test_detect_bubbles_auto_never_calls_ml_when_not_cached(self, monkeypatch, synthetic_page):
         monkeypatch.setattr(scanlate_detect, "bubble_ml_weights_cached", lambda: False)
@@ -559,7 +562,7 @@ class TestDedupeOverlappingBoxes:
             {"x": 51, "y": 51, "w": 198, "h": 98, "confidence": 0.99, "label": "text_bubble"},
             {"x": 49, "y": 49, "w": 202, "h": 101, "confidence": 0.7, "label": "bubble"},
         ]
-        merged = scanlate_detect.dedupe_overlapping_boxes(triple)
+        merged = scanlate_box_merge.dedupe_overlapping_boxes(triple)
         assert len(merged) == 1
         assert merged[0]["label"] == "bubble"
 
@@ -570,7 +573,7 @@ class TestDedupeOverlappingBoxes:
             {"x": 10, "y": 10, "w": 50, "h": 50, "confidence": 0.4},
             {"x": 11, "y": 11, "w": 49, "h": 49, "confidence": 0.8},
         ]
-        merged = scanlate_detect.dedupe_overlapping_boxes(pair)
+        merged = scanlate_box_merge.dedupe_overlapping_boxes(pair)
         assert len(merged) == 1
         assert merged[0]["confidence"] == 0.8
 
@@ -581,10 +584,10 @@ class TestDedupeOverlappingBoxes:
             {"x": 0, "y": 0, "w": 100, "h": 100, "label": "bubble"},
             {"x": 90, "y": 90, "w": 100, "h": 100, "label": "bubble"},
         ]
-        assert len(scanlate_detect.dedupe_overlapping_boxes(barely_touching)) == 2
+        assert len(scanlate_box_merge.dedupe_overlapping_boxes(barely_touching)) == 2
 
     def test_empty_list_returns_empty_list(self):
-        assert scanlate_detect.dedupe_overlapping_boxes([]) == []
+        assert scanlate_box_merge.dedupe_overlapping_boxes([]) == []
 
 
 class TestInpaintMaskRegion:
@@ -955,14 +958,14 @@ class TestHfTokenIsNotWrittenToTheEnvironment:
         monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
         monkeypatch.setitem(sys.modules, "safetensors.torch",
                             types.SimpleNamespace(load_file=lambda path: {"w": 0}))
-        monkeypatch.setattr(scanlate_inpaint, "_build_lama_generator", FakeGenerator)
+        monkeypatch.setattr(scanlate_lama, "_build_lama_generator", FakeGenerator)
         monkeypatch.delenv("HF_TOKEN", raising=False)
         monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
-        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
         try:
-            scanlate_inpaint._load_lama_generator(hf_token="secret-token")
+            scanlate_lama._load_lama_generator(hf_token="secret-token")
         finally:
-            scanlate_inpaint.__dict__.pop("_lama_model", None)
+            scanlate_lama.__dict__.pop("_lama_model", None)
         assert seen["token"] == "secret-token"
         assert "HF_TOKEN" not in os.environ
 
@@ -970,7 +973,7 @@ class TestHfTokenIsNotWrittenToTheEnvironment:
 class TestLamaGeneratorLayout:
     def test_generator_uses_the_checkpoint_key_names(self):
         pytest.importorskip("torch")
-        keys = set(scanlate_inpaint._build_lama_generator().state_dict())
+        keys = set(scanlate_lama._build_lama_generator().state_dict())
         # Names and shapes the big-lama-manga checkpoint stores (minus its "model." prefix).
         assert "1.ffc.convl2l.weight" in keys
         assert "4.ffc.convl2g.weight" in keys
@@ -983,30 +986,30 @@ class TestLamaGeneratorLayout:
         torch = pytest.importorskip("torch")
         # One residual block keeps the in-memory "checkpoint" small; the layer
         # names and shapes are the real ones.
-        monkeypatch.setattr(scanlate_inpaint, "_LAMA_BLOCKS", 1)
-        source = scanlate_inpaint._build_lama_generator()
+        monkeypatch.setattr(scanlate_lama, "_LAMA_BLOCKS", 1)
+        source = scanlate_lama._build_lama_generator()
         published = {f"model.{k}": v for k, v in source.state_dict().items()}
         monkeypatch.setitem(sys.modules, "huggingface_hub", types.SimpleNamespace(
             hf_hub_download=lambda repo_id, filename, token=None, **kw: "/fake/" + filename))
         monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
         monkeypatch.setitem(sys.modules, "safetensors.torch",
                             types.SimpleNamespace(load_file=lambda path: published))
-        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
         try:
-            generator = scanlate_inpaint._load_lama_generator()
+            generator = scanlate_lama._load_lama_generator()
             with torch.no_grad():
                 out = generator(torch.zeros(1, 4, 64, 64))
         finally:
-            scanlate_inpaint.__dict__.pop("_lama_model", None)
+            scanlate_lama.__dict__.pop("_lama_model", None)
         assert out.shape == (1, 3, 64, 64)
 
     def test_a_region_over_the_size_cap_is_refused_before_the_model_loads(self, monkeypatch):
         def must_not_load(*a, **k):
             raise AssertionError("the model must not load for an oversized region")
-        monkeypatch.setattr(scanlate_inpaint, "_load_lama_generator", must_not_load)
+        monkeypatch.setattr(scanlate_lama, "_load_lama_generator", must_not_load)
         roi = np.zeros((2000, 2000, 3), np.uint8)
         with pytest.raises(ValueError, match="megapixels"):
-            scanlate_inpaint._run_ml_inpaint(roi, np.ones((2000, 2000), np.uint8))
+            scanlate_lama._run_ml_inpaint(roi, np.ones((2000, 2000), np.uint8))
 
     def test_an_oversized_box_falls_back_to_opencv(self, monkeypatch, temp_dir):
         monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
@@ -1032,11 +1035,11 @@ class TestLamaGeneratorLayout:
         monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
         monkeypatch.setitem(sys.modules, "safetensors.torch",
                             types.SimpleNamespace(load_file=lambda path: {}))
-        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
         with pytest.raises(OSError):
-            scanlate_inpaint._load_lama_generator(allow_download=False)
+            scanlate_lama._load_lama_generator(allow_download=False)
         assert seen == {"local_files_only": True, "etag_timeout": 30,
-                        "revision": model_pins.REVISIONS[scanlate_inpaint._LAMA_ML_REPO]}
+                        "revision": model_pins.REVISIONS[scanlate_lama._LAMA_ML_REPO]}
 
     def test_an_unusable_checkpoint_is_read_once_per_process(self, monkeypatch):
         import types
@@ -1051,16 +1054,16 @@ class TestLamaGeneratorLayout:
         monkeypatch.setitem(sys.modules, "safetensors.torch",
                             types.SimpleNamespace(load_file=load_file))
         pytest.importorskip("torch")
-        monkeypatch.setattr(scanlate_inpaint, "_LAMA_BLOCKS", 1)
-        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
-        monkeypatch.setattr(scanlate_inpaint, "_lama_load_error", None)
+        monkeypatch.setattr(scanlate_lama, "_LAMA_BLOCKS", 1)
+        monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
+        monkeypatch.setattr(scanlate_lama, "_lama_load_error", None)
         for _ in range(3):
             with pytest.raises(RuntimeError):
-                scanlate_inpaint._load_lama_generator()
+                scanlate_lama._load_lama_generator()
         assert len(reads) == 1
 
     def test_the_weights_file_is_the_one_the_repo_publishes(self):
-        assert scanlate_inpaint._LAMA_ML_FILE == "lama-manga.safetensors"
+        assert scanlate_lama._LAMA_ML_FILE == "lama-manga.safetensors"
 
 
 class TestWebtoonOverlapOnlyThroughArt:
@@ -1075,13 +1078,13 @@ class TestWebtoonOverlapOnlyThroughArt:
 
     def test_a_cut_on_a_gutter_row_shares_no_band(self, temp_dir):
         path = self._noisy_strip(temp_dir, 3000, gutter_rows=range(1590, 1600))
-        a, b = scanlate_detect.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
+        a, b = scanlate_panels.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
         assert 1590 <= a["y_end"] <= 1600
         assert b["y_start"] == a["y_end"]
 
     def test_a_cut_through_artwork_keeps_the_shared_band(self, temp_dir):
         path = self._noisy_strip(temp_dir, 3000)
-        a, b = scanlate_detect.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
+        a, b = scanlate_panels.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
         assert b["y_start"] == a["y_end"] - 100
 
 
@@ -1093,11 +1096,11 @@ class TestWebtoonSliceCap:
 
     def test_a_strip_needing_more_than_200_slices_raises(self, temp_dir):
         with pytest.raises(ValueError, match="200"):
-            scanlate_detect.split_webtoon_strip(self._strip(temp_dir, 2010), target_height=10,
+            scanlate_panels.split_webtoon_strip(self._strip(temp_dir, 2010), target_height=10,
                                                 overlap=0)
 
     def test_two_hundred_slices_still_cover_the_whole_strip(self, temp_dir):
-        slices = scanlate_detect.split_webtoon_strip(self._strip(temp_dir, 2000), target_height=10,
+        slices = scanlate_panels.split_webtoon_strip(self._strip(temp_dir, 2000), target_height=10,
                                                      overlap=0)
         assert len(slices) == 200
         assert slices[-1]["y_end"] == 2000

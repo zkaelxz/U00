@@ -3258,11 +3258,11 @@ class TestCancelBetweenBatches:
         assert engine.call_count == 2
 
     def test_notes_stops_between_batches(self):
-        import translation_guide as tg
+        import translation_notes
         lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(10)]
         engine = FakeFlaggingEngine()
         with pytest.raises(_Stop):
-            tg.generate_translation_notes_llm(lines, engine, batch_size=3,
+            translation_notes.generate_translation_notes_llm(lines, engine, batch_size=3,
                                               cancel_check=self._stop_after(0))
         assert engine.call_count == 0
 

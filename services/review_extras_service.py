@@ -47,7 +47,7 @@ import line_alignment
 import db
 import en_cleanup
 import sensevoice_tags
-import subtitle_formats
+import subtitle_ass
 from engine_backends import engine_registry, shared
 from engine_backends import gemini as engine_gemini
 from engine_backends import paid_calls
@@ -251,8 +251,9 @@ def _visible_edit_samples(principal) -> list:
     # No row limit: filtering the newest 100 would let other users' private
     # edits push this user's own out of the window.
     samples = db.list_edit_samples(limit=-1)
+    # A deleted title's kept edits (drama_id NULL) belong to no one now.
     visible = set(ownership_service.filter_visible_drama_ids(
-        principal, {s["drama_id"] for s in samples}))
+        principal, {s["drama_id"] for s in samples if s["drama_id"] is not None}))
     return [s for s in samples if s["drama_id"] in visible]
 
 
@@ -549,7 +550,7 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float | None = 
     pad = _bounded("pad_seconds", DEFAULT_PAD_SECONDS if pad_seconds is None else pad_seconds,
                    0.0, MAX_PAD_SECONDS)
     preset = preset or "Clean"
-    if preset not in subtitle_formats.ASS_PRESETS:
+    if preset not in subtitle_ass.ASS_PRESETS:
         raise InvalidInputError("Unknown subtitle style preset.")
     merged_style = export_service.build_ass_style(preset, style)
     if speaker_colors is not None:
@@ -574,7 +575,7 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float | None = 
     if speaker_colors is not None:
         colors = dict(speaker_colors)
     elif per_speaker_colors:
-        colors = subtitle_formats.default_speaker_colors(ln.speaker for ln in lines)
+        colors = subtitle_ass.default_speaker_colors(ln.speaker for ln in lines)
     else:
         colors = None
     names = {c["speaker_label"]: c["character_name"]
@@ -645,7 +646,7 @@ def get_burn_preview_info(drama_id: int) -> dict:
                     "created_at": None}
     return {"drama_id": drama_id, "has_video": has_video,
             "ffmpeg_available": _ffmpeg_available(),
-            "presets": list(subtitle_formats.ASS_PRESETS), "max_clip_seconds": MAX_CLIP_SECONDS,
+            "presets": list(subtitle_ass.ASS_PRESETS), "max_clip_seconds": MAX_CLIP_SECONDS,
             "max_pad_seconds": MAX_PAD_SECONDS, "clip": meta}
 
 
