@@ -1,11 +1,7 @@
 # Windows installer/uninstaller — design and as-built reference
 
 What `installer/` builds and why. `python -m api` serves the API and the
-prebuilt React screens from one process on `http://127.0.0.1:8600/`. The
-decisions that led here are in
-[`archive/windows-installer-research-notes.md`](archive/windows-installer-research-notes.md);
-cut narrative from this page is in
-[`archive/windows-installer-design-history.md`](archive/windows-installer-design-history.md).
+prebuilt React screens from one process on `http://127.0.0.1:8600/`.
 
 Code: [`installer/`](../installer/) (Inno Setup script, payload builder, and
 the two runtime scripts), [`portable.py`](../portable.py) (`data_dir()`),

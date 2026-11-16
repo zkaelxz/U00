@@ -227,7 +227,7 @@ export interface VoiceBankEntry {
   ref_text_present: boolean
 }
 
-// translate_engines.WORKFLOW_TIERS (Draft / Standard / Release).
+// engine_backends.engine_registry.WORKFLOW_TIERS (Draft / Standard / Release).
 interface WorkflowTier {
   key: string
   label: string

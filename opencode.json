@@ -8,8 +8,7 @@
     "read": {
       "*": "allow",
       "*.test_durations": "deny",
-      "*docs/engineering-standards.md": "deny",
-      "*docs/archive/*": "deny"
+      "*docs/engineering-standards.md": "deny"
     },
     "bash": {
       "*": "allow",
