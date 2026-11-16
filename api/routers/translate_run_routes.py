@@ -57,7 +57,8 @@ def get_translate_run_config(drama_id: int = Path(ge=1)):
         return {**translate_run_service.get_translate_config(drama_id),
                 **translate_thinking_service.config_fields(drama_id),
                 **failed_lines_service.summarize(drama_id),
-                **glossary_flagged_service.config_fields(drama_id)}
+                **glossary_flagged_service.config_fields(drama_id),
+                **glossary_flagged_service.doubtful_config_fields(drama_id)}
 
 
 @router.get("/dramas/{drama_id}/estimate", dependencies=[require_permission("library.read")], response_model=TranslateRunEstimate,
@@ -244,7 +245,7 @@ def start_retry_failed(body: RetryFailedLinesStart, request: Request, drama_id: 
 
 @router.post("/dramas/{drama_id}/glossary-flagged/run", dependencies=[require_permission("jobs.start")],
              response_model=GlossaryFlaggedRedoStarted,
-             summary="Redo the lines flagged for a missing glossary name with the stronger engine",
+             summary="Redo the lines flagged for a missing glossary name, or as doubtful, with the stronger engine",
              responses=error_responses(400, 404, 409, 422, 503))
 def start_glossary_flagged_redo(request: Request, body: GlossaryFlaggedRedoStart | None = None,
                                 drama_id: int = Path(ge=1)):
@@ -255,7 +256,7 @@ def start_glossary_flagged_redo(request: Request, body: GlossaryFlaggedRedoStart
     return translate_thinking_service.start_with_thinking(
         glossary_flagged_service.start_redo, drama_id, None, False, engine,
         allow_paid_summary=holds_paid_engines(request),
-        line_ids=body.line_ids if body else None)
+        line_ids=body.line_ids if body else None, kind=body.kind if body else "glossary")
 
 
 @router.get("/dramas/{drama_id}/episode-summary", dependencies=[require_permission("library.read")],

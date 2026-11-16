@@ -130,11 +130,10 @@ def _month_start(now, since_reset: bool) -> str:
     return start
 
 
-def get_month_spend(now: datetime.datetime | None = None, since_reset: bool = True) -> float:
+def get_logged_month_spend(now: datetime.datetime | None = None, since_reset: bool = True) -> float:
     """Estimated spend logged so far in the current calendar month (UTC),
-    across the whole library. By default only rows at or after an active
-    reset count: this is what the monthly cap is checked against.
-    `since_reset=False` is the full month, for stats and display."""
+    across the whole library: only rows at or after an active reset unless
+    `since_reset=False` (the full month, for stats and display)."""
     now = now or clock.utcnow()
     with contextlib.closing(db.get_conn()) as conn:
         row = conn.execute(
@@ -143,25 +142,45 @@ def get_month_spend(now: datetime.datetime | None = None, since_reset: bool = Tr
     return float(row["spent"])
 
 
+def get_month_spend(now: datetime.datetime | None = None, since_reset: bool = True) -> float:
+    """What the monthly cap is checked against: the logged spend since an
+    active reset plus the estimates of bulk batches not billed yet (a batch's
+    usage is logged only when its results land, hours later).
+    `since_reset=False` is the full month's logged spend, for stats and display."""
+    if not since_reset:
+        return db.get_logged_month_spend(now, since_reset=False)
+    return db.get_logged_month_spend(now) + sum(db.unbilled_bulk_usd_by_user().values())
+
+
 def get_month_spend_by_user(now: datetime.datetime | None = None) -> dict:
-    """{user_id: spend} this month, counted like get_month_spend (from an
-    active reset), for the rows logged for a member."""
+    """{user_id: spend} this month, counted like get_user_month_spend, for
+    every member with logged or pending spend."""
     now = now or clock.utcnow()
     with contextlib.closing(db.get_conn()) as conn:
         rows = conn.execute(
             "SELECT user_id, COALESCE(SUM(estimated_cost_usd), 0) AS spent FROM usage_log "
             "WHERE created_at >= ? AND user_id IS NOT NULL GROUP BY user_id",
             (_month_start(now, True),)).fetchall()
-    return {r["user_id"]: float(r["spent"]) for r in rows}
+    spend = {r["user_id"]: float(r["spent"]) for r in rows}
+    for user_id, usd in db.unbilled_bulk_usd_by_user().items():
+        if user_id is not None:
+            spend[user_id] = spend.get(user_id, 0.0) + usd
+    return spend
 
 
-def get_user_month_spend(user_id: int, now: datetime.datetime | None = None) -> float:
+def get_logged_user_month_spend(user_id: int, now: datetime.datetime | None = None) -> float:
     now = now or clock.utcnow()
     with contextlib.closing(db.get_conn()) as conn:
         row = conn.execute(
             "SELECT COALESCE(SUM(estimated_cost_usd), 0) AS spent FROM usage_log "
             "WHERE created_at >= ? AND user_id = ?", (_month_start(now, True), user_id)).fetchone()
     return float(row["spent"])
+
+
+def get_user_month_spend(user_id: int, now: datetime.datetime | None = None) -> float:
+    """What a member's own monthly limit is checked against: their logged
+    spend since an active reset plus their bulk batches not billed yet."""
+    return db.get_logged_user_month_spend(user_id, now) + db.unbilled_bulk_usd_by_user().get(user_id, 0.0)
 
 
 def usage_recost_candidates(models) -> list:

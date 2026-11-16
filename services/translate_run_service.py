@@ -433,7 +433,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
                         bulk: bool = False, default_female_pronouns: bool | None = None,
                         include_genre_notes: bool | None = None, allow_paid_summary: bool = True,
                         own_lines_only: bool = False, expected_en: dict | None = None, thinking: bool | None = None,
-                        record_run: bool = True, memory_examples: bool = False,
+                        record_run: bool = True, memory_examples: bool = False, replace_flags: frozenset = frozenset(),
                         chapter_from: int | None = None, chapter_to: int | None = None) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
@@ -470,7 +470,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
     is saved for the title once the run starts.
 
     own_lines_only (with line_ids): run_translate_job's own_lines_only -- a
-    line edited while the job runs keeps the edit.
+    line edited while the job runs keeps the edit. replace_flags: translate_pipeline's, for a redo of flagged lines.
     expected_en (with line_ids): {line id: English} the caller chose the
     lines by; a line whose English differs once loaded here was edited
     since and is dropped (ConflictError if none is left). With line_ids,
@@ -517,7 +517,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
     _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, opts, reflect,
                       novel_reference, glossary_terms, style_guidelines, force_retranslate,
                       target_ids, own_lines_only, thinking, allow_paid_summary, run_settings,
-                      include_genre_notes, default_female_pronouns)
+                      include_genre_notes, default_female_pronouns, replace_flags)
     if target_ids is not None:
         # expected_en may have dropped some of the caller's ids.
         resp["line_ids"] = sorted(ln.id for ln in eligible)
@@ -603,7 +603,7 @@ def _refuse_if_busy(job_id: str) -> None:
 def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, opts, reflect,
                       novel_reference, glossary_terms, style_guidelines, force_retranslate,
                       target_ids, own_lines_only, thinking, allow_paid_summary, run_settings,
-                      include_genre_notes, default_female_pronouns) -> None:
+                      include_genre_notes, default_female_pronouns, replace_flags) -> None:
     # Imported here: it needs this module for the drama lookup and Ollama probe.
     from services import episode_summary_service
     summary_engine, summary_choice = pick_summary_engine(
@@ -622,7 +622,7 @@ def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, o
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
         summary_monthly_cap_usd=month_cap_usd() or None, summary_skip_reason=summary_skip_reason,
         target_ids=target_ids, own_lines_only=own_lines_only, thinking=thinking,
-        gpu_touching=engine_local.chain_touches_local_gpu(chain),
+        replace_flags=replace_flags, gpu_touching=engine_local.chain_touches_local_gpu(chain),
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (title #{drama_id})",
         run_settings=run_settings, line_fields=("en", "flag", "flag_note"))
     if not started:
@@ -635,6 +635,16 @@ def run_engine_name(drama_id: int) -> str:
     drama = ownership_service.require_drama(drama_id)
     return (drama.get("translation_engine")
             or engine_routing_service.resolve_capability("translation.cheap"))
+
+
+def run_model_and_batch_size(drama_id: int, engine_name: str) -> tuple:
+    """(model, batch size) a run on `engine_name` would use when the caller passes neither:
+    the title's last run's choices, else the engine's defaults, so an estimate made before
+    the click prices the run that follows it."""
+    opts = _resolve_run_options(ownership_service.require_drama(drama_id), engine_name, None, None, None,
+                                None, None, None, None, None,
+                                settings_service.resolve_gemini_free_tier(None))
+    return opts.model, opts.batch_size
 
 
 def _resolve_run_options(drama, engine_name, model, style_preset, style_note, locale,

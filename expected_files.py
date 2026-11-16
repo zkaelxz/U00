@@ -88,6 +88,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "memory_headroom.py",
     "member_keys.py",
     "metadata_lookup.py",
+    "misheard_finder.py",
     "mixed_language.py",
     "model_pins.py",
     "navigator.py",

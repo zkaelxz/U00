@@ -39,18 +39,6 @@ class ActionTier(Enum):
     RED = "red"
 
 
-TIER_EMOJI = {ActionTier.GREEN: "🟢", ActionTier.YELLOW: "🟡", ActionTier.RED: "🔴"}
-
-
-class Confirmation(Enum):
-    NONE = "none"
-    ISOLATED_DIFF_APPROVED = "isolated_diff_approved"
-    EXPLICIT_RED_CONFIRMED = "explicit_red_confirmed"
-
-
-class PermissionDenied(Exception):
-    """Raised when an action is attempted without the confirmation its tier requires."""
-
 
 # 🟢 automatic -- read-only actions: run tests, run benchmarks, check
 #    dependencies/model availability, inspect logs/Git history, generate
@@ -96,19 +84,6 @@ _PROTECTED_MODULE_NAMES = frozenset({
 })
 _PROTECTED_PACKAGE_NAMES = frozenset({"maintenance", "permissions", "security"})
 
-# Which Confirmation values satisfy which tier. RED's own confirmation
-# also satisfies YELLOW (it's strictly more caution than YELLOW asks for),
-# but YELLOW's isolated-diff confirmation never satisfies RED -- that
-# asymmetry is the "never the same confirmation as a 🟡 action" rule.
-TIER_REQUIREMENTS: dict[ActionTier, frozenset] = {
-    ActionTier.GREEN: frozenset(Confirmation),
-    ActionTier.YELLOW: frozenset(
-        {Confirmation.ISOLATED_DIFF_APPROVED, Confirmation.EXPLICIT_RED_CONFIRMED}
-    ),
-    ActionTier.RED: frozenset({Confirmation.EXPLICIT_RED_CONFIRMED}),
-}
-
-
 def _touches_protected_module(paths) -> bool:
     for raw in paths:
         parts = [p for p in raw.replace("\\", "/").strip("/").split("/") if p]
@@ -136,19 +111,3 @@ def classify_action(action: str, *, touches_paths=()) -> ActionTier:
         raise ValueError(
             f"{action!r} isn't in ACTION_TIERS -- register its tier before checking it"
         ) from exc
-
-
-def require_confirmation(
-    action: str, confirmation: Confirmation, *, touches_paths=()
-) -> ActionTier:
-    """Classifies `action` and raises PermissionDenied unless `confirmation`
-    satisfies its tier. Returns the tier on success, for callers that want
-    to log or display which tier just cleared."""
-    tier = classify_action(action, touches_paths=touches_paths)
-    allowed = TIER_REQUIREMENTS[tier]
-    if confirmation not in allowed:
-        raise PermissionDenied(
-            f"{action!r} is tier {tier.value} ({TIER_EMOJI[tier]}) and needs one of "
-            f"{sorted(c.value for c in allowed)}, got {confirmation.value!r}"
-        )
-    return tier
