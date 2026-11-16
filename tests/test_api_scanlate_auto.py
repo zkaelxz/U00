@@ -42,7 +42,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
-from services import page_import_limits as limits
+import page_import_limits as limits
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_run_service as run_svc
 from lib.errors import ConflictError, InvalidInputError

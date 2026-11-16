@@ -12,7 +12,7 @@ claim a job refuses to start under (and vice versa), the pipeline lock
 shared with the extension bridge, and the note cleaner (secrets redacted,
 paths stripped) every stored or returned note goes through.
 
-Import limits live in services/page_import_limits.py (user-set
+Import limits live in page_import_limits.py (user-set
 2026-09-29, shared with the URL comic imports; change them there): PNG/JPEG/
 WebP/PDF only (the file's own bytes decide, the extension must agree); the
 per-image, per-PDF and per-request caps are checked from headers before any
@@ -36,7 +36,7 @@ from jobs import job_launch
 import db
 import storage
 from services import comic_view_service
-from services import page_import_limits as limits
+import page_import_limits as limits
 from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from services.ownership_service import require_drama
