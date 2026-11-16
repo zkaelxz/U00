@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { NarrationEstimate } from '../../../types/dub'
 import { chapterRange } from '../translateForm'
-import { EMPTY_TAG_CHOICE, estimateText, needsCostConfirm, tagChoiceProblem, tagRunBody } from './TagChoices'
+import { EMPTY_TAG_CHOICE, estimateText, needsCostConfirm, tagChoiceProblem, tagRunBody } from './tagChoice'
 
 const est = (over: Partial<NarrationEstimate>): NarrationEstimate => ({
   engine: 'claude', model: 'm', chunk_count: 3, chapters: 1, estimated_usd: 1, has_key: true,

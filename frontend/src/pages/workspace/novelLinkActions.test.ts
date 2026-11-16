@@ -4,7 +4,7 @@ import { applyNovelGlossary, getNovelGlossary } from '../../api/autotuneGlossary
 import { getTranslateConfig, startTranslateRun } from '../../api/translateStage'
 import { narrationApi } from '../../api/dub'
 import { novelLinkActions, StepFailed, translateWithoutReview } from './novelLinkActions'
-import { EMPTY_TAG_CHOICE } from './stages/TagChoices'
+import { EMPTY_TAG_CHOICE } from './stages/tagChoice'
 import * as form from './translateForm'
 
 vi.mock('../../api/autotuneGlossary', async (orig) => ({ ...(await orig<object>()), applyNovelGlossary: vi.fn(), getNovelGlossary: vi.fn() }))

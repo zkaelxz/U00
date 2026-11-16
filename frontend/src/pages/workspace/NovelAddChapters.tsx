@@ -7,7 +7,8 @@ import { usePersistedState } from '../../hooks/usePersistedState'
 import type { NarrationConfig } from '../../types/dub'
 import { buttonClass } from '../../components/uiClasses'
 import { addChaptersFromLink, type AddStep } from './novelLinkActions'
-import { EMPTY_TAG_CHOICE, TagChoices, type TagChoice } from './stages/TagChoices'
+import { TagChoices } from './stages/TagChoices'
+import { EMPTY_TAG_CHOICE, type TagChoice } from './stages/tagChoice'
 
 const STEP_TEXT: Record<AddStep, string> = {
   import: 'Importing the chapters',

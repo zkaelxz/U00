@@ -11,7 +11,8 @@ import { buttonClass } from '../../components/uiClasses'
 import { routeHref } from '../../router'
 import { ChainStall, runChain, type ChainStep } from './novelLinkChain'
 import { novelLinkActions, translateWithoutReview } from './novelLinkActions'
-import { EMPTY_TAG_CHOICE, TagChoices, type TagChoice } from './stages/TagChoices'
+import { TagChoices } from './stages/TagChoices'
+import { EMPTY_TAG_CHOICE, type TagChoice } from './stages/tagChoice'
 import type { NarrationConfig } from '../../types/dub'
 
 const STEP_TEXT: Record<ChainStep, string> = {

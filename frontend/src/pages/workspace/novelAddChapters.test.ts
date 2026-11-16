@@ -5,7 +5,7 @@ import { probeJob } from '../../api/jobs'
 import { startNovelUrlImport } from '../../api/sourcesExtraction'
 import { addChaptersFromSources } from '../../api/workspace'
 import { addChaptersFromLink } from './novelLinkActions'
-import { EMPTY_TAG_CHOICE } from './stages/TagChoices'
+import { EMPTY_TAG_CHOICE } from './stages/tagChoice'
 
 vi.mock('../../api/dub', async (orig) => ({ ...(await orig<object>()), narrationApi: { config: vi.fn(), run: vi.fn(), estimate: vi.fn() } }))
 vi.mock('../../api/jobs', async (orig) => ({ ...(await orig<object>()), probeJob: vi.fn() }))

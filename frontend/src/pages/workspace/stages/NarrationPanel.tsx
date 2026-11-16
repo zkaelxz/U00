@@ -11,7 +11,8 @@ import type { NarrationConfig } from '../../../types/dub'
 import { stageLabel } from '../stages'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { EngineGateNote } from './EngineGateNote'
-import { EMPTY_TAG_CHOICE, TagChoices, effectiveTagEngine, tagChoiceProblem, tagRunBody, type TagChoice } from './TagChoices'
+import { TagChoices } from './TagChoices'
+import { EMPTY_TAG_CHOICE, effectiveTagEngine, tagChoiceProblem, tagRunBody, type TagChoice } from './tagChoice'
 import { useEngineGate, useTitleEngines } from './useEngineGate'
 
 interface Props {

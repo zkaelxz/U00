@@ -11,7 +11,7 @@ import { defaultTermSelection } from './stages/autotuneGlossary'
 import { applyRequest } from './stages/glossaryExtract'
 import { startExtraction } from './stages/useGlossaryRun'
 import { applyStartToForm, buildRunBody, initialForm, loadPresetStart } from './translateForm'
-import { EMPTY_TAG_CHOICE, needsCostConfirm, tagChoiceProblem, tagRunBody, type TagChoice } from './stages/TagChoices'
+import { EMPTY_TAG_CHOICE, needsCostConfirm, tagChoiceProblem, tagRunBody, type TagChoice } from './stages/tagChoice'
 import type { ChainActions } from './novelLinkChain'
 
 const POLL_MS = 2000
