@@ -522,7 +522,7 @@ def test_admin_has_full_rights_on_series_whoever_owns_the_title(people):
 def test_remote_admin_move_keeps_the_guard_when_a_members_series_goes_private(people, monkeypatch):
     """Away from the PC an admin may file a title in a member's series only
     while it is shared; if it goes private between the check and the write,
-    the write's own guard still refuses (security review of #2711)."""
+    the write's own guard still refuses."""
     remote = _p(people["admin"]["user_id"], admin=True, override=False)
     a_series = db.get_or_create_series("A open", owner_user_id=people["a_id"])
     b_title = db.create_drama(title_zh="b", owner_user_id=people["b_id"])
@@ -726,7 +726,7 @@ def test_set_owner_admins_only_and_pc_only_for_other_members_items(people):
     with pytest.raises(ForbiddenError, match="only at the PC"):
         own.set_owner(remote, "drama", b_title, admin_id)
     # Only an existing, active account.
-    for bad in (10**6,):
+    for bad in (10**6, 0, -1, 2**70):
         with pytest.raises(InvalidInputError):
             own.set_owner(people["admin"], "drama", a_title, bad)
     db.auth_update_user(people["b_id"], is_active=0)
@@ -736,3 +736,12 @@ def test_set_owner_admins_only_and_pc_only_for_other_members_items(people):
         own.set_owner(people["admin"], "drama", 10**6, None)
     rows = [r for r in db.auth_list_audit(50) if r["action"] == "sharing.set_owner"]
     assert len(rows) == 4
+
+
+def test_set_owner_refuses_on_guest_what_guest_cannot_see(people, monkeypatch):
+    from services import pc_profile_service
+    hidden = db.create_drama(title_zh="pc", is_private=1)
+    monkeypatch.setattr(pc_profile_service, "guest_active", lambda: True)
+    with pytest.raises(NotFoundError):
+        own.set_owner(LOCAL, "drama", hidden, people["b_id"])
+    assert db.get_item_ownership("drama", hidden)["owner_user_id"] is None

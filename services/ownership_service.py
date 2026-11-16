@@ -383,12 +383,14 @@ def set_owner(principal, kind: str, item_id, owner_user_id) -> dict:
         raise ForbiddenError("Only an admin can change who owns an item.")
     item_id = _item_id(item_id)
     row = db.get_item_ownership(kind, item_id)
-    if not row or not _visible(principal, kind, row, guest_aware=False):
+    if not row or not _visible(principal, kind, row):   # Guest at the PC: as set_private
         raise _not_found(kind)
     if not may_set_private(principal, row.get("owner_user_id")):
         raise ForbiddenError(_ADMIN_CHANGE_AT_PC)
     if owner_user_id is not None:
-        user = db.auth_get_user(_item_id(owner_user_id))
+        user = (db.auth_get_user(owner_user_id)
+                if isinstance(owner_user_id, int) and not isinstance(owner_user_id, bool)
+                and 0 < owner_user_id < 2**63 else None)
         if not user or not user.get("is_active"):
             raise InvalidInputError("Pick an active account, or the PC.")
     if not db.set_item_owner(kind, item_id, owner_user_id):
