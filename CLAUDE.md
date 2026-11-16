@@ -50,7 +50,6 @@ A local app for transcribing, translating, reviewing, dubbing and exporting subt
 
 ## How to work
 - One task per branch, off the latest `baihe-subtitler`. Roadmap steps use `step-<id>-<short-name>`.
-- One thread at a time changes the comic renderer (`scanlate_render.py`) until that file is split (Alex, 2026-11-14): parallel comic fixes kept colliding in it. Check the open PRs before you change it; while one that changes it is open, the next fix goes to that PR's thread, built on top of it, not to a parallel branch.
 - Re-check any claim from a doc or old note against the code before acting on it. If the code has moved on, say so.
 - Keep changes to what the task needs. No new files, docs, settings or abstractions unless the task asks for them. If your change makes something unused, delete it. Pre-existing problems you notice go in your summary, not your diff.
 - A PR that changes user-visible behaviour updates the user guide line in the same PR.
