@@ -278,6 +278,11 @@ class ChatWorker:
         return self._stop.is_set() or background_jobs.is_cancel_requested(self.session_id)
 
     def _run(self) -> None:
+        # Context variables do not cross threads: without these Stop could not abandon a chat request
+        # already sent, nor cut a retry wait short, and one more billed batch would run to the end.
+        from engine_backends.local import abort_check_var
+        from engine_backends.shared import _cancel_check_var
+        tokens = (_cancel_check_var.set(self._done), abort_check_var.set(self._done))
         try:
             self._read()
         except background_jobs.JobCancelled:
@@ -285,6 +290,9 @@ class ChatWorker:
         except Exception:
             self.board.set_state("lost", LOST)
             self._note(LOST, key="chat")
+        finally:
+            _cancel_check_var.reset(tokens[0])
+            abort_check_var.reset(tokens[1])
 
     def _read(self) -> None:
         try:

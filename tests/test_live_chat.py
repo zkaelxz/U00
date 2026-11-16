@@ -337,3 +337,33 @@ def test_chat_uses_its_own_engine(live, chat_pages):
     live_service.stop_session(sid)
     live_service.stop_session(sid)
     assert _terminal(sid)
+
+
+def test_stop_aborts_a_chat_request_already_in_flight(monkeypatch):
+    from engine_backends.local import abort_check_var
+    from engine_backends.shared import TranslationCancelled, _cancel_check_var
+    entered, seen = threading.Event(), {}
+
+    class SlowTranslator:
+        """Stands in for an engine request: it gives up only when the caller's hooks say so."""
+
+        def translate_chunk(self, texts):
+            seen["checks"] = (_cancel_check_var.get(), abort_check_var.get())
+            entered.set()
+            check = seen["checks"][1]
+            for _ in range(100):
+                if check is not None and check():
+                    raise TranslationCancelled("cancelled")
+                threading.Event().wait(0.05)
+            return {i: f"EN {t}" for i, t in enumerate(texts)}
+
+    worker, board, _ = _worker(SlowTranslator(), [_reply([_text("a", "Ann", {"text": "你好呀朋友"})])],
+                               monkeypatch)
+    worker.start()
+    assert entered.wait(5)
+    assert not any(c() for c in seen["checks"])
+    worker.stop(join_seconds=2)
+    assert not worker._thread.is_alive()
+    assert all(c is not None and c() for c in seen["checks"])
+    assert [m["state"] for m in board.snapshot()["messages"]] == ["failed"]
+    assert _cancel_check_var.get() is None and abort_check_var.get() is None
