@@ -9,6 +9,7 @@ import { cacheLabel, draftFrom, fieldProblem, CHECK_FIELD, pacingErrors, pacingS
 const src = (name: string, over: Partial<SourceSummary> = {}): SourceSummary => ({
   name,
   display_name: name.toUpperCase(),
+  homepage: '',
   content_types: [],
   languages: [],
   supports: {

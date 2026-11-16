@@ -49,6 +49,7 @@ LayoutChanged = layout_changed_class("52shuku")
 class FiftyTwoShukuSource(SourceAdapter):
     name = "52shuku"
     display_name = "52shuku.net"
+    homepage = "https://www.52shuku.net"
     content_types = [ContentType.NOVEL.value]
     languages = ["zh"]
     # Fast covers book and chapter pages only. robots.txt disallows /so/, so

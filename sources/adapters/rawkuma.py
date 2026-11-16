@@ -94,6 +94,7 @@ def _comic_ld(html: str) -> dict:
 class RawkumaSource(SourceAdapter):
     name = "rawkuma"
     display_name = "Rawkuma"
+    homepage = "https://rawkuma.net"
     content_types = [ContentType.MANGA.value]
     languages = ["ja"]
     # raw.senmanga.com serves Rawkuma's catalogue under the same slugs and chapter ids.
