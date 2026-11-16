@@ -89,6 +89,17 @@ def test_pick_writes_only_en_and_an_edited_line_is_skipped(title):
     assert svc.state(did)["items"][0]["picked_run"] == 1
 
 
+def test_a_line_whose_source_changed_since_the_runs_is_skipped(title):
+    did, status = title
+    _three(did, ["a", "b1", "c", "d"], ["a", "b2", "c", "d"], ["a", "b3", "c", "d"], status)
+    lid = svc.state(did)["items"][0]["line_id"]
+    lines = db.load_line_objects(did)
+    lines[1].zh = "新的原文"
+    db.save_lines(did, lines, fields=("zh",))
+    assert svc.pick_runs(did, [{"line_id": lid, "run": 1}]) == {"applied": [], "skipped": [lid]}
+    assert db.load_line_objects(did)[1].en == "b3"
+
+
 def test_a_pick_can_be_changed_and_keep_rest_skips_picked_lines(title):
     did, status = title
     _three(did, ["a1", "b1", "c", "d"], ["a2", "b2", "c", "d"], ["a3", "b3", "c", "d"], status)

@@ -660,7 +660,7 @@ def generate_episode_summary(lines, engine, usage_cb=None) -> str:
         import applog
         applog.get_logger().warning(f"episode summary generation failed: {redact_secrets(str(e))}")
         return ""
-    data = extract_first_json_value(text)
+    data = extract_first_json_value(text, expect=dict)
     if isinstance(data, dict) and isinstance(data.get("summary"), str):
         return data["summary"].strip()
     return ""
@@ -697,7 +697,7 @@ def generate_episode_brief(lines, engine, drama_meta=None, character_names=None,
     text = call_llm_json(engine, prompt, max_tokens=700, fallback=None, usage_cb=usage_cb)
     if not text:
         return ""
-    data = extract_first_json_value(text)
+    data = extract_first_json_value(text, expect=dict)
     brief = data.get("brief") if isinstance(data, dict) else None
     return brief.strip()[:EPISODE_BRIEF_MAX_CHARS] if isinstance(brief, str) else ""
 

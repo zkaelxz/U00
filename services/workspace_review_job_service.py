@@ -185,7 +185,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     glossary_terms, style_guidelines, character_names = build_run_style_context(
         drama_id, drama, lines, style_preset, with_emotions=False,
         include_genre_notes=include_genre_notes,
-        default_female_pronouns=default_female_pronouns, principal=principal)
+        default_female_pronouns=default_female_pronouns, principal=principal,
+        engine_name=engine_choice, model=getattr(engine, "model", None))
     base_context = translate_pipeline.build_translation_context(
         engine, drama, style_note=style_note or "", locale=locale,
         glossary_terms=glossary_terms, style_guidelines=style_guidelines)

@@ -312,9 +312,9 @@ def save_lines(drama_id: int, lines, fields=None, only_if_unchanged=False, guard
     by someone else since the lines were loaded is kept, not overwritten.
     A line without `orig` is then not written at all.
 
-    guard_fields (with only_if_unchanged): columns not written but whose
-    database value must still equal this Line's own value -- the text the
-    written fields were computed from (a flag from `en` and its timing).
+    guard_fields (with only_if_unchanged): columns whose database value must still
+    equal this Line's own value (`orig` when also written) -- the text the written
+    fields were computed from (a flag from `en` and its timing).
 
     guard_neighbours (with guard_fields): {line id: [Line, ...]} -- other
     lines a written line's value was computed from (an overlap flag reads
@@ -439,7 +439,8 @@ def _unchanged_where(drama_id: int, ln, changed, orig: dict, guard_cols, guard_n
     """(WHERE clause, args) holding a row to the caller's `orig` values, its guard fields and its
     guard neighbours (save_lines' only_if_unchanged)."""
     expected = [(f, orig.get(f)) for f in changed]
-    expected += _guard_values(ln, guard_cols)
+    # A guard field this save writes is already held to its `orig` value above.
+    expected += _guard_values(ln, [f for f in guard_cols if f not in changed])
     where, args = _guard_sql(expected), [v for _f, v in expected]
     for other in (guard_neighbours or {}).get(ln.id, ()):
         theirs = [("idx", other.idx)] + _guard_values(other, guard_cols)
