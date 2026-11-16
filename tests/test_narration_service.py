@@ -441,3 +441,162 @@ class TestGpuSlot:
 
     def test_a_cloud_engine_does_not(self, isolated_db, key, monkeypatch):
         assert self._start(isolated_db, key, monkeypatch, "claude")["gpu_touching"] is False
+
+
+BOOK = ("第1章 开始\n\n他说：你好。\n\n夜很深了。\n\n"
+        "第2章 继续\n\n风很大。\n\n雨停了。\n\n"
+        "第3章 结束\n\n天亮了。\n\n他走了。\n")
+
+
+class TestChapterSelection:
+    def _tagger(self, monkeypatch):
+        from engine_backends import llm_tasks, engine_registry
+        seen = []
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
+
+        def tag(chunks, engine, known, **k):
+            seen.append(list(chunks.values()))
+            return {i: "Ann" for i in chunks}
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", tag)
+        return seen
+
+    def _run(self, did, chapters, fresh=False):
+        narration_service._run_narration_job(
+            f"narration_{did}", did, BOOK, "claude", "k", None, fresh=fresh, chapters=chapters)
+
+    def test_chapter_spans_number_like_the_chapter_count(self):
+        import novel_text
+        spans = novel_text.chapter_spans(BOOK)
+        assert len(spans) == novel_text.chapter_count(BOOK) == 3
+        assert BOOK[spans[1][0]:spans[1][1]].startswith("第2章")
+
+    def test_one_chapter_tags_and_pays_for_only_that_chapter(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db, novel=BOOK)
+        seen = self._tagger(monkeypatch)
+        self._run(did, (2, 2))
+        assert seen == [["第2章 继续", "风很大。", "雨停了。"]]
+        lines = isolated_db.load_line_objects(did)
+        assert [ln.zh for ln in lines] == ["第2章 继续", "风很大。", "雨停了。"]
+        assert [ln.idx for ln in lines] == [0, 1, 2]
+
+    def test_a_later_run_adds_its_chapters_after_and_before_without_touching_the_rest(
+            self, isolated_db, monkeypatch):
+        did = _drama(isolated_db, novel=BOOK)
+        self._tagger(monkeypatch)
+        self._run(did, (2, 2))
+        mid = isolated_db.load_line_objects(did)
+        mid[1].en, mid[1].reviewed = "The wind is strong.", True
+        isolated_db.save_lines(did, mid)
+        self._run(did, (3, 3))
+        self._run(did, (1, 1))
+        lines = isolated_db.load_line_objects(did)
+        assert [ln.zh for ln in lines] == [
+            "第1章 开始", "他说：你好。", "夜很深了。", "第2章 继续", "风很大。", "雨停了。",
+            "第3章 结束", "天亮了。", "他走了。"]
+        assert [ln.idx for ln in lines] == list(range(9))
+        kept = {ln.zh: ln for ln in lines}["风很大。"]
+        assert (kept.id, kept.en, kept.reviewed) == (mid[1].id, "The wind is strong.", True)
+
+    def test_rerunning_a_tagged_chapter_keeps_its_translation_and_leaves_others_alone(
+            self, isolated_db, monkeypatch):
+        did = _drama(isolated_db, novel=BOOK)
+        seen = self._tagger(monkeypatch)
+        self._run(did, (1, 3))
+        lines = isolated_db.load_line_objects(did)
+        for ln in lines:
+            ln.en = "E:" + ln.zh
+            ln.speaker = "Old"
+        isolated_db.save_lines(did, lines)
+        before = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
+        seen.clear()
+        self._run(did, (2, 2), fresh=True)
+        after = isolated_db.load_line_objects(did)
+        assert [ln.id for ln in after] == [ln.id for ln in lines]
+        for ln in after:
+            assert ln.en == "E:" + ln.zh
+            assert ln.speaker == ("Ann" if ln.zh in ("第2章 继续", "风很大。", "雨停了。") else before[ln.id].speaker)
+        assert len(seen) == 1 and len(seen[0]) == 3
+
+    def test_lines_edited_in_review_refuse_a_chapter_run_before_anything_is_paid(
+            self, isolated_db, key):
+        did = _drama(isolated_db, novel=BOOK)
+        from core import Line
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="第1章 开始 (edited)")])
+        with pytest.raises(ConflictError):
+            narration_service.start_narration_run(did, chapter_from=2, chapter_to=2)
+
+    def test_bad_range_is_refused(self, isolated_db, key):
+        did = _drama(isolated_db, novel=BOOK)
+        for first, last in ((4, 4), (3, 2)):
+            with pytest.raises(InvalidInputError):
+                narration_service.start_narration_run(did, chapter_from=first, chapter_to=last)
+
+    def test_whole_range_is_a_normal_run(self, isolated_db, key, monkeypatch):
+        did = _drama(isolated_db, novel=BOOK)
+        calls = []
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: calls.append(k) or True)
+        narration_service.start_narration_run(did, chapter_from=1, chapter_to=3)
+        assert calls[0]["chapters"] is None
+
+    def test_estimate_covers_only_the_chosen_chapters(self, isolated_db, key):
+        did = _drama(isolated_db, novel=BOOK)
+        whole = narration_service.estimate_tag_cost(did, "claude")
+        one = narration_service.estimate_tag_cost(did, "claude", chapter_from=2, chapter_to=2)
+        assert (whole["chunk_count"], one["chunk_count"], one["chapters"]) == (9, 3, 1)
+        assert 0 < one["estimated_usd"] < whole["estimated_usd"]
+        assert whole["cap_applies"] and not whole["monthly_cap_set"]
+
+    def test_estimate_is_free_without_a_key_or_with_local_ollama(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
+        did = _drama(isolated_db, novel=BOOK)
+        assert narration_service.estimate_tag_cost(did, "claude")["estimated_usd"] == 0.0
+        local = narration_service.estimate_tag_cost(did, "ollama", "llama3")
+        assert local["estimated_usd"] == 0.0 and not local["cap_applies"]
+
+
+class TestOneNarrator:
+    def test_no_engine_is_built_or_called_and_every_line_is_narrator(self, isolated_db, key, monkeypatch):
+        from engine_backends import llm_tasks, engine_registry
+
+        def boom(*a, **k):
+            raise AssertionError("an AI engine was used")
+        monkeypatch.setattr(engine_registry, "get_engine", boom)
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", boom)
+        did = _drama(isolated_db)
+        launched = []
+        monkeypatch.setattr(job_launch, "start_job",
+                            lambda job_id, target, *a, **k: launched.append((target, a, k)) or True)
+        narration_service.start_narration_run(did, "claude", one_narrator=True)
+        target, args, kw = launched[0]
+        assert args[4] is None and kw["one_narrator"] and kw["gpu_touching"] is False
+        results = []
+        monkeypatch.setattr(background_jobs, "set_result", lambda job_id, res: results.append(res))
+        target(*args, **{k: v for k, v in kw.items() if k in ("fresh", "append", "chapters", "one_narrator")})
+        lines = isolated_db.load_line_objects(did)
+        assert lines and {ln.speaker for ln in lines} == {"Narrator"}
+        assert "notice" not in results[0]
+
+    def test_works_for_chosen_chapters_too(self, isolated_db, key, monkeypatch):
+        did = _drama(isolated_db, novel=BOOK)
+        narration_service._run_narration_job(
+            f"narration_{did}", did, BOOK, "claude", None, None, chapters=(2, 3), one_narrator=True)
+        assert [ln.speaker for ln in isolated_db.load_line_objects(did)] == ["Narrator"] * 6
+
+
+class TestAppendEstimate:
+    def test_prices_only_the_text_an_add_left_without_lines(self, isolated_db, key):
+        import novel_text
+        from core import Line
+        did = _drama(isolated_db, novel=BOOK)
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=z) for i, z in enumerate(
+            ["第1章 开始", "他说：你好。", "夜很深了。", "第2章 继续", "风很大。", "雨停了。"])])
+        tail = "第3章 结束\n\n天亮了。\n\n他走了。\n"
+        novel_text.write_pending_lines(isolated_db.drama_dir(did), len(tail), len(BOOK), 6, 3)
+        whole = narration_service.estimate_tag_cost(did, "claude")
+        added = narration_service.estimate_tag_cost(did, "claude", append=True)
+        assert (whole["chunk_count"], added["chunk_count"]) == (9, 3)
+
+    def test_nothing_waiting_is_refused(self, isolated_db, key):
+        did = _drama(isolated_db)
+        with pytest.raises(InvalidInputError):
+            narration_service.estimate_tag_cost(did, "claude", append=True)

@@ -16,9 +16,15 @@ cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cle
 
 import model_pins
 import scanlate
+import scanlate_fonts
+import scanlate_ink
 import scanlate_render
+import scanlate_text_layout
 import scanlate_detect
+import scanlate_box_merge
+import scanlate_panels
 import scanlate_inpaint
+import scanlate_lama
 
 
 @pytest.fixture
@@ -136,8 +142,8 @@ class TestInpaintDarkBalloon:
         dark = Image.new("RGB", (50, 50), (10, 10, 10))
         light = Image.new("RGB", (50, 50), (240, 240, 240))
         box = {"x": 0, "y": 0, "w": 50, "h": 50}
-        assert scanlate_render._text_fill(dark, box) == (255, 255, 255)
-        assert scanlate_render._text_fill(light, box) == (0, 0, 0)
+        assert scanlate_ink._text_fill(dark, box) == (255, 255, 255)
+        assert scanlate_ink._text_fill(light, box) == (0, 0, 0)
 
 
 class TestRenderTextInBox:
@@ -145,7 +151,7 @@ class TestRenderTextInBox:
         from PIL import Image
         img = Image.open(synthetic_page).convert("RGB")
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
-        result = scanlate_render.render_text_in_box(img, box, "A reasonably short test line.")
+        result = scanlate_text_layout.render_text_in_box(img, box, "A reasonably short test line.")
         assert result.size == (600, 400)  # unchanged canvas size
 
     def test_render_handles_empty_text_without_crashing(self, synthetic_page):
@@ -153,7 +159,7 @@ class TestRenderTextInBox:
         img = Image.open(synthetic_page).convert("RGB")
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
         # should not raise even with nothing to draw
-        scanlate_render.render_text_in_box(img, box, "")
+        scanlate_text_layout.render_text_in_box(img, box, "")
 
     def test_render_shrinks_font_for_long_text_in_small_box(self, synthetic_page):
         from PIL import Image
@@ -161,7 +167,7 @@ class TestRenderTextInBox:
         small_box = {"x": 100, "y": 80, "w": 80, "h": 30}
         long_text = "This is a much longer sentence than the tiny box can comfortably fit."
         # should not raise -- font auto-shrink should handle it gracefully
-        scanlate_render.render_text_in_box(img, small_box, long_text, font_size=24)
+        scanlate_text_layout.render_text_in_box(img, small_box, long_text, font_size=24)
 
     def test_font_category_resolves_to_a_different_real_font_than_regular(self, synthetic_page):
         # Uses the real bold/regular DejaVu system fonts if present -- proves
@@ -172,12 +178,12 @@ class TestRenderTextInBox:
         from PIL import Image
         img = Image.open(synthetic_page).convert("RGB")
         box = {"x": 100, "y": 80, "w": 300, "h": 140}
-        bold_path = scanlate_render._find_font(category="bold")
-        regular_path = scanlate_render._find_font(category="regular")
+        bold_path = scanlate_fonts._find_font(category="bold")
+        regular_path = scanlate_fonts._find_font(category="regular")
         assert bold_path != regular_path
         # Both categories render without error.
-        scanlate_render.render_text_in_box(img.copy(), box, "Hi", font_category="bold")
-        scanlate_render.render_text_in_box(img.copy(), box, "Hi", font_category="regular")
+        scanlate_text_layout.render_text_in_box(img.copy(), box, "Hi", font_category="bold")
+        scanlate_text_layout.render_text_in_box(img.copy(), box, "Hi", font_category="regular")
 
     def test_custom_font_is_actually_used_for_rendering(self, synthetic_page):
         from PIL import Image
@@ -188,59 +194,59 @@ class TestRenderTextInBox:
             pytest.skip("DejaVu fonts not present on this system")
         # Doesn't raise, and the custom font (not a system fallback) is
         # what actually gets resolved for this render.
-        scanlate_render.render_text_in_box(img, box, "Hi", font_category="handwritten",
+        scanlate_text_layout.render_text_in_box(img, box, "Hi", font_category="handwritten",
                                      custom_fonts={"handwritten": real_font})
-        assert scanlate_render._find_font(category="handwritten",
+        assert scanlate_fonts._find_font(category="handwritten",
                                     custom_fonts={"handwritten": real_font}) == real_font
 
 
 class TestFindFont:
     def test_the_bundled_comic_face_is_the_default_for_regular_and_bold(self):
-        regular = scanlate_render._find_font(category="regular")
-        bold = scanlate_render._find_font(category="bold")
+        regular = scanlate_fonts._find_font(category="regular")
+        bold = scanlate_fonts._find_font(category="bold")
         assert os.path.basename(regular) == "ComicNeue-Regular.ttf" and os.path.exists(regular)
         assert os.path.basename(bold) == "ComicNeue-Bold.ttf" and os.path.exists(bold)
 
     def test_a_bundled_font_covers_the_punctuation_the_typesetter_draws(self):
         from PIL import ImageFont
-        font = ImageFont.truetype(scanlate_render._find_font(category="regular"), 20)
+        font = ImageFont.truetype(scanlate_fonts._find_font(category="regular"), 20)
         for ch in "…—’“”é!?":
             assert font.getmask(ch).getbbox() is not None, ch
 
     def test_explicit_font_path_always_wins(self, tmp_path):
         real_font = tmp_path / "custom.ttf"
         real_font.write_bytes(b"fake ttf bytes")
-        result = scanlate_render._find_font(str(real_font), category="handwritten",
+        result = scanlate_fonts._find_font(str(real_font), category="handwritten",
                                       custom_fonts={"handwritten": "/nonexistent/other.ttf"})
         assert result == str(real_font)
 
     def test_a_nonexistent_explicit_path_falls_through_to_the_rest(self, tmp_path):
         custom = tmp_path / "custom_bold.ttf"
         custom.write_bytes(b"fake")
-        result = scanlate_render._find_font("/nonexistent/explicit.ttf", category="bold",
+        result = scanlate_fonts._find_font("/nonexistent/explicit.ttf", category="bold",
                                       custom_fonts={"bold": str(custom)})
         assert result == str(custom)
 
     def test_custom_font_for_the_category_is_used_before_system_fallbacks(self, tmp_path):
         custom = tmp_path / "my_handwriting.ttf"
         custom.write_bytes(b"fake")
-        result = scanlate_render._find_font(category="handwritten", custom_fonts={"handwritten": str(custom)})
+        result = scanlate_fonts._find_font(category="handwritten", custom_fonts={"handwritten": str(custom)})
         assert result == str(custom)
 
     def test_custom_font_for_a_different_category_is_ignored(self, tmp_path):
         custom = tmp_path / "my_bold.ttf"
         custom.write_bytes(b"fake")
         # A handwritten custom font must not leak into a "bold" lookup.
-        result = scanlate_render._find_font(category="bold", custom_fonts={"handwritten": str(custom)})
+        result = scanlate_fonts._find_font(category="bold", custom_fonts={"handwritten": str(custom)})
         assert result != str(custom)
 
     def test_unknown_category_falls_back_to_regular_system_fonts(self):
         # Doesn't crash on a category with no dedicated candidates list.
-        result = scanlate_render._find_font(category="not_a_real_category")
+        result = scanlate_fonts._find_font(category="not_a_real_category")
         assert result is None or os.path.exists(result)
 
     def test_categories_constant_matches_sample_text_style_output(self):
-        assert set(scanlate_render.FONT_CATEGORIES) == {"regular", "bold", "handwritten"}
+        assert set(scanlate_fonts.FONT_CATEGORIES) == {"regular", "bold", "handwritten"}
 
 
 class TestSampleTextStyle:
@@ -250,11 +256,11 @@ class TestSampleTextStyle:
         # caller doing result["suggested_style"] could KeyError depending
         # on which path was hit -- .get() masked this rather than fixing it.
         missing_path = str(tmp_path / "does_not_exist.png")
-        result = scanlate_render.sample_text_style(missing_path, {"x": 0, "y": 0, "w": 10, "h": 10})
+        result = scanlate_fonts.sample_text_style(missing_path, {"x": 0, "y": 0, "w": 10, "h": 10})
         assert result["suggested_style"] == "regular"
 
     def test_degenerate_box_also_includes_suggested_style(self, synthetic_page):
-        result = scanlate_render.sample_text_style(synthetic_page, {"x": 0, "y": 0, "w": 0, "h": 0})
+        result = scanlate_fonts.sample_text_style(synthetic_page, {"x": 0, "y": 0, "w": 0, "h": 0})
         assert result["suggested_style"] == "regular"
 
     def test_a_dense_bold_looking_region_is_flagged_bold(self, temp_dir):
@@ -264,7 +270,7 @@ class TestSampleTextStyle:
         cv2.rectangle(img, (10, 10), (90, 90), 0, -1)
         path = os.path.join(temp_dir, "bold.png")
         cv2.imwrite(path, img)
-        result = scanlate_render.sample_text_style(path, {"x": 0, "y": 0, "w": 100, "h": 100})
+        result = scanlate_fonts.sample_text_style(path, {"x": 0, "y": 0, "w": 100, "h": 100})
         assert result["suggested_style"] == "bold"
 
     def test_a_light_sparse_region_is_flagged_regular(self, temp_dir):
@@ -272,7 +278,7 @@ class TestSampleTextStyle:
         cv2.rectangle(img, (45, 45), (55, 55), 0, -1)  # tiny mark, low ink ratio
         path = os.path.join(temp_dir, "regular.png")
         cv2.imwrite(path, img)
-        result = scanlate_render.sample_text_style(path, {"x": 0, "y": 0, "w": 100, "h": 100})
+        result = scanlate_fonts.sample_text_style(path, {"x": 0, "y": 0, "w": 100, "h": 100})
         assert result["suggested_style"] == "regular"
 
 
@@ -458,13 +464,13 @@ class TestAutoBackendSelection:
         cached_file.write_bytes(b"x")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename, revision=None: str(cached_file))
-        assert scanlate_inpaint.lama_ml_weights_cached() is True
+        assert scanlate_lama.lama_ml_weights_cached() is True
 
     def test_lama_ml_weights_cached_false_when_no_cache_hit(self, monkeypatch):
         huggingface_hub = pytest.importorskip("huggingface_hub")
         monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
                              lambda repo_id, filename, revision=None: None)
-        assert scanlate_inpaint.lama_ml_weights_cached() is False
+        assert scanlate_lama.lama_ml_weights_cached() is False
 
     def test_detect_bubbles_auto_never_calls_ml_when_not_cached(self, monkeypatch, synthetic_page):
         monkeypatch.setattr(scanlate_detect, "bubble_ml_weights_cached", lambda: False)
@@ -556,7 +562,7 @@ class TestDedupeOverlappingBoxes:
             {"x": 51, "y": 51, "w": 198, "h": 98, "confidence": 0.99, "label": "text_bubble"},
             {"x": 49, "y": 49, "w": 202, "h": 101, "confidence": 0.7, "label": "bubble"},
         ]
-        merged = scanlate_detect.dedupe_overlapping_boxes(triple)
+        merged = scanlate_box_merge.dedupe_overlapping_boxes(triple)
         assert len(merged) == 1
         assert merged[0]["label"] == "bubble"
 
@@ -567,7 +573,7 @@ class TestDedupeOverlappingBoxes:
             {"x": 10, "y": 10, "w": 50, "h": 50, "confidence": 0.4},
             {"x": 11, "y": 11, "w": 49, "h": 49, "confidence": 0.8},
         ]
-        merged = scanlate_detect.dedupe_overlapping_boxes(pair)
+        merged = scanlate_box_merge.dedupe_overlapping_boxes(pair)
         assert len(merged) == 1
         assert merged[0]["confidence"] == 0.8
 
@@ -578,10 +584,10 @@ class TestDedupeOverlappingBoxes:
             {"x": 0, "y": 0, "w": 100, "h": 100, "label": "bubble"},
             {"x": 90, "y": 90, "w": 100, "h": 100, "label": "bubble"},
         ]
-        assert len(scanlate_detect.dedupe_overlapping_boxes(barely_touching)) == 2
+        assert len(scanlate_box_merge.dedupe_overlapping_boxes(barely_touching)) == 2
 
     def test_empty_list_returns_empty_list(self):
-        assert scanlate_detect.dedupe_overlapping_boxes([]) == []
+        assert scanlate_box_merge.dedupe_overlapping_boxes([]) == []
 
 
 class TestInpaintMaskRegion:
@@ -952,14 +958,14 @@ class TestHfTokenIsNotWrittenToTheEnvironment:
         monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
         monkeypatch.setitem(sys.modules, "safetensors.torch",
                             types.SimpleNamespace(load_file=lambda path: {"w": 0}))
-        monkeypatch.setattr(scanlate_inpaint, "_build_lama_generator", FakeGenerator)
+        monkeypatch.setattr(scanlate_lama, "_build_lama_generator", FakeGenerator)
         monkeypatch.delenv("HF_TOKEN", raising=False)
         monkeypatch.delenv("HUGGINGFACE_TOKEN", raising=False)
-        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
         try:
-            scanlate_inpaint._load_lama_generator(hf_token="secret-token")
+            scanlate_lama._load_lama_generator(hf_token="secret-token")
         finally:
-            scanlate_inpaint.__dict__.pop("_lama_model", None)
+            scanlate_lama.__dict__.pop("_lama_model", None)
         assert seen["token"] == "secret-token"
         assert "HF_TOKEN" not in os.environ
 
@@ -967,7 +973,7 @@ class TestHfTokenIsNotWrittenToTheEnvironment:
 class TestLamaGeneratorLayout:
     def test_generator_uses_the_checkpoint_key_names(self):
         pytest.importorskip("torch")
-        keys = set(scanlate_inpaint._build_lama_generator().state_dict())
+        keys = set(scanlate_lama._build_lama_generator().state_dict())
         # Names and shapes the big-lama-manga checkpoint stores (minus its "model." prefix).
         assert "1.ffc.convl2l.weight" in keys
         assert "4.ffc.convl2g.weight" in keys
@@ -980,30 +986,30 @@ class TestLamaGeneratorLayout:
         torch = pytest.importorskip("torch")
         # One residual block keeps the in-memory "checkpoint" small; the layer
         # names and shapes are the real ones.
-        monkeypatch.setattr(scanlate_inpaint, "_LAMA_BLOCKS", 1)
-        source = scanlate_inpaint._build_lama_generator()
+        monkeypatch.setattr(scanlate_lama, "_LAMA_BLOCKS", 1)
+        source = scanlate_lama._build_lama_generator()
         published = {f"model.{k}": v for k, v in source.state_dict().items()}
         monkeypatch.setitem(sys.modules, "huggingface_hub", types.SimpleNamespace(
             hf_hub_download=lambda repo_id, filename, token=None, **kw: "/fake/" + filename))
         monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
         monkeypatch.setitem(sys.modules, "safetensors.torch",
                             types.SimpleNamespace(load_file=lambda path: published))
-        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
         try:
-            generator = scanlate_inpaint._load_lama_generator()
+            generator = scanlate_lama._load_lama_generator()
             with torch.no_grad():
                 out = generator(torch.zeros(1, 4, 64, 64))
         finally:
-            scanlate_inpaint.__dict__.pop("_lama_model", None)
+            scanlate_lama.__dict__.pop("_lama_model", None)
         assert out.shape == (1, 3, 64, 64)
 
     def test_a_region_over_the_size_cap_is_refused_before_the_model_loads(self, monkeypatch):
         def must_not_load(*a, **k):
             raise AssertionError("the model must not load for an oversized region")
-        monkeypatch.setattr(scanlate_inpaint, "_load_lama_generator", must_not_load)
+        monkeypatch.setattr(scanlate_lama, "_load_lama_generator", must_not_load)
         roi = np.zeros((2000, 2000, 3), np.uint8)
         with pytest.raises(ValueError, match="megapixels"):
-            scanlate_inpaint._run_ml_inpaint(roi, np.ones((2000, 2000), np.uint8))
+            scanlate_lama._run_ml_inpaint(roi, np.ones((2000, 2000), np.uint8))
 
     def test_an_oversized_box_falls_back_to_opencv(self, monkeypatch, temp_dir):
         monkeypatch.setattr(scanlate_inpaint, "lama_ml_weights_cached", lambda: True)
@@ -1029,11 +1035,11 @@ class TestLamaGeneratorLayout:
         monkeypatch.setitem(sys.modules, "safetensors", types.ModuleType("safetensors"))
         monkeypatch.setitem(sys.modules, "safetensors.torch",
                             types.SimpleNamespace(load_file=lambda path: {}))
-        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
+        monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
         with pytest.raises(OSError):
-            scanlate_inpaint._load_lama_generator(allow_download=False)
+            scanlate_lama._load_lama_generator(allow_download=False)
         assert seen == {"local_files_only": True, "etag_timeout": 30,
-                        "revision": model_pins.REVISIONS[scanlate_inpaint._LAMA_ML_REPO]}
+                        "revision": model_pins.REVISIONS[scanlate_lama._LAMA_ML_REPO]}
 
     def test_an_unusable_checkpoint_is_read_once_per_process(self, monkeypatch):
         import types
@@ -1048,16 +1054,16 @@ class TestLamaGeneratorLayout:
         monkeypatch.setitem(sys.modules, "safetensors.torch",
                             types.SimpleNamespace(load_file=load_file))
         pytest.importorskip("torch")
-        monkeypatch.setattr(scanlate_inpaint, "_LAMA_BLOCKS", 1)
-        monkeypatch.delitem(scanlate_inpaint.__dict__, "_lama_model", raising=False)
-        monkeypatch.setattr(scanlate_inpaint, "_lama_load_error", None)
+        monkeypatch.setattr(scanlate_lama, "_LAMA_BLOCKS", 1)
+        monkeypatch.delitem(scanlate_lama.__dict__, "_lama_model", raising=False)
+        monkeypatch.setattr(scanlate_lama, "_lama_load_error", None)
         for _ in range(3):
             with pytest.raises(RuntimeError):
-                scanlate_inpaint._load_lama_generator()
+                scanlate_lama._load_lama_generator()
         assert len(reads) == 1
 
     def test_the_weights_file_is_the_one_the_repo_publishes(self):
-        assert scanlate_inpaint._LAMA_ML_FILE == "lama-manga.safetensors"
+        assert scanlate_lama._LAMA_ML_FILE == "lama-manga.safetensors"
 
 
 class TestWebtoonOverlapOnlyThroughArt:
@@ -1072,13 +1078,13 @@ class TestWebtoonOverlapOnlyThroughArt:
 
     def test_a_cut_on_a_gutter_row_shares_no_band(self, temp_dir):
         path = self._noisy_strip(temp_dir, 3000, gutter_rows=range(1590, 1600))
-        a, b = scanlate_detect.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
+        a, b = scanlate_panels.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
         assert 1590 <= a["y_end"] <= 1600
         assert b["y_start"] == a["y_end"]
 
     def test_a_cut_through_artwork_keeps_the_shared_band(self, temp_dir):
         path = self._noisy_strip(temp_dir, 3000)
-        a, b = scanlate_detect.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
+        a, b = scanlate_panels.split_webtoon_strip(path, target_height=1600, overlap=100)[:2]
         assert b["y_start"] == a["y_end"] - 100
 
 
@@ -1090,11 +1096,11 @@ class TestWebtoonSliceCap:
 
     def test_a_strip_needing_more_than_200_slices_raises(self, temp_dir):
         with pytest.raises(ValueError, match="200"):
-            scanlate_detect.split_webtoon_strip(self._strip(temp_dir, 2010), target_height=10,
+            scanlate_panels.split_webtoon_strip(self._strip(temp_dir, 2010), target_height=10,
                                                 overlap=0)
 
     def test_two_hundred_slices_still_cover_the_whole_strip(self, temp_dir):
-        slices = scanlate_detect.split_webtoon_strip(self._strip(temp_dir, 2000), target_height=10,
+        slices = scanlate_panels.split_webtoon_strip(self._strip(temp_dir, 2000), target_height=10,
                                                      overlap=0)
         assert len(slices) == 200
         assert slices[-1]["y_end"] == 2000
@@ -1323,6 +1329,6 @@ class TestRenderReportsTheDrawnSize:
         from PIL import Image
         img = Image.new("RGB", (80, 60), "white")
         report = {}
-        scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": 80, "h": 60}, "A longer line "
+        scanlate_text_layout.render_text_in_box(img, {"x": 0, "y": 0, "w": 80, "h": 60}, "A longer line "
                                            "of text that must shrink", font_size=40, report=report)
         assert 8 <= report["size"] < 40

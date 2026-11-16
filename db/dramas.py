@@ -111,8 +111,19 @@ def set_status_if(drama_id: int, expected: str, new: str) -> bool:
         return cur.rowcount > 0
 
 
+# The edit log outlives its title so the corrections report keeps counting it: the
+# rows are detached (drama_id NULL, which the cascade leaves alone) and keep the
+# old id and name, which a restore of the title uses to take them back.
+EDIT_LOG_TABLES = ("edit_samples", "source_edits")
+
+
 def delete_drama(drama_id: int):
     with contextlib.closing(db.get_conn()) as conn:
+        for table in EDIT_LOG_TABLES:
+            conn.execute(
+                f"UPDATE {table} SET drama_id = NULL, line_id = NULL, deleted_drama_id = ?, "
+                "deleted_title = (SELECT COALESCE(NULLIF(title_en, ''), title_zh) FROM dramas "
+                "WHERE id = ?) WHERE drama_id = ?", (drama_id, drama_id, drama_id))
         conn.execute("DELETE FROM dramas WHERE id = ?", (drama_id,))
         # The checkpoint/cache/provenance tables are keyed by drama (no foreign key): a checkpoint scope
         # is "<kind>:<drama_id>:<digest>".

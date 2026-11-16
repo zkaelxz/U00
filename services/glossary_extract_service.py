@@ -18,6 +18,7 @@ from engine_backends import engine_registry
 from engine_backends import shared as engine_shared
 from engine_backends import paid_calls
 import translation_guide as tguide
+import glossary_extract
 from engine_backends.shared import TranslationCancelled
 from glossary_io import MIN_ALIAS_LEN, TERM_CATEGORIES, TERM_POLICIES
 from services import job_checkpoint_service, novel_files_service, paid_job_service
@@ -185,7 +186,7 @@ def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_t
                             source_language, known_terms, fresh=False, conventions=""):
     try:
         with _bounded_calls(job_id, drama_id, engine, engine_name, "glossary_from_novel") as limits:
-            proposals = tguide.extract_glossary_from_novel(
+            proposals = glossary_extract.extract_glossary_from_novel(
                 src_text, engine, source_language=source_language, english_translation=en_text,
                 known_terms=known_terms, conventions=conventions,
                 response_cache=_novel_glossary_cache(engine, engine_name, fresh),
@@ -511,7 +512,7 @@ def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existin
         # "unclear" means the scan found no evidence, not that the user's
         # pronoun note is wrong, so overwriting must not erase it.
         if (current is not None and re.match(r"\s*unclear", notes, re.IGNORECASE)
-                and tguide._PRONOUN_LEAD.match(current.get("notes") or "")):
+                and glossary_extract._PRONOUN_LEAD.match(current.get("notes") or "")):
             notes = current["notes"]
         db.upsert_glossary_term(
             sid, term, translation, notes=notes,
@@ -604,7 +605,7 @@ def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, sourc
     try:
         with background_jobs.stage_ticker(job_id, f"Scanning {len(source_lines)} lines...", frac=0.1), \
                 _bounded_calls(job_id, drama_id, engine, engine_name, "extract_terms") as limits:
-            proposals = tguide.extract_terms_llm(
+            proposals = glossary_extract.extract_terms_llm(
                 source_lines, engine, source_language=source_language, known_terms=known_terms,
                 usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "extract_terms"))
     except (TranslationCancelled, background_jobs.JobCancelled):
@@ -639,7 +640,7 @@ def _chapter_source_lines(drama_id: int, chapter: int) -> list:
 def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None,
                              chapter: Optional[int] = None) -> dict:
     """Starts proposing glossary terms from this drama's saved source lines
-    (`tguide.extract_terms_llm`, which samples up to 400 lines across the
+    (`glossary_extract.extract_terms_llm`, which samples up to 400 lines across the
     whole drama), or only chapter `chapter` of GET line-chapters when given
     (NotFoundError when there is no such chapter). One LLM call on the drama's translation_engine; the
     engine_name rule is start_novel_glossary_run's. Refused before starting

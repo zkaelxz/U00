@@ -96,10 +96,12 @@ def submit_bulk_review(kind: str, drama_id: int, engine, engine_choice: str,
     return bulk_id, provider
 
 
-def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, line_count: int,
+def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, lines: list,
                 submit_kwargs: dict) -> dict:
     """The bulk half of _start: one background job that submits the batch
-    and polls it until bulk_translate has applied the results."""
+    and polls it until bulk_translate has applied the results. The batch
+    can't be stopped part-way once sent, so its estimate must fit in what
+    the monthly cap has left, other unbilled batches included."""
     bulk_kind = _BULK_KIND[kind]
     job_id = bulk_job_id(kind, drama_id)
     pending = db.BULK_PENDING_STATUSES + ("submitting", "running")
@@ -108,16 +110,28 @@ def _start_bulk(kind: str, drama_id: int, engine, engine_name: str, line_count: 
             for j in db.list_bulk_jobs(drama_id, statuses=pending)):
         raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this title.")
 
+    estimate = bulk_translate.estimate_generic_bulk_usd(bulk_kind, lines, engine, **submit_kwargs)
+    key = paid_job_service.bulk_hold_key(drama_id, bulk_kind)
+    paid_job_service.hold_bulk_spend(key, estimate)
+
     def submit():
-        return submit_bulk_review(bulk_kind, drama_id, engine, engine_name, **submit_kwargs)[0]
-    started = job_launch.start_job(
-        job_id, translate_run_service.run_bulk_translate_job, job_id, engine, engine_name, submit,
-        translate_run_service.month_cap_usd() or None,
-        description=f"Bulk {_KINDS[kind][1]} (title #{drama_id})", line_fields=_LINE_FIELDS[kind])
+        return submit_bulk_review(bulk_kind, drama_id, engine, engine_name,
+                                  estimated_usd=estimate, **submit_kwargs)[0]
+    started = False
+    try:
+        started = job_launch.start_job(
+            job_id, paid_job_service.holding_bulk_spend(
+                key, translate_run_service.run_bulk_translate_job),
+            job_id, engine, engine_name, paid_job_service.holding_bulk_spend(key, submit),
+            translate_run_service.month_cap_usd() or None,
+            description=f"Bulk {_KINDS[kind][1]} (title #{drama_id})", line_fields=_LINE_FIELDS[kind])
+    finally:
+        if not started:
+            paid_job_service.release_bulk_spend(key)
     if not started:
         raise ConflictError(f"A bulk {_KINDS[kind][1]} is already pending for this title.")
     return {"job_id": job_id, "drama_id": drama_id, "kind": kind, "engine": engine_name,
-            "model": getattr(engine, "model", None), "line_count": line_count, "bulk": True}
+            "model": getattr(engine, "model", None), "line_count": len(lines), "bulk": True}
 
 
 def _require_no_pending_bulk_of_kind(kind: str, drama_id: int) -> None:
@@ -168,7 +182,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     if bulk:
         paid_job_service.require_cap_for_unattended(engine_name, gemini_free_tier, model)
         engine = engine_registry.get_engine(engine_name, api_key, model)
-        return _start_bulk(kind, drama_id, engine, engine_name, len(lines),
+        return _start_bulk(kind, drama_id, engine, engine_name, lines,
                            bulk_kwargs(drama) if bulk_kwargs else {})
     _require_no_pending_bulk_of_kind(kind, drama_id)
     job_id = f"{prefix}{drama_id}"
