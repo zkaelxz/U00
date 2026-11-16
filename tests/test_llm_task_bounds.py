@@ -253,16 +253,16 @@ def test_stale_worker_does_not_resend_when_a_new_run_reuses_the_job_id(no_abando
 
 
 def test_worker_thread_carries_the_jobs_timing_id(no_abandoned, monkeypatch):
-    # db.log_usage attributes spend to job_timing_service.current_job(), a
+    # db.log_usage attributes spend to job_timing.current_job(), a
     # thread-local; a usage_cb firing inside the worker must still find it.
-    from services import job_timing_service
+    import job_timing
     seen = []
     engine, comp = _engine("deepseek")
-    job_timing_service.set_current_job("job-t")
+    job_timing.set_current_job("job-t")
     try:
         with llm_tasks.bounded_llm_calls("job-t", lambda: False):
             llm_tasks.call_llm_json(engine, "p", usage_cb=lambda i, o: seen.append(
-                (threading.current_thread().name, job_timing_service.current_job())))
+                (threading.current_thread().name, job_timing.current_job())))
     finally:
-        job_timing_service.set_current_job(None)
+        job_timing.set_current_job(None)
     assert seen[0][0].startswith("llm-task-") and seen[0][1] == "job-t"
