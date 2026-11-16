@@ -202,8 +202,10 @@ def _check_selection_can_run(drama_id: int, text: str, selection: tuple) -> None
 
 
 def estimate_tag_cost(drama_id: int, engine_name: Optional[str] = None, model: Optional[str] = None,
-                      chapter_from: Optional[int] = None, chapter_to: Optional[int] = None) -> dict:
-    """What a chunk-and-tag run of the chosen chapters would cost: booleans and numbers only.
+                      chapter_from: Optional[int] = None, chapter_to: Optional[int] = None,
+                      append: bool = False) -> dict:
+    """What a chunk-and-tag run of the chosen chapters (or, with append, of the text an add left
+    without lines) would cost: booleans and numbers only.
     An engine with no key spends nothing (every line is marked Narrator)."""
     from services import translate_run_service
     ownership_service.require_drama(drama_id)
@@ -214,6 +216,9 @@ def estimate_tag_cost(drama_id: int, engine_name: Optional[str] = None, model: O
     if not text.strip():
         raise InvalidInputError("This title has no novel text attached yet.")
     selection = _selection(chapter_from, chapter_to, text)
+    if append:
+        text = _pending_tail(drama_id, text)
+        selection = None
     chunks = novel_text.chunk_novel_text(selected_text(text, selection), MAX_CHUNK_CHARS)
     free_tier = bool(settings_service.get("gemini_free_tier"))
     resolved = model or engine_registry.effective_default_model(engine_name)
@@ -224,7 +229,7 @@ def estimate_tag_cost(drama_id: int, engine_name: Optional[str] = None, model: O
         stand_in = SimpleNamespace(name=engine_name, model=resolved,
                                    free_tier=engine_name == "gemini" and free_tier)
         batches = -(-len(chunks) // TAG_BATCH_SIZE)
-        inp = batches * TAG_PROMPT_TOKENS + sum(pricing.estimate_text_tokens(c) + 4 for c in chunks)
+        inp = int(batches * TAG_PROMPT_TOKENS + sum(pricing.estimate_text_tokens(c) + 4 for c in chunks))
         out = len(chunks) * TAG_OUTPUT_TOKENS_PER_LINE
         estimated = float(pricing.estimate_cost_for_engine(stand_in, inp, out))
     monthly = translate_run_service.month_cap_usd() if cap_applies else 0.0

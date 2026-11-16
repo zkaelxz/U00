@@ -581,3 +581,22 @@ class TestOneNarrator:
         narration_service._run_narration_job(
             f"narration_{did}", did, BOOK, "claude", None, None, chapters=(2, 3), one_narrator=True)
         assert [ln.speaker for ln in isolated_db.load_line_objects(did)] == ["Narrator"] * 6
+
+
+class TestAppendEstimate:
+    def test_prices_only_the_text_an_add_left_without_lines(self, isolated_db, key):
+        import novel_text
+        from core import Line
+        did = _drama(isolated_db, novel=BOOK)
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=z) for i, z in enumerate(
+            ["第1章 开始", "他说：你好。", "夜很深了。", "第2章 继续", "风很大。", "雨停了。"])])
+        tail = "第3章 结束\n\n天亮了。\n\n他走了。\n"
+        novel_text.write_pending_lines(isolated_db.drama_dir(did), len(tail), len(BOOK), 6, 3)
+        whole = narration_service.estimate_tag_cost(did, "claude")
+        added = narration_service.estimate_tag_cost(did, "claude", append=True)
+        assert (whole["chunk_count"], added["chunk_count"]) == (9, 3)
+
+    def test_nothing_waiting_is_refused(self, isolated_db, key):
+        did = _drama(isolated_db)
+        with pytest.raises(InvalidInputError):
+            narration_service.estimate_tag_cost(did, "claude", append=True)

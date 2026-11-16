@@ -1,9 +1,13 @@
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { narrationApi } from '../../api/dub'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { usePersistedState } from '../../hooks/usePersistedState'
+import type { NarrationConfig } from '../../types/dub'
 import { buttonClass } from '../../components/uiClasses'
 import { addChaptersFromLink, type AddStep } from './novelLinkActions'
+import { EMPTY_TAG_CHOICE, TagChoices, type TagChoice } from './stages/TagChoices'
 
 const STEP_TEXT: Record<AddStep, string> = {
   import: 'Importing the chapters',
@@ -23,6 +27,18 @@ export function NovelAddChapters({ id, chapters, defaultUrl, onProgress }: { id:
   const [error, setError] = useState<unknown>(null)
   // The saved chapter count before the first attempt: a retry after a failed step still expects the same translation text.
   const baseline = useRef<number | null>(null)
+  // Shared with the Continue box: the engine, model and "one narrator" are remembered per browser.
+  const [saved, setSaved] = usePersistedState('novel.tagChoice', { engine: '', model: '', oneNarrator: false })
+  const tag: TagChoice = { ...EMPTY_TAG_CHOICE, ...saved }
+  const [cfg, setCfg] = useState<NarrationConfig | null>(null)
+  const [blocked, setBlocked] = useState<string | null>(null)
+  const costAccepted = useRef(false)
+  const onAccepted = useCallback((v: boolean) => { costAccepted.current = v }, [])
+  useEffect(() => {
+    let cancelled = false
+    narrationApi.config(id).then((c) => !cancelled && setCfg(c), () => undefined)
+    return () => { cancelled = true }
+  }, [id, chapters])
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -31,7 +47,7 @@ export function NovelAddChapters({ id, chapters, defaultUrl, onProgress }: { id:
     setError(null)
     setDone(null)
     baseline.current ??= chapters
-    addChaptersFromLink(id, url.trim(), (s) => { setStep(s); onProgress() }, baseline.current).then(
+    addChaptersFromLink(id, url.trim(), (s) => { setStep(s); onProgress() }, baseline.current, tag, () => costAccepted.current).then(
       (added) => {
         baseline.current = null
         setRunning(false)
@@ -64,8 +80,20 @@ export function NovelAddChapters({ id, chapters, defaultUrl, onProgress }: { id:
         onChange={(e) => setUrl(e.target.value)}
         readOnly={running}
       />
+      {cfg && (
+        <TagChoices
+          dramaId={id}
+          cfg={cfg}
+          value={tag}
+          disabled={running}
+          forNewChapters
+          onChange={(next) => setSaved({ engine: next.engine, model: next.model, oneNarrator: next.oneNarrator })}
+          onBlocked={setBlocked}
+          onAccepted={onAccepted}
+        />
+      )}
       <div className="actions">
-        <button type="submit" className={buttonClass('secondary')} disabled={running || !url.trim()}>Add from link</button>
+        <button type="submit" className={buttonClass('secondary')} disabled={running || !url.trim() || !!blocked}>Add from link</button>
         <span className="muted" role="status" aria-live="polite">{step ? STEP_TEXT[step] : (done ?? '')}</span>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />

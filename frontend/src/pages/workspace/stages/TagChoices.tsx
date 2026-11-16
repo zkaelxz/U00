@@ -41,8 +41,8 @@ export function tagRunBody(c: TagChoice, defaultEngine: string): NarrationRunReq
 }
 
 /** A paid run with no monthly cap set is only started once the person has accepted the estimate. */
-export function needsCostConfirm(e: NarrationEstimate | null): boolean {
-  return !!e && e.has_key && e.cap_applies && !e.monthly_cap_set && e.estimated_usd > 0
+export function needsCostConfirm(e: NarrationEstimate | null, noFigure = false): boolean {
+  return !!e && e.has_key && e.cap_applies && !e.monthly_cap_set && (noFigure || e.estimated_usd > 0)
 }
 
 export function estimateText(e: NarrationEstimate): string {
@@ -62,10 +62,12 @@ interface Props {
   onBlocked: (reason: string | null) => void
   /** Whether the person has accepted the estimated cost of a paid run with no monthly cap. */
   onAccepted?: (accepted: boolean) => void
+  /** The Add chapters box: the new text's lines are cut later, so there is no chapter choice and no dollar figure yet. */
+  forNewChapters?: boolean
 }
 
 /** The choices shared by the Chunk and tag card and the novel Continue button. */
-export function TagChoices({ dramaId, cfg, value, onChange, disabled, onBlocked, onAccepted }: Props) {
+export function TagChoices({ dramaId, cfg, value, onChange, disabled, onBlocked, onAccepted, forNewChapters }: Props) {
   const engine = effectiveTagEngine(value, cfg)
   const titleEngines = useTitleEngines(dramaId)
   const modelEngine = titleEngines.engines?.find((e) => e.name === engine)
@@ -88,7 +90,7 @@ export function TagChoices({ dramaId, cfg, value, onChange, disabled, onBlocked,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dramaId, engine, value.model, value.oneNarrator, value.from, value.to, cfg.has_novel_source])
 
-  const confirmDue = needsCostConfirm(estimate) && !value.oneNarrator
+  const confirmDue = needsCostConfirm(estimate, forNewChapters) && !value.oneNarrator
   const reason = range === null
     ? CHAPTER_RANGE_MESSAGE
     : confirmDue && !accepted
@@ -140,7 +142,7 @@ export function TagChoices({ dramaId, cfg, value, onChange, disabled, onBlocked,
           )}
         </div>
       )}
-      {cfg.chapter_count > 1 && (
+      {cfg.chapter_count > 1 && !forNewChapters && (
         <div className="dub-grid">
           <Field label="First chapter" help={`Only these chapters are cut and tagged (this text has ${cfg.chapter_count}). Leave both blank for all. Other chapters' lines are not touched.`}>
             <input type="number" min={1} max={cfg.chapter_count} placeholder="1" value={value.from} disabled={disabled} onChange={(e) => set({ from: e.target.value })} />
@@ -150,7 +152,7 @@ export function TagChoices({ dramaId, cfg, value, onChange, disabled, onBlocked,
           </Field>
         </div>
       )}
-      {estimate && !value.oneNarrator && <p className="muted" role="status">{estimateText(estimate)}</p>}
+      {estimate && !value.oneNarrator && !forNewChapters && <p className="muted" role="status">{estimateText(estimate)}</p>}
       {value.oneNarrator && <p className="muted">No AI is used and nothing is spent.</p>}
       {confirmDue && (
         <div className="setting-list">

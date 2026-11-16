@@ -7,12 +7,13 @@ export interface NarrationEstimateParams {
   model?: string | null
   chapter_from?: number | null
   chapter_to?: number | null
+  append?: boolean
 }
 
 export const narrationApi = {
   estimate: (dramaId: number, p: NarrationEstimateParams, f?: Fetch) => {
     const q = new URLSearchParams()
-    for (const [k, v] of Object.entries(p)) if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
+    for (const [k, v] of Object.entries(p)) if (v !== undefined && v !== null && v !== '' && v !== false) q.set(k, String(v))
     const qs = q.toString()
     return getJson<NarrationEstimate>(`/api/narration/dramas/${dramaId}/estimate${qs ? `?${qs}` : ''}`, f)
   },

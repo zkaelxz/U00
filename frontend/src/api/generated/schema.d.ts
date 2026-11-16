@@ -51595,6 +51595,8 @@ export interface operations {
                 model?: string | null;
                 chapter_from?: number | null;
                 chapter_to?: number | null;
+                /** @description Price only the text an add left without lines */
+                append?: boolean;
             };
             header?: never;
             path: {

@@ -11,7 +11,7 @@ import { defaultTermSelection } from './stages/autotuneGlossary'
 import { applyRequest } from './stages/glossaryExtract'
 import { startExtraction } from './stages/useGlossaryRun'
 import { applyStartToForm, buildRunBody, initialForm, loadPresetStart } from './translateForm'
-import { needsCostConfirm, tagChoiceProblem, tagRunBody, type TagChoice } from './stages/TagChoices'
+import { EMPTY_TAG_CHOICE, needsCostConfirm, tagChoiceProblem, tagRunBody, type TagChoice } from './stages/TagChoices'
 import type { ChainActions } from './novelLinkChain'
 
 const POLL_MS = 2000
@@ -135,6 +135,7 @@ export type AddStep = 'import' | 'text' | 'lines'
  */
 export async function addChaptersFromLink(
   id: number, url: string, onStep: (s: AddStep) => void, chaptersBefore?: number,
+  tag: TagChoice = EMPTY_TAG_CHOICE, costAccepted: () => boolean = () => false,
 ): Promise<number> {
   onStep('import')
   const started = await startNovelUrlImport(url, id, {})
@@ -146,8 +147,15 @@ export async function addChaptersFromLink(
   if (waiting > 0) {
     onStep('lines')
     const cfg = await narrationApi.config(id)
-    const engine = cfg.engines.find((e) => e.key_configured)?.key ?? cfg.default_engine
-    await waitForJob((await narrationApi.run(id, { engine, append: true })).job_id)
+    // The engine the person picked (chapters do not apply: only the new text is cut), never the first one with a key.
+    const body = tagRunBody({ ...tag, from: '', to: '' }, cfg.default_engine)
+    if (!tag.oneNarrator) {
+      const estimate = await narrationApi.estimate(id, { engine: body.engine, model: body.model, append: true })
+      if (needsCostConfirm(estimate) && !costAccepted()) {
+        throw new StepFailed(`Tagging the new chapters would cost about $${estimate.estimated_usd.toFixed(2)} and no monthly spending cap is set. Tick the box to accept the cost, then press Add from link again.`)
+      }
+    }
+    await waitForJob((await narrationApi.run(id, { ...body, append: true })).job_id)
   }
   return Math.max(result.added_chars, waiting)
 }

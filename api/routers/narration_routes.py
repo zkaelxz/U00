@@ -24,8 +24,9 @@ def get_narration_config(drama_id: int = Path(ge=1)):
             responses=error_responses(404, 409, 422))
 def get_narration_estimate(drama_id: int = Path(ge=1), engine: str | None = Query(None, max_length=40),
                            model: str | None = Query(None, max_length=200),
-                           chapter_from: int | None = Query(None, ge=1), chapter_to: int | None = Query(None, ge=1)):
-    return narration_service.estimate_tag_cost(drama_id, engine, model, chapter_from, chapter_to)
+                           chapter_from: int | None = Query(None, ge=1), chapter_to: int | None = Query(None, ge=1),
+                           append: bool = Query(False, description="Price only the text an add left without lines")):
+    return narration_service.estimate_tag_cost(drama_id, engine, model, chapter_from, chapter_to, append)
 
 
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=NarrationRunResult,
