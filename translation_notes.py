@@ -2,7 +2,7 @@
 
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.llm_tasks import call_llm_json
-from engine_backends.shared import parse_json_array
+from engine_backends.line_text import parse_json_array
 
 
 # ---------------------------------------------------------------------------

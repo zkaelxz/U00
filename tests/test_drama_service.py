@@ -405,9 +405,10 @@ def test_create_and_move_respect_series_visibility(isolated_db):
     assert db.get_drama(b_drama)["title_en"] in (None, "")
     with pytest.raises(NotFoundError):
         ds.update_drama_metadata(b_drama, principal=b, series_id=secret)
-    # Auth off (principal None) still sees everything, but the owner rule holds.
-    with pytest.raises(ConflictError):
-        ds.update_drama_metadata(b_drama, series_id=secret)
+    # Auth off (principal None) acts as the admin, who may file anyone's title
+    # in a private series (Kae, 2026-11-16).
+    ds.update_drama_metadata(b_drama, series_id=secret)
+    assert db.get_drama(b_drama)["series_id"] == secret
 
 
 def test_move_clears_the_dramas_own_private_flag(isolated_db):

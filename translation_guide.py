@@ -23,7 +23,7 @@ from glossary_io import TERM_CATEGORIES, TERM_POLICIES, alias_note, confirmed_al
 from engine_backends.shared import load_json_reply
 from engine_backends.prompts import PRONOUN_DEFAULT_MARKER
 from engine_backends.llm_tasks import call_llm_json
-from engine_backends.shared import extract_first_json_value
+from engine_backends.line_text import extract_first_json_value
 from glossary_extract import _sample_across_text
 
 

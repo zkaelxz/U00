@@ -460,12 +460,12 @@ class TestNovelDialogueRetry:
 
 class TestEchoedLabel:
     def test_a_copied_speaker_label_is_stripped(self):
-        from engine_backends.shared import strip_echoed_label
+        from engine_backends.line_text import strip_echoed_label
         assert strip_echoed_label("Tong Chu", '[Tong Chu] "Miss!" he cried.') == '"Miss!" he cried.'
         assert strip_echoed_label("Tong Chu", '[tong chu]  Fine.') == "Fine."
 
     def test_any_other_bracket_or_a_label_only_reply_is_kept(self):
-        from engine_backends.shared import strip_echoed_label
+        from engine_backends.line_text import strip_echoed_label
         assert strip_echoed_label("Tong Chu", "[laughs] Fine.") == "[laughs] Fine."
         assert strip_echoed_label("Tong Chu", "[Tong Chu]") == "[Tong Chu]"
         assert strip_echoed_label(None, "[Tong Chu] Fine.") == "[Tong Chu] Fine."
@@ -484,12 +484,12 @@ class TestEchoedLabel:
 
 class TestFirstAlternative:
     def test_a_list_of_alternatives_is_cut_to_the_first(self):
-        from engine_backends.shared import keep_first_alternative
+        from engine_backends.line_text import keep_first_alternative
         assert keep_first_alternative("Strange. Or: Weird. Or: Odd. Or: Unusual.") == "Strange."
         assert keep_first_alternative("That's odd! Alternatively: How strange.") == "That's odd!"
 
     def test_ordinary_dialogue_with_or_is_kept(self):
-        from engine_backends.shared import keep_first_alternative
+        from engine_backends.line_text import keep_first_alternative
         for text in ("Stay or go.", "Is it this? Or that?", "Or: so he said.", "Fine."):
             assert keep_first_alternative(text) == text
 

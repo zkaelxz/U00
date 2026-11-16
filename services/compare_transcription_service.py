@@ -22,7 +22,7 @@ import whisper_models
 import db
 import sensitivity_preset as presets
 import source_change
-from engine_backends import engine_registry, pricing, translate_pipeline, shared
+from engine_backends import engine_registry, line_text, pricing, translate_pipeline
 from engine_backends import gemini as engine_gemini
 from services import (
     asr_options_service,
@@ -553,7 +553,7 @@ def _translate_into(proposal, ln, engine, context, character_names, translation,
     """Translates the candidate (and the current text when it has no English
     or the owner asked) in one call; fills proposal's English fields. Returns
     the logged cost. A failure is recorded (redacted) and leaves them empty."""
-    if shared.is_english_line(ln):
+    if line_text.is_english_line(ln):
         proposal["candidate_en"] = proposal["candidate_zh"]
         proposal["translated"] = True
         return 0.0
@@ -563,7 +563,7 @@ def _translate_into(proposal, ln, engine, context, character_names, translation,
     try:
         out = engine.translate_batch(texts, {
             **context, "speaker_labels": [character_names.get(ln.speaker)] * len(texts),
-            "line_languages": shared.tagged_line_languages([ln] * len(texts), language)})
+            "line_languages": line_text.tagged_line_languages([ln] * len(texts), language)})
     except Exception as exc:
         errors.append(jobs_service.scrub_text(f"line {ln.idx + 1} translation: {exc}"))
         return 0.0

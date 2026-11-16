@@ -12,6 +12,7 @@ import db
 import emotion
 import source_change
 from engine_backends import pricing, shared, flag_reasons
+from engine_backends import line_text
 from engine_backends.translation_guard import allowed_source_runs, unusable_reply
 import glossary_substitution
 import translation_notes
@@ -253,8 +254,8 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
         if error or text is None:
             counts["failed_requests"] += 1
             continue
-        flagged = shared.parse_json_array(text, 0)
-        by_id, bad = shared.parse_flag_entries(flagged)
+        flagged = line_text.parse_json_array(text, 0)
+        by_id, bad = line_text.parse_flag_entries(flagged)
         counts["unparsable_entries"] += bad
         for lid in ids_by_key[key]:
             row = row_by_id[lid]
@@ -319,7 +320,7 @@ def apply_consistency_results(bulk_job_id: int, results) -> dict:
             counts["dropped_windows"] += 1
             continue
         usable_windows += 1
-        window_issues = shared.parse_json_array(text, 0)
+        window_issues = line_text.parse_json_array(text, 0)
         if isinstance(window_issues, list):
             issues.extend(i for i in window_issues if isinstance(i, dict) and i.get("term"))
 
@@ -412,7 +413,7 @@ def apply_notes_results(bulk_job_id: int, results) -> dict:
         if error or text is None:
             counts["failed_requests"] += 1
             continue
-        found = shared.parse_json_array(text, 0)
+        found = line_text.parse_json_array(text, 0)
         by_id = {}
         if isinstance(found, list):
             for n in found:

@@ -2,7 +2,7 @@
 import { ApiError, hasStatus } from '../../api/client'
 import { describeError } from '../../components/errorMessages'
 import type { SessionState } from '../../hooks/useSession'
-import type { SetPrivateResult, SharingItem } from '../../types/sharing'
+import type { SetOwnerResult, SetPrivateResult, SharingItem } from '../../types/sharing'
 
 export const CHECKING_ACCOUNT_NOTE = 'Checking your account…'
 export const ACCOUNT_UNAVAILABLE_NOTE =
@@ -27,7 +27,21 @@ export function shareDefaultHelp(on: boolean, admin: boolean): string {
 export function canSeeAllItems(s: SessionState): boolean | null {
   if (s.status === 'loading') return null
   if (s.status === 'unavailable') return false
-  return s.me.permissions.includes('admin.library')
+  return s.me.permissions.includes('admin.users.read')
+}
+
+/** May give items to another owner (admins, at the PC or away). */
+export function canChangeOwners(s: SessionState): boolean {
+  return s.status === 'ready' && s.me.permissions.includes('admin.users')
+}
+
+/** The new owner on its row; "Created at the PC" follows it. */
+export function applyOwner(items: SharingItem[], r: SetOwnerResult): SharingItem[] {
+  return items.map((i) =>
+    i.kind === r.kind && i.id === r.id
+      ? { ...i, owner_user_id: r.owner_user_id, owner_name: r.owner_name, created_at_pc: r.owner_user_id === null }
+      : i,
+  )
 }
 
 /** A drama in a series has no flag of its own: it follows the series. */

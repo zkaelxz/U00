@@ -31,7 +31,7 @@ import time
 
 import background_jobs
 import db
-from engine_backends import engine_registry, pricing, shared
+from engine_backends import engine_registry, line_text, pricing
 from engine_backends import llm_tasks as engine_llm_tasks
 from core import LANGUAGE_NAMES
 from engine_backends import llm_tasks, paid_calls
@@ -198,7 +198,7 @@ def parse_scores(text: str, expected_ids: list) -> dict:
     by id like shared.parse_id_keyed_json (which only takes string
     values, so it can't carry these objects)."""
     try:
-        data = shared.extract_first_json_value(
+        data = line_text.extract_first_json_value(
             text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip())
     except (ValueError, OverflowError, RecursionError):
         return {}

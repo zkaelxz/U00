@@ -5,6 +5,8 @@ import type { AuthMe } from '../../api/auth'
 import type { SharingItem } from '../../types/sharing'
 import {
   applyFlip,
+  applyOwner,
+  canChangeOwners,
   canSeeAllItems,
   filterPcPrivate,
   isPcPrivate,
@@ -22,6 +24,7 @@ const item = (over: Partial<SharingItem>): SharingItem => ({
   id: 1,
   title: 'T',
   owner_name: 'Ann',
+  owner_user_id: 2,
   created_at_pc: false,
   is_private: false,
   series_id: null,
@@ -43,8 +46,22 @@ describe('sharing helpers', () => {
   it('shows every item only to admins; an unknown session gets the least-privilege view', () => {
     expect(canSeeAllItems({ status: 'loading' })).toBeNull()
     expect(canSeeAllItems({ status: 'unavailable' })).toBe(false)
-    expect(canSeeAllItems({ status: 'ready', me: me(['library.read', 'admin.library']) })).toBe(true)
+    // admin.users.read: the household listener keeps it, so an admin away sees the list too.
+    expect(canSeeAllItems({ status: 'ready', me: me(['library.read', 'admin.users.read']) })).toBe(true)
+    expect(canSeeAllItems({ status: 'ready', me: me(['library.read', 'admin.library']) })).toBe(false)
     expect(canSeeAllItems({ status: 'ready', me: me(['library.read', 'lines.edit']) })).toBe(false)
+  })
+
+  it('offers the owner picker to admins and moves the row to its new owner', () => {
+    expect(canChangeOwners({ status: 'ready', me: me(['admin.users.read', 'admin.users']) })).toBe(true)
+    expect(canChangeOwners({ status: 'ready', me: me(['admin.users.read']) })).toBe(false)
+    expect(canChangeOwners({ status: 'loading' })).toBe(false)
+    const rows = [item({ id: 1 }), item({ id: 2 })]
+    const toPc = applyOwner(rows, { kind: 'drama', id: 1, owner_user_id: null, owner_name: 'PC owner' })
+    expect(toPc[0]).toMatchObject({ owner_user_id: null, owner_name: 'PC owner', created_at_pc: true })
+    expect(toPc[1]).toEqual(rows[1])
+    const toBo = applyOwner(toPc, { kind: 'drama', id: 1, owner_user_id: 3, owner_name: 'Bo' })
+    expect(toBo[0]).toMatchObject({ owner_user_id: 3, owner_name: 'Bo', created_at_pc: false })
   })
 
   it('a title in a series follows the series', () => {
