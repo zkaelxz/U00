@@ -243,6 +243,11 @@ Inert for Reflect mode and for engines that don't follow instructions.
 sentence_groups_cb: optional callable given the line ids of each sentence
 of two or more parts, once, when the run groups them.
 
+replace_flags: flag keys the redo of those flagged lines replaces. A line
+carrying one of them has the flag cleared the moment its new English lands
+(a flag the run then sets on the new English stands). Every other flag is left
+alone, as a plain retranslate does.
+
 check_replies: run the merged/shifted-reply guard. None = the engine
 and model's default (default_reply_guard); an explicit True/False wins.
 An engine with checks_replies = False is never checked.

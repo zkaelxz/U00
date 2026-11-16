@@ -14,12 +14,14 @@ from services import settings_service
 def bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_reference,
                     glossary_terms, style_guidelines, style_note, locale, style_preset,
                     context_window, context_window_ahead, batch_size, force_retranslate,
-                    job_cost_cap_usd, series_id, thinking):
+                    job_cost_cap_usd, series_id, thinking, estimated_usd=None):
     """A zero-arg callable that submits the bulk translation (or bulk
     Reflect) batch (same translate_args, context and character names as a
     normal run) and returns the bulk job id. Called inside the job so the provider
     call never blocks the request. Lines are re-read from the DB at submit
-    time so each carries its permanent id and current English."""
+    time so each carries its permanent id and current English. estimated_usd
+    is recorded on the batch's row: it holds that much of the monthly cap
+    until the results are billed."""
     def submit() -> int:
         lines = db.load_line_objects(drama_id)
         if force_retranslate and any(ln.en for ln in lines):
@@ -30,7 +32,8 @@ def bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referenc
                 {"style_note": style_note, "drama_meta": drama, "novel_reference": novel_reference,
                  "locale": locale, "glossary_terms": glossary_terms,
                  "style_guidelines": style_guidelines, "style_preset": style_preset},
-                batch_size=batch_size, force_retranslate=force_retranslate)
+                batch_size=batch_size, force_retranslate=force_retranslate,
+                estimated_usd=estimated_usd)
         if engine_name == "deepseek":
             # the run's own thinking: the job starts later
             return bulk_translate.schedule_offpeak_translation(
@@ -54,5 +57,5 @@ def bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referenc
             translate_args={"glossary_terms": glossary_terms, "style_preset": style_preset},
             force_retranslate=force_retranslate, context_window=context_window,
             context_window_ahead=context_window_ahead, batch_size=batch_size,
-            character_names=character_names)
+            character_names=character_names, estimated_usd=estimated_usd)
     return submit

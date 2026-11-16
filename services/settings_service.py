@@ -3,7 +3,7 @@ services/settings_service.py -- settings resolution for the settings
 endpoint (api/routers/settings_routes.py) and every service that needs a
 key or preference, so all of them read the same env-var mapping.
 
-Per D2 (docs/archive/migration-review.md §6): API keys are server-side only.
+API keys are server-side only.
 resolve_key() is for server-side use (e.g. the translate route) --
 never return its result over an HTTP response. key_status() and
 get_settings_overview() are what an API route may expose: booleans only.

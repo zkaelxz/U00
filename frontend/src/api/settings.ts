@@ -9,6 +9,7 @@ import type {
   SettingsToggleKey,
   SettingsUpdate,
 } from '../types/settings'
+import type { KeysFileRow } from '../pages/settings/keysFileModel'
 import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
@@ -27,6 +28,9 @@ export function buildUpdate(key: SettingsToggleKey, value: boolean): SettingsUpd
 
 export const fetchSettingsSchema = (f?: Fetch) =>
   getJson<{ settings: SettingsSchemaRow[] }>('/api/settings/schema', f).then((r) => r.settings)
+
+export const getKeysFileStatus = (f?: Fetch) =>
+  getJson<{ settings: KeysFileRow[] }>('/api/settings/keys-file', pcOnlyFetch(f)).then((r) => r.settings)
 
 export const getSettings = (f?: Fetch) => getJson<SettingsOverview>('/api/settings', f)
 export const updateSetting = (key: SettingsToggleKey, value: boolean, f?: Fetch) =>
