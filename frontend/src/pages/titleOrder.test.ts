@@ -75,7 +75,7 @@ describe('groupTitles', () => {
   })
   it('groups by media type and by status in pipeline order', () => {
     const items = [t('a', null, { status: 'exported' }), t('b', null, { status: 'aligned', media_type: 'manga' }), t('c', null, { status: null, media_type: null })]
-    expect(groupTitles(items, 'status', 'added', []).map((g) => g.label)).toEqual(['Aligned', 'Exported', 'No status'])
+    expect(groupTitles(items, 'status', 'added', []).map((g) => g.label)).toEqual(['Transcribed', 'Exported', 'No status'])
     expect(groupTitles(items, 'media', 'added', []).map((g) => g.key)).toEqual(['media:anime', 'media:manga', 'media:'])
   })
   it('"none" is one ungrouped list in the chosen order', () => {

@@ -521,7 +521,8 @@ registered adapter first and only then falls back to the yt-dlp pattern.
 Nothing in the app needs a proxy: source requests go direct by default. If a
 site refuses your IP or region (or throttles it), set the optional source
 proxy (`http_proxy_url` in the Sources settings, HTTP or HTTPS only, empty by
-default, applied to every source adapter's requests). The API shows only
+default, applied to every source adapter's requests; steps that open the page
+in a browser connect directly and do not use it). The API shows only
 whether one is set, never the value, and it can only be changed from the PC.
 Check the site's terms before routing around a block.
 
