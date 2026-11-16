@@ -42,7 +42,8 @@ from typing import NamedTuple, Optional
 
 import memory_headroom
 import word_align
-from whisper_hallucination import STOCK_PHRASE_ISOLATION_SEC, collapse_phrase_loop
+from whisper_hallucination import (BLOCKED_PHRASES_DEFAULT, STOCK_PHRASE_ISOLATION_SEC, collapse_phrase_loop,
+                                   parse_blocked_phrases)
 from audio_extract import extract_audio_slice
 from whisper_transcribe import transcribe_for_timing
 from whisper_models import ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname
@@ -102,6 +103,8 @@ class AsrTuning(NamedTuple):
     floors: PieceFloors = DEFAULT_FLOORS
     repeat_min_repeats: int = 4
     stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC
+    # Keys from whisper_hallucination.parse_blocked_phrases; lines containing one are dropped.
+    blocked_phrases: tuple = parse_blocked_phrases(BLOCKED_PHRASES_DEFAULT)
     realign_min_seconds: float = word_align.REALIGN_MIN_SECONDS
     realign_pause_seconds: float = word_align.REALIGN_PAUSE_SECONDS
     # Qwen3 speech detection (the short-window backend and language detection). Literals,
