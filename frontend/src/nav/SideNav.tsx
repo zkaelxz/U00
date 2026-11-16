@@ -58,7 +58,7 @@ export function SideNav({ route, context }: { route: Route; context: NavContext 
           title={minimized ? 'Expand the navigation' : 'Minimize the navigation'}
           onClick={() => setNavDock(minimized ? 'docked' : 'minimized')}
         >
-          <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             {minimized ? <path d="M9 6l6 6-6 6" /> : <path d="M15 6l-6 6 6 6" />}
           </svg>
           {listed && <span className="rail-chevron" aria-hidden="true">‹</span>}
@@ -72,7 +72,7 @@ export function SideNav({ route, context }: { route: Route; context: NavContext 
         title={docked ? 'Float the navigation' : 'Dock the navigation'}
         onClick={() => setNavDock(docked ? 'float' : 'docked')}
       >
-        <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="4" width="18" height="16" rx="2" />
           <path d="M9 4v16" />
         </svg>
