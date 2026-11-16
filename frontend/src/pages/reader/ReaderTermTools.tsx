@@ -8,6 +8,7 @@ import { useEffect, useState, type RefObject } from 'react'
 
 import { applyFindReplace, previewFindReplace } from '../../api/review'
 import { getGlossaryCatalogues, getGlossaryTerms, saveGlossaryTerm, deleteGlossaryTerms } from '../../api/translateStage'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'
 import { Sheet } from '../../components/Sheet'
 import { useLatest } from '../../hooks/useLatest'
@@ -102,9 +103,8 @@ export function TermEditor({ dramaId, draft, onClose, onChanged }: {
         Save changes
       </button>
       {!isNew && (
-        <button type="button" className="link reader-term-delete" disabled={busy} onClick={() => void remove.run()}>
-          Delete term
-        </button>
+        <ConfirmButton name={draft.term_original} label="Delete term…" firstClass="link reader-term-delete"
+          disabled={busy} onConfirm={() => void remove.run()} />
       )}
       <ActionError action={save} />
       <ActionError action={remove} />

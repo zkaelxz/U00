@@ -207,9 +207,15 @@ export function withSignal(signal: AbortSignal, fetchImpl: Fetch = fetch): Fetch
 }
 
 // HEAD status of a full API URL (no body read; a 401 here is reported, not
-// treated as signed out). A network failure throws.
+// treated as signed out). A network failure or a timeout throws.
 export async function headStatus(url: string, fetchImpl: Fetch = fetch): Promise<number> {
-  return (await fetchImpl(url, { method: 'HEAD' })).status
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT_MS)
+  try {
+    return (await fetchImpl(url, { method: 'HEAD', signal: ctl.signal })).status
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export function getJson<T>(path: string, fetchImpl: Fetch = fetch): Promise<T> {

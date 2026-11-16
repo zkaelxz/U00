@@ -115,6 +115,38 @@ test('a finished run shows as Last run after a fresh visit, and Retry starts it 
   await expect(card).toHaveCount(0)
 })
 
+test('Retry on Last run starts nothing while the engine cannot run, and says why', async ({ page }) => {
+  const t = Math.floor(Date.now() / 1000)
+  const failed = {
+    ...job('translate_1', 'error'), progress: 1, error: 'rate limited', started_at: t - 700, finished_at: t - 600, updated_at: t - 600,
+    drama_id: 1, kind: 'translate',
+  }
+  const starts: unknown[] = []
+  await page.route('**/api/jobs', (route) => route.fulfill({ json: { items: [failed], count: 1 } }))
+  await page.route('**/api/jobs/translate_1', (route) =>
+    route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No job.' } } }))
+  await page.route('**/api/translate-run/dramas/1/run', async (route) => {
+    starts.push(route.request().postDataJSON())
+    await route.fulfill({ status: 503, json: { error: { code: 'dependency_unavailable', message: 'No key.' } } })
+  })
+  await page.route('**/api/translate-run/dramas/1/config', async (route) => {
+    const res = await route.fetch()
+    const cfg = await res.json()
+    cfg.translation_engine = 'claude'
+    cfg.line_count = 3
+    cfg.untranslated_count = 3
+    for (const e of cfg.engines) if (e.name === 'claude') e.key_configured = false
+    await route.fulfill({ response: res, json: cfg })
+  })
+  await page.goto('/#/drama/1/translate')
+
+  const run = page.getByRole('region', { name: 'Translate run' })
+  await expect(run.getByTestId('engine-gate')).toContainText('Claude has no API key')
+  await page.getByTestId('last-run').getByRole('button', { name: 'Retry' }).click()
+  await expect(run.getByRole('alert').filter({ hasText: 'has no API key yet' })).toBeVisible()
+  expect(starts).toEqual([])
+})
+
 test('a running job the server flags as stalled says so next to Cancel', async ({ page }) => {
   await page.route('**/api/jobs/translate_1', (route) =>
     route.fulfill({ json: { ...job('translate_1', 'running'), stalled: true, message: 'Batch 2 of 5 No update for a while: this job may be stalled.' } }))
