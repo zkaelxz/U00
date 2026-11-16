@@ -34,8 +34,8 @@ import { UpgradeTestResult } from './UpgradeTest'
 import { testConfirmLabel } from './upgradeTestText'
 import { useServerJobStatus } from './useServerJobStatus'
 import {
-  belowMinText, firstHint, groupTasks, minVersionText, missingTranscription, optionalMissingText, packageSizeText, roleLabel, safeSourceUrl,
-  sortTasksNeedingInstall, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskResultText, taskStatus,
+  belowMinText, firstHint, minVersionText, missingTranscription, optionalMissingText, packageSizeText, roleLabel, safeSourceUrl,
+  groupsNeedingInstallFirst, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskResultText, taskStatus,
   taskTone, updateOutdatedLabel, updateOutdatedText,
   type TaskRunResult,
 } from './installPresets'
@@ -427,7 +427,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                 />
               </div>
             )}
-            {groupTasks(sortTasksNeedingInstall(presets.tasks.filter((t) => t !== noTranscription))).map((g) => (
+            {groupsNeedingInstallFirst(presets.tasks.filter((t) => t !== noTranscription)).map((g) => (
               <Section key={g.group} title={g.group} count={g.tasks.length} storageKey={`diagnostics.tasks.${g.group}`}
                 summary={taskGroupSummary(g.tasks)}>
                 <ul aria-label={`${g.group} tasks`} className="pkg-list task-list">
