@@ -19,6 +19,11 @@ updates:
       - dependency-name: torch
       - dependency-name: torchaudio
       - dependency-name: ctranslate2
+      # 12.9.3.13 and later have no Windows wheel (constraints.txt), so a higher floor breaks the GPU runtime install.
+      - dependency-name: nvidia-cublas-cu12
+        versions: [">=12.9.3.13"]
+      # The floor is the version the Qwen3 code checks for (tests/test_qwen3_requirements.py); it moves with that check.
+      - dependency-name: transformers
 
   - package-ecosystem: npm
     directory: /frontend
