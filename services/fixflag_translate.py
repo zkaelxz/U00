@@ -18,6 +18,7 @@ subtitle onto its audio, so split_timing_flags drops them before any call.
 """
 import db
 from engine_backends import engine_registry, flag_reasons, glossary_check, shared, pricing, stream_recipe
+from engine_backends import line_text
 from engine_backends import prompts as engine_prompts
 from engine_backends import llm_tasks as engine_llm_tasks
 from engine_backends import llm_tasks
@@ -125,7 +126,7 @@ def _translate_batch(batch, engine, base_context, character_names, source_langua
             [ln.zh for ln in batch],
             {**base_context, "speaker_labels": [character_names.get(ln.speaker) for ln in batch],
              "line_ids": [ln.idx for ln in batch],
-             "line_languages": shared.tagged_line_languages(batch, source_language)})
+             "line_languages": line_text.tagged_line_languages(batch, source_language)})
 
     out = llm_tasks.call_batch_bounded(engine, send)
     # An engine API that only returns a list can't be matched by id, so a short
@@ -170,7 +171,7 @@ def fix_lines(flagged, *, engine, engine_choice, drama_id, base_context, charact
                         and own_flag != ln.flag:
                     reasons[ln.idx] = reason
                     ln.flag_note = reason
-        if ln.zh.strip() and shared.is_english_line(ln):
+        if ln.zh.strip() and line_text.is_english_line(ln):
             ln.en = ln.zh
             ln.flag, ln.flag_note = None, ""
             fixed += 1

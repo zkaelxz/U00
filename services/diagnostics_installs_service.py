@@ -553,6 +553,31 @@ def preview_outdated_upgrade() -> dict:
             names, jobs_running=pending_install_service._jobs_running(), specs=specs))
 
 
+def queue_outdated_upgrade(confirm: bool = False, accept_risk: bool = False) -> dict:
+    """PC only. Queues the update of every package below the app's minimum for
+    the next start, each pinned to the version the plan shows: pip can't replace
+    the files a running Baihe has loaded (Windows), and a plain queued install
+    of an installed package would change nothing. Allowed while jobs run, since
+    nothing is installed until the restart."""
+    if confirm is not True:
+        raise admin_svc.AdminActionUnconfirmed("Confirmation required.")
+    if pending_install.read_pending()[0] is not None:
+        raise ConflictError("An install is already waiting for the next start; "
+                            "cancel it or restart Baihe first.")
+    names, specs = packages_svc.outdated_upgrade_specs()
+    pins = {n: spec.partition("==")[2] for n, spec in zip(names, specs)}
+    with _plan_slot():
+        plan = install_plan.build_plan(names, jobs_running=pending_install_service._jobs_running(),
+                                       specs=specs)
+        if plan["blocked"]:
+            raise admin_svc.AdminActionNotPossible(" ".join(plan["blocked"]))
+        if plan["needs_confirm"] and accept_risk is not True:
+            raise PlanNeedsConfirm(" ".join(plan["needs_confirm"])
+                                   + " Confirm again to go ahead anyway.")
+        pending_install.write_pending(names, plan["before"], pins=pins)
+    return {"queued": True, "install_now": False, "plan": pending_install_service._view(plan)}
+
+
 def start_outdated_upgrade(confirm: bool = False, accept_risk: bool = False,
                            accepted_risks=None) -> dict:
     """PC only. Updates every installed package below the app's minimum in

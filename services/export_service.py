@@ -152,7 +152,7 @@ def drama_disposition(drama_id: int, what: str, language: str, ext: str) -> str:
 def dub_track_disposition(drama_id: int, track_name: str) -> str:
     what = "narration track" if track_name.startswith("narration") else "dub track"
     language = narration_language(db.get_drama(drama_id) or {})
-    return drama_disposition(drama_id, what, language, "wav")
+    return drama_disposition(drama_id, what, language, os.path.splitext(track_name)[1].lstrip(".") or "wav")
 
 
 def subtitle_disposition(drama_id: int, field: str, ext: str, noun: str = "subtitles") -> str:

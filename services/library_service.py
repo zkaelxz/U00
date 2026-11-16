@@ -89,7 +89,8 @@ def _new_chapter_counts() -> dict:
 
 def _with_sharing(dramas: list, principal) -> list:
     """Add `sharing_private` (what the household sees: a drama in a series
-    follows the series) and `sharing_owned` (the signed-in viewer created it;
+    follows the series) and `sharing_owned` (the signed-in viewer may change
+    its sharing: they created it, or an admin and it was made at the PC;
     False with sign-in off) to each row."""
     uid = None if principal is None else principal.get("user_id")
     series = {s["id"]: s for s in db.list_series()} if any(d.get("series_id") for d in dramas) else {}
@@ -98,7 +99,8 @@ def _with_sharing(dramas: list, principal) -> list:
         parent = series.get(d.get("series_id"))
         private = parent.get("is_private") if parent else d.get("is_private")
         out.append({**d, "sharing_private": bool(private),
-                    "sharing_owned": uid is not None and d.get("owner_user_id") == uid})
+                    "sharing_owned": uid is not None and ownership_service.may_set_private(
+                        principal, d.get("owner_user_id"))})
     return out
 
 
@@ -189,7 +191,8 @@ def list_series_with_dramas(principal=None, include_single: bool = False) -> lis
         out.append({
             "id": s["id"], "name": s["name"],
             "is_private": bool(s.get("is_private")),
-            "owned_by_me": uid is not None and s.get("owner_user_id") == uid,
+            "owned_by_me": uid is not None and ownership_service.may_set_private(
+                principal, s.get("owner_user_id")),
             "character_count": character_counts.get(s["id"], 0),
             "glossary_term_count": term_counts.get(s["id"], 0),
             "dramas": [{k: d.get(k) for k in ("id", "title_en", "title_zh", "status", "media_type")}

@@ -47,7 +47,7 @@ const panel = (p: PendingInstallPlan) => renderToStaticMarkup(
   createElement(InstallPlanPanel, { planned: { label: 'PaddleOCR', keys: ['paddleocr'], plan: p, installNow: noop }, onQueue: noop, onCancel: noop }),
 )
 const banner = (s: PendingInstallStatus) =>
-  renderToStaticMarkup(createElement(PendingInstallBanner, { status: s, onCancel: noop, onDismiss: noop }))
+  renderToStaticMarkup(createElement(PendingInstallBanner, { status: s, onCancel: noop, onDismiss: noop, onRestarted: noop }))
 
 describe('needsPlanPanel', () => {
   it('lets a plain fresh install go straight ahead', () => {
@@ -102,6 +102,16 @@ describe('InstallPlanPanel', () => {
     expect(html).toContain('Close')
   })
 
+  it('queues an update for the restart when the update has its own queue', () => {
+    const html = renderToStaticMarkup(createElement(InstallPlanPanel, {
+      planned: { label: 'outdated packages', keys: ['sentencepiece'], plan: plan({ mode: 'restart' }), installNow: noop,
+        queueable: true, queue: () => Promise.reject(new Error('unused')) },
+      onQueue: noop, onCancel: noop,
+    }))
+    expect(html).toContain('Install when I restart Baihe')
+    expect(html).not.toContain('Restart Baihe, then try again')
+  })
+
   it('shows the OpenCV removal line the plan summary carries', () => {
     const swap = 'Remove opencv-python first: PaddleOCR needs opencv-contrib-python, and the two cannot share one \'cv2\' folder.'
     expect(panel(plan({ summary: [swap, 'Install paddleocr 3.2.0.'] }))).toContain('Remove opencv-python first')
@@ -139,10 +149,25 @@ describe('InstallPlanPanel', () => {
 })
 
 const status = (o: Partial<PendingInstallStatus> = {}): PendingInstallStatus => ({
-  packages: [], created: null, before: {}, problem: null, result: null, applying: false, ...o,
+  packages: [], created: null, before: {}, problem: null, result: null, applying: false,
+  restart: { available: true, reason: null, running_jobs: [], other_jobs: false }, ...o,
 })
 
 describe('PendingInstallBanner', () => {
+  it('offers Restart and install now when Baihe can restart itself', () => {
+    const html = banner(status({ packages: ['sentencepiece'] }))
+    expect(html).toContain('Restart and install now')
+    expect(html).not.toContain('Confirm: restart and update')   // asks first
+  })
+
+  it('says why Baihe cannot restart itself and keeps the manual steps', () => {
+    const html = banner(status({ packages: ['sentencepiece'], restart: {
+      available: false, reason: 'This copy was installed with Setup.', running_jobs: [], other_jobs: false } }))
+    expect(html).not.toContain('Restart and install now')
+    expect(html).toContain('This copy was installed with Setup.')
+    expect(html).toContain('Close Baihe')
+  })
+
   it('shows the queued install with Cancel', () => {
     const html = banner(status({ packages: ['paddleocr', 'paddlepaddle'] }))
     expect(html).toContain('pending install (restart)')

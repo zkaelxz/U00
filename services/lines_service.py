@@ -63,7 +63,7 @@ def load(drama_id: int, line_id: int):
 
 
 def _reload_dict(drama_id: int, line_id: int) -> dict:
-    for ln in db.load_line_objects(drama_id):
+    for ln in db.load_line_objects(drama_id, with_words=True, ids=[line_id]):
         if ln.id == line_id:
             return line_dict(ln)
     raise NotFoundError(f"No line with id {line_id} in this title.")

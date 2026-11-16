@@ -1391,13 +1391,16 @@ begin
 end;
 
 // Baihe Studio's own named leftovers in %TEMP%: work folders named
-// baihe_*, extension page files baihe_page_*, and torch pin lists
-// baihe-torch-pins-*. (Temporary folders Python names itself, tmp*, can't
-// be told apart from other programs' and are left alone.) Returns how many.
+// baihe_*, and the loose files its code makes there: extension page files
+// baihe_page_*, scratch audio/images baihe_tmp_* and baihe_typeset_*, pip
+// dry-run reports baihe-plan-*, and torch pin lists baihe-torch-pins-*.
+// (Temporary folders Python names itself, tmp*, can't be told apart from
+// other programs' and are left alone.) Returns how many.
 function DeleteOwnTempItems(): Integer;
 begin
   Result := DeleteTempMatches('baihe_*', False) + DeleteTempMatches('baihe_page_*', True) +
-    DeleteTempMatches('baihe-torch-pins-*', True);
+    DeleteTempMatches('baihe_tmp_*', True) + DeleteTempMatches('baihe_typeset_*', True) +
+    DeleteTempMatches('baihe-plan-*', True) + DeleteTempMatches('baihe-torch-pins-*', True);
 end;
 
 function EnvOrDefault(const Name, Fallback: String): String;
@@ -1621,6 +1624,9 @@ begin
   NoteShared(EnvOrDefault('HF_HOME', ExpandConstant('{%USERPROFILE}\.cache\huggingface')), 'Hugging Face''s model cache', Left);
   NoteShared(EnvOrDefault('TORCH_HOME', ExpandConstant('{%USERPROFILE}\.cache\torch')), 'PyTorch''s cache', Left);
   NoteShared(EnvOrDefault('OLLAMA_MODELS', ExpandConstant('{%USERPROFILE}\.ollama\models')), 'Ollama models', Left);
+  NoteShared(ExpandConstant('{%USERPROFILE}\.cache\audio-separator-models'), 'The vocal separator''s models', Left);
+  NoteShared(ExpandConstant('{%USERPROFILE}\.cache\modelscope'), 'ModelScope''s model cache', Left);
+  NoteShared(ExpandConstant('{%USERPROFILE}\.paddlex'), 'PaddleOCR''s models', Left);
   NoteShared(ExpandConstant('{%USERPROFILE}\.deno'), 'Deno (the JavaScript runtime Diagnostics can install)', Left);
   AddLine(Left, 'Ollama itself, if you use it (Baihe Studio never installed it)');
   AddLine(Left, 'Python, Git, ffmpeg and Node.js, if you installed them with winget (remove them in Settings > Apps)');

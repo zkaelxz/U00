@@ -74,9 +74,6 @@ export function CommandPalette({ route, context }: { route: Route; context: NavC
         <svg className="hb-icon" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5" />
         </svg>
-        <span className="hb-words" aria-hidden="true">Search pages and titles</span>
-        {/* The dot joins the words to the key hint, so it lives in the hint and goes when a touch screen hides it. */}
-        <kbd aria-hidden="true"><span className="palette-dot">· </span>{SHORTCUT_LABEL}</kbd>
       </button>
       <dialog
         ref={dialog}

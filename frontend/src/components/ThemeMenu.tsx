@@ -123,7 +123,6 @@ export function ThemeMenu() {
         }}
       >
         <span className="hb-icon">{ICONS[theme]}</span>
-        <span className="hb-words" aria-hidden="true">Theme</span>
       </button>
       {open && (
         <ThemeMenuItems

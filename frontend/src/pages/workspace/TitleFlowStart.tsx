@@ -1,50 +1,43 @@
 import { useState } from 'react'
 
+import { getTitleFlow, startTitleFlow } from '../../api/queue'
 import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import { routeHref } from '../../router'
-import { titleFlowActions } from './titleFlowActions'
-import { TitleFlowStall, runTitleFlow, type TitleFlowStep } from './titleFlowChain'
+import { flowActive, flowText, useFlowRun } from './flowRun'
 
-const STEP_TEXT: Record<TitleFlowStep, string> = {
+const STEP_TEXT: Record<string, string> = {
   transcribe: 'Transcribing',
-  extract: 'Finding names for the glossary',
-  wait: 'Finding names for the glossary',
-  review: 'Ready for glossary review',
+  names: 'Finding names for the glossary',
 }
 
 /**
- * The Simple page's main button for an audio or video title with audio but no lines: it transcribes, finds
- * glossary names, then stops at the glossary review, because names are cheaper to fix before translating.
+ * The Simple page's main button for an audio or video title with audio but no lines: it puts a run on
+ * the PC queue that transcribes, finds glossary names, then stops at the glossary review, because names
+ * are cheaper to fix before translating. The PC carries it on with the page closed; this only shows it.
  */
 export function TitleFlowStart({ id, onProgress }: { id: number; onProgress: () => void }) {
-  const [step, setStep] = useState<TitleFlowStep | null>(null)
-  const [running, setRunning] = useState(false)
+  const { run, setRun, again } = useFlowRun(id, getTitleFlow, () => onProgress())
+  const [starting, setStarting] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
   const start = () => {
-    setRunning(true)
+    setStarting(true)
     setError(null)
-    runTitleFlow(titleFlowActions(id), (s) => { setStep(s); onProgress() }).then(
-      () => setRunning(false),
-      (e: unknown) => {
-        setRunning(false)
-        setError(e instanceof TitleFlowStall ? new Error(`${STEP_TEXT[e.message as TitleFlowStep] ?? 'The step'} did not change the title.`) : e)
-      },
-    )
+    startTitleFlow(id).then((r) => { setRun(r); again() }, (e: unknown) => setError(e)).finally(() => setStarting(false))
   }
 
   return (
     <>
-      {step === 'review' ? (
+      {run?.state === 'review' ? (
         <ButtonLink variant="primary" href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>Review the glossary</ButtonLink>
       ) : (
-        <button type="button" className={buttonClass('primary')} disabled={running} onClick={start}>
-          {error ? 'Continue' : 'Transcribe and translate'}
+        <button type="button" className={buttonClass('primary')} disabled={starting || flowActive(run)} onClick={start}>
+          {error || run?.state === 'stopped' ? 'Continue' : 'Transcribe and translate'}
         </button>
       )}
-      <span className="muted" role="status" aria-live="polite">{step ? STEP_TEXT[step] : ''}</span>
+      <span className="muted" role="status" aria-live="polite">{flowText(run, STEP_TEXT)}</span>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </>
   )

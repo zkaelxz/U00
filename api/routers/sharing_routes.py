@@ -2,9 +2,11 @@
 api/routers/sharing_routes.py -- who can see each drama and series, over
 services/ownership_service.py.
 
-    GET  /api/sharing/items                          admin.library  every item, paged
+    GET  /api/sharing/items                          library.read   admins (service check)
     POST /api/sharing/dramas/{drama_id}/private      lines.edit     owner or admin
     POST /api/sharing/series/{series_id}/private     lines.edit     owner or admin
+    POST /api/sharing/dramas/{drama_id}/owner        lines.edit     admins (service check)
+    POST /api/sharing/series/{series_id}/owner       lines.edit     admins (service check)
     GET  /api/sharing/share-by-default               library.read   the caller's own
     POST /api/sharing/share-by-default               lines.edit     the caller's own
 
@@ -18,8 +20,8 @@ from fastapi import APIRouter, Query, Request
 
 from api.auth import require_permission
 from api.schemas import error_responses
-from api.sharing_schemas import (SetPrivateRequest, SetPrivateResult, SharingList,
-                                 ShareByDefault)
+from api.sharing_schemas import (SetOwnerRequest, SetOwnerResult, SetPrivateRequest,
+                                 SetPrivateResult, SharingList, ShareByDefault)
 from services import ownership_service
 
 router = APIRouter(prefix="/api/sharing", tags=["sharing"])
@@ -27,7 +29,10 @@ router = APIRouter(prefix="/api/sharing", tags=["sharing"])
 _FLIP_ERRS = error_responses(403, 404, 409, 422)
 
 
-@router.get("/items", dependencies=[require_permission("admin.library")],
+# Household permissions, with the admin check in the service (as for a flip),
+# so an admin away from the PC can use the Sharing list too (Kae, 2026-11-16);
+# set_private and set_owner still limit what they change there.
+@router.get("/items", dependencies=[require_permission("library.read")],
             response_model=SharingList, responses=error_responses(422),
             summary="Every series and drama with its owner and Shared/Private flag (admins)")
 def get_items(request: Request, offset: int = Query(0, ge=0, lt=2**31),
@@ -48,6 +53,22 @@ def set_drama_private(drama_id: int, body: SetPrivateRequest, request: Request):
 def set_series_private(series_id: int, body: SetPrivateRequest, request: Request):
     return ownership_service.set_private(request.state.principal, "series", series_id,
                                          body.private)
+
+
+@router.post("/dramas/{drama_id}/owner", dependencies=[require_permission("lines.edit")],
+             response_model=SetOwnerResult, responses=_FLIP_ERRS,
+             summary="Give a drama to another account, or to the PC (admins)")
+def set_drama_owner(drama_id: int, body: SetOwnerRequest, request: Request):
+    return ownership_service.set_owner(request.state.principal, "drama", drama_id,
+                                       body.owner_user_id)
+
+
+@router.post("/series/{series_id}/owner", dependencies=[require_permission("lines.edit")],
+             response_model=SetOwnerResult, responses=_FLIP_ERRS,
+             summary="Give a series to another account, or to the PC (admins)")
+def set_series_owner(series_id: int, body: SetOwnerRequest, request: Request):
+    return ownership_service.set_owner(request.state.principal, "series", series_id,
+                                       body.owner_user_id)
 
 
 @router.get("/share-by-default", dependencies=[require_permission("library.read")],

@@ -44,6 +44,12 @@ class FakeAudioSegment:
     def from_file(cls, path):
         return cls([("clip", path)])
 
+    # No samples: level_clip leaves a fake clip alone.
+    channels, frame_rate, sample_width = 1, 16000, 2
+
+    def get_array_of_samples(self):
+        return []
+
     def overlay(self, other, position=0):
         self.tokens.append(("overlay", position, other.tokens))
         return self

@@ -79,6 +79,10 @@
 .sharing-meta { display: block; font-weight: normal; }
 .sharing-meta + .pill { margin-top: var(--space-1); }
 .sharing-status { font-size: var(--text-sm); color: var(--muted); }
+/* The Owner picker wraps under the title on a phone instead of widening the page. */
+.sharing-row { flex-wrap: wrap; }
+.sharing-row .status-row-name { flex-basis: 12rem; }
+.sharing-row .sharing-owner { flex: 0 1 auto; max-width: 100%; }
 .settings-page .sharing-list > li.sharing-in-series { padding-left: var(--space-6); }
 
 @media (max-width: 640px) {

@@ -14,6 +14,7 @@ from typing import Optional
 import background_jobs
 import core as core_module
 import whisper_models
+import whisper_transcribe
 import segment_splitting
 import diagnostics
 import sensitivity_preset as presets
@@ -313,7 +314,7 @@ def apply_run_overrides(drama: dict, overrides) -> dict:
 # transcribe_for_timing's own defaults (a 2000 ms silence where titles use 300).
 LAB_OPTION_FIELDS = ("beam_size", "min_silence_ms", "vad_threshold", "sensitivity_preset",
                      "hallucination_silence_sec", "whisper_repeat_guard", "difficult_audio",
-                     "separate_vocals_first")
+                     "separate_vocals_first", "decode_randomness")
 LAB_MAX_INITIAL_PROMPT_CHARS = 1000
 # Timing settings only the Lab varies. A title has no saved column for them: the speech pad is
 # faster-whisper's own default, the refine switch is the app-wide Settings value, and the split
@@ -341,6 +342,7 @@ def lab_option_defaults() -> dict:
         "whisper_repeat_guard": False,
         "difficult_audio": False,
         "separate_vocals_first": _DEFAULT_TUNING["separate_vocals_first"],
+        "decode_randomness": whisper_transcribe.DECODE_DEFAULT,
         "initial_prompt": "",
         "speech_pad_ms": WHISPER_DEFAULT_SPEECH_PAD_MS,
         "refine_timing": asr_options_service.get_vad_refine_timing(),
@@ -388,6 +390,9 @@ def resolve_lab_options(options) -> dict:
     for key in _LAB_FLAG_FIELDS:
         if key in given and not isinstance(given[key], bool):
             raise InvalidInputError(f"{key} must be true or false.")
+    if "decode_randomness" in given and given["decode_randomness"] not in whisper_transcribe.DECODE_RANDOMNESS_CHOICES:
+        raise InvalidInputError(f"decode_randomness must be one of {', '.join(whisper_transcribe.DECODE_RANDOMNESS_CHOICES)}.")
+    randomness = given.pop("decode_randomness", None)
     prompt = given.pop("initial_prompt", "")
     if not isinstance(prompt, str) or len(prompt) > LAB_MAX_INITIAL_PROMPT_CHARS:
         raise InvalidInputError(
@@ -396,6 +401,8 @@ def resolve_lab_options(options) -> dict:
     resolved = lab_option_defaults()
     resolved.update({k: bool(v) if k in _LAB_FLAG_FIELDS else v for k, v in checked.items()})
     resolved["initial_prompt"] = prompt.strip()
+    if randomness is not None:
+        resolved["decode_randomness"] = randomness
     resolved.update(timing)
     return resolved
 

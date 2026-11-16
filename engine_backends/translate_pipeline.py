@@ -30,15 +30,12 @@ from .shared import (
     _cancel_check_var,
     call_with_backoff,
     keep_answers_across_retries,
-    is_english_line,
-    keep_first_alternative,
-    strip_echoed_label,
-    tagged_line_languages,
     redact_secrets,
     LLMTaskTimeout,
     TranslationCancelled,
     stops_translate_run,
 )
+from .line_text import is_english_line, keep_first_alternative, strip_echoed_label, tagged_line_languages
 import source_change
 
 
@@ -246,7 +243,8 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
                                  sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
                                  stop_before_batch=None, temperature: float | None = None,
-                                 reasoning: str | None = None, sentence_groups_cb=None):
+                                 reasoning: str | None = None, sentence_groups_cb=None,
+                                 replace_flags: frozenset = frozenset()):
     """Translates `lines` in place and returns (lines, errors); see _TranslateRun
     for what each argument does."""
     # The signature stays the one place the arguments are listed: the public
@@ -315,7 +313,7 @@ class _TranslateRun:
         english = [ln for ln in target_lines if is_english_line(ln)]
         for ln in english:
             ln.en = ln.zh
-            source_change.clear_for_new_english(ln)
+            source_change.clear_for_new_english(ln, a.replace_flags)
         target_lines = [ln for ln in target_lines if not is_english_line(ln)]
         if not target_lines:
             if english and a.save_cb:
@@ -544,7 +542,7 @@ class _TranslateRun:
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
                 ln.en = keep_first_alternative(strip_echoed_label(self.character_names.get(ln.speaker), tr))
-                source_change.clear_for_new_english(ln)
+                source_change.clear_for_new_english(ln, self.args.replace_flags)
                 self._flag_if_split(ln)
                 self.translated.append(ln)
                 fresh.append(ln)
@@ -607,7 +605,7 @@ class _TranslateRun:
             for ln, tr in zip(part, translations):
                 if (tr or "").strip():
                     ln.en = tr
-                    source_change.clear_for_new_english(ln)
+                    source_change.clear_for_new_english(ln, self.args.replace_flags)
                     self._flag_if_split(ln)
                     self.translated.append(ln)
                     fresh.append(ln)
