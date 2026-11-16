@@ -212,7 +212,8 @@ def get_process_memory() -> dict:
             return out
         try:
             for pid, size in _nvidia_smi_vram().items():
-                vram.setdefault(pid, size)
+                if not vram.get(pid):   # a counter 0 only means "not in the counters"; nvidia-smi may know better
+                    vram[pid] = size
         except Exception:
             pass   # no nvidia-smi: the OS counters (if any) stand alone
         out["processes"] = build_rows(procs, vram, os.getpid())

@@ -95,3 +95,12 @@ def test_windows_counters_read_means_absent_process_holds_none(monkeypatch):
 
     fake.stdout = json.dumps({"procs": json.loads(script_out)["procs"], "gpu": []})
     assert svc._read_windows()[1] == {}   # counters unreadable: "can't say", not "none"
+
+
+def test_nvidia_smi_beats_a_zero_that_only_means_not_in_the_counters(monkeypatch):
+    me = svc.os.getpid()
+    monkeypatch.setattr(svc.loaded_models_service, "_gpu_row", lambda: {"state": "unknown"})
+    monkeypatch.setattr(svc.sys, "platform", "win32")
+    monkeypatch.setattr(svc, "_read_windows", lambda: ([_p(me, 1, "python.exe", "python -m api", 7)], {me: 0}))
+    monkeypatch.setattr(svc, "_nvidia_smi_vram", lambda: {me: 3 * GB})
+    assert svc.get_process_memory()["processes"][0]["vram_bytes"] == 3 * GB
