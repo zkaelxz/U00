@@ -343,11 +343,58 @@ def test_another_titles_pending_batch_holds_its_share_of_the_cap(isolated_db, mo
     _current["did"] = did
     _fake_engines(monkeypatch)
     _other_title_batch(49.99999)
-    with pytest.raises(UnsupportedOperationError, match="other pending bulk jobs"):
+    with pytest.raises(UnsupportedOperationError, match="pending bulk jobs"):
         svc.start_translate_run(did, bulk=True)
     assert db.list_bulk_jobs(did) == []
     from services import paid_job_service
     assert paid_job_service._bulk_holds == {}
+
+
+def test_a_pending_batch_counts_against_a_normal_run(isolated_db, monkeypatch):
+    # Cap $50, all of it held by another title's batch still waiting for
+    # results: a live run would spend money the batch will be billed.
+    did = _seed([("你好", "")])
+    _current["did"] = did
+    _fake_engines(monkeypatch)
+    _other_title_batch(50.0)
+    with pytest.raises(UnsupportedOperationError):
+        svc.start_translate_run(did)
+    assert not background_jobs.is_running(f"translate_{did}")
+
+
+def test_an_offpeak_run_leaves_room_for_other_pending_batches(isolated_db):
+    _other_title_batch(30.0)
+    offpeak = _other_title_batch(100.0, engine="deepseek", status="scheduled")
+    cap, refusal = bulk_providers.offpeak_cap(db.list_bulk_jobs(offpeak)[0], 50.0)
+    # Its own row holds none of the cap: it stops at the cap by itself.
+    assert refusal is None and cap == pytest.approx(20.0)
+    _other_title_batch(20.0)
+    assert bulk_providers.offpeak_cap(db.list_bulk_jobs(offpeak)[0], 50.0)[1]
+
+
+def test_a_batchs_cost_is_logged_for_the_member_who_sent_it(isolated_db):
+    did = _seed([("一", "")])
+    lid = db.load_lines(did)[0]["id"]
+    with db.spending_for(42):
+        bid = db.create_bulk_job(did, "claude", "claude-sonnet-5-5", "submitted",
+                                 [(lid, "k", bulk_translate.zh_hash("一"), "")],
+                                 provider_batch_id="b", estimated_usd=1.0)
+    assert db.get_user_month_spend(42) == pytest.approx(1.0)
+
+    class Ended:
+        def poll(self, batch_id):
+            return "ended"
+
+        def results(self, batch_id):
+            yield "k", json.dumps({str(lid): "One"}), {"input_tokens": 1000, "output_tokens": 100}, None
+
+    # Polled with no one signed in, as the background poller is.
+    assert bulk_poll.check_once(bid, Ended()) == "applied"
+    with db.get_conn() as conn:
+        rows = conn.execute("SELECT user_id, estimated_cost_usd FROM usage_log").fetchall()
+    assert [r[0] for r in rows] == [42]
+    # Billed now, so the estimate no longer counts on top.
+    assert db.get_user_month_spend(42) == pytest.approx(rows[0][1])
 
 
 def test_a_batch_records_its_estimate_and_releases_its_hold(isolated_db, monkeypatch):

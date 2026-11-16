@@ -98,7 +98,10 @@ def check_once(bulk_job_id: int, provider, engine=None, monthly_cap_usd: float |
     needs a live engine and is refused once the month's cap is used up.
     cancel_check: the polling job's Cancel, so a Cancel during the apply
     stops that next stage."""
-    with _check_lock(bulk_job_id):
+    job = db.get_bulk_job(bulk_job_id)
+    # Whoever polls ("Check now", or the poller with no one signed in), the
+    # usage and any next Reflect stage are the sender's, for their own limit.
+    with _check_lock(bulk_job_id), db.spending_for(job.get("user_id") if job else None):
         return _check_once_locked(bulk_job_id, provider, engine, monthly_cap_usd, cancel_check)
 
 
@@ -250,15 +253,22 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
             if not db.set_bulk_job_status_if(bulk_job_id, ("scheduled",), "running"):
                 return
             cap, refusal = offpeak_cap(job, monthly_cap_usd)
+            # Checked before the first batch too: the limit's own stop only
+            # follows a batch that was already paid for.
+            from services import auth_service
+            if not refusal and auth_service.paid_limit_reached(job.get("user_id")):
+                refusal = auth_service.PAID_LIMIT_MESSAGE
             if refusal:
                 if db.set_bulk_job_status_if(bulk_job_id, ("running",), "failed"):
                     db.update_bulk_job(bulk_job_id, last_error=refusal)
                 return
             try:
-                summary = run_scheduled_job(bulk_job_id, engine, cost_cap_usd=cap,
-                                            monthly_cap_usd=monthly_cap_usd,
-                                            cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
-                                            window_open=lambda: is_deepseek_offpeak(now_fn()))
+                # The job id lets the sender's own limit stop the run part-way.
+                with db.spending_for(job.get("user_id"), job_id):
+                    summary = run_scheduled_job(bulk_job_id, engine, cost_cap_usd=cap,
+                                                monthly_cap_usd=monthly_cap_usd,
+                                                cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
+                                                window_open=lambda: is_deepseek_offpeak(now_fn()))
             except Exception as e:
                 if db.set_bulk_job_status_if(bulk_job_id, ("running",), "failed"):
                     db.update_bulk_job(bulk_job_id, last_error=shared.redact_secrets(str(e)))
