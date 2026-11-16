@@ -37,7 +37,7 @@ import memory_headroom
 from engine_backends.local import strip_ollama_thinking
 from services import diagnostics_gaps_service as gaps
 from services import diagnostics_admin_service as admin_svc
-from services import vram_service
+import vram
 
 JOB_ID = "real_model_check"
 PASS, FAIL, SKIPPED, COULD_NOT_CHECK = "pass", "fail", "skipped", "could_not_check"
@@ -345,7 +345,7 @@ def _run_check(check_id: str, label: str, fn, **options) -> dict:
         status, reason = COULD_NOT_CHECK, str(exc)
     except background_jobs.JobCancelled:
         raise
-    except (vram_service.InsufficientVramError, memory_headroom.HeadroomError) as exc:
+    except (vram.InsufficientVramError, memory_headroom.HeadroomError) as exc:
         raise _Halt({"id": check_id, "label": label, "status": FAIL,
                      "reason": _redact(exc)}) from None
     except ModuleNotFoundError as exc:

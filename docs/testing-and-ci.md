@@ -377,7 +377,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Settings / backups | `tests/test_settings_service.py tests/test_settings_schema.py tests/test_auto_backup_*.py tests/test_api_backups.py tests/test_user_backup.py` | `src/api/settings.test.ts src/pages/settings` | `e2e/settings.spec.ts e2e/backups.spec.ts` |
 | Auth / permissions | `tests/test_api_permissions.py tests/test_auth_service.py tests/test_auth_login.py tests/test_api_admin_users.py` | `src/api/auth.test.ts src/hooks/useSession.test.ts` | `e2e/signin.spec.ts` |
 | Installer / updates | `tests/test_installer_service.py tests/test_installer_iss.py tests/test_update_service.py` | `src/pages/settings/updateModel.test.ts` | `e2e/app-updates.spec.ts` |
-| Database / migrations | `tests/test_db.py tests/test_save_lines_write_race.py` | n/a | n/a |
+| Database / migrations | `tests/test_db.py tests/test_db_*.py tests/test_save_lines_write_race.py` | n/a | n/a |
 | Shared helpers (`lib/`) | `tests/test_lib_http.py tests/test_lib_proc.py tests/test_cancellable_lock.py tests/test_settings_schema.py` | n/a | n/a |
 | Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_agent_docs.py tests/test_repo_map.py` (the first five, listed in `tests/ci_guards.txt`, are the CI `guards` job; the workflow and `tools/check_change.py` both read that file) | n/a | n/a |
 

@@ -501,14 +501,14 @@ class TestPaddleVlMangaNative:
     def test_gpu_dtype_is_bfloat16_only_with_native_support(self, monkeypatch, page, native_bf16, dtype):
         import sys
         import types
-        from services import vram_service
+        import vram
         calls = _install_fake_transformers(monkeypatch)
         torch = sys.modules["torch"]
         torch.float16 = "float16"
         torch.cuda = types.SimpleNamespace(
             is_available=lambda: True,
             is_bf16_supported=lambda including_emulation=True: native_bf16 or including_emulation)
-        monkeypatch.setattr(vram_service, "check_fits", lambda name: None)
+        monkeypatch.setattr(vram, "check_fits", lambda name: None)
         ocr.extract_text_paddle_vl_manga(page)
         assert calls["model"][1]["dtype"] == dtype
 
@@ -742,10 +742,10 @@ class TestQwen3Vl:
 
     def test_both_sizes_are_pinned_and_sized(self):
         import model_pins
-        from services import vram_service
+        import vram
         for repo in ocr.QWEN3_VL_REPOS.values():
             assert len(model_pins.revision(repo)) == 40
-            assert vram_service.MODEL_VRAM_MB[repo] > 0
+            assert vram.MODEL_VRAM_MB[repo] > 0
 
     def test_hardsub_options_offer_both_sizes_and_pages_do_not(self):
         assert {"qwen3_vl_4b", "qwen3_vl_8b"} <= set(ocr.HARDSUB_OCR_BACKEND_OPTIONS)

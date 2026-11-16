@@ -226,13 +226,14 @@ def _lama_on_gpu(generator, pixels: int, torch):
     Settings allows GPU use, else None (the region runs on the CPU)."""
     if _lama_gpu_broken or pixels > _GPU_MAX_PIXELS or not torch.cuda.is_available():
         return None
-    from services import settings_service, vram_service
+    import vram
+    from services import settings_service
     if not settings_service.get("use_gpu"):
         return None
     need = (0 if "cuda" in _lama_gpu else _GPU_FIRST_LOAD_MB) + pixels / 1_000_000 * _GPU_MB_PER_MEGAPIXEL
     try:
         # Also honours Settings > Keep free memory for the GPU.
-        vram_service.check_fits("LaMa-manga", required_mb=need)
+        vram.check_fits("LaMa-manga", required_mb=need)
     except Exception:
         return None
     if "cuda" not in _lama_gpu:

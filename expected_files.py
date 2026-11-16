@@ -164,6 +164,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "voice_id.py",
     "voice_venv.py",
     "voice_worker.py",
+    "vram.py",
     "cuda_runtime_path.py",
     "whisper_hallucination.py",
     "whisper_models.py",
