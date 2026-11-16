@@ -20,18 +20,15 @@ from .shared import (
     _cancel_check_var,
     _id_keyed_batch_request,
     LLMTaskTimeout,
-    build_numbered_lines,
     call_with_backoff,
     claude_usage,
-    extract_first_json_value,
-    parse_flag_entries,
-    parse_json_array,
     redact_secrets,
     request_translations_with_retry,
     SDK_REQUEST_TIMEOUT,
     usable_reply,
     TranslationCancelled,
 )
+from .line_text import build_numbered_lines, extract_first_json_value, parse_flag_entries, parse_json_array
 from .thinking import deepseek_extra_body
 from . import stream_recipe
 from services import job_timing_service

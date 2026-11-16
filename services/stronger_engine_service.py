@@ -30,6 +30,7 @@ import re
 
 import db
 from engine_backends import engine_registry, translate_pipeline, prompts, pricing, shared
+from engine_backends import line_text
 from engine_backends import llm_tasks as engine_llm_tasks
 from engine_backends import llm_tasks
 from services import (
@@ -261,7 +262,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
             "what first.")
     if stronger != engine_name:
         raise ConflictError("The stronger engine was changed in Settings; try again.")
-    if shared.is_english_line(line):
+    if line_text.is_english_line(line):
         # Already English: the "translation" is the line itself, with no call or cost.
         return {"drama_id": drama_id, "line_id": line.id, "engine": engine_name,
                 "model": None, "text": line.zh.strip(), "based_on_en": line.en or "",
@@ -288,7 +289,7 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     context["novel_reference"] = (context.get("novel_reference")
                                   if getattr(engine, "supports_reference", False) else None)
     context["line_ids"] = [line.id]
-    context["line_languages"] = shared.tagged_line_languages(
+    context["line_languages"] = line_text.tagged_line_languages(
         [line], context["source_language"])
     context["speaker_labels"] = [character_names.get(line.speaker)]
     context["recent_context"] = recent

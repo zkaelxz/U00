@@ -6,7 +6,7 @@ recipe says only who talks, the register and the names. On by default for Gemma 
 stream runs; the `stream_plain_prompt` setting switches it off."""
 
 from .llm_feature_prompts import glossary_term_forms
-from .shared import language_name
+from .line_text import language_name
 
 # Starts every plain-recipe guidelines block. The engines see only the guidelines
 # text (a live batch run, bulk and a resumed job all carry it), so it doubles
