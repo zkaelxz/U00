@@ -16,13 +16,24 @@ from sources.store import (connect, get_setting, set_setting)
 # Generic-import image memory (cross-chapter duplicate filter)
 # ---------------------------------------------------------------------------
 
+# Query keys that only say how the reader got to the page, never which chapter
+# it is; every other key stays, because sites like read.php?id=5 name the
+# chapter in the query.
+_TRACKING_KEYS = frozenset({"from", "ref", "source", "fbclid", "gclid", "spm"})
+
+
 def _chapter_key(url: str) -> str:
-    """The chapter URL without scheme, query or fragment, so reaching the
-    same chapter through ?p=, http/https or a trailing slash is not a
-    different chapter."""
-    from urllib.parse import urlsplit
+    """The chapter URL without scheme, fragment, trailing slash or tracking
+    keys, so reaching the same chapter from the contents page or over http
+    and https is not a different chapter."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit
     p = urlsplit(url or "")
-    return f"{(p.hostname or '').lower()}{p.path.rstrip('/')}" or (url or "")
+    query = sorted((k, v) for k, v in parse_qsl(p.query, keep_blank_values=True)
+                   if k.lower() not in _TRACKING_KEYS and not k.lower().startswith("utm_"))
+    key = f"{(p.hostname or '').lower()}{p.path.rstrip('/')}"
+    if key and query:
+        key += "?" + urlencode(query)
+    return key or (url or "")
 
 
 def remember_images(domain: str, chapter_url: str, hashes):

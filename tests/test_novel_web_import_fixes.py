@@ -27,6 +27,12 @@ def test_image_memory_ignores_url_variants_of_the_same_chapter(isolated_db):
     assert store.hashes_seen_elsewhere("a.example", "https://a.example/y", ["h1"]) == {"h1"}
 
 
+def test_image_memory_keeps_chapters_that_differ_only_by_query(isolated_db):
+    store.remember_images("a.example", "https://a.example/read.php?id=5&utm_source=x", ["h1"])
+    assert store.hashes_seen_elsewhere("a.example", "https://a.example/read.php?id=5", ["h1"]) == set()
+    assert store.hashes_seen_elsewhere("a.example", "https://a.example/read.php?id=6", ["h1"]) == {"h1"}
+
+
 @pytest.mark.parametrize("text,enc,label", [
     ("똠방각하", "cp949", "euc-kr"), ("똠방각하", "cp949", "ks_c_5601-1987"),
     ("①髙", "cp932", "shift_jis"), ("①髙", "cp932", "Shift-JIS"),
