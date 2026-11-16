@@ -694,6 +694,28 @@ class TestDeepSeekOffPeak:
         assert job["status"] == "applied" and job["result_summary"]["skipped_changed"] == 1
         background_jobs.clear_job("t_ds")
 
+    def test_a_members_offpeak_run_is_refused_before_any_batch_once_their_limit_is_used(self, isolated_db):
+        from services import auth_service
+        uid = auth_service.add_user("kid@example.com")["id"]
+        did = _drama(isolated_db, n=2)
+        peak = datetime.datetime(2026, 9, 23, 2, 0)
+        with isolated_db.spending_for(uid):
+            bulk_id = bulk_translate.schedule_offpeak_translation(
+                did, isolated_db.load_line_objects(did), "deepseek", "deepseek-v4-flash",
+                {"style_preset": "audio_drama"}, now=peak)
+        assert isolated_db.get_bulk_job(bulk_id)["user_id"] == uid
+        auth_service.admin_set_paid_limit(uid, 1.0)
+        with isolated_db.spending_for(uid):
+            isolated_db.log_usage(None, "claude", "m", "translate", 1, 1, 1.0)
+        engine = self._engine()
+        offpeak = datetime.datetime(2026, 9, 23, 4, 0, 5)
+        bulk_poll.run_bulk_poller("t_ds_limit", bulk_id, engine=engine, sleep=lambda s: None,
+                                  now_fn=lambda: offpeak, monthly_cap_usd=50.0)
+        job = isolated_db.get_bulk_job(bulk_id)
+        assert engine.seen == []
+        assert job["status"] == "failed" and job["last_error"] == auth_service.PAID_LIMIT_MESSAGE
+        background_jobs.clear_job("t_ds_limit")
+
     def test_an_orphaned_running_job_is_resumed_after_a_restart(self, isolated_db, monkeypatch):
         saturday_noon = datetime.datetime(2026, 9, 26, 12, 0)
         monkeypatch.setattr(bulk_poll, "_utcnow", lambda: saturday_noon)

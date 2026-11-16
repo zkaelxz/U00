@@ -119,6 +119,27 @@ _EDIT_CSS = """.edit-btn { border: none; background: rgba(128,128,128,.25); bord
   .edit-btn:hover { filter: brightness(0.92); }"""
 
 
+# The host page reloads the frame while a translation adds English, which resets
+# the scroll; it needs the position out beforehand and puts it back after.
+# `selecting` lets it hold the reload while text is highlighted.
+_SCROLL_SCRIPT = """let scrollQueued = false;
+  function reportScroll() {
+    if (scrollQueued) return;
+    scrollQueued = true;
+    requestAnimationFrame(function () {
+      scrollQueued = false;
+      const sel = window.getSelection();
+      parent.postMessage({ baiheReader: 'scroll', y: window.scrollY, selecting: !!sel && !sel.isCollapsed }, '*');
+    });
+  }
+  window.addEventListener('scroll', reportScroll);
+  document.addEventListener('selectionchange', reportScroll);
+  window.addEventListener('message', function (e) {
+    const m = e.data;
+    if (e.source === parent && m && m.baiheReader === 'restore' && typeof m.y === 'number') window.scrollTo(0, m.y);
+  });"""
+
+
 _NAME_CATEGORIES = ("person_name", "courtesy_name")
 
 
@@ -358,6 +379,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
 
   {_EDIT_SCRIPT}
   {term_script}
+  {_SCROLL_SCRIPT}
 
   function showDef(el) {{
     if (activeEl) activeEl.classList.remove('active');

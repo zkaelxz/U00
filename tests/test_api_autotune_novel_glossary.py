@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 from jobs import job_launch, job_table
 import whisper_transcribe
-import translation_guide as tguide
+import glossary_extract
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -229,7 +229,7 @@ class TestAutotuneApply:
 class TestNovelGlossaryStart:
     def test_success_and_status_hide_key(self, local_client, isolated_db, monkeypatch, fake_engine):
         did, _ = _novel_drama(isolated_db)
-        monkeypatch.setattr(tguide, "extract_glossary_from_novel", lambda *a, **kw: [
+        monkeypatch.setattr(glossary_extract, "extract_glossary_from_novel", lambda *a, **kw: [
             {"term": "青云宗", "suggested_translation": "Qingyun Sect", "category": "sect",
              "policy": "hybrid", "reason": "a sect"}])
         r = local_client.post(_gl(did))
@@ -249,7 +249,7 @@ class TestNovelGlossaryStart:
 
     def test_status_never_contains_key(self, local_client, isolated_db, monkeypatch, fake_engine):
         did, _ = _novel_drama(isolated_db)
-        monkeypatch.setattr(tguide, "extract_glossary_from_novel", lambda *a, **kw: [
+        monkeypatch.setattr(glossary_extract, "extract_glossary_from_novel", lambda *a, **kw: [
             {"term": "师尊", "suggested_translation": "Master", "reason": "r"}])
         local_client.post(_gl(did))
         wait_for_job(f"novel_glossary_{did}", timeout=4.0)
@@ -262,7 +262,7 @@ class TestNovelGlossaryStart:
 
         def boom(*a, **kw):
             raise RuntimeError(f"401 for key {SECRET}")
-        monkeypatch.setattr(tguide, "extract_glossary_from_novel", boom)
+        monkeypatch.setattr(glossary_extract, "extract_glossary_from_novel", boom)
         local_client.post(_gl(did))
         wait_for_job(f"novel_glossary_{did}", timeout=4.0)
         r = local_client.get(_gl(did))

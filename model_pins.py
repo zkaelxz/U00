@@ -42,7 +42,7 @@ REVISIONS = {
     "Qwen/Qwen3-ASR-0.6B-hf": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c",
     "Qwen/Qwen3-ASR-1.7B-hf": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3",
     "Qwen/Qwen3-ForcedAligner-0.6B-hf": "c07281df297b9905d24a508279258cccf987a064",
-    # OCR (ocr.py) and scanlate (scanlate_detect.py, scanlate_inpaint.py).
+    # OCR (ocr.py) and scanlate (scanlate_detect.py, scanlate_lama.py).
     "jzhang533/PaddleOCR-VL-For-Manga": "1e8aa5f1dd90cc86fe9137c9c0b26ebde613cfe8",
     "PaddlePaddle/PaddleOCR-VL": "7fa00a8c55b735ba51ba49a9058f3f9c57a99a11",
     "Qwen/Qwen3-VL-4B-Instruct": "ebb281ec70b05090aa6165b016eac8ec08e71b17",

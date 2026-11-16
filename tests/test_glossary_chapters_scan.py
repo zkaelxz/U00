@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("fastapi")
 
 import core
-import translation_guide as tguide
+import glossary_extract
 from jobs import job_table
 from tests.api_helpers import error_of
 from tests.job_helpers import wait_for_job
@@ -62,7 +62,7 @@ def test_each_chapter_is_scanned_and_new_terms_are_added_without_overwriting(loc
     def fake_extract(lines, engine, source_language="zh", known_terms=None, **kw):
         seen.append((list(lines), sorted(t["term_original"] for t in known_terms)))
         return [_prop("青云宗", "Qingyun Sect"), _prop("沈清", "Shenqing"), _prop("师尊", "Shizun")]
-    monkeypatch.setattr(tguide, "extract_terms_llm", fake_extract)
+    monkeypatch.setattr(glossary_extract, "extract_terms_llm", fake_extract)
 
     r = local_client.post(f"/api/glossary/dramas/{did}/from-chapters")
     assert r.status_code == 200 and r.json()["chapter_count"] == 2, r.text
@@ -78,7 +78,7 @@ def test_each_chapter_is_scanned_and_new_terms_are_added_without_overwriting(loc
 def test_an_ignored_term_is_not_added(local_client, isolated_db, monkeypatch, fake_engine):
     did, sid = _novel(isolated_db, CHAPTERS)
     isolated_db.add_glossary_dismissals(sid, ["青云宗"])
-    monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **k: [_prop("青云宗", "Qingyun Sect")])
+    monkeypatch.setattr(glossary_extract, "extract_terms_llm", lambda *a, **k: [_prop("青云宗", "Qingyun Sect")])
     assert local_client.post(f"/api/glossary/dramas/{did}/from-chapters").status_code == 200
     wait_for_job(f"chapters_glossary_{did}", timeout=4.0)
     assert isolated_db.list_glossary_terms(sid) == []

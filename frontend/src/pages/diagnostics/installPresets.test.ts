@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DiagnosticsInstallTask, DiagnosticsPackageInfo } from '../../types/diagnostics'
 import {
-  belowMinText, firstHint, formatApproxMb, groupTasks, minVersionText, missingTranscription, optionalMissingText, packageSizeText, roleLabel,
+  belowMinText, firstHint, formatApproxMb, groupTasks, groupsNeedingInstallFirst, installAllTask, INSTALL_ALL_NOTE, minVersionText, missingTranscription, optionalMissingText, packageSizeText, roleLabel,
   safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskGroupSummary, taskNotes, taskOutput, taskReady, taskResultText, taskStatus, taskTone, updateOutdatedLabel, updateOutdatedText,
   type TaskRunResult,
 } from './installPresets'
@@ -39,6 +39,25 @@ describe('install presets helpers', () => {
   it('groups tasks in server order', () => {
     const g = groupTasks([task({ id: '1' }), task({ id: '2', group: 'Dubbing' }), task({ id: '3' })])
     expect(g.map((x) => [x.group, x.tasks.map((t) => t.id)])).toEqual([['Audio', ['1', '3']], ['Dubbing', ['2']]])
+  })
+
+  it('keeps the groups in server order when a later group still needs something', () => {
+    const ready = { installed_count: 3, to_install: [] }
+    const g = groupsNeedingInstallFirst([task({ id: 'a1', ...ready }), task({ id: 'b1', group: 'Dubbing' }), task({ id: 'a2' }), task({ id: 'b2', group: 'Dubbing', ...ready })])
+    expect(g.map((x) => [x.group, x.tasks.map((t) => t.id)])).toEqual([['Audio', ['a2', 'a1']], ['Dubbing', ['b1', 'b2']]])
+  })
+
+  it('Install all is one task with every missing package once, summed, and none when nothing is missing', () => {
+    const pkgs = { a: { approx_mb: 10 }, b: { approx_mb: 5 }, c: { approx_mb: 1 } } as unknown as Record<string, DiagnosticsPackageInfo>
+    const t = installAllTask([task({ id: '1', to_install: ['a', 'b'] }), task({ id: '2', to_install: ['b', 'c'] }), task({ id: '3', to_install: [] })], pkgs)
+    expect(t).toMatchObject({ id: 'all-tasks', to_install: ['a', 'b', 'c'], approx_mb: 16 })
+    expect(installAllTask([task({ to_install: [] })], pkgs)).toBeNull()
+    expect(installAllTask([], pkgs)).toBeNull()
+  })
+
+  it('Install all says plainly that it leaves GPU PyTorch to its own button and the Setup one', () => {
+    expect(INSTALL_ALL_NOTE).toContain('does not set up GPU PyTorch')
+    expect(INSTALL_ALL_NOTE).toContain('Setup > Recommended installs')
   })
 
   it('shows status and moves ready tasks last', () => {

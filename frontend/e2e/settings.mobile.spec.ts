@@ -57,3 +57,13 @@ for (const width of [360, 390]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 }
+
+// The phone follows its own screen, so the desktop-oriented Display card (width, text size, spacing, nav position) is left out, search included.
+test('Settings leaves out the Display card on a phone', async ({ page }) => {
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'My account and look')
+  await expect(page.getByLabel('Sharing', { exact: true }).first()).toBeVisible()
+  await expect(page.getByLabel('Page width', { exact: true })).toHaveCount(0)
+  await page.getByRole('searchbox', { name: 'Search settings' }).fill('text size')
+  await expect(page.getByLabel('Text size', { exact: true })).toHaveCount(0)
+})

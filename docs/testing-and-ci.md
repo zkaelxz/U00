@@ -20,19 +20,23 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 
 ## Merge flow
 
-A squash merge, never a force-push, and never before Kae types "Merge NNNN" for it. GitHub's merge queue is not offered to a
-repo owned by a personal account, so GitHub's auto-merge stands in for it: on Kae's order the owning thread turns auto-merge
-(squash) on, and GitHub merges the PR by itself once the required checks, `test` and `browser-tests`, are green. Turning auto-merge on is also what starts
+A squash merge, never a force-push. GitHub's merge queue is not offered to a repo owned by a personal account, so GitHub's
+auto-merge stands in for it: when a PR is finished and reviewed, the owning thread turns auto-merge (squash) on, and GitHub merges the PR by itself once the required checks, `test` and `browser-tests`, are green. Turning auto-merge on is also what starts
 the browser tests ("Browser tests wait for the merge order" below), so a PR's last run before it merges is always a full one.
-Kae can also turn it on herself with the PR's "Enable auto-merge" button; that is her order too.
+Kae can also turn it on herself with the PR's "Enable auto-merge" button.
+
+No word from Kae is needed for that (Kae, 2026-11-16), except for a **risky PR**, which still waits for her typed "Merge NNNN"
+(step 2): a database schema change (as under "Always the overlap lane" below), sign-in or auth (`api/auth.py`, the auth, OIDC
+and session services, remote access), anything that needs a test on a real PC before it ships (a real GPU, model, key,
+installer or site), and release or Promote steps. When in doubt, treat a PR as risky and ask.
 
 1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, the owner merges the
    base in once, has the change reviewed (`docs/engineering-standards.md`, section 3) and marks the PR ready. That starts the
-   full run ("Draft PRs" below), so the run is over before Kae is asked. Marking a PR ready is not a merge order. Start a run
-   only while fewer than two other PR runs are going: more than that queue behind each other, and a PR that already has
-   Kae's order must not wait behind one that has not.
-2. **The order.** Kae types "Merge NNNN"; one message may name several PRs. Typed in the thread that owns the PR, that thread
-   checks the lane (step 3), merges the base in first if the lane is overlap, and turns auto-merge on; GitHub merges it. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
+   full run ("Draft PRs" below). Marking a PR ready is not a merge order. Start a run, and turn auto-merge on (which starts
+   the full one), only while fewer than two other PR runs are going: more than that queue behind each other.
+2. **The order.** A PR that is not risky needs none: the owner checks the lane (step 3), merges the base in first if the lane
+   is overlap, and turns auto-merge on; GitHub merges it. For a risky PR Kae types "Merge NNNN"; one message may name several
+   PRs. Typed in the thread that owns the PR, that thread does the same. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
    retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several
    PRs the coordinator sets the order, clear lane first. A bare "Merge all" covers only the PRs on the list the coordinator
    last showed Kae; a PR that was not on it gets its own card first (Kae, 2026-11-15). Nothing else is a merge order: not
@@ -106,7 +110,7 @@ the result of the push run that covers the merge, so that the first ones can be 
 the five guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
 through `--ff` and a restored `.pytest_cache`), `optional-tests` (installs jieba, pypinyin, opencc, ebooklib, genanki, soundfile and headless OpenCV, which the shards leave out, and runs only the files that skip without them; torch, paddleocr and Tesseract tests still skip, and `tests/test_diarize.py` needs torch so it is not in the list), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
-`frontend` (build, vitest, lint), `e2e` (Playwright in four shards), `smoke` (see "Real-app smoke test" below; `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
+`frontend` (build, vitest, lint), `e2e` (Playwright in six jobs: four for the desktop and Catalogue projects, two for the phone project, which `E2E_PROJECT_GROUP` in `frontend/playwright.config.ts` picks; Playwright shards by test count and a phone test takes about twice as long), `smoke` (see "Real-app smoke test" below; `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
 also fails if it failed, and passes when it was skipped) and `caddy` (see "Caddy check" below; the same rule). `windows-bootstrap.yml` (its own workflow with one job,
 `bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
 and `windows-installer.yml` (job `installer`, plus `release` for a tag, which publishes a pre-release) cover the installer; `promote-release.yml` (run by hand, behind the `release-main` environment) makes a tested pre-release the full release. `dependency-canary.yml` and
@@ -137,7 +141,7 @@ fixes). A cache miss only costs the download. The ffmpeg apt install is not cach
 
 ### Browser tests wait for the merge order
 
-The four `e2e` shards are the largest share of a run's runner time, and a ready PR is often pushed several times before it is
+The six `e2e` jobs are the largest share of a run's runner time, and a ready PR is often pushed several times before it is
 ordered to merge. On a pull request without auto-merge on, `changes` holds them back (`e2e_deferred=true`), and the
 `browser-gate` job sets the required commit status `browser-tests` to pending ("Waiting for the merge order"), so the PR
 cannot merge without them but nothing turns red and no failure email goes out. Turning auto-merge on (the

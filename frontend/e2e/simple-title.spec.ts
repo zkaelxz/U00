@@ -1025,7 +1025,7 @@ test.describe('the check queue', () => {
       await expect(chip).toHaveText('Too fast to read: 25 characters a second')
       await expect(closed.locator('.review-speaker')).toBeHidden()
       await expect(closed.getByTestId('line-cps')).toBeHidden()
-      await expect(closed.getByText(/^Shaky/)).toBeHidden()
+      await expect(closed.getByText(/^Unsure/)).toBeHidden()
       await expect(card(page, 24).locator('.review-speaker')).toHaveText('Wei Wuxian')
     }
     // The line only Whisper doubted keeps its score in the chip, as its badge is not shown.
