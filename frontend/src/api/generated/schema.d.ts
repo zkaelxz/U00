@@ -27711,6 +27711,11 @@ export interface components {
              */
             scene_break_gap_seconds: number;
             /**
+             * Second Hearing
+             * @default false
+             */
+            second_hearing: boolean;
+            /**
              * Sensitive Vad Threshold
              * @default 0.35
              */
@@ -28002,6 +28007,8 @@ export interface components {
             scene_aware_batches?: boolean | null;
             /** Scene Break Gap Seconds */
             scene_break_gap_seconds?: number | null;
+            /** Second Hearing */
+            second_hearing?: boolean | null;
             /** Sensitive Vad Threshold */
             sensitive_vad_threshold?: number | null;
             /** Sentence Group Gap Seconds */
