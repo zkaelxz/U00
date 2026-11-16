@@ -15,8 +15,9 @@ from engine_backends import translate_pipeline, fallback, engine_registry, llm_t
 import glossary_extract
 from core import Line
 import job_timing
-from services import (glossary_service, job_checkpoint_service as cp, 
-                      line_provenance_service, narration_service, vram_service)
+import vram
+from services import (glossary_service, job_checkpoint_service as cp,
+                      line_provenance_service, narration_service)
 from tests.job_helpers import wait_for_job
 
 
@@ -347,18 +348,18 @@ def test_queued_gpu_jobs_show_their_place_in_line(isolated_db, monkeypatch):
 # --- VRAM fit check (item 7) -------------------------------------------------------
 
 def test_fit_check_refuses_an_oversized_load_with_a_clear_message():
-    with pytest.raises(vram_service.InsufficientVramError) as ei:
-        vram_service.check_fits("OmniVoice", free_mb=1000)
+    with pytest.raises(vram.InsufficientVramError) as ei:
+        vram.check_fits("OmniVoice", free_mb=1000)
     msg = str(ei.value)
     assert "OmniVoice" in msg and "2.0 GB" in msg and "1.0 GB is free" in msg
     assert "CUDA" not in msg and "out of memory" not in msg.lower()
-    vram_service.check_fits("OmniVoice", free_mb=8000)        # fits
-    vram_service.check_fits("Unknown model", free_mb=1)        # no estimate: allowed
+    vram.check_fits("OmniVoice", free_mb=8000)        # fits
+    vram.check_fits("Unknown model", free_mb=1)        # no estimate: allowed
 
 
 def test_unknown_free_memory_never_blocks(monkeypatch):
-    monkeypatch.setattr(vram_service, "free_vram_mb", lambda: None)
-    vram_service.check_fits("OmniVoice")
+    monkeypatch.setattr(vram, "free_vram_mb", lambda: None)
+    vram.check_fits("OmniVoice")
 
 
 def test_free_memory_comes_from_torch_when_loaded(monkeypatch):
@@ -366,7 +367,7 @@ def test_free_memory_comes_from_torch_when_loaded(monkeypatch):
     torch.cuda = types.SimpleNamespace(is_available=lambda: True,
                                        mem_get_info=lambda: (512 * 1024 * 1024, 12 * 1024 ** 3))
     monkeypatch.setitem(sys.modules, "torch", torch)
-    assert vram_service.free_vram_mb() == 512
+    assert vram.free_vram_mb() == 512
 
 
 def test_free_memory_falls_back_to_nvidia_smi(monkeypatch):
@@ -375,14 +376,14 @@ def test_free_memory_falls_back_to_nvidia_smi(monkeypatch):
     monkeypatch.setattr(diagnostics_torch, "external_gpu_load",
                         lambda: {"memory_free_mb": 1024.0, "memory_used_mb": 0,
                                  "memory_total_mb": 1024.0, "utilization_percent": 0})
-    assert vram_service.free_vram_mb() == 1024.0
+    assert vram.free_vram_mb() == 1024.0
 
 
 def test_venv_voice_engine_checks_vram_before_loading(monkeypatch, tmp_path):
     import dub
     import voice_venv
     monkeypatch.setattr(dub, "_cuda_available", lambda: True)
-    monkeypatch.setattr(vram_service, "free_vram_mb", lambda: 100.0)
+    monkeypatch.setattr(vram, "free_vram_mb", lambda: 100.0)
     # Ready, so only the VRAM refusal can stop the batch before its model loads.
     monkeypatch.setattr(voice_venv, "is_ready", lambda engine: True)
     monkeypatch.setattr(voice_venv, "run_batch", lambda *a, **k: pytest.fail("the model loaded"))
