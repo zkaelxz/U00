@@ -18,6 +18,7 @@ The Jobs page has a Queue card (below the job list, or above the empty state whe
 - If the queue can't be read, the Jobs page shows the error in the card's place; it goes away by itself once the queue answers again.
 - An item that can't start (the spending cap, a job already running on that title, a deleted title, a missing key) is marked "Skipped" with the reason, and the queue moves on.
 - After a restart nothing runs on its own: an item that was running shows "Interrupted", and a start time that passed while Baihe was off shows "Missed: start now?" until you start or dismiss it.
+- A title page's **Transcribe and translate** adds its steps here too (Transcribe, then Find names), so does a novel's **Import from link** (Import chapters, Prepare the text, Make lines, Find names), and so does a file's **Make English subtitles** after its upload (Transcribe, which follows the transcription the upload started, then Translate). A paid engine there translates even with no monthly cap set, as it did before it moved here; a cap that is set still stops it. They start at once without Start queue, ahead of items waiting for it, after the one item running; they start nothing else, a failure in them doesn't stop the queue, and after a restart they show "Not started" until pressed again on the title.
 - With sign-in on, each account sees and changes only the items for its own titles (at most 50 items per account); only the PC owner starts, pauses or schedules the queue. A queue restored from a backup is stopped, like after a restart.
 
 ## Reliability

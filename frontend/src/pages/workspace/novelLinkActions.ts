@@ -1,18 +1,15 @@
 import { applyNovelGlossary, getNovelGlossary } from '../../api/autotuneGlossary'
 import { narrationApi } from '../../api/dub'
 import { probeJob } from '../../api/jobs'
-import { getRawChapters } from '../../api/novelChapters'
 import { sourceImportJobId } from '../../api/sourcesImport'
 import { startNovelUrlImport } from '../../api/sourcesExtraction'
 import { getTranslateConfig, startTranslateRun } from '../../api/translateStage'
-import { addChaptersFromSources, attachNovelFromSources, getNovelStatus, getWorkflowProgress } from '../../api/workspace'
-import { isActiveStatus, isTerminalStatus } from '../../types/jobs'
+import { addChaptersFromSources } from '../../api/workspace'
+import { isTerminalStatus } from '../../types/jobs'
 import { defaultTermSelection } from './stages/autotuneGlossary'
 import { applyRequest } from './stages/glossaryExtract'
-import { startExtraction } from './stages/useGlossaryRun'
 import { applyStartToForm, buildRunBody, initialForm, loadPresetStart } from './translateForm'
-import { EMPTY_TAG_CHOICE, needsCostConfirm, tagChoiceProblem, tagRunBody, type TagChoice } from './stages/tagChoice'
-import type { ChainActions } from './novelLinkChain'
+import { EMPTY_TAG_CHOICE, needsCostConfirm, tagRunBody, type TagChoice } from './stages/tagChoice'
 
 const POLL_MS = 2000
 // A job id answers 404 for a moment after its start in some paths; give it a few reads before calling it lost.
@@ -36,63 +33,6 @@ export async function waitForJob(jobId: string): Promise<void> {
     await sleep(POLL_MS)
   }
   throw new StepFailed('The job could not be found.')
-}
-
-async function waitForExtraction(id: number): Promise<void> {
-  for (;;) {
-    const s = await getNovelGlossary(id)
-    if (!isActiveStatus(s.status)) {
-      if (s.status === 'error' || s.status === 'cancelled') throw new StepFailed(s.message || s.status)
-      return
-    }
-    await sleep(POLL_MS)
-  }
-}
-
-/** The real calls behind the chain, for title `id`. Reads come from the server on every step. */
-export function novelLinkActions(id: number, url: string, tag: TagChoice, costAccepted: () => boolean): ChainActions {
-  return {
-    read: async () => {
-      const [chapters, novel, progress, glossary] = await Promise.all([
-        getRawChapters(id, 0, 1), getNovelStatus(id), getWorkflowProgress(id), getNovelGlossary(id),
-      ])
-      return {
-        chapters: chapters.total,
-        hasNovelText: novel.has_novel_text,
-        lines: progress.line_count,
-        glossary: glossary.status,
-      }
-    },
-    importLink: async () => {
-      const started = await startNovelUrlImport(url, id, {})
-      await waitForJob(started.job_id || sourceImportJobId(id))
-    },
-    attach: async () => {
-      await attachNovelFromSources(id, 'replace')
-    },
-    tag: async () => {
-      const problem = tagChoiceProblem(tag)
-      if (problem) throw new StepFailed(problem)
-      const cfg = await narrationApi.config(id)
-      const body = tagRunBody(tag, cfg.default_engine)
-      // The engine is the one the person picked, never the first one that happens to have a key.
-      if (!tag.oneNarrator) {
-        const estimate = await narrationApi.estimate(id, { engine: body.engine, model: body.model, chapter_from: body.chapter_from, chapter_to: body.chapter_to })
-        if (needsCostConfirm(estimate) && !costAccepted()) {
-          throw new StepFailed(`Splitting and tagging would cost about $${estimate.estimated_usd.toFixed(2)} and no monthly spending cap is set. Tick the box to accept the cost, then press Continue.`)
-        }
-      }
-      const started = await narrationApi.run(id, body)
-      await waitForJob(started.job_id)
-    },
-    extract: async () => {
-      const out = await startExtraction(id, 'novel')
-      if (out.error) throw out.error
-      if (out.problem) throw new StepFailed(out.problem)
-      await waitForExtraction(id)
-    },
-    waitExtract: () => waitForExtraction(id),
-  }
 }
 
 /**

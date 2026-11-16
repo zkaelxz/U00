@@ -1,4 +1,4 @@
-import type { QueueBulkAdded, QueueSettingEdits, QueueState, QueueStep, QueueStepSettings } from '../types/queue'
+import type { NovelFlowStart, QueueBulkAdded, QueueSettingEdits, QueueState, QueueStep, QueueStepSettings, TitleFlowRun } from '../types/queue'
 import { getJson, postJson, type Fetch } from './client'
 
 export const getQueue = (f?: Fetch) => getJson<QueueState>('/api/queue', f)
@@ -30,3 +30,15 @@ export const setQueueSchedule = (time: string | null, f?: Fetch) =>
   postJson<QueueState>('/api/queue/schedule', { time }, f)
 export const setQueuePolicy = (stopOnFailure: boolean, f?: Fetch) =>
   postJson<QueueState>('/api/queue/policy', { stop_on_failure: stopOnFailure }, f)
+
+// A title's one-button run (transcribe, then find names), carried on by the PC with the page closed.
+export const getTitleFlow = (dramaId: number, f?: Fetch) => getJson<TitleFlowRun>(`/api/queue/title-flow/${dramaId}`, f)
+export const startTitleFlow = (dramaId: number, f?: Fetch) => postJson<TitleFlowRun>(`/api/queue/title-flow/${dramaId}`, undefined, f)
+// A novel's link run (import, text, lines, then find names); the link is read only while no chapter is saved.
+export const getNovelFlow = (dramaId: number, f?: Fetch) => getJson<TitleFlowRun>(`/api/queue/novel-flow/${dramaId}`, f)
+export const startNovelFlow = (dramaId: number, url: string, lines: Omit<NovelFlowStart, 'url'> = {}, f?: Fetch) =>
+  postJson<TitleFlowRun>(`/api/queue/novel-flow/${dramaId}`, { url, ...lines }, f)
+// The Add box's run after its upload: follow the upload's transcription, then translate with the box's choices.
+export const getFileRun = (dramaId: number, f?: Fetch) => getJson<TitleFlowRun>(`/api/queue/file-run/${dramaId}`, f)
+export const startFileRun = (dramaId: number, body: { job_id: string; engine: string; locale: string | null }, f?: Fetch) =>
+  postJson<TitleFlowRun>(`/api/queue/file-run/${dramaId}`, body, f)
