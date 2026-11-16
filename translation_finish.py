@@ -134,7 +134,7 @@ def _flag_for_review(drama_id: int, lines, landed: set, embed_texts) -> None:
     """Review flags computed from the run's English: reading speed on every line,
     and the optional source-match check (embed_texts, None skips it) only on the
     lines this run's English landed on."""
-    from services import reading_speed_dismissal_service as dismissals
+    import reading_speed_dismissal as dismissals
     started = time.monotonic()
     dismissals.flag_dense_lines(drama_id, lines)
     if embed_texts is not None:
