@@ -142,7 +142,9 @@ class DramaSummary(BaseModel):
         default=None, description="Hidden from the household (a drama in a series follows its "
                                   "series). Only set in the Library list.")
     owned_by_me: Optional[bool] = Field(
-        default=None, description="The signed-in viewer created it. Only set in the Library list.")
+        default=None, description="The signed-in viewer may change its sharing: they created it, "
+                                  "or they are an admin and it was made at the PC (or they are at "
+                                  "the PC). Only set in the Library list.")
     line_count: int = Field(default=0, description="Lines the title has. Only counted in the Library list.")
     translated_count: int = Field(default=0, description="Lines with English text. Only counted in the Library list.")
     page_count: int = Field(default=0, description="Pages a comic has. Only counted in the Library list.")
@@ -460,7 +462,9 @@ class LibrarySeries(BaseModel):
     id: int
     name: str
     is_private: bool
-    owned_by_me: bool = Field(description="The signed-in viewer created it.")
+    owned_by_me: bool = Field(description="The signed-in viewer may change its sharing: they created "
+                                          "it, or they are an admin and it was made at the PC (or "
+                                          "they are at the PC).")
     character_count: int
     glossary_term_count: int
     dramas: List[LibraryDramaRef]

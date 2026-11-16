@@ -30,15 +30,12 @@ from .shared import (
     _cancel_check_var,
     call_with_backoff,
     keep_answers_across_retries,
-    is_english_line,
-    keep_first_alternative,
-    strip_echoed_label,
-    tagged_line_languages,
     redact_secrets,
     LLMTaskTimeout,
     TranslationCancelled,
     stops_translate_run,
 )
+from .line_text import is_english_line, keep_first_alternative, strip_echoed_label, tagged_line_languages
 import source_change
 
 

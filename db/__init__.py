@@ -827,6 +827,7 @@ from db.auth import (  # noqa: F401
     assign_drama_series,
     unassign_drama_series,
     set_item_private,
+    set_item_owner,
     series_has_unowned_drama,
     rename_series, series_content_counts, delete_series, copy_series_terms,
     update_series_instructions, set_series_defaults,

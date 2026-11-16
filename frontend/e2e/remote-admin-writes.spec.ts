@@ -1,8 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 
-// A remote (household) admin holds no admin.library: no list of everyone's
-// items to flip, but Cancel on every job (owner decision 2026-10-12). Every /api
+// A remote (household) admin holds no admin.library: Cancel on every job (owner
+// decision 2026-10-12), and the Sharing list with a note that other people's
+// items change at the PC (Kae, 2026-11-16). Every /api
 // call is mocked; any other is aborted and must not happen.
 
 const me = (permissions: string[]) => ({
@@ -16,7 +17,7 @@ const JOB = {
 }
 const OWN_JOB = { ...JOB, job_id: 'j2', description: 'Translate Mine', owned_by_me: true }
 const ITEM = {
-  kind: 'drama', id: 5, title: 'Kae title', owner_name: 'Kae', is_private: true, series_id: null,
+  kind: 'drama', id: 5, title: 'Kae title', owner_name: 'Kae', owner_user_id: 1, is_private: true, series_id: null,
   series_name: null, series_is_private: null, created_at_pc: false,
 }
 
@@ -54,16 +55,16 @@ test('PC admin still gets Cancel', async ({ page }) => {
   await expect(page.getByTestId('jobs-cancel-note')).toHaveCount(0)
 })
 
-test('remote admin: no per-item sharing switches in Settings, with a note', async ({ page }) => {
+test('remote admin: every item in Settings > Sharing, with a note', async ({ page }) => {
   await mock(page, ['library.read', 'admin.users.read'])
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'My account and look')
   await expect(page.getByTestId('remote-admin-sharing-note')).toBeVisible()
-  await expect(page.getByTestId('sharing-drama:5')).toHaveCount(0)
+  await expect(page.getByTestId('sharing-drama:5')).toBeVisible()
 })
 
 test('PC admin still gets every item with its switch', async ({ page }) => {
-  await mock(page, ['library.read', 'admin.library'])
+  await mock(page, ['library.read', 'admin.library', 'admin.users.read'])
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'My account and look')
   await expect(page.getByTestId('sharing-drama:5')).toBeVisible()

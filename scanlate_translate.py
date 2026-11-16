@@ -150,7 +150,7 @@ def _matched_answer(text, ids: list, previous_context: str):
     """({id: translation}, new_context) from an engine's reply, or (None,
     previous_context) unless it names exactly the ids sent, each with a string."""
     import re
-    from engine_backends.shared import extract_first_json_value
+    from engine_backends.line_text import extract_first_json_value
     if not text:
         return None, previous_context
     data = extract_first_json_value(
@@ -347,7 +347,7 @@ def build_chapter_brief(page_texts: list, engine, drama_meta: dict, usage_cb=Non
     import re
     from core import LANGUAGE_NAMES
     from engine_backends.llm_tasks import call_llm_json
-    from engine_backends.shared import extract_first_json_value
+    from engine_backends.line_text import extract_first_json_value
     if not getattr(engine, "supports_reference", False) or getattr(engine, "client", True) is None:
         return ""
     numbered = [f"Page {i}: {t}" for i, t in enumerate(page_texts, start=1) if t.strip()]

@@ -140,11 +140,11 @@ def test_admin_without_override_sees_everything_but_changes_as_a_member(people):
         own.set_private(remote, "drama", shared, True)
     assert db.get_item_ownership("drama", theirs)["is_private"] == 1
     own.set_private(remote, "drama", mine, True)
-    # A series holding a PC drama: the admin-only flip is refused too.
+    # A series holding a PC drama: admins flip it from away too (Kae,
+    # 2026-11-16); members are still refused (test_series_with_a_pc_drama_only_admins_flip).
     sid = db.get_or_create_series("Mixed", owner_user_id=remote["user_id"])
     db.create_drama(title_zh="pc2", series_id=sid)
-    with pytest.raises(ConflictError):
-        own.set_private(remote, "series", sid, True)
+    own.set_private(remote, "series", sid, True)
     # Jobs: every job is visible, and every job can be stopped from away
     # too (owner decision 2026-10-12), though only their own is theirs.
     assert own.can_see_job(remote, "other-pc-job", None)
@@ -195,9 +195,12 @@ def test_remote_admin_changes_pc_made_items_as_their_own(people):
     assert not own.can_edit(remote, "series", a_series)
     with pytest.raises(NotFoundError):
         own.require_editable(people["a"], "series", pc_series)
-    # The private flag itself stays an admin-at-the-PC change.
+    # From away an admin flips a PC-made series' flag as their own (Kae,
+    # 2026-11-16); another member's series stays an admin-at-the-PC change.
+    own.set_private(remote, "series", pc_series, False)
+    assert db.get_item_ownership("series", pc_series)["is_private"] == 0
     with pytest.raises(ForbiddenError):
-        own.set_private(remote, "series", pc_series, False)
+        own.set_private(remote, "series", a_series, False)
 
 
 def test_set_private_refused_for_drama_in_series(people):
@@ -304,7 +307,7 @@ def test_every_flip_is_audited_by_id(people):
 def test_new_series_refusal_says_what_to_do(people):
     b_drama = db.create_drama(title_zh="b", owner_user_id=people["b_id"])
     with pytest.raises(ConflictError, match="share it in Settings > Sharing"):
-        own.check_new_series_assignment(people["admin"], "Fresh", people["b_id"])
+        own.check_new_series_assignment(people["a"], "Fresh", people["b_id"])
     assert db.get_drama(b_drama)["series_id"] is None
 
 
@@ -376,8 +379,6 @@ def test_mixed_owner_series_python_and_sql_agree(people):
     # Refused while B's drama is inside; B keeps seeing it.
     with pytest.raises(ConflictError, match="Move other people's titles"):
         own.set_private(a, "series", sid, True)
-    with pytest.raises(ConflictError):
-        own.set_private(people["admin"], "series", sid, True)
     assert db.get_item_ownership("series", sid)["is_private"] == 0
     # Legacy-owned (NULL) dramas don't block an admin; the series owner
     # must ask one, since the flip would hide the PC's drama too.
@@ -446,9 +447,11 @@ def test_series_assignment_guard(people):
     # Visible private series: only its owner's or PC-owned (NULL) dramas.
     assert own.check_series_assignment(a, secret, people["a_id"]) == secret
     assert own.check_series_assignment(a, secret, None) == secret
-    for who in (a, admin, LOCAL, None):
-        with pytest.raises(ConflictError, match="only its owner's titles"):
-            own.check_series_assignment(who, secret, people["b_id"])
+    with pytest.raises(ConflictError, match="only its owner's titles"):
+        own.check_series_assignment(a, secret, people["b_id"])
+    # Admins put anyone's title in it (Kae, 2026-11-16).
+    for who in (admin, LOCAL, None):
+        assert own.check_series_assignment(who, secret, people["b_id"]) == secret
     assert own.check_series_assignment(b, shared, people["b_id"]) == shared
 
 
@@ -469,6 +472,84 @@ def test_move_into_private_series_refused_service_and_sql_agree(people):
     assert db.assign_drama_series(pc_drama, secret)
     with pytest.raises(NotFoundError):
         own.assign_drama_series(a, 10**6, secret)
+
+
+def test_admin_has_full_rights_on_series_whoever_owns_the_title(people):
+    """Kae, 2026-11-16: "an admin should have full rights regardless". The
+    live case: titles made from the website belong to the admin's account,
+    every series is a private PC-made one, and moving them in was refused."""
+    admin_id = people["admin"]["user_id"]
+    remote = _p(admin_id, admin=True, override=False)
+    pc_series = db.get_or_create_series("U00", is_private=1)
+    for who in (people["admin"], remote, LOCAL):
+        web_title = db.create_drama(title_zh="web", owner_user_id=admin_id)
+        own.assign_drama_series(who, web_title, pc_series)
+        assert db.get_drama(web_title)["series_id"] == pc_series
+        own.unassign_drama_series(who, web_title)
+        assert db.get_drama(web_title)["series_id"] is None
+    # A member's shared title too, and the series can then flip either way.
+    b_title = db.create_drama(title_zh="b", owner_user_id=people["b_id"])
+    own.assign_drama_series(remote, b_title, pc_series)
+    own.set_private(remote, "series", pc_series, False)
+    own.set_private(people["admin"], "series", pc_series, True)
+    own.set_private(remote, "series", pc_series, True)
+    assert db.get_item_ownership("series", pc_series)["is_private"] == 1
+    # A new private series named on the spot takes someone else's title.
+    own.check_new_series_assignment(people["admin"], "Fresh", people["b_id"])
+    # Members' rules are unchanged: A can't put B's title in A's private
+    # series, and A can't make a series private while B's title is in it.
+    a_secret = db.get_or_create_series("A secret", owner_user_id=people["a_id"], is_private=1)
+    b_other = db.create_drama(title_zh="b2", owner_user_id=people["b_id"])
+    with pytest.raises(ConflictError, match="only its owner's titles"):
+        own.assign_drama_series(people["a"], b_other, a_secret)
+    a_open = db.create_drama(title_zh="a", owner_user_id=people["a_id"])
+    a_shared = db.get_or_create_series("A shared", owner_user_id=people["a_id"])
+    own.assign_drama_series(people["a"], a_open, a_shared)
+    own.assign_drama_series(people["b"], b_other, a_shared)
+    with pytest.raises(ConflictError, match="Move other people's titles"):
+        own.set_private(people["a"], "series", a_shared, True)
+    # From away an admin still changes only what the 2026-09-30 rule allows:
+    # not another member's series, nor a member's title in it.
+    with pytest.raises(ForbiddenError):
+        own.set_private(remote, "series", a_shared, True)
+    with pytest.raises(ForbiddenError):
+        own.assign_drama_series(remote, b_title, a_secret)
+    # The admin at the PC makes it private with B's title inside.
+    own.set_private(people["admin"], "series", a_shared, True)
+    assert db.get_item_ownership("series", a_shared)["is_private"] == 1
+
+
+def test_remote_admin_move_keeps_the_guard_when_a_members_series_goes_private(people, monkeypatch):
+    """Away from the PC an admin may file a title in a member's series only
+    while it is shared; if it goes private between the check and the write,
+    the write's own guard still refuses."""
+    remote = _p(people["admin"]["user_id"], admin=True, override=False)
+    a_series = db.get_or_create_series("A open", owner_user_id=people["a_id"])
+    b_title = db.create_drama(title_zh="b", owner_user_id=people["b_id"])
+    real = db.assign_drama_series
+
+    def racing(drama_id, series_id, **kw):
+        assert db.set_item_private("series", a_series, True)
+        return real(drama_id, series_id, **kw)
+    monkeypatch.setattr(db, "assign_drama_series", racing)
+    with pytest.raises(ConflictError, match="only its owner's titles"):
+        own.assign_drama_series(remote, b_title, a_series)
+    assert db.get_drama(b_title)["series_id"] is None
+    # The admin at the PC may do it on purpose, so no guard is needed there.
+    db.set_item_private("series", a_series, False)
+    own.assign_drama_series(people["admin"], b_title, a_series)
+    assert db.get_drama(b_title)["series_id"] == a_series
+
+
+def test_db_private_series_guards_skip_only_when_asked(people):
+    secret = db.get_or_create_series("S", owner_user_id=people["a_id"], is_private=True)
+    b_title = db.create_drama(title_zh="b", owner_user_id=people["b_id"])
+    assert not db.assign_drama_series(b_title, secret)
+    assert db.assign_drama_series(b_title, secret, allow_others_dramas=True)
+    open_series = db.get_or_create_series("O", owner_user_id=people["a_id"])
+    db.update_drama(b_title, series_id=open_series)
+    assert not db.set_item_private("series", open_series, True)
+    assert db.set_item_private("series", open_series, True, allow_others_dramas=True)
 
 
 def test_empty_series_made_private_then_move_refused(people):
@@ -621,3 +702,46 @@ def test_bulk_series_with_every_title_refused_creates_no_new_series(people):
 
     assert [x.get("error") for x in r["results"]] == ["not_allowed"]
     assert db.get_series_id_by_name("Brand New") is None
+
+
+def test_set_owner_admins_only_and_pc_only_for_other_members_items(people):
+    """Kae, 2026-11-16: "assign the user" on the Sharing list."""
+    admin_id = people["admin"]["user_id"]
+    remote = _p(admin_id, admin=True, override=False)
+    a_title = db.create_drama(title_zh="a", owner_user_id=people["a_id"], is_private=1)
+    pc_series = db.get_or_create_series("PC", is_private=1)
+    # Members can't, not even on their own item.
+    with pytest.raises(ForbiddenError):
+        own.set_owner(people["a"], "drama", a_title, people["b_id"])
+    # The admin at the PC gives anything to anyone, or to the PC.
+    out = own.set_owner(people["admin"], "drama", a_title, people["b_id"])
+    assert out["owner_user_id"] == people["b_id"]
+    assert own.can_see_drama(people["b"], a_title) and not own.can_see_drama(people["a"], a_title)
+    own.set_owner(LOCAL, "drama", a_title, None)
+    assert db.get_item_ownership("drama", a_title)["owner_user_id"] is None
+    # Away: PC-made and own items only.
+    own.set_owner(remote, "series", pc_series, admin_id)
+    own.set_owner(remote, "series", pc_series, None)
+    b_title = db.create_drama(title_zh="b", owner_user_id=people["b_id"])
+    with pytest.raises(ForbiddenError, match="only at the PC"):
+        own.set_owner(remote, "drama", b_title, admin_id)
+    # Only an existing, active account.
+    for bad in (10**6, 0, -1, 2**70):
+        with pytest.raises(InvalidInputError):
+            own.set_owner(people["admin"], "drama", a_title, bad)
+    db.auth_update_user(people["b_id"], is_active=0)
+    with pytest.raises(InvalidInputError):
+        own.set_owner(people["admin"], "drama", a_title, people["b_id"])
+    with pytest.raises(NotFoundError):
+        own.set_owner(people["admin"], "drama", 10**6, None)
+    rows = [r for r in db.auth_list_audit(50) if r["action"] == "sharing.set_owner"]
+    assert len(rows) == 4
+
+
+def test_set_owner_refuses_on_guest_what_guest_cannot_see(people, monkeypatch):
+    from services import pc_profile_service
+    hidden = db.create_drama(title_zh="pc", is_private=1)
+    monkeypatch.setattr(pc_profile_service, "guest_active", lambda: True)
+    with pytest.raises(NotFoundError):
+        own.set_owner(LOCAL, "drama", hidden, people["b_id"])
+    assert db.get_item_ownership("drama", hidden)["owner_user_id"] is None
