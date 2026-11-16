@@ -154,6 +154,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/deno/install` | local_only() |
 | `POST /api/diagnostics/dependencies/upgrade-outdated` | local_only() |
 | `POST /api/diagnostics/dependencies/upgrade-outdated/plan` | local_only() |
+| `POST /api/diagnostics/dependencies/upgrade-outdated/queue` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/install` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/test-upgrade` | local_only() |
 | `POST /api/diagnostics/dependencies/{package}/upgrade` | local_only() |
@@ -178,6 +179,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/pending-install/dismiss` | local_only() |
 | `POST /api/diagnostics/pending-install/plan` | local_only() |
 | `POST /api/diagnostics/pending-install/queue` | local_only() |
+| `POST /api/diagnostics/pending-install/restart` | local_only() |
 | `GET /api/diagnostics/ports` | local_only() |
 | `GET /api/diagnostics/pyannote` | admin.diagnostics |
 | `GET /api/diagnostics/real-model-check` | admin.diagnostics |

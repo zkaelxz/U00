@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 
 import { checkPackageUpdates, getInstallPresets, installDependency, planUpgrade, planUpgradeOutdated, setupGpuTorch, upgradeDependency, upgradeOutdated } from '../../api/diagnostics'
 import { getUpgradeCheck, testUpgrade } from '../../api/diagnosticsInstalls'
-import { cancelPendingInstall, dismissInstallResult, getPendingInstall } from '../../api/pendingInstall'
+import { cancelPendingInstall, queueOutdatedUpdate, dismissInstallResult, getPendingInstall } from '../../api/pendingInstall'
 import { Badge } from '../../components/Badge'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { ButtonLink } from '../../components/Button'
@@ -359,7 +359,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         {queuedStatus && (
           <PendingInstallBanner status={queuedStatus}
             onCancel={() => void cancelPendingInstall().then(loadQueued, setQueuedError)}
-            onDismiss={() => void dismissInstallResult().then(loadQueued, setQueuedError)} />
+            onDismiss={() => void dismissInstallResult().then(loadQueued, setQueuedError)}
+            onRestarted={loadQueued} />
         )}
         <ErrorBanner error={queuedError} describe={{ pcOnly: true, serverText: true }} onDismiss={() => setQueuedError(null)} />
         {planView}
@@ -387,7 +388,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                   disabled={!!blocked}
                   describedBy={running ? runningId : blocked ? reasonId : undefined}
                   busy={busy?.name === UPDATE_BUSY}
-                  onConfirm={() => void withPlan(UPDATE_NAME, outdated, (accepted) => runUpdateOutdated(accepted), () => planUpgradeOutdated())}
+                  onConfirm={() => void withPlan(UPDATE_NAME, outdated, (accepted) => runUpdateOutdated(accepted), () => planUpgradeOutdated(), queueOutdatedUpdate)}
                 />
               </div>
             )}
