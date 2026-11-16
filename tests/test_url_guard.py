@@ -190,3 +190,9 @@ def test_a_lookup_that_never_ends_holds_fetches_only_so_long(monkeypatch):
     monkeypatch.setattr(ug, "HOME_WAIT_SECONDS", 0.2)
     ug.expect_home_addresses()
     assert ug.resolve_public("https://example.com/") == "93.184.216.34"
+
+
+def test_cross_origin_headers_drop_api_keys_and_tokens():
+    out = ug.cross_origin_headers({"X-Api-Key": "k", "Proxy-Authorization": "p",
+                                   "X-Auth-Token": "t", "Accept": "*/*"})
+    assert out == {"Accept": "*/*"}

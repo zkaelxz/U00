@@ -105,7 +105,7 @@ def _save_flags(job: dict, current: list, counts: dict, guard=()) -> set:
 def _save_applied_english(job: dict, current: list, counts: dict, label: str):
     did = job["drama_id"]
     if counts["applied"]:
-        from services import reading_speed_dismissal_service as dismissals
+        import reading_speed_dismissal as dismissals
         dismissals.flag_dense_lines(did, current)
     # Compare-and-set against the load: an edit saved since then is kept,
     # and nothing lands that was computed from text or timing changed since.

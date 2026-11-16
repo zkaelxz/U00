@@ -151,16 +151,22 @@ def referer_origin(url: str) -> str:
     return f"{parts.scheme}://{host}{f':{port}' if port else ''}/"
 
 
+def is_credential_header(name: str) -> bool:
+    n = name.lower()
+    return n in ("authorization", "proxy-authorization", "cookie") or any(
+        k in n for k in ("api-key", "apikey", "token", "secret"))
+
+
 def cross_origin_headers(headers: dict) -> dict:
-    """`headers` for a redirect to another origin: no Authorization or
-    Cookie, and a Referer cut to its origin (dropped when it has none). The
+    """`headers` for a redirect to another origin: no credential headers
+    (Authorization, Cookie, API keys, tokens), and a Referer cut to its origin (dropped when it has none). The
     Referer was chosen for the first URL's host -- often a whole chapter
     URL whose query carries a token -- and a same-site link can redirect to
     a third party."""
     out = {}
     for k, v in headers.items():
         low = k.lower()
-        if low in ("authorization", "cookie"):
+        if is_credential_header(low):
             continue
         if low == "referer":
             v = referer_origin(v)

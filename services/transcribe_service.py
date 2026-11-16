@@ -61,8 +61,9 @@ import storage
 from engine_backends import paid_calls
 from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 (re-exported)
 from ocr import default_hardsub_backend
+import job_timing
 from services import difficult_audio_service as difficult
-from services import (asr_options_service, diarization_service, job_timing_service, ownership_service, run_settings_service,
+from services import (asr_options_service, diarization_service, ownership_service, run_settings_service,
                       name_fix_service, settings_service, source_service, speech_coverage_service, timing_check_service, timing_settings_service,
                       transcribe_checkpoint_service, transcribe_pipeline,
                       vocabulary_hint_service)
@@ -755,7 +756,7 @@ _STAGE_LABELS = {"separate": "Separate vocals", "load": "Load model",
 def _record_run(job_id, outcome, whisper_size, use_gpu) -> None:
     """What a finished run leaves behind for later estimates and for the Jobs timing view."""
     _record_speed(outcome, whisper_size, use_gpu)
-    job_timing_service.split_open_stage(job_id, [
+    job_timing.split_open_stage(job_id, [
         (_STAGE_LABELS[key], outcome["stage_seconds"].get(key)) for key in _STAGE_LABELS])
 
 

@@ -71,6 +71,7 @@ def search_baihehub(query: str, timeout: int = 15, limit: int = 10):
     back to search_url_fallback() below)."""
     import json
     from lib import http
+    from lib.errors import InvalidInputError
     headers = {"User-Agent": "Mozilla/5.0 (compatible; TitleLibrary/1.0)", "Accept": "application/json"}
     results = []
     for collection, fields, title_field in _BAIHEHUB_COLLECTIONS:
@@ -79,12 +80,11 @@ def search_baihehub(query: str, timeout: int = 15, limit: int = 10):
         params["pagination[limit]"] = limit
         try:
             resp = http.get(f"{BAIHEHUB_API}/{collection}", params=params, headers=headers,
-                            timeout=timeout, max_bytes=BAIHEHUB_MAX_BYTES, guard=None,
-                            allow_redirects=True)
+                            timeout=timeout, max_bytes=BAIHEHUB_MAX_BYTES)
             if resp.status != 200:
                 continue
             items = _baihehub_items(json.loads(resp.body))
-        except (http.FetchError, ValueError):
+        except (http.FetchError, ValueError, InvalidInputError):
             continue
         for item in items:
             if not isinstance(item, dict):
@@ -92,7 +92,9 @@ def search_baihehub(query: str, timeout: int = 15, limit: int = 10):
             doc_id = item.get("documentId") or item.get("id")
             if not doc_id:
                 continue
-            snippet = item.get("description") or item.get("intro") or item.get("summary") or ""
+            snippet = item.get("description") or item.get("intro") or item.get("summary")
+            if not isinstance(snippet, str):
+                snippet = ""
             results.append({
                 "title": item.get(title_field) or item.get("title") or item.get("name") or "",
                 "url": f"https://baihehub.com/{collection}/{doc_id}",

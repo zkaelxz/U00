@@ -331,7 +331,7 @@ def safe_url(url) -> str:
         port = f":{parts.port}" if parts.port else ""
     except ValueError:
         return ""
-    if not parts.scheme or not host:
+    if parts.scheme.lower() not in ("http", "https") or not host:
         return ""
     return f"{parts.scheme}://{host}{port}{parts.path}"
 

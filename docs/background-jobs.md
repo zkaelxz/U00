@@ -15,7 +15,7 @@ Modules, after the `background_jobs.py` split (a pure move; callers import the p
 `jobs/user_caps.py`, `jobs/process_worker.py` (what a process job's child calls), plus `job_force_stop.py`
 and `job_process_kill.py`/`job_process_result.py` at the top level. Around them: `services/jobs_service.py`
 (what a client sees), `db/job_records.py` (`job_records`), `services/shutdown_service.py`,
-`api/background.py` and `services/job_timing_service.py`.
+`api/background.py` and `job_timing.py`.
 
 One machine, one process owning each job. This is not a distributed queue.
 
@@ -137,7 +137,7 @@ same id starts. The protections:
   (`_release_gpu_slot`) leaves the GPU lock row alone when the id's current entry is a
   different, running run. `reconcile_dead_workers` and `_workers` key on the dict, not
   the id.
-- `job_timing_service.start_run` returns a token (the run's start time) and
+- `job_timing.start_run` returns a token (the run's start time) and
   `finish_run(token=)` only closes that run.
 - `db.save_job_record` hands the owner to the new run when `started_at` changes, and
   resets `cancel_requested` when the row is not active, so a stale flag does not cancel
@@ -473,7 +473,7 @@ Build lines with `core.line_from_row` so flags and speaker are not wiped.
   stage. `jobs_service` surfaces it as `stalled` and appends a note to the message.
 - `set_result(job_id, result, mirror=False)` stores the result payload. `mirror=True` also
   writes it to `job_records` at once, for a result other pollers need while the job runs.
-- Per-stage durations and spend per run: `services/job_timing_service`.
+- Per-stage durations and spend per run: `job_timing.py`.
   `background_jobs` starts and finishes each run; a job may call `mark_stage`. A job that
   does not gets one "Whole job" row. Last `RUNS_KEPT_PER_JOB` (10) runs are kept. Exposed
   by `GET /api/jobs/{id}/stages` (`jobs_service.get_job_stages`).
