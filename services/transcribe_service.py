@@ -171,6 +171,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         # Loading ctranslate2 or cuBLAS here would lock their DLLs in the
         # server; the isolated GPU check measures it in a child.
         "gpu_runtime": diagnostics_torch.get_gpu_status_isolated()["gpu_runtime"],
+        "use_gpu": bool(settings_service.get("use_gpu")),
         "beam_size": drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         "vad_threshold": drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],

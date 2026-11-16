@@ -33,6 +33,7 @@ export type TranscribeConfigUpdate = Partial<
     | 'measured_diarize_runs'
     | 'whisper_installed'
     | 'gpu_runtime'
+    | 'use_gpu'
     | 'has_video_source'
     | 'effective_vad_threshold'
   >
