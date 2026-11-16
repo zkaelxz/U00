@@ -104,14 +104,14 @@ test("sign-in not set up on the PC: says so, no button", async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('signed in: the header account shows the name and the menu the email; Sign out posts with CSRF and returns to Login', async ({ page, context, baseURL }) => {
+test('signed in: the header account is an icon named for the user and the menu shows the email; Sign out posts with CSRF and returns to Login', async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: 'baihe_csrf', value: 'csrf-token-123', url: baseURL! }])
   const s = await mockAuth(page, ME.signedIn)
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   const menu = page.locator('details.user-menu')
   await expect(menu.locator('summary')).toHaveAttribute('aria-label', `Account: ${USER.display_name}`)
-  await expect(menu.locator('summary')).toHaveText('Alex ▾', { useInnerText: true })
+  await expect(menu.locator('summary')).toHaveAttribute('title', USER.display_name!)
   await menu.locator('summary').click()
   await expect(page.getByTestId('user-email')).toHaveText(USER.email!)
   await maybeScreenshot(page, 'desktop-signed-in-menu')

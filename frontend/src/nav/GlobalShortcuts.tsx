@@ -45,11 +45,14 @@ export function KeyboardHelpButton() {
       type="button"
       className="keys-btn hb-box"
       aria-label="Keyboard shortcuts"
+      title="Keyboard shortcuts (?)"
       aria-haspopup="dialog"
       onClick={() => window.dispatchEvent(new Event(OPEN_EVENT))}
     >
-      <span className="hb-icon" aria-hidden="true">?</span>
-      <span className="hb-words" aria-hidden="true">Shortcuts</span>
+      <svg className="hb-icon" aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="6" width="20" height="12" rx="2" />
+        <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
+      </svg>
     </button>
   )
 }
