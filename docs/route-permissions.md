@@ -192,6 +192,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/diagnostics/remote-setup` | local_only() |
 | `POST /api/diagnostics/remote-setup/sign-in` | local_only() |
 | `POST /api/diagnostics/reset-library` | local_only() |
+| `GET /api/diagnostics/resources` | admin.diagnostics |
 | `GET /api/diagnostics/setup-checks` | admin.diagnostics |
 | `GET /api/diagnostics/support-report` | admin.diagnostics |
 | `GET /api/diagnostics/upgrade-check` | admin.diagnostics |

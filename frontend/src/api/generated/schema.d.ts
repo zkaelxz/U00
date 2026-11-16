@@ -2897,6 +2897,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The resource monitor's last readings (GPU, RAM, CPU, disk) and each alert rule's standing */
+        get: operations["get_resources_api_diagnostics_resources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/setup-checks": {
         parameters: {
             query?: never;
@@ -25696,6 +25713,65 @@ export interface components {
                 [key: string]: components["schemas"]["ResourceAlertChange"];
             };
         };
+        /** ResourceMetric */
+        ResourceMetric: {
+            /** Alerting */
+            alerting: boolean;
+            /** Enabled */
+            enabled: boolean;
+            /** Label */
+            label: string;
+            /**
+             * Limit
+             * @description None for GPU throttling, which has no number.
+             */
+            limit: number | null;
+            /**
+             * Low
+             * @description True when the alert is for a value under the limit (free disk space).
+             */
+            low: boolean;
+            /**
+             * Minutes
+             * @description How long the value must stay past the limit before an alert.
+             */
+            minutes: number;
+            /**
+             * Name
+             * @enum {string}
+             */
+            name: "gpu_temp" | "gpu_throttle" | "ram" | "disk_free" | "gpu_memory_warn" | "gpu_memory" | "cpu";
+            /**
+             * Past Seconds
+             * @description How long the value has been past the limit, or None when it is not.
+             */
+            past_seconds: number | null;
+            /**
+             * Unit
+             * @description °C, %, GB, or empty for GPU throttling (1 = cutting clocks, 0 = not).
+             */
+            unit: string;
+            /**
+             * Value
+             * @description The last reading; None when this PC cannot read it.
+             */
+            value: number | null;
+        };
+        /** ResourceReadings */
+        ResourceReadings: {
+            /** Metrics */
+            metrics: components["schemas"]["ResourceMetric"][];
+            /**
+             * Sample Seconds
+             * @description How often the monitor samples.
+             */
+            sample_seconds: number;
+            /**
+             * Sampled Seconds Ago
+             * @description None when the monitor has not sampled yet (it may be off with background services).
+             */
+            sampled_seconds_ago: number | null;
+        };
         /**
          * ResplitResult
          * @description Either the finished summary (estimated timing) or, with align_to_audio,
@@ -40479,6 +40555,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_resources_api_diagnostics_resources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceReadings"];
                 };
             };
         };
