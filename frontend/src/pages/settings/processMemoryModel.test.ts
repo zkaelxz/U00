@@ -4,7 +4,7 @@ import type { ProcessMemory, ProcessRow } from '../../api/processMemory'
 import { gpuGapNote, ramCell, summaryLine, vramCell } from './processMemoryModel'
 
 const row = (o: Partial<ProcessRow>): ProcessRow => ({
-  pid: 1, parent_pid: 0, role: 'Python', relation: 'child', ram_bytes: 1_000_000_000, vram_bytes: null, command: 'python', ...o,
+  pid: 1, parent_pid: 0, role: 'Python', relation: 'child', ram_bytes: 1_000_000_000, private_bytes: null, vram_bytes: null, command: 'python', ...o,
 })
 const base: ProcessMemory = {
   checked_at: '2026-11-09T10:00:00+00:00', state: 'ok', server_pid: 1, processes: [],

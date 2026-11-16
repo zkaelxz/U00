@@ -9,7 +9,7 @@ export type ProcessRow = {
   role: string
   relation: 'this_server' | 'child' | 'orphan' | 'other'
   ram_bytes: number
-  private_bytes?: number | null
+  private_bytes: number | null
   vram_bytes: number | null
   command: string
 }

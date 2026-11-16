@@ -24243,7 +24243,7 @@ export interface components {
             /** Pid */
             pid: number;
             /** Private Bytes */
-            private_bytes?: number | null;
+            private_bytes: number | null;
             /** Ram Bytes */
             ram_bytes: number;
             /**
