@@ -8,6 +8,14 @@ import install_plan as plan_mod
 import install_registry
 import diagnostics
 
+@pytest.fixture(autouse=True)
+def _paddle_pulls_the_pinned_stack(monkeypatch):
+    """The plan's downgrade, clash and swap rules are tested on the report pip gave when PaddleOCR
+    still pulled PaddleX's pins; the app now installs it with --no-deps, so the swap rule is given
+    a key that needs the contrib build."""
+    monkeypatch.setattr(install_registry, "NEEDS_CV2_CONTRIB", frozenset({"paddleocr"}))
+
+
 PADDLE_REPORT = {"install": [{"metadata": {"name": n, "version": v}} for n, v in (
     ("paddleocr", "3.7.0"), ("paddlepaddle", "3.3.1"), ("opencv-contrib-python", "4.10.0.84"),
     ("numpy", "2.3.5"), ("PyYAML", "6.0.2"))]}

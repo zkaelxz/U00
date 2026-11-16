@@ -382,11 +382,11 @@ def test_the_apply_step_does_not_import_what_pip_is_about_to_replace():
 def test_derive_builds_a_fixed_literal_argv_from_keys(monkeypatch):
     import diagnostics
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: None)
-    out = child.derive("paddleocr,paddlepaddle,pypdf")
+    out = child.derive("pypdf,pytesseract")
     argv = out["argv"]
     assert argv[1:4] == ["-m", "pip", "install"]
     assert list(diagnostics.PIP_INSTALL_FLAGS) == argv[4:4 + len(diagnostics.PIP_INSTALL_FLAGS)]
-    assert argv[4 + len(diagnostics.PIP_INSTALL_FLAGS):][:3] == ["paddleocr", "paddlepaddle", "pypdf"]
+    assert argv[4 + len(diagnostics.PIP_INSTALL_FLAGS):][:2] == ["pypdf", "pytesseract"]
     assert "-c" in argv and argv[argv.index("-c") + 1].endswith("constraints.txt")
     assert not any(a.startswith("--index-url") or a.startswith("http") for a in argv)
 
@@ -709,11 +709,19 @@ def test_a_failed_lock_write_does_not_keep_the_os_lock(data, monkeypatch):
 
 # --- the plain-OpenCV swap: one fixed `pip uninstall -y NAME`, then the install ---
 
+@pytest.fixture
+def contrib_swap(monkeypatch):
+    """No shipping key needs the contrib build now (PaddleOCR installs without its
+    dependencies), so the swap is exercised with a key that does."""
+    import install_registry
+    monkeypatch.setattr(install_registry, "NEEDS_CV2_CONTRIB", frozenset({"paddleocr"}))
+
+
 def _uninstall(name="opencv-python"):
     return [sys.executable, "-m", "pip", "uninstall", "-y", name]
 
 
-def test_derive_adds_the_uninstall_step_for_a_plain_opencv(monkeypatch):
+def test_derive_adds_the_uninstall_step_for_a_plain_opencv(monkeypatch, contrib_swap):
     monkeypatch.setattr(pi, "snapshot", lambda: {"opencv-python-headless": "4.10.0.84"})
     out = child.derive("paddleocr,paddlepaddle")
     assert out["uninstall"] == [_uninstall("opencv-python-headless")]
@@ -721,12 +729,12 @@ def test_derive_adds_the_uninstall_step_for_a_plain_opencv(monkeypatch):
 
 
 @pytest.mark.parametrize("installed", [{"opencv-python": "4.10", "opencv-contrib-python": "4.10"}, {}])
-def test_derive_adds_no_uninstall_step_otherwise(monkeypatch, installed):
+def test_derive_adds_no_uninstall_step_otherwise(monkeypatch, installed, contrib_swap):
     monkeypatch.setattr(pi, "snapshot", lambda: installed)
     assert child.derive("paddleocr")["uninstall"] == []
 
 
-def test_derive_adds_no_uninstall_step_for_a_key_that_needs_no_contrib(monkeypatch):
+def test_derive_adds_no_uninstall_step_for_a_key_that_needs_no_contrib(monkeypatch, contrib_swap):
     monkeypatch.setattr(pi, "snapshot", lambda: {"opencv-python": "4.10"})
     assert child.derive("paddlepaddle")["uninstall"] == []
 
@@ -789,9 +797,10 @@ def test_uninstall_argv_refuses_any_other_name():
             install_registry.uninstall_argv(bad)
 
 
-def test_a_task_that_pulls_contrib_does_not_also_ask_for_plain_opencv():
+def test_a_task_that_pulls_contrib_does_not_also_ask_for_plain_opencv(contrib_swap):
     import install_registry
-    assert install_registry.install_dists(["cv2", "paddleocr", "pypdf"]) == ["paddleocr", "pypdf"]
+    assert [d for d in install_registry.install_dists(["cv2", "paddleocr", "pypdf"])
+            if d in ("cv2", "opencv-python", "paddleocr==3.7.0", "pypdf")] == ["paddleocr==3.7.0", "pypdf"]
     assert "opencv-python" in install_registry.install_dists(["cv2", "pypdf"])
 
 
