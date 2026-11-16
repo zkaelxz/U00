@@ -669,11 +669,12 @@ GROQ_DEFAULT_MODEL = "whisper-large-v3-turbo"
 # limit keeps a single file far below what would fill this.
 GROQ_RESPONSE_MAX_BYTES = 32 * 1024 * 1024
 GROQ_ERROR_MAX_BYTES = 64 * 1024
-# Groq's documented upload cap; a bigger file is refused only after the whole upload.
-GROQ_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+# Groq's upload cap on its paid plan (the free plan stops at 25 MB, which its 413
+# reply covers); a bigger file is refused only after the whole upload.
+GROQ_MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 _GROQ_STATUS_MESSAGES = {
     401: "Groq didn't accept the API key. Check it in Settings.",
-    413: "Groq refused this audio as too large. Use local Whisper.",
+    413: "Groq refused this audio as too large (its free plan takes up to 25 MB). Use local Whisper.",
     429: "Groq's rate limit was reached. Wait a minute and try again.",
 }
 

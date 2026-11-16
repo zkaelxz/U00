@@ -474,3 +474,13 @@ class TestNarrationAllFailed:
         listen_service.apply_narration_result(
             did, {"lines": job_copy, "errors": [{"line_idx": 1, "error": "down"}]})
         assert db.get_drama(did)["status"] == "dubbed"
+
+    def test_untranslated_lines_do_not_make_an_all_failed_run_dubbed(self):
+        from services import listen_service
+        did = db.create_drama(title_en="D", source_language="zh", content_mode="novel_narration",
+                              status="aligned")
+        db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="a", en="A"),
+                            Line(idx=1, start=1.0, end=2.0, zh="b", en="")])
+        listen_service.apply_narration_result(
+            did, {"lines": db.load_line_objects(did), "errors": [{"line_idx": 0, "error": "down"}]})
+        assert db.get_drama(did)["status"] == "aligned"

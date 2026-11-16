@@ -8,6 +8,7 @@ import contextlib
 import os
 import re
 import video_export
+from lib.atomic_write import replace_file
 from novel_text import (  # noqa: F401 (re-exported)
     NARRATION_TRACK_NAMES, NOVEL_SOURCE_FILENAME, find_narration_track, is_chapter_heading,
     narration_paragraph_ends)
@@ -241,9 +242,10 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
     part_path = out_path + ".part"
     try:
         track.export(part_path, format="flac")
-        os.replace(part_path, out_path)
+        # Retries while the Reader is still streaming the old track on Windows.
+        replace_file(part_path, out_path)
     finally:
-        if os.path.exists(part_path):
+        with contextlib.suppress(OSError):
             os.remove(part_path)
     # A regenerated title must not keep serving, or backing up, its old WAV copy.
     legacy = os.path.join(drama_dir, NARRATION_TRACK_NAMES[1])
@@ -361,9 +363,9 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
         else:
             subprocess.run(cmd, check=True, capture_output=True,
                            timeout=M4B_ENCODE_TIMEOUT_SECONDS)
-        os.replace(part_path, out_path)
+        replace_file(part_path, out_path)
     finally:
-        if os.path.exists(part_path):
+        with contextlib.suppress(OSError):
             os.remove(part_path)
     return out_path
 

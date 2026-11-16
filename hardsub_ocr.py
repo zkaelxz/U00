@@ -80,9 +80,7 @@ def extract_frames(video_path: str, out_dir: str, interval_sec: float = 1.0,
         subprocess.run(cmd, check=True, capture_output=True,
                        timeout=EXTRACT_FRAMES_TIMEOUT_SECONDS)
     frames = sorted(f for f in os.listdir(out_dir) if f.startswith("frame_"))
-    # fps=1/N emits the frame at the end of each N-second window (frame i is the picture at
-    # about (i + 1) * N - 1 / fps), so the window's middle is the honest label.
-    return [((i + 0.5) * interval_sec, os.path.join(out_dir, f)) for i, f in enumerate(frames)]
+    return [(i * interval_sec, os.path.join(out_dir, f)) for i, f in enumerate(frames)]
 
 
 def _edge_row_profile(gray: np.ndarray) -> np.ndarray:

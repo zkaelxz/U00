@@ -228,8 +228,7 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
     if not matched:
         return
     db.save_lines(drama_id, current, fields=fields)
-    voiced = [src for src in produced.values() if (src.en or "").strip() or (src.zh or "").strip()]
-    if failed and voiced and all(src.idx in failed for src in voiced):
+    if failed and not any(src.dub_filename and src.idx not in failed for src in produced.values()):
         return  # nothing was narrated; "dubbed" would claim a track that is only silence
     db.update_drama(drama_id, status="dubbed")
 
