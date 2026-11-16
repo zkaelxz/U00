@@ -36,6 +36,7 @@ No FastAPI import; plain dicts in and out.
 import background_jobs
 import db
 from engine_backends import shared, engine_registry
+from engine_backends import line_text
 from engine_backends import paid_calls
 from services import ownership_service, settings_service, translate_run_service, translate_service
 from services.review_lines_service import line_dict
@@ -132,7 +133,7 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
         raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     _refuse_if_line_job_running(drama_id)
     seen = {"zh": line.zh, "en": line.en, "flag": line.flag, "flag_note": line.flag_note}
-    if shared.is_english_line(line):
+    if line_text.is_english_line(line):
         # Already English: nothing for an engine to refuse or translate.
         if not db.update_line_fields_if(drama_id, line.id,
                                         {"en": line.zh, "flag": None, "flag_note": ""}, seen):
@@ -150,7 +151,7 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
     used_model = getattr(engine, "model", None)
     title_language = drama.get("source_language") or "zh"
     context = {"source_language": title_language, "line_ids": [line.id]}
-    line_languages = shared.tagged_line_languages([line], title_language)
+    line_languages = line_text.tagged_line_languages([line], title_language)
     if line_languages:
         context["line_languages"] = line_languages
     try:

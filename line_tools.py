@@ -12,7 +12,7 @@ from engine_backends.medium_prompts import improve_rubric
 from core import LANGUAGE_NAMES  # noqa: F401  (tests/test_shared_constants.py pins this to core's)
 from engine_backends.shared import load_json_reply
 from engine_backends.llm_tasks import call_llm_json, matching_glossary_terms
-from engine_backends.shared import language_name
+from engine_backends.line_text import language_name
 
 
 def explain_translation(zh: str, en: str, engine, source_language: str = "zh",

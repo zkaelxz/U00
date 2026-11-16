@@ -4,7 +4,8 @@ from .prompts import batch_context_for, build_stable_prompt, pronoun_batch_note
 from .medium_prompts import kind_for
 from .reflect_prompts import (build_reflect_expressive_task, build_reflect_faithful_task,
                               build_reflect_reflection_task)
-from .shared import _id_keyed_batch_request, spoken_language_tag
+from .shared import _id_keyed_batch_request
+from .line_text import spoken_language_tag
 from .llm_tasks import call_llm_json
 
 

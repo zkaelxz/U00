@@ -19,6 +19,7 @@ from engine_backends import (
     reflect_prompts,
     pricing,
 )
+from engine_backends import line_text
 from engine_backends import prompts as engine_prompts
 import glossary_substitution
 import word_replacements
@@ -74,7 +75,7 @@ def _reflect_prompt_parts(drama_id: int, translate_args: dict | None, engine, ba
         instructions = instructions + "\n\n" + novel_block
     lang = ctx["source_language"]
     sources = engine_prompts.pronoun_neutral_texts(
-        ctx, shared.tagged_source_texts(batch, lang))
+        ctx, line_text.tagged_source_texts(batch, lang))
     return (instructions, engine_prompts.pronoun_batch_note(ctx.get("style_guidelines"), lang),
             dict(zip(ids, sources)), dict(zip(ids, ctx["speaker_labels"])))
 
