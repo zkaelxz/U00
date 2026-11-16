@@ -253,6 +253,11 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
             if not db.set_bulk_job_status_if(bulk_job_id, ("scheduled",), "running"):
                 return
             cap, refusal = offpeak_cap(job, monthly_cap_usd)
+            # Checked before the first batch too: the limit's own stop only
+            # follows a batch that was already paid for.
+            from services import auth_service
+            if not refusal and auth_service.paid_limit_reached(job.get("user_id")):
+                refusal = auth_service.PAID_LIMIT_MESSAGE
             if refusal:
                 if db.set_bulk_job_status_if(bulk_job_id, ("running",), "failed"):
                     db.update_bulk_job(bulk_job_id, last_error=refusal)
