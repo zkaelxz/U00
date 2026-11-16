@@ -155,7 +155,7 @@ jobs:
             constraints.txt
 
       - name: Install dependencies
-        run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
+        run: pip install -r requirements-core.txt pytest==8.4.2 pytest-xdist==3.8.0 httpx==0.28.1 -c constraints.txt
 
       # The checked-in API types must match the routes and models; fix a
       # failure with `cd frontend/openapi-gen && npm ci`, then
@@ -229,7 +229,7 @@ jobs:
       # tools, so they are pinned here, not in constraints.txt (which describes the
       # app's environment).
       - name: Install dependencies
-        run: pip install -r requirements-core.txt pytest pytest-xdist "pytest-split==0.10.0" "pytest-timeout==2.4.0" "jsonschema==4.26.0" httpx -c constraints.txt
+        run: pip install -r requirements-core.txt pytest==8.4.2 pytest-xdist==3.8.0 "pytest-split==0.10.0" "pytest-timeout==2.4.0" "jsonschema==4.26.0" httpx==0.28.1 -c constraints.txt
 
       # Tests guarded by shutil.which("ffmpeg") / ("ffprobe") skip without the
       # binaries, and the runner image does not reliably ship them. apt's
@@ -339,7 +339,7 @@ jobs:
 
       # opencv headless: the runner has no libGL for the full wheel.
       - name: Install dependencies
-        run: pip install -r requirements-core.txt pytest pytest-xdist "pytest-timeout==2.4.0" "jsonschema==4.26.0" httpx jieba pypinyin opencc-python-reimplemented ebooklib genanki soundfile opencv-contrib-python-headless -c constraints.txt
+        run: pip install -r requirements-core.txt pytest==8.4.2 pytest-xdist==3.8.0 "pytest-timeout==2.4.0" "jsonschema==4.26.0" httpx==0.28.1 jieba pypinyin opencc-python-reimplemented ebooklib genanki soundfile opencv-contrib-python-headless -c constraints.txt
 
       - name: Install ffmpeg
         run: |
@@ -526,7 +526,7 @@ jobs:
 
       - name: Windows primitives (mutexes, job objects, process handles) for real
         run: |
-          pip install -r requirements-core.txt pytest httpx -c constraints.txt
+          pip install -r requirements-core.txt pytest==8.4.2 httpx==0.28.1 -c constraints.txt
           python -m pytest -q -o addopts= tests/test_windows_real.py
 
   # The React frontend: typecheck + production build, unit tests and lint.
