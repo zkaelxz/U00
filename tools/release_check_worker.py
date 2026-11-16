@@ -29,4 +29,3 @@ def fixed_decoding_worker(*args) -> None:
     pin_temperature(faster_whisper.WhisperModel)
     pin_temperature(faster_whisper.BatchedInferencePipeline)
     transcribe_pipeline._transcribe_worker(*args)
-

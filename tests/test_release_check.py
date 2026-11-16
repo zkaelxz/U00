@@ -273,4 +273,3 @@ def test_a_speaker_count_runs_pyannote_as_the_app_does(tmp_path, monkeypatch):
     monkeypatch.setattr(rc.diarize, "diarize", fake_pyannote)
     row = rc.run_diarization(clip, rc.argparse.Namespace(use_gpu=False))
     assert hints == {"num_speakers": 3} and "pyannote" in row["detail"]
-
