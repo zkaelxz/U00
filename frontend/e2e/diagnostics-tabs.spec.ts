@@ -58,7 +58,7 @@ test('Reset library is the last card of System and stays closed unless a link na
   await mockDiagnostics(page)
   await page.goto('/#/diagnostics?tab=system')
   const summaries = page.locator('.diag-panel:not([hidden]) details.section > summary')
-  await expect(summaries.first()).toContainText('Ports')
+  await expect(summaries.first()).toContainText('Resources')
   await expect(summaries.last()).toContainText('Reset library')
   await expect(fold(page, /^Reset library/)).toHaveJSProperty('open', false)
   await expect(page.getByText('Danger zone')).toHaveCount(0)
