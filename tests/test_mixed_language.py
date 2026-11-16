@@ -329,3 +329,17 @@ def test_qwen_vad_mixed_moves_to_the_cpu_when_the_gpu_runs_out_of_memory(qwen, m
         on_gpu_fallback=lambda task, exc: fallbacks.append(task))
     assert [s.get("lang") for s in out] == [None, "zh"]
     assert fallbacks == [ab.GPU_FAILED_MID_RUN_TASK] and cpu.languages == [None]
+
+
+def test_whisper_path_keeps_word_times_shifted_to_the_file(monkeypatch):
+    class WithWords(FakeWhisper):
+        def transcribe(self, wave, language, **_kw):
+            words = [SimpleNamespace(word="a", start=0.1, end=0.4, probability=0.9),
+                     SimpleNamespace(word="b", start=0.5, end=0.9, probability=0.9)]
+            return [SimpleNamespace(text=KO, start=0.0, end=1.0, words=words)], None
+    audio = np.concatenate([np.full(16000, s, dtype="float32") for s in range(9)])
+    monkeypatch.setattr(ab, "load_audio_16k", lambda path: audio)
+    monkeypatch.setattr(ml, "load_whisper_model", lambda *a, **k: WithWords({0: "ko", 2: "ko"}))
+    out = ml.transcribe_mixed_whisper("x.wav", "ko", "tiny", vad_fn=lambda a, sr: [(0, 2), (3, 5)])
+    assert [w["start"] for w in out[1]["words"]] == [pytest.approx(3.0), pytest.approx(3.4)]  # the span starts at 2.9, padded
+    assert out[0]["words"][0]["start"] == pytest.approx(0.1)

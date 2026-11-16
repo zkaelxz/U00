@@ -1,7 +1,7 @@
 """
 api/routers/job_stage_routes.py -- a job's per-stage
 timing and estimated spend. Thin: see services/jobs_service.get_job_stages
-and services/job_timing_service.
+and job_timing.
 
 - `GET /api/jobs/{job_id}/stages` (`library.read`): the latest runs of one
   job, each with its stages. 404 for a job the caller can't see, exactly

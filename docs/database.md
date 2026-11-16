@@ -174,7 +174,7 @@ or `series` go when the parent goes.
 | `voice_bank` | Reusable voice clips; the file lives in `library/voice_bank/` | `voice_clone_service` | `save_voice_bank_entry` copies the clip first, then inserts |
 | `job_records` | Mirror of `background_jobs` job status for other processes | `jobs/job_store.py` | its own writes (upsert); see section 5 |
 | `gpu_lock` | Cross-process GPU slots with owner pid/instance, heartbeat and stale cutoff | `jobs/gpu_slots.py` only | `acquire`, `heartbeat`, `release`, `reap` |
-| `job_checkpoints`, `result_cache`, `job_stage_timings`, `line_provenance` | Resume points, cached model output, timings, per-line origin (engine, model, hashes). No foreign key to `dramas` | `job_checkpoint_service`, `job_timing_service`, `line_provenance_service` | `delete_drama` removes `line_provenance` and checkpoints explicitly |
+| `job_checkpoints`, `result_cache`, `job_stage_timings`, `line_provenance` | Resume points, cached model output, timings, per-line origin (engine, model, hashes). No foreign key to `dramas` | `job_checkpoint_service`, `job_timing`, `line_provenance_service` | `delete_drama` removes `line_provenance` and checkpoints explicitly |
 | `app_settings` | JSON key/value store for runtime toggles; also backup settings and identity | `settings_service`, `auto_backup_service`, others | `get_app_setting`, `set_app_setting` |
 | `assistant_backlog` | Maintenance assistant notes | `maintenance_assistant_service` | service-level |
 | `metadata_research_cache`, `metadata_research_results`, `metadata_field_provenance` | Metadata lookups (results age out after `RESEARCH_RESULT_TTL_DAYS`) and where each applied value came from | `metadata_research_service` | `put_research_cache`, `put_research_result`, `add_field_provenance` |
@@ -418,7 +418,9 @@ checkout, the repo root).
 Inside `dramas/<id>/`: source audio/video and `audio.flac` (older titles keep `audio.wav`), `transcript.txt`,
 `novel_reference.txt`, cover art, `narration_track.flac` (older titles keep `narration_track.wav`; an older `dub_track.wav` is kept and still read), `dub_clips/`
 (per-chunk TTS), `voice_refs/` (clone samples), `pages/` (comic scans and
-typeset output). `drama_dir(id)` creates the folder on demand.
+typeset output), `.media_origin.json` (a hash of the link the current media files were downloaded from, with
+each file's size and time; only files it still matches are deleted, not kept, when that link is
+downloaded again). `drama_dir(id)` creates the folder on demand.
 
 **Regenerable vs irreplaceable** (`services/disk_usage_measure.py`, with the
 categories in `storage.CLEANABLE_CATEGORIES`):

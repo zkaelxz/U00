@@ -14,16 +14,18 @@ import debug_view
 from engine_backends import translate_pipeline, fallback, engine_registry, llm_tasks
 import glossary_extract
 from core import Line
-from services import (glossary_service, job_checkpoint_service as cp, job_timing_service,
-                      line_provenance_service, narration_service, vram_service)
+import job_timing
+import vram
+from services import (glossary_service, job_checkpoint_service as cp,
+                      line_provenance_service, narration_service)
 from tests.job_helpers import wait_for_job
 
 
 @pytest.fixture(autouse=True)
 def _reset_timing():
-    job_timing_service.reset_for_tests()
+    job_timing.reset_for_tests()
     yield
-    job_timing_service.reset_for_tests()
+    job_timing.reset_for_tests()
 
 
 # --- result cache (item 1) ------------------------------------------------
@@ -235,7 +237,7 @@ def test_translate_job_records_provenance_for_translated_lines(isolated_db, monk
 
 def _wait_runs(job_id):
     for _ in range(300):
-        runs = job_timing_service.list_runs(job_id)
+        runs = job_timing.list_runs(job_id)
         if runs and not runs[0]["running"]:
             return runs
         time.sleep(0.01)
@@ -246,9 +248,9 @@ def test_stages_and_spend_are_recorded_for_a_real_job(isolated_db):
     did = isolated_db.create_drama(title_en="S")
 
     def work():
-        job_timing_service.mark_stage("stage_job", "Transcribe")
+        job_timing.mark_stage("stage_job", "Transcribe")
         time.sleep(0.02)
-        job_timing_service.mark_stage("stage_job", "Translate")
+        job_timing.mark_stage("stage_job", "Translate")
         isolated_db.log_usage(did, "claude", "m", "translate", 10, 10, 0.25)
         isolated_db.log_usage(did, "claude", "m", "translate", 10, 10, 0.5)
 
@@ -266,8 +268,8 @@ def test_stage_names_in_the_stages_response_carry_no_url_or_path(isolated_db):
     from services import jobs_service
 
     def work():
-        job_timing_service.mark_stage("scrub_job", "Fetch https://example.com/a?token=abc123")
-        job_timing_service.mark_stage("scrub_job", "Read /home/someone/library/audio.wav")
+        job_timing.mark_stage("scrub_job", "Fetch https://example.com/a?token=abc123")
+        job_timing.mark_stage("scrub_job", "Read /home/someone/library/audio.wav")
 
     job_launch.start_job("scrub_job", work, description="Scrub")
     assert wait_for_job("scrub_job", timeout=3.0)["status"] == "done"
@@ -284,32 +286,32 @@ def test_a_job_without_stages_gets_one_whole_job_row_even_when_it_fails(isolated
     job_launch.start_job("plain_job", boom, description="Plain")
     assert wait_for_job("plain_job", timeout=3.0)["status"] == "error"
     run = _wait_runs("plain_job")[0]
-    assert [s["stage"] for s in run["stages"]] == [job_timing_service.WHOLE_JOB]
+    assert [s["stage"] for s in run["stages"]] == [job_timing.WHOLE_JOB]
     background_jobs.clear_job("plain_job")
 
 
 def test_spend_outside_a_job_is_not_attributed(isolated_db):
-    job_timing_service.start_run("idle_job")
+    job_timing.start_run("idle_job")
     isolated_db.log_usage(None, "claude", "m", "translate", 1, 1, 9.0)   # main thread, no job
-    job_timing_service.finish_run("idle_job")
-    assert job_timing_service.list_runs("idle_job")[0]["cost_usd"] == 0
+    job_timing.finish_run("idle_job")
+    assert job_timing.list_runs("idle_job")[0]["cost_usd"] == 0
 
 
 def test_only_the_latest_runs_are_kept(isolated_db, monkeypatch):
-    monkeypatch.setattr(job_timing_service, "RUNS_KEPT_PER_JOB", 2)
+    monkeypatch.setattr(job_timing, "RUNS_KEPT_PER_JOB", 2)
     for t in (100.0, 200.0, 300.0):
-        job_timing_service.start_run("r", now=t)
-        job_timing_service.finish_run("r", now=t + 1)
-    assert [r["run_started_at"] for r in job_timing_service.list_runs("r")] == [300.0, 200.0]
+        job_timing.start_run("r", now=t)
+        job_timing.finish_run("r", now=t + 1)
+    assert [r["run_started_at"] for r in job_timing.list_runs("r")] == [300.0, 200.0]
 
 
 def test_stages_route_follows_job_visibility(isolated_db):
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
     from api.server import ApiSettings, create_app
-    job_timing_service.start_run("translate_1", now=10.0)
-    job_timing_service.mark_stage("translate_1", "Translate", now=11.0)
-    job_timing_service.finish_run("translate_1", now=13.0)
+    job_timing.start_run("translate_1", now=10.0)
+    job_timing.mark_stage("translate_1", "Translate", now=11.0)
+    job_timing.finish_run("translate_1", now=13.0)
     isolated_db.save_job_record("translate_1", status="done", progress=1.0, message="",
                                 error=None, description="t", gpu_touching=False,
                                 started_at=10.0, finished_at=13.0)
@@ -346,18 +348,18 @@ def test_queued_gpu_jobs_show_their_place_in_line(isolated_db, monkeypatch):
 # --- VRAM fit check (item 7) -------------------------------------------------------
 
 def test_fit_check_refuses_an_oversized_load_with_a_clear_message():
-    with pytest.raises(vram_service.InsufficientVramError) as ei:
-        vram_service.check_fits("OmniVoice", free_mb=1000)
+    with pytest.raises(vram.InsufficientVramError) as ei:
+        vram.check_fits("OmniVoice", free_mb=1000)
     msg = str(ei.value)
     assert "OmniVoice" in msg and "2.0 GB" in msg and "1.0 GB is free" in msg
     assert "CUDA" not in msg and "out of memory" not in msg.lower()
-    vram_service.check_fits("OmniVoice", free_mb=8000)        # fits
-    vram_service.check_fits("Unknown model", free_mb=1)        # no estimate: allowed
+    vram.check_fits("OmniVoice", free_mb=8000)        # fits
+    vram.check_fits("Unknown model", free_mb=1)        # no estimate: allowed
 
 
 def test_unknown_free_memory_never_blocks(monkeypatch):
-    monkeypatch.setattr(vram_service, "free_vram_mb", lambda: None)
-    vram_service.check_fits("OmniVoice")
+    monkeypatch.setattr(vram, "free_vram_mb", lambda: None)
+    vram.check_fits("OmniVoice")
 
 
 def test_free_memory_comes_from_torch_when_loaded(monkeypatch):
@@ -365,7 +367,7 @@ def test_free_memory_comes_from_torch_when_loaded(monkeypatch):
     torch.cuda = types.SimpleNamespace(is_available=lambda: True,
                                        mem_get_info=lambda: (512 * 1024 * 1024, 12 * 1024 ** 3))
     monkeypatch.setitem(sys.modules, "torch", torch)
-    assert vram_service.free_vram_mb() == 512
+    assert vram.free_vram_mb() == 512
 
 
 def test_free_memory_falls_back_to_nvidia_smi(monkeypatch):
@@ -374,14 +376,14 @@ def test_free_memory_falls_back_to_nvidia_smi(monkeypatch):
     monkeypatch.setattr(diagnostics_torch, "external_gpu_load",
                         lambda: {"memory_free_mb": 1024.0, "memory_used_mb": 0,
                                  "memory_total_mb": 1024.0, "utilization_percent": 0})
-    assert vram_service.free_vram_mb() == 1024.0
+    assert vram.free_vram_mb() == 1024.0
 
 
 def test_venv_voice_engine_checks_vram_before_loading(monkeypatch, tmp_path):
     import dub
     import voice_venv
     monkeypatch.setattr(dub, "_cuda_available", lambda: True)
-    monkeypatch.setattr(vram_service, "free_vram_mb", lambda: 100.0)
+    monkeypatch.setattr(vram, "free_vram_mb", lambda: 100.0)
     # Ready, so only the VRAM refusal can stop the batch before its model loads.
     monkeypatch.setattr(voice_venv, "is_ready", lambda engine: True)
     monkeypatch.setattr(voice_venv, "run_batch", lambda *a, **k: pytest.fail("the model loaded"))
@@ -441,12 +443,12 @@ def test_provenance_follows_a_mid_run_engine_fallback(isolated_db, monkeypatch):
 
 
 def test_an_old_runs_finish_does_not_close_a_new_run_of_the_same_job(isolated_db):
-    old = job_timing_service.start_run("same", now=10.0)
-    new = job_timing_service.start_run("same", now=20.0)    # restarted at once
-    job_timing_service.finish_run("same", now=21.0, token=old)
-    job_timing_service.mark_stage("same", "Translate", now=22.0)
-    job_timing_service.finish_run("same", now=25.0, token=new)
-    runs = job_timing_service.list_runs("same")
+    old = job_timing.start_run("same", now=10.0)
+    new = job_timing.start_run("same", now=20.0)    # restarted at once
+    job_timing.finish_run("same", now=21.0, token=old)
+    job_timing.mark_stage("same", "Translate", now=22.0)
+    job_timing.finish_run("same", now=25.0, token=new)
+    runs = job_timing.list_runs("same")
     assert [r["run_started_at"] for r in runs] == [20.0]
     assert [s["stage"] for s in runs[0]["stages"]] == ["Preparing", "Translate"]
 
@@ -455,7 +457,7 @@ def test_process_jobs_get_timing_too(isolated_db):
     job_launch.start_process_job("proc_timing", _proc_ok, description="Proc")
     assert wait_for_job("proc_timing", timeout=3.0)["status"] == "done"
     run = _wait_runs("proc_timing")[0]
-    assert [s["stage"] for s in run["stages"]] == [job_timing_service.WHOLE_JOB]
+    assert [s["stage"] for s in run["stages"]] == [job_timing.WHOLE_JOB]
     background_jobs.clear_job("proc_timing")
 
 
@@ -634,8 +636,8 @@ def test_stages_route_with_auth_on_hides_other_users_jobs_and_runs(isolated_db):
          api_auth.CSRF_HEADER: kid["csrf_token"]}
 
     def run(job_id, start, owner):
-        job_timing_service.start_run(job_id, now=start)
-        job_timing_service.finish_run(job_id, now=start + 2)
+        job_timing.start_run(job_id, now=start)
+        job_timing.finish_run(job_id, now=start + 2)
         # As background_jobs mirrors a run: running (takes the owner), then done.
         isolated_db.save_job_record(job_id, status="running", description="j",
                                     started_at=start, owner_user_id=owner)
@@ -710,22 +712,22 @@ def test_prose_instead_of_an_array_is_not_retried(isolated_db, monkeypatch):
 
 
 def test_split_open_stage_replaces_the_whole_job_row_with_the_measured_steps(isolated_db):
-    job_timing_service.start_run("split_job", now=1000.0)
-    job_timing_service.split_open_stage(
+    job_timing.start_run("split_job", now=1000.0)
+    job_timing.split_open_stage(
         "split_job", [("Separate vocals", 20.0), ("Transcribe", 60.0), ("Align", None),
                       ("Load model", 0)], now=1100.0)
-    job_timing_service.finish_run("split_job", now=1105.0)
+    job_timing.finish_run("split_job", now=1105.0)
 
-    run = job_timing_service.list_runs("split_job")[0]
+    run = job_timing.list_runs("split_job")[0]
     assert [(s["stage"], s["duration_seconds"]) for s in run["stages"]] == [
         ("Other", 20.0), ("Separate vocals", 20.0), ("Transcribe", 60.0), ("Save and finish", 5.0)]
     assert run["total_seconds"] == 105.0
 
 
 def test_split_open_stage_scales_steps_that_add_up_to_more_than_the_job_lasted(isolated_db):
-    job_timing_service.start_run("split_job", now=1000.0)
-    job_timing_service.split_open_stage("split_job", [("A", 90.0), ("B", 90.0)], now=1100.0)
-    job_timing_service.finish_run("split_job", now=1100.0)
+    job_timing.start_run("split_job", now=1000.0)
+    job_timing.split_open_stage("split_job", [("A", 90.0), ("B", 90.0)], now=1100.0)
+    job_timing.finish_run("split_job", now=1100.0)
 
-    run = job_timing_service.list_runs("split_job")[0]
+    run = job_timing.list_runs("split_job")[0]
     assert [(s["stage"], s["duration_seconds"]) for s in run["stages"]][:2] == [("A", 50.0), ("B", 50.0)]

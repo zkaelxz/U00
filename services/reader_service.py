@@ -112,17 +112,16 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
 
     drama = ownership_service.require_drama(drama_id)
 
-    rows = db.load_lines(drama_id)
-    lines = core_module.lines_from_rows(rows)
-    if not lines:
+    total, rows = db.load_line_page(drama_id, (page - 1) * chapter_size, chapter_size)
+    if not total:
         raise NotFoundError(f"Drama {drama_id} has no lines yet.")
 
-    page_count = max(1, (len(lines) + chapter_size - 1) // chapter_size)
+    page_count = max(1, (total + chapter_size - 1) // chapter_size)
     if page > page_count:
         raise InvalidInputError(f"page {page} is past the last page ({page_count}).",
                                 details={"page_count": page_count})
 
-    page_lines = lines[(page - 1) * chapter_size: page * chapter_size]
+    page_lines = core_module.lines_from_rows(rows)
     source_language = drama.get("source_language") or "zh"
     definitions = _cached_definitions(drama_id, source_language)
 
@@ -130,7 +129,8 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     # Editing works on single lines: a joined paragraph has no one line to save to.
     if include_html and not editable and drama.get("content_mode") == "novel_narration":
         # Needs every line, not just this page: the match is against the whole source text.
-        ends = novel_text.narration_paragraph_ends(lines, os.path.join(db.DRAMAS_DIR, str(drama_id)))
+        ends = novel_text.narration_paragraph_ends(db.load_line_objects(drama_id),
+                                                   os.path.join(db.DRAMAS_DIR, str(drama_id)))
     html_str = ""
     if include_html:
         html_str = reader.build_reader_html(
@@ -139,7 +139,7 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
             readings=readings, paragraph_ends=ends, editable=editable,
             terms=glossary_service.effective_glossary_terms(drama_id) if editable else None)
 
-    return {"html": html_str, "page": page, "page_count": page_count, "total_lines": len(lines)}
+    return {"html": html_str, "page": page, "page_count": page_count, "total_lines": total}
 
 
 # ---------------------------------------------------------------------------

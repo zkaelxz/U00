@@ -616,6 +616,18 @@ def load_lines(drama_id: int, with_words: bool = False, ids=None):
     return [dict(r) for r in rows]
 
 
+def load_line_page(drama_id: int, offset: int, limit: int):
+    """(line count, rows of lines offset..offset+limit in line order), as
+    load_lines would give them: a Reader page turn on a long title must not
+    read every line."""
+    with contextlib.closing(db.get_conn()) as conn:
+        total = conn.execute("SELECT COUNT(*) FROM lines WHERE drama_id = ?", (drama_id,)).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT {_LOAD_COLUMNS} FROM lines WHERE drama_id = ? ORDER BY idx, id LIMIT ? OFFSET ?",
+            (drama_id, limit, offset)).fetchall()
+    return total, [dict(r) for r in rows]
+
+
 def load_line_objects(drama_id: int, with_words: bool = False, ids=None):
     """db.load_lines as core.Line objects (id and `orig` set) -- the shared
     loader every caller that edits and re-saves lines should use."""

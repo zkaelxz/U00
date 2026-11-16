@@ -70,6 +70,12 @@ _META_CHARSET = re.compile(rb"""<meta[^>]+charset=["']?([\w-]+)""", re.I)
 
 # Declared names that are strict subsets of GB18030: decode with the superset
 # so a character outside the declared table still comes out right.
+# Browsers decode these labels as the Microsoft supersets (WHATWG), so a page
+# written with a vendor character (Korean syllables outside KS X 1001, NEC/IBM
+# kanji) does not fail strict decoding.
+_SUPERSETS = {"euc-kr": "cp949", "euc_kr": "cp949", "ks_c_5601-1987": "cp949", "ks_c_5601": "cp949",
+              "korean": "cp949", "shift_jis": "cp932", "shift-jis": "cp932", "sjis": "cp932",
+              "x-sjis": "cp932", "ms_kanji": "cp932", "csshiftjis": "cp932"}
 _GB_SUBSETS = {"gb2312", "gb_2312", "gb_2312-80", "gbk", "x-gbk", "cp936", "gb-2312", "euc-cn", "euccn"}
 
 
@@ -93,6 +99,7 @@ def decode_html(content: bytes, headers: dict | None = None) -> str:
         return charset_sniff.sniff_decode(content)
     if enc.lower() in _GB_SUBSETS:
         enc = "gb18030"
+    enc = _SUPERSETS.get(enc.lower(), enc)
     try:
         return content.decode(enc, errors="replace").lstrip("\ufeff")
     except LookupError:
@@ -284,7 +291,8 @@ def _read_body(r, limits: FetchLimits, deadline_at: float) -> bytes:
     ctype = header(r.headers, "content-type").lower()
     cap = limits.max_image_bytes if ctype.startswith("image/") else limits.max_page_bytes
     length = header(r.headers, "content-length").strip()
-    if length.isdigit() and int(length) > cap:
+    # isascii: "\u00b2" passes isdigit() but int() rejects it.
+    if length.isascii() and length.isdigit() and int(length) > cap:
         raise ResponseTooLarge()
     check = lambda: _check_limits(limits, deadline_at)  # noqa: E731
     decoder = BodyDecoder(header(r.headers, "content-encoding"), cap, check)

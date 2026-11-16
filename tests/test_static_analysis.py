@@ -611,13 +611,10 @@ class TestLayering:
     # checked here, against the wrong-way imports that existed on 2026-11-15.
     # Remove an entry when you fix it; never add one.
     KNOWN_ROOT_IMPORTS_UP = {
-        "bulk_apply -> services.reading_speed_dismissal_service",
         "bulk_poll -> services.auth_service",
         "bulk_poll -> services.line_provenance_service",
         "debug_view -> services.line_provenance_service",
-        "dub -> services.vram_service",
         "memory_headroom -> services.settings_service",
-        "ocr -> services.vram_service",
         "ollama_unload -> services.settings_service",
         "page_capture_checks -> services.page_import_limits",
         "page_server -> api.api_config",
@@ -628,9 +625,7 @@ class TestLayering:
         "page_server -> services.settings_service",
         "page_server -> services.translate_service",
         "scanlate_lama -> services.settings_service",
-        "scanlate_lama -> services.vram_service",
         "translation_finish -> services.line_provenance_service",
-        "translation_finish -> services.reading_speed_dismissal_service",
     }
     KNOWN_DB_IMPORTS_OF_ROOT_MODULES = {
         "db -> applog",

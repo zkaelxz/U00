@@ -192,7 +192,7 @@ SCHEDULED_PRICE_CHANGES = {
 }
 
 # Date the tables above were last compared with the providers' pricing pages;
-# tests/test_translate_engines.py fails once it is old, as the reminder to
+# tests/test_engine_costs.py fails once it is old, as the reminder to
 # re-check them (there is no automatic refresh).
 PRICES_VERIFIED_ON = datetime.date(2026, 11, 2)
 

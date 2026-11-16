@@ -320,6 +320,35 @@ class TestNarrationTrackFormat:
         assert not (tmp_path / "narration_track.wav").exists()
         assert dub_narration.find_narration_track(str(tmp_path)) == "narration_track.flac"
 
+    def test_a_failed_export_leaves_no_track_at_the_final_name(self, monkeypatch, fake_pydub, tmp_path):
+        speak_with(monkeypatch, lambda text, out_path, **kw: open(out_path, "w").close())
+
+        def killed(self, path, format="wav"):
+            open(path, "w").write("half")
+            raise OSError("disk full")
+        monkeypatch.setattr(FakeAudio, "export", killed)
+        lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="N")]
+        with pytest.raises(OSError):
+            dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
+        assert os.listdir(tmp_path / "dub_clips") and not (tmp_path / "narration_track.flac").exists()
+        assert not (tmp_path / "narration_track.flac.part").exists()
+
+    def test_joining_pieces_in_rounds_equals_adding_them_one_by_one(self):
+        pydub = pytest.importorskip("pydub")
+        AudioSegment = pydub.AudioSegment
+        pieces = [AudioSegment.silent(duration=0)]
+        for i in range(7):  # an odd count, so one piece waits a round
+            rate = 24000
+            pieces += [AudioSegment(bytes([i + 1, 0]) * rate, frame_rate=rate, sample_width=2, channels=1),
+                       AudioSegment.silent(duration=350)]
+        expected = pieces[0]
+        for piece in pieces[1:]:
+            expected += piece
+        joined = dub_narration.join_segments(pieces)
+        assert (joined.frame_rate, joined.channels, joined.sample_width) == (
+            expected.frame_rate, expected.channels, expected.sample_width)
+        assert joined.raw_data == expected.raw_data
+
     def test_a_title_with_only_the_older_wav_still_has_a_track(self, tmp_path):
         assert dub_narration.find_narration_track(str(tmp_path)) is None
         (tmp_path / "narration_track.wav").write_bytes(b"x")
@@ -491,6 +520,10 @@ class TestExportM4b:
         assert out == str(tmp_path / "narration.m4b")
         cmd = ran[0]
         assert cmd[0] == "ffmpeg" and cmd[-1] == out
+        # Each input opens only local files, in the formats the app writes.
+        inputs = [i for i, a in enumerate(cmd) if a == "-i"]
+        assert all(cmd[i - 4] == "-protocol_whitelist" and cmd[i - 2] == "-format_whitelist" for i in inputs)
+        assert cmd[inputs[1] - 1] == "ffmetadata"
         assert cmd[cmd.index("-map_chapters") + 1] == "1"
         assert cmd[cmd.index("-f") + 1] == "ipod"
         meta = (tmp_path / "narration_chapters.txt").read_text(encoding="utf-8")

@@ -51,10 +51,11 @@ from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
 from lib import cancellable_lock
 from lib.atomic_write import atomic_write
 from memory_headroom import HeadroomError
+import job_timing
 from services import comic_chapters_service, image_text_service, page_import_limits
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
-from services import job_timing_service, paid_job_service, settings_service, translate_service
+from services import paid_job_service, settings_service, translate_service
 from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -739,7 +740,7 @@ def _chapter_brief(jid: str, drama_id: int, drama: dict, page_ids: list, ahead: 
     import scanlate_translate
     from engine_backends.run_limits import TranslateRunStopped
     background_jobs.update_progress(jid, 0.0, "Reading the whole chapter first")
-    job_timing_service.mark_stage(jid, "Read every page")
+    job_timing.mark_stage(jid, "Read every page")
     previous = None
     for pid in page_ids:
         # setdefault would call start_detect even for the page already started,
@@ -749,7 +750,7 @@ def _chapter_brief(jid: str, drama_id: int, drama: dict, page_ids: list, ahead: 
         previous = ahead[pid]
     texts = _page_texts_when_read(drama_id, page_ids, ahead, jid)
     background_jobs.update_progress(jid, _READ_SHARE, "Writing the chapter brief")
-    job_timing_service.mark_stage(jid, "Chapter brief")
+    job_timing.mark_stage(jid, "Chapter brief")
     # The brief's prompt is the pages' text and the source language (no glossary), so only
     # those and what writes it make the key.
     key_text = chr(10).join([engine_name, getattr(engine, "model", "") or "",
@@ -836,7 +837,7 @@ def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_na
                                 engine_name) if read_first else "")
         # The bar continues from where the read-through left it instead of dropping back to 0%.
         base = _READ_SHARE if read_first else 0.0
-        job_timing_service.mark_stage(jid, "Translate and typeset pages")
+        job_timing.mark_stage(jid, "Translate and typeset pages")
         for n, pid in enumerate(page_ids, start=1):
             render_svc.check_cancel(jid)
             if n < total and page_ids[n] not in ahead:
