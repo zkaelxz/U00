@@ -180,7 +180,9 @@ class TestRows:
 
 class TestSettingsRoundTrip:
     def test_a_fresh_library_reads_every_default(self, isolated_db):
-        assert timing_settings_service.values() == {s.key: s.default for s in ROWS}
+        values = timing_settings_service.values()
+        values.pop("blocked_phrases")  # not a Timing row; test_blocked_phrases covers it
+        assert values == {s.key: s.default for s in ROWS}
         assert timing_settings_service.changed() == {}
 
     def test_an_everyone_row_saves_and_reads_back_without_developer_mode(self, isolated_db):
@@ -716,7 +718,8 @@ class TestSavedValuesReachTheRun:
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
         captured = _capture_worker_start(monkeypatch)
         transcribe_service.start_transcribe_run(did)
-        assert captured["timing"] == {s.key: s.default for s in ROWS}
+        assert captured["timing"] == {s.key: s.default for s in ROWS} | {
+            "blocked_phrases": whisper_hallucination.BLOCKED_PHRASES_DEFAULT}
         assert "split_max_seconds" not in captured["start_kwargs"]["run_settings"]
         settings_service.set_settings({"split_max_seconds": 6})
         captured = _capture_worker_start(monkeypatch)
