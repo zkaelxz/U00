@@ -346,6 +346,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/library/admin/restore` | local_only() |
 | `GET /api/library/admin/storage` | admin.library |
 | `POST /api/library/admin/storage/clean` | local_only() |
+| `POST /api/library/admin/typeset-comics` | local_only() |
 | `GET /api/library/continue` | library.read |
 | `GET /api/library/costs` | library.read |
 | `GET /api/library/dramas` | library.read |
@@ -635,6 +636,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/settings/notifications/test` | local_only() |
 | `POST /api/settings/notifications/{channel}` | local_only() |
 | `POST /api/settings/notifications/{channel}/clear` | local_only() |
+| `GET /api/settings/resource-alerts` | admin.settings |
+| `POST /api/settings/resource-alerts` | local_only() |
 | `GET /api/settings/schema` | admin.settings |
 | `GET /api/settings/spend-history` | admin.settings |
 | `GET /api/settings/spend-history/export.csv` | local_only() |

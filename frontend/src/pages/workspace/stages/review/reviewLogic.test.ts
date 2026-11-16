@@ -174,6 +174,7 @@ describe('labels', () => {
     expect(chipLabel('unreviewed', 3, true)).toBe('Unrev. 3')
     expect(chipLabel('unreviewed', 3, false)).toBe('Unreviewed 3')
     expect(chipLabel('shaky', 2, false)).toBe('Least confident 2')
+    expect(chipLabel('shaky', 2, true)).toBe('Unsure 2')
     expect(chipLabel('risk', 3, false)).toBe('Riskiest 3')
     expect(emptyMessage('shaky', '', 'Transcribe')).toBe('No unchecked lines Whisper was unsure of.')
     expect(emptyMessage('unreviewed', '', 'Transcribe')).toBe('Every translated line is checked.')

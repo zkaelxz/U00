@@ -34,3 +34,19 @@ export function EditInTranslate({ dramaId, focus }: { dramaId: number; focus: Dr
     </p>
   )
 }
+
+export function EditToggle({ pressed, onToggle }: { pressed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      data-testid="reader-edit-toggle"
+      type="button"
+      className="reader-edit-toggle"
+      aria-label="Edit"
+      aria-pressed={pressed}
+      title="Edit"
+      onClick={onToggle}
+    >
+      ✎
+    </button>
+  )
+}

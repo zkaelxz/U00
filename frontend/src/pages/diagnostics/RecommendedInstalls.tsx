@@ -67,18 +67,6 @@ export function RecommendedInstalls({ setup, openSignal }: { setup: DiagnosticsS
             </li>
           ))}
         </ul>
-        {admin && atPc && installable.length > 0 && (
-          <div className="actions">
-            <ConfirmButton name="everything missing" verb="install" tone="primary" label="Install all…" confirmLabel="Confirm install all"
-              busy={!!install.busy} disabled={!!install.blocked} onConfirm={() => void install.installAll(installable)} />
-          </div>
-        )}
-        {install.busy && (install.busy.job
-          ? <InstallProgress job={install.busy.job} name={install.busy.name} />
-          : <p className="muted" role="status">Starting the install…</p>)}
-        {install.note && <p className="muted" role="status">{install.note}</p>}
-        <ErrorBanner error={install.failure} describe={{ pcOnly: true, serverText: true }} onDismiss={() => install.setFailure(null)} />
-        {install.planView}
         {!rows && <p className="muted">Checking what is installed…</p>}
         {rows && (
           <ul className="preflight-rows" aria-label="Recommended installs">
@@ -97,6 +85,19 @@ export function RecommendedInstalls({ setup, openSignal }: { setup: DiagnosticsS
             ))}
           </ul>
         )}
+        {admin && atPc && installable.length > 0 && <p className="muted">Install all adds every Missing item above that can be installed from here.</p>}
+        {admin && atPc && installable.length > 0 && (
+          <div className="actions">
+            <ConfirmButton name="everything missing" verb="install" tone="primary" label="Install all…" confirmLabel="Confirm install all"
+              busy={!!install.busy} disabled={!!install.blocked} onConfirm={() => void install.installAll(installable)} />
+          </div>
+        )}
+        {install.busy && (install.busy.job
+          ? <InstallProgress job={install.busy.job} name={install.busy.name} />
+          : <p className="muted" role="status">Starting the install…</p>)}
+        {install.note && <p className="muted" role="status">{install.note}</p>}
+        <ErrorBanner error={install.failure} describe={{ pcOnly: true, serverText: true }} onDismiss={() => install.setFailure(null)} />
+        {install.planView}
       </div>
     </Section>
   )

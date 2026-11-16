@@ -135,6 +135,7 @@ def _accepted_host(url: str) -> bool:
 class PiaotianSource(SourceAdapter):
     name = "piaotian"
     display_name = "飘天文学 (Piaotian)"
+    homepage = "https://www.piaotia.com"
     content_types = [ContentType.NOVEL.value]
     languages = ["zh"]
     pacing_profile = PacingProfile(
