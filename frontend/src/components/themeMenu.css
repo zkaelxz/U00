@@ -38,6 +38,6 @@ button.theme-menu-item[aria-checked='true'] { font-weight: var(--weight-bold); c
 .theme-menu-check { min-width: 1ch; }
 
 @media (pointer: coarse), (max-width: 640px) {
-  button.theme-menu-btn { min-width: 44px; min-height: 44px; padding-inline: 0; }
+  button.theme-menu-btn { min-width: 40px; min-height: 40px; padding-inline: 0; }
   button.theme-menu-item { min-height: 44px; }
 }

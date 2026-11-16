@@ -52,7 +52,7 @@ button.notify-bell-btn[aria-expanded='true'] { color: var(--text); }
 .notify-action { margin-top: var(--space-1); }
 
 @media (pointer: coarse), (max-width: 640px) {
-  button.notify-bell-btn { min-width: 44px; min-height: 44px; padding-inline: 0; }
+  button.notify-bell-btn { min-width: 40px; min-height: 40px; padding-inline: 0; }
   /* Start Live and Open: one size, and a full 44px box rather than the dense ::after hit area. */
   .notify-action .btn.btn-sm { min-height: 44px; }
 }
