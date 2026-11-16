@@ -346,6 +346,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/library/admin/restore` | local_only() |
 | `GET /api/library/admin/storage` | admin.library |
 | `POST /api/library/admin/storage/clean` | local_only() |
+| `POST /api/library/admin/typeset-comics` | local_only() |
 | `GET /api/library/continue` | library.read |
 | `GET /api/library/costs` | library.read |
 | `GET /api/library/dramas` | library.read |
