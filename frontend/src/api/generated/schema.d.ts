@@ -2283,6 +2283,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/dependencies/upgrade-outdated/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: queue updating every package below the app's minimum for the next start (confirm=true) */
+        post: operations["post_upgrade_outdated_queue_api_diagnostics_dependencies_upgrade_outdated_queue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/dependencies/{package}/install": {
         parameters: {
             query?: never;
@@ -2685,6 +2702,23 @@ export interface paths {
         put?: never;
         /** PC only: queue an install for the next start (confirm=true) */
         post: operations["post_queue_api_diagnostics_pending_install_queue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/pending-install/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: restart Baihe now so the queued install runs (confirm=true) */
+        post: operations["post_restart_api_diagnostics_pending_install_restart_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -23875,6 +23909,49 @@ export interface components {
             /** Queued */
             queued: boolean;
         };
+        /** PendingInstallRestart */
+        PendingInstallRestart: {
+            /**
+             * Available
+             * @description Baihe can restart itself (a start.bat copy on Windows).
+             */
+            available: boolean;
+            /**
+             * Other Jobs
+             * @description Another Baihe process has a job; a restart waits for it.
+             */
+            other_jobs: boolean;
+            /**
+             * Reason
+             * @description Plain words why it can't.
+             */
+            reason: string | null;
+            /**
+             * Running Jobs
+             * @description Jobs a restart would stop.
+             */
+            running_jobs: string[];
+        };
+        /** PendingInstallRestartRequest */
+        PendingInstallRestartRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm?: boolean;
+            /**
+             * Stop Jobs
+             * @default false
+             */
+            stop_jobs?: boolean;
+        };
+        /** PendingInstallRestartStarted */
+        PendingInstallRestartStarted: {
+            /** Restarting */
+            restarting: boolean;
+            /** Stopped Jobs */
+            stopped_jobs: string[];
+        };
         /** PendingInstallStatus */
         PendingInstallStatus: {
             /** Applying */
@@ -23892,6 +23969,7 @@ export interface components {
              * @description Plain words when the queued file was refused.
              */
             problem: string | null;
+            restart: components["schemas"]["PendingInstallRestart"];
             result: components["schemas"]["PendingInstallOutcome"] | null;
         };
         /**
@@ -38864,6 +38942,57 @@ export interface operations {
             };
         };
     };
+    post_upgrade_outdated_queue_api_diagnostics_dependencies_upgrade_outdated_queue_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiagnosticsDependencyInstallRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingInstallQueued"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_install_api_diagnostics_dependencies__package__install_post: {
         parameters: {
             query?: never;
@@ -39731,6 +39860,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PendingInstallQueued"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_restart_api_diagnostics_pending_install_restart_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PendingInstallRestartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingInstallRestartStarted"];
                 };
             };
             /** @description Not Found */

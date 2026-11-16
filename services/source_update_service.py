@@ -60,6 +60,8 @@ NO_GREEN = "No newer version has passed its tests yet."
 CANT_CHECK = "Couldn't check on GitHub which versions passed their tests. Try again later."
 TURNED_OFF = "Updates are turned off for this copy."
 NOT_WINDOWS = "Updating from the website works on Windows only."
+NOT_WINDOWS_RESTART = "Restarting from the website works on Windows only."
+INSTALLED_RESTART = "This copy was installed with Setup, so it can't restart itself yet. Close Baihe and open it again."
 NOT_START_BAT = "Baihe wasn't started with start.bat, so it can't restart itself. Update it on the PC."
 JOBS_RUNNING = "Finish or cancel the running jobs first: the update restarts Baihe."
 NOT_CHECKED = "Check for updates first."
@@ -250,6 +252,30 @@ def _start_helper(pid, port) -> None:
                          creationflags=(us._CREATE_BREAKAWAY_FROM_JOB | us._CREATE_NEW_PROCESS_GROUP
                                         if sys.platform == "win32" else 0),
                          close_fds=True)
+
+
+def restart_problem():
+    """Why this copy can't stop and start itself through start.bat, else None.
+    No git or branch checks: a restart changes no version of its own."""
+    if not us._is_windows():
+        return NOT_WINDOWS_RESTART
+    if us._is_installed():
+        return INSTALLED_RESTART
+    if os.environ.get(STARTED_BY_ENV) != "1" or not os.path.isfile(os.path.join(_root(), "start.bat")):
+        return NOT_START_BAT
+    return None
+
+
+def restart_through_start_bat(actor_id, why: str) -> None:
+    """Hands a restart to the helper (which waits for this server to exit, then
+    runs start.bat) and stops this server cleanly. The caller has checked
+    restart_problem and that no job is left to lose."""
+    try:
+        _start_helper(os.getpid(), app_update_service._server_port())
+    except OSError:
+        raise DependencyUnavailableError("Baihe couldn't start the restart. Nothing was changed.") from None
+    auth_service.write_audit(actor_id, "app.restart", why)
+    shutdown_service.request_shutdown()
 
 
 def apply(confirm, actor_id=None) -> dict:

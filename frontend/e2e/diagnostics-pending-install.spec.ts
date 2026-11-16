@@ -69,6 +69,10 @@ async function mockPage(page: Page, plan: unknown, planReply?: { status: number;
     status = EMPTY_STATUS
     return r.fulfill({ json: { cancelled: true } })
   })
+  await page.route((u) => u.pathname === `${PENDING_BASE}/restart`, (r) => {
+    calls.push({ url: r.request().url(), body: r.request().postDataJSON() })
+    return r.fulfill({ status: 202, json: { restarting: true, stopped_jobs: [] } })
+  })
   await page.route('**/api/diagnostics/dependencies/**', (r) => {
     calls.push({ url: r.request().url(), body: r.request().postDataJSON() })
     return r.fulfill({ json: { package: 'x', ok: true, output_tail: [], hint: null } })
@@ -147,6 +151,22 @@ test('the queued install can be cancelled before restart', async ({ page }) => {
   await page.getByRole('button', { name: 'Cancel install' }).click()
   await expect(page.getByTestId('pending-install')).toHaveCount(0)
   expect(calls.map((c) => new URL(c.url).pathname)).toEqual([`${PENDING_BASE}/cancel`])
+  expect(unmocked).toEqual([])
+})
+
+test('Restart and install now names the running jobs and stops none without the tick', async ({ page }) => {
+  const { unmocked, calls, setStatus } = await mockPage(page, RESTART_PLAN)
+  setStatus({ ...EMPTY_STATUS, packages: ['sentencepiece'],
+    restart: { available: true, reason: null, running_jobs: ['translate_5'], other_jobs: false } })
+  await openPackages(page)
+  await page.getByRole('button', { name: 'Restart and install now…' }).click()
+  await expect(page.getByText('translate_5')).toBeVisible()
+  const confirm = page.getByRole('button', { name: 'Confirm: restart and update' })
+  await expect(confirm).toBeDisabled()
+  await page.getByLabel('Stop these jobs and restart anyway').check()
+  await confirm.click()
+  await expect(page.getByTestId('restart-install-waiting')).toBeVisible()
+  expect(calls.map((c) => [new URL(c.url).pathname, c.body])).toEqual([[`${PENDING_BASE}/restart`, { confirm: true, stop_jobs: true }]])
   expect(unmocked).toEqual([])
 })
 

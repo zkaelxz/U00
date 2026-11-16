@@ -1234,3 +1234,40 @@ def test_a_full_disk_after_a_failed_install_keeps_the_record_that_retries_the_re
     with pytest.raises(OSError):
         pi.apply()
     assert pi.read_result()["status"] == "running" and pi.restore_owed()
+
+
+# --- an update queued for the restart: pinned to the versions the owner saw ----
+
+def test_pins_must_name_queued_keys_and_plain_versions(data):
+    pi.write_pending(["sentencepiece"], {}, pins={"sentencepiece": "0.2.3"})
+    assert pi.read_pending()[0]["pins"] == {"sentencepiece": "0.2.3"}
+    for pins in ({"other": "1.0"}, {"sentencepiece": "1.0 --index-url x"}, {"sentencepiece": ""}, "x"):
+        payload = {"schema": pi.SCHEMA, "packages": ["sentencepiece"], "created": 1, "before": {}, "pins": pins}
+        pi._write_json("pending", {"payload": payload, "sha256": pi.digest(payload)})
+        assert pi.read_pending() == (None, "invalid"), pins
+
+
+def test_apply_hands_the_pins_to_the_derive_child(data, monkeypatch):
+    pi.write_pending(["sentencepiece"], {}, pins={"sentencepiece": "0.2.3"})
+    fake = Fake(monkeypatch, [{"sentencepiece": "0.2.2"}])
+    seen = []
+    orig = fake.child_json
+    monkeypatch.setattr(pi, "child_json", lambda *a, **k: (seen.append(a), orig(*a, **k))[1])
+    pi.apply()
+    assert seen[0] == ("derive", "sentencepiece", "sentencepiece=0.2.3")
+
+
+def test_derive_pins_an_update_and_adds_no_uninstall(monkeypatch):
+    import diagnostics
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: None)
+    out = child.derive("sentencepiece,ebooklib", "sentencepiece=0.2.3,ebooklib=0.21")
+    assert out["ok"] and out["uninstall"] == []
+    assert "sentencepiece==0.2.3" in out["argv"] and "ebooklib==0.21" in out["argv"]
+    assert pi._argv_accepted(out["argv"])
+
+
+def test_a_pinned_requirement_is_the_only_equals_form_accepted():
+    assert pi._argv_accepted(_good_argv() + ["sentencepiece==0.2.3"])
+    for bad in ("sentencepiece==", "sentencepiece>=1", "sentencepiece==1.0;os_name", "==1.0",
+                "sentencepiece==1.0 --index-url=http://x"):
+        assert not pi._argv_accepted(_good_argv() + [bad]), bad
