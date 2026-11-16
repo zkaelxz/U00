@@ -1,5 +1,4 @@
-"""Automatic Scanlate path (docs/archive/scanlate-api-spec.md S1, S2, S5, S6,
-S8): config and page detail, page import with its limits, the one-job-per-
+"""Automatic Scanlate path: config and page detail, page import with its limits, the one-job-per-
 drama detect/OCR/translate/render run, re-render and ZIP/PDF export.
 
 Mocked: detection/OCR is a fake, translation is the fake engine or a stub
