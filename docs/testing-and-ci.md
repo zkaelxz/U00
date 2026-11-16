@@ -145,7 +145,9 @@ cannot merge without them but nothing turns red and no failure email goes out. T
 status turns green when they pass, or at once when the change needs none. The `full-ci` label runs them at once. Pushes to the
 base, the merge queue and the nightly run never hold them back. A pending `browser-tests` is expected on a PR that has no merge
 order yet. The status is set by the workflow's token, so a fork's PR (whose token cannot write) and a Dependabot PR (read-only
-token) get none and cannot merge by auto-merge: run the tests on a branch of this repo instead.
+token) get none and cannot merge by auto-merge: run the tests on a branch of this repo instead. Re-running an older run that held
+the tests back sets the status back to pending; push or add `full-ci` to start a fresh one. Turn auto-merge on with a person's
+or an app's token, never a workflow's `GITHUB_TOKEN`: GitHub starts no run for an event that token causes.
 
 ### Draft PRs
 

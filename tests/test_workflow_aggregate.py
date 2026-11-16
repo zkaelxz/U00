@@ -89,6 +89,8 @@ def test_waiting_browser_tests_hold_the_merge_with_a_pending_status():
                         ("E2E", "=", "success", "success"), ("E2E", "=", "skipped", "success")]
     assert re.search(r"else\n\s+state=failure", script)
     assert "context=browser-tests" in script and '[ "$state" != failure ]' in script
+    # A read-only token (a fork, Dependabot) must leave the status missing, not turn `test` red.
+    assert re.search(r'>/dev/null \\\n\s+\|\| echo "::warning::', script)
 
 
 def test_turning_on_auto_merge_starts_the_run_with_the_browser_tests():
