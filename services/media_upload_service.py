@@ -42,6 +42,7 @@ returned.
 No FastAPI import: takes a binary file-like object.
 """
 import contextlib
+import json
 import math
 import os
 import re
@@ -309,6 +310,65 @@ def _move_no_clobber(src, candidates) -> str:
     raise OSError("no free file name")
 
 
+# Which link the title's current media files were downloaded from, and each
+# file's size and modified time then. The title's own source link can't say
+# this: it is recorded once and stays when the owner later uploads a file.
+ORIGIN_NAME = ".media_origin.json"
+
+
+def _file_mark(path):
+    st = os.lstat(path)
+    return [st.st_size, st.st_mtime_ns]
+
+
+def _record_origin(ddir, link, names) -> None:
+    """Writes the record for media just installed from `link`, or removes it
+    when the media came from anywhere else. Best effort: with no record,
+    replaced files are kept, which is the safe side."""
+    path = os.path.join(ddir, ORIGIN_NAME)
+    with contextlib.suppress(OSError, ValueError):
+        if not link:
+            if os.path.lexists(path):
+                os.remove(path)
+            return
+        record = {"link": link, "files": {n: _file_mark(os.path.join(ddir, n)) for n in names}}
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(record, fh)
+        os.replace(tmp, path)
+
+
+def _downloaded_from(ddir, link) -> dict:
+    """{file name: [size, mtime_ns]} of the files recorded as downloaded from
+    exactly `link`; empty when there is no record, it is unreadable or it
+    names another link."""
+    try:
+        with open(os.path.join(ddir, ORIGIN_NAME), encoding="utf-8") as fh:
+            record = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    files = record.get("files") if isinstance(record, dict) else None
+    if not isinstance(files, dict) or record.get("link") != link:
+        return {}
+    return {n: m for n, m in files.items() if isinstance(n, str) and isinstance(m, list)}
+
+
+def _still_that_file(ddir, name, mark) -> bool:
+    """False when the file under a recorded name is no longer the one that
+    was downloaded (swapped by hand, or by a path that keeps no record)."""
+    try:
+        return _file_mark(os.path.join(ddir, name)) == mark
+    except OSError:
+        return False
+
+
+def _unreachable_after_swap(ddir, name, drama_id) -> bool:
+    """True only when the drama, as just saved, no longer reaches `name`:
+    Windows and macOS resolve `Source.mkv` to a new `source.mkv`, and a
+    cover or other `*_filename` field can name the same file."""
+    return _unnamed_media(ddir, db.get_drama(drama_id) or {}, [name]) == [name]
+
+
 def _discard(ddir, name) -> bool:
     """Deletes a regular file the drama no longer names; False when it is
     not one or can't be deleted (Windows: it is still being played)."""
@@ -366,8 +426,8 @@ def audio_mode_for_upload(drama_id, transcript_text):
         raise
 
 
-def install_media(drama_id, new_files, transcribe_new_audio=False, discard_replaced=False,
-                  **fields):
+def install_media(drama_id, new_files, transcribe_new_audio=False, origin_link=None,
+                  discard_replaced=False, **fields):
     """Puts new media in place for drama_id. new_files maps a DB field
     (audio_filename / source_video_filename) to (path, stem, ext): each file
     is moved to a free `<stem>[-n]<ext>` in the drama folder, never over an
@@ -379,9 +439,12 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, discard_repla
     audio installed alone also unnames the old video. Only after the commit
     are the files the drama no longer names moved into kept_media/. On an
     error before the commit the new files are moved back to their paths and
-    the error raised, with the drama unchanged. discard_replaced: the files
-    the drama no longer names are deleted instead of kept, for a caller that
-    knows they can be fetched again; one that can't be deleted is kept."""
+    the error raised, with the drama unchanged. origin_link: the link the
+    new files were downloaded from, recorded beside them (ORIGIN_NAME); any
+    other install forgets the record. discard_replaced: a replaced file that
+    the record says came from origin_link, and is still that very file, is
+    deleted instead of kept, because it can be fetched again; one that
+    can't be deleted is kept."""
     ddir = db.drama_dir(drama_id)
     old = db.get_drama(drama_id) or {}
     # An old video kept beside new audio would be shown in Review and muxed
@@ -421,12 +484,15 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, discard_repla
                 os.rename(dst, src)
         raise
     named = {fields[f] for f in _MEDIA_FIELDS}
+    refetchable = _downloaded_from(ddir, origin_link) if discard_replaced and origin_link else {}
     for name in {old.get(f) for f in _MEDIA_FIELDS} - named:
         try:
-            if not (discard_replaced and _discard(ddir, name)):
+            if not (name in refetchable and _still_that_file(ddir, name, refetchable[name])
+                    and _unreachable_after_swap(ddir, name, drama_id) and _discard(ddir, name)):
                 _retire(ddir, name)
         except Exception:  # committed: a retire hiccup must not report the swap as failed
             pass
+    _record_origin(ddir, origin_link, sorted(n for n in named if n))
     if fields["audio_filename"] != old.get("audio_filename"):
         storage.drop_separated_vocals(ddir)
     return {f: fields[f] for f in new_files}

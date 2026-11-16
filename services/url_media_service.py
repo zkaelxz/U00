@@ -729,19 +729,6 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool,
         _leave_queue(job_id)
 
 
-def _same_link_again(drama: dict, url: str) -> bool:
-    """True when `url` is exactly the link recorded for this title (its
-    first download records it), so the files a new download replaces can be
-    fetched again and need no kept copy. Never for a title that keeps its
-    originals."""
-    if drama.get("keep_original"):
-        return False
-    # The display form drops the query, which on most video sites is what
-    # names the video, so the full link is compared when one was stored.
-    recorded = (drama.get("source_url_full") or drama.get("source_url") or "").strip()
-    return bool(recorded) and recorded == str(url or "").strip()
-
-
 def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, options: dict | None = None):
     with storage.job_workdir(job_id) as tmp:
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
@@ -772,12 +759,18 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
                          "audio_filename": (audio, "audio", ".flac")}
         fields = {}
         drama = db.get_drama(drama_id) or {}  # re-read just before writing
-        again = not direct_ext and _same_link_again(drama, url)
+        # A part is not recorded as this link's download: the same link
+        # later may be another part, and the cut can't be fetched again as it was.
+        options = options or {}
+        whole = options.get("part_start") is None and options.get("part_end") is None
+        origin = url if not direct_ext and whole else None
         if title and not (drama.get("title_en") or drama.get("title_zh")):
             fields["title_zh"] = str(title).strip()[:300]
         try:
             media_upload_service.install_media(drama_id, new_files, transcribe_new_audio=True,
-                                                discard_replaced=again, **fields)
+                                                origin_link=origin,
+                                                discard_replaced=not drama.get("keep_original"),
+                                                **fields)
         except (OSError, sqlite3.Error):
             raise RuntimeError(_SAVE_FAILED) from None
         drama_service.set_source_url_once(drama_id, url)

@@ -934,7 +934,7 @@ def test_an_audio_only_download_sets_an_old_video_aside(client, env):
     drama = db.get_drama(did)
     assert (drama["audio_filename"], drama["source_video_filename"]) == ("source.flac", None)
     assert sorted(_kept(did).values()) == [b"old video", b"old wav"]
-    assert sorted(os.listdir(ddir)) == ["kept_media", "source.flac"]
+    assert sorted(os.listdir(ddir)) == [".media_origin.json", "kept_media", "source.flac"]
     _no_tmp(did)
 
 
@@ -1402,14 +1402,21 @@ def _kept_media(did):
     return sorted(os.listdir(kept)) if os.path.isdir(kept) else []
 
 
+def _again(client, did, url=URL, **body):
+    background_jobs.clear_job(f"urlmedia_{did}")
+    r = client.post(f"/api/media/dramas/{did}/download-url",
+                    json={"url": url, "audio_only": False, "confirm_replace_audio": True, **body})
+    assert r.status_code == 200, r.text
+    st = wait_for_job(f"urlmedia_{did}", missing_ok=True)
+    assert st["status"] == "done", st
+    return db.get_drama(did)
+
+
 def test_the_same_link_again_replaces_its_earlier_download_without_keeping_it(client, env):
     did = _drama()
     assert _run(client, did, audio_only=False)["status"] == "done"
     first = db.get_drama(did)
-    background_jobs.clear_job(f"urlmedia_{did}")
-    st = _run(client, did, audio_only=False, max_height=480, confirm_replace_audio=True)
-    assert st["status"] == "done", st
-    after = db.get_drama(did)
+    after = _again(client, did, max_height=480)
     folder = db.drama_dir(did)
     assert os.path.isfile(os.path.join(folder, after["source_video_filename"]))
     assert os.path.isfile(os.path.join(folder, after["audio_filename"]))
@@ -1417,28 +1424,67 @@ def test_the_same_link_again_replaces_its_earlier_download_without_keeping_it(cl
         assert old not in (after["source_video_filename"], after["audio_filename"])
         assert not os.path.exists(os.path.join(folder, old))
     assert _kept_media(did) == []
+    # And a third time: the record follows the files now in place.
+    _again(client, did)
+    assert _kept_media(did) == []
 
 
 def test_a_different_link_keeps_the_media_it_replaces(client, env):
     did = _drama()
+    assert _run(client, did, audio_only=False)["status"] == "done"
+    _again(client, did, url=URL + "-other")
+    assert len(_kept_media(did)) == 2
+
+
+def test_an_upload_made_after_a_link_download_is_kept_when_that_link_is_downloaded_again(client, env):
+    # The title's link still names the first download, but the file there now is the owner's.
+    did = _drama()
+    assert _run(client, did, audio_only=False)["status"] == "done"
+    background_jobs.clear_job(f"urlmedia_{did}")
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("mine.mp3", b"my own copy")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    mine = db.get_drama(did)["audio_filename"]
+    before = len(_kept_media(did))
+    _again(client, did)
+    kept = os.path.join(db.drama_dir(did), "kept_media")
+    assert len(_kept_media(did)) == before + 1
+    assert any(open(os.path.join(kept, n), "rb").read() == b"my own copy" for n in _kept_media(did))
+    assert not os.path.exists(os.path.join(db.drama_dir(did), mine))
+
+
+def test_a_link_typed_into_the_title_does_not_make_its_media_replaceable(client, env):
+    did = _drama()
     with open(os.path.join(db.drama_dir(did), "source.mp4"), "wb") as f:
         f.write(b"my own upload")
-    db.update_drama(did, source_video_filename="source.mp4")
-    assert _run(client, did, audio_only=False, confirm_replace_audio=True)["status"] == "done"
-    assert len(_kept_media(did)) == 1
-    # The link now recorded is this one, but the next download is of another.
-    background_jobs.clear_job(f"urlmedia_{did}")
-    r = client.post(f"/api/media/dramas/{did}/download-url",
-                    json={"url": URL + "-other", "audio_only": False, "confirm_replace_audio": True})
-    assert r.status_code == 200, r.text
-    assert wait_for_job(f"urlmedia_{did}", missing_ok=True)["status"] == "done"
-    assert len(_kept_media(did)) == 3
+    db.update_drama(did, source_video_filename="source.mp4", source_url=URL, source_url_full=URL)
+    _again(client, did)
+    kept = os.path.join(db.drama_dir(did), "kept_media")
+    assert [open(os.path.join(kept, n), "rb").read() for n in _kept_media(did)] == [b"my own upload"]
+
+
+def test_a_downloaded_file_changed_since_is_kept(client, env):
+    did = _drama()
+    assert _run(client, did, audio_only=False)["status"] == "done"
+    video = os.path.join(db.drama_dir(did), db.get_drama(did)["source_video_filename"])
+    with open(video, "wb") as f:
+        f.write(b"swapped by hand for a better copy")
+    _again(client, did)
+    kept = os.path.join(db.drama_dir(did), "kept_media")
+    assert any(open(os.path.join(kept, n), "rb").read() == b"swapped by hand for a better copy"
+               for n in _kept_media(did))
+
+
+def test_a_part_download_is_never_replaced_without_keeping_it(client, env):
+    did = _drama()
+    assert _run(client, did, audio_only=False, part_start="0:10", part_end="0:40")["status"] == "done"
+    _again(client, did)
+    assert len(_kept_media(did)) == 2
 
 
 def test_the_same_link_again_still_keeps_the_old_files_of_a_title_that_keeps_originals(client, env):
     did = _drama()
     assert _run(client, did, audio_only=False)["status"] == "done"
     db.update_drama(did, keep_original=1)
-    background_jobs.clear_job(f"urlmedia_{did}")
-    assert _run(client, did, audio_only=False, confirm_replace_audio=True)["status"] == "done"
+    _again(client, did)
     assert len(_kept_media(did)) == 2
