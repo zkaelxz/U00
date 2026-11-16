@@ -248,15 +248,30 @@ class TestGroq:
 
     def test_error_detail_is_capped_and_redacted(self, posts, tmp_path):
         posts(StreamResp(f"bad key {SECRET}".encode() + b"y" * (whisper_transcribe.GROQ_ERROR_MAX_BYTES + 1),
-                         status=401))
+                         status=400))
         with pytest.raises(whisper_transcribe.GroqTranscriptionError) as exc:
             self._transcribe(tmp_path)
         # Over the error cap the body is cut, not dropped: the status and a redacted head stay.
-        assert str(exc.value).startswith("Groq API returned 401: ") and SECRET not in str(exc.value)
+        assert str(exc.value).startswith("Groq API returned 400: ") and SECRET not in str(exc.value)
         assert len(str(exc.value)) < 400
 
+    def test_a_file_over_groqs_cap_is_refused_before_any_upload(self, posts, tmp_path, monkeypatch):
+        audio = tmp_path / "a.wav"
+        audio.write_bytes(b"RIFF")
+        monkeypatch.setattr(whisper_transcribe, "GROQ_MAX_UPLOAD_BYTES", 2)
+        with pytest.raises(whisper_transcribe.GroqTranscriptionError, match="Use local Whisper"):
+            whisper_transcribe.transcribe_with_groq(str(audio), "zh", SECRET)
+        assert posts.calls == []
+
+    @pytest.mark.parametrize("status", [401, 413, 429])
+    def test_common_errors_get_a_plain_message(self, posts, tmp_path, status):
+        posts(StreamResp(b'{"error":{"message":"Request Entity Too Large"}}', status=status))
+        with pytest.raises(whisper_transcribe.GroqTranscriptionError) as exc:
+            self._transcribe(tmp_path)
+        assert "{" not in str(exc.value) and SECRET not in str(exc.value) and str(status) not in str(exc.value)
+
     def test_error_detail_kept_and_redacted(self, posts, tmp_path):
-        posts(StreamResp(f"bad key {SECRET}".encode(), status=401))
+        posts(StreamResp(f"bad key {SECRET}".encode(), status=400))
         with pytest.raises(whisper_transcribe.GroqTranscriptionError) as exc:
             self._transcribe(tmp_path)
         assert "bad key" in str(exc.value) and SECRET not in str(exc.value)

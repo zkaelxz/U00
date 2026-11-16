@@ -3,8 +3,11 @@ audio_extract.py -- ffmpeg helpers that pull a whole audio track out of a video
 or cut a short slice out of an audio file.
 """
 
+import contextlib
+import os
 import subprocess
 
+import storage
 import video_export
 
 
@@ -41,6 +44,27 @@ def extract_audio_from_video(video_path: str, out_path: str):
     same timing/alignment pipeline can run on it as on audio-only files."""
     _run_ffmpeg(video_export.extract_audio_cmd(video_path, out_path), EXTRACT_AUDIO_TIMEOUT_SECONDS)
     return out_path
+
+
+# libsndfile reads these; anything else (m4a/AAC, mp3 on older builds, opus) it can't decode.
+SNDFILE_EXTENSIONS = (".wav", ".flac")
+
+
+@contextlib.contextmanager
+def sndfile_readable(audio_path: str):
+    """Yields a path soundfile can read: audio_path itself for wav/flac, else a
+    temporary 16 kHz mono wav decoded with ffmpeg and removed on exit. Uploaded
+    audio keeps its own container (an .m4a is stored as source.m4a)."""
+    if audio_path.lower().endswith(SNDFILE_EXTENSIONS):
+        yield audio_path
+        return
+    tmp = storage.new_partial_file("sndfile_wav", suffix=".wav")
+    try:
+        extract_audio_from_video(audio_path, tmp)
+        yield tmp
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
 
 
 # A line-sized slice takes well under a second; this only stops a hung ffmpeg.
