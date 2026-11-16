@@ -16,7 +16,7 @@ import db
 # ---------------------------------------------------------------------------
 
 # Called with each logged cost. A higher layer registers here because db
-# cannot import it (job_timing_service counts spend toward a job's stage).
+# cannot import it (job_timing counts spend toward a job's stage).
 _spend_listeners = []
 # Called with (user_id, job_id or None) after a costed row is logged for an
 # account, so the per-member monthly limit can stop the job that crossed it.
