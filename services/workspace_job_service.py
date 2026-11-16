@@ -31,7 +31,8 @@ from memory_headroom import HeadroomError
 import translation_finish
 import emotion
 import core as core_module
-from services import (job_timing_service, language_pack_service, line_provenance_service,
+import job_timing
+from services import (language_pack_service, line_provenance_service,
                       novel_files_service, ownership_service, profile_service, run_settings_service,
                       settings_service, timing_settings_service, vdb_names_service)
 from lib.errors import ConflictError, InvalidInputError
@@ -220,7 +221,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 
     # A run takes minutes, and the user may type English meanwhile.
     _save, _notes, kept_edits = translation_finish.own_lines_callbacks(drama_id, lines, provenance)
-    job_timing_service.mark_stage(job_id, "Translate")
+    job_timing.mark_stage(job_id, "Translate")
     drama_meta, cost_cap_usd = _episode_context_and_cap(job_id, drama_id, lines, engine, engine_choice, drama_meta, character_names, target_ids, style_guidelines, cost_cap_usd)
     _, errors = translate_pipeline.translate_lines_with_engine(
         lines, engine, drama_meta=drama_meta, style_note=style_note, novel_reference=novel_reference, force_retranslate=force_retranslate,
@@ -242,7 +243,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         usage_cb=_usage_logger(drama_id, engine, engine_choice),
     )
 
-    job_timing_service.mark_stage(job_id, "Finish (glossary checks, version)")
+    job_timing.mark_stage(job_id, "Finish (glossary checks, version)")
     recheck = set()
     cancelled = background_jobs.is_cancel_requested(job_id)
     # Shared with the other translate paths: glossary enforcement,
@@ -256,7 +257,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             line_scoped=target_ids is not None,
             enforce_ids=(set(target_ids) if own_lines_only and target_ids is not None
                          else {ln.id for ln in lines if getattr(ln, "id", None) is not None}),
-            flags_needing_recheck=recheck, embed_texts=settings_service.alignment_embedder(), sentence_parts=sentence_parts, stage_cb=lambda stage: job_timing_service.mark_stage(job_id, stage)):
+            flags_needing_recheck=recheck, embed_texts=settings_service.alignment_embedder(), sentence_parts=sentence_parts, stage_cb=lambda stage: job_timing.mark_stage(job_id, stage)):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})

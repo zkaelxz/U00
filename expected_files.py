@@ -69,6 +69,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "job_force_stop.py",
     "job_process_kill.py",
     "job_process_result.py",
+    "job_timing.py",
     "known_sites.py",
     "language_packs.py",
     "line_tools.py",
