@@ -23116,6 +23116,8 @@ export interface components {
             chapters?: boolean | null;
             /** Jobs */
             jobs?: boolean | null;
+            /** Pc Name */
+            pc_name?: string | null;
             /** Private Titles */
             private_titles?: boolean | null;
             /** Remote */
@@ -23168,6 +23170,10 @@ export interface components {
             ntfy_allow_local: boolean;
             /** Ntfy Configured */
             ntfy_configured: boolean;
+            /** Pc Name */
+            pc_name: string;
+            /** Pc Name Default */
+            pc_name_default: string;
             /** Send Chapters */
             send_chapters: boolean;
             /** Send Jobs */

@@ -111,6 +111,8 @@ from lib.errors import InvalidInputError, RateLimitedError
 CHANNELS = ("discord", "ntfy")
 CATEGORIES = ("jobs", "chapters", "remote")
 CATEGORY_SETTING = "notify_categories"
+PC_NAME_KEY = "pc_name"                   # also inside the CATEGORY_SETTING blob; empty means use the Windows name
+PC_NAME_MAX = 40
 PRIVATE_TITLES_KEY = "private_titles"   # kept inside the CATEGORY_SETTING blob, off unless True
 CHAPTER_CHECK_JOB_ID = "sources_chapter_check"   # sources.chapter_check.CHECK_JOB_ID
 RECENT_MAX = 50          # events returned to one viewer
@@ -207,19 +209,34 @@ def show_private_titles() -> bool:
         return False
 
 
-def set_categories(jobs=None, chapters=None, remote=None, private_titles=None) -> dict:
-    """Switches the external-push categories and the private-titles switch.
-    None leaves one unchanged."""
+def saved_pc_name() -> str:
+    """The name the PC owner gave this PC, or "" when none is set."""
+    try:
+        import db
+        stored = db.get_app_setting(CATEGORY_SETTING, None)
+        value = stored.get(PC_NAME_KEY) if isinstance(stored, dict) else None
+        return _tidy(value, PC_NAME_MAX) if isinstance(value, str) else ""
+    except Exception:
+        return ""
+
+
+def set_categories(jobs=None, chapters=None, remote=None, private_titles=None,
+                   pc_name=None) -> dict:
+    """Switches the external-push categories and the private-titles switch,
+    and sets the PC name ("" clears it). None leaves one unchanged."""
     import db
     changes = {name: bool(value) for name, value in
                (("jobs", jobs), ("chapters", chapters), ("remote", remote),
                 (PRIVATE_TITLES_KEY, private_titles)) if value is not None}
+    if pc_name is not None:
+        changes[PC_NAME_KEY] = _tidy(pc_name, PC_NAME_MAX)
 
     def apply(stored):
         # Same normalising as get_categories: anything but False reads as on.
         stored = stored if isinstance(stored, dict) else {}
         return {**{c: stored.get(c) is not False for c in CATEGORIES},
-                PRIVATE_TITLES_KEY: stored.get(PRIVATE_TITLES_KEY) is True, **changes}
+                PRIVATE_TITLES_KEY: stored.get(PRIVATE_TITLES_KEY) is True,
+                PC_NAME_KEY: stored.get(PC_NAME_KEY, ""), **changes}
     db.update_app_setting(CATEGORY_SETTING, apply)
     return get_status()
 
@@ -233,7 +250,9 @@ def get_status() -> dict:
             "send_jobs": categories["jobs"],
             "send_chapters": categories["chapters"],
             "send_remote": categories["remote"],
-            "show_private_titles": show_private_titles()}
+            "show_private_titles": show_private_titles(),
+            "pc_name": saved_pc_name(),
+            "pc_name_default": _windows_name()}
 
 
 def _unmap(ip):
@@ -600,13 +619,18 @@ def _pinned_post(url, ip, body: bytes, headers: dict):
         session.close()
 
 
-def _pc_name() -> str:
-    """The Windows computer name, so one Discord channel shared by several
-    PCs says which one sent a message. Empty when it cannot be read."""
+def _windows_name() -> str:
     try:
-        return _tidy(socket.gethostname(), 40)
+        return _tidy(socket.gethostname(), PC_NAME_MAX)
     except Exception:
         return ""
+
+
+def _pc_name() -> str:
+    """Which PC sent a message, so one Discord channel shared by several PCs
+    tells them apart: the owner's own name for it, else the Windows computer
+    name. Empty when neither is available."""
+    return saved_pc_name() or _windows_name()
 
 
 def _payload(channel, text, embed=None):

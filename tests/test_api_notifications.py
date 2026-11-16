@@ -814,7 +814,8 @@ def test_status_is_booleans_only(env):
     assert r.status_code == 200
     assert r.json() == {"discord_configured": True, "ntfy_configured": True,
                         "ntfy_allow_local": False, "send_jobs": True, "send_chapters": True,
-                        "send_remote": True, "show_private_titles": False}
+                        "send_remote": True, "show_private_titles": False,
+                        "pc_name": "", "pc_name_default": ns._windows_name()}
     _no_secret(r.text)
 
 
@@ -1156,6 +1157,39 @@ def test_private_titles_switch_route_is_pc_only(env):
     assert ns.show_private_titles() is False
     r = _client().post("/api/settings/notifications/categories", json={"private_titles": True})
     assert r.status_code == 200 and r.json()["show_private_titles"] is True
+
+
+def test_pc_name_replaces_the_windows_name_until_cleared(env, monkeypatch):
+    import json
+    monkeypatch.setattr(ns.socket, "gethostname", lambda: "DESKTOP-WEEE")
+    card = {"title": "Finished", "color": ns.COLOR_OK}
+
+    def footer():
+        return json.loads(ns._payload("discord", "x", card)[0])["embeds"][0]["footer"]["text"]
+
+    assert footer() == "PC: DESKTOP-WEEE"
+    status = ns.set_categories(pc_name="  V100  ")
+    assert status["pc_name"] == "V100" and status["pc_name_default"] == "DESKTOP-WEEE"
+    assert footer() == "PC: V100"
+    assert ns.set_categories(jobs=False)["pc_name"] == "V100"        # untouched
+    assert ns.set_categories(pc_name="x" * 90)["pc_name"] == "x" * 39 + "\u2026"
+    assert ns.set_categories(pc_name="")["pc_name"] == ""
+    assert footer() == "PC: DESKTOP-WEEE"
+
+
+def test_pc_name_route_is_pc_only_and_bounded(env):
+    remote = TestClient(create_app(ApiSettings(auth_mode="on", allow_key_writes=True)),
+                        base_url=REMOTE, raise_server_exceptions=False)
+    assert remote.post("/api/settings/notifications/categories", json={"pc_name": "Mine"},
+                       headers=session_headers(_session(True))).status_code == 403
+    assert ns.saved_pc_name() == ""
+    c = _client()
+    assert c.post("/api/settings/notifications/categories",
+                  json={"pc_name": "x" * 41}).status_code == 422
+    assert c.post("/api/settings/notifications/categories",
+                  json={"pc_name": 5}).status_code == 422
+    r = c.post("/api/settings/notifications/categories", json={"pc_name": "3080"})
+    assert r.status_code == 200 and r.json()["pc_name"] == "3080"
 
 
 def test_ids_increase_but_do_not_count_hidden_events(env, no_timer, monkeypatch):
