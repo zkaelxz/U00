@@ -76,7 +76,7 @@ class FakeYDL:
                 hook(event)
         path = self.prepare_filename(info)
         if self.opts.get("postprocessors"):
-            path = os.path.splitext(path)[0] + ".wav"
+            path = os.path.splitext(path)[0] + ".flac"
         with open(path, "wb") as f:
             f.write(b"x" * s.get("size", 100))
         return info
@@ -168,8 +168,8 @@ def test_audio_only_download(client, env):
     st = _run(client, did)
     assert st["status"] == "done", st
     ddir = db.drama_dir(did)
-    assert os.path.exists(os.path.join(ddir, "source.wav"))
-    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
+    assert os.path.exists(os.path.join(ddir, "source.flac"))
+    assert env.writes == [{"audio_filename": "source.flac", "source_video_filename": None,
                            "transcript_mode": "whisper", "title_zh": "Clip Title"}]
     # The link is stored cleaned; the raw one (it needs ?v=) only in the PC-only column.
     stored = db.get_drama(did)
@@ -203,8 +203,8 @@ def test_video_download_extracts_audio_and_keeps_title(client, env):
     assert st["status"] == "done", st
     ddir = db.drama_dir(did)
     assert os.path.exists(os.path.join(ddir, "source.mp4"))
-    assert os.path.exists(os.path.join(ddir, "audio.wav"))
-    assert env.writes == [{"audio_filename": "audio.wav", "source_video_filename": "source.mp4",
+    assert os.path.exists(os.path.join(ddir, "audio.flac"))
+    assert env.writes == [{"audio_filename": "audio.flac", "source_video_filename": "source.mp4",
                            "transcript_mode": "whisper"}]
     assert db.get_drama(did)["source_url"] == "https://video.example/watch"
     assert db.get_drama(did)["title_en"] == "Mine" and not db.get_drama(did)["title_zh"]
@@ -277,7 +277,7 @@ def test_download_stops_before_filling_the_drive(client, env, monkeypatch):
     did = _drama()
     st = _run(client, did)
     assert st["status"] == "error" and "drive is almost full" in st["error"]
-    assert env.writes == [] and not os.path.exists(os.path.join(db.drama_dir(did), "source.wav"))
+    assert env.writes == [] and not os.path.exists(os.path.join(db.drama_dir(did), "source.flac"))
     _no_tmp(did)
 
 
@@ -386,7 +386,7 @@ def test_replace_audio_needs_confirm(client, env):
     assert FakeYDL.calls == []
     st = _run(client, did, confirm_replace_audio=True)
     assert st["status"] == "done"
-    assert db.get_drama(did)["audio_filename"] == "source.wav"
+    assert db.get_drama(did)["audio_filename"] == "source.flac"
 
 
 def test_an_existing_source_video_also_needs_confirm(client, env):
@@ -492,8 +492,8 @@ def test_direct_audio_link_skips_ytdlp(client, env, direct, monkeypatch):
     cmd = env.ffmpeg[0]
     i = cmd.index("-i")
     assert cmd[i - 4:i] == video_export.local_input()
-    assert os.path.exists(os.path.join(db.drama_dir(did), "source.wav"))
-    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
+    assert os.path.exists(os.path.join(db.drama_dir(did), "source.flac"))
+    assert env.writes == [{"audio_filename": "source.flac", "source_video_filename": None,
                            "transcript_mode": "whisper"}]
     assert db.get_drama(did)["source_url"] == "https://cdn.example/media/ep1.mp3"
     assert db.get_drama(did)["source_url_full"] == DIRECT
@@ -506,7 +506,7 @@ def test_direct_audio_link_with_audio_only_off_still_installs_audio_only(client,
                     json={"url": DIRECT, "audio_only": False})
     assert r.status_code == 200, r.text
     assert wait_for_job(f"urlmedia_{did}", missing_ok=True)["status"] == "done"
-    assert env.writes == [{"audio_filename": "source.wav", "source_video_filename": None,
+    assert env.writes == [{"audio_filename": "source.flac", "source_video_filename": None,
                            "transcript_mode": "whisper"}]
     assert db.get_drama(did)["source_url"] == "https://cdn.example/media/ep1.mp3"
 
@@ -521,7 +521,7 @@ def test_direct_video_link_keeps_video(client, env, direct):
     assert st["status"] == "done", st
     ddir = db.drama_dir(did)
     assert os.path.exists(os.path.join(ddir, "source.mp4"))
-    assert os.path.exists(os.path.join(ddir, "audio.wav"))
+    assert os.path.exists(os.path.join(ddir, "audio.flac"))
     assert FakeYDL.calls == []
 
 
@@ -890,14 +890,14 @@ def _kept(did):
 def test_a_confirmed_video_download_keeps_the_old_originals(client, env):
     did = _drama()
     ddir = db.drama_dir(did)
-    for name, data in (("source.mp4", b"old video"), ("audio.wav", b"old wav")):
+    for name, data in (("source.mp4", b"old video"), ("audio.flac", b"old wav")):
         with open(os.path.join(ddir, name), "wb") as f:
             f.write(data)
-    db.update_drama(did, audio_filename="audio.wav", source_video_filename="source.mp4")
+    db.update_drama(did, audio_filename="audio.flac", source_video_filename="source.mp4")
     st = _run(client, did, audio_only=False, confirm_replace_audio=True)
     assert st["status"] == "done", st
     drama = db.get_drama(did)
-    assert (drama["source_video_filename"], drama["audio_filename"]) == ("source-2.mp4", "audio-2.wav")
+    assert (drama["source_video_filename"], drama["audio_filename"]) == ("source-2.mp4", "audio-2.flac")
     kept = _kept(did)
     assert sorted(kept.values()) == [b"old video", b"old wav"]
     assert all(n.startswith("replaced-") for n in kept)
@@ -907,9 +907,9 @@ def test_a_confirmed_video_download_keeps_the_old_originals(client, env):
 def test_a_download_that_cannot_be_saved_leaves_the_title_as_it_was(client, env, monkeypatch):
     did = _drama()
     ddir = db.drama_dir(did)
-    with open(os.path.join(ddir, "source.wav"), "wb") as f:
+    with open(os.path.join(ddir, "source.flac"), "wb") as f:
         f.write(b"old")
-    db.update_drama(did, audio_filename="source.wav")
+    db.update_drama(did, audio_filename="source.flac")
     env.writes.clear()
 
     def no_names(*a):
@@ -917,24 +917,24 @@ def test_a_download_that_cannot_be_saved_leaves_the_title_as_it_was(client, env,
     monkeypatch.setattr(media_upload_service, "_in_place_names", no_names)
     st = _run(client, did, confirm_replace_audio=True)
     assert st["status"] == "error" and st["error"].endswith(svc._SAVE_FAILED)
-    assert env.writes == [] and db.get_drama(did)["audio_filename"] == "source.wav"
-    assert sorted(os.listdir(ddir)) == ["source.wav"]
+    assert env.writes == [] and db.get_drama(did)["audio_filename"] == "source.flac"
+    assert sorted(os.listdir(ddir)) == ["source.flac"]
     _no_tmp(did)
 
 
 def test_an_audio_only_download_sets_an_old_video_aside(client, env):
     did = _drama()
     ddir = db.drama_dir(did)
-    for name, data in (("source.mp4", b"old video"), ("audio.wav", b"old wav")):
+    for name, data in (("source.mp4", b"old video"), ("audio.flac", b"old wav")):
         with open(os.path.join(ddir, name), "wb") as f:
             f.write(data)
-    db.update_drama(did, audio_filename="audio.wav", source_video_filename="source.mp4")
+    db.update_drama(did, audio_filename="audio.flac", source_video_filename="source.mp4")
     st = _run(client, did, confirm_replace_audio=True)
     assert st["status"] == "done", st
     drama = db.get_drama(did)
-    assert (drama["audio_filename"], drama["source_video_filename"]) == ("source.wav", None)
+    assert (drama["audio_filename"], drama["source_video_filename"]) == ("source.flac", None)
     assert sorted(_kept(did).values()) == [b"old video", b"old wav"]
-    assert sorted(os.listdir(ddir)) == ["kept_media", "source.wav"]
+    assert sorted(os.listdir(ddir)) == ["kept_media", "source.flac"]
     _no_tmp(did)
 
 

@@ -75,6 +75,16 @@ def test_track_is_404_until_it_exists_then_streams(client, isolated_db):
     assert r.status_code == 200 and r.headers["content-type"] == "audio/wav"
 
 
+def test_a_flac_track_streams_as_flac_with_a_flac_filename(client, isolated_db):
+    import os
+    did = _drama(isolated_db, content_mode="novel_narration")
+    with open(os.path.join(isolated_db.drama_dir(did), "narration_track.flac"), "wb") as f:
+        f.write(b"fLaCxxxx")
+    r = client.get(f"/api/listen/dramas/{did}/track")
+    assert r.status_code == 200 and r.headers["content-type"] == "audio/flac"
+    assert ".flac" in r.headers["content-disposition"]
+
+
 def _narrated(db, en="hi", **fields):
     did = db.create_drama(title_en="N", content_mode="novel_narration", **fields)
     db.save_lines(did, [
