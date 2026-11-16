@@ -295,6 +295,9 @@ While held:
   with it off it waits for the card to clear first. A restart refused as busy (a stopped
   translation's last Ollama request still running) is retried for 15 min. After
   `MAX_RESTARTS` (3) restarts in a row a further stop is final, and the job says so.
+  Until it starts again, `gpu_guard.restart_pending(job_id)` is true and the job queue
+  (`queue_service._job_outcome`) keeps the item that started it running, so a run on the
+  queue goes on with its next step instead of ending as cancelled.
 - A registered job whose model `memory_headroom` refused (`HeadroomError.vram_need_mb`,
   carried in a process job's result) doesn't end Failed: as the run ends, `job_runner`
   asks `gpu_guard.wait_for_room_locked`, which puts it back to "queued" (no notification)

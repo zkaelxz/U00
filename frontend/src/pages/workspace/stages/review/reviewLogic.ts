@@ -168,6 +168,23 @@ export function splitTranslationPieces(text: string, at: number): [string, strin
   return [first.trimEnd(), second.trim()]
 }
 
+/** `text` cut into runs, `unsure` for the words Whisper was unsure of. The spans are
+ *  code-point offsets (the server counts Python characters); any that overlap an earlier
+ *  one or fall outside the text are ignored rather than garbling it. */
+export function unsurePieces(text: string, spans: ReadonlyArray<readonly [number, number]> | null | undefined): { text: string; unsure: boolean }[] {
+  const chars = Array.from(text)
+  const out: { text: string; unsure: boolean }[] = []
+  let pos = 0
+  for (const [a, b] of spans ?? []) {
+    if (a < pos || b <= a || b > chars.length) continue
+    if (a > pos) out.push({ text: chars.slice(pos, a).join(''), unsure: false })
+    out.push({ text: chars.slice(a, b).join(''), unsure: true })
+    pos = b
+  }
+  if (pos < chars.length || !out.length) out.push({ text: chars.slice(pos).join(''), unsure: false })
+  return out
+}
+
 export function charCount(text: string): number {
   return Array.from(text).length
 }
@@ -383,7 +400,7 @@ export function chipLabel(filter: LineFilter, count: number | null, short: boole
   if (filter === 'all') return `All${n}`
   if (filter === 'flagged') return short ? `⚑${n}` : `Flagged${n}`
   if (filter === 'unreviewed') return short ? `Unrev.${n}` : `Unreviewed${n}`
-  if (filter === 'shaky') return short ? `Shaky${n}` : `Least confident${n}`
+  if (filter === 'shaky') return short ? `Unsure${n}` : `Least confident${n}`
   if (filter === 'risk') return short ? `Risk${n}` : `Riskiest${n}`
   if (filter === 'marked') return `Marked${n}`
   return short ? `Untr.${n}` : `Untranslated${n}`

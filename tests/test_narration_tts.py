@@ -310,6 +310,24 @@ class TestNarrationTTSUnits:
         assert not any(f.endswith(".partial.wav") for f in os.listdir(tmp_path / "dub_clips"))
 
 
+class TestNarrationTrackFormat:
+    def test_the_track_is_written_as_flac_and_an_older_wav_is_dropped(self, monkeypatch, fake_pydub, tmp_path):
+        speak_with(monkeypatch, lambda text, out_path, **kw: open(out_path, "w").close())
+        (tmp_path / "narration_track.wav").write_bytes(b"old")
+        lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="N")]
+        out, _ = dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
+        assert out == str(tmp_path / "narration_track.flac")
+        assert not (tmp_path / "narration_track.wav").exists()
+        assert dub_narration.find_narration_track(str(tmp_path)) == "narration_track.flac"
+
+    def test_a_title_with_only_the_older_wav_still_has_a_track(self, tmp_path):
+        assert dub_narration.find_narration_track(str(tmp_path)) is None
+        (tmp_path / "narration_track.wav").write_bytes(b"x")
+        assert dub_narration.find_narration_track(str(tmp_path)) == "narration_track.wav"
+        (tmp_path / "narration_track.flac").write_bytes(b"x")
+        assert dub_narration.find_narration_track(str(tmp_path)) == "narration_track.flac"
+
+
 # ----------------------------------------------- one clip at a time
 
 class TestSequentialNarration:
@@ -463,6 +481,7 @@ class TestExportM4b:
                  Line(idx=1, start=0, end=0, zh="二。", en="Two."),
                  Line(idx=2, start=0, end=0, zh="三。", en="Three.")]
         dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
+        (tmp_path / "narration_track.flac").unlink()  # the fake encoder's stub; this run exports an older title's WAV
         _write_wav(tmp_path / "narration_track.wav", 3.0)
 
         ran = []
@@ -478,6 +497,15 @@ class TestExportM4b:
         starts = [int(l.split("=")[1]) for l in meta.splitlines() if l.startswith("START=")]
         assert starts == [0, int(lines[2].start * 1000)]
         assert meta.splitlines()[-2] == "END=3000"  # the real WAV's length
+
+    def test_a_flac_track_gets_its_chapter_end_from_ffprobe(self, monkeypatch, tmp_path):
+        (tmp_path / "narration_track.flac").write_bytes(b"fLaC")
+        monkeypatch.setattr("media_inspect.duration_seconds", lambda path, timeout=30: 3.5)
+        monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: None)
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="一", en="One", dub_filename="a")]
+        dub_narration.export_narration_m4b(lines, str(tmp_path), title="T")
+        meta = (tmp_path / "narration_chapters.txt").read_text(encoding="utf-8")
+        assert meta.splitlines()[-2] == "END=3500"
 
     def test_needs_the_narration_first(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="generate the narration"):

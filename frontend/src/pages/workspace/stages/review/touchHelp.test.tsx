@@ -7,7 +7,7 @@ import { LineRow, type RowActions } from './LineRow'
 
 const LINE: ReviewLine = {
   id: 7, idx: 6, start: 1, end: 3, zh: '你好', en: 'Hello', speaker: null, speaker_manual: false,
-  sfx: false, flag: 'timing_drift', flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null,
+  sfx: false, flag: 'timing_drift', flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, unsure_words: null,
 }
 
 const noop = () => {}
@@ -93,17 +93,17 @@ describe('help that would otherwise be hover-only', () => {
   it('spells the Shaky reason out under the active row on a phone, whose meta line has no room for a button', () => {
     const html = render(shaky, true, true)
     expect(html).toMatch(/data-testid="badge-reasons">Whisper was unsure of this line\.<\/p>/)
-    expect(html).not.toContain('Help: Shaky')
+    expect(html).not.toContain('Help: Unsure')
   })
 
   it('gives the active row a help tip for the Shaky badge on a wider screen', () => {
-    expect(render(shaky, true, false)).toContain('aria-label="Help: Shaky"')
+    expect(render(shaky, true, false)).toContain('aria-label="Help: Unsure"')
   })
 
   it('adds neither to other rows, so only the active row has Tab stops', () => {
     for (const isPhone of [true, false]) {
       const html = render(shaky, false, isPhone)
-      expect(html).not.toContain('Help: Shaky')
+      expect(html).not.toContain('Help: Unsure')
       expect(html).not.toContain('badge-reasons')
     }
   })

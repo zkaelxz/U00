@@ -486,17 +486,32 @@ def text_fingerprint(text: str) -> str:
     return hashlib.sha1((text or "").encode("utf-8")).hexdigest()[:16]
 
 
+def _stored_probability(word) -> Optional[int]:
+    """A word's probability as the whole percent kept in its stored row, or None
+    when the engine gave none (Qwen3, anime-whisper) or it is not a number."""
+    p = word.get("probability") if isinstance(word, dict) else None
+    if isinstance(p, bool) or not isinstance(p, (int, float)) or not math.isfinite(p):
+        return None
+    return min(100, max(0, round(p * 100)))
+
+
 def encode_line_words(text: str, words) -> Optional[str]:
     """The stored form of a line's words: its text's fingerprint and, per word,
-    [first char, end char, start ms, end ms]. None when the words don't spell
-    exactly `text` or pass the MAX_STORED_* caps."""
+    [first char, end char, start ms, end ms], plus the word's probability in
+    whole percent as a fifth value when the engine gave one. None when the words
+    don't spell exactly `text` or pass the MAX_STORED_* caps."""
     if not words or len(words) > MAX_STORED_WORDS:
         return None
     index = _WordIndex.build(text, words)
     if index is None:
         return None
-    rows = [[a, b, round(t0 * 1000), round(t1 * 1000)]
-            for a, b, t0, t1 in zip(index.cs, index.ce, index.ts, index.te)]
+    rows = []
+    for w, a, b, t0, t1 in zip(index.kept, index.cs, index.ce, index.ts, index.te):
+        row = [a, b, round(t0 * 1000), round(t1 * 1000)]
+        p = _stored_probability(w)
+        if p is not None:
+            row.append(p)
+        rows.append(row)
     payload = json.dumps({"h": text_fingerprint(text), "w": rows}, separators=(",", ":"))
     return payload if len(payload) <= MAX_STORED_WORD_BYTES else None
 
@@ -514,9 +529,9 @@ def words_for_text(payload, text: str) -> Optional[str]:
         return None
 
 
-def line_words(ln) -> Optional[list]:
-    """A line's stored words as {start, end, word} dicts, or None unless they
-    were computed against exactly its current text and fall inside its time.
+def _line_word_rows(ln) -> Optional[list]:
+    """A line's stored rows as (first char, end char, word dict), or None unless
+    they were computed against exactly its current text and fall inside its time.
     Any text edit changes the fingerprint, so stale words are never used."""
     payload, text = getattr(ln, "word_timings", None), ln.zh or ""
     if not isinstance(payload, str) or len(payload) > MAX_STORED_WORD_BYTES:
@@ -525,24 +540,48 @@ def line_words(ln) -> Optional[list]:
         data = json.loads(payload)
         if data["h"] != text_fingerprint(text):
             return None
-        words, pos = [], 0
-        for a, b, t0, t1 in data["w"]:
+        rows, pos = [], 0
+        for row in data["w"]:
+            # Rows stored before word probabilities were kept have four values.
+            a, b, t0, t1, *rest = row
             # encode_line_words writes only ints, so anything else (a float,
             # inf/nan, a bool) is a hand-made backup row, never a transcription.
-            if not (all(type(v) is int for v in (a, b, t0, t1))
-                    and pos <= a < b <= len(text) and 0 <= t0 <= t1 <= _MAX_WORD_MS):
+            if not (len(rest) <= 1 and all(type(v) is int for v in (a, b, t0, t1, *rest))
+                    and pos <= a < b <= len(text) and 0 <= t0 <= t1 <= _MAX_WORD_MS
+                    and all(0 <= p <= 100 for p in rest)):
                 return None
-            words.append({"word": text[a:b], "start": t0 / 1000, "end": t1 / 1000})
+            word = {"word": text[a:b], "start": t0 / 1000, "end": t1 / 1000}
+            if rest:
+                word["probability"] = rest[0] / 100
+            rows.append((a, b, word))
             pos = b
     # A backup can carry any string: deep nesting makes json.loads recurse.
     except (ValueError, TypeError, KeyError, RecursionError, OverflowError):
         return None
-    index = _WordIndex.build(text, words)
+    index = _WordIndex.build(text, [w for _a, _b, w in rows])
     # Times are absolute audio times, so a re-timed line keeps its words; a row
     # whose words lie wholly outside its span describes some other audio.
     if index is None or index.te[-1] <= ln.start or index.ts[0] >= ln.end:
         return None
-    return words
+    return rows
+
+
+def line_words(ln) -> Optional[list]:
+    """A line's stored words as {start, end, word[, probability]} dicts, or None
+    when it has none that fit its current text and time (_line_word_rows)."""
+    rows = _line_word_rows(ln)
+    return [w for _a, _b, w in rows] if rows else None
+
+
+def unsure_word_spans(ln, below: float) -> Optional[list]:
+    """[first char, end char] of each stored word the engine heard with a
+    probability under `below`, or None when the line keeps no probabilities
+    (another engine, a row stored before they were kept, or edited text)."""
+    rows = _line_word_rows(ln)
+    scored = [(a, b, w["probability"]) for a, b, w in rows or () if "probability" in w]
+    if not scored:
+        return None
+    return [[a, b] for a, b, p in scored if p < below]
 
 
 def line_word_index(ln) -> Optional["_WordIndex"]:
@@ -713,9 +752,10 @@ def sanitize_segment_times(segments: list, duration=None) -> list:
 
 
 def _word_dicts(words) -> list:
-    """faster-whisper Word objects as plain {start, end, word} dicts; empty when
-    the segment has none (word timestamps off, or an older release)."""
+    """faster-whisper Word objects as plain {start, end, word, probability} dicts;
+    empty when the segment has none (word timestamps off, or an older release)."""
     try:
-        return [{"start": w.start, "end": w.end, "word": w.word} for w in words or ()]
+        return [{"start": w.start, "end": w.end, "word": w.word,
+                 "probability": getattr(w, "probability", None)} for w in words or ()]
     except AttributeError:
         return []

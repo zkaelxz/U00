@@ -7,7 +7,9 @@ voice and clip helpers, never the other way round.
 import contextlib
 import os
 import re
-from novel_text import NOVEL_SOURCE_FILENAME, is_chapter_heading, narration_paragraph_ends  # noqa: F401 (re-exported)
+from novel_text import (  # noqa: F401 (re-exported)
+    NARRATION_TRACK_NAMES, NOVEL_SOURCE_FILENAME, find_narration_track, is_chapter_heading,
+    narration_paragraph_ends)
 
 from audio_levelling import level_clip
 from dub import (NO_VOICE_ERROR, engine_refusal, M4B_ENCODE_TIMEOUT_SECONDS, VENV_ENGINES, VENV_LINE_FAILED,
@@ -218,8 +220,12 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
         track += AudioSegment.silent(duration=gap_ms)
         cursor_ms += gap_ms
 
-    out_path = os.path.join(drama_dir, "narration_track.wav")
-    track.export(out_path, format="wav")
+    out_path = os.path.join(drama_dir, NARRATION_TRACK_NAMES[0])
+    track.export(out_path, format="flac")
+    # A regenerated title must not keep serving, or backing up, its old WAV copy.
+    legacy = os.path.join(drama_dir, NARRATION_TRACK_NAMES[1])
+    if os.path.isfile(legacy):
+        os.remove(legacy)
     return out_path, errors
 
 
@@ -264,13 +270,17 @@ def _ffmetadata_escape(value: str) -> str:
     return re.sub(r"([=;#\\\n])", r"\\\1", value)
 
 
-def _wav_duration_ms(path: str):
-    import wave
-    try:
-        with wave.open(path, "rb") as w:
-            return int(w.getnframes() * 1000 / w.getframerate())
-    except Exception:
-        return None
+def _track_duration_ms(path: str):
+    if path.lower().endswith(".wav"):
+        import wave
+        try:
+            with wave.open(path, "rb") as w:
+                return int(w.getnframes() * 1000 / w.getframerate())
+        except Exception:
+            return None
+    import media_inspect
+    seconds = media_inspect.duration_seconds(path, timeout=30)
+    return int(seconds * 1000) if seconds else None
 
 
 def narration_ffmetadata(chapters, total_ms: int, title: str = None) -> str:
@@ -294,7 +304,7 @@ def narration_ffmetadata(chapters, total_ms: int, title: str = None) -> str:
 
 def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str = None,
                          narrate_original: bool = False, cancel_job_id: str = None) -> str:
-    """Encodes narration_track.wav as an M4B audiobook (AAC) with chapter
+    """Encodes narration_track.flac (or the .wav of an older title) as an M4B audiobook (AAC) with chapter
     markers (narration_chapters). Needs the narration generated first --
     lines carrying the timing build_narration_track gave them -- and
     ffmpeg on PATH. Returns the .m4b path. narrate_original:
@@ -302,17 +312,18 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
     audio's own language. cancel_job_id: a thread job whose cancel request
     kills the ffmpeg run (background_jobs.run_cancellable)."""
     import subprocess
-    wav_path = os.path.join(drama_dir, "narration_track.wav")
-    if not os.path.exists(wav_path):
-        raise FileNotFoundError("No narration_track.wav yet -- generate the narration first.")
-    total_ms = _wav_duration_ms(wav_path) or int(max((ln.end for ln in lines), default=0.0) * 1000)
+    track_name = find_narration_track(drama_dir)
+    if not track_name:
+        raise FileNotFoundError("No narration track yet -- generate the narration first.")
+    track_path = os.path.join(drama_dir, track_name)
+    total_ms = _track_duration_ms(track_path) or int(max((ln.end for ln in lines), default=0.0) * 1000)
     chapters = narration_chapters(lines, narration_paragraph_ends(lines, drama_dir),
                                   narrate_original=narrate_original)
     meta_path = os.path.join(drama_dir, "narration_chapters.txt")
     with open(meta_path, "w", encoding="utf-8") as f:
         f.write(narration_ffmetadata(chapters, total_ms, title))
     out_path = out_path or os.path.join(drama_dir, "narration.m4b")
-    cmd = ["ffmpeg", "-y", "-i", wav_path, "-i", meta_path, "-map", "0:a",
+    cmd = ["ffmpeg", "-y", "-i", track_path, "-i", meta_path, "-map", "0:a",
            "-map_metadata", "1", "-map_chapters", "1", "-c:a", "aac", "-b:a", "64k",
            "-f", "ipod", out_path]
     if cancel_job_id:

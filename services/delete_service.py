@@ -28,6 +28,7 @@ No FastAPI import.
 import logging
 import os
 
+import storage
 from lib import ids as lib_ids, storage_errors
 import db
 from services import drama_service, ownership_service
@@ -121,6 +122,8 @@ def remove_media(drama_id, confirm=False) -> dict:
                if failure is None or not os.path.isfile(paths[f] or "")}
     if cleared:
         db.update_drama(drama_id, **cleared)
+    if "audio_filename" in cleared:
+        storage.drop_separated_vocals(folder)
     if failure is not None:
         raise failure
     return {"drama_id": drama_id, "removed": True,

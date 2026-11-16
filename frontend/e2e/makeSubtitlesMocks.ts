@@ -4,7 +4,7 @@ import { ME } from './authMocks'
 import { json } from './mockHelpers'
 
 // The Add page's file run with nothing real behind it: create, upload, the two
-// jobs, translate config/run and the SRT export are fulfilled here. Jobs read as
+// jobs, the queue's file run and the SRT export are fulfilled here. Jobs read as
 // running until `release()`, then done (or error for `failJob`). Preflight is all OK.
 
 export const DRAMA_ID = 99
@@ -63,15 +63,27 @@ export async function mockMakeSubtitles(
     started.add('transcribe')
     return json(r, { upload: { name: 'a.mp3', size: 3, kind: 'audio', job_id: null }, job_id: `transcribe_${DRAMA_ID}` })
   })
-  // The real config for drama 1 stands in for the new title's (same shape, defaults).
-  await page.route(`**/api/translate-run/dramas/${DRAMA_ID}/config`, async (r) => {
-    const real = await r.fetch({ url: '/api/translate-run/dramas/1/config' })
-    await r.fulfill({ response: real })
-  })
-  await page.route(`**/api/translate-run/dramas/${DRAMA_ID}/run`, (r) => {
-    m.translateRuns.push(r.request().postDataJSON())
-    started.add('translate')
-    return json(r, { job_id: `translate_${DRAMA_ID}`, drama_id: DRAMA_ID, engine: 'deepseek', model: null, target_line_count: 1, fallback_engines: [] })
+  // The run on the PC queue: it follows the upload's transcription, then starts the translation itself.
+  let posted: unknown = null
+  let translateRead = false
+  await page.route(`**/api/queue/file-run/${DRAMA_ID}`, (r) => {
+    const idle = { state: 'idle', step: null, reason: null, job_id: null }
+    if (r.request().method() === 'POST') {
+      posted = r.request().postDataJSON()
+      translateRead = false
+      return json(r, { state: 'running', step: 'follow', reason: null, job_id: `transcribe_${DRAMA_ID}` })
+    }
+    if (!posted) return json(r, idle)
+    if (held) return json(r, { state: 'running', step: 'follow', reason: null, job_id: `transcribe_${DRAMA_ID}` })
+    if (!translateRead) {
+      translateRead = true
+      started.add('translate')
+      m.translateRuns.push(posted)
+      return json(r, { state: 'running', step: 'run_translate', reason: null, job_id: `translate_${DRAMA_ID}` })
+    }
+    return json(r, o.failJob === 'translate'
+      ? { state: 'stopped', step: 'run_translate', reason: 'The translator refused the request.', job_id: `translate_${DRAMA_ID}` }
+      : { state: 'done', step: null, reason: null, job_id: `translate_${DRAMA_ID}` })
   })
   await page.route(/\/api\/jobs\/(transcribe|translate)_99$/, (r) => {
     const id = new URL(r.request().url()).pathname.split('/').pop()!

@@ -57,7 +57,8 @@ test('once translation has started the link box becomes Add chapters, which neve
     calls.push('add')
     return route.fulfill({ json: { char_count: 90, added_chars: 0 } })
   })
-  await page.route('**/api/translate-run/**', (route) => { calls.push('translate'); return route.fulfill({ json: {} }) })
+  // Only a start counts: the engine list the options box reads is a GET on the same path.
+  await page.route('**/api/translate-run/**', (route) => { if (route.request().method() === 'POST') calls.push('translate'); return route.fulfill({ json: {} }) })
   await page.goto('/#/drama/2')
   const box = page.getByRole('form', { name: 'Add chapters from a link' })
   await expect(box).toBeVisible()

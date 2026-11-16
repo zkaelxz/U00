@@ -8,7 +8,7 @@ import { LineRow, type RetranscribeState, type RowActions } from './LineRow'
 
 const LINE: ReviewLine = {
   id: 7, idx: 6, start: 1, end: 3, zh: '你好', en: 'Hello', speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: 'take3.wav', lang: null, reviewed: false, confidence: null, mark: null,
+  sfx: false, flag: null, flag_note: null, dub_filename: 'take3.wav', lang: null, reviewed: false, confidence: null, mark: null, unsure_words: null,
 }
 
 function row(simple: boolean, line: ReviewLine = LINE, { queue = false, isPhone = false, active = true, retranscribe = null as RetranscribeState | null,
@@ -96,7 +96,7 @@ describe('check queue card', () => {
     const unsure = { ...LINE, confidence: 0.72 }
     expect(row(true, unsure, { queue: true })).toContain('Whisper was unsure of this line (72% sure)')
     const closed = row(true, unsure, { queue: true, active: false })
-    // The closed card's chip keeps the score: on a wide screen it leaves out the Shaky badge that also says it.
+    // The closed card's chip keeps the score: on a wide screen it leaves out the Unsure badge that also says it.
     expect(closed).toContain('data-testid="queue-reason">Whisper was unsure of this line (72% sure)</span>')
     expect(row(true, unsure)).not.toContain('Whisper was unsure')
     // A closed card drops the full-width flag bar for its chip.
@@ -251,5 +251,17 @@ describe('a flagged line outside the check queue', () => {
     expect(sheet(speed)).toContain(`data-testid="sheet-flag"><span aria-hidden="true">⚑ </span>Flagged: ${SPEED_SENTENCE}</p>`)
     expect(sheet(free)).toContain(`data-testid="sheet-flag"><span aria-hidden="true">⚑ </span>Flagged: ${FREE_SENTENCE}</p>`)
     expect(sheet(unknown)).toContain('data-testid="sheet-flag"><span aria-hidden="true">⚑ </span>Flagged: Uncertain · Check</p>')
+  })
+})
+
+describe('source text', () => {
+  it('underlines the words Whisper was unsure of', () => {
+    const html = row(false, { ...LINE, zh: '你好吗', unsure_words: [[1, 2]] })
+    expect(html).toContain('<div lang="zh" class="review-zh">你<span class="review-unsure-word" title="Whisper was unsure of this word">好</span>吗</div>')
+  })
+
+  it('shows plain text when the line keeps no word scores', () => {
+    expect(row(false, { ...LINE, unsure_words: null })).toContain('class="review-zh">你好</div>')
+    expect(row(false, { ...LINE, unsure_words: [] })).toContain('class="review-zh">你好</div>')
   })
 })

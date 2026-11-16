@@ -25,11 +25,32 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 # a test keeps the two equal. Nothing outside it ever reaches `pip uninstall`.
 CV2_SWAP_UNINSTALLABLE = ("opencv-python", "opencv-python-headless")
 CV2_CONTRIB = "opencv-contrib-python"
-# Keys whose install pulls the exact contrib build (PaddleX pins it).
-NEEDS_CV2_CONTRIB = frozenset({"paddleocr"})
+# Keys whose install pulls its own OpenCV build; none now: PaddleOCR is installed without its
+# dependencies (below), so the swap of a plain OpenCV for the contrib build never applies.
+NEEDS_CV2_CONTRIB = frozenset()
 # RapidOCR declares opencv-python-headless, which would share the 'cv2' folder with
 # the build the app already has; its other requirements are keys of their own.
-INSTALL_WITHOUT_DEPS = frozenset({"rapidocr"})
+# PaddleX (needed by paddleocr) pins numpy<2.4, PyYAML==6.0.2 and opencv-contrib-python==4.10.0.84,
+# which pip would use to downgrade what Baihe needs; those are metadata limits only, and
+# PaddleOCR 3.7.0 reads text correctly beside numpy 2.5 and OpenCV 5.
+PADDLE_KEYS = frozenset({"paddleocr", "paddlepaddle"})
+INSTALL_WITHOUT_DEPS = frozenset({"rapidocr"}) | PADDLE_KEYS
+# What --no-deps skips for the Paddle keys, minus numpy, PyYAML and OpenCV (kept as the app has them),
+# and `paddleocr` pinned with PaddleX to the pair ocr.py is written for (paddleocr needs paddlex<3.8).
+PADDLE_REQUIREMENTS = {
+    "paddleocr": ("paddlex==3.7.2", "aistudio-sdk", "chardet", "colorlog", "filelock", "huggingface-hub",
+                  "modelscope", "packaging", "pandas", "pillow", "prettytable", "py-cpuinfo", "pydantic",
+                  "requests", "ruamel.yaml", "typing-extensions", "ujson", "imagesize", "pyclipper",
+                  "pypdfium2", "python-bidi", "shapely", "aiohttp",
+                  # What those need in turn: --no-deps skips every level, and a V100 test showed
+                  # `import paddleocr` failing without them (pip check found these missing).
+                  "aiohappyeyeballs", "aiosignal", "attrs", "frozenlist", "multidict", "propcache", "yarl",
+                  "bce-python-sdk", "psutil", "tqdm", "colorama", "fsspec", "hf-xet", "modelscope-hub",
+                  "python-dateutil", "tzdata", "wcwidth"),
+    "paddlepaddle": ("httpx", "protobuf", "opt-einsum", "networkx", "typing-extensions", "safetensors",
+                     "setuptools"),
+}
+PADDLE_PINS = {"paddleocr": "paddleocr==3.7.0", "paddlepaddle": "paddlepaddle==3.3.1"}
 # The rest of its requirements, installed beside it because --no-deps skips them.
 RAPIDOCR_KEYS = frozenset({"rapidocr", "onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog",
                            "six", "tqdm", "PyYAML"})
@@ -54,9 +75,10 @@ def unqueueable_reason(keys) -> str | None:
     for key in keys:
         if key not in known:
             return "Unknown or non-installable package."
-    if INSTALL_WITHOUT_DEPS & set(keys) and set(keys) - RAPIDOCR_KEYS:
+    if INSTALL_WITHOUT_DEPS & set(keys) and set(keys) - RAPIDOCR_KEYS - PADDLE_KEYS:
         # --no-deps covers the whole command, so other packages would lose their own requirements.
-        return "RapidOCR is installed on its own, without other packages in the same install."
+        return ("RapidOCR and PaddleOCR are installed on their own, without other packages "
+                "in the same install.")
     if any(k in diagnostics_torch.TORCH_FAMILY for k in keys) and shutil.which("nvidia-smi"):
         return ("PyTorch on an NVIDIA PC is set up under GPU PyTorch, not here, so it keeps "
                 "its CUDA build.")
@@ -73,7 +95,10 @@ def install_dists(keys) -> list:
     opencv-python asked for beside a key that pulls contrib would only make the
     plan refuse the pair as two OpenCV flavours."""
     skip_plain_cv2 = bool(NEEDS_CV2_CONTRIB & set(keys))
-    return [diagnostics.pip_install_name(k) for k in keys if not (skip_plain_cv2 and k == "cv2")]
+    dists = [PADDLE_PINS.get(k) or diagnostics.pip_install_name(k)
+             for k in keys if not (skip_plain_cv2 and k == "cv2")]
+    extras = [r for k in keys for r in PADDLE_REQUIREMENTS.get(k, ())]
+    return list(dict.fromkeys(dists + extras))
 
 
 def install_argv(keys, python: str | None = None, torch_pins_path: str | None = None,

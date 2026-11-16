@@ -321,6 +321,24 @@ class TestStorage:
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_separated_vocals_are_cleaned_by_every_preset_but_archival(self):
+        d = self._make_dir()
+        try:
+            with open(os.path.join(d, "vocals.wav"), "wb") as f:
+                f.write(b"v" * 7000)
+            assert stg.scan_drama_storage(d)["categories"]["separated_vocals"] == 7000
+            assert "separated_vocals" not in stg.categories_for_preset("archival")
+            stg.clean_drama_storage(d, stg.categories_for_preset("archival"))
+            assert os.path.exists(os.path.join(d, "vocals.wav"))
+            for preset in ("balanced", "minimal"):
+                assert "separated_vocals" in stg.categories_for_preset(preset)
+            result = stg.clean_drama_storage(d, stg.categories_for_preset("balanced"))
+            assert "vocals.wav" in result["removed"]
+            assert not os.path.exists(os.path.join(d, "vocals.wav"))
+            assert os.path.exists(os.path.join(d, "source.mp3"))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
     def test_cleanup_reports_freed_bytes(self):
         d = self._make_dir()
         try:

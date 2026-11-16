@@ -38,11 +38,14 @@ REVISIONS = {
     "quantumcookie/anime-whisper-ct2-fp16": "8ad0b0053dd0af6e108eea290e6f50a3aea49008",
     # Chinese (Taiwanese Mandarin) CTranslate2 build offered as whisper_models.PINNED_CT2_REPOS.
     "phate334/Breeze-ASR-25-ct2": "ac4ec98cf46e00218e29e704b3181a2d7bd94f77",
+    # NVIDIA Nemotron-3-Diarization (diarize_nemotron); the download fetches only config, processor
+    # config and model.safetensors, never the .nemo or .gguf copies in the same repo.
+    "nvidia/Nemotron-3-Diarization": "52a432672732425e4c19765b9fec9b5810e6f4ba",
     # Qwen3-ASR and the forced aligner (qwen3_native).
     "Qwen/Qwen3-ASR-0.6B-hf": "7f1569a48a89f3e3f4dc3a5c9d28bddd903bc76c",
     "Qwen/Qwen3-ASR-1.7B-hf": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3",
     "Qwen/Qwen3-ForcedAligner-0.6B-hf": "c07281df297b9905d24a508279258cccf987a064",
-    # OCR (ocr.py) and scanlate (scanlate_detect.py, scanlate_inpaint.py).
+    # OCR (ocr.py) and scanlate (scanlate_detect.py, scanlate_lama.py).
     "jzhang533/PaddleOCR-VL-For-Manga": "1e8aa5f1dd90cc86fe9137c9c0b26ebde613cfe8",
     "PaddlePaddle/PaddleOCR-VL": "7fa00a8c55b735ba51ba49a9058f3f9c57a99a11",
     "Qwen/Qwen3-VL-4B-Instruct": "ebb281ec70b05090aa6165b016eac8ec08e71b17",

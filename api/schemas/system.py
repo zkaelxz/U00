@@ -315,6 +315,7 @@ class SettingsPreferences(TimingPreferences):
     default_locale: str
     default_style_note: str
     scene_aware_batches: bool
+    blocked_phrases: str = ""
     scanlate_chapter_brief: bool = True
     scanlate_page_image: bool = True
     scanlate_sfx_gloss: bool = False
@@ -334,6 +335,7 @@ class SettingsPreferences(TimingPreferences):
     keep_free_vram_gb: float = 0.0
     keep_free_ram_gb: float = 0.0
     gpu_guard: bool = True
+    second_hearing: bool = False
     gpu_guard_temp_c: int = 85
     gpu_guard_stop_minutes: int = 2
     whisper_model_path: str
@@ -428,6 +430,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     default_locale: Optional[StrictStr] = Field(None, max_length=8)
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)
     scene_aware_batches: Optional[StrictBool] = None
+    blocked_phrases: Optional[StrictStr] = Field(None, max_length=4000)
     scanlate_chapter_brief: Optional[StrictBool] = None
     scanlate_page_image: Optional[StrictBool] = None
     scanlate_sfx_gloss: Optional[StrictBool] = None
@@ -447,6 +450,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     keep_free_vram_gb: Optional[Union[StrictInt, StrictFloat]] = None
     keep_free_ram_gb: Optional[Union[StrictInt, StrictFloat]] = None
     gpu_guard: Optional[StrictBool] = None
+    second_hearing: Optional[StrictBool] = None
     gpu_guard_temp_c: Optional[StrictInt] = None
     gpu_guard_stop_minutes: Optional[StrictInt] = None
     whisper_model_path: Optional[StrictStr] = Field(None, max_length=1024)

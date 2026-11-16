@@ -257,6 +257,7 @@ button.review-more { margin-left: auto; min-width: 36px; padding: 2px 10px; font
 .review-line.is-active button.review-more, button.review-more:focus-visible { border-color: var(--border); color: var(--text); }
 .review-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-1) var(--space-4); align-items: start; margin-top: 2px; }
 .review-zh { overflow-wrap: anywhere; font-size: var(--text-edit); }
+.review-unsure-word { text-decoration: underline dotted var(--warn); text-decoration-thickness: 2px; text-underline-offset: 0.2em; }
 .review-lines.is-compact :is(.review-zh, button.review-en) { font-size: var(--text-md); }
 .review-untranslated { font-style: italic; }
 /* The translation is a button but reads as text: no padding or border offset, so it lines up with the source. */

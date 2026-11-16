@@ -3,9 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { applyNovelGlossary, getNovelGlossary } from '../../api/autotuneGlossary'
 import { getTranslateConfig, startTranslateRun } from '../../api/translateStage'
 import { translateWithoutReview } from './novelLinkActions'
+import { EMPTY_TAG_CHOICE } from './stages/tagChoice'
 import * as form from './translateForm'
 
 vi.mock('../../api/autotuneGlossary', async (orig) => ({ ...(await orig<object>()), applyNovelGlossary: vi.fn(), getNovelGlossary: vi.fn() }))
+vi.mock('../../api/dub', async (orig) => ({
+  ...(await orig<object>()),
+  narrationApi: { config: vi.fn(), estimate: vi.fn(), run: vi.fn() },
+}))
+vi.mock('../../api/jobs', async (orig) => ({ ...(await orig<object>()), probeJob: vi.fn(async () => ({ status: 'done' })) }))
 vi.mock('../../api/translateStage', async (orig) => ({ ...(await orig<object>()), getTranslateConfig: vi.fn(), startTranslateRun: vi.fn() }))
 vi.mock('./translateForm', async (orig) => ({
   ...(await orig<object>()),
@@ -47,5 +53,14 @@ describe('translateWithoutReview', () => {
     vi.mocked(getNovelGlossary).mockResolvedValue({ run_id: 'r1', proposals: [term('乙', true, 'Yi')] } as never)
     await translateWithoutReview(5, true)
     expect(applyNovelGlossary).not.toHaveBeenCalled()
+  })
+})
+
+describe('a skipped review after the lines step', () => {
+  it('translates with the same engine, model and chapters', async () => {
+    const f: Record<string, unknown> = {}
+    vi.mocked(form.initialForm).mockReturnValue(f as never)
+    await translateWithoutReview(5, false, { ...EMPTY_TAG_CHOICE, engine: 'ollama', model: 'qwen', from: '1', to: '1' })
+    expect(f).toMatchObject({ engine: 'ollama', model: 'qwen', chapter_from: '1', chapter_to: '1' })
   })
 })

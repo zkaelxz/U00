@@ -129,6 +129,13 @@ def test_audiobook_ffmpeg_missing_503(local_client, drama, isolated_db, monkeypa
     assert "ffmpeg" in error_of(r)["message"]
 
 
+def test_audiobook_accepts_a_flac_narration_track(local_client, drama, isolated_db, monkeypatch):
+    _touch(isolated_db, drama, "narration_track.flac")
+    monkeypatch.setattr(media_export_service.shutil, "which", lambda name: None)
+    # Past the "no narration yet" check, so the next refusal is the missing ffmpeg.
+    assert local_client.post(f"/api/export/dramas/{drama}/audiobook").status_code == 503
+
+
 def test_audiobook_duplicate_409(local_client, drama, isolated_db):
     _touch(isolated_db, drama, "narration_track.wav")
     with job_table._lock:
@@ -193,7 +200,7 @@ def test_burned_video_keeps_overlapping_cues(local_client, drama, isolated_db, m
 ])
 def test_ass_video_exports_fit_long_cjk_rows_to_a_portrait_video(
         local_client, drama, isolated_db, monkeypatch, endpoint, body, job):
-    import subtitle_formats
+    import subtitle_ass
     text = "他说这件事我们明天再谈吧今天太晚了然后转身离开了房间"
     isolated_db.save_lines(drama, [Line(idx=0, start=0.0, end=3.0, zh=text, en="")])
     _add_video(isolated_db, drama, "source.mp4")
@@ -212,7 +219,7 @@ def test_ass_video_exports_fit_long_cjk_rows_to_a_portrait_video(
     assert wait_for_job(f"{job}{drama}", timeout=6.0)["status"] == "done"
     assert probed and probed[0].endswith("source.mp4")
     rows = next(l for l in seen["ass"].splitlines() if l.startswith("Dialogue:")).split(",", 9)[9]
-    limit = subtitle_formats.ass_cjk_row_limit(subtitle_formats.ASS_PRESETS["Clean"], 9 / 16)
+    limit = subtitle_ass.ass_cjk_row_limit(subtitle_ass.ASS_PRESETS["Clean"], 9 / 16)
     assert "".join(rows.split("\\N")) == text
     assert all(len(r) <= limit for r in rows.split("\\N"))
 

@@ -29,9 +29,9 @@ afterEach(() => resetPcModeForTests())
 
 describe('notification text helpers', () => {
   it('summarises which channels are on', () => {
-    expect(notificationSummary({ discord_configured: false, ntfy_configured: false, ntfy_allow_local: false, send_jobs: true, send_chapters: true, send_remote: true, show_private_titles: false })).toBe('Off')
+    expect(notificationSummary({ discord_configured: false, ntfy_configured: false, ntfy_allow_local: false, send_jobs: true, send_chapters: true, send_remote: true, show_private_titles: false, pc_name: '', pc_name_default: 'PC' })).toBe('Off')
     expect(
-      notificationSummary({ discord_configured: true, ntfy_configured: true, ntfy_allow_local: false, send_jobs: false, send_chapters: false, send_remote: false, show_private_titles: false }),
+      notificationSummary({ discord_configured: true, ntfy_configured: true, ntfy_allow_local: false, send_jobs: false, send_chapters: false, send_remote: false, show_private_titles: false, pc_name: '', pc_name_default: 'PC' }),
     ).toBe(
       'On: Discord, ntfy',
     )

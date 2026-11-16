@@ -32,6 +32,7 @@ const PREFS = {
   keep_free_vram_gb: 0,
   keep_free_ram_gb: 0,
   gpu_guard: true,
+  second_hearing: false,
   gpu_guard_temp_c: 85,
   gpu_guard_stop_minutes: 2,
   whisper_model_path: '',

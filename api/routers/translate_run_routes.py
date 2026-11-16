@@ -57,7 +57,8 @@ def get_translate_run_config(drama_id: int = Path(ge=1)):
         return {**translate_run_service.get_translate_config(drama_id),
                 **translate_thinking_service.config_fields(drama_id),
                 **failed_lines_service.summarize(drama_id),
-                **glossary_flagged_service.config_fields(drama_id)}
+                **glossary_flagged_service.config_fields(drama_id),
+                **glossary_flagged_service.doubtful_config_fields(drama_id)}
 
 
 @router.get("/dramas/{drama_id}/estimate", dependencies=[require_permission("library.read")], response_model=TranslateRunEstimate,
@@ -73,13 +74,16 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
                                gemini_free_tier: Optional[bool] = None,
                                job_cost_cap_usd: Optional[float] = Query(None, ge=0),
                                batch_size: Optional[int] = Query(None, ge=1, le=translate_run_service.MAX_BATCH_SIZE),
-                               line_ids: Optional[List[int]] = Query(None, max_length=5000)):
+                               line_ids: Optional[List[int]] = Query(None, max_length=5000),
+                               chapter_from: Optional[int] = Query(None, ge=1),
+                               chapter_to: Optional[int] = Query(None, ge=1)):
     return translate_thinking_service.annotate_estimate(
         translate_run_service.estimate_translate_cost(
             drama_id, engine_name=engine, model=model, reflect=reflect,
             force_retranslate=force_retranslate, bulk=bulk,
             gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd,
-            batch_size=batch_size, line_ids=line_ids),
+            batch_size=batch_size, line_ids=line_ids,
+            chapter_from=chapter_from, chapter_to=chapter_to),
         drama_id, thinking, reflect)
 
 
@@ -112,6 +116,7 @@ def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int
         default_female_pronouns=body.default_female_pronouns,
         include_genre_notes=body.include_genre_notes, memory_examples=body.memory_examples,
         own_lines_only=body.own_lines_only,
+        chapter_from=body.chapter_from, chapter_to=body.chapter_to,
         # The Settings episode-summary engine may be a cloud one: skipped
         # for a caller without engines.paid rather than refusing the run.
         allow_paid_summary=holds_paid_engines(request))
@@ -240,7 +245,7 @@ def start_retry_failed(body: RetryFailedLinesStart, request: Request, drama_id: 
 
 @router.post("/dramas/{drama_id}/glossary-flagged/run", dependencies=[require_permission("jobs.start")],
              response_model=GlossaryFlaggedRedoStarted,
-             summary="Redo the lines flagged for a missing glossary name with the stronger engine",
+             summary="Redo the lines flagged for a missing glossary name, or as doubtful, with the stronger engine",
              responses=error_responses(400, 404, 409, 422, 503))
 def start_glossary_flagged_redo(request: Request, body: GlossaryFlaggedRedoStart | None = None,
                                 drama_id: int = Path(ge=1)):
@@ -251,7 +256,7 @@ def start_glossary_flagged_redo(request: Request, body: GlossaryFlaggedRedoStart
     return translate_thinking_service.start_with_thinking(
         glossary_flagged_service.start_redo, drama_id, None, False, engine,
         allow_paid_summary=holds_paid_engines(request),
-        line_ids=body.line_ids if body else None)
+        line_ids=body.line_ids if body else None, kind=body.kind if body else "glossary")
 
 
 @router.get("/dramas/{drama_id}/episode-summary", dependencies=[require_permission("library.read")],

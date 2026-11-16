@@ -2,7 +2,8 @@ import type { Page } from '@playwright/test'
 
 export const PENDING_BASE = '/api/diagnostics/pending-install'
 
-export const EMPTY_STATUS = { packages: [], created: null, before: {}, problem: null, result: null, applying: false }
+export const EMPTY_STATUS = { packages: [], created: null, before: {}, problem: null, result: null, applying: false,
+  restart: { available: true, reason: null, running_jobs: [], other_jobs: false } }
 
 export const planFor = (packages: string[], o: Record<string, unknown> = {}) => ({
   packages, available: true, mode: 'now', changes: [], summary: [], loaded: [], blocked: [], needs_confirm: [],

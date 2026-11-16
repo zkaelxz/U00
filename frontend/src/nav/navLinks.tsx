@@ -33,7 +33,7 @@ export const navIconPath = (label: string): string => ICONS[label] ?? ICONS.Libr
 
 export function Icon({ d }: { d: string }) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d={d} />
     </svg>
   )

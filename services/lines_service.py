@@ -21,6 +21,7 @@ LLM tools, bulk modes other than setting lines' language. No FastAPI
 import: plain dicts in and out.
 Error messages never echo user text, and no path or key is returned.
 """
+import copy
 import math
 
 import core as core_module
@@ -28,8 +29,10 @@ import db
 import source_change
 import subtitle_formats
 import timing_drift
-import translation_guide
+import translation_notes
 from services import (
+    edit_log_service,
+    line_provenance_service,
     ownership_service,
     reading_speed_dismissal_service,
     timing_check_service,
@@ -60,7 +63,7 @@ def load(drama_id: int, line_id: int):
 
 
 def _reload_dict(drama_id: int, line_id: int) -> dict:
-    for ln in db.load_line_objects(drama_id):
+    for ln in db.load_line_objects(drama_id, with_words=True, ids=[line_id]):
         if ln.id == line_id:
             return line_dict(ln)
     raise NotFoundError(f"No line with id {line_id} in this title.")
@@ -143,6 +146,8 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
         raise InvalidInputError("end must be after start.")
 
     before_en, before_zh = ln.en or "", ln.zh or ""
+    before_flag, before_mark = ln.flag, ln.mark
+    before_line = copy.copy(ln)
     fields = []
     for k in ("start", "end", "zh", "en", "sfx", "lang"):
         if k in passed:
@@ -177,9 +182,16 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
     # Filling in a blank line's source text opens a new untranslated line too.
     if en_changed or "zh" in passed:
         translate_service.sync_translation_status(drama_id)
+    if "zh" in passed:
+        edit_log_service.record_source_edits(drama_id, [(before_line, ln.zh)],
+                                             edit_log_service.PERSON)
     if en_changed:
         if before_en and ln.en:
-            db.record_edit_sample(drama_id, ln.zh, before_en, ln.en)
+            prov = line_provenance_service.get(drama_id, line_id, current_en=before_en) or {}
+            db.record_edit_sample(drama_id, ln.zh, before_en, ln.en, line_id=line_id,
+                                  engine=prov.get("engine"), model=prov.get("model"),
+                                  prompt_version=prov.get("prompt_version"),
+                                  flag=before_flag, mark=before_mark)
         if drama.get("series_id") and ln.en.strip():
             db.record_translation_memory(drama["series_id"], ln.zh, ln.en)
     return _reload_dict(drama_id, line_id)
@@ -419,8 +431,8 @@ def add_note(drama_id: int, line_id: int, term: str, note_type: str, note: str) 
     note = _text("note", note, MAX_NOTE_CHARS).strip()
     if not term or not note:
         raise InvalidInputError("term and note must not be empty.")
-    if note_type not in translation_guide.NOTE_TYPES:
-        raise InvalidInputError(f"note_type must be one of {sorted(translation_guide.NOTE_TYPES)}.")
+    if note_type not in translation_notes.NOTE_TYPES:
+        raise InvalidInputError(f"note_type must be one of {sorted(translation_notes.NOTE_TYPES)}.")
     _, _, ln = load(drama_id, line_id)
     db.save_translation_notes(drama_id, [{"line_id": ln.id, "line_idx": ln.idx, "term": term,
                                           "note_type": note_type, "note": note}])

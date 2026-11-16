@@ -62,8 +62,8 @@ def test_video_upload_extracts_audio(client, isolated_db):
                         "job_id": f"extract_audio_{did}"}
     assert wait_for_job(f"extract_audio_{did}", timeout=5.0)["status"] == "done"
     d = db.get_drama(did)
-    assert d["audio_filename"] == "audio.wav" and d["source_video_filename"] == "source.mkv"
-    assert sorted(os.listdir(db.drama_dir(did))) == ["audio.wav", "source.mkv"]
+    assert d["audio_filename"] == "audio.flac" and d["source_video_filename"] == "source.mkv"
+    assert sorted(os.listdir(db.drama_dir(did))) == ["audio.flac", "source.mkv"]
 
 
 def test_video_upload_returns_before_extraction_finishes(client, isolated_db, monkeypatch):
@@ -86,7 +86,7 @@ def test_video_upload_returns_before_extraction_finishes(client, isolated_db, mo
     assert r2.status_code == 409
     gate.set()
     assert wait_for_job(job_id, timeout=5.0)["status"] == "done"
-    assert db.get_drama(did)["audio_filename"] == "audio.wav"
+    assert db.get_drama(did)["audio_filename"] == "audio.flac"
     with open(os.path.join(db.drama_dir(did), "source.mp4"), "rb") as f:
         assert f.read() == b"fakeaudio"
 
@@ -374,11 +374,26 @@ def test_confirmed_replace_keeps_the_old_original(client, isolated_db):
     assert sorted(_kept(did).values()) == [b"first", b"second"]
 
 
+def test_replacing_audio_drops_the_vocals_separated_from_the_old_audio(client, isolated_db):
+    import db
+    did = db.create_drama(title_en="D")
+    assert _up(client, did, "a.mp3", b"first").status_code == 200
+    vocals = os.path.join(db.drama_dir(did), "vocals.wav")
+    with open(vocals, "wb") as f:
+        f.write(b"RIFF")
+    assert _up(client, did, "b.mp3", b"second").status_code == 422
+    assert os.path.exists(vocals)   # a refused replace changes nothing
+    r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp3", b"second")},
+                    data={"confirm_replace_audio": "true"})
+    assert r.status_code == 200, r.text
+    assert not os.path.exists(vocals)
+
+
 def test_existing_source_video_needs_confirm(client, isolated_db):
     import db
     did = db.create_drama(title_en="D")
     assert wait_for_job(_up(client, did, "a.mp4", b"vid1").json()["job_id"], timeout=5.0)["status"] == "done"
-    os.remove(os.path.join(db.drama_dir(did), "audio.wav"))  # video alone still counts
+    os.remove(os.path.join(db.drama_dir(did), "audio.flac"))  # video alone still counts
     r = _up(client, did, "b.mp3", b"aud")
     assert r.status_code == 422 and r.json()["error"]["details"]["reason"] == "confirm_replace_audio"
 
@@ -402,7 +417,7 @@ def test_video_replace_keeps_old_until_extraction_succeeds(client, isolated_db, 
     assert wait_for_job(r.json()["job_id"], timeout=5.0)["status"] == "done"
     assert seen["during"] == b"old"
     after = db.get_drama(did)
-    assert (after["source_video_filename"], after["audio_filename"]) == ("source-2.mp4", "audio-2.wav")
+    assert (after["source_video_filename"], after["audio_filename"]) == ("source-2.mp4", "audio-2.flac")
     assert _read(did, "source-2.mp4") == b"new"
     assert sorted(_kept(did).values()) == [b"old", b"wav"]
     assert not any(n.startswith(".") for n in os.listdir(db.drama_dir(did)))
@@ -420,7 +435,7 @@ def test_failed_extraction_on_replace_leaves_the_title_as_it_was(client, isolate
     r = client.post(f"/api/media/dramas/{did}/upload", files={"file": ("b.mp4", b"new")},
                     data={"confirm_replace_audio": "true"})
     assert wait_for_job(r.json()["job_id"], timeout=5.0)["status"] == "error"
-    assert _read(did, "source.mp4") == b"old" and _read(did, "audio.wav") == b"wav"
+    assert _read(did, "source.mp4") == b"old" and _read(did, "audio.flac") == b"wav"
     after = db.get_drama(did)
     assert (after["audio_filename"], after["source_video_filename"]) == (
         before["audio_filename"], before["source_video_filename"])
@@ -484,13 +499,13 @@ def _replace_video(client, did):
 def _assert_title_unchanged(did, before):
     import db
     after = db.get_drama(did)
-    assert (after["audio_filename"], after["source_video_filename"]) == ("audio.wav", "source.mp4")
-    assert (before["audio_filename"], before["source_video_filename"]) == ("audio.wav", "source.mp4")
-    assert _read(did, "source.mp4") == b"old" and _read(did, "audio.wav") == b"wav"
+    assert (after["audio_filename"], after["source_video_filename"]) == ("audio.flac", "source.mp4")
+    assert (before["audio_filename"], before["source_video_filename"]) == ("audio.flac", "source.mp4")
+    assert _read(did, "source.mp4") == b"old" and _read(did, "audio.flac") == b"wav"
     kept = _kept(did)
     assert list(kept.values()) == [b"new"] and next(iter(kept)).startswith("failed-upload-")
     # nothing half-installed or staged is left beside the title's files
-    assert sorted(os.listdir(db.drama_dir(did))) == ["audio.wav", "kept_media", "source.mp4"]
+    assert sorted(os.listdir(db.drama_dir(did))) == ["audio.flac", "kept_media", "source.mp4"]
 
 
 def test_audio_that_cannot_be_put_in_place_leaves_the_title_consistent(client, isolated_db, monkeypatch):
@@ -532,7 +547,7 @@ def test_a_failed_db_switch_leaves_the_title_consistent(client, isolated_db, mon
 
 
 def test_old_files_in_use_never_block_the_switch(client, isolated_db, monkeypatch):
-    # Windows: the old audio.wav is open (Review playing it), so it can be
+    # Windows: the old audio.flac is open (Review playing it), so it can be
     # neither replaced nor moved. The new files go in under fresh names, the
     # drama switches to them, and the old WAV just stays, unreferenced and
     # with one name only.
@@ -541,7 +556,7 @@ def test_old_files_in_use_never_block_the_switch(client, isolated_db, monkeypatc
     did = db.create_drama(title_en="D")
     _video_title(client, did)
     ddir = db.drama_dir(did)
-    busy = os.path.join(ddir, "audio.wav")
+    busy = os.path.join(ddir, "audio.flac")
     real_unlink, real_rename, real_replace = os.unlink, os.rename, os.replace
 
     def guard(fn):
@@ -555,8 +570,8 @@ def test_old_files_in_use_never_block_the_switch(client, isolated_db, monkeypatc
     monkeypatch.setattr(media_upload_service.os, "replace", guard(real_replace))
     assert _replace_video(client, did)["status"] == "done"
     after = db.get_drama(did)
-    assert (after["source_video_filename"], after["audio_filename"]) == ("source-2.mp4", "audio-2.wav")
-    assert _read(did, "source-2.mp4") == b"new" and _read(did, "audio.wav") == b"wav"
+    assert (after["source_video_filename"], after["audio_filename"]) == ("source-2.mp4", "audio-2.flac")
+    assert _read(did, "source-2.mp4") == b"new" and _read(did, "audio.flac") == b"wav"
     assert list(_kept(did).values()) == [b"old"]
     assert os.stat(busy).st_nlink == 1
 
@@ -739,28 +754,28 @@ def test_media_left_unnamed_by_a_crash_is_counted_then_kept(client, isolated_db,
     assert _up(client, did, "a.mp3", b"first").status_code == 200
     ddir = db.drama_dir(did)
     for name, data in (("source-2.mp3", b"new upload"), ("audio-3.wav", b"new wav"),
-                       ("source.txt", b"mine"), ("notes.mp3", b"mine too"), ("cover.wav", b"art")):
+                       ("audio-4.flac", b"new flac"), ("source.txt", b"mine"), ("notes.mp3", b"mine too"), ("cover.wav", b"art")):
         with open(os.path.join(ddir, name), "wb") as f:
             f.write(data)
     os.makedirs(os.path.join(ddir, "audio-2.wav"))  # never a folder
     db.update_drama(did, cover_art_filename="cover.wav")
     body = _status(client, did)
-    assert body["kept_media_files"] == 2
-    assert body["kept_media_bytes"] == len(b"new upload") + len(b"new wav")
+    assert body["kept_media_files"] == 3
+    assert body["kept_media_bytes"] == len(b"new upload") + len(b"new wav") + len(b"new flac")
 
     monkeypatch.setattr(drama_service, "job_running_for_drama", lambda _d: True)
     assert m.recover_all_stale_uploads() == 0  # a job may be about to record them
     assert _status(client, did)["kept_media_files"] == 0  # nor counted while it runs
     monkeypatch.undo()
     monkeypatch.setattr(m, "UNNAMED_MIN_AGE_SECONDS", 0)  # the age rule has its own test
-    assert m.recover_all_stale_uploads() == 2
+    assert m.recover_all_stale_uploads() == 3
     kept = _kept(did)
-    assert sorted(kept.values()) == [b"new upload", b"new wav"]
+    assert sorted(kept.values()) == [b"new flac", b"new upload", b"new wav"]
     assert all(n.startswith("unreferenced-") for n in kept)
     assert sorted(os.listdir(ddir)) == ["audio-2.wav", "cover.wav", "kept_media", "notes.mp3",
                                         "source.mp3", "source.txt"]
     assert db.get_drama(did)["audio_filename"] == "source.mp3" and _read(did, "source.mp3") == b"first"
-    assert _status(client, did)["kept_media_files"] == 2
+    assert _status(client, did)["kept_media_files"] == 3
 
 
 def test_startup_recovery_skips_a_drama_with_an_upload_in_progress(isolated_db):
@@ -819,7 +834,7 @@ def test_installed_media_counts_as_new_even_from_an_old_source(isolated_db, tmp_
 
 def test_a_file_the_drama_names_by_another_spelling_is_never_moved(client, isolated_db,
                                                                     monkeypatch):
-    # Windows and macOS resolve "Audio.wav" to "audio.wav". A hard link stands
+    # Windows and macOS resolve "Audio.wav" to "audio.flac". A hard link stands
     # in for that here, so the test doesn't depend on this filesystem's case
     # rules: the drama names one spelling, the in-place name is the same file.
     import db
@@ -830,13 +845,13 @@ def test_a_file_the_drama_names_by_another_spelling_is_never_moved(client, isola
     with open(os.path.join(ddir, "Live Audio.wav"), "wb") as f:
         f.write(b"live")
     try:
-        os.link(os.path.join(ddir, "Live Audio.wav"), os.path.join(ddir, "audio.wav"))
+        os.link(os.path.join(ddir, "Live Audio.wav"), os.path.join(ddir, "audio.flac"))
     except OSError:
         pytest.skip("no hard links on this filesystem")
     db.update_drama(did, audio_filename="Live Audio.wav")
     assert _status(client, did)["kept_media_files"] == 0
     assert m.recover_all_stale_uploads() == 0
-    assert _read(did, "audio.wav") == b"live" and _kept(did) == {}
+    assert _read(did, "audio.flac") == b"live" and _kept(did) == {}
 
 
 def test_a_failed_rollback_leaves_the_upload_counted_and_recovered(client, isolated_db, monkeypatch):
@@ -876,7 +891,7 @@ def test_an_old_file_that_was_in_use_is_counted_then_kept(client, isolated_db, m
     from services import media_upload_service as m
     did = db.create_drama(title_en="D")
     _video_title(client, did)
-    busy = os.path.join(db.drama_dir(did), "audio.wav")
+    busy = os.path.join(db.drama_dir(did), "audio.flac")
     real_unlink, real_rename = os.unlink, os.rename
 
     def guard(fn):
@@ -893,7 +908,7 @@ def test_an_old_file_that_was_in_use_is_counted_then_kept(client, isolated_db, m
     monkeypatch.setattr(m, "UNNAMED_MIN_AGE_SECONDS", 0)
     assert m.recover_stale_uploads(did) == 1
     assert sorted(_kept(did).values()) == [b"old", b"wav"]
-    assert db.get_drama(did)["audio_filename"] == "audio-2.wav"
+    assert db.get_drama(did)["audio_filename"] == "audio-2.flac"
 
 
 def test_new_media_is_fsynced_before_the_db_names_it(client, isolated_db, monkeypatch):
@@ -915,7 +930,7 @@ def test_new_media_is_fsynced_before_the_db_names_it(client, isolated_db, monkey
     assert wait_for_job(_up(client, did, "a.mp4", b"vid").json()["job_id"], timeout=5.0)["status"] == "done"
     assert [e[0] for e in events] == ["fsync", "fsync", "db"]
     names = sorted(e[1] for e in events[:2])
-    assert names[0] == ".audio.extract.wav" and names[1].startswith(".upload_")
+    assert names[0] == ".audio.extract.flac" and names[1].startswith(".upload_")
     assert all(e[2] for e in events[:2])  # synced at its source path, before the move
 
 
@@ -1004,7 +1019,7 @@ def test_a_crash_before_the_old_video_was_set_aside_is_recovered(client, isolate
     monkeypatch.undo()
     assert db.get_drama(did)["source_video_filename"] is None
     ddir = db.drama_dir(did)
-    assert sorted(os.listdir(ddir)) == ["audio.wav", "source.mp3", "source.mp4"]
+    assert sorted(os.listdir(ddir)) == ["audio.flac", "source.mp3", "source.mp4"]
     body = _status(client, did)
     assert body["has_source_video"] is False and body["kept_media_files"] == 2
     later = time.time() + m.UNNAMED_MIN_AGE_SECONDS + 1
@@ -1024,7 +1039,7 @@ def test_replacing_audio_with_a_video_attaches_it_and_sets_the_old_audio_aside(c
                     data={"confirm_replace_audio": "true"})
     assert wait_for_job(r.json()["job_id"], timeout=5.0)["status"] == "done"
     after = db.get_drama(did)
-    assert (after["source_video_filename"], after["audio_filename"]) == ("source.mp4", "audio.wav")
+    assert (after["source_video_filename"], after["audio_filename"]) == ("source.mp4", "audio.flac")
     assert _status(client, did)["has_source_video"] is True
     assert list(_kept(did).values()) == [b"first"]
 

@@ -33,16 +33,16 @@ import numpy as np
 from memory_headroom import HeadroomError
 from ocr import auto_ocr_backend
 
-from scanlate_detect import (
-    BubbleModelUnavailable, decode_page, detect_bubbles, detect_bubbles_cv, inset_box_for_ocr,
-    merge_fragment_boxes, page_gray, split_webtoon_strip,
-)
+from scanlate_box_merge import merge_fragment_boxes
+from scanlate_detect import BubbleModelUnavailable, detect_bubbles, detect_bubbles_cv, inset_box_for_ocr
+from scanlate_page_decode import decode_page, page_gray
+from scanlate_panels import split_webtoon_strip
 import scanlate_tuning
 from scanlate_regions import (analyze_page_regions, detect_script_language, lettering_fill,
                               split_separate_lettering, strip_stray_sfx_mark,
                               lettering_size, reclassify_wordy_sfx, flag_katakana_effects,
                               region_excluded_from_auto)
-from scanlate_render import sample_text_style
+from scanlate_fonts import sample_text_style
 from scanlate_translate import translate_page_bubbles
 from scanlate_watermark import flag_site_marks
 
@@ -53,16 +53,16 @@ def warm_models(detect_backend: str = "auto") -> list:
     PC). Downloads nothing; a model that is not on disk, or is not the chosen detector, is left
     alone. Returns the names of the models it loaded. The caller holds the pipeline lock."""
     import scanlate_detect
-    import scanlate_inpaint
+    import scanlate_lama
     blank = np.full((64, 64, 3), 255, dtype=np.uint8)
     warmed = []
     if detect_backend in ("auto", "ml") and scanlate_detect.bubble_ml_weights_cached():
         detect_bubbles("", backend="ml", image=blank)
         warmed.append("balloon detector")
-    if scanlate_inpaint.lama_ml_weights_cached():
+    if scanlate_lama.lama_ml_weights_cached():
         mask = np.zeros((64, 64), dtype=np.uint8)
         mask[24:40, 24:40] = 255
-        scanlate_inpaint._run_ml_inpaint(blank, mask, allow_download=False)
+        scanlate_lama._run_ml_inpaint(blank, mask, allow_download=False)
         warmed.append("text eraser")
     return warmed
 

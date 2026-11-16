@@ -16,6 +16,7 @@ import source_change
 import storage
 from services import (
     difficult_audio_service,
+    edit_log_service,
     ownership_service,
     settings_service,
     timing_settings_service,
@@ -195,4 +196,6 @@ def apply_retranscribe_line(drama_id: int, line_id: int, job_id, expected_zh,
     # The flag was decided from this English, so it must still be there.
     if not db.update_line_fields_if(drama_id, line_id, values, {**unchanged, "en": line.en or ""}):
         raise ConflictError("This line changed since it was re-transcribed; your edit was kept.")
+    edit_log_service.record_source_edits(drama_id, [(line, proposed)],
+                                         edit_log_service.RETRANSCRIBE)
     return {"drama_id": drama_id, "line_id": line_id, "zh": proposed}
