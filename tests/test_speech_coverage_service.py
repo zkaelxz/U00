@@ -218,6 +218,12 @@ class TestNoLinesRefusal:
         with pytest.raises(UnsupportedOperationError, match="no lines"):
             svc.start_speech_coverage(did)
 
+    def test_the_transcription_hook_reports_not_started_and_never_raises(self, isolated_db):
+        did = isolated_db.create_drama(title_en="E", audio_filename="audio.wav")
+        open(os.path.join(isolated_db.drama_dir(did), "audio.wav"), "wb").close()
+        assert svc.after_run(did) is False
+        assert svc.after_run(999999) is False
+
 
 class TestStartRefusals:
     def test_unknown_drama(self, isolated_db):
@@ -249,6 +255,18 @@ class TestStartRefusals:
         monkeypatch.setattr(svc.job_launch, "start_job", lambda *a, **k: False)
         with pytest.raises(ConflictError):
             svc.start_speech_coverage(drama)
+
+    def test_the_transcription_hook_checks_while_its_own_job_still_runs(self, isolated_db, drama, fake_audio):
+        isolated_db.save_lines(drama, [Line(idx=0, start=5.0, end=15.0, zh="covered")])
+        with job_table._lock:
+            job_table._jobs[f"transcribe_{drama}"] = {"status": "running", "progress": 0.9,
+                                                      "message": "", "started_at": time.time()}
+        try:
+            assert svc.after_run(drama) is True
+            assert _wait(drama)["status"] == "done"
+        finally:
+            with job_table._lock:
+                job_table._jobs.pop(f"transcribe_{drama}", None)
 
 
 class TestApi:

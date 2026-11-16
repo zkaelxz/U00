@@ -605,7 +605,7 @@ class TestGenerateEpubWithEbooklib:
 
 # ---------------------------------------------------------------- Slice 27: ASS
 
-import subtitle_formats as sf
+import subtitle_ass
 
 
 def _ass_drama(db, lines=None, **fields):
@@ -620,22 +620,22 @@ def _ass_drama(db, lines=None, **fields):
 class TestGetAssStyleOptions:
     def test_matches_module_constants(self):
         opts = export_service.get_ass_style_options()
-        assert opts["presets"] == sf.ASS_PRESETS
-        assert opts["fonts"] == sf.FONT_CHOICES
-        assert opts["alignments"] == sf.ALIGNMENTS
-        assert opts["default_preset"] in sf.ASS_PRESETS
+        assert opts["presets"] == subtitle_ass.ASS_PRESETS
+        assert opts["fonts"] == subtitle_ass.FONT_CHOICES
+        assert opts["alignments"] == subtitle_ass.ALIGNMENTS
+        assert opts["default_preset"] in subtitle_ass.ASS_PRESETS
 
 
 class TestGenerateAssText:
     def _expected(self, db, did, style, field="en", **kw):
         lines = lines_from_rows(db.load_lines(did))
-        return sf.lines_to_ass(lines, style, field, title="D", **kw)
+        return subtitle_ass.lines_to_ass(lines, style, field, title="D", **kw)
 
     def test_en_matches_real_formatter(self, isolated_db):
         did = _ass_drama(isolated_db)
         text = export_service.generate_ass_text(did, "en", per_speaker_colors=False)
         assert text.startswith("[Script Info]")
-        assert text == self._expected(isolated_db, did, sf.ASS_PRESETS["Clean"],
+        assert text == self._expected(isolated_db, did, subtitle_ass.ASS_PRESETS["Clean"],
                                       speaker_colors={}, speaker_names={})
         assert "Hello" in text and "你好" not in text
 
@@ -652,7 +652,7 @@ class TestGenerateAssText:
         assert "Style: Speaker 1" in text and "Style: Speaker 2" in text
         text = export_service.generate_ass_text(
             did, speaker_colors={"A": "#123456", "B": "#654321"})
-        assert sf.ass_color("#123456") in text and sf.ass_color("#654321") in text
+        assert subtitle_ass.ass_color("#123456") in text and subtitle_ass.ass_color("#654321") in text
 
     def test_per_speaker_off_has_no_speaker_styles(self, isolated_db):
         did = _ass_drama(isolated_db)
@@ -665,7 +665,7 @@ class TestGenerateAssText:
         text = export_service.generate_ass_text(
             did, style={"font": "Meiryo", "size": 40}, preset="Streamer clip",
             per_speaker_colors=False)
-        expected = dict(sf.ASS_PRESETS["Streamer clip"], font="Meiryo", size=40,
+        expected = dict(subtitle_ass.ASS_PRESETS["Streamer clip"], font="Meiryo", size=40,
                         sfx_alignment=None, notes_alignment=None)
         assert text == self._expected(isolated_db, did, expected,
                                       speaker_colors={}, speaker_names={})
@@ -763,10 +763,10 @@ class TestAssInjection:
 
     def test_formatter_sanitises_font_title_and_speaker(self):
         lines = [Line(idx=0, start=0.0, end=2.0, zh="", en="Hi", speaker=self.EVIL)]
-        style = dict(sf.ASS_PRESETS["Clean"], font=self.EVIL)
-        text = sf.lines_to_ass(lines, style, "en", title=self.EVIL,
+        style = dict(subtitle_ass.ASS_PRESETS["Clean"], font=self.EVIL)
+        text = subtitle_ass.lines_to_ass(lines, style, "en", title=self.EVIL,
                                speaker_colors={self.EVIL: "#123456"})
-        clean = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "en")
+        clean = subtitle_ass.lines_to_ass(lines, subtitle_ass.ASS_PRESETS["Clean"], "en")
         assert len(text.split("\n")) == len(clean.split("\n")) + 1  # extra speaker style only
         assert "\r" not in text
         assert [l for l in text.split("\n") if l.startswith("[Events]")] == ["[Events]"]
@@ -898,7 +898,7 @@ class TestAssDownloadUsesTheTitlesVideo:
         rows = self._rows(export_service.generate_ass_text(did, "zh"))
         assert seen == ["clip.mp4"]
         sf = export_service.subtitle_formats
-        portrait = sf.ass_cjk_row_limit(sf.ASS_PRESETS["Clean"], 9 / 16)
+        portrait = subtitle_ass.ass_cjk_row_limit(subtitle_ass.ASS_PRESETS["Clean"], 9 / 16)
         assert "".join(rows) == self.LONG_ZH and all(len(r) <= portrait for r in rows)
         # A shape the caller already measured is used as is.
         seen.clear()

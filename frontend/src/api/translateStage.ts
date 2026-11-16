@@ -65,6 +65,8 @@ export function buildEstimateQuery(p: EstimateParams): string {
   if (p.job_cost_cap_usd !== undefined) q.set('job_cost_cap_usd', String(p.job_cost_cap_usd))
   if (p.batch_size !== undefined) q.set('batch_size', String(p.batch_size))
   for (const id of p.line_ids ?? []) q.append('line_ids', String(id))
+  if (p.chapter_from !== undefined) q.set('chapter_from', String(p.chapter_from))
+  if (p.chapter_to !== undefined) q.set('chapter_to', String(p.chapter_to))
   return queryOf(q)
 }
 
@@ -98,6 +100,9 @@ export const retryFailedLines = (id: number, body: RetryFailedBody, f?: Fetch) =
 /** Redoes the lines flagged for a missing glossary name (or, with lineIds, exactly those lines) with the Settings stronger engine. */
 export const redoGlossaryFlagged = (id: number, lineIds?: number[], f?: Fetch) =>
   postJson<RetryFailedStarted>(`/api/translate-run/dramas/${id}/glossary-flagged/run`, lineIds ? { line_ids: lineIds } : {}, f)
+/** Redoes the lines flagged as not matching their source or as uncertain by the AI, with the Settings stronger engine. */
+export const redoDoubtfulLines = (id: number, f?: Fetch) =>
+  postJson<RetryFailedStarted>(`/api/translate-run/dramas/${id}/glossary-flagged/run`, { kind: 'doubtful' }, f)
 export const getEpisodeSummaryOptions = (id: number, f?: Fetch) =>
   getJson<EpisodeSummaryOptions>(`/api/translate-run/dramas/${id}/episode-summary`, f)
 /** Spends on the chosen engine; returns the text without saving it. */

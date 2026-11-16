@@ -150,8 +150,6 @@ export default function TranscribeStage({
   const transcriptRef = useRef<HTMLTextAreaElement>(null)
   // The stored media's length, for the time estimates (null = unknown).
   const [duration, setDuration] = useState<number | null>(null)
-  // Set by a transcription started here: the coverage panel checks its result once the job ends.
-  const [checkAfterRun, setCheckAfterRun] = useState(false)
 
   useCancellableEffect((cancelled) => {
     getSettings().then(
@@ -379,7 +377,6 @@ export default function TranscribeStage({
     setStarting(true)
     saveFirst.then(start).then((r) => {
       setError(null)
-      setCheckAfterRun(true)
       onJobStarted(r.job_id, expectedRunSeconds, !!uploadFile)
     }, (e) => {
       if (uploadFile) onSendFailed()
@@ -740,7 +737,7 @@ export default function TranscribeStage({
             setCf((cur) => (cur ? { ...cur, min_silence_ms: String(c.min_silence_ms) } : formFromConfig(c)))
           }}
         />
-        <SpeechCoverage hasAudio={!!media?.has_audio} busy={busy} autoCheck={checkAfterRun} onAutoChecked={() => setCheckAfterRun(false)} />
+        <SpeechCoverage hasAudio={!!media?.has_audio} busy={busy} />
         <CaptionSpeakers hasVideo={!!media?.has_source_video} hasLines={!!drama?.line_count} busy={busy} />
         {showRawNovel && <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />}
       </MediaTabPanel>

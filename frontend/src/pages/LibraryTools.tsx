@@ -48,6 +48,7 @@ import { StorageTab } from './libraryTools/StorageTab'
 import { VoicesTab } from './libraryTools/VoicesTab'
 import { TabCard } from './libraryTools/TabCard'
 import { LinkCheckCard } from './libraryTools/LinkCheckCard'
+import { TypesetComicsCard } from './libraryTools/TypesetComicsCard'
 import { ProfileTools } from './libraryTools/ProfileTools'
 import { CARDS, LIBRARY_TOOLS_TABS, cardStorageKey, cardsOf, isLibraryToolsTab, visibleLibraryToolsTabs, type LibraryToolsCard, type LibraryToolsTab } from './libraryTools/libraryToolsTabs'
 
@@ -357,6 +358,12 @@ export default function LibraryToolsPage() {
           <div className="tools-export">
             <h2 className="tools-group-title">Export</h2>
             <ExportBlock exportable={exportableCount(stats.data?.by_status)} job={exporter} />
+          </div>
+        )}
+        {pc !== 'remote' && (
+          <div className="tools-export">
+            <h2 className="tools-group-title">Typeset all comics again</h2>
+            <TypesetComicsCard />
           </div>
         )}
         {pc !== 'remote' && (

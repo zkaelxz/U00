@@ -10,7 +10,7 @@ __all__ = ["SeriesAutoRunState", "SeriesAutoRunOn", "SeriesAutoRunCeiling", "Ser
            "SeriesRenameRequest", "SeriesRenameResult", "SeriesDeletePreview",
            "SeriesDeleteRequest", "SeriesDeleteResult", "SeriesCopyTermsRequest",
            "SeriesCopyTermsPreview", "SeriesCopyTermsResult", "SeriesDefaultsField",
-           "SeriesDefaults", "SeriesDefaultsUpdate", "SeriesDefaultsTitle",
+           "SeriesDefaults", "TitleSettingSource", "TitleSettingSources", "SeriesDefaultsUpdate", "SeriesDefaultsTitle",
            "SeriesDefaultsPreview", "SeriesDefaultsApplyRequest", "SeriesDefaultsApplyResult",
            "SeriesTmxImportRequest", "SeriesTmxImportResult", "SeriesSpeakerModeRequest",
            "SeriesSpeakerModeResult", "ConsistencyTitleLines", "ConsistencyExample",
@@ -134,6 +134,24 @@ class SeriesDefaults(BaseModel):
     # Any: a bool must stay a bool and a whole number a number (no coercion).
     settings: Dict[str, Any]
     fields: List[SeriesDefaultsField]
+
+
+class TitleSettingSource(BaseModel):
+    key: str
+    label: str
+    group: str = Field(description="translate or transcribe")
+    value: Any = Field(None, description="What a run uses")
+    source: str = Field(description="title (its own value), series (equal to the series default) "
+                                    "or settings_default (the title has none)")
+    series_value: Any = Field(None, description="The series default, when it has one")
+    differs_from_series: bool
+
+
+class TitleSettingSources(BaseModel):
+    drama_id: int
+    series_id: Optional[int] = None
+    series_name: Optional[str] = None
+    settings: List[TitleSettingSource]
 
 
 class SeriesDefaultsUpdate(BaseModel):

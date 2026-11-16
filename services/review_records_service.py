@@ -22,7 +22,7 @@ import core as core_module
 import db
 import emotion
 import adaptive_style
-import translation_guide
+import translation_notes
 import translation_memory
 from services import ownership_service
 from lib.errors import NotFoundError
@@ -160,7 +160,7 @@ def get_notes_markdown(drama_id: int) -> str:
     # can't compare; pass copies with None -> 0 (rows themselves untouched).
     notes = [dict(n, line_idx=n["line_idx"] if n.get("line_idx") is not None else 0)
              for n in notes]
-    return translation_guide.format_notes_as_markdown(
+    return translation_notes.format_notes_as_markdown(
         notes, drama.get("title_en") or drama.get("title_zh") or "")
 
 

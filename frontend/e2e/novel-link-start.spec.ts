@@ -10,7 +10,7 @@ test.afterEach(async ({ page }) => {
   await page.unrouteAll({ behavior: 'ignoreErrors' })
 })
 
-interface Server { chapters: number; text: boolean; lines: number; glossary: string; calls: string[] }
+interface Server { chapters: number; text: boolean; lines: number; glossary: string; calls: string[]; tagBody?: unknown }
 
 async function mockServer(page: Page, start: Partial<Server> = {}, failAt?: string): Promise<Server> {
   const s: Server = { chapters: 0, text: false, lines: 0, glossary: 'idle', calls: [], ...start }
@@ -36,8 +36,11 @@ async function mockServer(page: Page, start: Partial<Server> = {}, failAt?: stri
   await page.route('**/api/novel/dramas/2/attach-from-sources', (r) => step('attach', r, () => { s.text = true }, { char_count: 10 }))
   await page.route('**/api/narration/dramas/2/config', (r) => r.fulfill({ json: {
     drama_id: 2, is_narration: true, has_novel_source: true, engines: [{ key: 'gemini', key_configured: true }],
-    default_engine: 'gemini', max_chunk_chars: 1000, existing_line_count: 0, replaces_existing_lines: false, job_running: false } }))
-  await page.route('**/api/narration/dramas/2/run*', (r) => step('tag', r, () => { s.lines = 40 }, { job_id: 'narration_2' }))
+    default_engine: 'gemini', max_chunk_chars: 1000, existing_line_count: 0, replaces_existing_lines: false, job_running: false, chapter_count: 5 } }))
+  await page.route('**/api/narration/dramas/2/estimate*', (r) => r.fulfill({ json: {
+    engine: 'gemini', model: 'm', chunk_count: 40, chapters: 5, estimated_usd: 0, has_key: true, cap_applies: false,
+    monthly_cap_set: false, effective_cap_usd: null, monthly_refusal: false, estimate_above_cap: false } }))
+  await page.route('**/api/narration/dramas/2/run*', (r) => step('tag', r, () => { s.lines = 40; s.tagBody = r.request().postDataJSON() }, { job_id: 'narration_2' }))
   return s
 }
 
@@ -49,6 +52,8 @@ test('the link runs every step and stops at the glossary review', async ({ page 
   const review = page.getByRole('link', { name: 'Review glossary and translate' })
   await expect(review).toHaveAttribute('href', '#/drama/2/translate?tab=translate')
   expect(s.calls).toEqual(['import', 'attach', 'tag', 'extract'])
+  // The engine shown in the options is the one the tag step names.
+  expect(s.tagBody).toEqual({ engine: 'gemini' })
 })
 
 for (const failing of ['import', 'attach', 'tag', 'extract']) {

@@ -134,7 +134,16 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
                 waiting_message = notification_service.waiting_job_message(description, waiting)
             except Exception:
                 waiting_message = None   # the plain "Finished" pop-up still shows
+        # The bell and the push name why it failed, so the pop-up must too.
+        failed_message = None
+        if status != "done" and reason:
+            try:
+                from services import notification_service
+                failed_message = notification_service.build_message(description, status, reason=reason)
+            except Exception:
+                failed_message = None   # the plain "Failed" pop-up still shows
         message = (waiting_message if waiting_message else
+                   failed_message if failed_message else
                    f"Finished with errors: {description}" if status == "done" and with_errors
                    and description else
                    f"Finished: {description}" if status == "done" and description else
