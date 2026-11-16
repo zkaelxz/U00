@@ -3,7 +3,7 @@ services/image_text_service.py -- Quick translate's "Read from a screenshot":
 sends one picture to a vision engine and returns the text written in it, to
 fill the text box. UI-free.
 
-The picture goes through the page-upload rules (services/page_import_limits:
+The picture goes through the page-upload rules (page_import_limits:
 PNG, JPEG or WebP, 30 MB) with a tighter pixel cap, is always decoded and
 written out again (so EXIF, GPS, XMP and PNG text chunks never reach a
 provider) and is cut down to MAX_EDGE pixels on its long side so the cost is
@@ -26,7 +26,8 @@ from engine_backends import local as engine_local
 from engine_backends import shared as engine_shared
 from engine_backends import paid_calls
 from engine_backends.vision import MAX_REPLY_TOKENS, OPENAI_MAX_COMPLETION_TOKENS
-from services import page_import_limits, settings_service, translate_run_service
+import page_import_limits
+from services import settings_service, translate_run_service
 from lib.errors import (
     DependencyUnavailableError,
     InvalidInputError,

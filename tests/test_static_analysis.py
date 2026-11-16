@@ -618,7 +618,6 @@ class TestLayering:
         "memory_headroom -> services.settings_service",
         "ocr -> services.vram_service",
         "ollama_unload -> services.settings_service",
-        "page_capture_checks -> services.page_import_limits",
         "page_server -> api.api_config",
         "page_server -> services.extension_bridge_service",
         "page_server -> services.extension_novel_service",

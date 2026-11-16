@@ -51,7 +51,8 @@ from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
 from lib import cancellable_lock
 from memory_headroom import HeadroomError
 import job_timing
-from services import comic_chapters_service, image_text_service, page_import_limits
+import page_import_limits
+from services import comic_chapters_service, image_text_service
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
 from services import paid_job_service, settings_service, translate_service

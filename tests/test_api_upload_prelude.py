@@ -15,7 +15,8 @@ import subtitle_parse
 from api.api_config import ApiSettings
 from api.routers import bug_report_routes
 from api.server import create_app
-from services import auth_service, media_upload_service, page_import_limits
+import page_import_limits
+from services import auth_service, media_upload_service
 
 MB = 1024 * 1024
 UPLOAD_HELP = "An upload needs a Content-Length."
