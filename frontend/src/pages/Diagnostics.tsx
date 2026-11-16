@@ -28,6 +28,7 @@ import { LoadedModelsCard } from './settings/LoadedModelsCard'
 import { ProcessMemoryCard } from './settings/ProcessMemoryCard'
 import { PackagesSection } from './diagnostics/PackagesSection'
 import { PortsSection } from './diagnostics/PortsSection'
+import { ResourcesSection } from './diagnostics/ResourcesSection'
 import { PyannoteSection } from './diagnostics/PyannoteSection'
 import { RecommendedInstalls } from './diagnostics/RecommendedInstalls'
 import { RealModelCheck } from './diagnostics/RealModelCheck'
@@ -296,6 +297,7 @@ function DiagnosticsContent() {
 
       {panel('system', (
         <>
+          {card('resources', <ResourcesSection openSignal={signal('resources')} />)}
           {card('ports', <PortsSection pc={pc} openSignal={signal('ports')} />)}
           {card('log', <LogSection openSignal={signal('log')} />)}
           {card('reset', (

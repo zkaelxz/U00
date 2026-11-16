@@ -20,13 +20,13 @@ from fastapi import APIRouter, Request
 from starlette.concurrency import run_in_threadpool
 from api.auth import local_only, require_permission
 from api.routers.settings_routes import read_body, require_confirm, require_local_admin
-from api.schemas import (DiagnosticsOverview, GpuReading, PortsOverview, RemoteHealth,
+from api.schemas import (DiagnosticsOverview, GpuReading, PortsOverview, RemoteHealth, ResourceReadings,
                          RemoteIpCheckClearRequest, RemoteIpCheckSetRequest,
                          RemoteIpCheckStatus, RemoteIpCheckTestResult, RemoteSetup,
                          RemoteSetupSignInRequest,
                          error_responses)
 from services import (diagnostics_service, remote_health_service, remote_setup_service,
-                      settings_service)
+                      resource_monitor_service, settings_service)
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
 
@@ -41,6 +41,13 @@ def get_overview():
             summary="GPU name and memory only (nvidia-smi), without the full overview")
 def get_gpu():
     return diagnostics_service.get_gpu_reading()
+
+
+@router.get("/resources", dependencies=[require_permission("admin.diagnostics")],
+            response_model=ResourceReadings,
+            summary="The resource monitor's last readings (GPU, RAM, CPU, disk) and each alert rule's standing")
+def get_resources():
+    return resource_monitor_service.snapshot()
 
 
 @router.get("/remote-health", dependencies=[require_permission("admin.diagnostics")],
