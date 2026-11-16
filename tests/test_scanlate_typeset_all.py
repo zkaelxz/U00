@@ -1,6 +1,5 @@
 """Library tools > "Typeset all comics again": every comic with translations is typeset again
 through its own render job; nothing is read, translated or paid for. The page renderer is a fake."""
-import os
 import threading
 
 import pytest
@@ -14,7 +13,6 @@ import background_jobs
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
 from services import scanlate_run_service as run_svc
 from services import scanlate_typeset_all_service as svc
