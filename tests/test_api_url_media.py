@@ -1429,6 +1429,14 @@ def test_the_same_link_again_replaces_its_earlier_download_without_keeping_it(cl
     assert _kept_media(did) == []
 
 
+def test_the_download_record_never_holds_the_link_itself(client, env):
+    did = _drama()
+    assert _run(client, did, audio_only=False)["status"] == "done"
+    with open(os.path.join(db.drama_dir(did), ".media_origin.json"), encoding="utf-8") as f:
+        text = f.read()
+    assert SECRET not in text and "video.example" not in text
+
+
 def test_a_different_link_keeps_the_media_it_replaces(client, env):
     did = _drama()
     assert _run(client, did, audio_only=False)["status"] == "done"

@@ -42,6 +42,7 @@ returned.
 No FastAPI import: takes a binary file-like object.
 """
 import contextlib
+import hashlib
 import json
 import math
 import os
@@ -316,6 +317,12 @@ def _move_no_clobber(src, candidates) -> str:
 ORIGIN_NAME = ".media_origin.json"
 
 
+def _link_key(link: str) -> str:
+    """What the record stores for a link: a share link can carry a token,
+    and the folder is copied into backups and exports."""
+    return hashlib.sha256(link.encode("utf-8", "surrogatepass")).hexdigest()
+
+
 def _file_mark(path):
     st = os.lstat(path)
     return [st.st_size, st.st_mtime_ns]
@@ -331,7 +338,7 @@ def _record_origin(ddir, link, names) -> None:
             if os.path.lexists(path):
                 os.remove(path)
             return
-        record = {"link": link, "files": {n: _file_mark(os.path.join(ddir, n)) for n in names}}
+        record = {"link": _link_key(link), "files": {n: _file_mark(os.path.join(ddir, n)) for n in names}}
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(record, fh)
@@ -348,7 +355,7 @@ def _downloaded_from(ddir, link) -> dict:
     except (OSError, ValueError):
         return {}
     files = record.get("files") if isinstance(record, dict) else None
-    if not isinstance(files, dict) or record.get("link") != link:
+    if not isinstance(files, dict) or record.get("link") != _link_key(link):
         return {}
     return {n: m for n, m in files.items() if isinstance(n, str) and isinstance(m, list)}
 

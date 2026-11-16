@@ -42,7 +42,8 @@ through media_upload_service.install_media, as an upload does: never over
 an existing file (`-2`... while the old one is there), one field-scoped DB
 write as the commit point (audio_filename, [source_video_filename] and,
 only when both titles are empty (re-read just before writing), title_zh),
-then the replaced files move to kept_media/. A blank author and release
+then the replaced files move to kept_media/ (or, when they are the same
+link's earlier whole download as install_media recorded it, are deleted). A blank author and release
 date are then filled from the video's own metadata
 (link_details_service.fill_after_download), never over typed text. The link is recorded after
 that like any import's (drama_service.set_source_url_once: cleaned form,
