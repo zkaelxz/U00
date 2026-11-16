@@ -12,6 +12,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import glossary_io
 import translation_guide as tg
+import glossary_extract
+import glossary_substitution
+import translation_notes
 
 
 SAMPLE_GLOSSARY = [
@@ -207,16 +210,16 @@ class TestGroupNotesByLine:
         notes = [{"line_idx": 3, "term": "a", "note": "note a"},
                  {"line_idx": 3, "term": "b", "note": "note b"},
                  {"line_idx": 7, "term": "c", "note": "note c"}]
-        grouped = tg.group_notes_by_line(notes)
+        grouped = translation_notes.group_notes_by_line(notes)
         assert len(grouped[3]) == 2
         assert grouped[7] == [{"term": "c", "note": "note c"}]
 
     def test_notes_with_no_line_idx_are_dropped(self):
         notes = [{"line_idx": None, "term": "a", "note": "note a"}]
-        assert tg.group_notes_by_line(notes) == {}
+        assert translation_notes.group_notes_by_line(notes) == {}
 
     def test_empty_input_returns_empty_dict(self):
-        assert tg.group_notes_by_line([]) == {}
+        assert translation_notes.group_notes_by_line([]) == {}
 
     def test_reflection_notes_are_excluded_from_subtitle_inlining(self):
         """Step 7: a Reflect-mode critique has no `term` and isn't
@@ -224,20 +227,20 @@ class TestGroupNotesByLine:
         never end up burned into an exported subtitle."""
         notes = [{"line_idx": 3, "term": "", "note_type": "reflection", "note": "reads stiffly"},
                  {"line_idx": 3, "term": "a", "note_type": "cultural", "note": "note a"}]
-        grouped = tg.group_notes_by_line(notes)
+        grouped = translation_notes.group_notes_by_line(notes)
         assert grouped[3] == [{"term": "a", "note": "note a"}]
 
 
 class TestNotesFormatting:
     def test_notes_render_with_title(self):
         notes = [{"line_idx": 5, "term": "一石二鸟", "note_type": "idiom", "note": "A set phrase."}]
-        md = tg.format_notes_as_markdown(notes, "My Drama")
+        md = translation_notes.format_notes_as_markdown(notes, "My Drama")
         assert "My Drama" in md
         assert "一石二鸟" in md
 
     def test_line_numbers_are_one_based_in_output(self):
         notes = [{"line_idx": 0, "term": "X", "note_type": "idiom", "note": "N"}]
-        md = tg.format_notes_as_markdown(notes)
+        md = translation_notes.format_notes_as_markdown(notes)
         assert "Line 1" in md
 
     def test_notes_grouped_by_type(self):
@@ -245,15 +248,15 @@ class TestNotesFormatting:
             {"line_idx": 1, "term": "A", "note_type": "idiom", "note": "n1"},
             {"line_idx": 2, "term": "B", "note_type": "wordplay", "note": "n2"},
         ]
-        md = tg.format_notes_as_markdown(notes)
+        md = translation_notes.format_notes_as_markdown(notes)
         assert md.count("##") >= 2
 
     def test_empty_notes_produces_placeholder(self):
-        md = tg.format_notes_as_markdown([])
+        md = translation_notes.format_notes_as_markdown([])
         assert "No notes recorded" in md
 
     def test_all_note_types_have_descriptions(self):
-        for key, desc in tg.NOTE_TYPES.items():
+        for key, desc in translation_notes.NOTE_TYPES.items():
             assert isinstance(desc, str) and len(desc) > 0
 
 
@@ -261,17 +264,17 @@ class TestHardTermSubstitution:
     def test_replaces_known_variants_with_canonical(self):
         terms = [{"term_translation": "Shen Qingyi",
                   "notes": "Shen Qing Yi|Chen Qingyi", "enforce_exact": True}]
-        result = tg.apply_hard_term_substitutions("Shen Qing Yi met Chen Qingyi.", terms)
+        result = glossary_substitution.apply_hard_term_substitutions("Shen Qing Yi met Chen Qingyi.", terms)
         assert result == "Shen Qingyi met Shen Qingyi."
 
     def test_ignores_terms_not_marked_enforce(self):
         terms = [{"term_translation": "Canonical", "notes": "Variant", "enforce_exact": False}]
-        result = tg.apply_hard_term_substitutions("Variant stays put.", terms)
+        result = glossary_substitution.apply_hard_term_substitutions("Variant stays put.", terms)
         assert result == "Variant stays put."
 
     def test_case_insensitive_matching(self):
         terms = [{"term_translation": "Yunyin Sect", "notes": "yunyin sect", "enforce_exact": True}]
-        result = tg.apply_hard_term_substitutions("the yunyin sect gathered", terms)
+        result = glossary_substitution.apply_hard_term_substitutions("the yunyin sect gathered", terms)
         assert "Yunyin Sect" in result
 
     def test_longer_terms_replaced_first(self):
@@ -280,16 +283,16 @@ class TestHardTermSubstitution:
             {"term_translation": "Shen Qingyi", "notes": "Shen Qing Yi", "enforce_exact": True},
             {"term_translation": "Shen", "notes": "Chen", "enforce_exact": True},
         ]
-        result = tg.apply_hard_term_substitutions("Shen Qing Yi arrived.", terms)
+        result = glossary_substitution.apply_hard_term_substitutions("Shen Qing Yi arrived.", terms)
         assert "Shen Qingyi" in result
 
     def test_empty_glossary_returns_text_unchanged(self):
-        assert tg.apply_hard_term_substitutions("unchanged", []) == "unchanged"
-        assert tg.apply_hard_term_substitutions("unchanged", None) == "unchanged"
+        assert glossary_substitution.apply_hard_term_substitutions("unchanged", []) == "unchanged"
+        assert glossary_substitution.apply_hard_term_substitutions("unchanged", None) == "unchanged"
 
     def test_no_variants_listed_leaves_text_alone(self):
         terms = [{"term_translation": "Canonical", "notes": "", "enforce_exact": True}]
-        assert tg.apply_hard_term_substitutions("some text", terms) == "some text"
+        assert glossary_substitution.apply_hard_term_substitutions("some text", terms) == "some text"
 
     def test_step30_aliases_and_banned_translations_fields_are_ignored(self):
         """Step 30 added glossary_terms.aliases and .banned_translations,
@@ -301,7 +304,7 @@ class TestHardTermSubstitution:
         terms = [{"term_translation": "Shen Qingyi", "notes": "Shen Qing Yi|Chen Qingyi",
                   "enforce_exact": True, "aliases": "沈清儀",
                   "banned_translations": "Totally Different Name"}]
-        result = tg.apply_hard_term_substitutions(
+        result = glossary_substitution.apply_hard_term_substitutions(
             "Shen Qing Yi met Chen Qingyi, not Totally Different Name.", terms)
         # Same substitutions as the plain-notes case, and banned_translations'
         # entry is left completely alone -- it isn't a `notes` variant.
@@ -309,9 +312,9 @@ class TestHardTermSubstitution:
 
     def test_a_variant_inside_the_canonical_form_never_compounds(self):
         terms = [{"term_translation": "Shen Qingyi", "notes": "Qingyi", "enforce_exact": True}]
-        once = tg.apply_hard_term_substitutions("Shen Qingyi smiled. Qingyi left.", terms)
+        once = glossary_substitution.apply_hard_term_substitutions("Shen Qingyi smiled. Qingyi left.", terms)
         assert once == "Shen Qingyi smiled. Shen Qingyi left."
-        assert tg.apply_hard_term_substitutions(once, terms) == once
+        assert glossary_substitution.apply_hard_term_substitutions(once, terms) == once
 
     def test_substituter_built_once_matches_per_line_application(self):
         terms = [
@@ -321,29 +324,29 @@ class TestHardTermSubstitution:
         ]
         lines = ["Shen Qing Yi met Lin in Berlin.", "Qingyi and Wan Wan left.",
                  "Shen Qingyi joined the cloud sect.", "", "Nothing to change."]
-        substitute = tg.build_hard_term_substituter(terms)
+        substitute = glossary_substitution.build_hard_term_substituter(terms)
         for text in lines:
-            assert substitute(text) == tg.apply_hard_term_substitutions(text, terms)
+            assert substitute(text) == glossary_substitution.apply_hard_term_substitutions(text, terms)
         assert substitute(lines[0]) == "Shen Qingyi met Lin Wan in Berlin."
 
     def test_a_line_whose_source_lacks_the_term_keeps_its_variant(self):
         terms = [{"term_original": "师姐", "term_translation": "Senior Sister", "notes": "Sister",
                   "enforce_exact": True}]
-        substitute = tg.build_hard_term_substituter(terms)
+        substitute = glossary_substitution.build_hard_term_substituter(terms)
         assert substitute("My sister is home.", "我姐姐在家。") == "My sister is home."
         assert substitute("My sister is home.", "师姐在家。") == "My Senior Sister is home."
 
     def test_an_alias_in_the_source_brings_the_term_into_play(self):
         terms = [{"term_original": "沈清仪", "aliases": "清仪", "term_translation": "Shen Qingyi",
                   "notes": "Qingyi", "enforce_exact": True}]
-        assert tg.apply_hard_term_substitutions("Qingyi left.", terms, "清仪走了") == "Shen Qingyi left."
+        assert glossary_substitution.apply_hard_term_substitutions("Qingyi left.", terms, "清仪走了") == "Shen Qingyi left."
 
     def test_only_the_terms_the_source_holds_are_replaced(self):
         terms = [{"term_original": "沈清仪", "term_translation": "Shen Qingyi", "notes": "Qingyi",
                   "enforce_exact": True},
                  {"term_original": "林晚", "term_translation": "Lin Wan", "notes": "Lin",
                   "enforce_exact": True}]
-        substitute = tg.build_hard_term_substituter(terms)
+        substitute = glossary_substitution.build_hard_term_substituter(terms)
         assert substitute("Qingyi met Lin.", "沈清仪来了") == "Shen Qingyi met Lin."
         assert substitute("Qingyi met Lin.", "林晚来了") == "Qingyi met Lin Wan."
         assert substitute("Qingyi met Lin.", "沈清仪见了林晚") == "Shen Qingyi met Lin Wan."
@@ -355,7 +358,7 @@ class TestHardTermSubstitution:
                  {"term_original": "师姐", "term_translation": "Senior Sister", "enforce_exact": True},
                  {"term_original": "姐姐", "term_translation": "Big Sister", "notes": "Sister",
                   "enforce_exact": True}]
-        substitute = tg.build_hard_term_substituter(terms)
+        substitute = glossary_substitution.build_hard_term_substituter(terms)
         assert substitute("Shen Qingyi left.", "清仪走了") == "Shen Qingyi left."
         assert substitute("Senior Sister left.", "姐姐走了") == "Senior Sister left."
         assert substitute("Qingyi and Sister left.", "清仪和姐姐走了") == "Qingyi Li and Big Sister left."
@@ -363,29 +366,29 @@ class TestHardTermSubstitution:
     def test_an_empty_source_brings_no_term_into_play(self):
         terms = [{"term_original": "林晚", "term_translation": "Lin Wan", "notes": "Lin",
                   "enforce_exact": True}]
-        assert tg.apply_hard_term_substitutions("Lin waved.", terms, "") == "Lin waved."
+        assert glossary_substitution.apply_hard_term_substitutions("Lin waved.", terms, "") == "Lin waved."
 
     def test_matches_whole_words_only(self):
         terms = [{"term_translation": "Lin Wan", "notes": "Lin", "enforce_exact": True}]
-        result = tg.apply_hard_term_substitutions("In Berlin, Lin waved. LINE up.", terms)
+        result = glossary_substitution.apply_hard_term_substitutions("In Berlin, Lin waved. LINE up.", terms)
         assert result == "In Berlin, Lin Wan waved. LINE up."
 
     def test_cjk_variants_need_no_word_boundary(self):
         terms = [{"term_translation": "沈清仪", "notes": "清仪", "enforce_exact": True},
                  {"term_translation": "Lin Wan", "notes": "Lin", "enforce_exact": True}]
-        result = tg.apply_hard_term_substitutions("我和清仪在Lin的家", terms)
+        result = glossary_substitution.apply_hard_term_substitutions("我和清仪在Lin的家", terms)
         assert result == "我和沈清仪在Lin Wan的家"
 
     def test_variant_that_is_a_prefix_of_the_canonical_form(self):
         terms = [{"term_translation": "Qingyi", "notes": "Qing", "enforce_exact": True}]
-        once = tg.apply_hard_term_substitutions("Qing and Qingyi and Qinghe", terms)
+        once = glossary_substitution.apply_hard_term_substitutions("Qing and Qingyi and Qinghe", terms)
         assert once == "Qingyi and Qingyi and Qinghe"
-        assert tg.apply_hard_term_substitutions(once, terms) == once
+        assert glossary_substitution.apply_hard_term_substitutions(once, terms) == once
 
     def test_free_text_notes_are_not_variants(self):
         terms = [{"term_translation": "Lin Wan",
                   "notes": "her childhood friend|Lyn Wan", "enforce_exact": True}]
-        result = tg.apply_hard_term_substitutions(
+        result = glossary_substitution.apply_hard_term_substitutions(
             "Her childhood friend, Lyn Wan, came.", terms)
         assert result == "Her childhood friend, Lin Wan, came."
 
@@ -393,21 +396,21 @@ class TestHardTermSubstitution:
     def test_a_lone_remark_that_is_not_a_spelling_of_the_name_rewrites_nothing(self, note):
         terms = [{"term_translation": "Shen Qingyi", "notes": note, "enforce_exact": True}]
         text = f"I'll {note} the way. The {note.lower()} smiled. {note} agreed."
-        assert tg.apply_hard_term_substitutions(text, terms) == text
+        assert glossary_substitution.apply_hard_term_substitutions(text, terms) == text
 
     def test_a_lone_close_spelling_is_still_enforced(self):
         terms = [{"term_translation": "Shen Qingyi", "notes": "Chen Qingyi", "enforce_exact": True}]
-        assert tg.apply_hard_term_substitutions("Chen Qingyi left.", terms) == "Shen Qingyi left."
+        assert glossary_substitution.apply_hard_term_substitutions("Chen Qingyi left.", terms) == "Shen Qingyi left."
 
     def test_a_variant_inside_the_canonical_form_ignores_case(self):
         terms = [{"term_translation": "Shen Qingyi", "notes": "Qingyi", "enforce_exact": True}]
-        assert tg.apply_hard_term_substitutions("QINGYI? shen qingyi!", terms) == \
+        assert glossary_substitution.apply_hard_term_substitutions("QINGYI? shen qingyi!", terms) == \
             "Shen Qingyi? Shen Qingyi!"
 
     def test_a_case_fold_mismatch_does_not_raise(self):
         # Turkish dotted I matches "i" under IGNORECASE but casefolds to two chars.
         terms = [{"term_translation": "Lin Wan", "notes": "Lin", "enforce_exact": True}]
-        assert tg.apply_hard_term_substitutions("LİN waved.", terms) == "Lin Wan waved."
+        assert glossary_substitution.apply_hard_term_substitutions("LİN waved.", terms) == "Lin Wan waved."
 
     @pytest.mark.parametrize("canonical, variant, text, expected", [
         ("Su Shan", "Su Shan Shan", "Su Shan Shan laughed.", "Su Shan laughed."),
@@ -415,7 +418,7 @@ class TestHardTermSubstitution:
     ])
     def test_real_spaced_variants_are_enforced(self, canonical, variant, text, expected):
         terms = [{"term_translation": canonical, "notes": variant, "enforce_exact": True}]
-        assert tg.apply_hard_term_substitutions(text, terms) == expected
+        assert glossary_substitution.apply_hard_term_substitutions(text, terms) == expected
 
     @pytest.mark.parametrize("text", [
         "Shen Qing Yi met Chen Qingyi in Berlin.", "Lin, Lin Wan and Qingyi.",
@@ -426,34 +429,34 @@ class TestHardTermSubstitution:
                   "enforce_exact": True},
                  {"term_translation": "Lin Wan", "notes": "Lin|her friend", "enforce_exact": True},
                  {"term_translation": "沈清仪", "notes": "清仪", "enforce_exact": True}]
-        once = tg.apply_hard_term_substitutions(text, terms)
-        assert tg.apply_hard_term_substitutions(once, terms) == once
+        once = glossary_substitution.apply_hard_term_substitutions(text, terms)
+        assert glossary_substitution.apply_hard_term_substitutions(once, terms) == once
 
 
 class TestLlmFunctionsGracefulFallback:
     def test_extract_terms_returns_empty_for_pure_mt_engine(self):
         class PureMT:
             supports_reference = False
-        assert tg.extract_terms_llm(["你好"], PureMT()) == []
+        assert glossary_extract.extract_terms_llm(["你好"], PureMT()) == []
 
     def test_extract_terms_returns_empty_for_blank_input(self):
         class MockLlm:
             supports_reference = True
-        assert tg.extract_terms_llm(["", "  "], MockLlm()) == []
+        assert glossary_extract.extract_terms_llm(["", "  "], MockLlm()) == []
 
     def test_generate_notes_returns_empty_for_pure_mt_engine(self):
         from core import Line
         class PureMT:
             supports_reference = False
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
-        assert tg.generate_translation_notes_llm(lines, PureMT()) == []
+        assert translation_notes.generate_translation_notes_llm(lines, PureMT()) == []
 
     def test_generate_notes_returns_empty_when_nothing_translated(self):
         from core import Line
         class MockLlm:
             supports_reference = True
         lines = [Line(idx=0, start=0, end=1, zh="a", en="")]
-        assert tg.generate_translation_notes_llm(lines, MockLlm()) == []
+        assert translation_notes.generate_translation_notes_llm(lines, MockLlm()) == []
 
 
 class TestExtractTermsLlmUsesTheSpreadSample:
@@ -483,7 +486,7 @@ class TestExtractTermsLlmUsesTheSpreadSample:
         lines = [f"filler line {i}" for i in range(3000)]
         lines[-1] = "UNIQUEMARKERZZZ finally appears in the last line of the drama"
         engine = CapturingEngine()
-        tg.extract_terms_llm(lines, engine)
+        glossary_extract.extract_terms_llm(lines, engine)
         assert "UNIQUEMARKERZZZ" in engine.prompts[0]
 
 
@@ -497,11 +500,11 @@ class TestSampleLinesAcrossText:
 
     def test_short_list_returned_whole_and_in_order(self):
         lines = [f"line{i}" for i in range(5)]
-        assert tg._sample_lines_across_text(lines, 400) == lines
+        assert glossary_extract._sample_lines_across_text(lines, 400) == lines
 
     def test_long_list_samples_from_spread_out_points_not_just_the_start(self):
         lines = [f"line{i}" for i in range(3000)]
-        sample = tg._sample_lines_across_text(lines, 400)
+        sample = glossary_extract._sample_lines_across_text(lines, 400)
         assert len(sample) == 400
         # Not a prefix: the sample covers the true beginning AND end of
         # the drama, not just its first max_lines entries.
@@ -511,32 +514,32 @@ class TestSampleLinesAcrossText:
 
     def test_sample_preserves_original_reading_order(self):
         lines = [f"line{i}" for i in range(1000)]
-        sample = tg._sample_lines_across_text(lines, 100)
+        sample = glossary_extract._sample_lines_across_text(lines, 100)
         indices = [lines.index(s) for s in sample]
         assert indices == sorted(indices)
 
     def test_empty_list(self):
-        assert tg._sample_lines_across_text([], 400) == []
+        assert glossary_extract._sample_lines_across_text([], 400) == []
 
 
 class TestNovelSampling:
     def test_samples_spread_across_the_text(self):
         long_text = "".join(f"part{i} content. " for i in range(3000))
-        samples = tg._sample_across_text(long_text, total_chars=6000, chunks=6)
+        samples = glossary_extract._sample_across_text(long_text, total_chars=6000, chunks=6)
         assert len(samples) == 6
         assert samples[0] != samples[-1]
 
     def test_short_text_returned_whole(self):
-        assert tg._sample_across_text("tiny") == ["tiny"]
+        assert glossary_extract._sample_across_text("tiny") == ["tiny"]
 
     def test_empty_text(self):
-        assert tg._sample_across_text("") == []
-        assert tg._sample_across_text(None) == []
+        assert glossary_extract._sample_across_text("") == []
+        assert glossary_extract._sample_across_text(None) == []
 
     def test_pure_mt_engine_extracts_nothing(self):
         class PureMT:
             supports_reference = False
-        assert tg.extract_glossary_from_novel("some text", PureMT()) == []
+        assert glossary_extract.extract_glossary_from_novel("some text", PureMT()) == []
 
 
 class TestGlossaryFileImport:

@@ -268,7 +268,7 @@ def fmt_ts(seconds: float) -> str:
 def notes_suffix(line_idx: int, notes_by_idx: dict | None) -> str:
     """notes_by_idx: {line_idx: [{"term", "note"}, ...]}, from
     db.list_translation_notes() grouped by line -- see
-    translation_guide.group_notes_by_line(). Renders as a bracketed
+    translation_notes.group_notes_by_line(). Renders as a bracketed
     aside appended to that line's subtitle text, e.g. "[Qijutang: lit.
     'Hall of Sitting Together', used as a joke]", so a reader watching
     the exported video (not just the in-app Reader) sees why a wordplay
