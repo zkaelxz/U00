@@ -404,7 +404,7 @@ class DownloadBudget:
     one whose header (read without decoding) shows a type outside them;
     with `max_image_pixels`, one over that many pixels. default_budget()
     sets only the two caps; the API's pasted-URL comic import adds the
-    format and pixel gates of services/page_import_limits.py on top."""
+    format and pixel gates of page_import_limits.py on top."""
     max_images: int
     max_total_bytes: int
     max_image_pixels: int = 0            # 0 = no pixel check
@@ -445,7 +445,7 @@ def default_budget() -> DownloadBudget:
     No format or content-type gate: adapter chapters have always kept GIF
     pages and pages a CDN mislabels (text/plain), and refusing them would
     import a chapter with pages missing."""
-    from services import page_import_limits as limits
+    import page_import_limits as limits
     return DownloadBudget(limits.MAX_FILES_PER_IMPORT, limits.MAX_IMPORT_BYTES)
 
 
