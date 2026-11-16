@@ -70,3 +70,20 @@ def test_paddleocr_needs_no_opencv_swap_and_can_be_queued():
     assert install_registry.unqueueable_reason(["paddleocr", "paddlepaddle"]) is None
     assert install_registry.unqueueable_reason(["paddleocr", "manga_ocr"])
     assert install_registry.unqueueable_reason(["paddleocr", "rapidocr"]) is None
+
+
+def test_the_one_package_install_route_also_installs_paddles_requirements(monkeypatch):
+    # The Install button of a single package must give the same command as the queued install:
+    # without paddlex and the rest, `import paddleocr` fails after --no-deps.
+    from services import diagnostics_packages_service as svc
+    monkeypatch.setattr(svc.pending_install, "snapshot", lambda: {})
+    ((cmd, _),) = svc._install_commands("paddleocr")
+    assert "--no-deps" in cmd and "paddleocr==3.7.0" in cmd and "paddlex==3.7.2" in cmd
+    assert "modelscope-hub" in cmd and "yarl" in cmd
+    ((cmd, _),) = svc._install_commands("pytesseract")
+    assert cmd[-1].endswith("constraints.txt") or "pytesseract" in cmd
+
+
+def test_paddles_install_names_all_pass_the_apply_steps_name_check():
+    import pending_install
+    assert pending_install._argv_accepted(install_registry.install_argv(["paddleocr", "paddlepaddle"]))

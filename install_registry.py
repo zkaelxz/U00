@@ -41,7 +41,12 @@ PADDLE_REQUIREMENTS = {
     "paddleocr": ("paddlex==3.7.2", "aistudio-sdk", "chardet", "colorlog", "filelock", "huggingface-hub",
                   "modelscope", "packaging", "pandas", "pillow", "prettytable", "py-cpuinfo", "pydantic",
                   "requests", "ruamel.yaml", "typing-extensions", "ujson", "imagesize", "pyclipper",
-                  "pypdfium2", "python-bidi", "shapely", "aiohttp"),
+                  "pypdfium2", "python-bidi", "shapely", "aiohttp",
+                  # What those need in turn: --no-deps skips every level, and a V100 test showed
+                  # `import paddleocr` failing without them (pip check found these missing).
+                  "aiohappyeyeballs", "aiosignal", "attrs", "frozenlist", "multidict", "propcache", "yarl",
+                  "bce-python-sdk", "psutil", "tqdm", "colorama", "fsspec", "hf-xet", "modelscope-hub",
+                  "python-dateutil", "tzdata", "wcwidth"),
     "paddlepaddle": ("httpx", "protobuf", "opt-einsum", "networkx", "typing-extensions", "safetensors",
                      "setuptools"),
 }
