@@ -3,6 +3,8 @@ Never imports fastapi.
 """
 import os
 
+import novel_text
+
 
 def compute_workspace_stage_index(drama, lines, ddir):
     """Maps a drama's real pipeline progress onto the 7 stage-tab indices
@@ -54,7 +56,7 @@ def compute_workspace_stage_index(drama, lines, ddir):
 
 
 # Stage keys of the React stage bar (four stages) and the 7-tab index each
-# one covers (docs/archive/ux-workspace-shell-and-review.md, "Stage status").
+# one covers.
 STAGE_KEYS = ("source", "translate", "review", "export")
 _STAGE_FOR_INDEX = {0: "source", 1: "source", 2: "source", 3: "translate",
                     4: "review", 5: "review", 6: "export"}
@@ -79,7 +81,7 @@ def get_drama_progress(drama_id: int) -> dict:
     flagged = sum(1 for ln in lines if ln.flag)
     has_audio = bool(drama.get("audio_filename") or drama.get("source_video_filename"))
     has_dub_track = os.path.isfile(os.path.join(ddir, "dub_track.wav"))
-    has_narration_track = os.path.isfile(os.path.join(ddir, "narration_track.wav"))
+    has_narration_track = novel_text.find_narration_track(ddir) is not None
     exported = drama.get("status") == "exported"
     current = _STAGE_FOR_INDEX[index]
     no_lines = line_count == 0

@@ -48,6 +48,9 @@ export interface EstimateParams {
   batch_size?: number
   /** Estimate only these lines (those the run would translate); omitted, the whole title. */
   line_ids?: number[]
+  /** A novel's chapters (1-based, inclusive); one alone leaves that side open. */
+  chapter_from?: number
+  chapter_to?: number
 }
 
 export interface FallbackEngine {
@@ -75,6 +78,8 @@ export interface TranslateRunStartBody {
   memory_examples?: boolean // omitted: false
   line_ids?: number[]
   own_lines_only?: boolean // with line_ids: glossary substitution and flags stay inside those lines
+  chapter_from?: number // a novel's chapters for this run (1-based); the server turns them into the lines
+  chapter_to?: number
 }
 
 export interface BulkResumeResult {
@@ -227,7 +232,7 @@ export interface VoiceBankEntry {
   ref_text_present: boolean
 }
 
-// translate_engines.WORKFLOW_TIERS (Draft / Standard / Release).
+// engine_backends.engine_registry.WORKFLOW_TIERS (Draft / Standard / Release).
 interface WorkflowTier {
   key: string
   label: string

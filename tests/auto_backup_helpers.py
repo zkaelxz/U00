@@ -194,6 +194,8 @@ def _seed_drama(c, title, series_id=None, sc=None, profiles=(), tag="A"):
             description="d", updated_at="x")
     _insert(c, "edit_samples", drama_id=did, line_id=lines[0], zh="z", ai_version="a",
             user_version="u", created_at="x")
+    _insert(c, "source_edits", drama_id=did, line_id=lines[0], path="person", before_zh="b",
+            after_zh="z", created_at="x")
     _insert(c, "metadata_field_provenance", drama_id=did, field="author", value=f"Au {tag}",
             source="grounded", status="applied")
     _insert(c, "capture_notes", drama_id=did, summary=f"Saved 3 of 3 pages. {tag}",

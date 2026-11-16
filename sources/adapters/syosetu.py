@@ -108,6 +108,7 @@ def _lines(node) -> str:
 class SyosetuSource(SourceAdapter):
     name = "syosetu"
     display_name = "小説家になろう (Syosetu)"
+    homepage = "https://syosetu.com"
     content_types = [ContentType.NOVEL.value]
     languages = ["ja"]
     url_patterns = [r"ncode\.syosetu\.com/" + _NCODE + r"(?:[/?#]|$)"]

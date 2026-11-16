@@ -3,7 +3,7 @@ api/static_frontend.py -- serves the built React app (`frontend/dist`)
 from the same FastAPI process and origin as `/api`.
 
 This is what lets the React app run as one process on one port with no
-Vite/npm at runtime (`docs/archive/remote-access-design.md` section 2). If
+Vite/npm at runtime. If
 `frontend/dist/index.html` doesn't exist, no file route is registered: the
 server is API-only, logs a build hint, and `/` answers with a plain "not
 built" page (an exception handler, so the route list is the same).

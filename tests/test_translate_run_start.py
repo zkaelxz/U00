@@ -330,3 +330,32 @@ def test_live_run_is_refused_beside_a_pending_reflect_batch(isolated_db):
     db.create_bulk_job(did, "claude", "m", "submitted", [(lid, "k", "h", "")], kind="reflect")
     with pytest.raises(ConflictError):
         svc.start_translate_run(did, engine_name="fake")
+
+
+CHAPTERS = [("第1章 开始", ""), ("他说：你好。", ""), ("第2章 继续", ""), ("风很大。", ""), ("雨停了。", ""),
+            ("第3章 结束", ""), ("天亮了。", "")]
+
+
+def test_a_chapter_run_translates_only_that_chapter_and_estimates_only_it(isolated_db):
+    did = _seed(CHAPTERS)
+    whole = svc.estimate_translate_cost(did, "claude")
+    one = svc.estimate_translate_cost(did, "claude", chapter_from=2, chapter_to=2)
+    assert (whole["target_line_count"], one["target_line_count"]) == (7, 3)
+    assert one["estimated_usd"] < whole["estimated_usd"]
+    out = svc.start_translate_run(did, engine_name="fake", chapter_from=2, chapter_to=2)
+    assert wait_for_job(out["job_id"])["status"] == "done"
+    done = {r["zh"] for r in db.load_lines(did) if r["en"]}
+    assert done == {"第2章 继续", "风很大。", "雨停了。"}
+    # The next press carries on where it stopped: only chapters still without English.
+    nxt = svc.start_translate_run(did, engine_name="fake", chapter_from=2, chapter_to=3)
+    assert nxt["target_line_count"] == 2
+    assert wait_for_job(nxt["job_id"])["status"] == "done"
+    assert all(r["en"] for r in db.load_lines(did) if r["zh"] not in ("第1章 开始", "他说：你好。"))
+
+
+def test_chapter_range_must_fit_and_not_mix_with_line_ids(isolated_db):
+    did = _seed(CHAPTERS)
+    with pytest.raises(InvalidInputError):
+        svc.start_translate_run(did, engine_name="fake", chapter_from=4, chapter_to=4)
+    with pytest.raises(InvalidInputError):
+        svc.start_translate_run(did, engine_name="fake", chapter_from=1, chapter_to=2, line_ids=[1])

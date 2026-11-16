@@ -150,7 +150,7 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
         />
       )}
       <NovelCastCard dramaId={id} scanDone={scanDone} />
-      <div className="actions">
+      <div className="actions title-actions">
         {allTranslated && <ButtonLink href={stage('review')} variant="primary">Review</ButtonLink>}
         {hasLines || !list || list.total === 0 ? (
           <ButtonLink href={hasLines ? stage('translate', 'translate') : stage('source')} variant={hasLines && !allTranslated ? 'primary' : 'secondary'}>Translate</ButtonLink>

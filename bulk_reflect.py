@@ -20,7 +20,7 @@ from engine_backends import (
     pricing,
 )
 from engine_backends import prompts as engine_prompts
-import translation_guide as tguide
+import glossary_substitution
 import word_replacements
 from lib.errors import NotFoundError
 from translation_finish import mark_translated_if_complete
@@ -98,7 +98,8 @@ def sibling_stage_job(pipeline_id: str, stage: str, skip_failed: bool = False):
 
 def submit_reflect_stage(drama_id: int, stage: str, provider, batches: list, engine_choice: str,
                          model: str, pipeline_id: str, translate_args: dict | None = None,
-                         en_at_submit_by_id: dict | None = None, max_tokens: int = 4000) -> int:
+                         en_at_submit_by_id: dict | None = None, max_tokens: int = 4000,
+                         estimated_usd: float | None = None) -> int:
     """batches: [(id_zh_pairs, prompt_text), ...], id_zh_pairs = [(line_id,
     zh), ...] -- zh is carried alongside each id purely so this stage's
     own bulk_job_lines rows record a real zh_hash to compare against
@@ -118,7 +119,7 @@ def submit_reflect_stage(drama_id: int, stage: str, provider, batches: list, eng
         raise ValueError("Nothing to process -- no eligible lines.")
     bulk_job_id = db.create_bulk_job(drama_id, engine_choice, model, "submitting", rows,
                                      translate_args=translate_args, kind="reflect", stage=stage,
-                                     pipeline_id=pipeline_id)
+                                     pipeline_id=pipeline_id, estimated_usd=estimated_usd)
     try:
         batch_id = provider.submit(requests_)
     except Exception as e:
@@ -131,7 +132,7 @@ def submit_reflect_stage(drama_id: int, stage: str, provider, batches: list, eng
 
 def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: str,
                             translate_args: dict, provider=None, batch_size=None,
-                            force_retranslate: bool = False) -> int:
+                            force_retranslate: bool = False, estimated_usd: float | None = None) -> int:
     """Submits stage "faithful", the pipeline's own first bulk job.
     Returns its bulk_job_id -- the Bulk jobs panel shows this one first;
     stages "reflect" and "expressive" only exist once the prior stage's
@@ -156,7 +157,8 @@ def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: s
     en_at_submit_by_id = {ln.id: ln.en or "" for ln in targets}
     return submit_reflect_stage(drama_id, "faithful", provider, batches, engine_choice,
                                 getattr(engine, "model", ""), pipeline_id,
-                                translate_args=translate_args, en_at_submit_by_id=en_at_submit_by_id)
+                                translate_args=translate_args, en_at_submit_by_id=en_at_submit_by_id,
+                                estimated_usd=estimated_usd)
 
 
 def _drop_or_flag_stale(ln, counts: dict) -> bool:
@@ -237,6 +239,12 @@ def _stage_chunks(job: dict, ids: list, engine):
         yield [ln.id for ln in batch], {ln.id: ln.zh for ln in batch}, instructions, batch_ctx, source_by_id
 
 
+# The first stage's row holds the whole pipeline's estimate; each later
+# stage's row takes over the part of it still to be billed (two of three
+# stages, then one of two), so the cap stays held until the last one lands.
+_ESTIMATE_SHARE_CARRIED = {"reflect": 2 / 3, "expressive": 1 / 2}
+
+
 def _submit_next_stage(job: dict, stage: str, build_batches, ids: list, en_at_submit_by_id: dict,
                        provider, max_tokens: int):
     """None once submitted, else the (redacted) reason it wasn't. The
@@ -251,7 +259,9 @@ def _submit_next_stage(job: dict, stage: str, build_batches, ids: list, en_at_su
         submit_reflect_stage(job["drama_id"], stage, provider, batches, job["engine"],
                              job["model"], job["pipeline_id"], translate_args=job.get("translate_args"),
                              en_at_submit_by_id={lid: en_at_submit_by_id[lid] for lid in ids},
-                             max_tokens=max_tokens)
+                             max_tokens=max_tokens,
+                             estimated_usd=(job.get("estimated_usd") or 0.0)
+                             * _ESTIMATE_SHARE_CARRIED[stage])
         return None
     except Exception as exc:
         reason = shared.redact_secrets(str(exc))
@@ -362,8 +372,9 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict, cancel_
         return _leave_applying(job["id"], "needs_resubmit", result_summary=summary,
                                last_error="Waiting for an API key to send the next Reflect stage.")
     cap, error = pricing.resolve_cost_cap(
-        None, monthly_cap_usd, db.get_month_spend() if monthly_cap_usd else 0.0)
+        None, monthly_cap_usd, db.get_logged_month_spend() if monthly_cap_usd else 0.0)
     if not error and cap is not None:
+        cap = max(0.0, cap - _held_by_other_batches(job["pipeline_id"]))
         error = _stage_over_cap(job, survivors, engine, cap)
     if _cancelled(job["id"], cancel_check):
         # Cancelled while this stage's results were being applied: the next
@@ -393,6 +404,13 @@ def _advance_pipeline(job: dict, engine, monthly_cap_usd, summary: dict, cancel_
                                       "the first-pass drafts were used instead.")
 
 
+def _held_by_other_batches(pipeline_id: str) -> float:
+    """The estimates of every other unbilled batch: their usage is logged only
+    when their results land, so the cap left for this stage excludes them."""
+    return sum(usd for _drama, _kind, pid, usd, _user in db.list_unbilled_bulk_estimates()
+               if pid != pipeline_id)
+
+
 def _stage_over_cap(job: dict, ids: list, engine, remaining_usd: float) -> str | None:
     """A reason when the next stage's estimated cost exceeds what is left of
     the cap. Stage batches run for hours and can't be stopped part-way, so
@@ -406,7 +424,7 @@ def _stage_over_cap(job: dict, ids: list, engine, remaining_usd: float) -> str |
     if estimate <= remaining_usd:
         return None
     return (f"it would cost about ${estimate:.2f}, more than the ${remaining_usd:.2f} "
-            "left under the spending cap")
+            "left under the spending cap once other pending bulk jobs are counted")
 
 
 def _cancelled(job_id: int, cancel_check) -> bool:
@@ -509,7 +527,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
     substitute_terms, fixes_text = word_replacements.with_replacements(
-        tguide.build_hard_term_substituter(enforced), job["drama_id"], bool(enforced))
+        glossary_substitution.build_hard_term_substituter(enforced), job["drama_id"], bool(enforced))
     unusable = junk_check(job)
     notes = []
     for lid, text in text_by_id.items():

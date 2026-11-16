@@ -22,7 +22,7 @@ setting a kind lacks is not rendered, and the tabs and `advancedGroups` read it.
 
 ## Tests
 - `cd frontend && npx tsc -b && npx vitest run`
-- `frontend/e2e/<stage>-*.spec.ts`, e.g. `dub-stage.spec.ts`, `export-stage.spec.ts`
+- `frontend/e2e/<stage>-*.spec.ts`, e.g. `review-stage.spec.ts`, `export-stage.spec.ts`
 
 ## Do not touch
 - `../stageRegistry.ts` lines for other stages.

@@ -1,7 +1,7 @@
 /** The file run behind the Add box: its choices, the run itself and its resume after a reload. */
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 
-import { ApiError, withSignal } from '../../api/client'
+import { ApiError, uploadProgressFetch, withSignal } from '../../api/client'
 import { getSubtitleText, markExported } from '../../api/export'
 import { getSettings } from '../../api/settings'
 import { cancelJob, probeJob } from '../../api/jobs'
@@ -9,6 +9,7 @@ import { createDrama } from '../../api/library'
 import { translateApi } from '../../api/translate'
 import { getTranslateConfig, startTranslateRun } from '../../api/translateStage'
 import { uploadAndTranscribe } from '../../api/workspace'
+import type { UploadSent } from '../../components/UploadProgress'
 import { downloadText } from '../../components/downloadBlob'
 import { JOB_FAILED } from '../../components/errorMessages'
 import { useJob, useJobRun } from '../../hooks/useJob'
@@ -55,6 +56,7 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   // closed translates with it, whatever the box (here or in the Library) has picked since.
   const [runEngine, setRunEngine] = usePersistedState('makeSubtitles.runEngine', '')
   const [file, setFile] = useState<File | null>(null)
+  const [sent, setSent] = useState<UploadSent | null>(null)
   const [title, setTitle] = useState('')
   const [variant, setVariant] = useState('')
   const [blockers, setBlockers] = useState<PreflightRow[]>([])
@@ -179,6 +181,7 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
     resumedFrom.current = null
     setRunEngine(r.engine || engine)
     setResuming(false)
+    setSent(null)
     dispatch({ type: 'start' })
     try {
       const d = await createDrama({
@@ -187,7 +190,8 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
       created = d.id
       dispatch({ type: 'created', dramaId: d.id })
       if (abort.signal.aborted) throw new DOMException('Cancelled', 'AbortError')
-      const u = await uploadAndTranscribe(d.id, r.file, { source_language: r.language }, false, withSignal(abort.signal))
+      const u = await uploadAndTranscribe(d.id, r.file, { source_language: r.language }, false,
+        withSignal(abort.signal, uploadProgressFetch((loaded, total) => setSent({ loaded, total }))))
       dispatch({ type: 'advance' })
       setJobId(u.job_id)
     } catch (e) {
@@ -253,7 +257,7 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   return {
     flow, file, setFile, language, setLanguage, engine, setPickedEngine, list, engines, retryEngines: () => setEnginesTry((n) => n + 1),
     title, setTitle, variant, setVariant, defaultLocale, setBlockers, blocker: blockerText(!!file, blockers, engine),
-    job, jobId, stepNow, note, waiting, cancelError, downloadError, srt,
+    job, jobId, stepNow, sent, note, waiting, cancelError, downloadError, srt,
     start, refused, choices, cancel, download, reset,
     /** The run's progress or its result, which takes the box's place on the Add page. */
     showingRun: flow.phase === 'running' || flow.phase === 'done',

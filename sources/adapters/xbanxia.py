@@ -73,6 +73,7 @@ def _labelled_text(soup, *prefixes) -> str:
 class XbanxiaSource(SourceAdapter):
     name = "xbanxia"
     display_name = "xbanxia.cc"
+    homepage = "https://www.xbanxia.cc"
     content_types = [ContentType.NOVEL.value]
     languages = ["zh"]
     pacing_profile = PacingProfile(

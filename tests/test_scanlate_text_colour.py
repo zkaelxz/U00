@@ -7,7 +7,10 @@ cv2 = pytest.importorskip("cv2")
 PIL = pytest.importorskip("PIL")
 from PIL import Image, ImageDraw, ImageFont
 
+import scanlate_fonts
+import scanlate_ink
 import scanlate_render
+import scanlate_text_layout
 import scanlate_tuning
 
 BOX = {"x": 20, "y": 20, "w": 120, "h": 50}
@@ -21,34 +24,34 @@ def _page(background, ink, ink_bgr_rows=slice(35, 55), cols=slice(40, 120)):
 
 def test_coloured_ink_on_a_light_balloon_is_sampled():
     blue_bgr = (200, 60, 30)
-    assert scanlate_render.sampled_ink_color(_page(255, blue_bgr), BOX) == (30, 60, 200)
+    assert scanlate_ink.sampled_ink_color(_page(255, blue_bgr), BOX) == (30, 60, 200)
 
 
 def test_plain_black_ink_stays_automatic():
-    assert scanlate_render.sampled_ink_color(_page(255, (20, 20, 20)), BOX) is None
+    assert scanlate_ink.sampled_ink_color(_page(255, (20, 20, 20)), BOX) is None
 
 
 def test_slightly_tinted_black_ink_stays_automatic():
-    assert scanlate_render.sampled_ink_color(_page(255, (40, 25, 20)), BOX) is None
+    assert scanlate_ink.sampled_ink_color(_page(255, (40, 25, 20)), BOX) is None
 
 
 def test_coloured_ink_on_a_dark_balloon_is_sampled():
-    assert scanlate_render.sampled_ink_color(_page(20, (60, 60, 230)), BOX) == (230, 60, 60)
+    assert scanlate_ink.sampled_ink_color(_page(20, (60, 60, 230)), BOX) == (230, 60, 60)
 
 
 def test_white_ink_on_a_dark_balloon_stays_automatic():
-    assert scanlate_render.sampled_ink_color(_page(20, (250, 250, 250)), BOX) is None
+    assert scanlate_ink.sampled_ink_color(_page(20, (250, 250, 250)), BOX) is None
 
 
 def test_a_region_with_almost_no_ink_stays_automatic():
     page = _page(255, (200, 60, 30), ink_bgr_rows=slice(40, 41), cols=slice(40, 45))
-    assert scanlate_render.sampled_ink_color(page, BOX) is None
+    assert scanlate_ink.sampled_ink_color(page, BOX) is None
 
 
 def test_a_hand_set_colour_beats_the_sampled_one():
     img = Image.new("RGB", (50, 50), "white")
     box = dict(BOX, text_color="#00ff00")
-    assert scanlate_render._text_fill(img, box, (30, 60, 200)) == (0, 255, 0)
+    assert scanlate_ink._text_fill(img, box, (30, 60, 200)) == (0, 255, 0)
 
 
 def _render(tmp_path, match_color):
@@ -74,7 +77,7 @@ def test_anti_aliased_edges_do_not_wash_out_the_sampled_colour():
     img = Image.new("RGB", (200, 80), "white")
     ImageDraw.Draw(img).text((10, 20), "Yes Hello", font=font, fill=(214, 130, 40))
     page = np.asarray(img)[:, :, ::-1].copy()
-    assert scanlate_render.sampled_ink_color(page, {"x": 0, "y": 0, "w": 200, "h": 80}) == (214, 130, 40)
+    assert scanlate_ink.sampled_ink_color(page, {"x": 0, "y": 0, "w": 200, "h": 80}) == (214, 130, 40)
 
 
 def _faded_page(top_bgr, bottom_bgr):
@@ -86,7 +89,7 @@ def _faded_page(top_bgr, bottom_bgr):
 
 
 def test_lettering_that_fades_between_two_colours_is_sampled_as_a_fade():
-    fade = scanlate_render.sampled_ink_fade(_faded_page((30, 120, 230), (200, 40, 120)), BOX)
+    fade = scanlate_ink.sampled_ink_fade(_faded_page((30, 120, 230), (200, 40, 120)), BOX)
     assert fade is not None
     top, bottom = fade
     assert top[0] > bottom[0] and top[2] < bottom[2]  # orange-ish above, purple-ish below
@@ -94,14 +97,14 @@ def test_lettering_that_fades_between_two_colours_is_sampled_as_a_fade():
 
 @pytest.mark.parametrize("ink", [(30, 60, 200), (20, 20, 20), (250, 250, 250)])
 def test_single_colour_lettering_is_not_a_fade(ink):
-    assert scanlate_render.sampled_ink_fade(_faded_page(ink, ink), BOX) is None
+    assert scanlate_ink.sampled_ink_fade(_faded_page(ink, ink), BOX) is None
 
 
 def test_art_touching_the_box_edge_is_not_read_as_a_fade():
     page = _faded_page((30, 60, 200), (30, 60, 200))
     page[:, :10] = (40, 160, 40)  # a leaf running down the box edge
     page[:15, :] = (60, 40, 220)  # a rose along the top
-    assert scanlate_render.sampled_ink_fade(page, BOX) is None
+    assert scanlate_ink.sampled_ink_fade(page, BOX) is None
 
 
 def test_two_unrelated_colours_with_nothing_between_are_not_a_fade():
@@ -109,14 +112,14 @@ def test_two_unrelated_colours_with_nothing_between_are_not_a_fade():
     page[30:38, 40:120] = (30, 60, 200)
     page[38:47, 40:120] = (200, 200, 60)
     page[47:55, 40:120] = (40, 170, 40)
-    assert scanlate_render.sampled_ink_fade(page, BOX) is None
+    assert scanlate_ink.sampled_ink_fade(page, BOX) is None
 
 
 def test_a_two_line_balloon_with_a_step_between_the_lines_is_still_a_fade():
     page = np.full((100, 160, 3), 255, np.uint8)
     page[20:40, 40:120] = (160, 100, 50)
     page[60:80, 40:120] = (90, 50, 20)
-    assert scanlate_render.sampled_ink_fade(page, {"x": 20, "y": 10, "w": 120, "h": 80}) is not None
+    assert scanlate_ink.sampled_ink_fade(page, {"x": 20, "y": 10, "w": 120, "h": 80}) is not None
 
 
 def test_a_thin_coloured_outline_is_not_read_as_a_fade():
@@ -126,7 +129,7 @@ def test_a_thin_coloured_outline_is_not_read_as_a_fade():
     for col in (30, 31, 128, 129):
         for row in range(20, 122):
             page[row, col] = (100, 60, 200) if row < 70 else (110, 180, 230)
-    assert scanlate_render.sampled_ink_fade(page, {"x": 10, "y": 5, "w": 140, "h": 140}) is None
+    assert scanlate_ink.sampled_ink_fade(page, {"x": 10, "y": 5, "w": 140, "h": 140}) is None
 
 
 def test_a_thick_balloon_outline_round_the_box_is_not_read_as_a_fade():
@@ -135,11 +138,11 @@ def test_a_thick_balloon_outline_round_the_box_is_not_read_as_a_fade():
     page[130:140, 20:140] = (90, 170, 220)
     page[20:140, 20:30] = (75, 130, 200)
     page[20:140, 130:140] = (75, 130, 200)
-    assert scanlate_render.sampled_ink_fade(page, {"x": 10, "y": 10, "w": 140, "h": 140}) is None
+    assert scanlate_ink.sampled_ink_fade(page, {"x": 10, "y": 10, "w": 140, "h": 140}) is None
 
 
 def test_a_dark_dull_end_still_counts_when_the_other_end_is_a_real_colour():
-    fade = scanlate_render.sampled_ink_fade(_faded_page((90, 70, 50), (190, 100, 190)), BOX)
+    fade = scanlate_ink.sampled_ink_fade(_faded_page((90, 70, 50), (190, 100, 190)), BOX)
     assert fade is not None
 
 
@@ -148,7 +151,7 @@ def test_the_fade_recolours_the_drawn_lettering_from_top_to_bottom():
     before = Image.new("RGB", (120, 60), "white")
     after = before.copy()
     ImageDraw.Draw(after).rectangle((10, 5, 110, 55), fill=(230, 120, 30))
-    scanlate_render._fade_lettering(before, after, (230, 120, 30), (120, 40, 200))
+    scanlate_ink._fade_lettering(before, after, (230, 120, 30), (120, 40, 200))
     assert after.getpixel((60, 6))[2] < 80      # still orange at the top
     assert after.getpixel((60, 54))[2] > 150    # purple at the bottom
     assert after.getpixel((2, 2)) == (255, 255, 255)  # paper is left alone
@@ -273,7 +276,7 @@ def test_a_line_keeps_clear_of_the_edge_of_a_balloon_with_a_tail():
     img = Image.new("RGB", (200, 120), "white")
     box = {"x": 0, "y": 0, "w": 200, "h": 120}
     report = {}
-    scanlate_render.render_text_in_box(img, box, "Unnie, how did you feel", font_size=24,
+    scanlate_text_layout.render_text_in_box(img, box, "Unnie, how did you feel", font_size=24,
                                        mask=_tailed_mask(), report=report)
     ink = np.flatnonzero((np.asarray(img.convert("L")) < 128).any(axis=0))
     pad = 0.2 * report["size"]
@@ -283,31 +286,31 @@ def test_a_line_keeps_clear_of_the_edge_of_a_balloon_with_a_tail():
 def test_a_narrow_balloon_with_a_tail_keeps_its_text_at_the_comfortable_size():
     word = "Honest!!"
     comfort = scanlate_tuning.TYPESET_COMFORT_PX
-    path = scanlate_render._find_font(None)
+    path = scanlate_fonts._find_font(None)
     font = ImageFont.truetype(path, comfort) if path else ImageFont.load_default(comfort)
     left, _, right, _ = ImageDraw.Draw(Image.new("RGB", (1, 1))).textbbox((0, 0), word, font=font)
     width = right - left + 4
     mask = np.zeros((80, width), np.uint8)
     mask[:40] = 1
     cv2.fillPoly(mask, [np.array([[2, 39], [width // 2, 39], [4, 79]])], 1)
-    assert scanlate_render._has_notch(mask.astype(bool))
+    assert scanlate_text_layout._has_notch(mask.astype(bool))
     img = Image.new("RGB", (width, 80), "white")
     report = {}
-    scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": width, "h": 80}, word,
+    scanlate_text_layout.render_text_in_box(img, {"x": 0, "y": 0, "w": width, "h": 80}, word,
                                        font_size=comfort, mask=mask.astype(bool), report=report)
     assert report["size"] == comfort
 
 
 def test_a_line_in_a_balloon_without_a_notch_may_reach_its_outline_rather_than_shrink():
     text = "Unnie, how did you feel"
-    path = scanlate_render._find_font(None)
+    path = scanlate_fonts._find_font(None)
     font = ImageFont.truetype(path, 24) if path else ImageFont.load_default(24)
     probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
     left, _, right, _ = probe.textbbox((0, 0), text, font=font)
     width = right - left + 4
     img = Image.new("RGB", (width, 40), "white")
     report = {}
-    scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": width, "h": 40}, text,
+    scanlate_text_layout.render_text_in_box(img, {"x": 0, "y": 0, "w": width, "h": 40}, text,
                                        font_size=24, mask=np.ones((40, width), bool), report=report)
     assert report["size"] == 24
 
@@ -323,7 +326,7 @@ def _round_balloon(hatched_corner, cut=120):
 def _line_centres(mask, rect_layout):
     from PIL import Image, ImageDraw, ImageFont
     draw = ImageDraw.Draw(Image.new("RGB", (311, 325)))
-    laid = scanlate_render._layout_balloon_text(
+    laid = scanlate_text_layout._layout_balloon_text(
         draw, "Me? Why?", mask, 28, lambda sz: ImageFont.load_default(sz), rect_layout)
     return [(left + right) / 2 for _, left, right, _ in laid[1]]
 
@@ -340,18 +343,18 @@ def test_a_cut_that_leaves_the_mask_nearly_full_width_is_still_seen():
     mask &= (xx - 155) + (155 - yy) < 120  # shallower cut: the bounding box stays full width
     cols = np.nonzero(mask.any(axis=0))[0]
     assert cols[-1] - cols[0] > 0.9 * 311
-    assert scanlate_render._symmetrised(mask) is not None
+    assert scanlate_text_layout._symmetrised(mask) is not None
 
 
 def test_a_balloon_that_is_already_centred_is_laid_out_as_before():
     mask = _round_balloon(False)
-    assert scanlate_render._symmetrised(mask) is None
+    assert scanlate_text_layout._symmetrised(mask) is None
 
 
 def test_a_narrow_balloon_a_pixel_or_two_off_centre_is_left_alone():
     mask = np.zeros((124, 66), bool)
     mask[5:119, 4:60] = True  # centre of mass 2 px off the box centre: 3% of 66 is 2 px
-    assert scanlate_render._symmetrised(mask) is None
+    assert scanlate_text_layout._symmetrised(mask) is None
 
 
 def test_a_cut_that_would_move_the_text_across_the_balloon_is_left_as_it_is():
@@ -368,7 +371,7 @@ def test_centring_is_refused_when_it_puts_text_over_dark_pixels():
     draw = ImageDraw.Draw(Image.new("RGB", mask.shape[::-1]))
 
     def centres(dark):
-        laid = scanlate_render._layout_balloon_text(
+        laid = scanlate_text_layout._layout_balloon_text(
             draw, text, mask, 28, lambda sz: ImageFont.load_default(sz), False, dark=dark)
         return [(left + right) / 2 for _, left, right, _ in laid[1]]
 
@@ -384,7 +387,7 @@ def test_centring_falls_back_to_the_symmetric_core_when_the_full_mirror_reaches_
     mask = _round_balloon(False)
     mask[:, :50] = False  # outline close on the left: mirroring would add 50 px that are not balloon
     draw = ImageDraw.Draw(Image.new("RGB", mask.shape[::-1]))
-    laid = scanlate_render._layout_balloon_text(
+    laid = scanlate_text_layout._layout_balloon_text(
         draw, text, mask, 28, lambda sz: ImageFont.load_default(sz), False, dark=~mask)
     assert all(abs((left + right) / 2 - 155) < 4 for _, left, right, _ in laid[1])
     assert all(mask[:, int(left):int(right)].any() for _, left, right, _ in laid[1])

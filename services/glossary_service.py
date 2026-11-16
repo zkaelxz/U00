@@ -17,7 +17,7 @@ stored pipe-separated (db convention), so a "|" inside one is rejected.
 
 Glossary from the attached novel ("Build a glossary from this novel"):
 start_novel_glossary_run is a background job
-calling `tguide.extract_glossary_from_novel` on the drama's own saved
+calling `glossary_extract.extract_glossary_from_novel` on the drama's own saved
 novel files (raw_novel_context.txt as the original, the
 novel_reference_filename translation as the paired English rendering).
 The engine and key are resolved
@@ -30,7 +30,7 @@ overwrite_existing=True is passed explicitly. See PAID_ENGINE_FUNCTIONS.
 
 Glossary from the drama's own source lines ("Auto-extract terms from the
 source text", parity X10): start_lines_glossary_run is the same
-kind of background job calling `tguide.extract_terms_llm` on the saved
+kind of background job calling `glossary_extract.extract_terms_llm` on the saved
 lines' source text, with its own job id, status and apply. Both applies
 take optional per-term overrides (translation/category/policy the user
 edited in review), keyed by term text like the terms themselves.

@@ -4,6 +4,7 @@ import { updateDramaMetadata } from '../../../api/library'
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
+import { UploadProgress, type UploadSent } from '../../../components/UploadProgress'
 import { ButtonLink } from '../../../components/Button'
 import { formatDecimalBytes } from '../../diskUsage/diskUsageModel'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -76,6 +77,7 @@ export default function SourceStage() {
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [sent, setSent] = useState<UploadSent | null>(null)
   const [replace, setReplace] = useState(false)
   // The server says the drama has audio/video even if the status we read did not.
   const [serverHasMedia, setServerHasMedia] = useState(false)
@@ -177,7 +179,8 @@ export default function SourceStage() {
   const upload = () => {
     if (!file || uploading || (mustConfirm && !replace)) return
     setUploading(true)
-    uploadMedia(dramaId, file, confirmReplace).then(
+    setSent(null)
+    uploadMedia(dramaId, file, confirmReplace, undefined, (loaded, total) => setSent({ loaded, total })).then(
       (r) => {
         setUploading(false)
         setError(null)
@@ -284,6 +287,7 @@ export default function SourceStage() {
           >
             {uploading ? 'Uploading...' : 'Upload'}
           </button>
+          {uploading && <UploadProgress sent={sent} />}
           {mustConfirm && (
             <label>
               <input type="checkbox" id={replaceBoxId(dramaId)} checked={replace} onChange={(e) => setReplace(e.target.checked)} />

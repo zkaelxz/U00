@@ -1,7 +1,7 @@
 """
 services/media_upload_service.py -- upload an audio/video file into a
 drama's folder: the file is saved as `source<ext>` in the drama folder; a video also gets its audio
-track extracted to `audio.wav` and both filenames recorded, an audio file
+track extracted to `audio.flac` and both filenames recorded, an audio file
 records `audio_filename` and clears `source_video_filename` (`-2`, `-3`... is
 added while the old file is still there).
 
@@ -16,7 +16,7 @@ unreferenced). A video is staged under a hidden `.upload_*` name and only put
 in place after its audio was extracted; if extraction or saving fails or is
 cancelled, the upload is kept as `kept_media/failed-upload-<UTC time><ext>`
 and the drama is left as it was. A staged upload a crash left behind, and a
-`source[-n]<ext>` / `audio[-n].wav` the drama does not name (a crash between
+`source[-n]<ext>` / `audio[-n].flac` (or `.wav`, from before audio was stored as FLAC) the drama does not name (a crash between
 placing files and the DB write, a failed rollback, an old file that was in
 use), is moved there at the drama's next upload or at startup once it is
 a few minutes old (recover_stale_uploads); until then the media status
@@ -95,7 +95,7 @@ _MEDIA_FIELDS = ("audio_filename", "source_video_filename")
 AUDIO_TRANSCRIPT_MODE = "whisper"
 # The in-place names install_media gives new media; one the drama doesn't
 # name is a leftover (see recover_stale_uploads).
-_IN_PLACE_RE = re.compile(r"(?:source(?:-\d+)?(?:%s)|audio(?:-\d+)?\.wav)\Z" % "|".join(
+_IN_PLACE_RE = re.compile(r"(?:source(?:-\d+)?(?:%s)|audio(?:-\d+)?\.(?:wav|flac))\Z" % "|".join(
     re.escape(e) for e in AUDIO_EXTENSIONS + VIDEO_EXTENSIONS))
 EXTRACT_JOB_PREFIX = "extract_audio_"
 # Wall-clock cap on one ffmpeg extraction, so a stuck ffmpeg can't leave the
@@ -657,7 +657,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
 
 def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
     ddir = db.drama_dir(drama_id)
-    part_path = os.path.join(ddir, ".audio.extract.wav")
+    part_path = os.path.join(ddir, ".audio.extract.flac")
     background_jobs.update_progress(job_id, 0.05, "Extracting audio from the video...")
     cmd = video_export.extract_audio_cmd(staged, part_path)
     failed = _EXTRACT_FAILED
@@ -680,7 +680,7 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
         media_seconds = (transcribe_pipeline._audio_duration_seconds(part_path)
                          if transcribe_options is not None else None)
         install_media(drama_id, {"source_video_filename": (staged, "source", ext),
-                                 "audio_filename": (part_path, "audio", ".wav")},
+                                 "audio_filename": (part_path, "audio", ".flac")},
                       transcribe_new_audio=transcribe_options is None)
     except BaseException as exc:
         if os.path.exists(part_path):
