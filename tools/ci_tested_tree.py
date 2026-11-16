@@ -52,11 +52,9 @@ def print_outputs(outputs, stream=sys.stdout):
 
 def after_tested(push, tested):
     """The push run's outputs minus what `tested` (a green PR run's outputs) already ran.
-    `guards` and the `test` gate always run; notes_only stays false so `test-shard` runs at
-    least the tests that read frontend files."""
+    `guards` and the `test` gate always run, and `test-shard` runs at least the tests that
+    read frontend files."""
     out = dict(push)
-    if tested["notes_only"]:
-        return out
     if tested["run_full_pytest"] and not tested["run_sources_subset"]:
         out["run_full_pytest"] = False
         out["run_sources_subset"] = False

@@ -20,6 +20,7 @@ export interface BenchmarkTranscribeOptions {
   whisper_repeat_guard?: boolean
   difficult_audio?: boolean
   separate_vocals_first?: boolean
+  decode_randomness?: string
   initial_prompt?: string
   /** Timing settings only the Lab varies. */
   speech_pad_ms?: number

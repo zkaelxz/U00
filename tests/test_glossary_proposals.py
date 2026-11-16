@@ -6,7 +6,7 @@ import pytest
 
 import background_jobs
 import db
-import translation_guide as tguide
+import glossary_extract
 from services import glossary_extract_service, glossary_service as gs
 from lib.errors import InvalidInputError, NotFoundError
 
@@ -60,11 +60,11 @@ class TestExtractionStats:
         class Engine:
             supports_reference = True
         answers = iter(["Sect A", "Sect B", "Sect B"])
-        monkeypatch.setattr(tguide, "_sample_across_text", lambda *a, **k: ["宗a", "宗b", "宗c"])  # each window holds the term
-        monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: json.dumps([
+        monkeypatch.setattr(glossary_extract, "_sample_across_text", lambda *a, **k: ["宗a", "宗b", "宗c"])  # each window holds the term
+        monkeypatch.setattr(glossary_extract, "call_llm_json", lambda *a, **k: json.dumps([
             {"term": "宗", "suggested_translation": next(answers), "category": "sect",
              "policy": "hybrid", "reason": ""}]))
-        (e,) = tguide.extract_glossary_from_novel("x", Engine())
+        (e,) = glossary_extract.extract_glossary_from_novel("x", Engine())
         assert e["windows"] == 3 and e["suggested_translation"] == "Sect B"
         assert e["renderings"] == ["Sect A", "Sect B"]
 
@@ -235,14 +235,14 @@ class TestAliases:
     def test_only_spellings_the_excerpt_shows_are_kept(self, monkeypatch):
         class Engine:
             supports_reference = True
-        monkeypatch.setattr(tguide, "_sample_across_text", lambda *a, **k: ["小沈说话。沈清来了。", "沈清走了。"])
+        monkeypatch.setattr(glossary_extract, "_sample_across_text", lambda *a, **k: ["小沈说话。沈清来了。", "沈清走了。"])
         replies = iter([
             [{"term": "沈清", "suggested_translation": "Shen Qing", "category": "person_name",
               "policy": "keep_pinyin", "reason": "", "aliases": ["小沈", "阿清", "沈", "沈清"]}],
             [{"term": "沈清", "suggested_translation": "Shen Qing", "category": "person_name",
               "policy": "keep_pinyin", "reason": "", "aliases": ["小沈"]}]])
-        monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: json.dumps(next(replies)))
-        (e,) = tguide.extract_glossary_from_novel("x", Engine())
+        monkeypatch.setattr(glossary_extract, "call_llm_json", lambda *a, **k: json.dumps(next(replies)))
+        (e,) = glossary_extract.extract_glossary_from_novel("x", Engine())
         # 阿清 is not written in the excerpt, 沈 is one character, 沈清 is the term itself.
         assert e["aliases"] == ["小沈"]
 

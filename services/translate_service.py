@@ -1,8 +1,7 @@
 """
 services/translate_service.py -- metadata and translate action for the
 standalone translate tool.
-The read-only "list engines" / "list history" half (docs/archive/migration-review.md
-section 3.7) is paired with translate() itself, resolving a server-side key per engine rather than accepting one from the
+The read-only "list engines" / "list history" half is paired with translate() itself, resolving a server-side key per engine rather than accepting one from the
 caller.
 
 clear_history() is the one piece deliberately

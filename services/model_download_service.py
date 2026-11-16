@@ -88,15 +88,15 @@ def _fetch_hub(repos, report, cancelled) -> None:
 
 
 def _lama_ready() -> bool:
-    import scanlate_inpaint
-    return scanlate_inpaint.lama_ml_weights_cached()
+    import scanlate_lama
+    return scanlate_lama.lama_ml_weights_cached()
 
 
 def _fetch_lama(report, cancelled) -> None:
-    # One checkpoint file, not the whole repo: scanlate_inpaint loads only this file.
-    import scanlate_inpaint
+    # One checkpoint file, not the whole repo: scanlate_lama loads only this file.
+    import scanlate_lama
     try:
-        scanlate_inpaint._load_lama_generator(allow_download=True)
+        scanlate_lama._load_lama_generator(allow_download=True)
     except ImportError as exc:
         raise ModelDownloadFailed(
             "LaMa-manga needs torch, safetensors and huggingface_hub. Install them in "

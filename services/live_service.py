@@ -1,6 +1,5 @@
 """
-services/live_service.py -- Live capture sessions (spec
-docs/archive/discover-sources-live-api-spec.md section 4, L-1, polling only).
+services/live_service.py -- Live capture sessions (polling only).
 
 A session is one background job (`live_<uuid>`) running
 live_translate.run_live_job in its own folder under the library temp

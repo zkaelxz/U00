@@ -12,7 +12,7 @@ import background_jobs
 from jobs import gpu_queue, job_launch, job_runner
 import debug_view
 from engine_backends import translate_pipeline, fallback, engine_registry, llm_tasks
-import translation_guide as tguide
+import glossary_extract
 from core import Line
 from services import (glossary_service, job_checkpoint_service as cp, job_timing_service,
                       line_provenance_service, narration_service, vram_service)
@@ -151,16 +151,16 @@ def test_novel_glossary_resumes_through_the_cache(isolated_db, monkeypatch):
         return json.dumps([{"term": "林" * (seen.setdefault(prompt, len(seen)) + 1), "suggested_translation": "x",
                             "category": "character", "policy": "keep_pinyin", "reason": ""}])
 
-    monkeypatch.setattr(tguide, "call_llm_json", fake_llm)
+    monkeypatch.setattr(glossary_extract, "call_llm_json", fake_llm)
     cache = glossary_service._novel_glossary_cache(_Engine(), "claude")
     with pytest.raises(RuntimeError):
-        tguide.extract_glossary_from_novel(novel, _Engine(), response_cache=cache)
+        glossary_extract.extract_glossary_from_novel(novel, _Engine(), response_cache=cache)
     first = list(prompts)
-    total = len(tguide._sample_across_text(novel))
+    total = len(glossary_extract._sample_across_text(novel))
     assert len(first) == 3 and total > 3
     prompts.clear()
     state["fail_at"] = -1
-    terms = tguide.extract_glossary_from_novel(novel, _Engine(), response_cache=cache)
+    terms = glossary_extract.extract_glossary_from_novel(novel, _Engine(), response_cache=cache)
     # The two passages that finished before the crash come from the cache.
     assert prompts[0] == first[2] and len(prompts) == total - 2
     assert len(terms) == total
@@ -168,11 +168,11 @@ def test_novel_glossary_resumes_through_the_cache(isolated_db, monkeypatch):
 
 def test_a_failed_or_empty_reply_is_not_cached(isolated_db, monkeypatch):
     calls = []
-    monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: calls.append(1) or "[]")
+    monkeypatch.setattr(glossary_extract, "call_llm_json", lambda *a, **k: calls.append(1) or "[]")
     cache = glossary_service._novel_glossary_cache(_Engine(), "claude")
-    tguide.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
+    glossary_extract.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
     n = len(calls)
-    tguide.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
+    glossary_extract.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
     assert len(calls) == 2 * n
 
 
@@ -461,12 +461,12 @@ def test_process_jobs_get_timing_too(isolated_db):
 
 def test_a_reply_without_usable_terms_is_not_cached(isolated_db, monkeypatch):
     calls = []
-    monkeypatch.setattr(tguide, "call_llm_json",
+    monkeypatch.setattr(glossary_extract, "call_llm_json",
                         lambda *a, **k: calls.append(1) or '["林", {"error": "x"}]')
     cache = glossary_service._novel_glossary_cache(_Engine(), "claude")
-    tguide.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
+    glossary_extract.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
     n = len(calls)
-    tguide.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
+    glossary_extract.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
     assert n and len(calls) == 2 * n
 
 
@@ -476,10 +476,10 @@ def test_a_broken_cache_never_fails_the_run(isolated_db, monkeypatch):
 
     monkeypatch.setattr(cp, "cache_get", boom)
     monkeypatch.setattr(cp, "cache_put", boom)
-    monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: json.dumps(
+    monkeypatch.setattr(glossary_extract, "call_llm_json", lambda *a, **k: json.dumps(
         [{"term": "林", "suggested_translation": "Lin"}]))
     cache = glossary_service._novel_glossary_cache(_Engine(), "claude")
-    assert tguide.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
+    assert glossary_extract.extract_glossary_from_novel("林" * 2000, _Engine(), response_cache=cache)
 
 
 def test_a_broken_cache_is_logged_with_its_reason(isolated_db, monkeypatch):
@@ -515,20 +515,20 @@ def test_fresh_glossary_run_ignores_the_cache_but_refreshes_it(isolated_db, monk
         calls.append(1)
         return json.dumps([{"term": next(replies), "suggested_translation": "x"}])
 
-    monkeypatch.setattr(tguide, "call_llm_json", fake_llm)
+    monkeypatch.setattr(glossary_extract, "call_llm_json", fake_llm)
     text = "林" * 2000 + "ABC"  # the replies name terms the excerpt holds, or they are dropped
-    first = tguide.extract_glossary_from_novel(
+    first = glossary_extract.extract_glossary_from_novel(
         text, _Engine(), response_cache=glossary_service._novel_glossary_cache(_Engine(), "c"))
     n = len(calls)
     assert n == 1 and [t["term"] for t in first] == ["A"]
-    again = tguide.extract_glossary_from_novel(
+    again = glossary_extract.extract_glossary_from_novel(
         text, _Engine(), response_cache=glossary_service._novel_glossary_cache(_Engine(), "c"))
     assert len(calls) == 1 and [t["term"] for t in again] == ["A"]        # cached
-    fresh = tguide.extract_glossary_from_novel(
+    fresh = glossary_extract.extract_glossary_from_novel(
         text, _Engine(),
         response_cache=glossary_service._novel_glossary_cache(_Engine(), "c", fresh=True))
     assert len(calls) == 2 and [t["term"] for t in fresh] == ["B"]        # asked again
-    later = tguide.extract_glossary_from_novel(
+    later = glossary_extract.extract_glossary_from_novel(
         text, _Engine(), response_cache=glossary_service._novel_glossary_cache(_Engine(), "c"))
     assert [t["term"] for t in later] == ["B"]                            # new reply cached
 
@@ -690,23 +690,23 @@ def test_a_cut_off_glossary_reply_is_asked_again_in_halves(isolated_db, monkeypa
         return json.dumps([{"term": term, "suggested_translation": "x", "category": "character",
                             "policy": "keep_pinyin", "reason": ""}])
 
-    monkeypatch.setattr(tguide, "call_llm_json", fake_llm)
-    terms = tguide.extract_glossary_from_novel(novel, _Engine())
+    monkeypatch.setattr(glossary_extract, "call_llm_json", fake_llm)
+    terms = glossary_extract.extract_glossary_from_novel(novel, _Engine())
     assert {t["term"] for t in terms} == {"林林", "森森"} and len(prompts) == 3
 
 
 def test_a_cut_off_reply_in_a_half_is_not_asked_again(isolated_db, monkeypatch):
     calls = []
-    monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: calls.append(1) or '[{"term": "林"')
-    assert tguide.extract_glossary_from_novel("林" * 3000, _Engine()) == []
-    assert len(calls) == 3 * len(tguide._sample_across_text("林" * 3000))
+    monkeypatch.setattr(glossary_extract, "call_llm_json", lambda *a, **k: calls.append(1) or '[{"term": "林"')
+    assert glossary_extract.extract_glossary_from_novel("林" * 3000, _Engine()) == []
+    assert len(calls) == 3 * len(glossary_extract._sample_across_text("林" * 3000))
 
 
 def test_prose_instead_of_an_array_is_not_retried(isolated_db, monkeypatch):
     calls = []
-    monkeypatch.setattr(tguide, "call_llm_json", lambda *a, **k: calls.append(1) or "Sorry, no.")
-    tguide.extract_glossary_from_novel("林" * 3000, _Engine())
-    assert len(calls) == len(tguide._sample_across_text("林" * 3000))
+    monkeypatch.setattr(glossary_extract, "call_llm_json", lambda *a, **k: calls.append(1) or "Sorry, no.")
+    glossary_extract.extract_glossary_from_novel("林" * 3000, _Engine())
+    assert len(calls) == len(glossary_extract._sample_across_text("林" * 3000))
 
 
 def test_split_open_stage_replaces_the_whole_job_row_with_the_measured_steps(isolated_db):

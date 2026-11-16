@@ -79,6 +79,7 @@ def _status_from_meta(text: str) -> str:
 class GuazimanhuaSource(PlainImageDownload, SourceAdapter):
     name = "guazimanhua"
     display_name = "瓜子漫画 Guazimanhua"
+    homepage = "https://www.guazimanhua.com"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
     url_patterns = [r"(?:^|//|\.)guazimanhua\.com/(?:comic|chapter)\.php\?id=\d+"]
