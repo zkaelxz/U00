@@ -63,15 +63,13 @@
 }
 
 /* No background-attachment: fixed: a fixed wash is a suspected cause of stale tiled graphics below the page in Edge/Chrome app-mode full screen. */
-/* The wash is sized to one screen (100vh) and not repeated, so a long page (Diagnostics with every section open) keeps the blobs where a short page has them; with the box left at the page's height, the 78%/14% and 18%/82% positions stretched with the content and the blobs drifted far apart and out of view. */
+/* The blobs are placed in vh from the top, not as a percentage of the page: a percentage stretched with the content, so on a long page (Diagnostics with every section open) they drifted far apart and down the page. The layers keep the page's size rather than being cut at one screen, so no hard edge shows where the first screen ends. */
 /* Two off-centre blobs at 60%: the four-corner wash competed with the content, and the corners are where the nav and header sit. */
 body {
   background:
-    radial-gradient(640px 520px at 78% 14%, color-mix(in srgb, var(--wash-2) 60%, transparent), transparent 70%),
-    radial-gradient(620px 520px at 18% 82%, color-mix(in srgb, var(--wash-1) 60%, transparent), transparent 70%),
+    radial-gradient(640px 520px at 78% 14vh, color-mix(in srgb, var(--wash-2) 60%, transparent), transparent 70%),
+    radial-gradient(620px 520px at 18% 82vh, color-mix(in srgb, var(--wash-1) 60%, transparent), transparent 70%),
     var(--bg);
-  background-size: 100% 100vh;
-  background-repeat: no-repeat;
 }
 
 /* Panels. Glass stays on what floats (sheets, the nav rail, popovers); a panel that sits on the page is a top hairline like a .card, and a title tile keeps only a hairline outline so the tiles still read as separate things. */
