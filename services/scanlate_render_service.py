@@ -56,9 +56,9 @@ def _pages_dir(drama_id: int) -> str:
 
 def _custom_fonts(drama_id: int) -> dict:
     """The drama's own saved fonts (`fonts/<category>.ttf`)."""
-    import scanlate_render
+    import scanlate_fonts
     folder = os.path.join(db.drama_dir(drama_id), "fonts")
-    return {cat: os.path.join(folder, f"{cat}.ttf") for cat in scanlate_render.FONT_CATEGORIES
+    return {cat: os.path.join(folder, f"{cat}.ttf") for cat in scanlate_fonts.FONT_CATEGORIES
             if os.path.isfile(os.path.join(folder, f"{cat}.ttf"))
             and not os.path.islink(os.path.join(folder, f"{cat}.ttf"))}
 

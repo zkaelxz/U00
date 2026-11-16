@@ -15,7 +15,9 @@ import pytest
 import db
 import scanlate
 import scanlate_regions
+import scanlate_fonts
 import scanlate_render
+import scanlate_text_layout
 import scanlate_translate
 import scanlate_detect
 from engine_backends import llm_tasks
@@ -271,7 +273,7 @@ class TestShapeAwareFitting:
         cv2 = pytest.importorskip("cv2")
         canvas = Image.new("RGB", (600, 400), (255, 255, 255))
         text = " ".join(["word"] * 40)
-        scanlate_render.render_text_in_box(canvas, self.BOX, text, font_size=22, mask=mask)
+        scanlate_text_layout.render_text_in_box(canvas, self.BOX, text, font_size=22, mask=mask)
         ink = np.array(canvas.convert("L")) < 128
         oval = np.zeros((400, 600), dtype=np.uint8)
         cv2.ellipse(oval, (300, 200), (200, 110), 0, 0, 360, 1, -1)
@@ -332,11 +334,11 @@ class TestShapeAwareFitting:
     def test_all_words_are_still_drawn_with_a_mask(self, oval_page):
         from PIL import Image, ImageDraw
         mask = scanlate_detect.bubble_shape_mask(oval_page, self.BOX)
-        font = scanlate_render._find_font(None)
+        font = scanlate_fonts._find_font(None)
         from PIL import ImageFont
         draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
         text = "one two three four five six seven eight nine ten"
-        laid = scanlate_render._layout_in_mask(
+        laid = scanlate_text_layout._layout_in_mask(
             draw, text, mask, 22,
             lambda sz: ImageFont.truetype(font, sz) if font else ImageFont.load_default())
         assert laid is not None
@@ -580,7 +582,7 @@ class TestChunkedPageTranslation:
 def test_windows_fonts_are_looked_for_in_the_real_windows_folder():
     import subprocess
     import sys
-    code = ("import scanlate_render as r; "
+    code = ("import scanlate_fonts as r; "
             "print('\\n'.join(c for v in r._SYSTEM_FONT_CANDIDATES.values() for c in v))")
     env = {**os.environ, "WINDIR": "D:\\WinOS"}
     out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True,
