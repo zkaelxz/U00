@@ -39,7 +39,7 @@ User decisions applied (2026-09-29):
   only (avoids leaks via series glossary/TM/previous_episode_summary): a
   drama's own flag is cleared whenever it gets a series (db layer), and
   `check_series_assignment`/`assign_drama_series` keep other users'
-  dramas out of a private series.
+  dramas out of a private series, for everyone but admins (`_admin_anywhere`).
 """
 
 import contextlib
@@ -85,6 +85,17 @@ def may_override(principal) -> bool:
     if principal is None or principal.get("is_local_owner"):
         return True
     return bool(principal.get("is_admin") and principal.get("admin_override"))
+
+
+def _admin_anywhere(principal) -> bool:
+    """Admins (at the PC or away) may put anyone's title in any series they
+    may change and flip a series' flag with other people's titles in it
+    (Kae, 2026-11-16: "an admin should have full rights regardless"). The
+    private-series rules exist to stop a member hiding someone else's title;
+    an admin already sees every title, so for them they only got in the way."""
+    if principal is None or principal.get("is_local_owner"):
+        return True
+    return bool(principal.get("is_admin"))
 
 
 def _everything(principal, writing: bool) -> bool:
@@ -300,8 +311,8 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
     row = db.get_item_ownership(kind, item_id)
     if not row or not _visible(principal, kind, row):
         raise NotFoundError("Title not found." if kind == "drama" else "Series not found.")
-    admin = may_override(principal)
-    if not (admin or _is_owner(principal, row)):
+    admin = _admin_anywhere(principal)
+    if not (may_override(principal) or _owns(principal, row.get("owner_user_id"), True)):
         raise ForbiddenError("Only the owner or an admin can change this.")
     # User decision 4: only whole series, or dramas with no series. A drama
     # in a series follows it, so neither direction is a real change.
@@ -310,7 +321,7 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
     # Flipping the series flips who sees the PC's dramas in it too.
     if kind == "series" and not admin and db.series_has_unowned_drama(item_id):
         raise ConflictError(_PC_DRAMA_IN_SERIES_MESSAGE)
-    if db.set_item_private(kind, item_id, private):
+    if db.set_item_private(kind, item_id, private, allow_others_dramas=admin):
         from services import auth_service
         auth_service.write_audit(user_id(principal), "sharing.set_private",
                                  f"{kind} {item_id}: private={bool(private)}")
@@ -367,7 +378,7 @@ def check_series_assignment(principal, series_id, drama_owner_user_id) -> int:
     if not _visible(principal, "series", row, writing=True):
         raise ForbiddenError(_ADMIN_CHANGE_AT_PC)
     if row["is_private"] and drama_owner_user_id is not None \
-            and drama_owner_user_id != row.get("owner_user_id"):
+            and drama_owner_user_id != row.get("owner_user_id") and not _admin_anywhere(principal):
         raise ConflictError(_PRIVATE_SERIES_MESSAGE)
     return series_id
 
@@ -383,7 +394,8 @@ def assign_drama_series(principal, drama_id, series_id) -> None:
     if not drama:
         raise NotFoundError("Title not found.")
     series_id = check_series_assignment(principal, series_id, drama.get("owner_user_id"))
-    if not db.assign_drama_series(drama["id"], series_id):
+    if not db.assign_drama_series(drama["id"], series_id,
+                                  allow_others_dramas=_admin_anywhere(principal)):
         raise ConflictError(_PRIVATE_SERIES_MESSAGE)   # the series went private meanwhile
 
 
@@ -416,7 +428,7 @@ def check_new_series_assignment(principal, name: str, drama_owner_user_id) -> No
         return
     new = new_item_defaults(principal)
     if new["is_private"] and drama_owner_user_id is not None \
-            and drama_owner_user_id != new["owner_user_id"]:
+            and drama_owner_user_id != new["owner_user_id"] and not _admin_anywhere(principal):
         raise ConflictError(_NEW_SERIES_PRIVATE_MESSAGE)
 
 

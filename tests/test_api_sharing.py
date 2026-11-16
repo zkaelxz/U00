@@ -108,10 +108,13 @@ class TestFlip:
             assert r.json()["error"]["message"] == "Make the whole series private instead"
         db.create_drama(title_en="Bo's ep", source_language="zh", series_id=world["series"],
                         owner_user_id=world["b_id"])
-        r = _flip(c, world["admin"], "series", world["series"], True)
+        r = _flip(c, world["a"], "series", world["series"], True)
         assert r.status_code == 409
         assert "other people's titles" in r.json()["error"]["message"]
         assert _private("series", world["series"]) == 0
+        # An admin flips it anyway (Kae, 2026-11-16: full rights regardless).
+        assert _flip(c, world["admin"], "series", world["series"], True).status_code == 200
+        assert _private("series", world["series"]) == 1
 
     def test_series_with_a_pc_drama_is_admin_only(self, world):
         c = _client(_app())
