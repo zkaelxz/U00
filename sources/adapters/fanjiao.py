@@ -162,6 +162,7 @@ def _default_capture(url: str):
 class FanjiaoSource(SourceAdapter):
     name = "fanjiao"
     display_name = "饭角 Fanjiao"
+    homepage = "https://www.fanjiao.co"
     content_types = [ContentType.AUDIO_DRAMA.value]
     languages = ["zh"]
     needs_browser = True

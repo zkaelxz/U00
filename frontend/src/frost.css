@@ -63,11 +63,12 @@
 }
 
 /* No background-attachment: fixed: a fixed wash is a suspected cause of stale tiled graphics below the page in Edge/Chrome app-mode full screen. */
+/* The blobs are placed in vh from the top, not as a percentage of the page: a percentage stretched with the content, so on a long page (Diagnostics with every section open) they drifted far apart and down the page. The layers keep the page's size rather than being cut at one screen, so no hard edge shows where the first screen ends. */
 /* Two off-centre blobs at 60%: the four-corner wash competed with the content, and the corners are where the nav and header sit. */
 body {
   background:
-    radial-gradient(640px 520px at 78% 14%, color-mix(in srgb, var(--wash-2) 60%, transparent), transparent 70%),
-    radial-gradient(620px 520px at 18% 82%, color-mix(in srgb, var(--wash-1) 60%, transparent), transparent 70%),
+    radial-gradient(640px 520px at 78% 14vh, color-mix(in srgb, var(--wash-2) 60%, transparent), transparent 70%),
+    radial-gradient(620px 520px at 18% 82vh, color-mix(in srgb, var(--wash-1) 60%, transparent), transparent 70%),
     var(--bg);
 }
 

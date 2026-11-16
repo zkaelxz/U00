@@ -157,6 +157,7 @@ class SourceSupports(BaseModel):
 class SourceSummary(BaseModel):
     name: str
     display_name: str
+    homepage: str = Field(default="", description="The site's front page (https), empty when the source has no site.")
     content_types: List[str]
     languages: List[str]
     supports: SourceSupports

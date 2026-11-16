@@ -8,16 +8,18 @@ np = pytest.importorskip("numpy")
 from PIL import Image  # noqa: E402
 
 import db  # noqa: E402
-import scanlate_detect  # noqa: E402
+import scanlate_page_decode  # noqa: E402
+import scanlate_panels  # noqa: E402
 import scanlate_inpaint  # noqa: E402
-import scanlate_render  # noqa: E402
+import scanlate_fonts  # noqa: E402
+import scanlate_text_layout  # noqa: E402
 from services import keep_original_service, scanlate_render_service  # noqa: E402
 
 
 def test_a_strip_tail_that_is_only_the_overlap_band_joins_the_last_slice(tmp_path):
     path = str(tmp_path / "strip.png")
     cv2.imwrite(path, np.full((1700, 8, 3), 255, dtype=np.uint8))
-    slices = scanlate_detect.split_webtoon_strip(path, target_height=1600, overlap=100)
+    slices = scanlate_panels.split_webtoon_strip(path, target_height=1600, overlap=100)
     assert slices[-1]["y_end"] == 1700
     assert all(s["y_end"] - s["y_start"] > 160 for s in slices)
 
@@ -25,12 +27,12 @@ def test_a_strip_tail_that_is_only_the_overlap_band_joins_the_last_slice(tmp_pat
 def test_transparent_pixels_decode_as_white(tmp_path):
     path = str(tmp_path / "t.png")
     Image.new("RGBA", (4, 4), (0, 0, 0, 0)).save(path)
-    assert scanlate_detect.decode_page(path).min() == 255
+    assert scanlate_page_decode.decode_page(path).min() == 255
 
 
 def test_cjk_punctuation_is_replaced_before_typesetting():
-    assert "「".translate(scanlate_render._CJK_PUNCTUATION) == '"'
-    assert "～".translate(scanlate_render._CJK_PUNCTUATION) == "~"
+    assert "「".translate(scanlate_fonts._CJK_PUNCTUATION) == '"'
+    assert "～".translate(scanlate_fonts._CJK_PUNCTUATION) == "~"
 
 
 def test_large_dark_art_running_off_the_box_edge_is_not_erased():
@@ -67,25 +69,25 @@ def _ink(img):
 
 
 def test_kanji_in_english_text_use_a_cjk_font_when_one_exists(monkeypatch):
-    font = scanlate_render.find_cjk_font()
+    font = scanlate_fonts.find_cjk_font()
     if font is None:
         pytest.skip("no CJK font on this machine")
     box = {"x": 0, "y": 0, "w": 120, "h": 60}
     img = Image.new("RGB", (120, 60), "white")
-    scanlate_render.render_text_in_box(img, box, "漢字", font_size=30)
+    scanlate_text_layout.render_text_in_box(img, box, "漢字", font_size=30)
     tofu = Image.new("RGB", (120, 60), "white")
-    monkeypatch.setattr(scanlate_render, "find_cjk_font", lambda: None)
-    scanlate_render.render_text_in_box(tofu, box, "漢字", font_size=30)
+    monkeypatch.setattr(scanlate_text_layout, "find_cjk_font", lambda: None)
+    scanlate_text_layout.render_text_in_box(tofu, box, "漢字", font_size=30)
     assert _ink(img) > 0 and _ink(tofu) == 0
 
 
 def test_kanji_without_a_cjk_font_are_dropped_and_flagged(monkeypatch, tmp_path):
-    monkeypatch.setattr(scanlate_render, "find_cjk_font", lambda: None)
+    monkeypatch.setattr(scanlate_text_layout, "find_cjk_font", lambda: None)
     img = Image.new("RGB", (160, 60), "white")
-    scanlate_render.render_text_in_box(img, {"x": 0, "y": 0, "w": 160, "h": 60}, "Hi 漢字 there",
+    scanlate_text_layout.render_text_in_box(img, {"x": 0, "y": 0, "w": 160, "h": 60}, "Hi 漢字 there",
                                        font_size=20)
     plain = Image.new("RGB", (160, 60), "white")
-    scanlate_render.render_text_in_box(plain, {"x": 0, "y": 0, "w": 160, "h": 60}, "Hi there",
+    scanlate_text_layout.render_text_in_box(plain, {"x": 0, "y": 0, "w": 160, "h": 60}, "Hi there",
                                        font_size=20)
     assert list(img.getdata()) == list(plain.getdata())
-    assert scanlate_render.has_cjk("漢") and not scanlate_render.has_cjk("Hi, ok")
+    assert scanlate_fonts.has_cjk("漢") and not scanlate_fonts.has_cjk("Hi, ok")

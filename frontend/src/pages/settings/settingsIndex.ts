@@ -46,6 +46,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     label: 'Connections',
     cards: [
       { id: 'notifications' },
+      { id: 'pc-alerts' },
       { id: 'jellyfin' },
       { id: 'web-search' },
       { id: 'inbox' },
@@ -76,6 +77,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     label: 'Advanced',
     cards: [
       { id: 'advanced' },
+      { id: 'keys-file' },
       { id: 'developer-mode' },
     ],
   },
@@ -85,9 +87,9 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
 // the page leaves them out instead of showing a "Run this on the main PC." note.
 export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
   'server-addresses', 'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
-  'notifications',
+  'notifications', 'pc-alerts',
   'jellyfin', 'web-search', 'inbox', 'extension',
-  'performance', 'advanced', 'timing-splitting', 'transcription-experiments', 'developer-mode',
+  'performance', 'advanced', 'keys-file', 'timing-splitting', 'transcription-experiments', 'developer-mode',
 ])
 
 const TAB_OF_CARD = new Map(SETTINGS_TABS.flatMap((t) => t.cards.map((c) => [c.id, t.id] as const)))
@@ -113,6 +115,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   e('notifications', 'Notifications', 'alerts channels push email discord telegram webhook'),
   e('notifications', 'Notify when a job finishes', 'notify me completion'),
+  e('pc-alerts', 'PC alerts', 'gpu temperature throttling ram cpu disk space gpu memory limit minutes warning hot full'),
   e('updates', 'Updates', 'app updates version upgrade release phone app android apk packages python pip outdated'),
   e('updates', 'Update Baihe', 'upgrade restart git latest version check'),
   e('updates', 'Browser extension update', 'reload out of date older copy'),
@@ -139,6 +142,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('advanced', 'Downloads', 'cookies browser yt-dlp lncrawl novel downloader'),
   e('advanced', 'Program locations', 'paths cookie file tesseract lncrawl command'),
   e('advanced', 'Upload size limit', 'uploads max mb'),
+  e('keys-file', 'Keys file and environment', 'env dotenv keys file environment variables set not set port public address webhook'),
   e('timing-splitting', 'Timing and splitting', 'voice detection vad silence line length split long lines sentence grouping scene break pause threshold seconds characters reset default'),
   e('transcription-experiments', 'Advanced transcription', 'transcription experiments asr whisper experimental qwen batch size mixed languages forced aligner'),
   e('developer-mode', 'Developer Mode', 'assistant benchmark lab maintenance ai developer'),

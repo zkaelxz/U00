@@ -346,6 +346,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/library/admin/restore` | local_only() |
 | `GET /api/library/admin/storage` | admin.library |
 | `POST /api/library/admin/storage/clean` | local_only() |
+| `POST /api/library/admin/typeset-comics` | local_only() |
 | `GET /api/library/continue` | library.read |
 | `GET /api/library/costs` | library.read |
 | `GET /api/library/dramas` | library.read |
@@ -442,6 +443,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/models/reeval/settings` | local_only() |
 | `GET /api/models/status` | admin.diagnostics |
 | `GET /api/narration/dramas/{drama_id}/config` | library.read |
+| `GET /api/narration/dramas/{drama_id}/estimate` | library.read |
 | `POST /api/narration/dramas/{drama_id}/run` | jobs.start |
 | `GET /api/notifications` | library.read |
 | `POST /api/novel/dramas/{drama_id}/add-chapters-from-sources` | local_only() |
@@ -622,6 +624,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/settings/engine-routing` | admin.settings |
 | `POST /api/settings/engine-routing/capabilities/{capability}` | local_only() |
 | `POST /api/settings/engine-routing/engines/{engine}/test` | local_only() |
+| `GET /api/settings/keys-file` | local_only() |
 | `POST /api/settings/keys/{engine}` | local_only() |
 | `POST /api/settings/keys/{engine}/clear` | local_only() |
 | `GET /api/settings/loaded-models` | admin.settings |
@@ -634,6 +637,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/settings/notifications/test` | local_only() |
 | `POST /api/settings/notifications/{channel}` | local_only() |
 | `POST /api/settings/notifications/{channel}/clear` | local_only() |
+| `GET /api/settings/resource-alerts` | admin.settings |
+| `POST /api/settings/resource-alerts` | local_only() |
 | `GET /api/settings/schema` | admin.settings |
 | `GET /api/settings/spend-history` | admin.settings |
 | `GET /api/settings/spend-history/export.csv` | local_only() |
