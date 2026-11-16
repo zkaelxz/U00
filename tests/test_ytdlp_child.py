@@ -313,16 +313,6 @@ def test_estimate_bytes_uses_the_bitrates_and_is_none_without_them():
     assert ytdlp_child.estimate_bytes({"formats": formats}, False, 0) is None
 
 
-def test_estimate_bytes_counts_only_the_pictures_the_chosen_quality_allows():
-    formats = [{"vcodec": "avc1", "tbr": 8000, "height": 2160}, {"vcodec": "avc1", "tbr": 1000, "height": 720},
-               {"vcodec": "none", "abr": 128}]
-    best = ytdlp_child.estimate_bytes({"formats": formats}, False, 3600)
-    capped = ytdlp_child.estimate_bytes({"formats": formats}, False, 3600, max_height=720)
-    assert capped < best
-    # Nothing that small: yt-dlp takes a taller picture, so the estimate must not shrink to nothing.
-    assert ytdlp_child.estimate_bytes({"formats": formats}, False, 3600, max_height=360) == best
-
-
 @pytest.mark.parametrize("event, ok", [
     ({"rejected": {"reason": "too_long", "duration": 5, "limit": 6, "estimated_bytes": 7}}, True),
     ({"rejected": {"reason": "live"}}, True),

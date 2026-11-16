@@ -309,21 +309,6 @@ def _move_no_clobber(src, candidates) -> str:
     raise OSError("no free file name")
 
 
-def _discard(ddir, name) -> bool:
-    """Deletes a regular file the drama no longer names; False when it is
-    not one or can't be deleted (Windows: it is still being played)."""
-    if not name or name != os.path.basename(name):
-        return False
-    path = os.path.join(ddir, name)
-    try:
-        if not stat.S_ISREG(os.lstat(path).st_mode):
-            return False
-        os.remove(path)
-    except OSError:
-        return False
-    return True
-
-
 def _retire(ddir, name, label="replaced"):
     """Moves a file the drama no longer names into kept_media/. Best effort:
     the database already points at the new file, so a file that can't be
@@ -366,8 +351,7 @@ def audio_mode_for_upload(drama_id, transcript_text):
         raise
 
 
-def install_media(drama_id, new_files, transcribe_new_audio=False, discard_replaced=False,
-                  **fields):
+def install_media(drama_id, new_files, transcribe_new_audio=False, **fields):
     """Puts new media in place for drama_id. new_files maps a DB field
     (audio_filename / source_video_filename) to (path, stem, ext): each file
     is moved to a free `<stem>[-n]<ext>` in the drama folder, never over an
@@ -379,9 +363,7 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, discard_repla
     audio installed alone also unnames the old video. Only after the commit
     are the files the drama no longer names moved into kept_media/. On an
     error before the commit the new files are moved back to their paths and
-    the error raised, with the drama unchanged. discard_replaced: the files
-    the drama no longer names are deleted instead of kept, for a caller that
-    knows they can be fetched again; one that can't be deleted is kept."""
+    the error raised, with the drama unchanged."""
     ddir = db.drama_dir(drama_id)
     old = db.get_drama(drama_id) or {}
     # An old video kept beside new audio would be shown in Review and muxed
@@ -423,8 +405,7 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, discard_repla
     named = {fields[f] for f in _MEDIA_FIELDS}
     for name in {old.get(f) for f in _MEDIA_FIELDS} - named:
         try:
-            if not (discard_replaced and _discard(ddir, name)):
-                _retire(ddir, name)
+            _retire(ddir, name)
         except Exception:  # committed: a retire hiccup must not report the swap as failed
             pass
     if fields["audio_filename"] != old.get("audio_filename"):

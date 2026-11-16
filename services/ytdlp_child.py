@@ -62,11 +62,7 @@ def clip_seconds(info, part):
     return max(stop - start, 0)
 
 
-# The "Video quality" choices: the tallest picture a download may keep.
-VIDEO_HEIGHTS = (2160, 1440, 1080, 720, 480, 360)
-
-
-def estimate_bytes(info, audio_only, seconds, max_height=None):
+def estimate_bytes(info, audio_only, seconds):
     """A rough disk need for `seconds` of this video, or None when yt-dlp
     reported no bitrates. Audio-only keeps the decoded WAV (about 192 kB/s at
     48 kHz stereo) next to the stream it came from; a video is merged from two
@@ -82,11 +78,6 @@ def estimate_bytes(info, audio_only, seconds, max_height=None):
         return max(rates, default=0)
 
     video = [f for f in formats if f.get("vcodec") not in (None, "none")]
-    if max_height:
-        # yt-dlp falls back to a taller picture when the site has none this
-        # small, so the estimate does too.
-        video = [f for f in video if isinstance(f.get("height"), int)
-                 and f["height"] <= max_height] or video
     audio = [f for f in formats if f.get("vcodec") == "none"]
     audio_kbps = best(audio, "abr") or best(audio, "tbr")
     if audio_only:
@@ -130,14 +121,13 @@ def refusal(info, max_seconds=MAX_DURATION_SECONDS, part=None):
 
 
 def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts=False,
-                audio_only=True, proxy=None, max_height=None) -> dict:
+                audio_only=True, proxy=None) -> dict:
     """The options merged over video_download's own (they win). Never any
     cookie option, and every default extractor except `generic`. `part`
     (start, end-or-None seconds) downloads that section only. `proxy`: every
     request yt-dlp makes goes through it, because yt-dlp resolves DNS itself
     after the parent's URL check and a rebinding answer would otherwise
-    reach a private address. `max_height` keeps the tallest picture no
-    taller than it."""
+    reach a private address."""
     opts = {
         "allowed_extractors": ["default", "-generic"],
         "noplaylist": True,
@@ -156,10 +146,6 @@ def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts
     }
     if proxy:
         opts["proxy"] = proxy
-    if max_height and not audio_only:
-        # A sort, not a filter: a site with nothing this small still
-        # downloads (its smallest picture) instead of failing.
-        opts["format_sort"] = [f"res:{int(max_height)}"]
     if part:
         from yt_dlp.utils import download_range_func
         # The stub wants int ranges and no None; yt-dlp takes None chapters and float seconds.
@@ -304,14 +290,13 @@ def run_worker(spec: dict, emit) -> None:
     max_seconds = min(spec.get("max_seconds") or MAX_DURATION_SECONDS, HARD_MAX_DURATION_SECONDS)
     part = _part(spec)
     audio_only = spec["audio_only"]
-    max_height = spec.get("max_height")
 
     def match_filter(info, *args, **kwargs):
         detail = refusal_detail(info, max_seconds, part)
         if detail:
             if detail["reason"] == "too_long":
                 detail["estimated_bytes"] = estimate_bytes(
-                    info, audio_only, detail["duration"], max_height) or 0
+                    info, audio_only, detail["duration"]) or 0
             emit({"rejected": detail})
             return "Refused."
         emit({"link": link_fields(info)})
@@ -319,7 +304,7 @@ def run_worker(spec: dict, emit) -> None:
         # fetched, and lengthens its wall clock for a clip past the normal cap.
         if max_seconds > MAX_DURATION_SECONDS:
             seconds = clip_seconds(info, part)
-            emit({"estimate": estimate_bytes(info, audio_only, seconds, max_height) or 0,
+            emit({"estimate": estimate_bytes(info, audio_only, seconds) or 0,
                   "seconds": int(seconds or 0)})
         return None
 
@@ -329,7 +314,7 @@ def run_worker(spec: dict, emit) -> None:
             title_cb=lambda t: emit({"title": t}),
             extra_opts=ydl_options(spec["tmp"], hook, match_filter, part=part,
                                    exact_cuts=bool(spec.get("exact_cuts")), audio_only=audio_only,
-                                   proxy=spec.get("proxy"), max_height=max_height),
+                                   proxy=spec.get("proxy")),
             cookies_browser=spec.get("cookies_browser"), cookies_file=spec.get("cookies_file"))
     except ImportError:
         emit({"error": "yt-dlp is not installed", "missing": True})

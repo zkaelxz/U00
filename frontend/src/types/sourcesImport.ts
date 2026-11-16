@@ -119,12 +119,7 @@ export interface UrlDownloadRequest {
   part_start?: string
   part_end?: string
   exact_cuts?: boolean
-  // "Video quality": the tallest picture to keep; left out means the best on offer.
-  max_height?: VideoHeight
 }
-
-export const VIDEO_HEIGHTS = [2160, 1440, 1080, 720, 480, 360] as const
-export type VideoHeight = (typeof VIDEO_HEIGHTS)[number]
 
 // GET /api/sources/{name}/import-state?series_id=&drama_id= --
 // which chapters of a series are already in a drama, and the ones the last
