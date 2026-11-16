@@ -853,7 +853,7 @@ _CAPTURE_ALLOWED = {
     "services/media_peaks_service.py::_decode": "pending: ffmpeg",
     "services/speech_coverage_service.py::_decode_chunk": "pending: ffmpeg",
     "video_export.py::render_preview_clip": "pending: ffmpeg",
-    # pending: separate tree-killing runners that should move onto lib.proc (see B8 in docs/local-agent-backlog.md).
+    # pending: separate tree-killing runners that should move onto lib.proc.
     "services/lncrawl_service.py::_run_process": "pending: own runner",
 }
 

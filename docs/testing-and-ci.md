@@ -103,8 +103,7 @@ the result of the push run that covers the merge, so that the first ones can be 
 the five guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
 through `--ff` and a restored `.pytest_cache`), `optional-tests` (installs jieba, pypinyin, opencc, ebooklib, genanki, soundfile and headless OpenCV, which the shards leave out, and runs only the files that skip without them; torch, paddleocr and Tesseract tests still skip, and `tests/test_diarize.py` needs torch so it is not in the list), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
-`frontend` (build, vitest, lint), `e2e` (Playwright in four shards), `smoke` (see "Real-app smoke test" below; runs unless the change is
-notes-only, and `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
+`frontend` (build, vitest, lint), `e2e` (Playwright in four shards), `smoke` (see "Real-app smoke test" below; `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
 also fails if it failed, and passes when it was skipped) and `caddy` (see "Caddy check" below; the same rule). `windows-bootstrap.yml` (its own workflow with one job,
 `bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
 and `windows-installer.yml` (job `installer`, plus `release` for a tag, which publishes a pre-release) cover the installer; `promote-release.yml` (run by hand, behind the `release-main` environment) makes a tested pre-release the full release. `dependency-canary.yml` and
@@ -187,25 +186,23 @@ What sharing costs:
 ### Which jobs a change runs
 
 `tools/ci_changes.py` (tested by `tests/test_ci_changes.py`) classifies the changed files of a PR. A job that is skipped
-counts as passed for branch protection, as the notes-only skip always has. `guards` and `frontend` run on every PR except
-notes-only ones (which run only `guards`).
+counts as passed for branch protection. `guards` runs on every PR.
 
-The table has three columns; a fourth output, `run_windows_scripts` (the `windows-scripts` job), is true for every row that says
+The table has two columns; a third output, `run_windows_scripts` (the `windows-scripts` job), is true for every row that says
 "everything" (a non-PR event, the `full-ci` label, a change under `.github/` or to the dependency files, an empty file list, a
 classifier error), and otherwise only when a changed file is under `installer/`, is a `*.bat` or `*.ps1` file, is `check_setup.py`,
 is `tools/windows_script_checks.py` or is the restore code (`services/library_restore_service.py`, `services/library_restore_sql.py`,
 `db/library_folder.py`).
 
-| Rule | `notes_only` | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test-shard`) |
-|---|---|---|---|
-| Push to `baihe-subtitler` (but see "After a merge" above), or any event that is not a pull request (a `merge_group` and the nightly `schedule` run included) | false | true | true |
-| PR labelled `full-ci` | false | true | true |
-| PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | false | true | true |
-| Every changed file is under `docs/archive/research/` | true (only `guards` runs, plus the word scan) | false | true, but `test-shard` is skipped by `notes_only` |
-| No changed file under `frontend/`, `api/`, `services/` or `db/` (adapters, root modules, installer, scripts, tools, tests, docs..., and the restore code the Windows script checks run) | as above | false | true |
-| Every changed file is under `frontend/` or `docs/` | false | true if any is under `frontend/` | false: `test-shard` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) or read `docs/` (`--docs-tests`) plus `TestHostedCloningRemoved` |
-| Anything else | false | true | true |
-| The file list is empty or the classifier errors | false | true | true |
+| Rule | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test-shard`) |
+|---|---|---|
+| Push to `baihe-subtitler` (but see "After a merge" above), or any event that is not a pull request (a `merge_group` and the nightly `schedule` run included) | true | true |
+| PR labelled `full-ci` | true | true |
+| PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | true | true |
+| No changed file under `frontend/`, `api/`, `services/` or `db/` (adapters, root modules, installer, scripts, tools, tests, docs..., and the restore code the Windows script checks run) | false | true |
+| Every changed file is under `frontend/` or `docs/` | true if any is under `frontend/` | false: `test-shard` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) or read `docs/` (`--docs-tests`) plus `TestHostedCloningRemoved` |
+| Anything else | true | true |
+| The file list is empty or the classifier errors | true | true |
 
 Rows combine by "any rule that says true wins". A rename counts as touching both paths. To force everything on a PR, add the
 label `full-ci` (the workflow also listens for `labeled`, so adding it starts a new full run). Anything that makes you doubt a

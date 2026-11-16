@@ -1,6 +1,6 @@
 """
-services/scanlate_pages_service.py -- Scanlate pages for the API
-(docs/archive/scanlate-api-spec.md S1 and S2): the panel's config, one page's
+services/scanlate_pages_service.py -- Scanlate pages for the API:
+the panel's config, one page's
 detail (regions keyed by their stable id, the page rev and its run notes),
 page import (upload or a link import, SO06) with fixed limits, and the comic
 editor's one-text-box edit, add, delete and undo (compare-and-set on the
