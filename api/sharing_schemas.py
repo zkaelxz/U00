@@ -13,6 +13,9 @@ class SharingItem(BaseModel):
     id: int
     title: str
     owner_name: str
+    # None: made at the PC. Admins only see this list, and they see user ids
+    # (with emails) on People anyway; the owner picker needs it.
+    owner_user_id: Optional[int] = None
     # No owner: made at the PC (or with sign-in off). Stored private since
     # new items are private by default, so the household can't see it yet.
     created_at_pc: bool
@@ -39,6 +42,19 @@ class SetPrivateResult(BaseModel):
     kind: Literal["series", "drama"]
     id: int
     is_private: bool
+
+
+class SetOwnerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # None hands the item to the PC (no account owner).
+    owner_user_id: Optional[int]
+
+
+class SetOwnerResult(BaseModel):
+    kind: Literal["series", "drama"]
+    id: int
+    owner_user_id: Optional[int]
+    owner_name: str
 
 
 class ShareByDefault(BaseModel):

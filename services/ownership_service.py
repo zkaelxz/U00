@@ -39,7 +39,7 @@ User decisions applied (2026-09-29):
   only (avoids leaks via series glossary/TM/previous_episode_summary): a
   drama's own flag is cleared whenever it gets a series (db layer), and
   `check_series_assignment`/`assign_drama_series` keep other users'
-  dramas out of a private series.
+  dramas out of a private series, for everyone but admins (`_admin_anywhere`).
 """
 
 import contextlib
@@ -85,6 +85,17 @@ def may_override(principal) -> bool:
     if principal is None or principal.get("is_local_owner"):
         return True
     return bool(principal.get("is_admin") and principal.get("admin_override"))
+
+
+def _admin_anywhere(principal) -> bool:
+    """Admins (at the PC or away) may put anyone's title in any series they
+    may change and flip a series' flag with other people's titles in it
+    (Alex, 2026-11-16: "an admin should have full rights regardless"). The
+    private-series rules exist to stop a member hiding someone else's title;
+    an admin already sees every title, so for them they only got in the way."""
+    if principal is None or principal.get("is_local_owner"):
+        return True
+    return bool(principal.get("is_admin"))
 
 
 def _everything(principal, writing: bool) -> bool:
@@ -300,8 +311,8 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
     row = db.get_item_ownership(kind, item_id)
     if not row or not _visible(principal, kind, row):
         raise NotFoundError("Title not found." if kind == "drama" else "Series not found.")
-    admin = may_override(principal)
-    if not (admin or _is_owner(principal, row)):
+    admin = _admin_anywhere(principal)
+    if not may_set_private(principal, row.get("owner_user_id")):
         raise ForbiddenError("Only the owner or an admin can change this.")
     # User decision 4: only whole series, or dramas with no series. A drama
     # in a series follows it, so neither direction is a real change.
@@ -310,7 +321,7 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
     # Flipping the series flips who sees the PC's dramas in it too.
     if kind == "series" and not admin and db.series_has_unowned_drama(item_id):
         raise ConflictError(_PC_DRAMA_IN_SERIES_MESSAGE)
-    if db.set_item_private(kind, item_id, private):
+    if db.set_item_private(kind, item_id, private, allow_others_dramas=admin):
         from services import auth_service
         auth_service.write_audit(user_id(principal), "sharing.set_private",
                                  f"{kind} {item_id}: private={bool(private)}")
@@ -319,6 +330,13 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
         raise ConflictError(_DRAMA_IN_SERIES_MESSAGE)   # it joined a series meanwhile
     # Otherwise those dramas would vanish for the people who own them.
     raise ConflictError("Move other people's titles out of this series first.")
+
+
+def may_set_private(principal, owner_user_id) -> bool:
+    """Whether to offer the Library's sharing button: set_private's own
+    permission rule (an admin away from the PC counts PC-made items as their
+    own), without the series-content checks that only the flip can judge."""
+    return may_override(principal) or _owns(principal, owner_user_id, True)
 
 
 SHARING_PAGE_MAX = 200
@@ -344,7 +362,8 @@ def list_sharing(principal, offset: int = 0, limit: int = 100) -> dict:
         raise InvalidInputError(f"offset must be 0 or more and limit 1 to {SHARING_PAGE_MAX}.")
     total, rows = db.list_item_sharing(limit, offset)
     items = [{"kind": r["kind"], "id": r["id"], "title": r["title"] or "",
-              "owner_name": _owner_name(r), "created_at_pc": r["owner_user_id"] is None,
+              "owner_name": _owner_name(r), "owner_user_id": r["owner_user_id"],
+              "created_at_pc": r["owner_user_id"] is None,
               "is_private": bool(r["is_private"]),
               "series_id": r["series_id"], "series_name": r["series_name"],
               "series_is_private": None if r["series_is_private"] is None
@@ -353,13 +372,47 @@ def list_sharing(principal, offset: int = 0, limit: int = 100) -> dict:
     return {"total": total, "offset": offset, "limit": limit, "items": items}
 
 
+def set_owner(principal, kind: str, item_id, owner_user_id) -> dict:
+    """An admin gives an item to another account, or to the PC (None).
+    Away from the PC an admin changes only what set_private lets them flip
+    there (their own items and PC-made ones), so another member's item still
+    changes owner only at the PC (2026-09-30 rule)."""
+    if kind not in _KINDS:
+        raise InvalidInputError("Unknown item kind.")
+    if not _admin_anywhere(principal):
+        raise ForbiddenError("Only an admin can change who owns an item.")
+    item_id = _item_id(item_id)
+    row = db.get_item_ownership(kind, item_id)
+    if not row or not _visible(principal, kind, row):   # Guest at the PC: as set_private
+        raise _not_found(kind)
+    if not may_set_private(principal, row.get("owner_user_id")):
+        raise ForbiddenError(_ADMIN_CHANGE_AT_PC)
+    if owner_user_id is not None:
+        user = (db.auth_get_user(owner_user_id)
+                if isinstance(owner_user_id, int) and not isinstance(owner_user_id, bool)
+                and 0 < owner_user_id < 2**63 else None)
+        if not user or not user.get("is_active"):
+            raise InvalidInputError("Pick an active account, or the PC.")
+    if not db.set_item_owner(kind, item_id, owner_user_id):
+        raise _not_found(kind)
+    from services import auth_service
+    auth_service.write_audit(user_id(principal), "sharing.set_owner",
+                             f"{kind} {item_id}: owner={owner_user_id}")
+    owner = db.auth_get_user(owner_user_id) if owner_user_id is not None else None
+    name = _owner_name({"owner_user_id": owner_user_id,
+                        "owner_found": owner and owner["id"],
+                        "owner_display_name": owner and owner.get("display_name")})
+    return {"kind": kind, "id": item_id, "owner_user_id": owner_user_id, "owner_name": name}
+
+
 def check_series_assignment(principal, series_id, drama_owner_user_id) -> int:
     """Guard for putting a drama into a series (create or move). A series
     the principal can't see is a 404. A private series only takes dramas
     owned by its owner or by no one (the PC owner) -- otherwise a user
     could hide someone else's drama by moving it into their own private
-    series: 409. The write itself must still use db.assign_drama_series,
-    which re-checks the second rule atomically. Returns the series id."""
+    series: 409, except for admins. The write itself must still use
+    db.assign_drama_series, which re-checks the second rule atomically
+    (see assign_drama_series for when an admin skips it). Returns the series id."""
     series_id = _item_id(series_id)
     row = db.get_item_ownership("series", series_id)
     if not row or not _visible(principal, "series", row):
@@ -367,7 +420,7 @@ def check_series_assignment(principal, series_id, drama_owner_user_id) -> int:
     if not _visible(principal, "series", row, writing=True):
         raise ForbiddenError(_ADMIN_CHANGE_AT_PC)
     if row["is_private"] and drama_owner_user_id is not None \
-            and drama_owner_user_id != row.get("owner_user_id"):
+            and drama_owner_user_id != row.get("owner_user_id") and not _admin_anywhere(principal):
         raise ConflictError(_PRIVATE_SERIES_MESSAGE)
     return series_id
 
@@ -383,7 +436,13 @@ def assign_drama_series(principal, drama_id, series_id) -> None:
     if not drama:
         raise NotFoundError("Title not found.")
     series_id = check_series_assignment(principal, series_id, drama.get("owner_user_id"))
-    if not db.assign_drama_series(drama["id"], series_id):
+    series = db.get_item_ownership("series", series_id) or {}
+    # The guard is dropped only where the admin's right over the series
+    # can't change before the write: an admin away from the PC reaches a
+    # member's series only while it is shared, and it may go private meanwhile.
+    unguarded = _admin_anywhere(principal) and (
+        may_override(principal) or _owns(principal, series.get("owner_user_id"), True))
+    if not db.assign_drama_series(drama["id"], series_id, allow_others_dramas=unguarded):
         raise ConflictError(_PRIVATE_SERIES_MESSAGE)   # the series went private meanwhile
 
 
@@ -416,7 +475,7 @@ def check_new_series_assignment(principal, name: str, drama_owner_user_id) -> No
         return
     new = new_item_defaults(principal)
     if new["is_private"] and drama_owner_user_id is not None \
-            and drama_owner_user_id != new["owner_user_id"]:
+            and drama_owner_user_id != new["owner_user_id"] and not _admin_anywhere(principal):
         raise ConflictError(_NEW_SERIES_PRIVATE_MESSAGE)
 
 

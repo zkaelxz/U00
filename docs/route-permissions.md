@@ -661,8 +661,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/shared-glossaries/{group_id}/terms` | library.read |
 | `POST /api/shared-glossaries/{group_id}/terms` | lines.edit |
 | `POST /api/shared-glossaries/{group_id}/terms/{term_id}/delete` | lines.edit |
+| `POST /api/sharing/dramas/{drama_id}/owner` | lines.edit |
 | `POST /api/sharing/dramas/{drama_id}/private` | lines.edit |
-| `GET /api/sharing/items` | admin.library |
+| `GET /api/sharing/items` | library.read |
+| `POST /api/sharing/series/{series_id}/owner` | lines.edit |
 | `POST /api/sharing/series/{series_id}/private` | lines.edit |
 | `GET /api/sharing/share-by-default` | library.read |
 | `POST /api/sharing/share-by-default` | lines.edit |
