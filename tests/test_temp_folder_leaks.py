@@ -670,3 +670,14 @@ def test_scratch_env_points_temp_at_a_folder_removed_afterwards():
         assert env["TMP"] == env["TMPDIR"] == folder
         assert os.path.isdir(folder)
     assert not os.path.exists(folder)
+
+
+def test_legacy_sweep_removes_stale_torch_pins_and_assistant_test_folders(tmp_path):
+    t = time.time() - 2 * DAY
+    (tmp_path / "baihe-torch-pins-abc.txt").write_text("x")
+    (tmp_path / "baihe_assistant_tests_abc").mkdir()
+    (tmp_path / "other.txt").write_text("x")
+    for name in ("baihe-torch-pins-abc.txt", "baihe_assistant_tests_abc"):
+        os.utime(tmp_path / name, (t, t))
+    assert storage.sweep_legacy_system_temp(system_temp=str(tmp_path)) == 2
+    assert os.listdir(tmp_path) == ["other.txt"]
