@@ -73,3 +73,7 @@ from api.schemas.sources_import import *  # noqa: F401,F403
 from api.schemas.sources_tools import *  # noqa: F401,F403
 from api.schemas.stronger_engine import *  # noqa: F401,F403
 from api.schemas.web_search import *  # noqa: F401,F403
+from api.schemas.asr_options import *  # noqa: F401,F403
+from api.schemas.diagnostics_install import *  # noqa: F401,F403
+from api.schemas.notification import *  # noqa: F401,F403
+from api.schemas.sources_extraction import *  # noqa: F401,F403

@@ -6,7 +6,7 @@ from typing import Annotated, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, StringConstraints
 
-from api.schemas.common import ConfirmRequest, UpgradeRequest
+from api.schemas.common import ConfirmRequest, DiagnosticsTorchVerify, UpgradeRequest
 
 __all__ = [
     "DiagnosticsModelDownload",
@@ -28,7 +28,6 @@ __all__ = [
     "DiagnosticsAdminConfirm",
     "DiagnosticsUpgradePlanRequest",
     "DiagnosticsUpgradeRequest",
-    "DiagnosticsInstallResult",
     "DiagnosticsPackageInfo",
     "DiagnosticsInstallTask",
     "DiagnosticsInstallPresets",
@@ -37,7 +36,6 @@ __all__ = [
     "DiagnosticsGpuTorchNvidia",
     "DiagnosticsTorchPackage",
     "DiagnosticsTorchVariant",
-    "DiagnosticsTorchVerify",
     "DiagnosticsGpuTorchStatus",
     "DiagnosticsGpuTorchSetupRequest",
     "DiagnosticsDependencyInstallRequest",
@@ -158,14 +156,6 @@ class DiagnosticsUpgradeRequest(DiagnosticsUpgradePlanRequest):
         default_factory=list, max_length=20)
 
 
-class DiagnosticsInstallResult(BaseModel):
-    package: str
-    ok: bool
-    output_tail: List[str]
-    # A plain-English next step for a known failure (pip's cache unwritable).
-    hint: Optional[str] = None
-
-
 class DiagnosticsPackageInfo(BaseModel):
     name: str
     dist: str
@@ -249,16 +239,6 @@ class DiagnosticsTorchVariant(BaseModel):
     index_url: str
     versions: Dict[str, str]
     needs_nvidia: bool
-
-
-class DiagnosticsTorchVerify(BaseModel):
-    torch: Optional[str] = None
-    torchvision: Optional[str] = None
-    torchaudio: Optional[str] = None
-    cuda_build: Optional[str] = None
-    cuda_available: Optional[bool] = None
-    device: Optional[str] = None
-    error: Optional[str] = None
 
 
 class DiagnosticsGpuTorchStatus(BaseModel):

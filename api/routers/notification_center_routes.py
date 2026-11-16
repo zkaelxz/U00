@@ -13,7 +13,7 @@ services/notification_service.list_recent.
 from fastapi import APIRouter, Request
 
 from api.auth import require_permission
-from api.notification_schemas import NotificationList
+from api.schemas import NotificationList
 from services import notification_service as svc
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])

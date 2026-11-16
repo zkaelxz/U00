@@ -2,7 +2,7 @@
 API version, plus any model used by more than one domain module.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 
@@ -20,6 +20,11 @@ __all__ = [
     "TimingPreferences",
     "TimingPreferencesUpdate",
     "QueueSettingRow",
+    "NotificationStatus",
+    "NotificationTarget",
+    "SourcesUrlImportRequest",
+    "DiagnosticsInstallResult",
+    "DiagnosticsTorchVerify",
 ]
 
 
@@ -192,3 +197,45 @@ class QueueSettingRow(BaseModel):
     value: str
     # Set on the engine row: its id, which the page words.
     engine: Optional[str] = None
+
+
+class NotificationStatus(BaseModel):
+    """Configured booleans only: never a webhook URL, host or topic."""
+    discord_configured: bool
+    ntfy_configured: bool
+    ntfy_allow_local: bool
+
+
+class NotificationTarget(BaseModel):
+    """Where a "waiting" bell entry's Open goes: a page and the one id it needs
+    (notification_service.clean_target). Never a URL or path; the app builds
+    the link."""
+    model_config = ConfigDict(extra="forbid")
+    page: Literal["glossary", "review", "series", "jobs"]
+    drama_id: Optional[StrictInt] = Field(None, ge=1)
+    series_id: Optional[StrictInt] = Field(None, ge=1)
+
+
+class SourcesUrlImportRequest(BaseModel):
+    """Novel text only (thin version). The drama must be a novel drama."""
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field(min_length=1, max_length=2000)
+    drama_id: int = Field(ge=1)
+
+
+class DiagnosticsInstallResult(BaseModel):
+    package: str
+    ok: bool
+    output_tail: List[str]
+    # A plain-English next step for a known failure (pip's cache unwritable).
+    hint: Optional[str] = None
+
+
+class DiagnosticsTorchVerify(BaseModel):
+    torch: Optional[str] = None
+    torchvision: Optional[str] = None
+    torchaudio: Optional[str] = None
+    cuda_build: Optional[str] = None
+    cuda_available: Optional[bool] = None
+    device: Optional[str] = None
+    error: Optional[str] = None

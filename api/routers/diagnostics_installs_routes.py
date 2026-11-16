@@ -40,7 +40,7 @@ POST /api/jobs/{job_id}/cancel.
 from fastapi import APIRouter, Path
 
 from api.auth import local_only, require_permission
-from api.diagnostics_install_schemas import (DiagnosticsCudaRuntimeStatus,
+from api.schemas import (DiagnosticsCudaRuntimeStatus,
                                              DiagnosticsDenoInstallRequest,
                                              DiagnosticsDenoStatus,
                                              DiagnosticsDependencyInstallState,
