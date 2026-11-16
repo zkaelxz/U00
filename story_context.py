@@ -107,10 +107,13 @@ def build_relationship_map(lines, engine, max_context_lines: int = 400):
     )
     text = call_llm_json(engine, prompt, max_tokens=2500, fallback="{}")
     data = load_json_reply(text, None)
-    if data is None:
+    if not isinstance(data, dict):
         return {"characters": [], "relationships": []}
-    return {"characters": data.get("characters", []),
-            "relationships": data.get("relationships", [])}
+
+    def entries(key):
+        value = data.get(key)
+        return [e for e in value if isinstance(e, dict)] if isinstance(value, list) else []
+    return {"characters": entries("characters"), "relationships": entries("relationships")}
 
 
 def relationship_map_to_mermaid(rel_map: dict) -> str:

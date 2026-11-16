@@ -455,7 +455,8 @@ def poller_outcome(job_id, bulk_job) -> dict:
     cap = summary.get("cap_reached")
     if isinstance(cap, (int, float)) and not isinstance(cap, bool):
         kept["cap_reached"] = cap
-    # batch_errors: an off-peak run; failed/unknown_requests: a provider batch.
-    if any(summary.get(k) for k in ("batch_errors", "failed_requests", "unknown_requests")):
+    # batch_errors: an off-peak run; failed/unknown/unparsable_requests: a provider batch.
+    if any(summary.get(k) for k in ("batch_errors", "failed_requests", "unknown_requests",
+                                    "unparsable_requests")):
         kept["partial"] = True
     return kept

@@ -70,6 +70,16 @@ class TestRelationshipMap:
             "relationships": [{"from": "A", "to": "", "relation": "x"}]})
         assert "-->" not in m
 
+    @pytest.mark.parametrize("reply", ['["x"]', '{"characters": ["A", {"name": "B"}], "relationships": "none"}'])
+    def test_a_reply_of_the_wrong_shape_gives_only_the_usable_entries(self, monkeypatch, reply):
+        class Llm:
+            supports_reference = True
+        monkeypatch.setattr(sc, "call_llm_json", lambda *a, **k: reply)
+        lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hi", speaker="A")]
+        rel = sc.build_relationship_map(lines, Llm())
+        assert rel["relationships"] == [] and all(isinstance(c, dict) for c in rel["characters"])
+        sc.relationship_map_to_mermaid(rel)
+
     def test_pure_mt_engine_returns_empty_map(self):
         class PureMT:
             supports_reference = False

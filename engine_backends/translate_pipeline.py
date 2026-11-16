@@ -310,6 +310,8 @@ class _TranslateRun:
                         else [ln for ln in self.lines if not ln.en.strip()])
         if a.target_ids is not None:
             target_lines = [ln for ln in target_lines if getattr(ln, "id", None) in a.target_ids]
+        # A line with no source text has nothing to translate; sent, it only invites invented English.
+        target_lines = [ln for ln in target_lines if (ln.zh or "").strip()]
         english = [ln for ln in target_lines if is_english_line(ln)]
         for ln in english:
             ln.en = ln.zh

@@ -345,7 +345,7 @@ def draft_novel_style_instructions(novel_text: str, engine, source_language: str
         "any Chinese, Japanese or Korean character as written: every word of the translation is English. Return ONLY JSON: {\"instructions\": \"...\"}. "
         f"No preamble, no markdown fences.\n\nExcerpts:\n{sample}")
     text = call_llm_json(engine, prompt, max_tokens=800, fallback=None, usage_cb=usage_cb)
-    data = extract_first_json_value(text) if text else None
+    data = extract_first_json_value(text, expect=dict) if text else None
     if isinstance(data, dict) and isinstance(data.get("instructions"), str):
         return _without_source_script(data["instructions"].strip())[:STYLE_DRAFT_MAX_CHARS]
     return ""

@@ -34,10 +34,11 @@ def use_heard_text(ln, text) -> bool:
 def save_fixed(drama_id, lines) -> dict:
     """Writes the job's zh/en/flag. Hearing and translating take minutes, so
     a line the user edited or re-timed meanwhile keeps the edit instead of
-    this job's text. Returns the job-result entry naming those lines ({} if
-    none)."""
+    this job's text; so does one whose source the user changed, since the
+    new English translates the old source. Returns the job-result entry
+    naming those lines ({} if none)."""
     kept = db.save_lines(drama_id, lines, fields=("zh", "en", "flag", "flag_note"),
-                         only_if_unchanged=True, guard_fields=("start", "end"))
+                         only_if_unchanged=True, guard_fields=("zh", "start", "end"))
     return {"kept_your_edit": sorted(kept)} if kept else {}
 
 
