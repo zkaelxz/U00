@@ -1,7 +1,6 @@
 """The blocked-phrases list drops stock lines Whisper invents (title 103 on the V100), even next to speech."""
 import asr_backend
 import whisper_hallucination as wh
-import whisper_transcribe as wt
 from lib import settings_schema
 from services import settings_service, timing_settings_service
 from tests.test_rehear_marks import _run
