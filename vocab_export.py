@@ -11,6 +11,7 @@ audio track) an embedded audio clip, instead of just the isolated word.
 """
 
 import csv
+import hashlib
 import html
 import io
 import os
@@ -32,6 +33,14 @@ def _card_text(text: str) -> str:
     return html.escape(text, quote=False)
 
 
+def _anki_id(name: str) -> int:
+    """Anki keys decks and note types by id, so a fresh id on each export
+    made every re-import add another deck and note type. The same name gives
+    the same id (in genanki's usual range) on every export and every PC."""
+    digest = int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest()[:8], "big")
+    return (1 << 30) + digest % (1 << 30)
+
+
 def export_vocab_csv(vocab_rows) -> str:
     """vocab_rows: list of dicts from db.list_vocab_lookups().
     Returns CSV text: front = word + reading, back = definitions."""
@@ -51,13 +60,9 @@ def export_vocab_apkg(vocab_rows, deck_name: str, out_path: str):
     opens directly in Anki with Front/Back fields already set up --
     nicer than CSV import but needs the extra dependency."""
     import genanki
-    import random
-
-    model_id = random.randrange(1 << 30, 1 << 31)
-    deck_id = random.randrange(1 << 30, 1 << 31)
 
     model = genanki.Model(
-        model_id, "Baihe Studio Vocab",
+        _anki_id("model:Baihe Studio Vocab"), "Baihe Studio Vocab",
         fields=[{"name": "Front"}, {"name": "Back"}],
         templates=[{
             "name": "Card 1",
@@ -65,7 +70,7 @@ def export_vocab_apkg(vocab_rows, deck_name: str, out_path: str):
             "afmt": '{{FrontSide}}<hr id="answer">{{Back}}',
         }],
     )
-    deck = genanki.Deck(deck_id, deck_name)
+    deck = genanki.Deck(_anki_id("deck:" + deck_name), deck_name)
     for row in vocab_rows:
         reading = f" ({row['reading']})" if row.get("reading") else ""
         front = f"{row['word']}{reading}"
@@ -106,16 +111,13 @@ def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
     so the caller can say so instead of handing over a deck that looks complete.
     """
     import genanki
-    import random
 
     by_idx = {ln.idx: ln for ln in lines}
     has_audio = bool(audio_path and os.path.exists(audio_path))
     tmp_dir = tempfile.mkdtemp(prefix="baihe_anki_") if has_audio else None
     try:
-        model_id = random.randrange(1 << 30, 1 << 31)
-        deck_id = random.randrange(1 << 30, 1 << 31)
         model = genanki.Model(
-            model_id, "Baihe Studio Vocab (sentence)",
+            _anki_id("model:Baihe Studio Vocab (sentence)"), "Baihe Studio Vocab (sentence)",
             fields=[{"name": "Sentence"}, {"name": "Back"}],
             templates=[{
                 "name": "Card 1",
@@ -123,7 +125,7 @@ def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
                 "afmt": '{{FrontSide}}<hr id="answer">{{Back}}',
             }],
         )
-        deck = genanki.Deck(deck_id, deck_name)
+        deck = genanki.Deck(_anki_id("deck:" + deck_name), deck_name)
         media_files = []
         audio_deadline = (time.monotonic() + audio_budget_seconds
                           if audio_budget_seconds is not None else None)
