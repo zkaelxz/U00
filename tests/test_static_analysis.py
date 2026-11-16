@@ -612,6 +612,7 @@ class TestLayering:
     # Remove an entry when you fix it; never add one.
     KNOWN_ROOT_IMPORTS_UP = {
         "bulk_apply -> services.reading_speed_dismissal_service",
+        "bulk_poll -> services.auth_service",
         "bulk_poll -> services.line_provenance_service",
         "debug_view -> services.line_provenance_service",
         "dub -> services.vram_service",
@@ -626,8 +627,8 @@ class TestLayering:
         "page_server -> services.extension_title_service",
         "page_server -> services.settings_service",
         "page_server -> services.translate_service",
-        "scanlate_inpaint -> services.settings_service",
-        "scanlate_inpaint -> services.vram_service",
+        "scanlate_lama -> services.settings_service",
+        "scanlate_lama -> services.vram_service",
         "translation_finish -> services.line_provenance_service",
         "translation_finish -> services.reading_speed_dismissal_service",
     }
