@@ -24,9 +24,9 @@ from scanlate_detect import (balloon_outside_mask, bubble_erase_mask, bubble_sha
 from scanlate_fonts import _CJK_PUNCTUATION, _PLAIN, TypesetStyle, _find_font, _note_missing_cjk_font
 from scanlate_ink import _fade_lettering, _sampled_inks, _text_fill, chosen_color
 from scanlate_inpaint import (
-    erase_box, InpaintModelUnavailable, inpaint_region, is_art_mistaken_for_sign,
-    lama_ml_weights_cached, sign_text_line,
+    erase_box, InpaintModelUnavailable, inpaint_region, is_art_mistaken_for_sign, sign_text_line,
 )
+from scanlate_lama import lama_ml_weights_cached
 from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
 from scanlate_text_layout import _dark_under, _layout_in_mask, _symmetrised, render_text_in_box
 from scanlate_watermark import is_site_mark_region, logo_box

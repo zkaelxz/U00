@@ -747,7 +747,7 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "segment_splitting.py::split_long_segments": 116,
     "db/schema.py::_create_library_tables": 115,
     "db/schema.py::_create_series_tables": 107,
-    "scanlate_inpaint.py::_build_lama_generator": 105,
+    "scanlate_lama.py::_build_lama_generator": 105,
     "epub_io.py::export_epub": 105,
     "services/title_restructure_service.py::_move_novel": 104,
     "sources/adapters/kuaikan.py::_decode_nuxt_state": 103,

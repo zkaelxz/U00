@@ -163,8 +163,8 @@ def ocr_backend_installed(backend: str, tesseract_cmd: str | None = None) -> boo
 def _weights_cached():
     try:
         import scanlate_detect
-        import scanlate_inpaint
-        return scanlate_detect.bubble_ml_weights_cached(), scanlate_inpaint.lama_ml_weights_cached()
+        import scanlate_lama
+        return scanlate_detect.bubble_ml_weights_cached(), scanlate_lama.lama_ml_weights_cached()
     except Exception:
         return False, False
 
