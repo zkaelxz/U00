@@ -78,7 +78,7 @@ def draw_gloss(pil_img, region: dict, font_path: str | None = None, avoid: tuple
     lettering); `bounds`: the box it must stay in (the panel). A narrower wrap is tried
     when the first one has no free spot."""
     from PIL import ImageDraw, ImageFont
-    from scanlate_render import _find_font
+    from scanlate_fonts import _find_font
     path = _find_font(font_path, category="regular")
     size = int(min(max(min(region["w"], region["h"]) * 0.4, _MIN_PX), _MAX_PX))
     font = ImageFont.truetype(path, size) if path else ImageFont.load_default()

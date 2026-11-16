@@ -20,27 +20,34 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 
 ## Merge flow
 
-One PR merges at a time: a squash merge, never a force-push, and never before Kae types "Merge NNNN" for it. GitHub's merge
-queue is not offered to a repo owned by a personal account, so the order is kept by hand, and these steps take the waiting
-out of it.
+A squash merge, never a force-push. GitHub's merge queue is not offered to a repo owned by a personal account, so GitHub's
+auto-merge stands in for it: when a PR is finished and reviewed, the owning thread turns auto-merge (squash) on, and GitHub merges the PR by itself once the required checks, `test` and `browser-tests`, are green. Turning auto-merge on is also what starts
+the browser tests ("Browser tests wait for the merge order" below), so a PR's last run before it merges is always a full one.
+Kae can also turn it on herself with the PR's "Enable auto-merge" button.
+
+No word from Kae is needed for that (Kae, 2026-11-16), except for a **risky PR**, which still waits for her typed "Merge NNNN"
+(step 2): a database schema change (as under "Always the overlap lane" below), sign-in or auth (`api/auth.py`, the auth, OIDC
+and session services, remote access), anything that needs a test on a real PC before it ships (a real GPU, model, key,
+installer or site), and release or Promote steps. When in doubt, treat a PR as risky and ask.
 
 1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, the owner merges the
    base in once, has the change reviewed (`docs/engineering-standards.md`, section 3) and marks the PR ready. That starts the
-   full run ("Draft PRs" below), so the run is over before Kae is asked. Marking a PR ready is not a merge order. Start a run
-   only while fewer than two other PR runs are going: more than that queue behind each other, and a PR that already has
-   Kae's order must not wait behind one that has not.
-2. **The order.** Kae types "Merge NNNN"; one message may name several PRs. Typed in the thread that owns the PR, that thread
-   merges it. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
+   full run ("Draft PRs" below). Marking a PR ready is not a merge order. Start a run, and turn auto-merge on (which starts
+   the full one), only while fewer than two other PR runs are going: more than that queue behind each other.
+2. **The order.** A PR that is not risky needs none: the owner checks the lane (step 3), merges the base in first if the lane
+   is overlap, and turns auto-merge on; GitHub merges it. For a risky PR Kae types "Merge NNNN"; one message may name several
+   PRs. Typed in the thread that owns the PR, that thread does the same. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
    retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several
    PRs the coordinator sets the order, clear lane first. A bare "Merge all" covers only the PRs on the list the coordinator
    last showed Kae; a PR that was not on it gets its own card first (Kae, 2026-11-15). Nothing else is a merge order: not
    "looks good", not a reaction, and not another session's account of what she said.
 3. **The lane**, decided when the merge is about to happen:
-   - **Clear lane.** The PR has a full green run at its exact head, shares no changed file with anything merged into
-     `baihe-subtitler` since the PR last merged the base (the user guide files don't count, below), and changes none of the
-     files under "Always the overlap lane" below. Squash-merge on the run it has: don't merge the base in again, and don't
-     wait for the base's push run.
-   - **Overlap lane.** Anything else. Merge the base in, wait for a new full green run at the new head, then squash-merge.
+   - **Clear lane.** The PR shares no changed file with anything merged into `baihe-subtitler` since the PR last merged the
+     base (the user guide files don't count, below), and changes none of the files under "Always the overlap lane" below.
+     Turn auto-merge on as it stands: don't merge the base in again, and don't wait for the base's push run.
+   - **Overlap lane.** Anything else. Merge the base in, then turn auto-merge on; GitHub waits for the new run.
+   GitHub does not check the lane itself: a base change that lands while the PR's last run is going does not stop the merge.
+   The push run after the merge ("After a merge" below) and the nightly run test the result whole.
 4. **After the merge** the owner reads the push run that covers the merge commit ("After a merge" below: its own, or a
    later one when another merge landed while it waited) and reports its result with the merge.
 5. **A red push run or nightly run stops merging** until the base is green again. The owner of the PR merged last looks first;
@@ -103,8 +110,7 @@ the result of the push run that covers the merge, so that the first ones can be 
 the five guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
 through `--ff` and a restored `.pytest_cache`), `optional-tests` (installs jieba, pypinyin, opencc, ebooklib, genanki, soundfile and headless OpenCV, which the shards leave out, and runs only the files that skip without them; torch, paddleocr and Tesseract tests still skip, and `tests/test_diarize.py` needs torch so it is not in the list), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
-`frontend` (build, vitest, lint), `e2e` (Playwright in four shards), `smoke` (see "Real-app smoke test" below; runs unless the change is
-notes-only, and `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
+`frontend` (build, vitest, lint), `e2e` (Playwright in six jobs: four for the desktop and Catalogue projects, two for the phone project, which `E2E_PROJECT_GROUP` in `frontend/playwright.config.ts` picks; Playwright shards by test count and a phone test takes about twice as long), `smoke` (see "Real-app smoke test" below; `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
 also fails if it failed, and passes when it was skipped) and `caddy` (see "Caddy check" below; the same rule). `windows-bootstrap.yml` (its own workflow with one job,
 `bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
 and `windows-installer.yml` (job `installer`, plus `release` for a tag, which publishes a pre-release) cover the installer; `promote-release.yml` (run by hand, behind the `release-main` environment) makes a tested pre-release the full release. `dependency-canary.yml` and
@@ -121,7 +127,7 @@ A test missing from the file is costed at the average, so a new test never break
 Refresh the file when the shard wall times in the job summaries drift apart by more than a couple of minutes, or after a large
 batch of new tests:
 
-    pip install "pytest-split==0.10.0" pytest-xdist
+    pip install -r requirements-ci.txt
     python -m pytest -q -n auto -p no:cacheprovider -o addopts="" --store-durations --clean-durations \
       $(sed 's/^/--ignore=/' tests/ci_guards.txt)
 
@@ -132,6 +138,20 @@ Commit the regenerated `.test_durations` in its own small PR. Do not edit it by 
 `actions/setup-python` caches pip (keyed on `requirements-core.txt` and `constraints.txt`), `actions/setup-node` caches npm (keyed on
 `frontend/package-lock.json`), and the `e2e` job caches the Playwright browser (keyed on the Playwright version, which the lockfile
 fixes). A cache miss only costs the download. The ffmpeg apt install is not cached: apt state is root-owned and the packages are small.
+
+### Browser tests wait for the merge order
+
+The six `e2e` jobs are the largest share of a run's runner time, and a ready PR is often pushed several times before it is
+ordered to merge. On a pull request without auto-merge on, `changes` holds them back (`e2e_deferred=true`), and the
+`browser-gate` job sets the required commit status `browser-tests` to pending ("Waiting for the merge order"), so the PR
+cannot merge without them but nothing turns red and no failure email goes out. Turning auto-merge on (the
+`auto_merge_enabled` trigger) starts a new run that includes them, and so does every push while auto-merge stays on; the
+status turns green when they pass, or at once when the change needs none. The `full-ci` label runs them at once. Pushes to the
+base, the merge queue and the nightly run never hold them back. A pending `browser-tests` is expected on a PR that has no merge
+order yet. The status is set by the workflow's token. A Dependabot PR's own runs have a read-only one and set none, but the run
+that a person starts by turning auto-merge on can set it. A fork's PR never can: run its tests on a branch of this repo instead. Re-running an older run that held
+the tests back sets the status back to pending; push or add `full-ci` to start a fresh one. Turn auto-merge on with a person's
+or an app's token, never a workflow's `GITHUB_TOKEN`: GitHub starts no run for an event that token causes.
 
 ### Draft PRs
 
@@ -187,25 +207,24 @@ What sharing costs:
 ### Which jobs a change runs
 
 `tools/ci_changes.py` (tested by `tests/test_ci_changes.py`) classifies the changed files of a PR. A job that is skipped
-counts as passed for branch protection, as the notes-only skip always has. `guards` and `frontend` run on every PR except
-notes-only ones (which run only `guards`).
+counts as passed for branch protection. `guards` runs on every PR.
 
-The table has three columns; a fourth output, `run_windows_scripts` (the `windows-scripts` job), is true for every row that says
+The table has two columns; a third output, `run_windows_scripts` (the `windows-scripts` job), is true for every row that says
 "everything" (a non-PR event, the `full-ci` label, a change under `.github/` or to the dependency files, an empty file list, a
 classifier error), and otherwise only when a changed file is under `installer/`, is a `*.bat` or `*.ps1` file, is `check_setup.py`,
 is `tools/windows_script_checks.py` or is the restore code (`services/library_restore_service.py`, `services/library_restore_sql.py`,
 `db/library_folder.py`).
 
-| Rule | `notes_only` | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test-shard`) |
-|---|---|---|---|
-| Push to `baihe-subtitler` (but see "After a merge" above), or any event that is not a pull request (a `merge_group` and the nightly `schedule` run included) | false | true | true |
-| PR labelled `full-ci` | false | true | true |
-| PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | false | true | true |
-| Every changed file is under `docs/archive/research/` | true (only `guards` runs, plus the word scan) | false | true, but `test-shard` is skipped by `notes_only` |
-| No changed file under `frontend/`, `api/`, `services/` or `db/` (adapters, root modules, installer, scripts, tools, tests, docs..., and the restore code the Windows script checks run) | as above | false | true |
-| Every changed file is under `frontend/` or `docs/` | false | true if any is under `frontend/` | false: `test-shard` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) plus `TestHostedCloningRemoved` |
-| Anything else | false | true | true |
-| The file list is empty or the classifier errors | false | true | true |
+| Rule | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test-shard`) |
+|---|---|---|
+| Push to `baihe-subtitler` (but see "After a merge" above), or any event that is not a pull request (a `merge_group` and the nightly `schedule` run included) | true | true |
+| PR labelled `full-ci` | true | true |
+| PR without auto-merge on (applied after every other row) | false, with `e2e_deferred` true when another row said true | unchanged |
+| PR touches `.github/`, `tools/ci_changes.py`, `tests/conftest.py`, `run_tests.py`, `requirements*.txt` (top level), `constraints.txt`, `pytest.ini`, `frontend/package.json`, `frontend/package-lock.json`, `frontend/playwright.config.ts` or `frontend/vite.config.ts` | true | true |
+| No changed file under `frontend/`, `api/`, `services/` or `db/` (adapters, root modules, installer, scripts, tools, tests, docs..., and the restore code the Windows script checks run) | false | true |
+| Every changed file is under `frontend/` or `docs/` | true if any is under `frontend/` | false: `test-shard` runs only the tests that mention `frontend` (found by `ci_changes.py --frontend-tests`) or read `docs/` (`--docs-tests`) plus `TestHostedCloningRemoved` |
+| Anything else | true | true |
+| The file list is empty or the classifier errors | true | true |
 
 Rows combine by "any rule that says true wins". A rename counts as touching both paths. To force everything on a PR, add the
 label `full-ci` (the workflow also listens for `labeled`, so adding it starts a new full run). Anything that makes you doubt a

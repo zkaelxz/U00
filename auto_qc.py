@@ -352,7 +352,7 @@ def build_banned_terms(glossary_terms=None) -> list:
     This is a new, independent, flag-only mechanism: Auto QC uses it to
     flag a line for review, never to rewrite it. It does not read
     `notes` and has nothing to do with the older enforce_exact hard
-    find-replace in translation_guide.apply_hard_term_substitutions,
+    find-replace in glossary_substitution.apply_hard_term_substitutions,
     which is untouched by this and stays enforce_exact-only."""
     out = []
     for t in glossary_terms or []:

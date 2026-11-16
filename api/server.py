@@ -3,7 +3,7 @@ api/server.py -- the FastAPI application: Baihe's HTTP API.
 
 It serves the React app and the JSON routes over the `services/` layer, and
 reads the same `library/` folder as the `python -m api` admin commands (the
-two never call each other over HTTP). See `docs/archive/migration-react-fastapi.md` for the history.
+two never call each other over HTTP).
 
 Run it with `python -m api` (reads `BAIHE_API_*`, see
 `api/api_config.py`). With `BAIHE_API_AUTH=off` (the default) every
@@ -102,6 +102,7 @@ from api.routers import (
     novel_files_routes,
     novel_routes,
     reader_routes,
+    resource_alert_routes,
     restructure_routes,
     saved_comics_routes,
     scanlate_routes,
@@ -248,7 +249,7 @@ _ROUTER_MODULES = (
     sources_local_routes, diagnostics_gaps_routes, extension_routes, extension_bridge_routes,
     library_admin_routes,
     backup_routes, disk_usage_routes, delete_routes, translation_version_routes,
-    blocked_retry_routes, notification_routes, notification_center_routes, asr_options_routes,
+    blocked_retry_routes, notification_routes, notification_center_routes, resource_alert_routes, asr_options_routes,
     usage_recost_routes, spend_history_routes, comic_routes, scanlate_routes, engine_routing_routes,
     stronger_engine_routes, series_people_routes, series_routes, inbox_routes, shared_glossary_routes,
     auth_routes, admin_users_routes,

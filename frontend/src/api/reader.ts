@@ -60,7 +60,7 @@ export const vocabApkgUrl = (id: number) => apiUrl(`${root(id)}/vocab/export.apk
 export const wikiMarkdownUrl = (id: number, scope: WikiScope = {}) =>
   apiUrl(`${root(id)}/wiki/export.md${query({ ...scope })}`)
 // The engine ids the server's own _llm_engine rejects (translation-only).
-// None are offered now; mirrors translate_engines.TRANSLATION_ONLY_ENGINES.
+// None are offered now; mirrors engine_backends.engine_registry.TRANSLATION_ONLY_ENGINES.
 export const TRANSLATION_ONLY = new Set<string>()
 
 // Engines that can answer Reader AI requests: configured, and not translation-only.

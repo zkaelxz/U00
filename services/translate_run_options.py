@@ -23,6 +23,25 @@ def ollama_reachable() -> bool:
         settings_service.ollama_url()))
 
 
+def chapter_line_ids(drama_id, chapter_from, chapter_to, line_ids=None):
+    """The ids of the lines of chapters chapter_from..chapter_to (1-based, inclusive; one alone
+    leaves that side open), or `line_ids` unchanged when no chapter is chosen. Chapters are found
+    the way chunk & tag cuts them, so "Chapter 3" is the same text in both steps."""
+    if chapter_from is None and chapter_to is None:
+        return line_ids
+    if line_ids is not None:
+        raise InvalidInputError("Choose chapters or lines, not both.")
+    import novel_text
+    lines = db.load_lines(drama_id)
+    ranges = novel_text.chapter_line_ranges([(ln.get("zh") or "") for ln in lines])
+    first, last = chapter_from or 1, chapter_to or len(ranges)
+    if not 1 <= first <= last <= len(ranges):
+        raise InvalidInputError(f"Choose chapters from 1 to {len(ranges)} (this title has {len(ranges)}).")
+    if (first, last) == (1, len(ranges)):
+        return None
+    return [ln["id"] for ln in lines[ranges[first - 1][0]:ranges[last - 1][1] + 1]]
+
+
 def check_mode_options(engine_name, gemini_free_tier, reflect, bulk, fallback_chain,
                         own_lines_only, line_ids) -> None:
     if fallback_chain and (reflect or bulk):
@@ -97,18 +116,23 @@ def require_no_pending_bulk_overlap(drama_id, eligible) -> None:
 
 
 def require_bulk_ready(drama_id, engine_name, model, main_cap, reflect, force_retranslate,
-                       gemini_free_tier, job_cost_cap_usd, estimate_cost) -> None:
+                       gemini_free_tier, job_cost_cap_usd, estimate_cost):
+    """The batch's estimated dollars, which it holds of the monthly cap until it
+    is billed, or None when it holds none (DeepSeek off-peak, or no cap)."""
     # A batch or an off-peak run is paid for with nobody watching.
     paid_job_service.require_cap_for_unattended(engine_name, gemini_free_tier, model)
     if db.list_bulk_jobs(drama_id, statuses=db.BULK_PENDING_STATUSES + ("running",)):
         raise ConflictError("A bulk translation is already pending for this title.")
-    if engine_name != "deepseek" and main_cap is not None:
+    if engine_name == "deepseek" or main_cap is None:
         # DeepSeek off-peak runs as a normal run later and stops at the
         # cap; a submitted batch can't, so it's refused up front.
-        if estimate_cost(
-                drama_id, engine_name, model, reflect=reflect, bulk=True,
-                force_retranslate=force_retranslate, gemini_free_tier=gemini_free_tier,
-                job_cost_cap_usd=job_cost_cap_usd)["estimate_above_cap"]:
-            raise UnsupportedOperationError(
-                "Not submitted: a bulk batch can't be stopped part-way, and its estimate "
-                "is above your cap. Raise the cap, or run a normal translation.")
+        return None
+    est = estimate_cost(
+        drama_id, engine_name, model, reflect=reflect, bulk=True,
+        force_retranslate=force_retranslate, gemini_free_tier=gemini_free_tier,
+        job_cost_cap_usd=job_cost_cap_usd)
+    if est["estimate_above_cap"]:
+        raise UnsupportedOperationError(
+            "Not submitted: a bulk batch can't be stopped part-way, and its estimate "
+            "is above your cap. Raise the cap, or run a normal translation.")
+    return est["estimated_usd"]

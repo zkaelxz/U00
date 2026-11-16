@@ -22,8 +22,7 @@ Linked from `AGENTS.md`. For a 64k-context model: read the card for your edit, n
 - Finish with a short summary: what changed, commands run with pass counts, what you are unsure about, follow-ups.
 
 ## Skip list (do not read unless the task is about them)
-`docs/engineering-standards.md`, `.test_durations` (2.2 MB),
-`docs/archive/` (research notes, reports and session summaries included). `opencode.json` denies reads of these.
+`docs/engineering-standards.md`, `.test_durations` (2.2 MB). `opencode.json` denies reads of these.
 
 ## Recipe cards
 
@@ -68,6 +67,6 @@ Linked from `AGENTS.md`. For a 64k-context model: read the card for your edit, n
 3. Add it to `requirements-optional.txt` like its neighbours. Run `tests/test_diagnostics_service.py`.
 
 **Rename a UI label across specs and docs**
-1. `git grep -n -F "<old text>" -- frontend/src frontend/e2e docs ':!docs/archive'` (add `-m 3` per file if long).
+1. `git grep -n -F "<old text>" -- frontend/src frontend/e2e docs` (add `-m 3` per file if long).
 2. Change the component, then every `getByText`/`getByRole` in `frontend/e2e/*.spec.ts` and the `*.test.tsx` files, then the docs.
 3. `cd frontend && npx tsc -b && npx vitest run <changed tests>`; run the one Playwright spec for that page (`docs/testing-and-ci.md`).

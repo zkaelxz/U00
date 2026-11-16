@@ -4,14 +4,18 @@
 job_calls gives every call_llm_json in the block a deadline, a cancel that
 works mid-call, the monthly cap re-checked before each request, an end after a
 run of failed requests, and one rate-limit wait budget. The reason a rule ended
-the job goes in the job's result as "stopped"."""
+the job goes in the job's result as "stopped".
+
+Bulk batches are billed only when their results land, so each one holds its
+estimate of the monthly cap until then (hold_bulk_spend)."""
 import contextlib
+import threading
 
 import background_jobs
 import bulk_providers
 import db
 from engine_backends import llm_tasks, paid_calls
-from lib.errors import UnsupportedOperationError
+from lib.errors import ConflictError, UnsupportedOperationError
 from services import auth_service
 
 NO_CAP_MESSAGE = bulk_providers.NO_CAP_MESSAGE
@@ -66,6 +70,73 @@ def require_monthly_cap(engine_models) -> float:
     free_tier = bool(settings_service.get("gemini_free_tier"))
     for name, model in set(engine_models):
         require_cap_for_unattended(name, free_tier, model)
+    return settings_service.get_monthly_cap_usd()
+
+
+# Bulk batches accepted in this process whose row may not exist yet, by
+# (drama id, family). A batch is billed only when its results land hours
+# later, so until then its estimate holds part of the monthly cap; without
+# this, two titles' batches each pass against the same room.
+_bulk_holds: dict = {}
+_bulk_holds_lock = threading.Lock()
+
+
+def bulk_hold_key(drama_id: int, kind: str) -> tuple:
+    """A title's translate and Reflect batches share one job, so one key."""
+    return (drama_id, "translate" if kind in ("translate", "reflect") else kind)
+
+
+def _held_usd(exclude=None) -> float:
+    # Under _bulk_holds_lock. A row whose key is still held here is the same
+    # batch as the hold, so it isn't counted twice.
+    total = sum(usd for key, usd in _bulk_holds.items() if key != exclude)
+    for drama_id, kind, _pipeline, usd in db.list_unbilled_bulk_estimates():
+        key = bulk_hold_key(drama_id, kind)
+        if key not in _bulk_holds and key != exclude:
+            total += usd
+    return total
+
+
+def hold_bulk_spend(key: tuple, estimate_usd: float) -> None:
+    """Holds estimate_usd of this month's cap for a batch about to be sent, or
+    refuses it when the cap less spend and every other unbilled batch leaves
+    less than that. Release with release_bulk_spend once the batch's row
+    (which carries the estimate) exists, or the job ends."""
+    monthly = _monthly_cap()
+    with _bulk_holds_lock:
+        if key in _bulk_holds:
+            # Releasing a refused twin's hold would drop this one's.
+            raise ConflictError("A bulk job for this title is already being sent.")
+        if monthly > 0:
+            held = _held_usd(exclude=key)
+            room = monthly - db.get_month_spend() - held
+            if estimate_usd > room:
+                raise UnsupportedOperationError(
+                    f"Not submitted: this batch's estimate (${estimate_usd:.2f}) is more than the "
+                    f"${max(room, 0.0):.2f} left of this month's cap once other pending bulk jobs "
+                    f"(${held:.2f}) are counted. Wait for them to finish, or raise the cap.")
+        _bulk_holds[key] = float(estimate_usd)
+
+
+def release_bulk_spend(key: tuple) -> None:
+    with _bulk_holds_lock:
+        _bulk_holds.pop(key, None)
+
+
+def holding_bulk_spend(key: tuple, fn):
+    """fn, releasing the hold under key when it returns or raises: wrap both
+    the submit (the row now carries the estimate) and the job's runner (a job
+    cancelled before it submits never calls the submit)."""
+    def run(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            release_bulk_spend(key)
+    return run
+
+
+def _monthly_cap() -> float:
+    from services import settings_service
     return settings_service.get_monthly_cap_usd()
 
 

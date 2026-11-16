@@ -79,6 +79,7 @@ def _json(resp, what: str):
 class MarumaruSource(SourceAdapter):
     name = "marumaru"
     display_name = "Marumaru (마루마루)"
+    homepage = "https://marumaru108.com"
     content_types = [ContentType.MANHWA.value]
     languages = ["ko"]
     url_patterns = [r"marumaru\d*\.[a-z]+/(?:webtoon|manhwa)/\d+"]
