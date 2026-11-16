@@ -20,7 +20,7 @@ from fastapi import APIRouter, Query, Request
 
 from api.auth import require_permission
 from api.schemas import error_responses
-from api.sharing_schemas import (SetOwnerRequest, SetOwnerResult, SetPrivateRequest,
+from api.schemas import (SetOwnerRequest, SetOwnerResult, SetPrivateRequest,
                                  SetPrivateResult, SharingList, ShareByDefault)
 from services import ownership_service
 

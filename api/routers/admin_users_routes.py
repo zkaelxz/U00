@@ -37,7 +37,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Path, Query, Request, Response
 
-from api.admin_users_schemas import AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage
+from api.schemas import AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage
 from api.schemas import AdminAddUserRequest, MemberKeyRemoved, MemberPaidLimitRequest
 from api.auth import is_local_request, principal_user_id, require_permission
 from api.no_store import mark_no_store

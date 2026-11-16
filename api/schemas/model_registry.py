@@ -1,5 +1,5 @@
 """
-api/model_registry_schemas.py -- request/response models for the model
+api/schemas/model_registry.py -- request/response models for the model
 deprecation / migration assistant (api/routers/model_registry_routes.py).
 No key field exists on any model.
 """
@@ -7,6 +7,9 @@ No key field exists on any model.
 from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+__all__ = ["ModelStatusItem", "EngineCheck", "ModelStatus", "PresetModelSwitchRequest", "PresetModelSwitchResult",
+           "ModelOverrideRequest", "ModelOverrideClearRequest", "ModelOverrideResult"]
 
 
 class ModelStatusItem(BaseModel):
