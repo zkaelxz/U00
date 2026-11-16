@@ -394,7 +394,7 @@ export default function SettingsPage() {
         {panel('account', (
           <>
             <SettingsCard id="sharing"><SharingCard /></SettingsCard>
-            <SettingsCard id="display"><DisplayCard /></SettingsCard>
+            {shown('display') && <SettingsCard id="display"><DisplayCard /></SettingsCard>}
             <SettingsCard id="customize-menu"><CustomizeMenuCard /></SettingsCard>
             <SettingsCard id="devices"><DevicesCard /></SettingsCard>
             <SettingsCard id="extension-devices"><ExtensionDevicesCard /></SettingsCard>
