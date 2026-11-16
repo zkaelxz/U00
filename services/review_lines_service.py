@@ -29,6 +29,7 @@ import debug_view
 import raw_transcript
 import review_thresholds
 import scanlate
+import segment_splitting
 from engine_backends import llm_tasks
 from services import ownership_service
 from lib.errors import InvalidInputError, NotFoundError
@@ -53,6 +54,9 @@ _ONLY_VALUES = ("all", "flagged", "untranslated", "unreviewed", "shaky", "risk",
 # "shaky" view. Typical clean speech scores well above it; picked to list the worst few percent
 # of a title rather than most of it.
 SHAKY_BELOW = 0.6
+# Below this, a word Whisper heard is underlined in Review's source text. A first guess, not
+# tuned on real titles: faster-whisper's word probability is uncalibrated, like the line's.
+UNSURE_WORD_BELOW = 0.5
 
 
 def _load_drama_and_lines(drama_id: int):
@@ -68,6 +72,7 @@ def line_dict(ln) -> dict:
         "speaker_manual": bool(ln.speaker_manual), "sfx": bool(ln.sfx),
         "flag": ln.flag, "flag_note": ln.flag_note, "lang": ln.lang,
         "reviewed": bool(ln.reviewed), "confidence": ln.confidence, "mark": ln.mark,
+        "unsure_words": segment_splitting.unsure_word_spans(ln, UNSURE_WORD_BELOW),
         # bare filename only, never the relative folder layout (D2)
         "dub_filename": os.path.basename(ln.dub_filename) if ln.dub_filename else None,
     }
@@ -193,7 +198,7 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
     # and nothing here writes.
     page_ids = [ln.id for ln in visible[start:start + page_size]]
     # load_line_objects returns line order; the shaky view is in confidence order.
-    by_id = {ln.id: ln for ln in db.load_line_objects(drama_id, ids=page_ids)}
+    by_id = {ln.id: ln for ln in db.load_line_objects(drama_id, with_words=True, ids=page_ids)}
     shown = [by_id[i] for i in page_ids if i in by_id]
     return {
         "lines": [line_dict(ln) for ln in shown],

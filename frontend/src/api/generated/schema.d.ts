@@ -2283,6 +2283,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/dependencies/upgrade-outdated/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: queue updating every package below the app's minimum for the next start (confirm=true) */
+        post: operations["post_upgrade_outdated_queue_api_diagnostics_dependencies_upgrade_outdated_queue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/dependencies/{package}/install": {
         parameters: {
             query?: never;
@@ -2691,6 +2708,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/pending-install/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: restart Baihe now so the queued install runs (confirm=true) */
+        post: operations["post_restart_api_diagnostics_pending_install_restart_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/ports": {
         parameters: {
             query?: never;
@@ -2857,6 +2891,23 @@ export interface paths {
         put?: never;
         /** PC only: erase the whole library (confirm=true, confirm_text "RESET") */
         post: operations["post_reset_library_api_diagnostics_reset_library_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The resource monitor's last readings (GPU, RAM, CPU, disk) and each alert rule's standing */
+        get: operations["get_resources_api_diagnostics_resources_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5907,7 +5958,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Download the finished narration track (WAV) */
+        /** Download the finished narration track (FLAC, or WAV for an older title) */
         get: operations["download_listen_track_api_listen_dramas__drama_id__track_get"];
         put?: never;
         post?: never;
@@ -7231,6 +7282,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/queue/file-run/{drama_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How far the Add box run (the upload's transcription, then translate) got */
+        get: operations["get_file_run_api_queue_file_run__drama_id__get"];
+        put?: never;
+        /** Queue the Add box run after its upload, to start now; a run already in line is returned */
+        post: operations["start_file_run_api_queue_file_run__drama_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/queue/items": {
         parameters: {
             query?: never;
@@ -7333,6 +7402,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/queue/novel-flow/{drama_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How far the novel's link run (import, text, lines, then find names) got */
+        get: operations["get_novel_flow_api_queue_novel_flow__drama_id__get"];
+        put?: never;
+        /** Queue the novel's link run to start now; a run already in line is returned */
+        post: operations["start_novel_flow_api_queue_novel_flow__drama_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/queue/pause": {
         parameters: {
             query?: never;
@@ -7412,6 +7499,24 @@ export interface paths {
         put?: never;
         /** Start (or resume) the queue now */
         post: operations["start_api_queue_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/queue/title-flow/{drama_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How far the title's one-button run (transcribe, then find names) got */
+        get: operations["get_title_flow_api_queue_title_flow__drama_id__get"];
+        put?: never;
+        /** Queue the title's one-button run to start now; a run already in line is returned */
+        post: operations["start_title_flow_api_queue_title_flow__drama_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10001,6 +10106,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sharing/dramas/{drama_id}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Give a drama to another account, or to the PC (admins) */
+        post: operations["set_drama_owner_api_sharing_dramas__drama_id__owner_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sharing/dramas/{drama_id}/private": {
         parameters: {
             query?: never;
@@ -10029,6 +10151,23 @@ export interface paths {
         get: operations["get_items_api_sharing_items_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sharing/series/{series_id}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Give a series to another account, or to the PC (admins) */
+        post: operations["set_series_owner_api_sharing_series__series_id__owner_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -12046,7 +12185,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Redo the lines flagged for a missing glossary name with the stronger engine */
+        /** Redo the lines flagged for a missing glossary name, or as doubtful, with the stronger engine */
         post: operations["start_glossary_flagged_redo_api_translate_run_dramas__drama_id__glossary_flagged_run_post"];
         delete?: never;
         options?: never;
@@ -15080,6 +15219,8 @@ export interface components {
         BenchmarkTranscribeDefaults: {
             /** Beam Size */
             beam_size: number;
+            /** Decode Randomness */
+            decode_randomness: string;
             /** Difficult Audio */
             difficult_audio: boolean;
             /** Hallucination Silence Sec */
@@ -15113,6 +15254,8 @@ export interface components {
         BenchmarkTranscribeOptions: {
             /** Beam Size */
             beam_size?: number | null;
+            /** Decode Randomness */
+            decode_randomness?: string | null;
             /** Difficult Audio */
             difficult_audio?: boolean | null;
             /** Hallucination Silence Sec */
@@ -18326,7 +18469,7 @@ export interface components {
             new_chapters: number;
             /**
              * Owned By Me
-             * @description The signed-in viewer created it. Only set in the Library list.
+             * @description The signed-in viewer may change its sharing: they created it, or they are an admin and it was made at the PC (or they are at the PC). Only set in the Library list.
              */
             owned_by_me: boolean | null;
             /**
@@ -18475,7 +18618,7 @@ export interface components {
             new_chapters: number;
             /**
              * Owned By Me
-             * @description The signed-in viewer created it. Only set in the Library list.
+             * @description The signed-in viewer may change its sharing: they created it, or they are an admin and it was made at the PC (or they are at the PC). Only set in the Library list.
              */
             owned_by_me: boolean | null;
             /**
@@ -18689,7 +18832,7 @@ export interface components {
             new_chapters: number;
             /**
              * Owned By Me
-             * @description The signed-in viewer created it. Only set in the Library list.
+             * @description The signed-in viewer may change its sharing: they created it, or they are an admin and it was made at the PC (or they are at the PC). Only set in the Library list.
              */
             owned_by_me: boolean | null;
             /**
@@ -19469,6 +19612,18 @@ export interface components {
             /** Missing Top Level */
             missing_top_level: string[];
         };
+        /**
+         * FileRunStart
+         * @description POST /api/queue/file-run/{id}: the job the upload started, and the box's engine and English variant.
+         */
+        FileRunStart: {
+            /** Engine */
+            engine: string;
+            /** Job Id */
+            job_id: string;
+            /** Locale */
+            locale?: string | null;
+        };
         /** FixFlaggedJobStart */
         FixFlaggedJobStart: {
             /**
@@ -19766,6 +19921,12 @@ export interface components {
          *     of the lines flagged for a missing glossary name.
          */
         GlossaryFlaggedRedoStart: {
+            /**
+             * Kind
+             * @default glossary
+             * @enum {string}
+             */
+            kind?: "glossary" | "doubtful";
             /** Line Ids */
             line_ids?: number[] | null;
         };
@@ -21145,7 +21306,7 @@ export interface components {
             name: string;
             /**
              * Owned By Me
-             * @description The signed-in viewer created it.
+             * @description The signed-in viewer may change its sharing: they created it, or they are an admin and it was made at the PC (or they are at the PC).
              */
             owned_by_me: boolean;
         };
@@ -23556,6 +23717,36 @@ export interface components {
             /** Warning */
             warning: string | null;
         };
+        /**
+         * NovelFlowStart
+         * @description POST /api/queue/novel-flow/{id}. `url` is read only when no chapter is saved yet; the rest
+         *     is what the lines step makes the lines with, as the chunk-and-tag run takes it.
+         */
+        NovelFlowStart: {
+            /** Chapter From */
+            chapter_from?: number | null;
+            /** Chapter To */
+            chapter_to?: number | null;
+            /**
+             * Cost Accepted
+             * @default false
+             */
+            cost_accepted?: boolean;
+            /** Engine */
+            engine?: string | null;
+            /** Model */
+            model?: string | null;
+            /**
+             * One Narrator
+             * @default false
+             */
+            one_narrator?: boolean;
+            /**
+             * Url
+             * @default
+             */
+            url?: string;
+        };
         /** NovelGlossaryApplyResult */
         NovelGlossaryApplyResult: {
             /** Added */
@@ -23865,6 +24056,49 @@ export interface components {
             /** Queued */
             queued: boolean;
         };
+        /** PendingInstallRestart */
+        PendingInstallRestart: {
+            /**
+             * Available
+             * @description Baihe can restart itself (a start.bat copy on Windows).
+             */
+            available: boolean;
+            /**
+             * Other Jobs
+             * @description Another Baihe process has a job; a restart waits for it.
+             */
+            other_jobs: boolean;
+            /**
+             * Reason
+             * @description Plain words why it can't.
+             */
+            reason: string | null;
+            /**
+             * Running Jobs
+             * @description Jobs a restart would stop.
+             */
+            running_jobs: string[];
+        };
+        /** PendingInstallRestartRequest */
+        PendingInstallRestartRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm?: boolean;
+            /**
+             * Stop Jobs
+             * @default false
+             */
+            stop_jobs?: boolean;
+        };
+        /** PendingInstallRestartStarted */
+        PendingInstallRestartStarted: {
+            /** Restarting */
+            restarting: boolean;
+            /** Stopped Jobs */
+            stopped_jobs: string[];
+        };
         /** PendingInstallStatus */
         PendingInstallStatus: {
             /** Applying */
@@ -23882,6 +24116,7 @@ export interface components {
              * @description Plain words when the queued file was refused.
              */
             problem: string | null;
+            restart: components["schemas"]["PendingInstallRestart"];
             result: components["schemas"]["PendingInstallOutcome"] | null;
         };
         /**
@@ -24179,7 +24414,7 @@ export interface components {
              * Step
              * @enum {string}
              */
-            step: "download" | "transcribe" | "translate" | "export";
+            step: "download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines" | "follow" | "run_translate";
             /** Title */
             title: string;
         };
@@ -25478,6 +25713,65 @@ export interface components {
                 [key: string]: components["schemas"]["ResourceAlertChange"];
             };
         };
+        /** ResourceMetric */
+        ResourceMetric: {
+            /** Alerting */
+            alerting: boolean;
+            /** Enabled */
+            enabled: boolean;
+            /** Label */
+            label: string;
+            /**
+             * Limit
+             * @description None for GPU throttling, which has no number.
+             */
+            limit: number | null;
+            /**
+             * Low
+             * @description True when the alert is for a value under the limit (free disk space).
+             */
+            low: boolean;
+            /**
+             * Minutes
+             * @description How long the value must stay past the limit before an alert.
+             */
+            minutes: number;
+            /**
+             * Name
+             * @enum {string}
+             */
+            name: "gpu_temp" | "gpu_throttle" | "ram" | "disk_free" | "gpu_memory_warn" | "gpu_memory" | "cpu";
+            /**
+             * Past Seconds
+             * @description How long the value has been past the limit, or None when it is not.
+             */
+            past_seconds: number | null;
+            /**
+             * Unit
+             * @description °C, %, GB, or empty for GPU throttling (1 = cutting clocks, 0 = not).
+             */
+            unit: string;
+            /**
+             * Value
+             * @description The last reading; None when this PC cannot read it.
+             */
+            value: number | null;
+        };
+        /** ResourceReadings */
+        ResourceReadings: {
+            /** Metrics */
+            metrics: components["schemas"]["ResourceMetric"][];
+            /**
+             * Sample Seconds
+             * @description How often the monitor samples.
+             */
+            sample_seconds: number;
+            /**
+             * Sampled Seconds Ago
+             * @description None when the monitor has not sampled yet (it may be off with background services).
+             */
+            sampled_seconds_ago: number | null;
+        };
         /**
          * ResplitResult
          * @description Either the finished summary (estimated timing) or, with align_to_audio,
@@ -26199,6 +26493,14 @@ export interface components {
             speaker_manual: boolean;
             /** Start */
             start: number;
+            /**
+             * Unsure Words
+             * @description [start, end) character offsets into `zh` of the words Whisper was unsure of; [] when it was sure of every word, null when the line keeps no word scores (another engine, an older row, or edited source text).
+             */
+            unsure_words: [
+                number,
+                number
+            ][] | null;
             /** Zh */
             zh: string;
         };
@@ -27487,6 +27789,25 @@ export interface components {
              */
             skipped: number;
         };
+        /** SetOwnerRequest */
+        SetOwnerRequest: {
+            /** Owner User Id */
+            owner_user_id: number | null;
+        };
+        /** SetOwnerResult */
+        SetOwnerResult: {
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "series" | "drama";
+            /** Owner Name */
+            owner_name: string;
+            /** Owner User Id */
+            owner_user_id: number | null;
+        };
         /** SetPrivateRequest */
         SetPrivateRequest: {
             /** Private */
@@ -27632,6 +27953,11 @@ export interface components {
              * @default 0.35
              */
             asmr_stop_threshold: number;
+            /**
+             * Blocked Phrases
+             * @default
+             */
+            blocked_phrases: string;
             /**
              * Claude Reasoning
              * @default default
@@ -28045,6 +28371,8 @@ export interface components {
             asmr_start_threshold?: number | null;
             /** Asmr Stop Threshold */
             asmr_stop_threshold?: number | null;
+            /** Blocked Phrases */
+            blocked_phrases?: string | null;
             /** Bulk Auto Resume */
             bulk_auto_resume?: boolean | null;
             /** Claude Reasoning */
@@ -28430,6 +28758,8 @@ export interface components {
             kind: "series" | "drama";
             /** Owner Name */
             owner_name: string;
+            /** Owner User Id */
+            owner_user_id: number | null;
             /** Series Id */
             series_id: number | null;
             /** Series Is Private */
@@ -30418,6 +30748,23 @@ export interface components {
             /** Stale Ids */
             stale_ids: number[];
         };
+        /**
+         * TitleFlowRun
+         * @description How far a title's one-button run got, audio and video or a novel's link (services/page_run_service.py).
+         */
+        TitleFlowRun: {
+            /** Job Id */
+            job_id: string | null;
+            /** Reason */
+            reason: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "idle" | "waiting" | "running" | "stopped" | "review" | "done";
+            /** Step */
+            step: ("download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines" | "follow" | "run_translate") | null;
+        };
         /** TitleLanguagePack */
         TitleLanguagePack: {
             /** Description */
@@ -30783,6 +31130,11 @@ export interface components {
             split_by_sentences: boolean;
             /** Transcript Mode */
             transcript_mode: string;
+            /**
+             * Use Gpu
+             * @default false
+             */
+            use_gpu: boolean;
             /** Use Groq */
             use_groq: boolean;
             /** Vad Threshold */
@@ -31329,6 +31681,28 @@ export interface components {
             /** Default Style Preset */
             default_style_preset: string;
             defaults: components["schemas"]["TranslateRunDefaults"];
+            /**
+             * Doubtful Flagged Count
+             * @default 0
+             */
+            doubtful_flagged_count: number;
+            /**
+             * Doubtful Redo Above Cap
+             * @default false
+             */
+            doubtful_redo_above_cap: boolean;
+            /**
+             * Doubtful Redo Estimate Is Lower Bound
+             * @default false
+             */
+            doubtful_redo_estimate_is_lower_bound: boolean;
+            /** Doubtful Redo Estimate Usd */
+            doubtful_redo_estimate_usd: number | null;
+            /**
+             * Doubtful Redo Monthly Refusal
+             * @default false
+             */
+            doubtful_redo_monthly_refusal: boolean;
             /** Drama Id */
             drama_id: number;
             /** Engines */
@@ -38827,6 +39201,57 @@ export interface operations {
             };
         };
     };
+    post_upgrade_outdated_queue_api_diagnostics_dependencies_upgrade_outdated_queue_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiagnosticsDependencyInstallRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingInstallQueued"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_install_api_diagnostics_dependencies__package__install_post: {
         parameters: {
             query?: never;
@@ -39725,6 +40150,57 @@ export interface operations {
             };
         };
     };
+    post_restart_api_diagnostics_pending_install_restart_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PendingInstallRestartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingInstallRestartStarted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_ports_api_diagnostics_ports_get: {
         parameters: {
             query?: never;
@@ -40079,6 +40555,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_resources_api_diagnostics_resources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceReadings"];
                 };
             };
         };
@@ -53107,6 +53603,135 @@ export interface operations {
             };
         };
     };
+    get_file_run_api_queue_file_run__drama_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_file_run_api_queue_file_run__drama_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileRunStart"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     add_item_api_queue_items_post: {
         parameters: {
             query?: never;
@@ -53465,6 +54090,144 @@ export interface operations {
             };
         };
     };
+    get_novel_flow_api_queue_novel_flow__drama_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_novel_flow_api_queue_novel_flow__drama_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NovelFlowStart"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     pause_api_queue_pause_post: {
         parameters: {
             query?: never;
@@ -53749,6 +54512,140 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_title_flow_api_queue_title_flow__drama_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_title_flow_api_queue_title_flow__drama_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -61873,6 +62770,68 @@ export interface operations {
             };
         };
     };
+    set_drama_owner_api_sharing_dramas__drama_id__owner_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetOwnerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetOwnerResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     set_drama_private_api_sharing_dramas__drama_id__private_post: {
         parameters: {
             query?: never;
@@ -61954,6 +62913,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SharingList"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_series_owner_api_sharing_series__series_id__owner_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetOwnerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetOwnerResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Unprocessable Content */

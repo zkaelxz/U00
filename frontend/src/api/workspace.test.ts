@@ -131,3 +131,36 @@ describe('workspace api', () => {
     await expect(startTranscribe(1, {}, f)).rejects.toBeInstanceOf(ApiError)
   })
 })
+
+describe('uploadMedia progress', () => {
+  it('reports bytes sent through XMLHttpRequest and still returns the parsed answer', async () => {
+    class FakeXhr {
+      static last: FakeXhr
+      upload: { onprogress?: (e: { lengthComputable: boolean; loaded: number; total: number }) => void } = {}
+      onload?: () => void
+      onerror?: () => void
+      onabort?: () => void
+      status = 200
+      responseText = JSON.stringify({ name: 'source.mkv', size: 10, kind: 'video' })
+      headers: Record<string, string> = {}
+      constructor() { FakeXhr.last = this }
+      open() {}
+      setRequestHeader(k: string, v: string) { this.headers[k] = v }
+      send() {
+        this.upload.onprogress?.({ lengthComputable: true, loaded: 5, total: 10 })
+        this.onload?.()
+      }
+    }
+    const original = globalThis.XMLHttpRequest
+    globalThis.XMLHttpRequest = FakeXhr as unknown as typeof XMLHttpRequest
+    try {
+      const seen: [number, number][] = []
+      const r = await uploadMedia(3, file, false, undefined, (sent, total) => seen.push([sent, total]))
+      expect(seen).toEqual([[5, 10]])
+      expect(r.kind).toBe('video')
+      expect(FakeXhr.last.headers['Content-Type']).toBeUndefined()
+    } finally {
+      globalThis.XMLHttpRequest = original
+    }
+  })
+})

@@ -187,10 +187,50 @@ def test_every_accepted_extension_has_a_sample():
 def test_audio_extraction_reads_every_supported_input(tmp_path, kind):
     """The upload and URL-import extraction command, as run on each type."""
     from services import url_media_service
-    wav = str(tmp_path / "out.wav")
-    subprocess.run(url_media_service._extract_cmd(_sample(tmp_path, kind), wav),
+    out = str(tmp_path / "out.flac")
+    subprocess.run(url_media_service._extract_cmd(_sample(tmp_path, kind), out),
                    check=True, capture_output=True, timeout=60)
-    assert os.path.getsize(wav) > 1000
+    assert os.path.getsize(out) > 1000
+
+
+def test_extraction_codec_follows_the_output_name():
+    flac = ve.extract_audio_cmd("in.mp4", "out.flac")
+    wav = ve.extract_audio_cmd("in.mp4", "out.wav")
+    assert flac[flac.index("-acodec") + 1] == "flac" and flac[-1] == "out.flac"
+    assert flac[flac.index("-sample_fmt") + 1] == "s16"
+    assert wav[wav.index("-acodec") + 1] == "pcm_s16le"
+
+
+@_needs_ffmpeg
+def test_extracted_flac_is_16_bit_from_a_24_bit_source(tmp_path):
+    src, out = str(tmp_path / "in24.wav"), str(tmp_path / "out.flac")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", *_TONE, "-c:a", "pcm_s24le", src],
+                   check=True, timeout=60)
+    subprocess.run(ve.extract_audio_cmd(src, out), check=True, capture_output=True, timeout=60)
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=sample_fmt",
+                            "-of", "csv=p=0", out], capture_output=True, text=True, timeout=60)
+    assert probe.stdout.strip() == "s16"
+
+
+@_needs_ffmpeg
+@pytest.mark.parametrize("kind", [".mp4", ".mp3", ".wav"])
+def test_stored_flac_audio_is_read_by_every_reader(tmp_path, kind):
+    """The FLAC an upload now leaves as audio.flac: probe length, a line slice
+    (Whisper re-hear, aligner, clips), the waveform and soundfile (diarize,
+    Qwen3, word alignment) all read it."""
+    import audio_extract
+    import media_inspect
+    from services import media_peaks_service
+    flac = str(tmp_path / "audio.flac")
+    audio_extract.extract_audio_from_video(_sample(tmp_path, kind), flac)
+    assert 0.9 < media_inspect.duration_seconds(flac) < 1.2
+    clip = str(tmp_path / "slice.wav")
+    audio_extract.extract_audio_slice(flac, 0.2, 0.6, clip)
+    assert os.path.getsize(clip) > 1000
+    assert len(media_peaks_service._decode(flac, 0.0, 0.5)) > 1000
+    sf = pytest.importorskip("soundfile")
+    data, rate = sf.read(flac, dtype="float32", always_2d=True)
+    assert rate == 16000 and data.shape[1] == 1 and 15000 < len(data) < 18000
 
 
 @_needs_ffmpeg

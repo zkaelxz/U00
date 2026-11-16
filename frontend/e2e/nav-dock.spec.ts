@@ -63,7 +63,9 @@ test('docked, the menu is 216px wide with the page to its right, and its rows ar
   const rail = page.locator('.app-rail')
   await expect(rail).toHaveClass(/is-listed/)
   const box = (await rail.boundingBox())!
-  expect(Math.round(box.width)).toBe(216)
+  // Drawn at a 15px root; the menu is in rem, so it grows with the larger text on a wide window.
+  const scale = (await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize))) / 15
+  expect(Math.round(box.width)).toBe(Math.round(216 * scale))
   // The header is the first thing in the page column: it starts clear of the menu.
   expect((await page.locator('.app-header').boundingBox())!.x).toBeGreaterThanOrEqual(box.width)
   await expect(rail.locator('nav a svg:visible, .rail-toggle svg:visible')).toHaveCount(0)
@@ -121,8 +123,10 @@ test('docked, the two bottom rows are words: a decorative chevron and Minimize n
   await expect(minimize).toHaveText('‹Minimize navigation')
   await expect(minimize.locator('span[aria-hidden="true"]')).toHaveText('‹')
   await expect(float).toHaveText('Float navigation')
-  await expect(minimize).toHaveCSS('font-size', /^(14|13\.99\d*)px$/)
-  await expect(float).toHaveCSS('font-size', /^(14|13\.99\d*)px$/)
+  const scale = (await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize))) / 15
+  for (const button of [minimize, float]) {
+    expect(await button.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeCloseTo(14 * scale, 1)
+  }
   await expect(page.locator('.app-rail svg:visible')).toHaveCount(0)
 })
 

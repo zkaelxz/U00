@@ -975,16 +975,15 @@ test.describe('the check queue', () => {
       const resp = await route.fetch()
       await route.fulfill({ response: resp, json: { ...(await resp.json()), audio_available: true } })
     })
-    // Transcribing writes the lines; the glossary run then stays running, so the flow waits on it with its progress text.
-    await page.route('**/api/transcribe/dramas/3/run', (route) => {
-      lines = 24
-      return route.fulfill({ json: { job_id: 'e2e-flow' } })
+    // The press queues the run on the PC; its transcription writes the lines and the names step then stays running.
+    let run = { state: 'idle', step: null as string | null, reason: null }
+    await page.route('**/api/queue/title-flow/3', (route) => {
+      if (route.request().method() === 'POST') {
+        lines = 24
+        run = { state: 'running', step: 'names', reason: null }
+      }
+      return route.fulfill({ json: run })
     })
-    await page.route('**/api/jobs/e2e-flow', (route) => route.fulfill({ json: {
-      job_id: 'e2e-flow', status: 'done', progress: null, message: '', error: null, description: null,
-      gpu_touching: false, started_at: 1, finished_at: 2, updated_at: 2,
-    } }))
-    await page.route('**/api/glossary/dramas/3/from-lines', (route) => route.fulfill({ json: { status: 'running', message: '', run_id: 'e2e' } }))
     await simple(page)
     await expect(page.getByRole('complementary', { name: 'Title panel' })).toBeVisible()
     const flow = page.getByRole('button', { name: 'Transcribe and translate', exact: true })
@@ -1561,8 +1560,10 @@ test.describe('the check queue', () => {
     await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
     const column = (await page.locator('.review-ai').boundingBox())!
     const list = (await page.locator('.review-list-card').boundingBox())!
-    expect(Math.abs(column.width - 372), 'the column is 372px wide').toBeLessThanOrEqual(2)
-    expect(Math.abs(column.x - (list.x + list.width) - 20), 'and 20px from the list').toBeLessThanOrEqual(2)
+    // Drawn at a 15px root; the column is in rem, so it grows with the larger text on a wide window.
+    const scale = (await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize))) / 15
+    expect(Math.abs(column.width - 372 * scale), 'the column is 372px wide at a 15px root').toBeLessThanOrEqual(2)
+    expect(Math.abs(column.x - (list.x + list.width) - 20 * scale), 'and 20px from the list').toBeLessThanOrEqual(2)
     // The tabs: pills in a bordered card; the selected one is filled and bold, with no underline.
     const tabs = page.getByRole('tablist', { name: 'Review tools' })
     const card3 = await tabs.evaluate((el) => {

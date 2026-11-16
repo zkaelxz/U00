@@ -6,6 +6,7 @@ import pytest
 import db
 import page_capture_checks
 import page_server
+import storage
 from services import scanlate_render_service as render_svc
 
 from tests.test_page_server import _b64, _png_bytes, _post, fake_pipeline  # noqa: F401
@@ -103,9 +104,9 @@ def test_the_unsaved_page_s_temp_files_are_removed(token, fake_pipeline, drama, 
     import scanlate_render
 
     def ours():
-        # Only the prefixes page_server creates: other xdist workers make baihe_test_* dirs here.
-        root = tempfile.gettempdir()
-        return set(glob.glob(root + "/baihe_typeset_*") + glob.glob(root + "/baihe_page_*"))
+        # Only the prefixes page_server creates: other xdist workers make baihe_test_* dirs in the system temp.
+        return set(glob.glob(storage.temp_root() + "/typeset~*")
+                   + glob.glob(tempfile.gettempdir() + "/baihe_page_*"))
 
     monkeypatch.setattr(scanlate_render, "process_page", lambda *a, **k: 1 / 0)
     before = ours()

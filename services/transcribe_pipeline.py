@@ -628,19 +628,21 @@ class _PipelineRun:
 
     def _split_into_lines(self):
         o, tuning = self.o, self.tuning
+        pieces = [s for s in long_line_split.split_long_segments(
+            self.segments, min_pause=o.min_pause_sec,
+            max_seconds=tuning.max_seconds, max_cjk_chars=tuning.max_cjk_chars,
+            floors=tuning.floors,
+            rules=asr_backend.sentence_split_rules(tuning) if self.sentence_lines else None)
+            if s["text"].strip()]
+        # After splitting, so a blocked sentence inside a long segment costs only its own line.
+        pieces = whisper_hallucination.drop_blocked_phrases(pieces, tuning.blocked_phrases)
         return [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
                      speaker=seg.get("speaker") or None, flag=seg.get("flag"),
                      flag_note=seg.get("flag_note") or "", lang=seg.get("lang"),
                      confidence=_usable_confidence(seg.get("confidence")),
                      word_timings=segment_splitting.encode_line_words(seg["text"],
                                                                 seg.get("words")))
-                for i, seg in enumerate(
-                    s for s in long_line_split.split_long_segments(
-                        self.segments, min_pause=o.min_pause_sec,
-                        max_seconds=tuning.max_seconds, max_cjk_chars=tuning.max_cjk_chars,
-                        floors=tuning.floors,
-                        rules=asr_backend.sentence_split_rules(tuning) if self.sentence_lines else None)
-                    if s["text"].strip())]
+                for i, seg in enumerate(pieces)]
 
     def _lines_from_user_transcript(self):
         o, rep = self.o, self.rep

@@ -306,6 +306,8 @@ def step(name, rule, state, value, now):
 
 _lock = threading.Lock()
 _memory: dict | None = None     # name -> step state; None until first loaded
+_last_readings: dict | None = None
+_last_sampled_at: float | None = None
 _last_cpu = None
 
 
@@ -359,12 +361,13 @@ def run_cycle(notify=None, now=None, readings=None) -> list:
     Returns the events. Never raises: a failing `notify` is logged and the
     state moves on, so one bad send cannot repeat or hide an alert. `notify` defaults
     to the log, the bell and the push channels."""
-    global _memory
+    global _memory, _last_readings, _last_sampled_at
     now = time.time() if now is None else now
     rules = get_rules()
     readings = sample() if readings is None else readings
     events = []
     with _lock:
+        _last_readings, _last_sampled_at = dict(readings), now
         if _memory is None:
             _memory = _load_state()
         before = {n: s["alerting"] for n, s in _memory.items()}
@@ -391,6 +394,33 @@ def run_cycle(notify=None, now=None, readings=None) -> list:
     return events
 
 
+def snapshot(now=None) -> dict:
+    """The monitor's last readings and each rule's standing, for Diagnostics.
+    Reads what the last cycle saw rather than sampling again: a second sample
+    would shorten the CPU load window the timer measures."""
+    now = time.time() if now is None else now
+    rules = get_rules()
+    with _lock:
+        readings = dict(_last_readings or {})
+        sampled_at = _last_sampled_at
+        states = {n: dict(s) for n, s in (_memory or {}).items()}
+    metrics = []
+    for name, meta in METRICS.items():
+        rule = rules[name]
+        state = states.get(name, {})
+        value = readings.get(name)
+        past_since = state.get("past_since") or (state.get("alert_since") if state.get("alerting") else None)
+        metrics.append({
+            "name": name, "label": meta["label"], "unit": meta["unit"].strip(),
+            "low": bool(meta.get("low")), "enabled": rule["enabled"], "limit": rule["limit"],
+            "minutes": rule["minutes"], "value": None if value is None else round(value, 1),
+            "alerting": state.get("alerting") is True,
+            "past_seconds": None if past_since is None else max(0, round(now - past_since)),
+        })
+    return {"sampled_seconds_ago": None if sampled_at is None else max(0, round(now - sampled_at)),
+            "sample_seconds": int(SAMPLE_SECONDS), "metrics": metrics}
+
+
 def _log(fmt, *args):
     try:
         from applog import get_logger
@@ -407,7 +437,9 @@ def _notify(event) -> None:
 
 
 def reset_for_tests() -> None:
-    global _memory, _last_cpu
+    global _memory, _last_cpu, _last_readings, _last_sampled_at
     with _lock:
         _memory = None
         _last_cpu = None
+        _last_readings = None
+        _last_sampled_at = None

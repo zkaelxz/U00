@@ -104,7 +104,7 @@ class TestOthers:
         body = r.json()
         assert set(body) == {"id", "idx", "start", "end", "zh", "en", "speaker", "speaker_manual",
                              "sfx", "flag", "flag_note", "dub_filename", "lang", "reviewed",
-                             "confidence", "mark"}
+                             "confidence", "mark", "unsure_words"}
         assert (body["id"], body["mark"], body["reviewed"]) == (ids[0], "wrong", False)
         r = local_client.post(f"{B}/{did}/lines/{ids[0]}/mark", json={"mark": None})
         assert r.status_code == 200 and r.json()["mark"] is None

@@ -23,7 +23,7 @@ function PortsBody({ openSignal }: { openSignal?: number }) {
   }, [])
 
   return (
-    <Section title="Ports" storageKey="diagnostics.ports" summary={ports ? portsSummary(ports) : undefined} defaultOpen openSignal={openSignal}>
+    <Section title="Ports" storageKey="diagnostics.ports" summary={ports ? portsSummary(ports) : undefined} openSignal={openSignal}>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {!ports ? (
         !error && <p className="muted">Loading…</p>

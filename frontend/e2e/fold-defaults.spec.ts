@@ -55,9 +55,9 @@ test('Diagnostics: one card open per tab on a fresh browser, and a fold made by 
     await expect.poll(async () => (await openTitles(page, '.diag-panel')).length).toBe(1)
   }
   await diagTab(page, 'System').click()
-  const ports = topLevel(page, '.diag-panel').first()
-  await ports.locator('> summary').click()
-  await waitForStored(page, 'diagnostics.ports', '0')
+  const resources = topLevel(page, '.diag-panel').first()
+  await resources.locator('> summary').click()
+  await waitForStored(page, 'diagnostics.resources', '0')
   await page.reload()
   await diagTab(page, 'System').click()
   expect(await openTitles(page, '.diag-panel')).toHaveLength(0)

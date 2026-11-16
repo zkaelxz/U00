@@ -735,15 +735,16 @@ test.describe('with sound', () => {
       expect((b.rows[11].top - b.list.top) / b.list.height).toBeCloseTo(0.3, 1)
     }).toPass()
 
-    // Scrolled to its end by hand while the sound plays, the list stays there when the next line starts.
+    // Scrolled to its end by hand while the sound plays, the list stays there when the next line starts. (scrollHeight and
+    // clientHeight are whole numbers, so at a fractional text size the end can read one pixel short.)
     await rowButton(page, 2).click()
     await list(page).hover()
     await page.mouse.wheel(0, 5000)
-    await expect.poll(async () => { const b = await boxes(page); return b.maxScroll - b.scrollTop }).toBeLessThan(1)
+    await expect.poll(async () => { const b = await boxes(page); return b.maxScroll - b.scrollTop }).toBeLessThanOrEqual(1)
     const before = await currentRow(page)
     await expect.poll(() => currentRow(page)).toBeGreaterThan(before)
     const b = await boxes(page)
-    expect(b.maxScroll - b.scrollTop).toBeLessThan(1)
+    expect(b.maxScroll - b.scrollTop).toBeLessThanOrEqual(1)
 
     // A press on a row brings it back at once, straight after the wheel: within 3 s, well inside the five seconds that
     // following waits after a scroll by hand, so that wait running out cannot be what brings it back.

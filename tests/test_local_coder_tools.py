@@ -58,6 +58,11 @@ def test_check_change_adds_the_type_check_only_for_checked_python_files():
     assert cc.type_steps(["tests/test_db.py", "dub.py", "docs/user-guide.md"]) == []
 
 
+def test_check_change_adds_the_import_check_only_for_packages_in_the_contract():
+    assert cc.import_steps(["jobs/job_launch.py"]) == [cc.IMPORT_CHECK]
+    assert cc.import_steps(["core.py", "tests/test_db.py", "db/README.md"]) == []
+
+
 def test_modules_come_from_this_clone_not_its_parent_folder():
     # The repo root has __init__.py, so pytest puts the clone's parent on sys.path first; a stray
     # core.py or cli.py there would shadow the real module.

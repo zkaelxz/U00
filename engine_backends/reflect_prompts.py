@@ -3,7 +3,7 @@ per-batch text) and a *_prompt builder (instructions + task as one string, for
 bulk submission); the live path sends the instructions as a cached system block."""
 
 from .medium_prompts import reflect_terms
-from .shared import build_numbered_lines
+from .line_text import build_numbered_lines
 
 
 def build_reflect_faithful_task(batch_ctx: str, ids: list, zh_by_id: dict,

@@ -31,6 +31,7 @@ import db
 import emotion
 import source_change
 from engine_backends import shared, llm_tasks, pricing
+from engine_backends import line_text
 import translation_guide as tguide
 import translation_notes
 
@@ -70,7 +71,7 @@ def _target_lines(lines, force_retranslate: bool):
 def _copy_english_lines(drama_id: int, targets: list) -> list:
     """Copies already-English targets across (no model call) and returns
     the rest, the same split the live translate loop makes."""
-    english = [ln for ln in targets if shared.is_english_line(ln)]
+    english = [ln for ln in targets if line_text.is_english_line(ln)]
     if english:
         for ln in english:
             ln.en = ln.zh
@@ -78,7 +79,7 @@ def _copy_english_lines(drama_id: int, targets: list) -> list:
         # Compare-and-set, as bulk apply: an edit saved since the load is kept.
         db.save_lines(drama_id, english, fields=("en", "flag", "flag_note"),
                       only_if_unchanged=True, guard_fields=("zh",))
-    return [ln for ln in targets if not shared.is_english_line(ln)]
+    return [ln for ln in targets if not line_text.is_english_line(ln)]
 
 
 def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_size: int,
@@ -92,7 +93,7 @@ def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_siz
     character_names = character_names or {}
     # English lines are not sent; submit_bulk_translation copies them across.
     targets = [ln for ln in _target_lines(lines, force_retranslate)
-               if not shared.is_english_line(ln)]
+               if not line_text.is_english_line(ln)]
     title_language = context.get("source_language", "zh")
     pos_by_id = {ln.id: i for i, ln in enumerate(lines)}
     requests_, line_rows = [], []
@@ -112,9 +113,9 @@ def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_siz
         ctx["batch_source_lines"] = [ln.zh for ln in batch]
         ctx["speaker_labels"] = speaker_labels
         ids = [ln.id for ln in batch]
-        numbered = shared.build_numbered_lines(
+        numbered = line_text.build_numbered_lines(
             ids, [ln.zh for ln in batch], speaker_labels,
-            shared.tagged_line_languages(batch, title_language))
+            line_text.tagged_line_languages(batch, title_language))
         key = request_key(drama_id, bi)
         requests_.append(provider.build_request(key, ctx, numbered))
         line_rows.extend((ln.id, key, zh_hash(ln.zh), ln.en or "") for ln in batch)

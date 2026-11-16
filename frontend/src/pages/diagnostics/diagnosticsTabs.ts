@@ -26,6 +26,7 @@ export const CARD_TAB = {
   'loaded-models': 'models',
   'process-memory': 'models',
   'test-models': 'models',
+  resources: 'system',
   ports: 'system',
   log: 'system',
   reset: 'system',
@@ -42,7 +43,7 @@ export const TAB_FOLD_KEYS: Record<DiagnosticsTab, string[]> = {
   setup: ['diagnostics.recommended', 'diagnostics.setup'],
   packages: ['diagnostics.browser', 'diagnostics.ffmpeg', 'diagnostics.cuda-runtime', 'diagnostics.deno', 'diagnostics.omnivoice', 'diagnostics.qwen3-tts', 'diagnostics.chatterbox', 'diagnostics.packages', 'diagnostics.speaker'],
   models: ['diagnostics.modelHealth', 'diagnostics.models', 'diagnostics.loadedModels', 'diagnostics.realModel'],
-  system: ['diagnostics.ports', 'diagnostics.log'],
+  system: ['diagnostics.resources', 'diagnostics.ports', 'diagnostics.log'],
 }
 
 export const cardAnchorId = (card: DiagnosticsCard) => `diag-card-${card}`

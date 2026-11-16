@@ -82,18 +82,21 @@ def get_item_ownership(kind: str, item_id: int):
 _OTHERS_DRAMA_SQL = ("d.owner_user_id IS NOT NULL AND d.owner_user_id IS NOT s.owner_user_id")
 
 
-def assign_drama_series(drama_id: int, series_id: int) -> bool:
+def assign_drama_series(drama_id: int, series_id: int, allow_others_dramas: bool = False) -> bool:
     """Moves a drama into a series in one conditional write,
     so it can't race the series being made private. Refused (False) when
     the series is private and the drama belongs to someone other than the
     series owner. Also clears the drama's own private flag (user decision
-    4). False also for an unknown drama."""
+    4). False also for an unknown drama. `allow_others_dramas` (an admin)
+    skips the private-series refusal."""
+    sql = "UPDATE dramas SET series_id = ?, is_private = 0, updated_at = ? WHERE id = ?"
+    params = [series_id, clock.utcnow().isoformat(), drama_id]
+    if not allow_others_dramas:
+        sql += (" AND NOT EXISTS (SELECT 1 FROM series s, dramas d WHERE s.id = ? AND d.id = ? "
+                f"AND COALESCE(s.is_private, 0) = 1 AND {_OTHERS_DRAMA_SQL})")
+        params += [series_id, drama_id]
     with contextlib.closing(db.get_conn()) as conn:
-        cur = conn.execute(
-            "UPDATE dramas SET series_id = ?, is_private = 0, updated_at = ? WHERE id = ? "
-            "AND NOT EXISTS (SELECT 1 FROM series s, dramas d WHERE s.id = ? AND d.id = ? "
-            f"AND COALESCE(s.is_private, 0) = 1 AND {_OTHERS_DRAMA_SQL})",
-            (series_id, clock.utcnow().isoformat(), drama_id, series_id, drama_id))
+        cur = conn.execute(sql, params)
         conn.commit()
         return cur.rowcount > 0
 
@@ -113,12 +116,16 @@ def unassign_drama_series(drama_id: int) -> bool:
         return cur.rowcount > 0
 
 
-def set_item_private(kind: str, item_id: int, private: bool) -> bool:
+def set_item_private(kind: str, item_id: int, private: bool,
+                     allow_others_dramas: bool = False) -> bool:
     """Field-scoped write of is_private only. Making private
     is one conditional write, so it can't race a drama being moved: a
     series is refused while it holds another user's drama, a drama while
-    it is in a series. False when refused or the item doesn't exist."""
-    if kind == "series":
+    it is in a series. False when refused or the item doesn't exist.
+    `allow_others_dramas` (an admin) lets a series go private anyway."""
+    if kind == "series" and allow_others_dramas:
+        guard, table = "1", "series"
+    elif kind == "series":
         guard = ("NOT EXISTS (SELECT 1 FROM dramas d, series s WHERE s.id = series.id "
                  f"AND d.series_id = s.id AND {_OTHERS_DRAMA_SQL})")
         table = "series"
@@ -131,6 +138,18 @@ def set_item_private(kind: str, item_id: int, private: bool) -> bool:
         sql += f" AND {guard}"
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute(sql, (int(bool(private)), item_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def set_item_owner(kind: str, item_id: int, owner_user_id) -> bool:
+    """Field-scoped write of owner_user_id only. False for an unknown item."""
+    table = {"series": "series", "drama": "dramas"}.get(kind)
+    if table is None:
+        raise ValueError(f"unknown ownership kind: {kind!r}")
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute(f"UPDATE {table} SET owner_user_id = ? WHERE id = ?",
+                           (owner_user_id, item_id))
         conn.commit()
         return cur.rowcount > 0
 

@@ -2,7 +2,7 @@
 services/listen_service.py -- the Reader's "Listen" for a narrated title: whether
 a narration can be made, starting it, and the finished track. One voice engine,
 the title's narration language, no pacing limits. The job (`dub_<id>`), its
-process worker (dub_narration) and the track file (narration_track.wav) keep
+process worker (dub_narration) and the track file (narration_track.flac, or the .wav of an older title) keep
 the names the narration path always had, so existing jobs and tracks still work.
 
 No FastAPI import: plain dicts out, no filesystem path.
@@ -16,6 +16,7 @@ import background_jobs
 import db
 import dub
 import dub_narration
+import novel_text
 import voice_venv
 from jobs import job_launch
 from services import ownership_service
@@ -28,7 +29,6 @@ TTS_ENGINES = [{"key": key, "label": label} for key, label in dub.CLONE_ENGINES.
 NO_ENGINE_INSTALLED_MESSAGE = "No voice engine is installed. Install one in Diagnostics."
 
 _NOT_NARRATED = "Listen is only for narrated novels."
-TRACK_NAME = "narration_track.wav"
 TEST_VOICE_DIR = "voice_test"
 TEST_VOICE_NAME = "sample.wav"
 TEST_VOICE_JOB_PREFIX = "voicetest_"
@@ -106,7 +106,7 @@ def get_listen_config(drama_id: int) -> dict:
         "blocker": config_blocker(chars),
         "gpu_required": dub.clone_map_uses_local_model(clone_map),
         "speakable_line_count": sum(1 for ln in lines if (getattr(ln, text_field) or "").strip()),
-        "track_available": os.path.exists(os.path.join(ddir, TRACK_NAME)),
+        "track_available": novel_text.find_narration_track(ddir) is not None,
     }
 
 
@@ -127,7 +127,9 @@ def get_listen_track(drama_id: int) -> dict:
     """Server-side file lookup for the finished narration track: {path (never
     returned to clients), name}. NotFoundError for an unknown or non-narrated
     title, or when no track exists."""
-    return _drama_file(drama_id, TRACK_NAME, "No narration track available.")
+    _require_narrated(drama_id)
+    name = novel_text.find_narration_track(_drama_path(drama_id)) or novel_text.NARRATION_TRACK_NAMES[0]
+    return _drama_file(drama_id, name, "No narration track available.")
 
 
 def get_test_voice_clip(drama_id: int) -> dict:

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { planInstall, queueInstall } from '../../api/pendingInstall'
+import type { PendingInstallQueued } from '../../types/pendingInstall'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import type { PendingInstallPlan } from '../../types/pendingInstall'
 import {
@@ -40,16 +41,17 @@ export function useInstallPlan({ onChecking, onChecked, onQueued, onQueueFailed 
   const [queueing, setQueueing] = useState(false)
   const [planError, setPlanError] = useState<unknown>(null)
 
-  /** `ask`: a plan other than a plain install of `keys` (an update); such a plan can't be queued for the next start. */
+  /** `ask`: a plan other than a plain install of `keys` (an update); it can be queued for the next start only
+   *  through `queue`, because the plain queue of an installed package changes nothing. */
   const withPlan = async (label: string, keys: string[], installNow: (acceptedRisks: string[]) => Promise<void>,
-    ask?: () => Promise<PendingInstallPlan>) => {
+    ask?: () => Promise<PendingInstallPlan>, queue?: (acceptRisk: boolean) => Promise<PendingInstallQueued>) => {
     setPlanError(null)
     onChecking(label)
     const preview = await previewInstall(keys, ask ? () => ask() : planInstall)
     if (preview.kind === 'go') return installNow([])
     onChecked()
     if (preview.kind === 'failed') return setPlanError(preview.error)
-    setPlanned({ label, keys, plan: preview.plan, queueable: !ask,
+    setPlanned({ label, keys, plan: preview.plan, queueable: !ask || !!queue, queue,
       installNow: (accepted) => { setPlanned(null); void installNow(accepted) } })
   }
 
@@ -58,7 +60,7 @@ export function useInstallPlan({ onChecking, onChecked, onQueued, onQueueFailed 
     const { label, keys } = planned
     setQueueing(true)
     try {
-      const r = await queueInstall(keys, acceptRisk)
+      const r = await (planned.queue ? planned.queue(acceptRisk) : queueInstall(keys, acceptRisk))
       setPlanned(null)
       // The server found nothing in use after all: install straight away.
       if (r.install_now) return void planned.installNow(acceptRisk ? planned.plan.needs_confirm : [])

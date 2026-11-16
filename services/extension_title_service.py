@@ -343,7 +343,7 @@ def _translate_title_once(drama_id: int, original: str, language: str) -> bool:
     try:
         from core import LANGUAGE_NAMES
         from engine_backends import engine_registry, llm_tasks, paid_calls
-        from engine_backends.shared import extract_first_json_value
+        from engine_backends.line_text import extract_first_json_value
         import page_server
         from services import translate_run_service
         config = page_server.get_translation_config()

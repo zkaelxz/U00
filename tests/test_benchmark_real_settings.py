@@ -79,6 +79,12 @@ class TestResolveLabOptions:
         with pytest.raises(InvalidInputError):
             opts.resolve_lab_options(bad)
 
+    def test_decode_randomness_defaults_to_default_and_takes_known_choices(self):
+        assert opts.resolve_lab_options(None)["decode_randomness"] == "default"
+        assert opts.resolve_lab_options({"decode_randomness": "seeded"})["decode_randomness"] == "seeded"
+        with pytest.raises(InvalidInputError):
+            opts.resolve_lab_options({"decode_randomness": "random"})
+
     def test_hallucination_silence_zero_means_off_as_for_a_title(self):
         assert opts.resolve_lab_options({"hallucination_silence_sec": 0})["hallucination_silence_sec"] == 0
 
@@ -95,6 +101,14 @@ class TestWhisperArmRunsAtRealSettings:
         assert call["repeat_guard"] is False
         assert call["sensitivity_preset"] == "normal"
         assert "difficult_audio" not in call
+
+    def test_decode_randomness_reaches_whisper_only_when_changed(self, isolated_db, whisper_calls):
+        _case()
+        _run([{"engine": "whisper", "model": "large-v3"},
+              {"engine": "whisper", "model": "large-v3", "options": {"decode_randomness": "temperature_0"}}])
+        default_call, fixed_call = whisper_calls
+        assert "decode_randomness" not in default_call
+        assert fixed_call["decode_randomness"] == "temperature_0"
 
     def test_changed_options_reach_whisper(self, isolated_db, whisper_calls):
         _case()
