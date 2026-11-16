@@ -1,6 +1,5 @@
 """
-services/scanlate_run_service.py -- the automatic Scanlate run for the API
-(docs/archive/scanlate-api-spec.md S5, typesetting via S6): detect text
+services/scanlate_run_service.py -- the automatic Scanlate run for the API: detect text
 regions, OCR them, translate them and render the typeset page, one page at
 a time, as ONE background job per drama (`scanlate_<drama_id>`).
 

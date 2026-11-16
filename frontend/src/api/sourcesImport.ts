@@ -1,4 +1,4 @@
-// Sources import (contract: docs/archive/discover-sources-live-api-spec.md, S-4/S-5).
+// Sources import.
 //
 //   POST /api/sources/url/preview            {url}                 -> {job_id: 'sources_url_preview'}
 //   POST /api/sources/url/import             {url, drama_id}       -> {job_id: 'sourceimport_<drama>'}

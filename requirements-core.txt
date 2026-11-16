@@ -9,8 +9,7 @@ urllib3>=2.8             # requests pulls it in; the floor is for sources/http.p
 beautifulsoup4>=4.12
 anthropic>=2.6.0
 fastapi>=0.162.0           # the HTTP API (api/) the React frontend talks to -- core, not optional,
-                         # since the React + FastAPI migration is the app's direction
-                         # (docs/archive/migration-review.md, decision D3). Start with: python -m api
+                         # since the React app cannot run without it. Start with: python -m api
 starlette>=1.10.0         # FileResponse Range/If-Range (media playback); form(max_part_size=)
                          # for the bug-report upload cap (api/routers/bug_report_routes.py); fastapi pulls it in
 python-multipart>=0.0.33 # multipart parsing for the media upload endpoint (api/routers/media_routes.py)
