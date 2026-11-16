@@ -1008,10 +1008,10 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 /* Toolbar rows (title page actions, comic bar) look 38px tall and tighter so they fit on one line, but keep a 44px hit
    area through ::after like .btn-sm. The wide gap keeps neighbouring hit areas from overlapping. */
 @media (max-width: 640px) {
-  :is(.actions > .btn:not(.btn-sm), .comic-top .btn:not(.btn-sm), .comic-top button:not(.comic-pager > button)) {
+  :is(.title-actions > .btn:not(.btn-sm), .comic-top .btn:not(.btn-sm), .comic-top button:not(.comic-pager > button)) {
     min-height: 38px; padding: 6px 12px; font-size: var(--text-sm); position: relative;
   }
-  :is(.actions > .btn:not(.btn-sm), .comic-top .btn:not(.btn-sm), .comic-top button:not(.comic-pager > button))::after { content: ''; position: absolute; inset: -3px -2px; }
+  :is(.title-actions > .btn:not(.btn-sm), .comic-top .btn:not(.btn-sm), .comic-top button:not(.comic-pager > button))::after { content: ''; position: absolute; inset: -3px -2px; }
   .actions:has(> .btn), .comic-top { gap: var(--space-2); }
 }
 }
