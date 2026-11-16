@@ -31,6 +31,12 @@ UPLOAD_MB_MIN = 100
 UPLOAD_MB_MAX = 1_048_576
 
 
+_BLOCKED_PHRASES_DEFAULT = "\n".join((
+    "please like, share and subscribe", "like, share and subscribe", "subtitles by Amara.org",
+    "Amara.org", "點贊和分享", "点赞和分享", "訂閱我們的頻道", "订阅我们的频道",
+    "頻道的臉書", "频道的脸书"))
+
+
 @dataclass(frozen=True)
 class Setting:
     key: str
@@ -315,6 +321,12 @@ SETTINGS = (
     _own("qwen_vad_refine_timing", "bool", False, label="Refine timing with the forced aligner",
          tab="system", section="Transcription experiments"),
     _own("mixed_languages", "bool", False, label="Detect the language of each speech span",
+         tab="system", section="Transcription experiments"),
+    # The default repeats whisper_hallucination.BLOCKED_PHRASES_DEFAULT (lib may not import it);
+    # tests/test_blocked_phrases.py fails if they drift apart.
+    _pref("blocked_phrases", "text", _BLOCKED_PHRASES_DEFAULT, multiline=True, max_len=4000,
+         label="Blocked phrases",
+         help="One phrase per line. A subtitle line that contains one is removed when a title is transcribed, even next to real speech (for the stock lines Whisper invents, such as 'please like, share and subscribe'). Case, spaces and punctuation are ignored; a phrase needs at least 4 letters. Clear the box to block nothing. Applies to transcriptions that start afterwards.",
          tab="system", section="Transcription experiments"),
     _own("voice_detector", "choice", "auto", choices="voice_detectors", label="Voice detector",
          tab="system", section="Transcription experiments"),
