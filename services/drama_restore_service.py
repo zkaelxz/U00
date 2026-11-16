@@ -25,6 +25,7 @@ import segment_splitting
 import sensitivity_preset
 import storage
 from db import fsync_dir as _fsync_dir
+from db.dramas import EDIT_LOG_TABLES
 from lib import gzip_text
 from services import delete_service, word_replacement_service
 from services import library_admin_service as las
@@ -50,7 +51,7 @@ _MAX_MEMBER_BYTES = lrs.MAX_RESTORE_MEMBER_BYTES
 # until it is listed in one or the other.
 CHILD_TABLES = ("lines", "pages", "characters", "translation_notes", "line_emotions",
                  "consistency_issues", "vocab_lookups", "line_history", "translation_versions",
-                 "bug_reports", "wiki_entries", "edit_samples", "voice_suggestion_dismissals",
+                 "bug_reports", "wiki_entries", "edit_samples", "source_edits", "voice_suggestion_dismissals",
                  "progress", "personal_notes", "reading_history", "metadata_field_provenance")
 _SKIPPED_TABLES = {
     "usage_log": "ON DELETE SET NULL: the spending rows survive a delete, so restoring them "
@@ -66,7 +67,8 @@ _SKIPPED_TABLES = {
                                  "values and their sources (metadata_field_provenance) are "
                                  "restored",
 }
-_LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports")
+_LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports",
+                    "edit_samples", "source_edits")
 _FIRST_SEEN_TABLES = ("vocab_lookups", "wiki_entries")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
@@ -655,6 +657,25 @@ def _owners_reassigned(src, drama_id, series_outcome, owners) -> int:
     return sum(1 for o in old if o is not None and owners.get(o) != o)
 
 
+# What makes two edit-log rows the same edit: the snapshot's copy and the copy kept
+# when the title was deleted.
+_SAME_EDIT_COLUMNS = {"edit_samples": ("created_at", "zh", "ai_version", "user_version"),
+                      "source_edits": ("created_at", "path", "before_zh", "after_zh")}
+
+
+def _take_back_edit_log(dst, old_id: int, live_id: int):
+    """The rows kept when this title was deleted rejoin it. One the snapshot also held
+    was just copied with its line links, so the kept copy is dropped rather than
+    counted twice; edits made after the snapshot rejoin without a line."""
+    for table in EDIT_LOG_TABLES:
+        same = " AND ".join(f"k.{c} IS {table}.{c}" for c in _SAME_EDIT_COLUMNS[table])
+        dst.execute(f"DELETE FROM {table} WHERE deleted_drama_id = ? AND EXISTS "
+                    f"(SELECT 1 FROM {table} k WHERE k.drama_id = ? AND {same})",
+                    (old_id, live_id))
+        dst.execute(f"UPDATE {table} SET drama_id = ?, deleted_drama_id = NULL, "
+                    "deleted_title = NULL WHERE deleted_drama_id = ?", (live_id, old_id))
+
+
 def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_name) -> dict:
     folder_free = not os.path.lexists(os.path.join(db.DRAMAS_DIR, str(drama_id)))
     keep_id = db.get_drama(drama_id) is None and folder_free
@@ -671,6 +692,7 @@ def _restore_from(snap_db, drama_id, staging, staged, manifest, actor_id, copy_n
             owners = library_restore_sql.owner_map_between(dst, src)
             live_id, counts, series_outcome = copy_drama(src, dst, drama_id, drama_id if keep_id else None,
                                           suffix, owners=owners)
+            _take_back_edit_log(dst, drama_id, live_id)
             reassigned = _owners_reassigned(src, drama_id, series_outcome, owners)
             claim_folder(live_id, conflict)   # never inherit a stray dramas/<new id>
             if staged is not None:

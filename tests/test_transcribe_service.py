@@ -110,6 +110,7 @@ class TestGetTranscribeConfig:
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": result["whisper_installed"],
             "gpu_runtime": result["gpu_runtime"],
+            "use_gpu": result["use_gpu"],
             "beam_size": 5,
             "min_silence_ms": 300,
             "vad_threshold": 0.5,
@@ -1849,6 +1850,45 @@ class TestQwen3Backends:
         assert result["forced_align_error"] is None
         _clear(job_id)
 
+    def test_whisper_is_released_before_qwen_retranscribes(self, isolated_db, monkeypatch):
+        import asr_backend
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.5, "text": "whisper text"}])
+        order = []
+        monkeypatch.setattr(whisper_models, "release_whisper_models", lambda: order.append("release"))
+
+        class FakeQwen3ASR:
+            def transcribe(self, audio_path, language, whisper_segments, **_kw):
+                order.append("qwen")
+                return [dict(s, text="qwen text") for s in whisper_segments]
+        monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", FakeQwen3ASR)
+
+        job_id = self._run(did, ddir, "whisper", asr_backend_choice="qwen3_asr", use_gpu=True)
+
+        assert order == ["release", "qwen"]
+        _clear(job_id)
+
+    def test_whisper_is_released_before_forced_alignment(self, isolated_db, monkeypatch):
+        import forced_align
+        from core import Line
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="have_transcript")
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 2.0, "text": "x"}])
+        order = []
+        monkeypatch.setattr(whisper_models, "release_whisper_models", lambda: order.append("release"))
+
+        def fake_align(audio_path, user_lines, segments, language, **_kw):
+            order.append("align")
+            return [Line(idx=0, start=0.25, end=1.75, zh="hi there")]
+        monkeypatch.setattr(forced_align, "align_with_qwen3", fake_align)
+
+        job_id = self._run(did, ddir, "have_transcript", "hi there",
+                           alignment_method="qwen3_forced_align")
+
+        assert order == ["release", "align"]
+        _clear(job_id)
+
     def test_forced_align_cancel_ends_cancelled_releases_gpu_and_keeps_lines(
             self, isolated_db, monkeypatch):
         import forced_align
@@ -2501,6 +2541,13 @@ class TestTranscribeSpeedCalibration:
         monkeypatch.setattr(isolated_db, "get_app_setting", boom)
         assert transcribe_speed_service.measured_transcribe_speed("base", False) is None
         transcribe_speed_service.record_transcribe_speed("base", False, 600, 300)
+
+    def test_config_carries_the_gpu_setting_for_devices_that_cannot_read_settings(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        settings_service.set_settings({"use_gpu": True})
+        assert transcribe_service.get_transcribe_config(did)["use_gpu"] is True
+        settings_service.set_settings({"use_gpu": False})
+        assert transcribe_service.get_transcribe_config(did)["use_gpu"] is False
 
     def test_config_reports_the_speed_for_the_stored_model_and_device(self, isolated_db):
         settings_service.set_settings({"use_gpu": False})   # these assert the CPU path

@@ -334,6 +334,7 @@ class SettingsPreferences(TimingPreferences):
     keep_free_vram_gb: float = 0.0
     keep_free_ram_gb: float = 0.0
     gpu_guard: bool = True
+    second_hearing: bool = False
     gpu_guard_temp_c: int = 85
     gpu_guard_stop_minutes: int = 2
     whisper_model_path: str
@@ -447,6 +448,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     keep_free_vram_gb: Optional[Union[StrictInt, StrictFloat]] = None
     keep_free_ram_gb: Optional[Union[StrictInt, StrictFloat]] = None
     gpu_guard: Optional[StrictBool] = None
+    second_hearing: Optional[StrictBool] = None
     gpu_guard_temp_c: Optional[StrictInt] = None
     gpu_guard_stop_minutes: Optional[StrictInt] = None
     whisper_model_path: Optional[StrictStr] = Field(None, max_length=1024)

@@ -117,7 +117,7 @@ def test_video_upload_and_transcribe_one_job(client, monkeypatch):
         assert time.time() < deadline
         time.sleep(0.02)
     assert background_jobs.get_status(body["job_id"])["status"] == "done"
-    assert calls["audio"] == "audio.wav" and calls["source_language"] == "ja"
+    assert calls["audio"] == "audio.flac" and calls["source_language"] == "ja"
 
 
 def test_video_upload_and_transcribe_run_error_surfaces(client, monkeypatch):
@@ -233,7 +233,7 @@ def test_cancel_between_extraction_and_transcribe_start(client, monkeypatch):
     job_id = _video_post(client, did).json()["job_id"]
     assert _wait_status(job_id)["status"] == "cancelled"
     assert started == []
-    assert db.get_drama(did)["audio_filename"] == "audio.wav"  # extraction itself is kept
+    assert db.get_drama(did)["audio_filename"] == "audio.flac"  # extraction itself is kept
 
 
 def test_video_bad_transcribe_option_rejected_before_storing(client, fast_ffmpeg):
@@ -328,10 +328,10 @@ def test_audio_over_a_hardsub_ocr_video_switches_the_mode_and_the_run_starts(cli
     import db
     did = db.create_drama(title_en="D", transcript_mode="hardsub_ocr")
     ddir = db.drama_dir(did)
-    for name in ("source.mp4", "audio.wav"):
+    for name in ("source.mp4", "audio.flac"):
         with open(os.path.join(ddir, name), "wb") as f:
             f.write(b"old")
-    db.update_drama(did, source_video_filename="source.mp4", audio_filename="audio.wav")
+    db.update_drama(did, source_video_filename="source.mp4", audio_filename="audio.flac")
     captured = _capture_worker_start(monkeypatch)
     r = _post(client, did, {"confirm_replace_audio": "true"})
     assert r.status_code == 200, r.text

@@ -304,3 +304,37 @@ def test_the_resources_route_returns_the_snapshot(isolated_db):
     assert r.status_code == 200
     by = {m["name"]: m for m in r.json()["metrics"]}
     assert by["ram"]["value"] == 42 and r.json()["sample_seconds"] == 30
+
+
+# --- the PC alerts card ---------------------------------------------------------
+
+def test_describe_rules_lists_the_seven_alerts_with_ranges_and_defaults(isolated_db):
+    rows = {r["id"]: r for r in rms.describe_rules()}
+    assert list(rows) == ["gpu_temp", "gpu_throttle", "ram", "disk_free", "gpu_memory_warn", "gpu_memory", "cpu"]
+    assert rows["gpu_throttle"]["has_limit"] is False and rows["gpu_throttle"]["limit"] is None
+    assert rows["disk_free"]["below"] is True and rows["disk_free"]["unit"] == "GB"
+    assert rows["gpu_memory"]["enabled"] is False and rows["gpu_memory"]["default_limit"] == 100
+    assert (rows["gpu_temp"]["limit_min"], rows["gpu_temp"]["limit_max"]) == (40, 120)
+
+
+def test_set_rules_saves_only_the_touched_alerts_and_the_monitor_reads_them(isolated_db):
+    rows = {r["id"]: r for r in rms.set_rules({"gpu_memory": {"enabled": True},
+                                               "ram": {"limit": 90, "minutes": 3}})}
+    assert rows["gpu_memory"]["enabled"] is True and rows["gpu_memory"]["limit"] == 100
+    assert rms.get_rules()["ram"] == {"enabled": True, "limit": 90, "minutes": 3}
+    import db
+    assert set(db.get_app_setting(rms.RULES_SETTING)) == {"gpu_memory", "ram"}
+
+
+@pytest.mark.parametrize("changes", [
+    {"nope": {"enabled": True}},
+    {"ram": {"limit": 20}},
+    {"ram": {"limit": True}},
+    {"ram": {"minutes": 0}},
+    {"gpu_throttle": {"limit": 5}},
+])
+def test_set_rules_refuses_bad_input_and_saves_nothing(isolated_db, changes):
+    from lib.errors import InvalidInputError
+    with pytest.raises(InvalidInputError):
+        rms.set_rules({"cpu": {"enabled": True}, **changes})
+    assert rms.get_rules()["cpu"]["enabled"] is False

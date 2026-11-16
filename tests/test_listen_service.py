@@ -91,6 +91,14 @@ class TestConfig:
         track = listen_service.get_listen_track(did)
         assert track["name"] == "narration_track.wav"
 
+    def test_a_flac_track_is_found_and_wins_over_an_older_wav(self, isolated_db):
+        did = _drama(isolated_db)
+        ddir = isolated_db.drama_dir(did)
+        open(os.path.join(ddir, "narration_track.wav"), "wb").close()
+        open(os.path.join(ddir, "narration_track.flac"), "wb").close()
+        assert listen_service.get_listen_config(did)["track_available"] is True
+        assert listen_service.get_listen_track(did)["name"] == "narration_track.flac"
+
     def test_reads_do_not_create_the_title_folder(self, isolated_db):
         did = _drama(isolated_db, [_line(0, speaker="S1")])
         folder = os.path.join(isolated_db.DRAMAS_DIR, str(did))

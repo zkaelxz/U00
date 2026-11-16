@@ -111,6 +111,23 @@ test('without a stronger engine the glossary notice points to Settings and has n
   await expect(notice.getByRole('button')).toHaveCount(0)
 })
 
+test('doubtful lines show the cost and redo on the stronger engine', async ({ page }) => {
+  await withConfig(page, { doubtful_flagged_count: 3, doubtful_redo_estimate_usd: 0.12, glossary_redo_engine: 'claude' })
+  const bodies: unknown[] = []
+  await page.route('**/api/translate-run/dramas/1/glossary-flagged/run', (route) => {
+    bodies.push(route.request().postDataJSON())
+    return route.fulfill({ json: started })
+  })
+  await page.route('**/api/jobs/tr-job', (route) =>
+    route.fulfill({ json: { job_id: 'tr-job', status: 'running', progress: 0.1, message: 'translating', error: null, description: null, gpu_touching: false, started_at: 1, finished_at: null, updated_at: 1 } }))
+  await gotoTranslate(page, 'translate')
+  const notice = page.getByRole('region', { name: 'Doubtful lines' })
+  await expect(notice).toContainText('3 lines are flagged in Review')
+  await notice.getByRole('button', { name: /^Redo these lines with .*about \$0\.12$/ }).click()
+  await expect(page.getByTestId('job-status')).toContainText('Running')
+  expect(bodies).toEqual([{ kind: 'doubtful' }])
+})
+
 test('Details: Generate summary fills the episode summary box without saving it', async ({ page }) => {
   await page.route('**/api/translate-run/dramas/1/episode-summary', (route) =>
     route.fulfill({ json: { engine: 'ollama', engines: ['ollama', 'claude'] } }))

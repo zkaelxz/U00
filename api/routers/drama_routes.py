@@ -20,7 +20,7 @@ POST /{id}/folder/open (local_only) opens the title's folder in the PC's
 file manager; the folder comes from the id, never from the client.
 Merging a title into another and moving chapters between titles are PC-only
 (local_only), like deleting one: they move files on disk
-(services/title_restructure_service.py). Series rename and presets CRUD are
+(services/title_restructure_service.py). GET /{id}/settings-sources compares a title's settings with its series defaults. Series rename and presets CRUD are
 not in this router.
 """
 
@@ -35,12 +35,12 @@ from api.auth import is_at_pc, local_only, require_permission
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaFolderOpened, DramaMetadataUpdate,
-                         DramaSeriesUpdate,
+                         DramaSeriesUpdate, TitleSettingSources,
                          DramaSourceLink, TitleRestructureApplyRequest, TitleRestructureInfo,
                          TitleRestructurePreview, TitleRestructureRequest, TitleRestructureResult,
                          error_responses)
 from lib.capped_request import read_capped_form
-from services import (cover_art_service, drama_service, link_details_service, source_link_service,
+from services import (series_defaults_service, cover_art_service, drama_service, link_details_service, source_link_service,
                       title_copy_service, title_restructure_service)
 from lib.errors import InvalidInputError
 from lib.storage_errors import require_readable
@@ -92,6 +92,13 @@ def post_drama_series(payload: DramaSeriesUpdate, request: Request,
 
 # library.create like making a title: the copy is a new title the caller owns,
 # and the original is only read.
+@router.get("/{drama_id}/settings-sources", dependencies=[require_permission("library.read")],
+            response_model=TitleSettingSources, responses=error_responses(404, 422),
+            summary="Where each of a title's settings gets its value: the title, its series default or the Settings default")
+def get_settings_sources(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return series_defaults_service.title_sources(request.state.principal, drama_id)
+
+
 @router.post("/{drama_id}/duplicate", dependencies=[require_permission("library.create")],
              response_model=DramaDetail, status_code=201,
              summary="Make an independent test copy of a title",

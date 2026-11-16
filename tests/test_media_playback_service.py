@@ -7,7 +7,7 @@ import os
 
 import pytest
 
-import subtitle_formats
+import subtitle_ass
 import video_export as ve
 from core import Line
 from services.media_playback_service import burn_preview_ass
@@ -23,7 +23,7 @@ SFX_LINES = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello", speaker="A
 # ------------------------------------------------------- burned preview clip
 
 class TestBurnPreview:
-    STYLE = {"style": {**subtitle_formats.ASS_PRESETS["Clean"], "font": "Segoe UI", "size": 41,
+    STYLE = {"style": {**subtitle_ass.ASS_PRESETS["Clean"], "font": "Segoe UI", "size": 41,
                        "primary": "#FF0000"}}
 
     def test_clip_is_padded_around_the_line_and_retimed(self):
@@ -48,12 +48,12 @@ class TestBurnPreview:
         default = next(l for l in ass.splitlines() if l.startswith("Style: Default,"))
         fields = default.split(",")
         assert fields[1] == "Segoe UI" and fields[2] == "41"
-        assert fields[3] == subtitle_formats.ass_color("#FF0000")
+        assert fields[3] == subtitle_ass.ass_color("#FF0000")
 
     def test_falls_back_to_clean_when_export_section_not_rendered(self):
         _, _, ass = burn_preview_ass(LINES, LINES[1], None)
         default = next(l for l in ass.splitlines() if l.startswith("Style: Default,"))
-        assert default.split(",")[2] == str(subtitle_formats.ASS_PRESETS["Clean"]["size"])
+        assert default.split(",")[2] == str(subtitle_ass.ASS_PRESETS["Clean"]["size"])
 
     def test_clip_start_never_goes_negative(self):
         start, _, _ = burn_preview_ass(LINES, LINES[0], None)

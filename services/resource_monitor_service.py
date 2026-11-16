@@ -86,6 +86,55 @@ def get_rules() -> dict:
     return rules
 
 
+def describe_rules() -> list[dict]:
+    """What the PC alerts card shows: each metric's label, unit, current rule,
+    allowed ranges and defaults, in METRICS order."""
+    rules = get_rules()
+    out = []
+    for name, meta in METRICS.items():
+        has_limit = meta["limit"] is not None
+        out.append({"id": name, "label": meta["label"], "unit": meta["unit"].strip(),
+                    "has_limit": has_limit, "below": bool(meta.get("low")),
+                    **rules[name],
+                    "limit_min": meta["range"][0] if has_limit else None,
+                    "limit_max": meta["range"][1] if has_limit else None,
+                    "minutes_min": MINUTES_RANGE[0], "minutes_max": MINUTES_RANGE[1],
+                    "default_enabled": meta["enabled"], "default_limit": meta["limit"],
+                    "default_minutes": meta["minutes"]})
+    return out
+
+
+def set_rules(changes: dict) -> list[dict]:
+    """Applies {metric: {enabled, limit, minutes}} (any subset) and saves.
+    Unlike get_rules, which quietly falls back on a bad stored value, a bad
+    request is refused whole so the card never shows a limit that was not kept."""
+    from lib.errors import InvalidInputError
+    merged = get_rules()
+    for name, change in changes.items():
+        meta = METRICS.get(name)
+        if meta is None:
+            raise InvalidInputError(f"'{name}' is not an alert.")
+        rule = merged[name]
+        if "enabled" in change:
+            rule["enabled"] = bool(change["enabled"])
+        if "limit" in change:
+            if meta["limit"] is None:
+                raise InvalidInputError(f"{meta['label']} has no limit to change.")
+            low, high = meta["range"]
+            if _number(change["limit"], low, high, None) is None:
+                raise InvalidInputError(f"{meta['label']} limit must be between {low} and {high}.")
+            rule["limit"] = change["limit"]
+        if "minutes" in change:
+            low, high = MINUTES_RANGE
+            if _number(change["minutes"], low, high, None) is None:
+                raise InvalidInputError(f"{meta['label']} minutes must be between {low} and {high}.")
+            rule["minutes"] = change["minutes"]
+    # Only the touched metrics are stored, so an untouched one keeps following its default.
+    db.update_app_setting(RULES_SETTING, lambda stored: {
+        **(stored if isinstance(stored, dict) else {}), **{n: merged[n] for n in changes}})
+    return describe_rules()
+
+
 # --- readings ----------------------------------------------------------------
 
 def _float(text):

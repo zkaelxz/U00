@@ -5,3 +5,6 @@
 .title-panel-body[hidden] { display: none; }
 .title-panel-video { width: 100%; max-height: 50vh; border-radius: var(--radius-md); background: #000; }
 .title-panel-note { margin: 0; overflow-wrap: anywhere; }
+.setting-sources-list { display: grid; gap: var(--space-2); margin: 0; }
+.setting-sources-list dt { font-weight: 600; }
+.setting-sources-list dd { margin: 0; overflow-wrap: anywhere; }

@@ -1,6 +1,5 @@
 """
-services/scanlate_run_service.py -- the automatic Scanlate run for the API
-(docs/archive/scanlate-api-spec.md S5, typesetting via S6): detect text
+services/scanlate_run_service.py -- the automatic Scanlate run for the API: detect text
 regions, OCR them, translate them and render the typeset page, one page at
 a time, as ONE background job per drama (`scanlate_<drama_id>`).
 
@@ -449,13 +448,13 @@ def _condense_signs(drama_id: int, page_id: int, bubbles: list, engine, engine_n
     A page whose picture can't be read, or an answer that can't be used, leaves the full
     translation as it was; only the stop signals the run lets through are raised."""
     import scanlate_condense
-    import scanlate_detect
+    import scanlate_page_decode
     import scanlate_render
     from core import LANGUAGE_NAMES
     if not any(b.get("kind") == "sign" and b.get("translated_text") for b in bubbles):
         return
     try:
-        page = scanlate_detect.decode_page(render_svc.original_path(
+        page = scanlate_page_decode.decode_page(render_svc.original_path(
             drama_id, db.get_page(page_id, drama_id=drama_id) or {}))
         custom_fonts = render_svc._custom_fonts(drama_id)
         changed = scanlate_condense.condense_long_signs(

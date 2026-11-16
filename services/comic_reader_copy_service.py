@@ -6,11 +6,15 @@ module opens page files, and only to make the copy. No FastAPI import.
 
 import os
 import tempfile
+import threading
 
 import db
 
 _FOLDER = "reader_cache"
 _QUALITY = 85
+# A tall webtoon page decodes to tens of MB; several readers opening a chapter
+# at once would otherwise decode that many pages together on the PC.
+_DECODE_SLOTS = threading.BoundedSemaphore(2)
 
 
 def reader_copy(drama_id: int, found: dict) -> dict:
@@ -27,7 +31,10 @@ def reader_copy(drama_id: int, found: dict) -> dict:
     copy = os.path.join(folder, f"{stem}.{st.st_mtime_ns}.{st.st_size}.jpg")
     try:
         if not os.path.isfile(copy):
-            _write_copy(path, folder, stem, copy)
+            with _DECODE_SLOTS:
+                # Another request may have made it while this one waited.
+                if not os.path.isfile(copy):
+                    _write_copy(path, folder, stem, copy)
         copy_stat = os.stat(copy)
     except Exception:
         # A page Pillow can't decode (or refuses as a decompression bomb) is still
