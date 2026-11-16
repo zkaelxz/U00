@@ -61,6 +61,11 @@ export function sortTasksNeedingInstall(tasks: DiagnosticsInstallTask[]): Diagno
   return [...tasks.filter((t) => !taskReady(t)), ...tasks.filter(taskReady)]
 }
 
+/** Groups in the server's fixed order; only the tasks inside a group sort (still-to-set-up first), so installing something never moves a whole group. */
+export function groupsNeedingInstallFirst(tasks: DiagnosticsInstallTask[]): TaskGroup[] {
+  return groupTasks(tasks).map((g) => ({ ...g, tasks: sortTasksNeedingInstall(g.tasks) }))
+}
+
 /** The closed group's one-liner: how many of its tasks still need something installed. */
 export function taskGroupSummary(tasks: DiagnosticsInstallTask[]): string {
   const need = tasks.filter((t) => !taskReady(t)).length

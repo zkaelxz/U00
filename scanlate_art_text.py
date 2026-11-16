@@ -132,7 +132,7 @@ def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=No
     {"x","y","w","h","source_text"} in full-page pixels. Lines are read with
     RapidOCR when that is the page OCR backend, else with PaddleOCR."""
     import ocr
-    from scanlate_detect import decode_page
+    from scanlate_page_decode import decode_page
     page = image if image is not None else decode_page(image_path)
     h, w = page.shape[:2]
     scale = min(1.0, _DETECT_LIMIT_SIDE / float(max(h, w)))
