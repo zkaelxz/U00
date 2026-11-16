@@ -57,7 +57,7 @@ def _install_commands(name: str) -> list:
     them (install_registry.unqueueable_reason) for the GPU PyTorch setup."""
     # Fresh snapshot: the plan the owner confirmed may be minutes old.
     install = _pip("install", *install_registry.dependency_flags([name]),
-                   diagnostics.pip_install_name(name),
+                   *install_registry.install_dists([name]),
                    *dependency_updates.constraints_pip_args(default_project_root()))
     swap = install_registry.cv2_swap_names([name], pending_install.snapshot())
     if not swap:

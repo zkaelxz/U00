@@ -198,13 +198,13 @@ def test_the_merged_queue_is_planned_as_a_whole(client, env, monkeypatch):
 
     def build_plan(keys, jobs_running=False):
         seen.append(list(keys))
-        blocked = [clash] if {"paddleocr", "cv2"} <= set(keys) else []
+        blocked = [clash] if {"paddleocr", "paddlepaddle"} <= set(keys) else []
         return make_plan(keys, blocked=blocked, confirm=("x",) if len(keys) > 1 else ())
     monkeypatch.setattr(svc.install_plan, "build_plan", build_plan)
     assert queue(client, ["paddleocr"]).status_code == 200
-    r = queue(client, ["cv2"], accept_risk=True)
+    r = queue(client, ["paddlepaddle"], accept_risk=True)
     assert r.status_code == 422 or r.status_code == 409
-    assert ["paddleocr", "cv2"] in seen
+    assert ["paddleocr", "paddlepaddle"] in seen
     assert client.get(BASE).json()["packages"] == ["paddleocr"]
 
 
