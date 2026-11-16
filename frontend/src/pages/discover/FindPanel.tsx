@@ -9,6 +9,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { listPlatforms, searchLinks, translateQuery } from '../../api/discover'
 import { ExternalLink } from './ExternalLink'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { describeError } from '../../components/errorMessages'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
@@ -48,8 +49,8 @@ export function FindPanel({ engine, canTranslate }: { engine: string; canTransla
           try {
             zh = (await translateQuery(text, engine || undefined)).translated || text
             cache.current.set(key, zh)
-          } catch {
-            setNote("Couldn't translate the query, so these search with your text as typed.")
+          } catch (err) {
+            setNote(`Couldn't translate the query, so these search with your text as typed. ${describeError(err).title}`)
           }
         }
         if (zh !== text) setNote(`Searching Chinese platforms for: ${zh}`)

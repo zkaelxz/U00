@@ -6,8 +6,7 @@ here. Checked against the code on `baihe-subtitler` at `7bad622` (2026-10-08).
 
 Numbers are only in "Measured results (snapshot)" at the end. They were measured
 once, on one machine, before some defaults changed. Do not read them as current
-behaviour. The full original write-up (data ids, hashes, harness scripts, every
-table) is in `archive/asr-experiments-history.md`.
+behaviour.
 
 ## Options
 

@@ -3,7 +3,7 @@ api/server.py -- the FastAPI application: Baihe's HTTP API.
 
 It serves the React app and the JSON routes over the `services/` layer, and
 reads the same `library/` folder as the `python -m api` admin commands (the
-two never call each other over HTTP). See `docs/archive/migration-react-fastapi.md` for the history.
+two never call each other over HTTP).
 
 Run it with `python -m api` (reads `BAIHE_API_*`, see
 `api/api_config.py`). With `BAIHE_API_AUTH=off` (the default) every

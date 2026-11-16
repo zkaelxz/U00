@@ -1,6 +1,6 @@
 """Decides which CI jobs a change needs; used by the `changes` job in .github/workflows/tests.yml.
 
-    python tools/ci_changes.py --event pull_request [--labels-json '["full-ci"]'] < changed-files
+    python tools/ci_changes.py --event pull_request [--labels-json '["full-ci"]'] [--merge-approved false] < changed-files
     python tools/ci_changes.py --frontend-tests
     python tools/ci_changes.py --docs-tests
     python tools/ci_changes.py --sources-tests
@@ -14,7 +14,6 @@ import json
 import os
 import sys
 
-NOTES_PREFIXES = ("docs/archive/research/",)
 FULL_CI_LABEL = "full-ci"
 # Changes to CI itself, test plumbing or dependencies can break any job, so they run all of them.
 EVERYTHING_PREFIXES = (".github/",)
@@ -54,8 +53,8 @@ SOURCES_TEST_FILES = (
 # What the browser tests can exercise through the running app; a backend-only change used to skip them
 # and show a broken screen only in the push run after the merge.
 BROWSER_PREFIXES = ("frontend/", "api/", "services/", "db/")
-OUTPUTS = ("notes_only", "run_e2e", "run_full_pytest", "run_windows_scripts", "run_caddy", "run_app_checks",
-           "run_sources_subset")
+OUTPUTS = ("run_e2e", "run_full_pytest", "run_windows_scripts", "run_caddy", "run_app_checks",
+           "run_sources_subset", "e2e_deferred")
 
 
 def _is_sources_only_file(path):
@@ -86,22 +85,35 @@ def _touches_windows_scripts(path):
             or any(fnmatch.fnmatchcase(path, p) for p in WINDOWS_SCRIPT_PATTERNS))
 
 
-def classify(files, event, labels=()):
+def classify(files, event, labels=(), merge_approved=True):
+    """`merge_approved` is false for a pull request without auto-merge turned on. Its browser tests
+    then wait (`e2e_deferred`), and the required `browser-tests` status stays pending until a run after
+    the approval has run them:
+    the four shards are the largest share of a run's runner time, and a PR is often pushed several
+    times before anyone asks for it to merge."""
     files = [f.strip().replace("\\", "/") for f in files if f.strip()]
     everything = _all_true()
     # No file list on a pull request means the diff could not be read, not that nothing changed.
     if event != "pull_request" or not files:
         return everything
-    if FULL_CI_LABEL in labels or any(_forces_everything(f) for f in files):
+    if FULL_CI_LABEL in labels:
         return everything
+    result = everything if any(_forces_everything(f) for f in files) else _by_rule(files)
+    if result["run_e2e"] and not merge_approved:
+        result["run_e2e"] = False
+        result["e2e_deferred"] = True
+    return result
+
+
+def _by_rule(files):
     return {
-        "notes_only": all(_starts(f, NOTES_PREFIXES) for f in files),
         "run_e2e": any(_reaches_browser(f) for f in files),
         "run_full_pytest": not all(_starts(f, ("frontend/", "docs/")) for f in files),
         "run_windows_scripts": any(_touches_windows_scripts(f) for f in files),
         "run_caddy": any(_starts(f, CADDY_PREFIXES) or f in CADDY_FILES for f in files),
         "run_app_checks": not all(_starts(f, APP_CHECK_FREE_PREFIXES) for f in files),
         "run_sources_subset": all(_is_sources_only_file(f) for f in files),
+        "e2e_deferred": False,
     }
 
 
@@ -142,14 +154,16 @@ def sources_tests(root):
 
 
 def _all_true():
-    return {"notes_only": False, "run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True,
-            "run_caddy": True, "run_app_checks": True, "run_sources_subset": False}
+    return {"run_e2e": True, "run_full_pytest": True, "run_windows_scripts": True,
+            "run_caddy": True, "run_app_checks": True, "run_sources_subset": False, "e2e_deferred": False}
 
 
 def main(argv=None, stdin=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--event", default="")
     parser.add_argument("--labels-json", default="[]")
+    # Anything but "false" counts as approved: a missing or garbled value runs the browser tests.
+    parser.add_argument("--merge-approved", default="true")
     parser.add_argument("--frontend-tests", action="store_true")
     parser.add_argument("--docs-tests", action="store_true")
     parser.add_argument("--sources-tests", action="store_true")
@@ -168,7 +182,8 @@ def main(argv=None, stdin=None):
         labels = json.loads(args.labels_json or "[]")
         if not (isinstance(labels, list) and all(isinstance(x, str) for x in labels)):
             raise ValueError("labels must be a JSON list of strings")
-        result = classify((stdin or sys.stdin).read().splitlines(), args.event, labels)
+        result = classify((stdin or sys.stdin).read().splitlines(), args.event, labels,
+                          merge_approved=args.merge_approved != "false")
     except Exception as exc:
         print(f"ci_changes: {exc!r}; running everything", file=sys.stderr)
         result = _all_true()
