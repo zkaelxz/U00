@@ -46,6 +46,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     label: 'Connections',
     cards: [
       { id: 'notifications' },
+      { id: 'pc-alerts' },
       { id: 'jellyfin' },
       { id: 'web-search' },
       { id: 'inbox' },
@@ -86,7 +87,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
 // the page leaves them out instead of showing a "Run this on the main PC." note.
 export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
   'server-addresses', 'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
-  'notifications',
+  'notifications', 'pc-alerts',
   'jellyfin', 'web-search', 'inbox', 'extension',
   'performance', 'advanced', 'keys-file', 'timing-splitting', 'transcription-experiments', 'developer-mode',
 ])
@@ -114,6 +115,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   e('notifications', 'Notifications', 'alerts channels push email discord telegram webhook'),
   e('notifications', 'Notify when a job finishes', 'notify me completion'),
+  e('pc-alerts', 'PC alerts', 'gpu temperature throttling ram cpu disk space gpu memory limit minutes warning hot full'),
   e('updates', 'Updates', 'app updates version upgrade release phone app android apk packages python pip outdated'),
   e('updates', 'Update Baihe', 'upgrade restart git latest version check'),
   e('updates', 'Browser extension update', 'reload out of date older copy'),

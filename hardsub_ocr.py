@@ -250,6 +250,26 @@ def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd:
         os.unlink(crop_path)
 
 
+# Video compression leaves a static picture within a few grey levels of itself, while any
+# changed glyph stroke moves hundreds of pixels by far more, so the largest single-pixel
+# difference separates "same picture" from "a character changed" where a mean would not.
+_SAME_BAND_MAX_DIFF = 12
+
+
+def _caption_band_gray(path: str, region):
+    img = cv2.imread(path)
+    if img is None:
+        return None
+    h = img.shape[0]
+    return cv2.cvtColor(img[int(region[0] * h):int(region[1] * h), :], cv2.COLOR_BGR2GRAY)
+
+
+def _same_band(reference, band) -> bool:
+    if reference is None or band is None or reference.shape != band.shape:
+        return False
+    return int(cv2.absdiff(reference, band).max()) <= _SAME_BAND_MAX_DIFF
+
+
 def _normalize_for_compare(text: str) -> str:
     """OCR noise (stray punctuation, whitespace) shouldn't split one real
     caption into several -- consecutive frames are compared on this
@@ -388,13 +408,26 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
         timed_texts = []
         total = len(frames)
 
+        timeouts = [0]
+
         def _frame_dropped():
+            timeouts[0] += 1
             if info is not None:
                 info["dropped_frames"] += 1
 
+        # The band of the last frame actually read, not the previous one: comparing frame to
+        # frame would let a slow fade drift away from what was read, one small step at a time.
+        read_band, read_text = None, ""
         for i, (ts, path) in enumerate(frames):
             if cancel_check:
                 cancel_check()
+            frame_band = _caption_band_gray(path, band)
+            if _same_band(read_band, frame_band):
+                timed_texts.append((ts, read_text))
+                if progress_cb:
+                    progress_cb((i + 1) / total)
+                continue
+            timeouts_before = timeouts[0]
             try:
                 # Only the vision model has a slow enough frame to need an early stop.
                 extra = ({"should_stop": _cancel_probe(cancel_check)}
@@ -414,7 +447,10 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
                                          on_timeout=_frame_dropped)
             if cancel_check:
                 cancel_check()  # a frame stopped early by Cancel is partial text, never kept
-            timed_texts.append((ts, _to_title_script(text, language, chinese_script)))
+            text = _to_title_script(text, language, chinese_script)
+            timed_texts.append((ts, text))
+            # A frame Tesseract timed out on read as blank by accident, so its twin is read again.
+            read_band, read_text = (None, "") if timeouts[0] > timeouts_before else (frame_band, text)
             if progress_cb:
                 progress_cb((i + 1) / total)
 

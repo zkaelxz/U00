@@ -3,7 +3,7 @@ import { buildRunBody, lineRanges, validateRun, type RunForm } from '../translat
 
 /** The form's options for a retry. Reflect and bulk are left out: a retry is a normal run. */
 export function buildRetryBody(f: RunForm): RetryFailedBody {
-  const { force_retranslate: _force, bulk: _bulk, reflect: _reflect, ...options } = buildRunBody(f)
+  const { force_retranslate: _force, bulk: _bulk, reflect: _reflect, chapter_from: _from, chapter_to: _to, ...options } = buildRunBody(f)
   return options
 }
 

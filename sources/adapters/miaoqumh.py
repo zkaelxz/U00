@@ -110,6 +110,7 @@ def decode_page_data(html: str, cid: int) -> list:
 class MiaoqumhSource(PlainImageDownload, SourceAdapter):
     name = "miaoqumh"
     display_name = "妙趣漫画 Miaoqumh"
+    homepage = "https://www.miaoqumh.org"
     content_types = [ContentType.MANHUA.value]
     languages = ["zh"]
     url_patterns = [r"(?:^|//|\.)miaoqumh\.org/\d+/\d+\.html", r"(?:^|//|\.)miaoqumh\.org/[^/?#]+/?$"]

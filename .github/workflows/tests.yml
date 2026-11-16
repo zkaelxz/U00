@@ -179,6 +179,12 @@ jobs:
       - name: Quick guards
         run: python run_tests.py -q -n auto $(cat tests/ci_guards.txt)
 
+      # The package layer order in .importlinter. Its ignore_imports list is the
+      # wrong-way imports that predate the check; an unmatched one fails, so the
+      # list can only shrink.
+      - name: Import layers (import-linter)
+        run: pip install import-linter==2.15 && lint-imports
+
       # Fails on a type error missing from .basedpyright/baseline.json. A fixed error
       # drops out of the baseline on the run, so the diff fails until the smaller
       # baseline is committed: it can only shrink without a visible --writebaseline.
@@ -612,9 +618,14 @@ jobs:
       - name: Lint
         run: npm run lint
 
-  # The browser tests, split into four shards that run at the same time. Each
-  # shard starts its own seeded API and library, so specs that share state keep
-  # running together exactly as they did in the single-worker run.
+  # The browser tests, in six jobs that run at the same time. Each job starts
+  # its own seeded API and library, so specs that share state keep running
+  # together exactly as they did in the single-worker run. Playwright shards
+  # by test count, not time, and a phone test takes about twice as long as a
+  # desktop one: four plain shards put all 414 phone tests in the last one,
+  # which took 18 minutes while the others took 11 (run 43810799674, 11-16).
+  # So the phone project gets two jobs of its own and every other project four
+  # (E2E_PROJECT_GROUP in frontend/playwright.config.ts).
   e2e:
     needs: changes
     if: needs.changes.outputs.run_e2e == 'true'
@@ -623,7 +634,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        include:
+          - { group: desktop, part: 1, of: 4 }
+          - { group: desktop, part: 2, of: 4 }
+          - { group: desktop, part: 3, of: 4 }
+          - { group: desktop, part: 4, of: 4 }
+          - { group: phone, part: 1, of: 2 }
+          - { group: phone, part: 2, of: 2 }
     defaults:
       run:
         working-directory: frontend
@@ -673,12 +690,13 @@ jobs:
           BAIHE_E2E_CATALOGUE=1 npx vite build --outDir dist-catalogue --emptyOutDir
 
       # No --with-deps: ubuntu-latest already carries Chromium's system libraries.
-      - name: End-to-end (shard ${{ matrix.shard }} of 4)
+      - name: End-to-end (${{ matrix.group }}, part ${{ matrix.part }} of ${{ matrix.of }})
         env:
           E2E_PREBUILT: '1'
+          E2E_PROJECT_GROUP: ${{ matrix.group }}
         run: |
           npx playwright install chromium
-          npx playwright test --shard=${{ matrix.shard }}/4
+          npx playwright test --shard=${{ matrix.part }}/${{ matrix.of }}
 
       # Playwright counts a skipped test as passed; this fails on any skip not on frontend/e2e/skip-allowlist.json.
       - name: Fail on unexpected skipped tests
@@ -689,7 +707,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
-          name: playwright-report-shard-${{ matrix.shard }}
+          name: playwright-report-${{ matrix.group }}-${{ matrix.part }}
           path: |
             frontend/playwright-report
             frontend/test-results

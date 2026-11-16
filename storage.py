@@ -517,11 +517,14 @@ SYSTEM_TEMP_PREFIXES = (
     "baihe_live_", "baihe_vocab_", "baihe_scanlate_", "baihe_vocalsep_chunks_",
     "baihe_pronounce_", "baihe_anki_", "baihe_deno_", "baihe_upgrade_check_",
     "baihe_qwen3_asr_", "baihe_forced_align_", "baihe_sensevoice_",
+    "baihe_assistant_tests_",
 )
 # Loose temp files (not folders) made by the same code paths. A killed server
 # skips their finally blocks, and without a prefix nothing could tell them from
 # another program's files.
-SYSTEM_TEMP_FILE_PREFIXES = ("baihe_tmp_", "baihe_page_")
+# The torch pins file stays in the system temp: pending_install checks its
+# location from a process that has no library.
+SYSTEM_TEMP_FILE_PREFIXES = ("baihe_tmp_", "baihe_page_", "baihe-torch-pins-")
 # A start must stay quick even if a temp folder holds a huge number of entries.
 SWEEP_MAX_EXAMINED = 5000
 SWEEP_MAX_REMOVED = 500

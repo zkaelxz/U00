@@ -195,8 +195,7 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
 
 ### Cost caps and bulk batches
 
-- `pricing.estimate_translation_cost` and `estimate_reflect_mode_cost` (3x a
-  normal run) are shown before a run starts. `resolve_cost_cap(job_cap,
+- `pricing.estimate_translation_cost` is shown before a run starts. `resolve_cost_cap(job_cap,
   monthly_cap, month_spend)` returns the tighter of the per-job cap and what is
   left of the monthly cap, or a refusal when the month is already spent.
 - A cap applies only to `translate_run_service._CAP_ENGINES` (`claude`,
@@ -243,6 +242,11 @@ the fragments (sentence_groups). None means the title's saved choice
 Inert for Reflect mode and for engines that don't follow instructions.
 sentence_groups_cb: optional callable given the line ids of each sentence
 of two or more parts, once, when the run groups them.
+
+replace_flags: flag keys the redo of those flagged lines replaces. A line
+carrying one of them has the flag cleared the moment its new English lands
+(a flag the run then sets on the new English stands). Every other flag is left
+alone, as a plain retranslate does.
 
 check_replies: run the merged/shifted-reply guard. None = the engine
 and model's default (default_reply_guard); an explicit True/False wins.

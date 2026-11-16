@@ -87,7 +87,7 @@ def _slices(png: bytes) -> list:
     dropped without a word."""
     try:
         import scanlate
-        import scanlate_detect
+        import scanlate_panels
     except ImportError:
         return [png]
     try:
@@ -101,7 +101,7 @@ def _slices(png: bytes) -> list:
                 with open(p, "rb") as f:
                     out.append(f.read())
             return out or [png]
-    except scanlate_detect.StripTooLong as exc:
+    except scanlate_panels.StripTooLong as exc:
         raise ImageRejected(f"over the slice limit: {exc}") from None
     except MemoryError:
         raise ImageRejected("over the memory available to slice this strip") from None

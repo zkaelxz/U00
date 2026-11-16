@@ -643,7 +643,8 @@ from db.wiki import (  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 
 from db.style import (  # noqa: E402,F401
-    STYLE_HISTORY_KEEP, get_style_profile, list_edit_samples, record_edit_sample,
+    STYLE_HISTORY_KEEP, get_style_profile, list_edit_samples, list_source_edits,
+    record_edit_sample, record_source_edits,
     replace_style_profile, restore_style_profile, save_style_profile)
 
 
@@ -691,8 +692,10 @@ from db.usage import (  # noqa: F401
     current_spender,
     MONTHLY_SPEND_RESET_KEY,
     get_month_spend_reset_at,
+    get_logged_month_spend,
     get_month_spend,
     get_month_spend_by_user,
+    get_logged_user_month_spend,
     get_user_month_spend,
     usage_recost_candidates,
     apply_usage_recost,
@@ -736,7 +739,7 @@ from db.job_records import (  # noqa: F401
 
 from db.bulk_jobs import (  # noqa: E402,F401
     BULK_PENDING_STATUSES, count_bulk_job_lines, create_bulk_job, get_bulk_job,
-    list_bulk_job_lines, list_bulk_jobs, list_unbilled_bulk_estimates,
+    list_bulk_job_lines, list_bulk_jobs, list_unbilled_bulk_estimates, unbilled_bulk_usd_by_user,
     set_bulk_job_line_result_texts, set_bulk_job_status_if, update_bulk_job)
 
 
