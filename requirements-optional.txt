@@ -2,7 +2,7 @@
 # Install:  pip install -r requirements-optional.txt
 
 # --- alternative translation engines ---
-openai>=3.46.0            # DeepSeek (OpenAI-compatible API)
+openai>=3.50.0            # DeepSeek (OpenAI-compatible API)
 transformers>=5.15        # Qwen3-ASR and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
                          # transformers' own classes; 5.13/5.14 lack `prompt=` and the
                          # language prefill, so 5.15 is the floor), Scanlate's ML
@@ -95,7 +95,7 @@ sudachipy>=0.7.0          # Japanese
 sudachidict_core>=20261015
 pykakasi>=2.3           # Japanese furigana
 kiwipiepy>=0.24.1         # Korean
-budoux>=0.10.2           # Japanese/Chinese phrase-aware subtitle line breaking
+budoux>=0.10.3           # Japanese/Chinese phrase-aware subtitle line breaking
 
 # --- scanlate: ML bubble detection + inpainting ---
 # transformers (above) loads the bubble detector; torch+safetensors load
@@ -108,7 +108,7 @@ torch>=2.0
 safetensors>=0.8.0
 
 # --- scanlate: PDF import (splits a PDF into per-page images) ---
-pypdf>=6.21.4       # 6.x caps how far a stream may inflate (PDF bombs)
+pypdf>=7.0.1       # 6.x caps how far a stream may inflate (PDF bombs)
 
 # --- exports ---
 genanki>=0.13.1           # Anki decks
@@ -118,7 +118,7 @@ ebooklib>=0.21          # EPUB
 plyer>=2.1
 
 # --- JavaScript-rendered sites (baihehub, Fanjiao) ---
-playwright>=1.64.1        # uses an installed Chrome or Edge; no browser download needed then
+playwright>=1.65.1        # uses an installed Chrome or Edge; no browser download needed then
 
 # --- Sources tab: main-text extraction from a pasted novel-chapter URL ---
 # Apache-2.0. Optional -- without it a simpler built-in extractor is used.
@@ -147,4 +147,4 @@ httpx>=0.27             # FastAPI's TestClient (tests/test_api_foundation.py)
 # SenseVoiceSmall: a second, audio-derived emotion read shown next to the
 # text-based one. Code MIT; model weights under the FunASR Model Open
 # Source License. Downloads the model on first use.
-funasr>=1.4.22
+funasr>=1.4.26
