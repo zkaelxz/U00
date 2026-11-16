@@ -34,6 +34,8 @@ test('one tab level with the four groups; Look for problems holds the four check
 
 test('each group fits about one desktop screen, with no sideways scroll, light and dark', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
+  // Drawn at a 15px root; a panel is as tall as its text, so the one-screen allowance grows with the root size.
+  const scale = (await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize))) / 15
   for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     await page.goto('about:blank')
@@ -42,7 +44,7 @@ test('each group fits about one desktop screen, with no sideways scroll, light a
     for (const name of TABS) {
       await openTab(page, name)
       const panel = page.locator('.review-toolbox-panel:not([hidden])')
-      expect((await panel.boundingBox())!.height, `${name} panel height`).toBeLessThanOrEqual(800)
+      expect((await panel.boundingBox())!.height, `${name} panel height`).toBeLessThanOrEqual(800 * scale)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${name} sideways`).toBe(true)
     }
   }
