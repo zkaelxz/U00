@@ -95,9 +95,9 @@ _NEMOTRON_FILES = ["config.json", "processor_config.json", "model.safetensors"]
 
 def _nemotron_ready() -> bool:
     import diarize_nemotron
-    if not readiness.hf_model_ready(diarize_nemotron.MODEL_ID):
-        return False
-    return os.path.isfile(os.path.join(readiness._hf_snapshot(diarize_nemotron.MODEL_ID), "processor_config.json"))
+    folder = readiness._hf_snapshot(diarize_nemotron.MODEL_ID)
+    return bool(folder) and readiness.hf_model_ready(diarize_nemotron.MODEL_ID) and os.path.isfile(
+        os.path.join(folder, "processor_config.json"))
 
 
 def _fetch_nemotron(report, cancelled) -> None:
