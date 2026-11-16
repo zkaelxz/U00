@@ -414,6 +414,19 @@ def tidy_ocr_text(text: str) -> str:
 # Where the novel's source text is saved beside its title: narration and the
 # translate pipeline both read it, so it lives here and not with the dub code.
 NOVEL_SOURCE_FILENAME = "novel_narration_source.txt"
+# Narration is written as FLAC; a title narrated before that holds only the WAV
+# and must keep playing, so every reader looks the file up by this list (newest first).
+NARRATION_TRACK_NAMES = ("narration_track.flac", "narration_track.wav")
+
+
+def find_narration_track(drama_dir: str) -> Optional[str]:
+    """File name of the title's narration track, or None. Symlinks are skipped
+    so a link planted in the folder is never served."""
+    for name in NARRATION_TRACK_NAMES:
+        path = os.path.join(drama_dir, name)
+        if os.path.isfile(path) and not os.path.islink(path):
+            return name
+    return None
 # Chapter-move bookkeeping in a title's folder. Title copies leave out both: a copied journal
 # would have the copy's start-up recovery act on files that aren't the move's. Backups leave out
 # only the lock; they keep the journal so a restore can finish or undo the move.
