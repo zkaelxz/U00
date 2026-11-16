@@ -175,3 +175,24 @@ def test_app_made_folders_next_to_the_library_are_listed_and_never_deleted():
     for name in ("voice_engines", "playwright_browsers", "saved_comics", "baihe_trash", "android", "pending_install"):
         assert 'call :leftover' in listing and f'!APP_DIR!{name}"' in listing, name
         assert not re.search(rf'(rmdir|\bdel\b|call :remove\w*)[^\n]*{name}', bat), name
+
+
+def test_baihe_scratch_items_in_temp_go_by_name_and_junctions_are_not_followed():
+    bat = _bat()
+    confirm = bat.index('if /i not "%CONFIRM%"=="y"')
+    removal = bat[confirm:bat.index("echo App files removed.")]
+    for name in ("'baihe_*'", "'baihe_page_*'", "'baihe_tmp_*'", "'baihe_typeset_*'", "'baihe-plan-*'",
+                 "'baihe-torch-pins-*'"):
+        assert name in removal, name
+    # tmp* is Python's own naming, shared with every program.
+    assert "tmp*'" not in removal.replace("baihe_tmp_*'", "")
+    assert "ReparsePoint" in removal and ".Delete()" in removal
+    assert "$env:TEMP" in removal
+    assert "Temp folder" in bat.split("It will NOT touch")[0]
+
+
+def test_other_model_caches_are_listed_with_sizes_and_never_deleted():
+    bat = _bat()
+    listing = bat[bat.index("Left on this PC"):bat.index("echo Done.")]
+    for needle in (".cache\\audio-separator-models", ".cache\\modelscope", ".paddlex"):
+        assert needle in listing, needle

@@ -672,6 +672,36 @@ def test_scratch_env_points_temp_at_a_folder_removed_afterwards():
     assert not os.path.exists(folder)
 
 
+def test_test_suite_sweep_removes_only_old_baihe_test_dirs(tmp_path):
+    from tests.conftest import sweep_stale_test_dirs
+    old_dir = tmp_path / "baihe_test_old"
+    fresh_dir = tmp_path / "baihe_test_fresh"
+    app_file = tmp_path / "baihe_tmp_old.wav"
+    other_dir = tmp_path / "unrelated_old"
+    for d in (old_dir, fresh_dir, other_dir):
+        d.mkdir()
+    (old_dir / "library.db").write_bytes(b"x")
+    app_file.write_bytes(b"x")
+    stale = time.time() - 3 * 3600
+    for p in (old_dir, app_file, other_dir):
+        os.utime(p, (stale, stale))
+
+    sweep_stale_test_dirs(str(tmp_path))
+
+    assert sorted(os.listdir(tmp_path)) == ["baihe_test_fresh", "baihe_tmp_old.wav", "unrelated_old"]
+
+
+def test_rmtree_retrying_removes_read_only_files(tmp_path):
+    from tests.conftest import rmtree_retrying
+    folder = tmp_path / "ro"
+    folder.mkdir()
+    f = folder / "model.bin"
+    f.write_bytes(b"x")
+    os.chmod(f, 0o444)
+    rmtree_retrying(str(folder))
+    assert not folder.exists()
+
+
 def test_legacy_sweep_removes_stale_torch_pins_and_assistant_test_folders(tmp_path):
     t = time.time() - 2 * DAY
     (tmp_path / "baihe-torch-pins-abc.txt").write_text("x")

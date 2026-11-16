@@ -179,6 +179,12 @@ jobs:
       - name: Quick guards
         run: python run_tests.py -q -n auto $(cat tests/ci_guards.txt)
 
+      # The package layer order in .importlinter. Its ignore_imports list is the
+      # wrong-way imports that predate the check; an unmatched one fails, so the
+      # list can only shrink.
+      - name: Import layers (import-linter)
+        run: pip install import-linter==2.15 && lint-imports
+
       # Fails on a type error missing from .basedpyright/baseline.json. A fixed error
       # drops out of the baseline on the run, so the diff fails until the smaller
       # baseline is committed: it can only shrink without a visible --writebaseline.
