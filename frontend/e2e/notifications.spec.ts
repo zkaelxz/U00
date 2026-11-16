@@ -19,6 +19,9 @@ type Status = {
   send_jobs: boolean
   send_chapters: boolean
   send_remote: boolean
+  show_private_titles: boolean
+  pc_name: string
+  pc_name_default: string
 }
 
 const OFF: Status = {
@@ -28,6 +31,9 @@ const OFF: Status = {
   send_jobs: true,
   send_chapters: true,
   send_remote: true,
+  show_private_titles: false,
+  pc_name: '',
+  pc_name_default: 'DESKTOP-TEST',
 }
 
 async function guard(page: Page): Promise<string[]> {
