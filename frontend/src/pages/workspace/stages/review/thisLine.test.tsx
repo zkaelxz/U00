@@ -12,7 +12,7 @@ import { LinesAround, LineWhy, NearLine, ThisLinePanel } from './ThisLinePanel'
 
 const line = (n: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id: 100 + n, idx: n - 1, start: n * 2, end: n * 2 + 1.5, zh: `第${n}句`, en: `Line ${n}`, speaker: null, speaker_manual: false,
-  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
+  sfx: false, flag: null, flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, unsure_words: null, ...over,
 })
 const GLOSSARY = line(24, { flag: 'glossary_missing', flag_note: 'Glossary: 夷陵老祖 -> Yiling Patriarch missing' })
 

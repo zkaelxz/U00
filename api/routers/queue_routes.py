@@ -12,10 +12,11 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Path, Query, Request
 
-from api.auth import holds, holds_paid_engines, is_at_pc, require_cloud_model_allowed, require_permission
+from api.auth import (holds, holds_paid_engines, is_at_pc, is_auth_enabled, is_local_request,
+                      require_cloud_model_allowed, require_engines_allowed, require_permission)
 from api.schemas import (QueueAddAllSteps, QueueAddBulk, QueueAddItem, QueueBulkAdded, QueueMove, QueuePolicy,
-                         QueueScheduleSet, QueueState, QueueStepSettings, error_responses)
-from services import queue_service
+                         FileRunStart, NovelFlowStart, QueueScheduleSet, QueueState, QueueStepSettings, TitleFlowRun, error_responses)
+from services import glossary_extract_service, page_run_service, queue_service
 
 router = APIRouter(prefix="/api/queue", tags=["queue"])
 
@@ -115,3 +116,58 @@ def set_schedule(body: QueueScheduleSet, request: Request):
              summary="Whether a failed item stops the queue", responses=_ERRORS)
 def set_policy(body: QueuePolicy, request: Request):
     return queue_service.set_policy(request.state.principal, body.stop_on_failure)
+
+
+@router.get("/title-flow/{drama_id}", dependencies=[require_permission("jobs.start")], response_model=TitleFlowRun,
+            summary="How far the title's one-button run (transcribe, then find names) got", responses=_ERRORS)
+def get_title_flow(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
+    return page_run_service.title_flow(request.state.principal, drama_id)
+
+
+@router.post("/title-flow/{drama_id}", dependencies=[require_permission("jobs.start")], response_model=TitleFlowRun,
+             summary="Queue the title's one-button run to start now; a run already in line is returned",
+             responses=error_responses(400, 403, 404, 409, 422, 503))
+def start_title_flow(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
+    # The names step's engine is held to the same gate as the Glossary tab's own start.
+    require_engines_allowed(request, glossary_extract_service.lines_glossary_engine(drama_id))
+    return page_run_service.start_title_flow(request.state.principal, drama_id, holds_paid_engines(request),
+                                            at_pc=is_at_pc(request))
+
+
+@router.get("/novel-flow/{drama_id}", dependencies=[require_permission("jobs.start")], response_model=TitleFlowRun,
+            summary="How far the novel's link run (import, text, lines, then find names) got", responses=_ERRORS)
+def get_novel_flow(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
+    return page_run_service.novel_flow(request.state.principal, drama_id)
+
+
+@router.post("/novel-flow/{drama_id}", dependencies=[require_permission("jobs.start")], response_model=TitleFlowRun,
+             summary="Queue the novel's link run to start now; a run already in line is returned",
+             responses=error_responses(400, 403, 404, 409, 422, 503))
+def start_novel_flow(body: NovelFlowStart, request: Request, drama_id: int = Path(ge=1, lt=2**63)):
+    # Each step's engine is held to the gate of the button it replaces (narration run, Glossary tab).
+    require_engines_allowed(request, glossary_extract_service.novel_glossary_engine(drama_id))
+    lines = page_run_service.lines_choice(drama_id, body.model_dump(exclude={"url"}))
+    if "lines" in page_run_service.novel_steps(drama_id) and not lines["one_narrator"]:
+        require_engines_allowed(request, lines["engine"], model=lines.get("model"))
+    local = is_local_request(request)
+    return page_run_service.start_novel_flow(
+        request.state.principal, drama_id, body.url, lines, at_pc=is_at_pc(request), local=local,
+        # The text step was local_only(): with sign-in on, only a request from the PC may add it.
+        text_allowed=local or not is_auth_enabled(request.app), holds_import=holds(request, "sources.import"))
+
+
+@router.get("/file-run/{drama_id}", dependencies=[require_permission("jobs.start")], response_model=TitleFlowRun,
+            summary="How far the Add box run (the upload's transcription, then translate) got", responses=_ERRORS)
+def get_file_run(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
+    return page_run_service.file_run(request.state.principal, drama_id)
+
+
+@router.post("/file-run/{drama_id}", dependencies=[require_permission("jobs.start")], response_model=TitleFlowRun,
+             summary="Queue the Add box run after its upload, to start now; a run already in line is returned",
+             responses=error_responses(400, 403, 404, 409, 422))
+def start_file_run(body: FileRunStart, request: Request, drama_id: int = Path(ge=1, lt=2**63)):
+    # The same gates as the Translate stage's own start with this engine.
+    require_engines_allowed(request, body.engine)
+    require_cloud_model_allowed(request, (body.engine, None))
+    return page_run_service.start_file_run(request.state.principal, drama_id, body.job_id, body.engine,
+                                           body.locale, at_pc=is_at_pc(request))

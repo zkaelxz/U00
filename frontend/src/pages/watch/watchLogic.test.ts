@@ -12,7 +12,7 @@ import {
 
 const line = (id: number, start: number, end: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
   id, idx: id - 1, start, end, zh: `zh ${id}`, en: `en ${id}`, speaker: null, speaker_manual: false, sfx: false, flag: null,
-  flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, ...over,
+  flag_note: null, dub_filename: null, lang: null, reviewed: false, confidence: null, mark: null, unsure_words: null, ...over,
 })
 
 const lines = [line(1, 1, 2), line(2, 3, 4.5), line(3, 6, 7)]

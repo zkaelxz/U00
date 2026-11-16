@@ -728,7 +728,19 @@ def test_a_failed_install_is_not_retried_and_the_sox_fallback_is_gone(monkeypatc
 
 
 
-def test_a_plain_opencv_is_uninstalled_before_paddleocr_installs(monkeypatch):
+@pytest.fixture
+def contrib_swap(monkeypatch):
+    # No shipping key needs the contrib build now (PaddleOCR installs without its
+    # dependencies), so the swap is exercised with a key that does.
+    monkeypatch.setattr(packages_svc.install_registry, "NEEDS_CV2_CONTRIB", frozenset({"paddleocr"}))
+
+
+def test_paddleocr_leaves_a_plain_opencv_alone(monkeypatch):
+    monkeypatch.setattr(packages_svc.pending_install, "snapshot", lambda: {"opencv-python": "5.0.0.93"})
+    assert [c[3] for c, _t in packages_svc._install_commands("paddleocr")] == ["install"]
+
+
+def test_a_plain_opencv_is_uninstalled_before_a_contrib_key_installs(monkeypatch, contrib_swap):
     monkeypatch.setattr(packages_svc.pending_install, "snapshot", lambda: {"opencv-python": "4.10.0.84"})
     cmds = [cmd for cmd, _t in packages_svc._install_commands("paddleocr")]
     assert [c[3] for c in cmds] == ["install", "uninstall", "install"]
@@ -736,13 +748,13 @@ def test_a_plain_opencv_is_uninstalled_before_paddleocr_installs(monkeypatch):
     assert cmds[1][4:] == ["-y", "opencv-python"]
 
 
-def test_no_swap_when_contrib_is_already_installed(monkeypatch):
+def test_no_swap_when_contrib_is_already_installed(monkeypatch, contrib_swap):
     monkeypatch.setattr(packages_svc.pending_install, "snapshot",
                         lambda: {"opencv-python": "4.10", "opencv-contrib-python": "4.10"})
     assert [c[3] for c, _t in packages_svc._install_commands("paddleocr")] == ["install"]
 
 
-def test_the_torch_pins_constraint_goes_only_on_the_install_step(monkeypatch):
+def test_the_torch_pins_constraint_goes_only_on_the_install_step(monkeypatch, contrib_swap):
     monkeypatch.setattr(packages_svc.pending_install, "snapshot", lambda: {"opencv-python": "4.10"})
     monkeypatch.setattr(packages_svc.gpu_torch, "torch_pin_lines", lambda: ["torch==2.11.0"])
     seen = []

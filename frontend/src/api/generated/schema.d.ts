@@ -7265,6 +7265,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/queue/file-run/{drama_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How far the Add box run (the upload's transcription, then translate) got */
+        get: operations["get_file_run_api_queue_file_run__drama_id__get"];
+        put?: never;
+        /** Queue the Add box run after its upload, to start now; a run already in line is returned */
+        post: operations["start_file_run_api_queue_file_run__drama_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/queue/items": {
         parameters: {
             query?: never;
@@ -7367,6 +7385,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/queue/novel-flow/{drama_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How far the novel's link run (import, text, lines, then find names) got */
+        get: operations["get_novel_flow_api_queue_novel_flow__drama_id__get"];
+        put?: never;
+        /** Queue the novel's link run to start now; a run already in line is returned */
+        post: operations["start_novel_flow_api_queue_novel_flow__drama_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/queue/pause": {
         parameters: {
             query?: never;
@@ -7446,6 +7482,24 @@ export interface paths {
         put?: never;
         /** Start (or resume) the queue now */
         post: operations["start_api_queue_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/queue/title-flow/{drama_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How far the title's one-button run (transcribe, then find names) got */
+        get: operations["get_title_flow_api_queue_title_flow__drama_id__get"];
+        put?: never;
+        /** Queue the title's one-button run to start now; a run already in line is returned */
+        post: operations["start_title_flow_api_queue_title_flow__drama_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -19541,6 +19595,18 @@ export interface components {
             /** Missing Top Level */
             missing_top_level: string[];
         };
+        /**
+         * FileRunStart
+         * @description POST /api/queue/file-run/{id}: the job the upload started, and the box's engine and English variant.
+         */
+        FileRunStart: {
+            /** Engine */
+            engine: string;
+            /** Job Id */
+            job_id: string;
+            /** Locale */
+            locale?: string | null;
+        };
         /** FixFlaggedJobStart */
         FixFlaggedJobStart: {
             /**
@@ -23634,6 +23700,36 @@ export interface components {
             /** Warning */
             warning: string | null;
         };
+        /**
+         * NovelFlowStart
+         * @description POST /api/queue/novel-flow/{id}. `url` is read only when no chapter is saved yet; the rest
+         *     is what the lines step makes the lines with, as the chunk-and-tag run takes it.
+         */
+        NovelFlowStart: {
+            /** Chapter From */
+            chapter_from?: number | null;
+            /** Chapter To */
+            chapter_to?: number | null;
+            /**
+             * Cost Accepted
+             * @default false
+             */
+            cost_accepted?: boolean;
+            /** Engine */
+            engine?: string | null;
+            /** Model */
+            model?: string | null;
+            /**
+             * One Narrator
+             * @default false
+             */
+            one_narrator?: boolean;
+            /**
+             * Url
+             * @default
+             */
+            url?: string;
+        };
         /** NovelGlossaryApplyResult */
         NovelGlossaryApplyResult: {
             /** Added */
@@ -24301,7 +24397,7 @@ export interface components {
              * Step
              * @enum {string}
              */
-            step: "download" | "transcribe" | "translate" | "export";
+            step: "download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines" | "follow" | "run_translate";
             /** Title */
             title: string;
         };
@@ -26321,6 +26417,14 @@ export interface components {
             speaker_manual: boolean;
             /** Start */
             start: number;
+            /**
+             * Unsure Words
+             * @description [start, end) character offsets into `zh` of the words Whisper was unsure of; [] when it was sure of every word, null when the line keeps no word scores (another engine, an older row, or edited source text).
+             */
+            unsure_words: [
+                number,
+                number
+            ][] | null;
             /** Zh */
             zh: string;
         };
@@ -27774,6 +27878,11 @@ export interface components {
              */
             asmr_stop_threshold: number;
             /**
+             * Blocked Phrases
+             * @default
+             */
+            blocked_phrases: string;
+            /**
              * Claude Reasoning
              * @default default
              */
@@ -28186,6 +28295,8 @@ export interface components {
             asmr_start_threshold?: number | null;
             /** Asmr Stop Threshold */
             asmr_stop_threshold?: number | null;
+            /** Blocked Phrases */
+            blocked_phrases?: string | null;
             /** Bulk Auto Resume */
             bulk_auto_resume?: boolean | null;
             /** Claude Reasoning */
@@ -30560,6 +30671,23 @@ export interface components {
             snapped: number;
             /** Stale Ids */
             stale_ids: number[];
+        };
+        /**
+         * TitleFlowRun
+         * @description How far a title's one-button run got, audio and video or a novel's link (services/page_run_service.py).
+         */
+        TitleFlowRun: {
+            /** Job Id */
+            job_id: string | null;
+            /** Reason */
+            reason: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "idle" | "waiting" | "running" | "stopped" | "review" | "done";
+            /** Step */
+            step: ("download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines" | "follow" | "run_translate") | null;
         };
         /** TitleLanguagePack */
         TitleLanguagePack: {
@@ -53379,6 +53507,135 @@ export interface operations {
             };
         };
     };
+    get_file_run_api_queue_file_run__drama_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_file_run_api_queue_file_run__drama_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileRunStart"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     add_item_api_queue_items_post: {
         parameters: {
             query?: never;
@@ -53737,6 +53994,144 @@ export interface operations {
             };
         };
     };
+    get_novel_flow_api_queue_novel_flow__drama_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_novel_flow_api_queue_novel_flow__drama_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NovelFlowStart"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     pause_api_queue_pause_post: {
         parameters: {
             query?: never;
@@ -54021,6 +54416,140 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_title_flow_api_queue_title_flow__drama_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_title_flow_api_queue_title_flow__drama_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

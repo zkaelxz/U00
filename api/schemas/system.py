@@ -315,6 +315,7 @@ class SettingsPreferences(TimingPreferences):
     default_locale: str
     default_style_note: str
     scene_aware_batches: bool
+    blocked_phrases: str = ""
     scanlate_chapter_brief: bool = True
     scanlate_page_image: bool = True
     scanlate_sfx_gloss: bool = False
@@ -429,6 +430,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     default_locale: Optional[StrictStr] = Field(None, max_length=8)
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)
     scene_aware_batches: Optional[StrictBool] = None
+    blocked_phrases: Optional[StrictStr] = Field(None, max_length=4000)
     scanlate_chapter_brief: Optional[StrictBool] = None
     scanlate_page_image: Optional[StrictBool] = None
     scanlate_sfx_gloss: Optional[StrictBool] = None
