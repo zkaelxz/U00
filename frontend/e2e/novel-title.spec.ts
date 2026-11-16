@@ -168,6 +168,27 @@ test('Show more chapters loads the next page of a long novel, not one bigger pag
   expect(offsets).toEqual([0, 100, 200])
 })
 
+test('Show more chapters pressed twice while the page is loading adds that page once', async ({ page }) => {
+  const all = Array.from({ length: 250 }, (_, i) => row(i + 1))
+  const offsets: number[] = []
+  await page.route('**/api/novel/dramas/2/raw-novel/chapters?*', async (route) => {
+    const url = new URL(route.request().url())
+    const offset = Number(url.searchParams.get('offset'))
+    const limit = Number(url.searchParams.get('limit'))
+    offsets.push(offset)
+    if (offset > 0) await new Promise((r) => setTimeout(r, 500))
+    return route.fulfill({ json: listBody(all.slice(offset, offset + limit), { total: all.length, offset, limit }) })
+  })
+  await page.goto('/#/drama/2')
+  const list = page.getByRole('list', { name: 'Saved chapters' })
+  await expect(list.getByRole('listitem')).toHaveCount(100)
+  const more = page.getByRole('button', { name: 'Show more chapters' })
+  await more.evaluate((b: HTMLButtonElement) => { b.click(); b.click() })
+  await expect(list.getByRole('listitem')).toHaveCount(200)
+  await expect(page.getByText('200 of 250')).toBeVisible()
+  expect(offsets).toEqual([0, 100])
+})
+
 test('Review leads once every line has English', async ({ page }) => {
   await mockChapters(page, listBody([row(1)]))
   await page.route('**/api/workflow/dramas/2/progress', (route) => route.fulfill({ json: { ...progress(12), untranslated_count: 0 } }))

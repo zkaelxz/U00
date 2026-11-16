@@ -89,6 +89,24 @@ describe('error mapping inputs', () => {
     }
   })
 
+  it('a HEAD probe that never answers ends instead of hanging', async () => {
+    vi.useFakeTimers()
+    try {
+      const hung = ((_: RequestInfo | URL, init?: RequestInit) =>
+        new Promise((_res, rej) => {
+          init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
+        })) as typeof fetch
+      const { headStatus } = await import('./client')
+      let settled = false
+      const pending = headStatus('/api/x', hung).then(() => 'answered', () => 'rejected').finally(() => { settled = true })
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(settled).toBe(true)
+      expect(await pending).toBe('rejected')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('an upload still sending after the timeout is not cut off', async () => {
     vi.useFakeTimers()
     try {

@@ -117,7 +117,9 @@ const SENSITIVE =
 
 export function safeDetail(message: string): string | null {
   const m = message.trim()
-  if (!m || m.length > 200 || SENSITIVE.test(m)) return null
+  // Long enough for the server's longest recovery instructions (about 270 characters); anything longer is
+  // more likely a dump than a sentence written for people.
+  if (!m || m.length > 300 || SENSITIVE.test(m)) return null
   return m
 }
 

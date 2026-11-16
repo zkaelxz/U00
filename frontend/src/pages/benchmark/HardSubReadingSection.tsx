@@ -34,19 +34,23 @@ export function HardSubReadingSection({ pc }: { pc: PcMode }) {
     if (pc === 'remote' || chosen == null) return
     let live = true
     let timer: ReturnType<typeof setTimeout> | undefined
+    let running = false
     const poll = () =>
       getHardSubReading(chosen).then(
         (reading) => {
           if (!live) return
           setLoaded({ id: chosen, reading })
           setError(null)
-          if (reading.status === 'running') timer = setTimeout(poll, 3000)
+          running = reading.status === 'running'
+          if (running) timer = setTimeout(poll, 3000)
         },
         (e) => {
           if (!live) return
           // 404 = nothing has been read for this title yet, which is a state, not a failure.
-          if (e instanceof ApiError && e.status === 404) setLoaded({ id: chosen, reading: null })
-          else setError(plainError(e, { pcOnly: true }))
+          if (e instanceof ApiError && e.status === 404) return setLoaded({ id: chosen, reading: null })
+          setError(plainError(e, { pcOnly: true }))
+          // One failed check (a restart, a busy moment) must not leave a running reading unwatched.
+          if (running) timer = setTimeout(poll, 3000)
         },
       )
     void poll()

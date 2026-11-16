@@ -13,6 +13,12 @@ export function chaptersHeadline(list: NovelChapterList | null): string {
   return `${plural(list.total, 'chapter')}, ${plural(list.char_count, 'character')}`
 }
 
+/** The next page added under the rows already shown, skipping chapters already there (a page fetched twice). */
+export function appendChapters(rows: NovelChapterRow[], page: NovelChapterRow[]): NovelChapterRow[] {
+  const shown = new Set(rows.map((r) => r.number))
+  return [...rows, ...page.filter((r) => !shown.has(r.number))]
+}
+
 /** Section summary (visible while closed). */
 export function chaptersSummary(list: NovelChapterList | null): string {
   if (!list) return 'checking'

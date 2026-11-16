@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { NovelChapterList, NovelChapterRow } from '../../../types/novelChapters'
-import { chaptersHeadline, chaptersSummary, loadedLabel, neighbour, lineProgress, optionLabel, readerPageOf, rowMeta, rowTitle, translationLine } from './novelChapters'
+import { appendChapters, chaptersHeadline, chaptersSummary, loadedLabel, neighbour, lineProgress, optionLabel, readerPageOf, rowMeta, rowTitle, translationLine } from './novelChapters'
 
 const list = (over: Partial<NovelChapterList> = {}): NovelChapterList => ({
   drama_id: 1, present: true, size_bytes: 10, split: true, total: 12, char_count: 48210,
@@ -66,6 +66,16 @@ describe('row helpers', () => {
   it('labels a partly loaded slice', () => {
     expect(loadedLabel(20000, 150000)).toBe('20,000 of 150,000 characters')
     expect(loadedLabel(5, 5)).toBe('5 characters')
+  })
+})
+
+describe('appendChapters', () => {
+  it('adds the next page once, even when the same page arrives twice', () => {
+    const first = [row({ number: 1 }), row({ number: 2 })]
+    const page = [row({ number: 3 }), row({ number: 4 })]
+    const once = appendChapters(first, page)
+    expect(once.map((r) => r.number)).toEqual([1, 2, 3, 4])
+    expect(appendChapters(once, page).map((r) => r.number)).toEqual([1, 2, 3, 4])
   })
 })
 
