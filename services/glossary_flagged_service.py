@@ -17,8 +17,8 @@ import db
 from engine_backends.alignment_check import ALIGNMENT_FLAG
 from engine_backends.flag_reasons import FLAG_REASONS
 from engine_backends.glossary_check import GLOSSARY_FLAG, missing_terms
-from services import ownership_service, profile_service, settings_service, stronger_engine_service, translate_run_service, translate_thinking_service
-from lib.errors import InvalidInputError, ServiceError, UnsupportedOperationError
+from services import line_provenance_service, ownership_service, profile_service, settings_service, stronger_engine_service, translate_run_service, translate_thinking_service
+from lib.errors import InvalidInputError, UnsupportedOperationError
 
 log = logging.getLogger(__name__)
 
@@ -41,34 +41,42 @@ def _flagged_rows(drama_id: int) -> list:
 
 
 def _doubtful_rows(drama_id: int) -> list:
-    """Flagged lines nobody has settled: Save edits clears the flag, but find-and-replace
-    and memory Accept leave it, and Check marks the line reviewed, so reviewed lines
-    are left out rather than paid for again."""
-    return [r._asdict() for r in db.load_line_texts(drama_id)
+    """Flagged lines nobody has settled, whose English is still what a translate run wrote.
+    Save edits clears the flag and Check marks the line reviewed; find-and-replace, memory
+    Accept, an import or a restore leave the flag, and the redo must not overwrite a fix the
+    person made that way, so a line whose English no recorded run produced is left out."""
+    rows = [r._asdict() for r in db.load_line_texts(drama_id)
             if r.flag in DOUBTFUL_FLAGS and not r.reviewed
             and (r.zh or "").strip() and (r.en or "").strip()]
+    machine = line_provenance_service.machine_made_ids(drama_id, {r["id"]: r["en"] for r in rows})
+    return [r for r in rows if r["id"] in machine]
 
 
 def doubtful_config_fields(drama_id: int) -> dict:
     """Count of doubtful lines and what redoing them would cost, so the click is an
-    informed one. The estimate is None for a free engine or when it can't be made."""
+    informed one. The estimate is None for a free engine or when it can't be made; it
+    prices the model and batch size the redo itself will use (the title's last run's)."""
     rows = _doubtful_rows(drama_id)
-    estimate, lower_bound = None, False
+    estimate, lower_bound, refused, above_cap = None, False, False, False
     engine = stronger_engine_service.stronger_engine_or_none(drama_id) if rows else None
     if engine:
         try:
+            model, batch_size = translate_run_service.run_model_and_batch_size(drama_id, engine)
             made = translate_thinking_service.annotate_estimate(
                 translate_run_service.estimate_translate_cost(
-                    drama_id, engine_name=engine, force_retranslate=True,
-                    line_ids={r["id"] for r in rows}), drama_id, None)
+                    drama_id, engine_name=engine, model=model, batch_size=batch_size,
+                    force_retranslate=True, line_ids={r["id"] for r in rows}), drama_id, None)
             estimate = None if made["free"] else made["estimated_usd"]
             # The redo runs with the title's thinking choice, whose hidden output the estimate can't see.
             lower_bound = bool(estimate is not None and made["estimate_is_lower_bound"])
-        except ServiceError:
-            # A missing key or an offline engine is reported when the redo starts.
+            refused, above_cap = bool(made["monthly_refusal"]), bool(made["estimate_above_cap"])
+        except Exception:
+            # The estimate is advice on a page that must still load: a missing key or an
+            # offline engine is reported when the redo starts, and anything else is logged.
             log.info("No cost estimate for the doubtful-lines redo of title %s", drama_id, exc_info=True)
     return {"doubtful_flagged_count": len(rows), "doubtful_redo_estimate_usd": estimate,
-            "doubtful_redo_estimate_is_lower_bound": lower_bound}
+            "doubtful_redo_estimate_is_lower_bound": lower_bound,
+            "doubtful_redo_monthly_refusal": refused, "doubtful_redo_above_cap": above_cap}
 
 
 def config_fields(drama_id: int) -> dict:

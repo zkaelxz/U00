@@ -31262,12 +31262,22 @@ export interface components {
              */
             doubtful_flagged_count: number;
             /**
+             * Doubtful Redo Above Cap
+             * @default false
+             */
+            doubtful_redo_above_cap: boolean;
+            /**
              * Doubtful Redo Estimate Is Lower Bound
              * @default false
              */
             doubtful_redo_estimate_is_lower_bound: boolean;
             /** Doubtful Redo Estimate Usd */
             doubtful_redo_estimate_usd: number | null;
+            /**
+             * Doubtful Redo Monthly Refusal
+             * @default false
+             */
+            doubtful_redo_monthly_refusal: boolean;
             /** Drama Id */
             drama_id: number;
             /** Engines */

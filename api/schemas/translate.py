@@ -217,6 +217,10 @@ class TranslateRunConfig(BaseModel):
     doubtful_redo_estimate_usd: Optional[float] = None
     # True when the title's thinking is on for the redo: hidden reasoning is billed on top of the estimate.
     doubtful_redo_estimate_is_lower_bound: bool = False
+    # The monthly cap is used up, so the redo would be refused: the page shows that instead of a price.
+    doubtful_redo_monthly_refusal: bool = False
+    # The estimate is above the run's cap, so the redo would stop partway.
+    doubtful_redo_above_cap: bool = False
 
 
 class TranslateRunEstimate(BaseModel):

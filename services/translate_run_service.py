@@ -623,6 +623,16 @@ def run_engine_name(drama_id: int) -> str:
             or engine_routing_service.resolve_capability("translation.cheap"))
 
 
+def run_model_and_batch_size(drama_id: int, engine_name: str) -> tuple:
+    """(model, batch size) a run on `engine_name` would use when the caller passes neither:
+    the title's last run's choices, else the engine's defaults, so an estimate made before
+    the click prices the run that follows it."""
+    opts = _resolve_run_options(ownership_service.require_drama(drama_id), engine_name, None, None, None,
+                                None, None, None, None, None,
+                                settings_service.resolve_gemini_free_tier(None))
+    return opts.model, opts.batch_size
+
+
 def _resolve_run_options(drama, engine_name, model, style_preset, style_note, locale,
                          context_window, context_window_ahead, batch_size,
                          job_cost_cap_usd, gemini_free_tier) -> SimpleNamespace:

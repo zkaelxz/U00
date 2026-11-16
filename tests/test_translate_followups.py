@@ -12,7 +12,8 @@ from engine_backends import translate_pipeline as engine_translate_pipeline
 from core import Line
 from engine_backends import glossary_check
 from services import (episode_summary_service, failed_lines_service, glossary_flagged_service,
-                      settings_service, translate_run_service)
+                      line_provenance_service, lines_service, profile_service, settings_service,
+                      translate_run_service)
 from lib.errors import InvalidInputError, ServiceError, UnsupportedOperationError
 from tests import fake_engine
 from tests.job_helpers import wait_for_job
@@ -183,12 +184,15 @@ def test_redo_with_no_flagged_lines_is_refused(isolated_db, monkeypatch):
 # --- redo doubtful lines (source mismatch, AI-uncertain) -------------------
 
 def _flag_as(did, flags):
-    """flags: {idx: flag key}."""
+    """flags: {idx: flag key}. A translate run sets these flags, and it records the
+    English it wrote, so the flagged lines get that record too."""
     lines = db.load_line_objects(did)
     for ln in lines:
         if ln.idx in flags:
             ln.flag, ln.flag_note = flags[ln.idx], "note"
     db.save_lines(did, lines, fields=("flag", "flag_note"))
+    line_provenance_service.record(did, {ln.id: (ln.zh, ln.en) for ln in lines if ln.idx in flags},
+                                   "claude", "m", "1", "")
 
 
 def _flags(did):
@@ -270,10 +274,68 @@ def test_doubtful_estimate_is_reported_when_the_engine_can_be_priced(isolated_db
         seen.update(kw)
         return {"estimated_usd": 0.12, "free": False}
     monkeypatch.setattr(translate_run_service, "estimate_translate_cost", fake_estimate)
+    monkeypatch.setattr(translate_run_service, "run_model_and_batch_size",
+                        lambda drama_id, engine: ("title-model", 7))
     fields = glossary_flagged_service.doubtful_config_fields(did)
     assert fields == {"doubtful_flagged_count": 1, "doubtful_redo_estimate_usd": 0.12,
-                      "doubtful_redo_estimate_is_lower_bound": False}
+                      "doubtful_redo_estimate_is_lower_bound": False,
+                      "doubtful_redo_monthly_refusal": False, "doubtful_redo_above_cap": False}
     assert seen["force_retranslate"] is True and len(seen["line_ids"]) == 1
+    # Priced as the redo will run: the title's own model and batch size, not the engine defaults.
+    assert seen["model"] == "title-model" and seen["batch_size"] == 7
+
+
+def test_the_estimate_uses_the_model_and_batch_size_of_the_titles_last_run(isolated_db, monkeypatch):
+    did = _title(en=("a", "b", "c", "d"), errors=None, translation_engine="claude")
+    profile_service.remember_run(did, db.get_drama(did), on_title_engine=True, model=None,
+                                 style_preset="audio_drama", style_note="", locale="en-US", batch_size=13,
+                                 context_window=10, context_window_ahead=6)
+    assert translate_run_service.run_model_and_batch_size(did, "claude")[1] == 13
+
+
+def test_a_failing_estimate_leaves_the_count_and_no_price(isolated_db, monkeypatch):
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    _flag_as(did, {0: "source_mismatch"})
+    _stronger(monkeypatch)
+
+    def broken(drama_id, **kw):
+        raise KeyError("pricing table")
+    monkeypatch.setattr(translate_run_service, "estimate_translate_cost", broken)
+    fields = glossary_flagged_service.doubtful_config_fields(did)
+    assert fields["doubtful_flagged_count"] == 1 and fields["doubtful_redo_estimate_usd"] is None
+
+
+def test_lines_fixed_with_find_and_replace_are_left_out_of_the_doubtful_redo(isolated_db, monkeypatch):
+    did = _title(en=("a cat", "b", "c", "d"), errors=None)
+    _flag_as(did, {0: "source_mismatch", 1: "source_mismatch"})
+    _stronger(monkeypatch)
+    first = db.load_line_objects(did)[0]
+    lines_service.apply_find_replace(did, [{"id": first.id, "old_text": "a cat", "new_text": "a dog"}])
+    assert _flags(did)[0] == "source_mismatch"  # the fix keeps the flag ...
+    assert glossary_flagged_service.doubtful_config_fields(did)["doubtful_flagged_count"] == 1
+    out = glossary_flagged_service.start_redo(did, "fake", kind="doubtful")
+    wait_for_job(out["job_id"], timeout=20.0)
+    assert _en(did)[:2] == ["a dog", "[TEST] 句1"]  # ... but the redo never overwrites it
+
+
+def _paid_cap(monkeypatch, cap_usd, spend):
+    real = settings_service.resolve_key
+    values = {"monthly_cap_usd": str(cap_usd), "claude": "sk-ant-test"}
+    monkeypatch.setattr(settings_service, "resolve_key",
+                        lambda k, *a, **kw: values[k] if k in values else real(k, *a, **kw))
+    monkeypatch.setattr(db, "get_month_spend", lambda *a, **kw: spend)
+
+
+def test_a_used_up_monthly_cap_refuses_the_doubtful_redo_and_says_so_first(isolated_db, monkeypatch):
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    _flag_as(did, {0: "source_mismatch"})
+    _stronger(monkeypatch, "claude")
+    _paid_cap(monkeypatch, 5.0, 5.0)
+    fields = glossary_flagged_service.doubtful_config_fields(did)
+    assert fields["doubtful_redo_monthly_refusal"] is True
+    with pytest.raises(UnsupportedOperationError):
+        glossary_flagged_service.start_redo(did, "claude", kind="doubtful")
+    assert _en(did)[0] == "a"
 
 
 def test_doubtful_estimate_is_a_lower_bound_when_thinking_applies(isolated_db, monkeypatch):
@@ -298,6 +360,36 @@ def test_api_doubtful_redo(local_client, monkeypatch):
     assert r.status_code == 200 and len(r.json()["line_ids"]) == 1
     wait_for_job(r.json()["job_id"], timeout=20.0)
     assert _en(did)[3] == "[TEST] 句3" and _flags(did)[3] == ""
+
+
+def test_api_redo_refuses_an_unknown_kind(local_client, monkeypatch):
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    _flag_as(did, {3: "slang_idiom"})
+    _stronger(monkeypatch)
+    r = local_client.post(f"/api/translate-run/dramas/{did}/glossary-flagged/run", json={"kind": "everything"})
+    assert r.status_code == 422
+    assert _en(did)[3] == "d"
+
+
+def test_api_doubtful_redo_on_a_paid_engine_needs_engines_paid(isolated_db, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api import auth as api_auth
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    from services import auth_service
+    did = _title(en=("a", "b", "c", "d"), errors=None)
+    _flag_as(did, {3: "slang_idiom"})
+    _stronger(monkeypatch, "claude")
+    u = auth_service.add_user("member@example.com")
+    auth_service.grant_permission(u["id"], "jobs.start")
+    s = auth_service.create_session(u["id"], "pytest", "203.0.113.9")
+    client = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com",
+                        raise_server_exceptions=False)
+    r = client.post(f"/api/translate-run/dramas/{did}/glossary-flagged/run", json={"kind": "doubtful"},
+                    headers={"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+                             api_auth.CSRF_HEADER: s["csrf_token"]})
+    assert r.status_code == 403
+    assert _en(did)[3] == "d"
 
 
 # --- episode summary ------------------------------------------------------
