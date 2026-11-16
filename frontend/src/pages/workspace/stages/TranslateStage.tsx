@@ -85,7 +85,7 @@ import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
 import { GlossaryRetranslateAction } from './GlossaryRetranslate'
 import { engineNotesHelp, engineOptionLabel } from '../../../api/translate'
-import { FailedBatchesNotice, GlossaryFlaggedNotice } from './FollowupNotices'
+import { DoubtfulLinesNotice, FailedBatchesNotice, GlossaryFlaggedNotice } from './FollowupNotices'
 import { GlossaryScanBanner } from './GlossaryScanBanner'
 import { GlossaryReview } from './GlossaryReview'
 import type { GlossarySource } from './glossaryExtract'
@@ -813,6 +813,7 @@ export default function TranslateStage() {
               onDismissed={() => setConfig((c) => (c ? { ...c, last_translate_errors: null } : c))}
             />
             <GlossaryFlaggedNotice config={config} busy={busy} onStarted={setJobId} />
+            <DoubtfulLinesNotice config={config} busy={busy} onStarted={setJobId} />
           </>
         )}
         {!config && !error && (
