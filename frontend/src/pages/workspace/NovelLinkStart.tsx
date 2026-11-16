@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 
+import { narrationApi } from '../../api/dub'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
@@ -10,6 +11,8 @@ import { buttonClass } from '../../components/uiClasses'
 import { routeHref } from '../../router'
 import { ChainStall, runChain, type ChainStep } from './novelLinkChain'
 import { novelLinkActions, translateWithoutReview } from './novelLinkActions'
+import { EMPTY_TAG_CHOICE, TagChoices, type TagChoice } from './stages/TagChoices'
+import type { NarrationConfig } from '../../types/dub'
 
 const STEP_TEXT: Record<ChainStep, string> = {
   import: 'Importing the chapters',
@@ -42,16 +45,32 @@ export function NovelLinkStart({ id, chapters, translating, defaultUrl, hasSerie
   // Off by default: the pause at the glossary review is the standing behaviour; this is per browser.
   const [skipReview, setSkipReview] = usePersistedState('novel.skipGlossaryReview', false)
   const [started, setStarted] = useState(false)
+  // The AI engine, model and "one narrator" are remembered per browser; the chapters are for this run only.
+  const [saved, setSaved] = usePersistedState('novel.tagChoice', { engine: '', model: '', oneNarrator: false })
+  const [range, setRange] = useState({ from: '', to: '' })
+  const tag: TagChoice = { ...EMPTY_TAG_CHOICE, ...saved, ...range }
+  const [cfg, setCfg] = useState<NarrationConfig | null>(null)
+  const [blocked, setBlocked] = useState<string | null>(null)
+  const costAccepted = useRef(false)
+  const onAccepted = useCallback((v: boolean) => { costAccepted.current = v }, [])
   const resuming = chapters > 0
   const finished = step === 'review' && !started
+
+  // Read again after each step: the text only exists once it is prepared, and the estimate needs it.
+  useEffect(() => {
+    if (!resuming) return
+    let cancelled = false
+    narrationApi.config(id).then((c) => !cancelled && setCfg(c), () => undefined)
+    return () => { cancelled = true }
+  }, [id, resuming, step])
 
   const start = () => {
     setRunning(true)
     setError(null)
     const run = async () => {
-      await runChain(novelLinkActions(id, url.trim()), (s) => { setStep(s); onProgress() })
+      await runChain(novelLinkActions(id, url.trim(), tag, () => costAccepted.current), (s) => { setStep(s); onProgress() })
       if (skipReview) {
-        await translateWithoutReview(id, hasSeries)
+        await translateWithoutReview(id, hasSeries, tag)
         setStarted(true)
         onProgress()
       }
@@ -98,12 +117,26 @@ export function NovelLinkStart({ id, chapters, translating, defaultUrl, hasSerie
             Review glossary and translate
           </ButtonLink>
         ) : (
-          <button type="submit" className={buttonClass('primary')} disabled={running || (!resuming && !url.trim())}>
+          <button type="submit" className={buttonClass('primary')} disabled={running || (!resuming && !url.trim()) || !!blocked}>
             {resuming || error ? 'Continue' : 'Import from link'}
           </button>
         )}
         <span className="muted" role="status" aria-live="polite">{started ? 'Translation started' : step ? STEP_TEXT[step] : ''}</span>
       </div>
+      {resuming && !finished && !started && cfg && (
+        <TagChoices
+          dramaId={id}
+          cfg={cfg}
+          value={tag}
+          disabled={running}
+          onChange={(next) => {
+            setSaved({ engine: next.engine, model: next.model, oneNarrator: next.oneNarrator })
+            setRange({ from: next.from, to: next.to })
+          }}
+          onBlocked={setBlocked}
+          onAccepted={onAccepted}
+        />
+      )}
       {!started && (
         <Field label="Skip the glossary review" help="After the glossary scan, add the proposed terms that have a translation and start translating without stopping to review them.">
           <Toggle checked={skipReview} disabled={running} onChange={setSkipReview} />

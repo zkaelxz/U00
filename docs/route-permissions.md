@@ -442,6 +442,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/models/reeval/settings` | local_only() |
 | `GET /api/models/status` | admin.diagnostics |
 | `GET /api/narration/dramas/{drama_id}/config` | library.read |
+| `GET /api/narration/dramas/{drama_id}/estimate` | library.read |
 | `POST /api/narration/dramas/{drama_id}/run` | jobs.start |
 | `GET /api/notifications` | library.read |
 | `POST /api/novel/dramas/{drama_id}/add-chapters-from-sources` | local_only() |
