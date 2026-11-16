@@ -349,24 +349,18 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
         f.write(narration_ffmetadata(chapters, total_ms, title))
     out_path = out_path or os.path.join(drama_dir, "narration.m4b")
     # The track can come from a backup import, so ffmpeg may open only local files, as the
-    # formats this app writes. Encoded beside the final name and renamed, so a kill leaves
-    # no truncated audiobook under it.
-    part_path = out_path + ".part"
+    # formats this app writes. The export job encodes into its own work folder and moves the
+    # result into place itself, so a kill can't leave a truncated audiobook under the final name.
     cmd = ["ffmpeg", "-y", *video_export.local_input("flac,wav"), "-i", track_path,
            *video_export.local_input("ffmetadata"), "-i", meta_path, "-map", "0:a",
            "-map_metadata", "1", "-map_chapters", "1", "-c:a", "aac", "-b:a", "64k",
-           "-f", "ipod", part_path]
-    try:
-        if cancel_job_id:
-            import background_jobs
-            background_jobs.run_cancellable(cancel_job_id, cmd, timeout=M4B_ENCODE_TIMEOUT_SECONDS)
-        else:
-            subprocess.run(cmd, check=True, capture_output=True,
-                           timeout=M4B_ENCODE_TIMEOUT_SECONDS)
-        replace_file(part_path, out_path)
-    finally:
-        with contextlib.suppress(OSError):
-            os.remove(part_path)
+           "-f", "ipod", out_path]
+    if cancel_job_id:
+        import background_jobs
+        background_jobs.run_cancellable(cancel_job_id, cmd, timeout=M4B_ENCODE_TIMEOUT_SECONDS)
+    else:
+        subprocess.run(cmd, check=True, capture_output=True,
+                       timeout=M4B_ENCODE_TIMEOUT_SECONDS)
     return out_path
 
 

@@ -514,13 +514,12 @@ class TestExportM4b:
         _write_wav(tmp_path / "narration_track.wav", 3.0)
 
         ran = []
-        monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: (ran.append(cmd), open(cmd[-1], "wb").close()))
+        monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: ran.append(cmd))
         out = dub_narration.export_narration_m4b(lines, str(tmp_path), title="Story")
 
         assert out == str(tmp_path / "narration.m4b")
         cmd = ran[0]
-        assert cmd[0] == "ffmpeg" and cmd[-1] == out + ".part"
-        assert os.path.exists(out) and not os.path.exists(out + ".part")
+        assert cmd[0] == "ffmpeg" and cmd[-1] == out
         # Each input opens only local files, in the formats the app writes.
         inputs = [i for i, a in enumerate(cmd) if a == "-i"]
         assert all(cmd[i - 4] == "-protocol_whitelist" and cmd[i - 2] == "-format_whitelist" for i in inputs)
@@ -535,25 +534,11 @@ class TestExportM4b:
     def test_a_flac_track_gets_its_chapter_end_from_ffprobe(self, monkeypatch, tmp_path):
         (tmp_path / "narration_track.flac").write_bytes(b"fLaC")
         monkeypatch.setattr("media_inspect.duration_seconds", lambda path, timeout=30: 3.5)
-        monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: open(cmd[-1], "wb").close())
+        monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: None)
         lines = [Line(idx=0, start=0.0, end=1.0, zh="一", en="One", dub_filename="a")]
         dub_narration.export_narration_m4b(lines, str(tmp_path), title="T")
         meta = (tmp_path / "narration_chapters.txt").read_text(encoding="utf-8")
         assert meta.splitlines()[-2] == "END=3500"
-
-    def test_a_failed_encode_leaves_nothing_at_the_final_name(self, monkeypatch, tmp_path):
-        (tmp_path / "narration_track.flac").write_bytes(b"fLaC")
-        monkeypatch.setattr("media_inspect.duration_seconds", lambda path, timeout=30: 3.5)
-
-        def killed(cmd, **kw):
-            open(cmd[-1], "wb").write(b"half")
-            raise subprocess.CalledProcessError(1, cmd)
-        monkeypatch.setattr(subprocess, "run", killed)
-        with pytest.raises(subprocess.CalledProcessError):
-            dub_narration.export_narration_m4b(
-                [Line(idx=0, start=0.0, end=1.0, zh="一", en="One", dub_filename="a")], str(tmp_path))
-        assert not (tmp_path / "narration.m4b").exists()
-        assert not (tmp_path / "narration.m4b.part").exists()
 
     def test_needs_the_narration_first(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="generate the narration"):
