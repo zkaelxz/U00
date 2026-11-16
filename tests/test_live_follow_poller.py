@@ -417,6 +417,20 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
     assert len(starts) == 1
 
 
+def test_a_deferred_auto_start_says_so_when_it_starts_later(env, starts, monkeypatch):
+    fid = _auto(env)
+    monkeypatch.setattr(live_service, "list_sessions", lambda principal=None: [{"status": "running"}])
+    _check(fid)
+    assert starts == [] and len(env["sent"]) == 1 and env["sent"][0][1]["start_action"] is True
+    monkeypatch.setattr(live_service, "list_sessions", lambda principal=None: [])
+    _check(fid, NOW + 3600)
+    assert len(starts) == 1 and len(env["sent"]) == 2
+    args, kw = env["sent"][1]
+    assert "started Live automatically" in args[0] and kw["start_action"] is False
+    _check(fid, NOW + 7200)
+    assert len(starts) == 1 and len(env["sent"]) == 2
+
+
 def test_auto_start_uses_the_monthly_cap_helper(env, starts, monkeypatch):
     from services import line_ai_service
     seen = []

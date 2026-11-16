@@ -32,13 +32,13 @@ from jobs.job_table import _job_threads, _jobs, _lock, _mirror_locked, _warn, _w
 
 
 def _timing_start(job_id, thread_job=True):
-    """(services/job_timing_service): a job's per-stage
+    """(job_timing): a job's per-stage
     timing run starts when it actually runs. Never raises."""
     try:
-        from services import job_timing_service
-        token = job_timing_service.start_run(job_id)
+        import job_timing
+        token = job_timing.start_run(job_id)
         if thread_job:
-            job_timing_service.set_current_job(job_id)
+            job_timing.set_current_job(job_id)
         return token
     except Exception:
         return None
@@ -48,10 +48,10 @@ def _timing_finish(job_id, token, thread_job=True):
     """`token` keeps a new run of the same job id, started the moment this
     one was marked finished, from being closed by this one."""
     try:
-        from services import job_timing_service
-        job_timing_service.finish_run(job_id, token=token)
+        import job_timing
+        job_timing.finish_run(job_id, token=token)
         if thread_job:
-            job_timing_service.set_current_job(None)
+            job_timing.set_current_job(None)
     except Exception:
         pass
 

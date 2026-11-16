@@ -953,3 +953,28 @@ class TestEmbeddingFromLines:
 
     def test_no_saved_turns_gives_none(self, tmp_path):
         assert diarize.embedding_from_lines(str(tmp_path), "Anok", self._lines((0, 20, "Anok"))) is None
+
+
+def test_m4a_is_decoded_before_soundfile_reads_it(monkeypatch):
+    """libsndfile has no AAC decoder, and an uploaded .m4a is stored as source.m4a."""
+    pytest.importorskip("torch")
+    import contextlib
+    import types
+    import numpy as np
+    import audio_extract
+    reads = []
+
+    def fake_read(path, dtype="float32", always_2d=True):
+        if not path.endswith(".wav"):
+            raise RuntimeError("Format not recognised")
+        reads.append(path)
+        return np.zeros((1, 1), dtype="float32"), 16000
+    _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")])
+    monkeypatch.setitem(sys.modules, "soundfile", types.SimpleNamespace(read=fake_read))
+
+    @contextlib.contextmanager
+    def fake_readable(path):
+        yield "/tmp/decoded.wav"
+    monkeypatch.setattr(audio_extract, "sndfile_readable", fake_readable)
+    diarize.diarize("/fake/source.m4a", "hf_xxx")
+    assert reads == ["/tmp/decoded.wav"]

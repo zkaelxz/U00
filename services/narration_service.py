@@ -33,9 +33,9 @@ from engine_backends import local as engine_local
 from engine_backends import paid_calls, pricing
 from core import Line
 from engine_backends.run_limits import TranslateRunStopped
+import job_timing
 from services import (
     job_checkpoint_service,
-    job_timing_service,
     ownership_service,
     paid_job_service,
     settings_service,
@@ -316,7 +316,7 @@ def _raise_if_cancelled(job_id):
 
 def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fresh=False, append=False,
                        chapters=None, one_narrator=False):
-    job_timing_service.mark_stage(job_id, "Chunk")
+    job_timing.mark_stage(job_id, "Chunk")
     background_jobs.update_progress(job_id, 0.05, "Chunking novel text...")
     whole_text = text
     # The checkpoint and the line numbers below belong to the chosen chapters' text alone.
@@ -334,7 +334,7 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
                 notice=None if one_narrator else NO_KEY_NOTICE)
         return
 
-    job_timing_service.mark_stage(job_id, "Tag speakers")
+    job_timing.mark_stage(job_id, "Tag speakers")
     background_jobs.update_progress(job_id, 0.2, "Tagging speakers with the LLM...")
     engine = engine_registry.get_engine(
         engine_name, api_key, model,
@@ -396,7 +396,7 @@ def _carry_over_existing(lines, existing):
 def _append_lines(job_id, drama_id, lines, notice=None):
     """Adds the new chunks after the saved lines, which are written back exactly as read, so edits
     made in Review survive. Refuses (ConflictError) if the lines changed while the job ran."""
-    job_timing_service.mark_stage(job_id, "Save")
+    job_timing.mark_stage(job_id, "Save")
     background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
     background_jobs.cancel_line_jobs(drama_id)
     existing = db.load_line_objects(drama_id)
@@ -426,7 +426,7 @@ def _save_chapters(job_id, drama_id, lines, chapters, whole_text, notice=None):
     """Puts the freshly tagged lines of the chosen chapters in their place among the saved
     lines: other chapters' lines are written back exactly as read, a chosen chapter that had
     lines keeps each line's English and review state, and the lines are renumbered in order."""
-    job_timing_service.mark_stage(job_id, "Save")
+    job_timing.mark_stage(job_id, "Save")
     background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
     background_jobs.cancel_line_jobs(drama_id)
     existing = db.load_line_objects(drama_id)
@@ -458,7 +458,7 @@ def _save_chapters(job_id, drama_id, lines, chapters, whole_text, notice=None):
 
 
 def _save_lines(job_id, drama_id, lines, notice=None):
-    job_timing_service.mark_stage(job_id, "Save")
+    job_timing.mark_stage(job_id, "Save")
     background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
     for label in sorted({ln.speaker or "Narrator" for ln in lines}):
         db.upsert_character(drama_id, label, character_name=label)

@@ -31,7 +31,7 @@ from .shared import (
 from .line_text import build_numbered_lines, extract_first_json_value, parse_flag_entries, parse_json_array
 from .thinking import deepseek_extra_body
 from . import stream_recipe
-from services import job_timing_service
+import job_timing
 
 # DeepSeek's per-request bound. It is only a per-read idle timeout, so
 # LLM_TASK_DEADLINE_SECONDS is what actually ends a call whose server keeps the
@@ -217,7 +217,7 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float | None =
         ctx.run(abort_check_var.set, lambda: abandon.is_set() or bool(scope.cancel_check()))
     # The job's stage cost is keyed by a thread-local the job thread set; the
     # worker inherits it so usage logged inside the call still reaches the job.
-    timing_job = job_timing_service.current_job()
+    timing_job = job_timing.current_job()
     late_once = threading.Lock()
 
     def record_late_result():
@@ -230,7 +230,7 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float | None =
                     "usage of an abandoned AI call was not logged: %s", redact_secrets(str(exc)))
 
     def work():
-        job_timing_service.set_current_job(timing_job)
+        job_timing.set_current_job(timing_job)
         try:
             box["value"] = ctx.run(fn)
         except BaseException as exc:
