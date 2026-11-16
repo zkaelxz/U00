@@ -96,6 +96,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import page_capture_checks
+import storage
 from lib.link_new import link_new
 import page_turns
 
@@ -468,9 +469,7 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
     from services import settings_service
     if not any((b.get("translated_text") or "").strip() and not b.get("skip") for b in bubbles):
         return ""
-    import tempfile
-    fd, out_path = tempfile.mkstemp(suffix=".png", prefix="baihe_typeset_")
-    os.close(fd)
+    out_path = storage.new_partial_file("typeset", ".png")
     try:
         with PIPELINE_LOCK:
             scanlate_render.process_page(image_path, bubbles, out_path,
