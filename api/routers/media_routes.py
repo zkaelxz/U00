@@ -100,12 +100,13 @@ def post_upload_and_transcribe(
                          "downloads run at once, started at least 20 s apart; more wait in line "
                          "(the job message says \"Queued: 2nd in line\"). allow_long raises the 6 h "
                          "cap to 12 h for this download; part_start/part_end (h:mm:ss) download "
-                         "only that section, exact_cuts re-encodes it for precise cuts.",
+                         "only that section, exact_cuts re-encodes it for precise cuts. max_height keeps "
+                         "a video no taller than that (the best on offer when left out).",
              responses=error_responses(404, 409, 422, 503))
 def post_download_url(body: MediaUrlDownloadRequest, drama_id: int = Path(ge=1)):
     return url_media_service.start_url_download(
         drama_id, body.url, body.audio_only, body.confirm_replace_audio, body.allow_long,
-        body.part_start, body.part_end, body.exact_cuts)
+        body.part_start, body.part_end, body.exact_cuts, body.max_height)
 
 
 # Each open stream holds a connection and a file read, so one signed-in user

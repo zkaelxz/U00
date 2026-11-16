@@ -245,7 +245,11 @@ export const SOURCE_DRAFT_SHAPE = { from: 'file' }
 
 // The "From a URL" form's draft (stage "source.url"); Replace is never kept.
 export const URL_DRAFT_STAGE = 'source.url'
-export const URL_DRAFT_SHAPE = { url: '', audioOnly: false }
+// maxHeight 0 is "Best available".
+export const URL_DRAFT_SHAPE = { url: '', audioOnly: false, maxHeight: 0 }
+export const SAME_LINK_REPLACE_NOTE =
+  'A video or audio file that was downloaded from this same link before is deleted, not kept, because it can be downloaded again. Anything else you replace is kept in the title\'s folder.'
+export const videoQualityLabel = (height: number) => (height === 2160 ? '4K (2160p)' : `${height}p`)
 
 // What the Transcribe form keeps with the title (language, speaker detection, names, prompt),
 // as the form holds it: speaker counts as text, blank = auto.
