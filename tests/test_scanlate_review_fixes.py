@@ -8,7 +8,8 @@ np = pytest.importorskip("numpy")
 from PIL import Image  # noqa: E402
 
 import db  # noqa: E402
-import scanlate_detect  # noqa: E402
+import scanlate_page_decode  # noqa: E402
+import scanlate_panels  # noqa: E402
 import scanlate_inpaint  # noqa: E402
 import scanlate_fonts  # noqa: E402
 import scanlate_text_layout  # noqa: E402
@@ -18,7 +19,7 @@ from services import keep_original_service, scanlate_render_service  # noqa: E40
 def test_a_strip_tail_that_is_only_the_overlap_band_joins_the_last_slice(tmp_path):
     path = str(tmp_path / "strip.png")
     cv2.imwrite(path, np.full((1700, 8, 3), 255, dtype=np.uint8))
-    slices = scanlate_detect.split_webtoon_strip(path, target_height=1600, overlap=100)
+    slices = scanlate_panels.split_webtoon_strip(path, target_height=1600, overlap=100)
     assert slices[-1]["y_end"] == 1700
     assert all(s["y_end"] - s["y_start"] > 160 for s in slices)
 
@@ -26,7 +27,7 @@ def test_a_strip_tail_that_is_only_the_overlap_band_joins_the_last_slice(tmp_pat
 def test_transparent_pixels_decode_as_white(tmp_path):
     path = str(tmp_path / "t.png")
     Image.new("RGBA", (4, 4), (0, 0, 0, 0)).save(path)
-    assert scanlate_detect.decode_page(path).min() == 255
+    assert scanlate_page_decode.decode_page(path).min() == 255
 
 
 def test_cjk_punctuation_is_replaced_before_typesetting():

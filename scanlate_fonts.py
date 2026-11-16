@@ -5,7 +5,7 @@ import os
 import re
 from typing import Any
 
-from scanlate_detect import page_gray
+from scanlate_page_decode import page_gray
 
 
 # One of these three, matching sample_text_style()'s "suggested_style"

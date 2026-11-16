@@ -96,7 +96,7 @@ describe('check queue card', () => {
     const unsure = { ...LINE, confidence: 0.72 }
     expect(row(true, unsure, { queue: true })).toContain('Whisper was unsure of this line (72% sure)')
     const closed = row(true, unsure, { queue: true, active: false })
-    // The closed card's chip keeps the score: on a wide screen it leaves out the Shaky badge that also says it.
+    // The closed card's chip keeps the score: on a wide screen it leaves out the Unsure badge that also says it.
     expect(closed).toContain('data-testid="queue-reason">Whisper was unsure of this line (72% sure)</span>')
     expect(row(true, unsure)).not.toContain('Whisper was unsure')
     // A closed card drops the full-width flag bar for its chip.

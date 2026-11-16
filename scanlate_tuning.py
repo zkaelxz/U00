@@ -52,7 +52,7 @@ CV_EMPTY_CONTRAST = 40
 # --- Bubble detection, ML model (scanlate_detect.detect_bubbles_ml) ---
 ML_CONFIDENCE = 0.25
 # A lettering box the model scores from this up to ML_CONFIDENCE is kept when it is a cell of a
-# form beside a kept one (scanlate_detect._form_cells): the four labels of one form on S library
+# form beside a kept one (scanlate_box_merge._form_cells): the four labels of one form on S library
 # p68 scored 0.15-0.31.
 ML_FORM_CELL_CONFIDENCE = 0.1
 # Two boxes are one balloon when they overlap this much (IoU), or when the
@@ -61,7 +61,7 @@ ML_FORM_CELL_CONFIDENCE = 0.1
 ML_MERGE_IOU = 0.5
 ML_MERGE_CONTAINED = 0.8
 
-# --- Fragments of one balloon (scanlate_detect.merge_fragment_boxes) ---
+# --- Fragments of one balloon (scanlate_box_merge.merge_fragment_boxes) ---
 # Two boxes of one class are one region when the smaller lies this far inside
 # the other: the model draws stacked, partly overlapping boxes on one balloon.
 FRAGMENT_OVERLAP = 0.4
@@ -71,7 +71,7 @@ FRAGMENT_OVERLAP = 0.4
 # extent. A real balloon's outline keeps two neighbouring balloons further apart.
 FRAGMENT_ALIGNED = 0.6
 FRAGMENT_GAP = 0.3
-# A ruled line between two cells of a form (scanlate_detect._ruled_line_between) is at least this much
+# A ruled line between two cells of a form (scanlate_box_merge._ruled_line_between) is at least this much
 # darker than the paper, runs across at least RULE_SPAN of the area the two boxes cover, and is
 # broken by no gap over RULE_MAX_GAP_PX. The rules on S library p68 are about 25-60 levels darker
 # than their grey cells.
@@ -96,7 +96,7 @@ ERASE_FLAT_TONE_PX = 7
 # is thinner than this.
 ERASE_SOLID_ART_PX = 11
 
-# --- Region kinds (scanlate_detect.classify_text_regions) ---
+# --- Region kinds (scanlate_balloons.classify_text_regions) ---
 # A box at least this share light (gray above the level) is a balloon or a
 # caption box rather than lettering on the art.
 CLASSIFY_LIGHT_LEVEL = 200
@@ -132,7 +132,7 @@ TRIM_BRIDGE = 0.25
 # vertical; anything squarer goes by its widest gap.
 ORIENTATION_ASPECT = 1.8
 
-# --- Panels (scanlate_detect.detect_panels) ---
+# --- Panels (scanlate_panels.detect_panels) ---
 # Gutters are anything within this many gray levels of the page's margin.
 PANEL_PAPER_MARGIN = 15
 

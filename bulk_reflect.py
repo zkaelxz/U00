@@ -20,7 +20,7 @@ from engine_backends import (
     pricing,
 )
 from engine_backends import prompts as engine_prompts
-import translation_guide as tguide
+import glossary_substitution
 import word_replacements
 from lib.errors import NotFoundError
 from translation_finish import mark_translated_if_complete
@@ -527,7 +527,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
     args = job.get("translate_args") or {}
     enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
     substitute_terms, fixes_text = word_replacements.with_replacements(
-        tguide.build_hard_term_substituter(enforced), job["drama_id"], bool(enforced))
+        glossary_substitution.build_hard_term_substituter(enforced), job["drama_id"], bool(enforced))
     unusable = junk_check(job)
     notes = []
     for lid, text in text_by_id.items():

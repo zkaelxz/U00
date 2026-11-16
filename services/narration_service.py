@@ -19,7 +19,9 @@ speakers" history snapshot of whatever lines existed.
 
 No FastAPI import.
 """
+import copy
 import os
+from types import SimpleNamespace
 from typing import Optional
 
 import background_jobs
@@ -28,7 +30,7 @@ import novel_text
 import db
 from engine_backends import llm_tasks, engine_registry
 from engine_backends import local as engine_local
-from engine_backends import paid_calls
+from engine_backends import paid_calls, pricing
 from core import Line
 from engine_backends.run_limits import TranslateRunStopped
 from services import (
@@ -47,6 +49,11 @@ DEFAULT_ENGINE = "claude"
 # LLM-capable engines that can tag speakers (pure MT engines cannot).
 TAG_ENGINES = ["claude", "deepseek", "gemini", "openai", "ollama"]
 MAX_CHUNK_CHARS = 200  # core.chunk_novel_text's own default
+# Matches llm_tasks.tag_speakers_by_id's batch of 15 numbered chunks and its instruction
+# prompt (about 150 tokens); a label in the reply is a few tokens plus the JSON around it.
+TAG_BATCH_SIZE = 15
+TAG_PROMPT_TOKENS = 150
+TAG_OUTPUT_TOKENS_PER_LINE = 8
 NO_KEY_NOTICE = ("No AI key set, so every line is marked Narrator. "
                  "Add a key in Settings to tag speakers.")
 
@@ -66,15 +73,21 @@ def _api_key(engine_name: str) -> Optional[str]:
     return settings_service.resolve_key(engine_name)
 
 
+def _chapter_count(text: str) -> int:
+    return len(novel_text.chapter_spans(text))
+
+
 def get_narration_config(drama_id: int) -> dict:
     """Booleans/enums only: no keys, paths or novel text. Raises
     NotFoundError for an unknown drama."""
     drama = ownership_service.require_drama(drama_id)
     status = background_jobs.get_status(f"narration_{drama_id}")
+    source = _read_novel(drama_id)
     return {
         "drama_id": drama_id,
         "is_narration": drama.get("content_mode") == "novel_narration",
-        "has_novel_source": bool(_read_novel(drama_id).strip()),
+        "has_novel_source": bool(source.strip()),
+        "chapter_count": _chapter_count(source),
         "engines": [{"key": e, "key_configured": bool(_api_key(e))} for e in TAG_ENGINES],
         "default_engine": DEFAULT_ENGINE,
         "max_chunk_chars": MAX_CHUNK_CHARS,
@@ -86,13 +99,15 @@ def get_narration_config(drama_id: int) -> dict:
 
 def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
                         model: Optional[str] = None, fresh: bool = False,
-                        append: bool = False) -> dict:
+                        append: bool = False, chapter_from: Optional[int] = None,
+                        chapter_to: Optional[int] = None, one_narrator: bool = False) -> dict:
     """Starts the chunk-and-tag job; returns {"job_id"}. NotFoundError for
     an unknown drama, InvalidInputError for no novel text or an engine that
     cannot tag speakers, ConflictError if a run is already active.
     With no key for the engine the job still cuts the text and marks every
     chunk "Narrator" (chunking needs no AI), so a pasted novel opens
-    without any account.
+    without any account. one_narrator asks for that on purpose (one voice reads the
+    novel): no engine is built or called, nothing is spent, and there is no notice.
 
     A re-run over the same text, engine, model and known characters
     resumes after the batches an interrupted run already tagged;
@@ -103,28 +118,131 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     client) is cut and tagged, and its lines are appended after the saved ones.
     The saved lines, whatever was edited, merged or split in Review, are not
     touched. InvalidInputError when nothing is waiting, ConflictError when the
-    text changed since."""
+    text changed since.
+
+    chapter_from / chapter_to (1-based, inclusive; either alone means that side is open):
+    only those chapters are cut and tagged (and paid for). Their lines replace that
+    chapter's saved lines, keeping each line's English and review state; the other
+    chapters' lines are left as they are, and chapters with no lines yet get none.
+    ConflictError when the saved lines no longer line up with the text's chapters
+    (edited in Review), which is checked before anything is paid for."""
     ownership_service.require_drama(drama_id)
     engine_name = engine_name or DEFAULT_ENGINE
-    if engine_name not in TAG_ENGINES:
+    if engine_name not in TAG_ENGINES and not one_narrator:
         raise InvalidInputError(f"Engine {engine_name!r} cannot tag speakers; "
                                 f"use one of {', '.join(TAG_ENGINES)}.")
     text = _read_novel(drama_id)
     if not text.strip():
         raise InvalidInputError("This title has no novel text attached yet.")
+    selection = _selection(chapter_from, chapter_to, text)
+    if append and selection:
+        raise InvalidInputError("Adding chapters and choosing chapters can't be combined.")
     if append:
         text = _pending_tail(drama_id, text)
-    api_key = _api_key(engine_name)
+    if selection:
+        _check_selection_can_run(drama_id, text, selection)
+    api_key = None if one_narrator else _api_key(engine_name)
 
     job_id = f"narration_{drama_id}"
     started = job_launch.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
-        gpu_touching=engine_local.ollama_touches_local_gpu(engine_name, model),
+        gpu_touching=not one_narrator and engine_local.ollama_touches_local_gpu(engine_name, model),
         description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh),
-        append=bool(append), line_fields=db.FULL_SYNC)
+        append=bool(append), chapters=selection, one_narrator=bool(one_narrator), line_fields=db.FULL_SYNC)
     if not started:
         raise ConflictError("A narration chunk & tag run is already active for this title.")
     return {"job_id": job_id}
+
+
+def _selection(chapter_from, chapter_to, text: str) -> Optional[tuple]:
+    """(first, last) chapter numbers to run, or None for the whole text."""
+    if chapter_from is None and chapter_to is None:
+        return None
+    total = _chapter_count(text)
+    first, last = chapter_from or 1, chapter_to or total
+    if not 1 <= first <= last <= total:
+        raise InvalidInputError(f"Choose chapters from 1 to {total} (this text has {total}).")
+    return None if (first, last) == (1, total) else (first, last)
+
+
+def selected_text(text: str, selection: Optional[tuple]) -> str:
+    if not selection:
+        return text
+    spans = novel_text.chapter_spans(text)
+    return "".join(text[a:b] for a, b in spans[selection[0] - 1:selection[1]])
+
+
+def _chapter_chunks(text: str) -> list:
+    return [novel_text.chunk_novel_text(text[a:b], MAX_CHUNK_CHARS) for a, b in novel_text.chapter_spans(text)]
+
+
+def _align_chapters(chunks_by_chapter: list, existing: list) -> list:
+    """The saved lines of each chapter (a list, empty for a chapter with none), found by
+    reading the saved lines in order against each chapter's own chunks. ConflictError when
+    saved lines are left over, which means Review merged, split or edited some of them and
+    their chapter can't be told apart safely."""
+    pos, out = 0, []
+    for chunks in chunks_by_chapter:
+        mine = existing[pos:pos + len(chunks)]
+        if chunks and [ln.zh for ln in mine] == chunks:
+            out.append(mine)
+            pos += len(chunks)
+        else:
+            out.append([])
+    if pos != len(existing):
+        raise ConflictError("Some lines were edited, merged or split in Review, so single chapters can't "
+                            "be re-run safely. Run all chapters instead (Replace the existing lines).")
+    return out
+
+
+def _check_selection_can_run(drama_id: int, text: str, selection: tuple) -> None:
+    if novel_text.read_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id))) is not None:
+        raise InvalidInputError("Added chapters are still waiting for lines; press Continue to finish them first.")
+    _align_chapters(_chapter_chunks(text), db.load_line_objects(drama_id))
+
+
+def estimate_tag_cost(drama_id: int, engine_name: Optional[str] = None, model: Optional[str] = None,
+                      chapter_from: Optional[int] = None, chapter_to: Optional[int] = None,
+                      append: bool = False) -> dict:
+    """What a chunk-and-tag run of the chosen chapters (or, with append, of the text an add left
+    without lines) would cost: booleans and numbers only.
+    An engine with no key spends nothing (every line is marked Narrator)."""
+    from services import translate_run_service
+    ownership_service.require_drama(drama_id)
+    engine_name = engine_name or DEFAULT_ENGINE
+    if engine_name not in TAG_ENGINES:
+        raise InvalidInputError(f"Engine {engine_name!r} cannot tag speakers; use one of {', '.join(TAG_ENGINES)}.")
+    text = _read_novel(drama_id)
+    if not text.strip():
+        raise InvalidInputError("This title has no novel text attached yet.")
+    selection = _selection(chapter_from, chapter_to, text)
+    if append:
+        text = _pending_tail(drama_id, text)
+        selection = None
+    chunks = novel_text.chunk_novel_text(selected_text(text, selection), MAX_CHUNK_CHARS)
+    free_tier = bool(settings_service.get("gemini_free_tier"))
+    resolved = model or engine_registry.effective_default_model(engine_name)
+    cap_applies = translate_run_service.engine_cap_applies(engine_name, free_tier, resolved)
+    has_key = bool(_api_key(engine_name))
+    estimated = 0.0
+    if has_key and chunks:
+        stand_in = SimpleNamespace(name=engine_name, model=resolved,
+                                   free_tier=engine_name == "gemini" and free_tier)
+        batches = -(-len(chunks) // TAG_BATCH_SIZE)
+        inp = int(batches * TAG_PROMPT_TOKENS + sum(pricing.estimate_text_tokens(c) + 4 for c in chunks))
+        out = len(chunks) * TAG_OUTPUT_TOKENS_PER_LINE
+        estimated = float(pricing.estimate_cost_for_engine(stand_in, inp, out))
+    monthly = translate_run_service.month_cap_usd() if cap_applies else 0.0
+    cap, refusal = (pricing.resolve_cost_cap(None, monthly, db.get_month_spend() if monthly else 0.0)
+                    if cap_applies else (None, None))
+    return {
+        "engine": engine_name, "model": resolved, "chunk_count": len(chunks),
+        "chapters": selection[1] - selection[0] + 1 if selection else _chapter_count(text),
+        "estimated_usd": estimated if has_key else 0.0, "has_key": has_key,
+        "cap_applies": cap_applies, "monthly_cap_set": monthly > 0,
+        "effective_cap_usd": cap, "monthly_refusal": bool(refusal),
+        "estimate_above_cap": bool(cap is not None and estimated > cap),
+    }
 
 
 def _pending_tail(drama_id: int, text: str) -> str:
@@ -196,9 +314,13 @@ def _raise_if_cancelled(job_id):
         raise background_jobs.JobCancelled(job_id)
 
 
-def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fresh=False, append=False):
+def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fresh=False, append=False,
+                       chapters=None, one_narrator=False):
     job_timing_service.mark_stage(job_id, "Chunk")
     background_jobs.update_progress(job_id, 0.05, "Chunking novel text...")
+    whole_text = text
+    # The checkpoint and the line numbers below belong to the chosen chapters' text alone.
+    text = selected_text(text, chapters)
     chunks = novel_text.chunk_novel_text(text, MAX_CHUNK_CHARS)
     if not chunks:
         background_jobs.set_result(job_id, {"failed_reason": "empty"})
@@ -208,7 +330,8 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     if not api_key:
         for ln in lines:
             ln.speaker = "Narrator"
-        (_append_lines if append else _save_lines)(job_id, drama_id, lines, notice=NO_KEY_NOTICE)
+        _finish(job_id, drama_id, lines, append, chapters, whole_text,
+                notice=None if one_narrator else NO_KEY_NOTICE)
         return
 
     job_timing_service.mark_stage(job_id, "Tag speakers")
@@ -239,7 +362,14 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
     for ln in lines:
         ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
 
-    (_append_lines if append else _save_lines)(job_id, drama_id, lines)
+    _finish(job_id, drama_id, lines, append, chapters, whole_text)
+
+
+def _finish(job_id, drama_id, lines, append, chapters, whole_text, notice=None):
+    if chapters:
+        _save_chapters(job_id, drama_id, lines, chapters, whole_text, notice)
+    else:
+        (_append_lines if append else _save_lines)(job_id, drama_id, lines, notice=notice)
 
 
 def _carry_over_existing(lines, existing):
@@ -287,6 +417,41 @@ def _append_lines(job_id, drama_id, lines, notice=None):
     finish_tagging_checkpoint(drama_id)
     novel_text.clear_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))
     result = {"line_count": len(existing) + len(lines), "added_lines": len(lines)}
+    if notice:
+        result["notice"] = notice
+    background_jobs.set_result(job_id, result)
+
+
+def _save_chapters(job_id, drama_id, lines, chapters, whole_text, notice=None):
+    """Puts the freshly tagged lines of the chosen chapters in their place among the saved
+    lines: other chapters' lines are written back exactly as read, a chosen chapter that had
+    lines keeps each line's English and review state, and the lines are renumbered in order."""
+    job_timing_service.mark_stage(job_id, "Save")
+    background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
+    background_jobs.cancel_line_jobs(drama_id)
+    existing = db.load_line_objects(drama_id)
+    chunks_by_chapter = _chapter_chunks(whole_text)
+    saved_by_chapter = _align_chapters(chunks_by_chapter, existing)
+    fresh = iter(lines)
+    result_lines = []
+    for number, (chunks, saved) in enumerate(zip(chunks_by_chapter, saved_by_chapter), start=1):
+        if chapters[0] <= number <= chapters[1]:
+            mine = [next(fresh) for _ in chunks]
+            _carry_over_existing(mine, saved)
+            result_lines.extend(mine)
+        else:
+            # Copies: the unchanged check below compares against the lines as read.
+            result_lines.extend(copy.copy(ln) for ln in saved)
+    for idx, ln in enumerate(result_lines):
+        ln.idx, ln.start, ln.end = idx, float(idx), float(idx) + 1.0
+    for label in sorted({ln.speaker or "Narrator" for ln in lines}):
+        db.upsert_character(drama_id, label, character_name=label)
+    if existing:
+        db.save_line_history_snapshot(drama_id, existing, "before chunk & tag chapters")
+    db.save_lines(drama_id, result_lines, expect_unchanged=existing)
+    db.update_drama(drama_id, status="aligned")
+    finish_tagging_checkpoint(drama_id)
+    result = {"line_count": len(result_lines), "chapters": [chapters[0], chapters[1]]}
     if notice:
         result["notice"] = notice
     background_jobs.set_result(job_id, result)

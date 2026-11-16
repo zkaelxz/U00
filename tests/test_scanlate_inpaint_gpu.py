@@ -5,7 +5,7 @@ import contextlib
 
 import pytest
 
-import scanlate_inpaint
+import scanlate_lama
 
 
 class _OutOfMemory(RuntimeError):
@@ -78,21 +78,21 @@ def gpu(monkeypatch):
         if not state["fits"]:
             raise vram_service.InsufficientVramError("full")
     monkeypatch.setattr(vram_service, "check_fits", check_fits)
-    monkeypatch.setattr(scanlate_inpaint, "_lama_gpu", {})
-    monkeypatch.setattr(scanlate_inpaint, "_lama_gpu_broken", [])
+    monkeypatch.setattr(scanlate_lama, "_lama_gpu", {})
+    monkeypatch.setattr(scanlate_lama, "_lama_gpu_broken", [])
     return state
 
 
 def _run(generator, torch, h=200, w=300):
-    return scanlate_inpaint._generate(generator, _Tensor(h, w), torch).device
+    return scanlate_lama._generate(generator, _Tensor(h, w), torch).device
 
 
 def test_a_region_that_fits_runs_on_the_gpu_and_the_copy_is_kept(gpu):
     master, torch = _Generator(), _Torch()
     assert _run(master, torch) == "cpu from cuda"
-    copy = scanlate_inpaint._lama_gpu["cuda"]
+    copy = scanlate_lama._lama_gpu["cuda"]
     assert _run(master, torch) == "cpu from cuda"
-    assert scanlate_inpaint._lama_gpu["cuda"] is copy and master.device == "cpu"
+    assert scanlate_lama._lama_gpu["cuda"] is copy and master.device == "cpu"
     # The first region also pays for loading the weights; later ones only for their own size.
     assert gpu["asked_mb"][0] > gpu["asked_mb"][1] > 0
 
@@ -105,25 +105,25 @@ def test_otherwise_the_cpu_copy_does_the_work(gpu, change):
     gpu["fits"] = change != "too_full"
     h, w = (2000, 1000) if change == "too_large" else (200, 300)
     assert _run(master, torch, h, w) == "cpu"
-    assert scanlate_inpaint._lama_gpu == {}
+    assert scanlate_lama._lama_gpu == {}
 
 
 def test_a_full_gpu_costs_only_that_region(gpu):
     master, torch = _Generator(), _Torch()
     _run(master, torch)
-    scanlate_inpaint._lama_gpu["cuda"].gpu_error = _OutOfMemory("CUDA out of memory")
+    scanlate_lama._lama_gpu["cuda"].gpu_error = _OutOfMemory("CUDA out of memory")
     assert _run(master, torch) == "cpu"
     assert torch.cuda.emptied == 1
-    scanlate_inpaint._lama_gpu["cuda"].gpu_error = None
+    scanlate_lama._lama_gpu["cuda"].gpu_error = None
     assert _run(master, torch) == "cpu from cuda"
 
 
 def test_any_other_gpu_fault_keeps_the_cpu_for_the_rest_of_the_run(gpu):
     master, torch = _Generator(), _Torch()
     _run(master, torch)
-    scanlate_inpaint._lama_gpu["cuda"].gpu_error = RuntimeError("CUDA error: an illegal memory access")
+    scanlate_lama._lama_gpu["cuda"].gpu_error = RuntimeError("CUDA error: an illegal memory access")
     assert _run(master, torch) == "cpu"
-    assert scanlate_inpaint._lama_gpu == {}
+    assert scanlate_lama._lama_gpu == {}
     assert _run(master, torch) == "cpu"
 
 
@@ -135,5 +135,5 @@ def test_the_gpu_copy_is_freed_and_listed_with_the_apps_other_gpu_models(gpu):
     names = [m["name"] for m in loaded_models_service._app_rows()["models"]]
     assert "LaMa-manga" in names
     whisper_models.release_gpu_models()
-    assert scanlate_inpaint._lama_gpu == {}
+    assert scanlate_lama._lama_gpu == {}
     assert "LaMa-manga" not in [m["name"] for m in loaded_models_service._app_rows()["models"]]
