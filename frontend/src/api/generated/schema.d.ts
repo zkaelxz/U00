@@ -5198,6 +5198,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/admin/typeset-comics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job: typeset every comic again from its saved translations (free, keeps edits) */
+        post: operations["post_typeset_comics_api_library_admin_typeset_comics_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/continue": {
         parameters: {
             query?: never;
@@ -46948,6 +46965,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LibraryStorageCleanResult"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_typeset_comics_api_library_admin_typeset_comics_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryJobStarted"];
                 };
             };
             /** @description Conflict */
