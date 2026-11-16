@@ -59,6 +59,11 @@ def test_apply_fixes_remembers_alias_for_later_titles(isolated_db):
     db.save_lines(did2, [Line(idx=0, start=0, end=1, zh="ヤソーだ", en="")])
     assert nf.after_transcription(did2)["lines_changed"] == 1
     assert _texts(did2) == ["ヤソだ"]
+    # A confirmed fix is logged; the pass after a transcription rewrites new lines, not
+    # corrections, so it logs nothing.
+    assert [(r["path"], r["before_zh"], r["after_zh"]) for r in db.list_source_edits(did)] == [
+        ("name_fix", "ヤソーが来た", "ヤソが来た")]
+    assert db.list_source_edits(did2) == []
 
 
 def test_apply_fixes_rejects_bad_input_and_writes_nothing(isolated_db):

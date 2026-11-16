@@ -28,6 +28,7 @@ from services import (
     asr_options_service,
     compare_hear_worker,
     difficult_audio_service,
+    edit_log_service,
     gpu_process_job,
     jobs_service,
     ownership_service,
@@ -715,6 +716,9 @@ def apply_compare(drama_id: int, job_id, items) -> dict:
         applied = [lid for lid, _v, _e in writes if lid not in set(skipped)]
         run_token = job.get("finished_at")
         _run_applied[drama_id] = (run_token, _applied_ids_locked(drama_id, run_token) | set(applied))
+    new_zh = {lid: values["zh"] for lid, values, _e in writes}
+    edit_log_service.record_source_edits(
+        drama_id, [(current[lid], new_zh[lid]) for lid in applied], edit_log_service.COMPARE)
     return {"applied": applied, "skipped": list(skipped)}
 
 
