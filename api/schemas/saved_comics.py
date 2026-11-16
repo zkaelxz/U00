@@ -1,5 +1,5 @@
 """
-api/saved_comics_schemas.py -- models for api/routers/saved_comics_routes.py
+api/schemas/saved_comics.py -- models for api/routers/saved_comics_routes.py
 (the save folder for chapters saved as CBZ, and reading them in the app).
 Series and chapters are named by their folder and file names only; the one
 path anywhere here is the PC-only save folder.
@@ -8,6 +8,9 @@ path anywhere here is the PC-only save folder.
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+__all__ = ["SavedComicsFolder", "SavedComicsFolderUpdate", "SavedComicsOpened", "SavedSeries", "SavedChapter",
+           "SavedChapterList", "SavedPage", "SavedChapterPages"]
 
 
 class SavedComicsFolder(BaseModel):

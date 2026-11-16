@@ -24,7 +24,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import Response
 
 from api.auth import local_only, require_permission
-from api.saved_comics_schemas import (SavedChapterList, SavedChapterPages, SavedComicsFolder,
+from api.schemas import (SavedChapterList, SavedChapterPages, SavedComicsFolder,
                                       SavedComicsFolderUpdate, SavedComicsOpened, SavedSeries)
 from api.schemas import error_responses
 from services import saved_comics_service as library

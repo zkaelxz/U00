@@ -27,7 +27,7 @@ from fastapi.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 from api.auth import local_only
-from api.backup_schemas import (
+from api.schemas import (
     AutoBackupSettings, AutoBackupSettingsUpdate, BackupFileDramaList, BackupJobStarted,
     BackupNowRequest, DeleteSnapshotDone, DeleteSnapshotRequest, ImportDramasDone,
     RestoreDramaDone, RestoreDramaRequest, SnapshotDramaList, SnapshotInfo)
