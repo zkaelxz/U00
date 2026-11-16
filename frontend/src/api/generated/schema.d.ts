@@ -6753,6 +6753,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/narration/dramas/{drama_id}/estimate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cost estimate for chunking and tagging the chosen chapters */
+        get: operations["get_narration_estimate_api_narration_dramas__drama_id__estimate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/narration/dramas/{drama_id}/run": {
         parameters: {
             query?: never;
@@ -23099,6 +23116,11 @@ export interface components {
         };
         /** NarrationConfig */
         NarrationConfig: {
+            /**
+             * Chapter Count
+             * @default 0
+             */
+            chapter_count: number;
             /** Default Engine */
             default_engine: string;
             /** Drama Id */
@@ -23125,6 +23147,31 @@ export interface components {
             /** Key Configured */
             key_configured: boolean;
         };
+        /** NarrationEstimate */
+        NarrationEstimate: {
+            /** Cap Applies */
+            cap_applies: boolean;
+            /** Chapters */
+            chapters: number;
+            /** Chunk Count */
+            chunk_count: number;
+            /** Effective Cap Usd */
+            effective_cap_usd: number | null;
+            /** Engine */
+            engine: string;
+            /** Estimate Above Cap */
+            estimate_above_cap: boolean;
+            /** Estimated Usd */
+            estimated_usd: number;
+            /** Has Key */
+            has_key: boolean;
+            /** Model */
+            model: string;
+            /** Monthly Cap Set */
+            monthly_cap_set: boolean;
+            /** Monthly Refusal */
+            monthly_refusal: boolean;
+        };
         /** NarrationRunRequest */
         NarrationRunRequest: {
             /**
@@ -23132,10 +23179,19 @@ export interface components {
              * @default false
              */
             append?: boolean;
+            /** Chapter From */
+            chapter_from?: number | null;
+            /** Chapter To */
+            chapter_to?: number | null;
             /** Engine */
             engine?: string | null;
             /** Model */
             model?: string | null;
+            /**
+             * One Narrator
+             * @default false
+             */
+            one_narrator?: boolean;
         };
         /** NarrationRunResult */
         NarrationRunResult: {
@@ -31397,6 +31453,10 @@ export interface components {
              * @default false
              */
             bulk?: boolean;
+            /** Chapter From */
+            chapter_from?: number | null;
+            /** Chapter To */
+            chapter_to?: number | null;
             /** Context Window */
             context_window?: number | null;
             /** Context Window Ahead */
@@ -51670,6 +51730,62 @@ export interface operations {
             };
         };
     };
+    get_narration_estimate_api_narration_dramas__drama_id__estimate_get: {
+        parameters: {
+            query?: {
+                engine?: string | null;
+                model?: string | null;
+                chapter_from?: number | null;
+                chapter_to?: number | null;
+                /** @description Price only the text an add left without lines */
+                append?: boolean;
+            };
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NarrationEstimate"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_start_narration_api_narration_dramas__drama_id__run_post: {
         parameters: {
             query?: {
@@ -68390,6 +68506,8 @@ export interface operations {
                 job_cost_cap_usd?: number | null;
                 batch_size?: number | null;
                 line_ids?: number[] | null;
+                chapter_from?: number | null;
+                chapter_to?: number | null;
             };
             header?: never;
             path: {

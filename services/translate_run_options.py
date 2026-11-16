@@ -23,6 +23,25 @@ def ollama_reachable() -> bool:
         settings_service.ollama_url()))
 
 
+def chapter_line_ids(drama_id, chapter_from, chapter_to, line_ids=None):
+    """The ids of the lines of chapters chapter_from..chapter_to (1-based, inclusive; one alone
+    leaves that side open), or `line_ids` unchanged when no chapter is chosen. Chapters are found
+    the way chunk & tag cuts them, so "Chapter 3" is the same text in both steps."""
+    if chapter_from is None and chapter_to is None:
+        return line_ids
+    if line_ids is not None:
+        raise InvalidInputError("Choose chapters or lines, not both.")
+    import novel_text
+    lines = db.load_lines(drama_id)
+    ranges = novel_text.chapter_line_ranges([(ln.get("zh") or "") for ln in lines])
+    first, last = chapter_from or 1, chapter_to or len(ranges)
+    if not 1 <= first <= last <= len(ranges):
+        raise InvalidInputError(f"Choose chapters from 1 to {len(ranges)} (this title has {len(ranges)}).")
+    if (first, last) == (1, len(ranges)):
+        return None
+    return [ln["id"] for ln in lines[ranges[first - 1][0]:ranges[last - 1][1] + 1]]
+
+
 def check_mode_options(engine_name, gemini_free_tier, reflect, bulk, fallback_chain,
                         own_lines_only, line_ids) -> None:
     if fallback_chain and (reflect or bulk):
