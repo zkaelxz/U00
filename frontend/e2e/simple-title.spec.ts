@@ -1561,8 +1561,10 @@ test.describe('the check queue', () => {
     await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
     const column = (await page.locator('.review-ai').boundingBox())!
     const list = (await page.locator('.review-list-card').boundingBox())!
-    expect(Math.abs(column.width - 372), 'the column is 372px wide').toBeLessThanOrEqual(2)
-    expect(Math.abs(column.x - (list.x + list.width) - 20), 'and 20px from the list').toBeLessThanOrEqual(2)
+    // Drawn at a 15px root; the column is in rem, so it grows with the larger text on a wide window.
+    const scale = (await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize))) / 15
+    expect(Math.abs(column.width - 372 * scale), 'the column is 372px wide at a 15px root').toBeLessThanOrEqual(2)
+    expect(Math.abs(column.x - (list.x + list.width) - 20 * scale), 'and 20px from the list').toBeLessThanOrEqual(2)
     // The tabs: pills in a bordered card; the selected one is filled and bold, with no underline.
     const tabs = page.getByRole('tablist', { name: 'Review tools' })
     const card3 = await tabs.evaluate((el) => {
