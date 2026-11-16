@@ -562,6 +562,29 @@ def _repo_modules():
     return names
 
 
+def _root_module_files():
+    return sorted(os.path.join(PROJECT_ROOT, e) for e in os.listdir(PROJECT_ROOT)
+                  if e.endswith(".py") and e != "__init__.py")
+
+
+def _dotted(path):
+    rel = os.path.relpath(path, PROJECT_ROOT)[:-3].replace(os.sep, ".")
+    return rel.removesuffix(".__init__")
+
+
+def _imported_modules(path):
+    """The module each absolute import in `path` loads: `from db import x`
+    is `db`, but `from services import x_service` is `services.x_service`."""
+    for node in ast.walk(parsed(path)):
+        if isinstance(node, ast.Import):
+            yield from (alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            if node.module in ("services", "api"):
+                yield from (f"{node.module}.{alias.name}" for alias in node.names)
+            else:
+                yield node.module
+
+
 class TestLayering:
     """The layers only call downward (CLAUDE.md): services stay UI- and
     HTTP-free so the CLI and the API share them, and routers reach the
@@ -583,11 +606,65 @@ class TestLayering:
             "lib/ holds helpers with no domain knowledge; move the dependency "
             f"out or keep the module in services/: {offenders}")
 
-    def test_lower_layers_do_not_import_upward(self):
-        """db/ sits below services/ and api/. Retire this when an
-        import-linter contract in CI enforces the same order."""
-        offenders = _imports_of("db", "services") + _imports_of("db", "api")
-        assert offenders == [], f"db/ imports a higher layer: {offenders}"
+    # Package-to-package order is the import-linter contract in .importlinter.
+    # It can't see the single-file root modules, so their two directions are
+    # checked here, against the wrong-way imports that existed on 2026-11-15.
+    # Remove an entry when you fix it; never add one.
+    KNOWN_ROOT_IMPORTS_UP = {
+        "bulk_apply -> services.reading_speed_dismissal_service",
+        "bulk_poll -> services.auth_service",
+        "bulk_poll -> services.line_provenance_service",
+        "debug_view -> services.line_provenance_service",
+        "dub -> services.vram_service",
+        "memory_headroom -> services.settings_service",
+        "ocr -> services.vram_service",
+        "ollama_unload -> services.settings_service",
+        "page_capture_checks -> services.page_import_limits",
+        "page_server -> api.api_config",
+        "page_server -> services.extension_bridge_service",
+        "page_server -> services.extension_novel_service",
+        "page_server -> services.extension_service",
+        "page_server -> services.extension_title_service",
+        "page_server -> services.settings_service",
+        "page_server -> services.translate_service",
+        "scanlate_lama -> services.settings_service",
+        "scanlate_lama -> services.vram_service",
+        "translation_finish -> services.line_provenance_service",
+        "translation_finish -> services.reading_speed_dismissal_service",
+    }
+    KNOWN_DB_IMPORTS_OF_ROOT_MODULES = {
+        "db -> applog",
+        "db -> device_tokens",
+        "db -> member_keys",
+        "db -> portable",
+        "db.line_history -> segment_splitting",
+        "db.lines -> core",
+    }
+
+    def test_root_modules_do_not_import_services_or_api(self):
+        found = {f"{_dotted(path)} -> {module}"
+                 for path in _root_module_files()
+                 for module in _imported_modules(path)
+                 if module.split(".")[0] in ("services", "api")}
+        new = sorted(found - self.KNOWN_ROOT_IMPORTS_UP)
+        assert new == [], (
+            "root modules sit below services/ and api/; move the helper down "
+            f"instead: {new}")
+        assert self.KNOWN_ROOT_IMPORTS_UP <= found, (
+            "fixed, so remove from KNOWN_ROOT_IMPORTS_UP: "
+            f"{sorted(self.KNOWN_ROOT_IMPORTS_UP - found)}")
+
+    def test_db_does_not_import_root_modules(self):
+        roots = {_dotted(p) for p in _root_module_files()}
+        found = {f"{_dotted(path)} -> {module}"
+                 for path in _py_files_under("db")
+                 for module in _imported_modules(path)
+                 if module in roots}
+        new = sorted(found - self.KNOWN_DB_IMPORTS_OF_ROOT_MODULES)
+        assert new == [], f"db/ is the bottom app layer; it imports a root module: {new}"
+        assert self.KNOWN_DB_IMPORTS_OF_ROOT_MODULES <= found, (
+            "fixed, so remove from KNOWN_DB_IMPORTS_OF_ROOT_MODULES: "
+            f"{sorted(self.KNOWN_DB_IMPORTS_OF_ROOT_MODULES - found)}")
 
     def test_routers_do_not_import_db(self):
         assert _imports_of(os.path.join("api", "routers"), "db") == []
