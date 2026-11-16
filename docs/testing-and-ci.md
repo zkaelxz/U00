@@ -123,7 +123,7 @@ A test missing from the file is costed at the average, so a new test never break
 Refresh the file when the shard wall times in the job summaries drift apart by more than a couple of minutes, or after a large
 batch of new tests:
 
-    pip install "pytest-split==0.10.0" pytest-xdist
+    pip install -r requirements-ci.txt
     python -m pytest -q -n auto -p no:cacheprovider -o addopts="" --store-durations --clean-durations \
       $(sed 's/^/--ignore=/' tests/ci_guards.txt)
 
@@ -144,8 +144,8 @@ cannot merge without them but nothing turns red and no failure email goes out. T
 `auto_merge_enabled` trigger) starts a new run that includes them, and so does every push while auto-merge stays on; the
 status turns green when they pass, or at once when the change needs none. The `full-ci` label runs them at once. Pushes to the
 base, the merge queue and the nightly run never hold them back. A pending `browser-tests` is expected on a PR that has no merge
-order yet. The status is set by the workflow's token, so a fork's PR (whose token cannot write) and a Dependabot PR (read-only
-token) get none and cannot merge by auto-merge: run the tests on a branch of this repo instead. Re-running an older run that held
+order yet. The status is set by the workflow's token. A Dependabot PR's own runs have a read-only one and set none, but the run
+that a person starts by turning auto-merge on can set it. A fork's PR never can: run its tests on a branch of this repo instead. Re-running an older run that held
 the tests back sets the status back to pending; push or add `full-ci` to start a fresh one. Turn auto-merge on with a person's
 or an app's token, never a workflow's `GITHUB_TOKEN`: GitHub starts no run for an event that token causes.
 

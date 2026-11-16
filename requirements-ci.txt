@@ -1,0 +1,8 @@
+# The test tools CI installs beside requirements-core.txt (.github/workflows/tests.yml), pinned so a
+# new release cannot turn every PR red overnight; Dependabot proposes the bumps. Not part of the app.
+pytest==9.2.0
+pytest-xdist==3.8.0
+pytest-split==0.11.0
+pytest-timeout==2.4.0
+jsonschema==4.26.0
+httpx==0.28.1
