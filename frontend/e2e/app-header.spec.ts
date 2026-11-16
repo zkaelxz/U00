@@ -75,33 +75,6 @@ test('Alerts: the name with and without new rows, and the panel heading', async 
   await expect(page.getByText('Recent notifications')).toHaveCount(0)
 })
 
-// Heights measured on the build without the words, at the same widths (docked menu): the header may not be taller than that; with Back that build wrapped the row to a line of its own.
-// These are cells where that build did not scroll sideways either; where it did (the longest header from 700 to 900), the row may still.
-const NARROW = [
-  { width: 640, header: 'plain' as const, back: false, tallest: 69 },
-  { width: 1000, header: 'longest' as const, back: false, tallest: 66 },
-  { width: 800, header: 'plain' as const, back: true, tallest: 107 },
-  { width: 1000, header: 'longest' as const, back: true, tallest: 110 },
-  { width: 800, header: 'longest' as const, back: true, tallest: 124, mode: 'float' as const },
-]
-
-/** Pairs of visible header controls (or a control and the Back button) whose boxes cross. */
-async function overlaps(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
-    const header = document.querySelector('.app-header') as HTMLElement
-    const boxes = [...header.querySelectorAll('.header-end > *, .app-back')]
-      .filter((el) => el.getClientRects().length > 0)
-      .map((el) => ({ name: (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim().slice(0, 20) || el.className || el.tagName, r: el.getBoundingClientRect() }))
-    const found: string[] = []
-    for (let a = 0; a < boxes.length; a++) for (let b = a + 1; b < boxes.length; b++) {
-      const x = boxes[a].r, y = boxes[b].r
-      if (x.left < y.right - 1 && y.left < x.right - 1 && x.top < y.bottom - 1 && y.top < x.bottom - 1) found.push(`${boxes[a].name} / ${boxes[b].name}`)
-    }
-    return found
-  })
-}
-
-
 test('docked at 1440 every header button is an icon with its old words as name and tooltip', async ({ page }) => {
   await dock(page)
   await quietHeader(page)
