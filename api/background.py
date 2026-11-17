@@ -334,7 +334,7 @@ def start_background_services(features_off=frozenset()) -> dict:
     try:
         from sources import store as src_store
         if "extension" not in features_off and bool(src_store.get_setting("page_server_enabled")):
-            import page_server
+            from services import page_server
             try:
                 from services import extension_service
                 extension_service.push_translation_config()

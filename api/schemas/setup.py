@@ -56,6 +56,8 @@ class SetupReadiness(BaseModel):
     # The installed torch is a CUDA build (from its metadata; nothing is imported).
     torch_cuda: bool
     hf_token_configured: bool
+    # The chosen speaker model needs the token (pyannote; Nemotron is public).
+    speaker_token_needed: bool
     key_claude: bool
     key_deepseek: bool
     key_gemini: bool

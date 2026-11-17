@@ -10,7 +10,7 @@ import threading
 import pytest
 
 import db
-import page_server
+from services import page_server
 from services import extension_title_service as titles
 from services import ownership_service
 

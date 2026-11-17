@@ -245,3 +245,11 @@ def test_the_japanese_live_model_has_a_valid_cached_flag():
     flag = svc.whisper_cached_flag("ja-1.5b")
     assert flag == "whisper_cached_ja_15b"
     assert flag in SetupReadiness.model_fields
+
+
+@pytest.mark.parametrize("model, needed", [("pyannote", True), ("nemotron", False)])
+def test_the_speaker_token_is_needed_only_for_pyannote(isolated_db, bare_pc, model, needed):
+    from services import settings_service
+    settings_service.set_settings({"speaker_model": model})
+    svc.clear_cache()
+    assert svc.get_readiness()["speaker_token_needed"] is needed

@@ -87,7 +87,7 @@ test('Simple fits a phone: More and the steps button each open their panel, the 
     const panel = page.locator(`[id="${await button.getAttribute('aria-controls')}"]`)
     await expect(panel).toBeVisible()
     const tabs = panel.getByRole('list', { name: 'Steps' }).getByRole('link')
-    await expect(tabs).toHaveText(['Done · Add', 'Done · Transcribe, 10 lines', 'Now · Translate, 10 of 10 left', /^Next · Check(, .+)?$/, 'Export'])
+    await expect(tabs).toHaveText(['Done · Add', 'Done · Transcribe, 10 lines', 'Now · Translate, 10 of 10 left', /^Next · Review(, .+)?$/, 'Export'])
     for (let n = 0; n < 5; n++) await expectTall(tabs.nth(n), `step ${n + 1} at ${width}px`)
     // The radios are visually hidden; the visible control is their label. The switch stays with the steps.
     for (const name of ['Simple', 'Full']) {
@@ -339,7 +339,7 @@ test.describe(() => {
     }
 
     // One button stands for the steps; it opens them as they are on the title page, with the title's controls, and closes again.
-    const fold = page.getByRole('button', { name: 'Step 4 of 5 · Check' })
+    const fold = page.getByRole('button', { name: 'Step 4 of 5 · Review' })
     await expectTall(fold, 'the steps line')
     await expect(fold).toHaveAttribute('aria-expanded', 'false')
     await expect(page.getByRole('list', { name: 'Steps' })).toBeHidden()
@@ -568,7 +568,7 @@ test.describe(() => {
     }
     await page.evaluate(() => window.scrollTo(0, 0))
     await stepsButton(page).tap()
-    await expect(stepsButton(page)).toHaveText('Step 4 of 5 · Check 1 of 3 to look at')
+    await expect(stepsButton(page)).toHaveText('Step 4 of 5 · Review 1 of 3 to look at')
     await expectTall(main, 'the main button in the steps panel')
     await main.tap()
     await expect(cards.locator('.review-idx')).toHaveText('Line 24')
@@ -768,7 +768,7 @@ test.describe(() => {
     for (const address of ['/#/drama/3', '/#/drama/3/review']) {
       await page.goto('about:blank')
       await page.goto(address)
-      await expect(stepsButton(page)).toHaveText('Step 4 of 5 · Check')
+      await expect(stepsButton(page)).toHaveText('Step 4 of 5 · Review')
       await expect(stepsButton(page)).toHaveAttribute('aria-expanded', 'false')
       const exportButton = page.getByRole('link', { name: 'Export', exact: true })
       for (const width of [390, 320] as const) {

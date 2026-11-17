@@ -110,3 +110,12 @@ def test_every_ci_guard_listed_in_ci_guards_txt_exists_and_is_in_the_change_guar
     listed = (Path(cc.ROOT) / "tests" / "ci_guards.txt").read_text(encoding="utf-8").split()
     assert listed and all((Path(cc.ROOT) / name).is_file() for name in listed)
     assert set(listed) <= set(cc.GUARDS)
+
+
+def test_testing_doc_repo_guards_row_names_exactly_the_ci_guards():
+    from pathlib import Path
+    root = Path(cc.ROOT)
+    listed = (root / "tests" / "ci_guards.txt").read_text(encoding="utf-8").split()
+    row = next(line for line in (root / "docs" / "testing-and-ci.md").read_text(encoding="utf-8").splitlines()
+               if line.startswith("| Repo guards |"))
+    assert row.split("`")[1].split() == listed

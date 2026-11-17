@@ -6,7 +6,7 @@ import contextlib
 import pytest
 
 import db
-import page_server
+from services import page_server
 from engine_backends import translate_pipeline
 from core import Line
 from engine_backends import run_limits

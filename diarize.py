@@ -492,6 +492,13 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
                                      "fell_back_to_cpu": False, "fallback_reason": None,
                                      "fallback_kind": None, "speaker_count_hint": None}))
             return
+        if not hf_token:
+            # Only a Nemotron run starts without a token; its fallback can't run.
+            result_queue.put(("ok", {"failed_reason": "dependency_missing", "detail": (
+                f"Nemotron speaker detection didn't run "
+                f"({run_info.get('backend_fallback_reason') or 'no reason given'}), and pyannote "
+                f"was skipped because no Hugging Face token is configured.")}))
+            return
         segments, model, embeddings = diarize(
             audio_path, hf_token, num_speakers=num_speakers,
             return_model=True, return_embeddings=True,

@@ -753,7 +753,7 @@ class TestStatusPorts:
 class TestPortsMatchTheApp:
     def test_the_pc_listener_port_is_the_apps_default(self):
         from api import api_config
-        import page_server
+        from services import page_server
         assert service_config.ADMIN_PORT == api_config.DEFAULT_PORT
         assert service_config.EXTENSION_BRIDGE_PORT == page_server.DEFAULT_PORT
         assert page_server.DEFAULT_PORT in service_config.RESERVED_PORTS

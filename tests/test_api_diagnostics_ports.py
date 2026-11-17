@@ -9,7 +9,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-import page_server
+from services import page_server
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app

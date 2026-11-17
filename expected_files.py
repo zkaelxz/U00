@@ -104,7 +104,6 @@ EXPECTED_TOP_LEVEL_FILES = [
     "page_import_limits.py",
     "page_scroll.py",
     "page_capture_checks.py",
-    "page_server.py",
     "page_turns.py",
     "portable.py",
     "process_guard.py",
