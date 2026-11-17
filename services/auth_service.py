@@ -39,11 +39,15 @@ import paid_limits
 
 # One catalogue, one place. Household defaults are granted to a newly
 # allowlisted user; the opt-in list exists but is granted only explicitly.
+# media.stream is a default (owner decision 2026-11-17): a new member's player
+# was silent until an admin found the right switch. Existing accounts keep what
+# they hold.
 HOUSEHOLD_DEFAULT_PERMISSIONS = (
     "library.read", "lines.read", "lines.edit", "jobs.start", "jobs.cancel", "review.use",
+    "media.stream",
 )
 OPT_IN_PERMISSIONS = (
-    "media.import_url", "sources.import", "engines.paid", "extension.send", "media.stream",
+    "media.import_url", "sources.import", "engines.paid", "extension.send",
 )
 # What a member account can hold; an admin can give or take each from the People screen.
 MEMBER_PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS

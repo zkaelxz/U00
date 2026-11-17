@@ -767,12 +767,12 @@ def _rich_drama_with_audio(n_words=1):
 def test_rich_apkg_audio_needs_media_stream(on_client, fake_sentence_deck):
     did = _rich_drama_with_audio()
     url = f"{BASE}/{did}/vocab/export.apkg?rich=true"
-    household = _session("kid@example.com")
+    no_media = [p for p in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS if p != "media.stream"]
+    household = _session("kid@example.com", perms=no_media)
     r = on_client.get(url, headers=_h(household))
     assert r.status_code == 200 and r.headers["x-audio-omitted"] == "true"
     assert fake_sentence_deck["audio_path"] is None
-    streamer = _session("stream@example.com",
-                        perms=list(auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS) + ["media.stream"])
+    streamer = _session("stream@example.com", perms=no_media + ["media.stream"])
     r = on_client.get(url, headers=_h(streamer))
     assert r.status_code == 200 and "x-audio-omitted" not in r.headers
     assert fake_sentence_deck["audio_path"].endswith("audio.wav")
