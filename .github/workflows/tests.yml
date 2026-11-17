@@ -363,7 +363,12 @@ jobs:
             tests/test_resegment.py tests/test_scanlate.py tests/test_scanlate_art_text.py \
             tests/test_scanlate_bench.py tests/test_scanlate_condense.py tests/test_scanlate_ocr_deps.py tests/test_scanlate_quality.py \
             tests/test_scanlate_regions.py tests/test_segment.py tests/test_transcription_quality.py tests/test_api_reader_m4.py tests/test_release_signing.py tests/test_api_scanlate_auto.py \
-            tests/test_video_export.py tests/test_vocab_export.py
+            tests/test_video_export.py tests/test_vocab_export.py --junitxml=optional-tests.xml
+
+      # A skip counts as a pass, so a library this job stopped installing would turn its tests
+      # into green skips; the checker fails on any skip reason it doesn't expect.
+      - name: No unexpected skips
+        run: python tools/check_pytest_skips.py optional-tests.xml
 
   # The one required check name. It stays `test` so branch protection does not
   # change: it passes when every shard passed or the whole matrix was skipped,
