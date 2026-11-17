@@ -232,6 +232,13 @@ function skipToContent(e: React.MouseEvent) {
   document.getElementById('main-content')?.focus()
 }
 
+// Review's lines sit after the rail, header and toolbar (about 40 Tab stops); the active row is the line list's one stop.
+function skipToLines(e: React.MouseEvent) {
+  e.preventDefault()
+  const lines = document.querySelector<HTMLElement>('li[data-line-id][tabindex="0"]') ?? document.querySelector<HTMLElement>('li[data-line-id]')
+  lines?.focus()
+}
+
 // Routes that render inside PageShell; the rest (a title's workspace, the readers) manage their own layout and
 // are held to the 1200px column by .app-bounded.
 const BOUNDED_ROUTES: ReadonlySet<string> = new Set(['drama', 'read', 'comic', 'comic-edit', 'manga-read'])
@@ -399,6 +406,7 @@ export default function App() {
     <JobsProvider>
       {signedOut && <SignInOverlay configured={signInConfigured} />}
       <a className="skip-link" href="#main-content" onClick={skipToContent}>Skip to content</a>
+      {route.name === 'drama' && route.stage === 'review' && <a className="skip-link" href="#main-content" onClick={skipToLines}>Skip to lines</a>}
       <div className={shellClass}>
         {wide && <SideNav route={route} context={navContext} />}
         <div className="app-main">
