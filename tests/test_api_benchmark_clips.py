@@ -193,5 +193,17 @@ class TestMarkedLinesExport:
         assert [r["drama_id"] for r in db.list_marked_lines(visible_to=5)] == [mine]
         assert len(db.list_marked_lines()) == 2
 
+    def test_the_guest_profile_at_the_pc_gets_only_shared_titles(self, isolated_db, monkeypatch):
+        from core import Line
+        from services import pc_profile_service
+        monkeypatch.setattr(pc_profile_service, "guest_active", lambda: True)
+        line = [Line(idx=0, start=0.0, end=1.0, zh="一", en="One", mark="wrong")]
+        self._title("Private", line, is_private=1)
+        shared = self._title("Shared", line, is_private=0)
+        hidden_series = db.create_series(name="Hidden", is_private=1)
+        self._title("In a private series", line, is_private=0, series_id=hidden_series)
+        j = _local().get(f"{BASE}/marked-lines/export?format=json").json()
+        assert [ln["drama_id"] for ln in j["lines"]] == [shared]
+
     def test_not_for_a_remote_caller_without_diagnostics(self, isolated_db):
         assert _remote().get(f"{BASE}/marked-lines/export").status_code in (401, 403)
