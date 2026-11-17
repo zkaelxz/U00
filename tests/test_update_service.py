@@ -964,9 +964,10 @@ def test_current_version_reads_the_install_manifest(tmp_path, monkeypatch):
     assert us.current_version() is None
 
 
-def test_auto_check_is_off_by_default_and_daily_when_on(http):
+def test_auto_check_is_on_by_default_and_daily(http):
     _serve_release(http)
-    assert us.status()["auto_check"] is False
+    assert us.status()["auto_check"] is True
+    us.set_auto_check(False)
     us.periodic_tick()
     assert http.calls == []
     us.set_auto_check(True)

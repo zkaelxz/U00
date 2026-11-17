@@ -124,7 +124,7 @@ class TestHttpCallsHaveTimeouts:
     def test_live_fetch(self):
         # The live stream fetcher's GETs run on a background thread for the
         # whole session; its stall handling relies on the read timeout.
-        path = os.path.join(PROJECT_ROOT, "live_fetch.py")
+        path = os.path.join(PROJECT_ROOT, "live", "live_fetch.py")
         assert _find_requests_calls_missing_timeout(path, session_verbs=True) == []
         assert "session.get(" in open(path, encoding="utf-8").read(), \
             "the timeout check no longer sees the fetcher's GET"
@@ -562,9 +562,18 @@ def _repo_modules():
     return names
 
 
+# Folders of former root modules that import each other with jobs/ or
+# engine_backends/, so they can't join the .importlinter layers; their
+# files get the root modules' checks instead.
+ROOT_MODULE_FOLDERS = ("live",)
+
+
 def _root_module_files():
-    return sorted(os.path.join(PROJECT_ROOT, e) for e in os.listdir(PROJECT_ROOT)
-                  if e.endswith(".py") and e != "__init__.py")
+    roots = [os.path.join(PROJECT_ROOT, e) for e in os.listdir(PROJECT_ROOT)
+             if e.endswith(".py") and e != "__init__.py"]
+    for folder in ROOT_MODULE_FOLDERS:
+        roots += _py_files_under(folder)
+    return sorted(roots)
 
 
 def _dotted(path):
@@ -616,13 +625,6 @@ class TestLayering:
         "debug_view -> services.line_provenance_service",
         "memory_headroom -> services.settings_service",
         "ollama_unload -> services.settings_service",
-        "page_server -> api.api_config",
-        "page_server -> services.extension_bridge_service",
-        "page_server -> services.extension_novel_service",
-        "page_server -> services.extension_service",
-        "page_server -> services.extension_title_service",
-        "page_server -> services.settings_service",
-        "page_server -> services.translate_service",
         "scanlate_lama -> services.settings_service",
         "translation_finish -> services.line_provenance_service",
     }
@@ -807,7 +809,7 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "sources/http.py::SourceClient.request": 151,
     "translation_finish.py::finish_translation_run": 149,
     "services/benchmark_lab_service.py::_run_plan": 148,
-    "page_server.py::translate_image": 148,
+    "services/page_server.py::translate_image": 148,
     "asr_backend.py::Qwen3ASRVadBackend.transcribe": 144,
     "services/workspace_job_service.py::run_translate_job": 119,
     "video_download.py::download": 138,

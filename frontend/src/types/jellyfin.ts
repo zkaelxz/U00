@@ -1,4 +1,4 @@
-// api/jellyfin_schemas.py (optional Jellyfin connector); responses come from the generated schema.
+// api/schemas/jellyfin.py (optional Jellyfin connector); responses come from the generated schema.
 import type { components } from '../api/generated/schema'
 import type { AssExportRequest } from './export'
 

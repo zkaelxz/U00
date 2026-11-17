@@ -1,4 +1,4 @@
-// "Which engine does what" (api/engine_routing_schemas.py), from the generated schema.
+// "Which engine does what" (api/schemas/engine_routing.py), from the generated schema.
 // Engine names and short redacted text only; never a key or a URL.
 import type { components } from '../api/generated/schema'
 

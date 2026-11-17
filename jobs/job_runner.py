@@ -365,7 +365,7 @@ def wait_for_job_threads(timeout: float, job_ids=None) -> bool:
                    and (job_ids is None or getattr(t, "baihe_job_id", None) in job_ids)]
     for t in threads:
         t.join(max(0.0, deadline - time.monotonic()))
-    import live_whisper
+    from live import live_whisper
     return not any(t.is_alive() for t in threads) and (
         job_ids is not None or live_whisper.wait_for_outstanding(deadline - time.monotonic()))
 

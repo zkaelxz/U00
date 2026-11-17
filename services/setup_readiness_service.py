@@ -132,6 +132,7 @@ def _compute() -> dict:
     out["gpu_found"] = _safe(lambda: diagnostics_torch.nvidia_driver_info() is not None)
     out["torch_cuda"] = _safe(_torch_cuda)
     out["hf_token_configured"] = _safe(lambda: settings_service.resolve_key("hf_token"))
+    out["speaker_token_needed"] = _safe(_speaker_token_needed)
     for engine in _KEYS:
         out[f"key_{engine}"] = _safe(lambda e=engine: settings_service.resolve_key(e))
     try:
@@ -139,6 +140,12 @@ def _compute() -> dict:
     except Exception:
         out["ollama_reachable"] = out["ollama_model_pulled"] = False
     return out
+
+
+def _speaker_token_needed() -> bool:
+    # Imported here: diarization_service pulls in the transcription stack.
+    from services import diarization_service
+    return diarization_service.needs_pyannote()
 
 
 def get_readiness() -> dict:

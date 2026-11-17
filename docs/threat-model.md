@@ -8,7 +8,7 @@ One page: what Baihe exposes, which layer stops what, where the PC-only boundary
 |---|---|---|---|
 | Admin listener (FastAPI + the React app) | `127.0.0.1:8600` (`BAIHE_API_PORT`) | Direct loopback requests on the PC only | On |
 | Household listener | `127.0.0.1:BAIHE_API_HOUSEHOLD_PORT` (suggested 8610), reached through the owner's reverse proxy (Caddy) | Signed-in, allowlisted household members | Off (port unset) |
-| Extension bridge (`page_server.py`) | `127.0.0.1:8756` | The browser extension on the PC, with the bridge token | Off (Settings toggle) |
+| Extension bridge (`services/page_server.py`) | `127.0.0.1:8756` | The browser extension on the PC, with the bridge token | Off (Settings toggle) |
 | Extension routes (`/api/ext-bridge/*`) | The household listener, through Caddy | A member's extension, with a per-device bearer token and `extension.send` | On with the household listener |
 | Outbound fetches | The home IP | Sites, engine APIs, model hubs, Google sign-in | Per feature |
 | Files on disk | The library folder and `.env` | Anyone with the PC's user account | n/a |
@@ -17,7 +17,7 @@ A non-loopback `BAIHE_API_HOST` is refused at startup, and nothing in the repo o
 
 ## Layers, outside in
 
-1. **Bind address.** Every listener binds to loopback. `page_server.py` checks the peer address again on every request.
+1. **Bind address.** Every listener binds to loopback. `services/page_server.py` checks the peer address again on every request.
 2. **Request gates on the admin listener.** `LoopbackOnlyGate` answers 403 to a non-loopback peer, Host or Origin and to any proxy or forwarding header, on every path. That also stops DNS rebinding (the Host is the attacker's name). With sign-in off every `/api` POST/PUT/PATCH must be JSON or carry `X-Baihe-Local: 1`, so a page on another loopback port can't send a no-CORS "simple" request.
 3. **Host check on the household listener.** Only the `BAIHE_PUBLIC_URL` host is answered; any other Host is a 400 before routing.
 4. **Sign-in.** Google OIDC with PKCE, state and nonce, `email_verified` required, matched by `sub` against an allowlist (`services/oidc_service.py`). Server-side sessions in a `__Host-` Secure HttpOnly cookie, a fresh session on every login, CSRF header on every non-GET, login routes rate-limited, sign-ins and admin actions audit-logged.

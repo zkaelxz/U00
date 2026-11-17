@@ -138,7 +138,9 @@ describe('parseRoute', () => {
     expect(parseRoute('#/series/3')).toEqual({ name: 'series', id: 3 })
     expect(parseRoute('#/series/3?tab=glossary')).toEqual({ name: 'series', id: 3, tab: 'glossary' })
     expect(parseRoute('#/series/3?tab=bogus')).toEqual({ name: 'series', id: 3 })
-    for (const h of ['#/series', '#/series/0', '#/series/x', '#/series/3/extra']) {
+    expect(parseRoute('#/series')).toEqual({ name: 'series-list' })
+    expect(routeHref({ name: 'series-list' })).toBe('#/series')
+    for (const h of ['#/series/0', '#/series/x', '#/series/3/extra']) {
       expect(parseRoute(h)).toEqual({ name: 'library' })
     }
     expect(routeHref({ name: 'series', id: 3, tab: 'settings' })).toBe('#/series/3?tab=settings')

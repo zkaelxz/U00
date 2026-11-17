@@ -62,6 +62,7 @@ const WatchPage = lazy(() => import('./pages/watch/Watch'))
 const SavedMangaPage = lazy(() => import('./pages/SavedManga'))
 const SavedMangaReader = lazy(() => import('./pages/SavedMangaReader'))
 const SeriesPage = lazy(() => import('./pages/series/SeriesPage'))
+const SeriesListPage = lazy(() => import('./pages/series/SeriesList'))
 const SettingsPage = lazy(() => import('./pages/Settings'))
 const SourcesPage = lazy(() => import('./pages/Sources'))
 const MakeSubtitlesPage = lazy(() => import('./pages/MakeSubtitlesPage'))
@@ -357,6 +358,7 @@ export default function App() {
       {route.name === 'watch' && <WatchPage key={route.id} id={route.id} />}
       {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
       {route.name === 'comic-edit' && <ComicEditor key={route.id} id={route.id} page={route.page} />}
+      {route.name === 'series-list' && <SeriesListPage />}
       {route.name === 'series' && <SeriesPage key={route.id} id={route.id} tab={route.tab} />}
       {route.name === 'manga' && <SavedMangaPage />}
       {route.name === 'manga-series' && (

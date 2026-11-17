@@ -67,7 +67,7 @@ PROFILE_PATHS = {"profile_dir", "browser_profile_dir", "browser_profiles_root"}
 
 # The API/service consumers of the yt-dlp cookie setting, besides the sources
 # layer.
-YTDLP_COOKIE_FILES = ("video_download.py", "live_translate.py", "services/url_media_service.py",
+YTDLP_COOKIE_FILES = ("video_download.py", "live/live_translate.py", "services/url_media_service.py",
                       "services/live_service.py", "services/settings_service.py",
                       "api/routers/settings_routes.py", "api/routers/live_routes.py",
                       "api/routers/media_routes.py")

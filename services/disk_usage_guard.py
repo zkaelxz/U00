@@ -126,7 +126,7 @@ def _protected_paths() -> list:
     except Exception:       # the sources package is optional here
         pass
     try:
-        import page_server
+        from services import page_server
         out.append(page_server.token_path())
     except Exception:
         pass

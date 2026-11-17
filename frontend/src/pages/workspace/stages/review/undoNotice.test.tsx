@@ -54,9 +54,10 @@ describe('review polish helpers', () => {
     expect(splitAnnouncement('Hello there.', 'Bye。')).toBe('First piece: Hello there. Second piece: Bye.')
     expect(splitAnnouncement('Hello', 'Bye')).toBe('First piece: Hello. Second piece: Bye.')
   })
-  it('puts the caret at the end when the translation box is focused', () => {
+  it('puts the caret at the end when the translation box opens', () => {
     const calls: number[][] = []
-    caretToEnd({ currentTarget: { value: 'abc', setSelectionRange: (a: number, b: number) => calls.push([a, b]) } } as never)
+    caretToEnd({ value: 'abc', setSelectionRange: (a: number, b: number) => calls.push([a, b]) } as never)
+    caretToEnd(null)
     expect(calls).toEqual([[3, 3]])
   })
 })

@@ -6,7 +6,7 @@ from collections import deque
 import pytest
 
 import background_jobs
-import live_chat
+from live import live_chat
 from lib import http
 from lib.errors import InvalidInputError
 from services import live_service

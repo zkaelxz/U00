@@ -1,4 +1,4 @@
-// Models for /api/backups, taken from the generated schema (api/backup_schemas.py).
+// Models for /api/backups, taken from the generated schema (api/schemas/backup.py).
 // Every /api/backups route is PC only.
 import type { components } from '../api/generated/schema'
 

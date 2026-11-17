@@ -79,6 +79,12 @@ def _pyannote(caches):
              {"config.yaml": "x", "embedding/pytorch_model.bin": "x"})
 
 
+def _nemotron(caches):
+    import diarize_nemotron
+    _hf_repo(caches, diarize_nemotron.MODEL_ID,
+             {"config.json": "{}", "processor_config.json": "{}", "model.safetensors": "x"})
+
+
 def _sensevoice(caches):
     folder = caches["modelscope"] / "models" / "iic" / "SenseVoiceSmall"
     folder.mkdir(parents=True)
@@ -135,8 +141,9 @@ ROUTES = [
      "start_retime", _aligner),
     ("/api/restructure/dramas/{did}/resplit", {"expected_line_ids": [], "align_to_audio": True},
      "resplit_service", "resplit_long_lines", _aligner),
+    # The default speaker model is Nemotron; pyannote's own case is below.
     ("/api/diarization/dramas/{did}/run", None, "diarization_service",
-     "start_diarization_run", _pyannote),
+     "start_diarization_run", _nemotron),
     ("/api/listen/dramas/{did}/run", {}, "listen_service", "start_listen",
      _transformers_repo("k2-fsa/OmniVoice")),
     ("/api/scanlate/dramas/{did}/run", {"engine": "ollama"}, "scanlate_run_service", "start_run",
@@ -345,7 +352,7 @@ def test_dub_clip_without_transcript_needs_omnivoice_asr(isolated_db, caches):
 
 def _needs(monkeypatch, drama_fields, **kwargs):
     """Names of the checks for_transcribe asks for."""
-    for name in ("whisper_ready", "qwen_asr_ready", "aligner_ready", "diarization_ready",
+    for name in ("whisper_ready", "qwen_asr_ready", "aligner_ready", "diarization_ready", "nemotron_ready",
                  "word_aligner_ready", "separation_ready", "_paddle_ready"):
         monkeypatch.setattr(mrs, name, (lambda n: lambda *a: n)(name))
     did = db.create_drama(title_en="T", source_language="ja", **drama_fields)
@@ -362,11 +369,39 @@ def test_for_transcribe_qwen_long_needs_asr_and_aligner_not_whisper(isolated_db,
 
 def test_for_transcribe_whisper_extras(isolated_db, monkeypatch):
     from services import settings_service
+    settings_service.set_settings({"speaker_model": "pyannote"})
     monkeypatch.setattr(settings_service, "resolve_key", lambda name: "hf_x")
     needs = _needs(monkeypatch, {"transcript_mode": "whisper", "separate_vocals_first": 1,
                                  "realign_long_segments": 1}, run_diarize=True)
     assert needs == ["separation_ready", "whisper_ready", "word_aligner_ready",
                      "diarization_ready"]
+
+
+@pytest.mark.parametrize("token", ["hf_x", ""])
+def test_a_nemotron_run_checks_nemotron_with_or_without_a_token(isolated_db, monkeypatch, token):
+    from services import settings_service
+    settings_service.set_settings({"speaker_model": "nemotron"})
+    monkeypatch.setattr(settings_service, "resolve_key", lambda name: token)
+    assert _needs(monkeypatch, {"transcript_mode": "whisper"}, run_diarize=True) == [
+        "whisper_ready", "nemotron_ready"]
+
+
+@pytest.mark.parametrize("model, query, populate, other", [
+    ("pyannote", "", _pyannote, _nemotron), ("nemotron", "?expected_speakers=2", _pyannote, _nemotron),
+    ("nemotron", "", _nemotron, _pyannote)])
+def test_detect_speakers_away_from_the_pc_checks_the_model_that_will_run(
+        isolated_db, caches, monkeypatch, model, query, populate, other):
+    """A typed count runs pyannote whatever the setting, so that's the model to have."""
+    from services import settings_service
+    settings_service.set_settings({"speaker_model": model})
+    started = _stub(monkeypatch, "diarization_service", "start_diarization_run")
+    did, session = _owned_drama(audio_filename="a.wav")
+    url = f"/api/diarization/dramas/{did}/run{query}"
+    other(caches)
+    assert _post(_household_client(), url, None, session).status_code == 403
+    populate(caches)
+    assert _reached(_post(_household_client(), url, None, session))
+    assert started == [True]
 
 
 def test_for_transcribe_groq_needs_no_whisper(isolated_db, monkeypatch):
@@ -619,7 +654,7 @@ def test_a_member_queue_item_starts_offline(isolated_db, caches, monkeypatch):
 def test_live_whisper_calls_keep_the_sessions_mark():
     """Live loads Whisper on a worker thread of its own, which must not lose
     the session's offline mark."""
-    import live_whisper
+    from live import live_whisper
 
     def member():
         model_offline.set_offline(True)

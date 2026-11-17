@@ -3,7 +3,7 @@ AI call, once, and never over a name already there."""
 import pytest
 
 import db
-import page_server
+from services import page_server
 from engine_backends import engine_registry, llm_tasks
 from lib.errors import UnsupportedOperationError
 from services import translate_run_service

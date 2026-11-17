@@ -18,7 +18,7 @@ update installers no longer needed (`update_service.cleanup_leftovers`).
 Bulk batches a stopped app left mid-apply are recovered, never applied twice
 (`bulk_poll.reconcile_stranded_applies`; it contacts no provider).
 Also, only when the owner turned "Resume interrupted translation batches"
-on (`translate_run_service.resume_interrupted_at_startup`, off by default),
+on (`translate_run_service.resume_interrupted_at_startup`, on by default),
 pending bulk batches are resumed through the manual resume's code path.
 The due-check then repeats hourly from the GPU-queue poller thread below
 (`auto_backup_service.periodic_tick`), so no extra thread is added; so does
@@ -334,7 +334,7 @@ def start_background_services(features_off=frozenset()) -> dict:
     try:
         from sources import store as src_store
         if "extension" not in features_off and bool(src_store.get_setting("page_server_enabled")):
-            import page_server
+            from services import page_server
             try:
                 from services import extension_service
                 extension_service.push_translation_config()

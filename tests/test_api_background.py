@@ -15,7 +15,7 @@ from api.server import create_app
 @pytest.fixture
 def fakes(monkeypatch, isolated_db):
     calls = {"scheduler": 0, "page_server": 0}
-    import page_server
+    from services import page_server
     from sources import chapter_check
 
     def sched():
@@ -52,6 +52,14 @@ def test_lifespan_off_starts_nothing(fakes):
     assert fakes == {"scheduler": 0, "page_server": 0}
 
 
+def test_lifespan_hands_the_extension_bridge_the_apps_port(fakes, monkeypatch):
+    from services import page_server
+    monkeypatch.setattr(page_server, "_app_port", None)
+    with TestClient(create_app(ApiSettings(port=8711))):
+        pass
+    assert page_server._app_port == 8711
+
+
 def test_lifespan_on_starts_scheduler_not_page_server_by_default(fakes):
     with TestClient(create_app(ApiSettings(background_services=True))) as c:
         assert c.get("/api/health").status_code == 200
@@ -84,7 +92,7 @@ def test_failure_does_not_stop_startup(fakes, monkeypatch):
 
 def test_startup_recovers_a_bulk_job_left_mid_apply_with_auto_resume_off(fakes, isolated_db):
     from services import settings_service
-    assert not settings_service.get("bulk_auto_resume")
+    settings_service.set_settings({"bulk_auto_resume": False})
     did = isolated_db.create_drama(title_en="B")
     bulk_id = isolated_db.create_bulk_job(did, "claude", "m", "applying", [])
     import contextlib
@@ -150,7 +158,7 @@ def test_each_poll_runs_the_gpu_guard_before_the_queue_recheck(fakes, monkeypatc
 
 
 def test_a_started_bridge_loads_its_models_ahead_of_the_first_page(fakes, monkeypatch):
-    import page_server
+    from services import page_server
     from sources import store as src_store
     warmed = []
     monkeypatch.setattr(page_server, "warm_models_soon", lambda: warmed.append(1))

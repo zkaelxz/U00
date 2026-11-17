@@ -103,7 +103,9 @@ describe('formatting', () => {
     expect(metricNote('translation')).toMatch(/chrF/)
     expect(metricNote('ocr')).toMatch(/CER/)
     expect(metricNote('ocr')).not.toMatch(/translation/i)
-    expect(metricNote('transcription')).toMatch(/WER/)
+    // Every source language (zh, ja, ko) is scored per character, Korean included.
+    expect(metricNote('transcription')).toMatch(/CER/)
+    expect(metricNote('transcription')).not.toMatch(/WER/)
     expect(metricNote('transcription')).not.toMatch(/translation/i)
   })
 

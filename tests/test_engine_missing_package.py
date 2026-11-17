@@ -121,6 +121,7 @@ def test_a_missing_key_is_its_own_error(drama, monkeypatch):
 
 def test_a_missing_hugging_face_token_is_its_own_error(drama, monkeypatch):
     from services import diarization_service
+    settings_service.set_settings({"speaker_model": "pyannote"})   # Nemotron needs no token
     monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
     with pytest.raises(MissingKeyError) as exc:
         diarization_service.start_diarization_run(drama[0])

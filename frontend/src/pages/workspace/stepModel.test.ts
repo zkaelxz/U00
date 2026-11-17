@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { STAGE_LABELS } from './stages'
 import { checkActionLabel, focusStep, linesOpenOnAll, mainInStepsPanel, stepLinks, stepPlace, titleSteps, type StepKey, type StepLink } from './stepModel'
 
 const states = (i: Parameters<typeof titleSteps>[0]) => titleSteps(i).map((s) => `${s.key}:${s.state}`)
@@ -50,6 +51,12 @@ describe('titleSteps', () => {
   })
 })
 
+describe('step names', () => {
+  it('gives the lines step the same name as Full\'s tab, so one step never has two names', () => {
+    expect(titleSteps(base).find((s) => s.key === 'check')?.title).toBe(STAGE_LABELS.review)
+  })
+})
+
 describe('checkActionLabel', () => {
   it('names the lines the button opens, and gives way to Export when nothing needs a look', () => {
     expect(checkActionLabel(null)).toBe('Check the lines')
@@ -63,9 +70,9 @@ describe('stepPlace', () => {
   const steps = titleSteps({ audioReady: true, lineCount: 10, translatedCount: 10, exported: false, riskCount: 3 })
 
   it('numbers the step among however many steps there are', () => {
-    expect(stepPlace(steps, 'check')).toBe('Step 4 of 5 · Check')
+    expect(stepPlace(steps, 'check')).toBe('Step 4 of 5 · Review')
     expect(stepPlace(steps, 'add')).toBe('Step 1 of 5 · Add')
-    expect(stepPlace(steps.filter((s) => s.key !== 'transcribe'), 'check')).toBe('Step 3 of 4 · Check')
+    expect(stepPlace(steps.filter((s) => s.key !== 'transcribe'), 'check')).toBe('Step 3 of 4 · Review')
     expect(stepPlace([], 'check')).toBeNull()
   })
 })
@@ -76,46 +83,46 @@ describe('stepLinks', () => {
   const marked = (i: Parameters<typeof stepLinks>[0], open: Parameters<typeof stepLinks>[1] = null) => stepLinks(i, open).filter((l) => l.marked).map((l) => l.key)
 
   it('names a new title\'s steps: Now, Next, then the names alone', () => {
-    expect(texts(base)).toEqual(['Now · Add', 'Next · Transcribe', 'Translate', 'Check', 'Export'])
+    expect(texts(base)).toEqual(['Now · Add', 'Next · Transcribe', 'Translate', 'Review', 'Export'])
   })
 
   it('shows only the five names while the progress is loading', () => {
-    expect(texts({ ...base, lineCount: null, riskCount: 3 })).toEqual(['Add', 'Transcribe', 'Translate', 'Check', 'Export'])
+    expect(texts({ ...base, lineCount: null, riskCount: 3 })).toEqual(['Add', 'Transcribe', 'Translate', 'Review', 'Export'])
     expect(marked({ ...base, lineCount: null })).toEqual([])
   })
 
   it('counts the lines once transcribed and the lines left to translate, with the check count after them', () => {
     expect(texts({ ...base, audioReady: true, lineCount: 24, translatedCount: 23, riskCount: 3 })).toEqual([
-      'Done · Add', 'Done · Transcribe, 24 lines', 'Now · Translate, 1 of 24 left', 'Next · Check, 3 lines need a look', 'Export',
+      'Done · Add', 'Done · Transcribe, 24 lines', 'Now · Translate, 1 of 24 left', 'Next · Review, 3 lines need a look', 'Export',
     ])
     expect(texts({ ...base, lineCount: 1, translatedCount: 0 })[1]).toBe('Done · Transcribe, 1 line')
   })
 
   it('moves to Check once every line has English, as drawn', () => {
     expect(texts({ ...base, audioReady: true, lineCount: 24, translatedCount: 24, riskCount: 3 })).toEqual([
-      'Done · Add', 'Done · Transcribe, 24 lines', 'Done · Translate', 'Now · Check, 3 lines need a look', 'Next · Export',
+      'Done · Add', 'Done · Transcribe, 24 lines', 'Done · Translate', 'Now · Review, 3 lines need a look', 'Next · Export',
     ])
   })
 
   it('says how many lines need a look in the singular, the plural and when none do, and nothing while it is unknown', () => {
     const check = (riskCount: number | null | undefined) => texts({ ...base, lineCount: 24, translatedCount: 24, riskCount })[3]
-    expect(check(1)).toBe('Now · Check, 1 line needs a look')
-    expect(check(3)).toBe('Now · Check, 3 lines need a look')
-    expect(check(0)).toBe('Now · Check, nothing needs a look')
-    expect(check(null)).toBe('Now · Check')
-    expect(check(undefined)).toBe('Now · Check')
+    expect(check(1)).toBe('Now · Review, 1 line needs a look')
+    expect(check(3)).toBe('Now · Review, 3 lines need a look')
+    expect(check(0)).toBe('Now · Review, nothing needs a look')
+    expect(check(null)).toBe('Now · Review')
+    expect(check(undefined)).toBe('Now · Review')
   })
 
   it('says nothing needs a look only on Check’s own turn; a count above zero shows on any step', () => {
-    expect(texts({ ...base, lineCount: 0, translatedCount: 0, riskCount: 0 })[3]).toBe('Check')
-    expect(texts({ ...base, audioReady: true, lineCount: 24, translatedCount: 23, riskCount: 0 })[3]).toBe('Next · Check')
-    expect(texts({ ...base, audioReady: true, lineCount: 24, translatedCount: 23, riskCount: 2 })[3]).toBe('Next · Check, 2 lines need a look')
-    expect(texts({ ...base, lineCount: 24, translatedCount: 24, riskCount: 0 })[3]).toBe('Now · Check, nothing needs a look')
+    expect(texts({ ...base, lineCount: 0, translatedCount: 0, riskCount: 0 })[3]).toBe('Review')
+    expect(texts({ ...base, audioReady: true, lineCount: 24, translatedCount: 23, riskCount: 0 })[3]).toBe('Next · Review')
+    expect(texts({ ...base, audioReady: true, lineCount: 24, translatedCount: 23, riskCount: 2 })[3]).toBe('Next · Review, 2 lines need a look')
+    expect(texts({ ...base, lineCount: 24, translatedCount: 24, riskCount: 0 })[3]).toBe('Now · Review, nothing needs a look')
   })
 
   it('marks every step done once exported, Transcribe still with its line count', () => {
     expect(texts({ ...base, audioReady: true, lineCount: 24, translatedCount: 24, exported: true, riskCount: 3 })).toEqual([
-      'Done · Add', 'Done · Transcribe, 24 lines', 'Done · Translate', 'Done · Check', 'Done · Export',
+      'Done · Add', 'Done · Transcribe, 24 lines', 'Done · Translate', 'Done · Review', 'Done · Export',
     ])
   })
 

@@ -74,17 +74,17 @@ import time
 from typing import Any
 
 import background_jobs
-import live_cue_feed
-import live_fetch
-import live_pipeline
-import live_player
-import live_whisper
-from live_caption import CHUNK_CONTEXT_CARRY_CHARS as _CONTEXT_CARRY_CHARS  # noqa: F401
-from live_audio import read_wav_tail, write_padded_chunk  # noqa: F401 -- re-exported for callers and tests
-from live_caption import ChunkCaptioner
-from live_cue_translation import CueTranslator
-from live_resolve import LiveCaptureError, resolve_stream_url
-from live_tokens import LEADING_NON_WORD_RE, TOKEN_RE, tokens
+from live import live_cue_feed
+from live import live_fetch
+from live import live_pipeline
+from live import live_player
+from live import live_whisper
+from live.live_caption import CHUNK_CONTEXT_CARRY_CHARS as _CONTEXT_CARRY_CHARS  # noqa: F401
+from live.live_audio import read_wav_tail, write_padded_chunk  # noqa: F401 -- re-exported for callers and tests
+from live.live_caption import ChunkCaptioner
+from live.live_cue_translation import CueTranslator
+from live.live_resolve import LiveCaptureError, resolve_stream_url
+from live.live_tokens import LEADING_NON_WORD_RE, TOKEN_RE, tokens
 
 
 # What ffmpeg may read the piped stream as: MPEG-TS and fMP4 (HLS

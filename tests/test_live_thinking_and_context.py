@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
 from jobs import job_launch, job_table
-import live_cue_translation as lct
+from live import live_cue_translation as lct
 from engine_backends import shared, openai_compat, engine_registry, pricing
 from engine_backends import local as engine_local
 from engine_backends import local, thinking

@@ -555,6 +555,7 @@ export default function LibraryPage() {
       {!!allSeries.data?.items.length && (
         <details className="library-series-links" data-testid="library-series-links">
           <summary>Series ({allSeries.data.items.length})</summary>
+          <p><a href={routeHref({ name: 'series-list' })}>Browse all series as folders</a></p>
           <ul>
             {allSeries.data.items.map((s) => (
               <li key={s.id}>

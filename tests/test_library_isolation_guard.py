@@ -24,7 +24,7 @@ def test_library_paths_point_away_from_the_real_library():
     """Checked without isolated_db: the default every test gets."""
     import applog
     import dictionary
-    import page_server
+    from services import page_server
     from services import bug_report_service
     from sources import profiles, store
 

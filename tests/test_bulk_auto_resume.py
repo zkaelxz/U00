@@ -17,7 +17,7 @@ from tests.test_translate_run_bulk_reflect import (  # noqa: F401
     _current, _env, _fake_engines, _seed)
 
 
-def _pending_batch(did, status="submitted", engine="claude"):
+def _pending_batch(did, status="submitted", engine="ollama"):
     rows = db.load_lines(did)
     return db.create_bulk_job(did, engine, "m", status, [(rows[0]["id"], "k", "h", "")])
 
@@ -43,8 +43,13 @@ def _setup(monkeypatch):
     return did
 
 
-def test_off_by_default_touches_nothing(isolated_db, monkeypatch):
+def test_on_by_default(isolated_db):
+    assert settings_service.get("bulk_auto_resume") is True
+
+
+def test_turned_off_touches_nothing(isolated_db, monkeypatch):
     did = _setup(monkeypatch)
+    settings_service.set_settings({"bulk_auto_resume": False})
     bid = _pending_batch(did)
     calls = []
     monkeypatch.setattr(bulk_poll, "resume_pending", lambda *a, **k: calls.append(a) or {})
@@ -82,15 +87,17 @@ def test_missing_key_is_skipped_and_noted(isolated_db, monkeypatch):
     assert any("no API key" in t for t in _notes())
 
 
-def test_used_up_spending_cap_is_skipped_and_noted(isolated_db, monkeypatch):
+def test_a_paid_engine_is_held_for_the_person_and_noted(isolated_db, monkeypatch):
     did = _setup(monkeypatch)
-    bid = _pending_batch(did)
+    paid = _pending_batch(did, engine="claude")
+    free = _pending_batch(did, engine="ollama")
     settings_service.set_settings({"bulk_auto_resume": True})
-    monkeypatch.setattr(svc, "month_cap_usd", lambda: 5.0)
-    monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 9.0)
-    assert svc.resume_interrupted_at_startup() == {"enabled": True, "resumed": 0, "skipped": 1}
-    assert not background_jobs.is_running(bulk_poll.poll_job_id(bid))
-    assert any("spending cap" in t for t in _notes())
+    assert svc.resume_interrupted_at_startup() == {"enabled": True, "resumed": 1, "skipped": 1}
+    assert not background_jobs.is_running(bulk_poll.poll_job_id(paid))
+    assert db.get_bulk_job(paid)["status"] == "submitted"
+    assert any("paid engines wait" in t for t in _notes())
+    bulk_poll.cancel_bulk_job(free)
+    _wait_idle([free])
 
 
 def test_nothing_starts_while_a_restore_holds_the_library(isolated_db, monkeypatch):
@@ -146,29 +153,23 @@ def test_startup_hook_runs_it_and_survives_its_failure(isolated_db, monkeypatch)
 
 def test_settings_route_writes_the_toggle(isolated_db):
     client = TestClient(create_app(), headers={"X-Baihe-Local": "1"})
-    assert client.get("/api/settings").json()["bulk_auto_resume"] is False
+    assert client.get("/api/settings").json()["bulk_auto_resume"] is True
+    assert client.post("/api/settings", json={"bulk_auto_resume": False}).json()["bulk_auto_resume"] is False
     assert client.post("/api/settings", json={"bulk_auto_resume": True}).json()["bulk_auto_resume"] is True
     assert client.post("/api/settings", json={"bulk_auto_resume": "yes"}).status_code == 422
 
 
-def test_a_job_whose_package_is_missing_is_skipped_but_others_still_resume(isolated_db, monkeypatch):
+def test_a_job_whose_package_is_missing_is_skipped_and_noted(isolated_db, monkeypatch):
     from engine_backends import engine_registry
     from lib.errors import MissingPackageError
     did = _setup(monkeypatch)
-    real = engine_registry.get_engine
 
     def get_engine(name, *a, **k):
-        if name == "claude":
-            raise MissingPackageError("anthropic")
-        return real(name, *a, **k)
+        raise MissingPackageError("requests")
     monkeypatch.setattr(engine_registry, "get_engine", get_engine)
-    broken = _pending_batch(did, engine="claude")
-    ok = _pending_batch(did, engine="gemini")
+    broken = _pending_batch(did, engine="ollama")
     settings_service.set_settings({"bulk_auto_resume": True})
-    assert svc.resume_interrupted_at_startup() == {"enabled": True, "resumed": 1, "skipped": 1}
-    assert background_jobs.is_running(bulk_poll.poll_job_id(ok))
+    assert svc.resume_interrupted_at_startup() == {"enabled": True, "resumed": 0, "skipped": 1}
     assert not background_jobs.is_running(bulk_poll.poll_job_id(broken))
     assert db.get_bulk_job(broken)["status"] == "submitted"
     assert any("package is not installed" in t for t in _notes())
-    bulk_poll.cancel_bulk_job(ok)
-    _wait_idle([ok])

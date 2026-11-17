@@ -63,7 +63,7 @@ def test_every_route_refused_away_from_the_pc(http, method, path, body):
 
 def test_status_check_download_and_install_flow(client, http, monkeypatch):
     s = _clean(client.get("/api/system/update")).json()
-    assert s["current"] == "0.1.0" and s["latest"] is None and s["auto_check"] is False
+    assert s["current"] == "0.1.0" and s["latest"] is None and s["auto_check"] is True
     assert http.calls == []                  # the status never goes to the network
 
     _serve_release(http)
@@ -124,5 +124,5 @@ def test_prerelease_switch_saves_without_developer_mode(client):
     r = client.post("/api/system/update/settings", json={"include_prereleases": True})
     assert r.status_code == 200, r.text
     assert r.json()["include_prereleases"] is True
-    assert r.json()["auto_check"] is False
+    assert r.json()["auto_check"] is True
     assert client.post("/api/system/update/settings", json={}).status_code == 422
