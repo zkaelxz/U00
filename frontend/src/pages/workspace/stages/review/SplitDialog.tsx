@@ -4,7 +4,7 @@ import { Field } from '../../../../components/Field'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine } from '../../../../types/review'
-import { charCount, codePointOffset, estimateSplitTime, proportionalCut, splitPieces, splitTranslationPieces, stepToBoundary } from './reviewLogic'
+import { charCount, codePointOffset, estimateSplitTime, proportionalCut, splitAnnouncement, splitPieces, splitTranslationPieces, stepToBoundary } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
 import { useTitleTextLang } from '../../StageContext'
 
@@ -82,7 +82,7 @@ function CutText({ label, text, lang, at, onChange }: CutTextProps) {
           <button type="button" onClick={() => move(stepToBoundary(text, at, 1))} disabled={at >= len - 1} aria-label={`${label}: next punctuation or space`}>⇥</button>
         </div>
         <textarea id={textId} lang={lang} rows={2} value={text} readOnly onSelect={fromCaret} />
-        <span className="visually-hidden" aria-live="polite">First piece: {first}. Second piece: {second}.</span>
+        <span className="visually-hidden" aria-live="polite">{splitAnnouncement(first, second)}</span>
       </div>
     </div>
   )

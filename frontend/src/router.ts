@@ -225,10 +225,24 @@ export function routeHref(r: Route): string {
   return `#/${r.name}`
 }
 
+// True for a hash that names no screen: parseRoute shows the Library for it, but the address bar
+// would keep the bad path, and a reload or a shared link would carry it on.
+export function isUnknownRoute(hash: string): boolean {
+  const parts = hash.replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean)
+  return parts.length > 0 && parts[0] !== 'library' && parseRoute(hash).name === 'library'
+}
+
+// replaceState, not an assignment: no extra history entry, so Back doesn't land on the bad address again.
+function readRoute(): Route {
+  const { hash, pathname, search } = window.location
+  if (isUnknownRoute(hash)) window.history.replaceState(null, '', `${pathname}${search}#/`)
+  return parseRoute(window.location.hash)
+}
+
 export function useRoute(): Route {
-  const [route, setRoute] = useState(() => parseRoute(window.location.hash))
+  const [route, setRoute] = useState(readRoute)
   useEffect(() => {
-    const on = () => setRoute(parseRoute(window.location.hash))
+    const on = () => setRoute(readRoute())
     window.addEventListener('hashchange', on)
     return () => window.removeEventListener('hashchange', on)
   }, [])

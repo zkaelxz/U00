@@ -7,6 +7,8 @@ import {
   isDirectAudioUrl,
   isDirectMediaUrl,
   isVideoFile,
+  RANGES,
+  rangeFieldError,
   ocrBackendOptions,
   runOptionProblem,
   runProblemFromError,
@@ -138,5 +140,18 @@ describe('isDirectMediaUrl', () => {
     expect(isDirectMediaUrl('https://a.example/x/ep.mp3')).toBe(true)
     expect(isDirectMediaUrl('https://www.youtube.com/watch?v=abc')).toBe(false)
     expect(isDirectMediaUrl('not a url')).toBe(false)
+  })
+})
+
+describe('rangeFieldError', () => {
+  it('flags a Min silence outside the backend range as it is typed', () => {
+    expect(rangeFieldError('min_silence_ms', '50')).toBe('Min silence (ms) must be a whole number between 100 and 3000.')
+    expect(rangeFieldError('min_silence_ms', '5000')).not.toBeNull()
+    expect(rangeFieldError('min_silence_ms', '300')).toBeNull()
+    expect(rangeFieldError('min_silence_ms', '')).toBeNull()
+  })
+  it('uses the plain name for the speech cutoff', () => {
+    expect(RANGES.vad_threshold.label).toBe('Quiet-sound cutoff')
+    expect(rangeFieldError('vad_threshold', '2')).toContain('Quiet-sound cutoff')
   })
 })

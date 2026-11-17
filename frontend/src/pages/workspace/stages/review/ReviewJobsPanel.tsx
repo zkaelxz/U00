@@ -44,6 +44,7 @@ import {
 } from './reviewResults'
 import { NO_KEY_ENGINES_HELP } from '../../../../helpText'
 import { holds } from '../../../diagnostics/adminUsers'
+import { bulkControlName } from './reviewLogic'
 
 const KINDS: { kind: BulkKind; label: string; what: string }[] = [
   { kind: 'consistency', label: 'Check consistency', what: 'Consistency check' },
@@ -255,13 +256,13 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
             </button>
             <span className="review-bulk">
               <Toggle
-                aria-label={`Bulk: ${label}`}
+                aria-label={bulkControlName(label)}
                 checked={bulkOk && !!bulkOn[kind]}
                 disabled={!bulkOk}
                 onChange={(on) => setBulkOn((c) => ({ ...c, [kind]: on }))}
               />
               <span aria-hidden="true">Bulk</span>
-              <HelpTip label="Bulk" id={`${bulkHelpId}-${kind}`}>{BULK_HELP}</HelpTip>
+              <HelpTip label={bulkControlName(label)} id={`${bulkHelpId}-${kind}`}>{BULK_HELP}</HelpTip>
             </span>
           </div>
         ))}

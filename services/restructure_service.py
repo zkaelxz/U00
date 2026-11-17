@@ -142,11 +142,12 @@ def note_ids(drama_id: int) -> set:
     return {n["id"] for n in db.list_translation_notes(drama_id)}
 
 
-def structural_write(drama_id: int, expected_line_ids, label: str, build,
+def structural_write(drama_id: int, expected_line_ids, label, build,
                      with_words: bool = False, keep_new_notes: bool = False):
     """load fresh -> check ids -> build(current) -> snapshot -> save, under
     the drama lock. build returns (new_lines, result_line_objects).
     with_words loads the lines' stored word timings for a build that cuts or joins text.
+    label may be a callable, for a label that needs what build found.
     keep_new_notes refuses the save if a line it removes gained a note or
     emotion tag after the lines were loaded."""
     _require_drama(drama_id)
@@ -161,7 +162,7 @@ def structural_write(drama_id: int, expected_line_ids, label: str, build,
         # build works on copies so the snapshot sees the untouched lines
         work = [dataclasses.replace(ln, orig=dict(ln.orig), merged_ids=[]) for ln in current]
         new_lines, touched = build(work)
-        history_id = _commit(drama_id, current, new_lines, label, known_note_ids=known,
+        history_id = _commit(drama_id, current, new_lines, label() if callable(label) else label, known_note_ids=known,
                              known_emotion_ids=known_emotions)
         handle = undo_handle(drama_id, history_id)
     return {"line_ids": [ln.id for ln in new_lines],
@@ -205,10 +206,14 @@ def delete_line(drama_id: int, line_id: int, expected_line_ids, confirm: bool = 
     if confirm is not True:
         raise InvalidInputError("Deleting a line needs confirm=true.")
 
+    # build runs before the label is used, so the number it finds is the one the label needs.
+    number = []
+
     def build(lines):
         i = _index_of(lines, line_id)
+        number.append(i + 1)
         return lines[:i] + lines[i + 1:], []
-    return structural_write(drama_id, expected_line_ids, "before delete line", build)
+    return structural_write(drama_id, expected_line_ids, lambda: f"before delete line {number[0]}", build)
 
 
 def merge_lines(drama_id: int, line_ids, expected_line_ids) -> dict:
@@ -289,6 +294,9 @@ def split_line(drama_id: int, line_id: int, expected_line_ids, *, at_char: int,
             cut = at_time
         else:
             raise InvalidInputError("at_time must fall strictly inside the line's timing.")
+        # Millisecond cut times: a long float shows up as the End of one piece and the Start of the other.
+        if ln.start < round(cut, 3) < ln.end:
+            cut = round(cut, 3)
         en_first, en_second = ln.en, ""
         if en_at_char is not None:
             en_first, en_second = ln.en[:en_at_char].rstrip(), ln.en[en_at_char:].strip()

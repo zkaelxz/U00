@@ -22,7 +22,7 @@ test('audio drama: speech settings are there, hardsub ones are not', async ({ pa
   await enableDeveloperMode(page)
   await page.goto('/#/drama/1/source')
   const advanced = await openAdvanced(page)
-  for (const name of ['Min silence', 'VAD threshold', 'Beam size', 'Separate vocals first', 'Separation backend']) {
+  for (const name of ['Min silence', 'Quiet-sound cutoff', 'Beam size', 'Separate vocals first', 'Separation backend']) {
     await expect(advanced.getByText(name, { exact: true }).first()).toBeVisible()
   }
   await expect(advanced.getByText('Hardsub interval', { exact: true })).toHaveCount(0)
@@ -49,7 +49,7 @@ test('novel: leads with translating the text, and has no transcription or audio-
   await expect(panel.getByRole('radiogroup', { name: 'Where the lines come from' })).toHaveCount(0)
   await expect(panel.locator('.section-title', { hasText: /^Import subtitle file$/ })).toHaveCount(0)
   await expect(panel.getByRole('region', { name: 'Advanced options' })).toHaveCount(0)
-  for (const name of ['Min silence', 'Separate vocals first', 'VAD threshold', 'Beam size']) {
+  for (const name of ['Min silence', 'Separate vocals first', 'Quiet-sound cutoff', 'Beam size']) {
     await expect(page.getByText(name, { exact: true })).toHaveCount(0)
   }
   // Audio comes after translating: the upload waits behind a fold.
