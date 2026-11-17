@@ -610,7 +610,7 @@ def _redact(record: dict) -> dict:
     out["message"] = scrub_text(record.get("message") or "")
     out["error"] = scrub_text(record.get("error") or "") or None
     out["gpu_touching"] = bool(record.get("gpu_touching"))
-    if out.get("status") == "cancelled" and gpu_guard.starting_again(record.get("job_id")):
+    if out.get("status") == "cancelled" and gpu_guard.starting_again(str(record.get("job_id") or "")):
         # The GPU guard ends a waiting run just before it starts the new one under
         # the same id; a page polling the job must not read that as Cancelled.
         out["status"] = "queued"
