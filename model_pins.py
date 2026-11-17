@@ -6,9 +6,16 @@ commit recorded here, never at a branch: a branch can move to files nobody
 has tested. A repo missing from the table is an error, not a quiet fall back
 to the newest files, and tests/test_model_pins.py fails when a loader names a
 repo with no pin. Not pinned yet: pyannote diarization (gated, the owner's
-own token), classic PaddleOCR (PaddleX fetches its models by name, with no
-revision), SenseVoice (ModelScope), the vocal separator and the frozen dub
+own token; CC-BY-4.0 weights), classic PaddleOCR (PaddleX fetches its models by
+name, with no revision), SenseVoice (ModelScope), the vocal separator and the frozen dub
 models.
+
+Model terms (Hub model cards' `license:` tag, read 2026-11-17, plus the notes
+below) are permissive (MIT, Apache-2.0) except where a comment beside a pin
+says otherwise. Outside this table: torchaudio's MMS_FA forced aligner
+(word_align.py) is Meta's MMS, CC-BY-NC 4.0 (non-commercial; facebookresearch/
+fairseq examples/mms README, "License"); SenseVoice (funasr) weights are under
+the FunASR Model Open Source License (modelscope/FunASR MODEL_LICENSE).
 
 To move a pin: test the new revision on real audio or pages first, then
 change its hash here; downloads already on disk at the old revision are not
@@ -33,12 +40,15 @@ REVISIONS = {
     # name still resolves and is the one faster-whisper's own table uses.
     "mobiuslabsgmbh/faster-whisper-large-v3-turbo": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
     # Japanese CTranslate2 builds offered as whisper_models.PINNED_CT2_REPOS.
+    # whisper-ja-1.5B-ct2 declares no licence on its card (docs/asr-experiments.md);
+    # anime-whisper's card says MIT, but its training data (Galgame speech datasets)
+    # forbids commercial use of models trained on it, so treat it as non-commercial.
     "TransWithAI/whisper-ja-1.5B-ct2": "1527314b14da5bdf0d14e7328649d4fa26840188",
     "kotoba-tech/kotoba-whisper-v2.0-faster": "f44edd35eaeb2274e85ac7b31fb2c6f59ff1c4bc",
     "quantumcookie/anime-whisper-ct2-fp16": "8ad0b0053dd0af6e108eea290e6f50a3aea49008",
     # Chinese (Taiwanese Mandarin) CTranslate2 build offered as whisper_models.PINNED_CT2_REPOS.
     "phate334/Breeze-ASR-25-ct2": "ac4ec98cf46e00218e29e704b3181a2d7bd94f77",
-    # NVIDIA Nemotron-3-Diarization (diarize_nemotron); the download fetches only config, processor
+    # NVIDIA Nemotron-3-Diarization (diarize_nemotron), OpenMDW-1.1; the download fetches only config, processor
     # config and model.safetensors, never the .nemo or .gguf copies in the same repo.
     "nvidia/Nemotron-3-Diarization": "52a432672732425e4c19765b9fec9b5810e6f4ba",
     # Qwen3-ASR and the forced aligner (qwen3_native).

@@ -13,10 +13,11 @@ actions the React page runs as background jobs:
   other sites') formats. A system tool, not a pip package. On Windows with
   winget it runs `winget install -e --id DenoLand.Deno` (a fixed command;
   winget puts it on PATH); otherwise it downloads Deno's official release
-  zip for this OS/CPU from a static table below (never a URL from the
+  zip for this OS/CPU from the pinned table below (never a URL from the
   request), follows at most MAX_REDIRECTS hops, each https and on an
   allowlisted host, with timeout= on every request and a byte cap, checks
-  it against the release's own .sha256sum file and unpacks only the deno
+  it against the SHA-256 pinned in DENO_ASSETS (one fixed Deno
+  version, bumped by hand) and unpacks only the deno
   binary into ~/.deno/bin, where Deno's own installer puts it.
 - Q06 "Test first" for an update runs the same way, from
   services/diagnostics_upgrade_check_service.py.
@@ -35,7 +36,6 @@ import hashlib
 import importlib.metadata  # noqa: F401  (tests patch it through this module)
 import os
 import platform
-import re
 import shutil
 import stat
 import sysconfig
@@ -72,25 +72,33 @@ DEPENDENCY_JOB_ID = "dependency_install"
 CUDA_RUNTIME_PACKAGES = ("nvidia-cublas-cu12", "nvidia-cudnn-cu12")
 _OUTPUT_TAIL = 40
 
-# Static download table: (OS, CPU) -> the official release asset. Only
-# these exact URLs are ever requested (plus "<asset>.sha256sum" next to
-# the versioned one they redirect to).
-_DENO_RELEASES = "https://github.com/denoland/deno/releases/latest/download/"
-DENO_DOWNLOADS = {
-    ("Windows", "x86_64"): _DENO_RELEASES + "deno-x86_64-pc-windows-msvc.zip",
-    ("Linux", "x86_64"): _DENO_RELEASES + "deno-x86_64-unknown-linux-gnu.zip",
-    ("Linux", "aarch64"): _DENO_RELEASES + "deno-aarch64-unknown-linux-gnu.zip",
-    ("Darwin", "x86_64"): _DENO_RELEASES + "deno-x86_64-apple-darwin.zip",
-    ("Darwin", "aarch64"): _DENO_RELEASES + "deno-aarch64-apple-darwin.zip",
+# One pinned release and the SHA-256 of each asset, checked into the code like
+# model_pins.py pins models: a compromised or moved "latest" can't change what
+# gets installed. Bump by hand when yt-dlp needs a newer Deno (its floor is
+# MIN_SUPPORTED_VERSION in yt_dlp/utils/_jsruntime.py, 2.3.0 at the time of
+# writing): change DENO_VERSION and every hash together, taking each hash from
+# the release's own <asset>.sha256sum and confirming it against the downloaded
+# file. Only these exact URLs are ever requested.
+DENO_VERSION = "2.9.8"
+_DENO_RELEASE = f"https://github.com/denoland/deno/releases/download/v{DENO_VERSION}/"
+# (OS, CPU) -> (release asset, SHA-256 of that asset)
+DENO_ASSETS = {
+    ("Windows", "x86_64"): ("deno-x86_64-pc-windows-msvc.zip",
+                            "cba84b26e0df5ae7f74fc66b86a95b866872a86292ebd84fa1e959927edd93bf"),
+    ("Linux", "x86_64"): ("deno-x86_64-unknown-linux-gnu.zip",
+                          "e890975bc2549807bbcc0b584ffafda72cc7c93349dd99c80483dd784f6c4609"),
+    ("Linux", "aarch64"): ("deno-aarch64-unknown-linux-gnu.zip",
+                           "d49596c20b9788cf8f5d8ddf644103d4bde56ed239753f0bdb92ba9361d51905"),
+    ("Darwin", "x86_64"): ("deno-x86_64-apple-darwin.zip",
+                           "4b2f5edd2639b7470f034238b321d7002d8dfb4726d8558f52c17afac370eb2c"),
+    ("Darwin", "aarch64"): ("deno-aarch64-apple-darwin.zip",
+                            "9f0bf660393da2eaff044cdc7444cb08c73f235849b61d224d825a194ce7c98e"),
 }
 # Hosts a hop may land on: GitHub's release pages and its asset storage.
 DENO_ALLOWED_HOSTS = frozenset({"github.com", "objects.githubusercontent.com",
                                 "release-assets.githubusercontent.com"})
-_VERSIONED_PATH = re.compile(r"^/denoland/deno/releases/download/(v[0-9][0-9A-Za-z.+-]*)/"
-                             r"(deno-[a-z0-9_-]+\.zip)$")
 MAX_REDIRECTS = 5
 DENO_MAX_BYTES = 250 * 1024 * 1024          # the zip is ~45 MB
-CHECKSUM_MAX_BYTES = 4096
 DENO_VERSION_TIMEOUT = 10
 REQUEST_TIMEOUT = (15, 60)                  # connect, per-read (seconds)
 DOWNLOAD_DEADLINE_SECONDS = 30 * 60
@@ -99,7 +107,6 @@ _WINGET_CMD = ["winget", "install", "-e", "--id", "DenoLand.Deno",
                "--accept-package-agreements", "--accept-source-agreements",
                "--disable-interactivity"]
 _CHUNK = 65536
-_SHA256 = re.compile(r"\b([0-9A-Fa-f]{64})\b")
 _CPU = {"amd64": "x86_64", "x86_64": "x86_64", "x64": "x86_64",
         "arm64": "aarch64", "aarch64": "aarch64"}
 
@@ -158,10 +165,10 @@ def _deno_installed_somewhere() -> bool:
 
 
 def _deno_download_url():
+    """(url, expected SHA-256) for this OS/CPU, or None."""
     cpu = _CPU.get((platform.machine() or "").lower())
-    if cpu is None:
-        return None
-    return DENO_DOWNLOADS.get((platform.system(), cpu))
+    asset = DENO_ASSETS.get((platform.system(), cpu)) if cpu else None
+    return (_DENO_RELEASE + asset[0], asset[1]) if asset else None
 
 
 def _use_winget() -> bool:
@@ -279,24 +286,6 @@ def _get(url: str):
                         headers={"User-Agent": "Baihe-Subtitler (Deno setup)"})
 
 
-def _resolve_latest(url: str):
-    """The versioned github.com URL `latest/download/<asset>` points at, so
-    the zip and its checksum come from the same release."""
-    resp = _get(url)
-    try:
-        if resp.status_code not in (301, 302, 303, 307, 308):
-            raise DenoInstallFailed("Could not find the latest Deno release.")
-        target = urljoin(url, resp.headers.get("Location") or "")
-    finally:
-        resp.close()
-    _check_hop(target)
-    m = _VERSIONED_PATH.match(urlsplit(target).path)
-    if urlsplit(target).hostname != "github.com" or not m \
-            or m.group(2) != url.rsplit("/", 1)[1]:
-        raise DenoInstallFailed("Could not find the latest Deno release.")
-    return target, m.group(1)
-
-
 def _fetch(url: str, out, max_bytes: int, on_chunk=None):
     """Follows at most MAX_REDIRECTS allowlisted https hops, then streams
     the body into `out`, stopping past `max_bytes` or the overall deadline."""
@@ -329,19 +318,12 @@ def _fetch(url: str, out, max_bytes: int, on_chunk=None):
 
 
 def _download_and_unpack(say):
-    import io
-    url = _deno_download_url()
-    if url is None:
+    pinned = _deno_download_url()
+    if pinned is None:
         raise DenoInstallFailed("There is no Deno download for this system here.")
-    say(0.05, "Finding the latest Deno release...")
-    versioned, version = _resolve_latest(url)
+    url, expected = pinned
+    version = DENO_VERSION
     say(0.1, f"Downloading Deno {version}...")
-    checksum = io.BytesIO()
-    _fetch(versioned + ".sha256sum", checksum, CHECKSUM_MAX_BYTES)
-    m = _SHA256.search(checksum.getvalue().decode("utf-8", "replace"))
-    if not m:
-        raise DenoInstallFailed("The Deno release has no readable checksum; nothing was installed.")
-    expected = m.group(1).lower()
 
     last = {"pct": -1}
 
@@ -368,7 +350,7 @@ def _download_and_unpack(say):
                 digest.update(b)
                 self.f.write(b)
         with open(zip_path, "wb") as f:
-            _fetch(versioned, _Hashing(f), DENO_MAX_BYTES, progress)
+            _fetch(url, _Hashing(f), DENO_MAX_BYTES, progress)
         if digest.hexdigest() != expected:
             raise DenoInstallFailed("The Deno download did not match its checksum; "
                                     "nothing was installed.")
