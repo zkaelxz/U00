@@ -4,8 +4,9 @@ import { enableDeveloperMode } from './sourceHelpers'
 
 // Fails on any axe violation (WCAG 2.1 A and AA) on these pages. Every page had none when this became a
 // gate, so a new one is a regression; the annotations and the "axe-violations" attachment say what and where.
-// It does not cover colour contrast: axe marks almost every contrast check "incomplete" over the frosted
-// background, which theme-contrast.spec.ts measures instead.
+// Colour contrast is left to theme-contrast.spec.ts: over the frosted background axe marks almost every
+// contrast check "incomplete", and the few it does measure flip with the moment it reads them (a primary
+// button on #/translate failed one run in three on the same build), which made this gate flaky.
 
 const PAGES = [
   '#/', '#/settings', '#/jobs', '#/translate', '#/make-subtitles', '#/diagnostics',
@@ -17,7 +18,8 @@ for (const hash of PAGES) {
     await enableDeveloperMode(page)
     await page.goto(`/${hash}`)
     await page.getByRole('heading', { level: 1 }).first().waitFor()
-    const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
+    const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .disableRules(['color-contrast']).analyze()
     const summary = violations.map((v) => ({
       id: v.id,
       impact: v.impact,
