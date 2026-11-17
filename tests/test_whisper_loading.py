@@ -165,6 +165,8 @@ class TestGpuInferenceFailureFallback:
         import whisper_transcribe
         self._stub_faster_whisper()
         whisper_models._whisper_model_cache.clear()
+        # Another test in the same worker can leave a GPU entry here; only this run's is checked.
+        whisper_models._whisper_device_info.clear()
 
         whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", use_gpu=True)
 
