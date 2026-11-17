@@ -137,6 +137,17 @@ def test_a_site_thumbnail_never_replaces_a_cover_and_junk_is_ignored(isolated_db
     assert db.get_drama(did)["cover_art_filename"] == "cover.png"
 
 
+def test_remove_cover_keeps_a_cover_that_is_not_the_one_the_job_made(isolated_db):
+    pytest.importorskip("PIL")
+    did = db.create_drama(title_en="D")
+    cover_art_service.save_cover(did, io.BytesIO(_png()))
+    mine = cover_art_service.cover_stamp(did)
+    cover_art_service.remove_cover(did, only_if_stamp=("cover.png", mine[1] + 1))
+    assert db.get_drama(did)["cover_art_filename"] == "cover.png"
+    cover_art_service.remove_cover(did, only_if_stamp=mine)
+    assert db.get_drama(did)["cover_art_filename"] is None
+
+
 def test_remove_cover_deletes_the_file_and_clears_the_field(isolated_db):
     pytest.importorskip("PIL")
     did = db.create_drama(title_en="D")
@@ -217,4 +228,20 @@ def test_save_thumbnail_gives_up_on_a_stalled_read_and_on_errors(tmp_path):
         release.set()
     assert video_download.save_thumbnail(_Ydl(error=OSError("refused")), {"thumbnail": "https://i.example/t"},
                                          str(out)) is False
+    assert not out.exists()
+
+
+def test_save_thumbnail_refuses_a_compressed_body(tmp_path):
+    import video_download
+
+    class Gz:
+        headers = {"Content-Encoding": "gzip"}
+
+        def read(self, n):
+            raise AssertionError("a compressed body must not be read")
+
+        def close(self):
+            pass
+    out = tmp_path / "t.bin"
+    assert video_download.save_thumbnail(_Ydl(Gz()), {"thumbnail": "https://i.example/t"}, str(out)) is False
     assert not out.exists()

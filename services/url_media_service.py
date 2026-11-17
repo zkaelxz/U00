@@ -772,15 +772,16 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
         # Before install_media, so its own frame-grab cover finds one and leaves it.
         site_cover = not direct_ext and cover_art_service.use_site_thumbnail(
             drama_id, os.path.join(tmp, ytdlp_child.THUMBNAIL_NAME))
+        site_cover_stamp = cover_art_service.cover_stamp(drama_id) if site_cover else None
         try:
             media_upload_service.install_media(drama_id, new_files, transcribe_new_audio=True,
                                                 origin_link=origin,
                                                 discard_replaced=not drama.get("keep_original"),
                                                 **fields)
         except BaseException as exc:
-            if site_cover:  # a title that got no media must not keep this job's picture
+            if site_cover_stamp:  # a title that got no media must not keep this job's picture
                 with contextlib.suppress(Exception):
-                    cover_art_service.remove_cover(drama_id)
+                    cover_art_service.remove_cover(drama_id, only_if_stamp=site_cover_stamp)
             if isinstance(exc, (OSError, sqlite3.Error)):
                 raise RuntimeError(_SAVE_FAILED) from None
             raise

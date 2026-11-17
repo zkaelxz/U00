@@ -184,12 +184,25 @@ def use_site_thumbnail(drama_id: int, path: str) -> bool:
         return False
 
 
-def remove_cover(drama_id: int) -> None:
+def cover_stamp(drama_id: int):
+    """Identifies the stored cover (name and modified time), or None when there is none."""
+    name = (db.get_drama(drama_id) or {}).get("cover_art_filename")
+    if not _servable_name(name):
+        return None
+    try:
+        return name, os.stat(os.path.join(os.path.realpath(db.drama_dir(drama_id)), name)).st_mtime_ns
+    except OSError:
+        return None
+
+
+def remove_cover(drama_id: int, only_if_stamp=None) -> None:
     """Takes the cover away again: the stored file, then the title's field. For a job that set
-    one automatically and then failed, so a title left with no media shows no picture either."""
+    one automatically and then failed, so a title left with no media shows no picture either.
+    With `only_if_stamp` (from cover_stamp) it does nothing when the cover is no longer the one
+    the job made, so a picture the user uploaded meanwhile is kept."""
     drama = db.get_drama(drama_id) or {}
     name = drama.get("cover_art_filename")
-    if not drama:
+    if not drama or (only_if_stamp is not None and cover_stamp(drama_id) != only_if_stamp):
         return
     with contextlib.suppress(OSError):
         if _servable_name(name):

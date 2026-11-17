@@ -96,6 +96,11 @@ def save_thumbnail(ydl, info, path: str, max_bytes: int = THUMBNAIL_MAX_BYTES,
         try:
             response = open_url(url)
             try:
+                # yt-dlp decodes a compressed body whole before the first read, so the byte
+                # cap below would not bound memory for one.
+                headers = getattr(response, "headers", None)
+                if headers is not None and (headers.get("Content-Encoding") or "identity").lower() != "identity":
+                    return
                 data = bytearray()
                 while len(data) <= max_bytes:
                     chunk = response.read(64 * 1024)

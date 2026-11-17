@@ -1514,8 +1514,9 @@ def test_a_failed_install_takes_back_the_cover_this_download_made(client, env, m
     from services import cover_art_service, media_upload_service
     did = _drama()
     monkeypatch.setattr(cover_art_service, "use_site_thumbnail", lambda d, path: True)
+    monkeypatch.setattr(cover_art_service, "cover_stamp", lambda d: ("cover.jpg", 1))
     removed = []
-    monkeypatch.setattr(cover_art_service, "remove_cover", lambda d: removed.append(d))
+    monkeypatch.setattr(cover_art_service, "remove_cover", lambda d, only_if_stamp=None: removed.append(d))
 
     def failing_install(*a, **kw):
         raise OSError("disk full")
@@ -1530,7 +1531,7 @@ def test_a_cover_the_download_did_not_make_survives_a_failed_install(client, env
     did = _drama()
     monkeypatch.setattr(cover_art_service, "use_site_thumbnail", lambda d, path: False)
     removed = []
-    monkeypatch.setattr(cover_art_service, "remove_cover", lambda d: removed.append(d))
+    monkeypatch.setattr(cover_art_service, "remove_cover", lambda d, only_if_stamp=None: removed.append(d))
     monkeypatch.setattr(media_upload_service, "install_media",
                         lambda *a, **kw: (_ for _ in ()).throw(OSError("disk full")))
     assert _run(client, did)["status"] == "error"
