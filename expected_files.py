@@ -131,6 +131,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "source_change.py",
     "source_suspect.py",
     "storage.py",
+    "stored_settings.py",
     "story_context.py",
     "subtitle_ass.py",
     "subtitle_formats.py",
