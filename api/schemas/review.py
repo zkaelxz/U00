@@ -66,6 +66,8 @@ __all__ = [
     "ResegmentPreview",
     "ResegmentStart",
     "ResplitStart",
+    "ResplitPiece",
+    "ResplitCut",
     "ResplitResult",
     "ResegmentStarted",
     "ResegmentLlmPreviewStart",
@@ -658,6 +660,18 @@ class ResplitStart(_RestructureBase):
     dry_run: StrictBool = False
 
 
+class ResplitPiece(BaseModel):
+    start: float
+    end: float
+    text: str
+
+
+class ResplitCut(BaseModel):
+    line_id: int
+    idx: int
+    pieces: List[ResplitPiece]
+
+
 class ResplitResult(BaseModel):
     """Either the finished summary (estimated timing) or, with align_to_audio,
     the started job (job_id; its result carries the same summary)."""
@@ -673,6 +687,8 @@ class ResplitResult(BaseModel):
     note: Optional[str] = None
     dry_run: Optional[bool] = None
     pieces: Optional[int] = None
+    # Dry run only: each line that would be split, in line order, with its planned pieces.
+    cuts: Optional[List[ResplitCut]] = None
     history_id: Optional[int] = None
     lines_fingerprint: Optional[str] = None
 

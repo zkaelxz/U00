@@ -62,6 +62,8 @@ interface Props {
   onChanged: () => void
   jobRunning: boolean
   mediaKind: PlayerMediaKind | null
+  // An audio file beside the video, for the player to fall back to.
+  hasAudio?: boolean
   // The drama's source_language: the spoken language of a line with no lang of its own.
   sourceLanguage: string | null
   // The title's own translation engine, which "Read & translate" uses.
@@ -103,7 +105,7 @@ const STATUS_MS = 8000
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, onOpenHistory, goTo, onQueue, onLineTab, lineDock = null }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, hasAudio = false, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, onOpenHistory, goTo, onQueue, onLineTab, lineDock = null }: Props) {
   const isPhone = useMediaQuery(PHONE)
   const simple = useSimple()
   const isWide = useMediaQuery(WIDE) // tablets and wider: a source video gets its own sticky card beside the lines
@@ -414,7 +416,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
                   id={playerId}
                   onFailed={media.show}
                   dramaId={dramaId}
-                  kind={mediaKind}
+                  kind={mediaKind} hasAudio={hasAudio}
                   lines={shown}
                   selected={active}
                   captionVersion={reloads}

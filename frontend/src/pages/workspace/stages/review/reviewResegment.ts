@@ -5,7 +5,9 @@ import type { TranslateRunConfig } from '../../../../types/translateStage'
 import { humanize } from '../../../../components/labels'
 import { reflectAvailable } from '../../translateForm'
 import { spendText } from './reviewResults'
+import { formatTenths } from './reviewLogic'
 import { plural } from '../../../../labels'
+import { lineNumber } from '../../../../lineNumber'
 
 
 export const JOB_RUNNING_MESSAGE = 'A job is running on this title. Structure edits wait until it finishes.'
@@ -71,6 +73,28 @@ export function resplitPreviewSummary(r: Partial<ResplitResult>): string {
     ? ` ${r.cleared_translations} translation${r.cleared_translations === 1 ? '' : 's'} would be cleared.`
     : ''
   return `Preview: ${n} line${n === 1 ? '' : 's'} would be split into ${r.pieces ?? 0}.${cleared}`
+}
+
+export const SHOWN_RESPLIT_CUTS = 20
+
+export interface ResplitCutRow {
+  key: number
+  number: number
+  // Where each new piece would start, so the cut can be found on the waveform.
+  at: string
+  pieces: string
+}
+
+/** A dry run's planned cuts as short rows (the first `limit`), and how many lines are left out. */
+export function resplitCutRows(cuts: ResplitResult['cuts'] | undefined, limit = SHOWN_RESPLIT_CUTS): { rows: ResplitCutRow[]; more: number } {
+  const all = cuts ?? []
+  const rows = all.slice(0, limit).map((c) => ({
+    key: c.line_id,
+    number: lineNumber(c.idx),
+    at: c.pieces.slice(1).map((p) => formatTenths(p.start)).join(', '),
+    pieces: c.pieces.map((p) => p.text).join(' | '),
+  }))
+  return { rows, more: all.length - rows.length }
 }
 
 /** The server asks for confirm=true when a long line already has English. */
