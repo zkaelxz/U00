@@ -12,6 +12,7 @@ import pytest
 import background_jobs as bg
 from jobs import job_launch, job_runner, job_settings
 import db
+import gpu_probe
 import diagnostics_torch
 from jobs import gpu_slots, job_store
 
@@ -23,6 +24,14 @@ OTHER_PID = 2 ** 22 + 23456
 def _pid_alive(monkeypatch):
     # Only DEAD_PID counts as exited; every other pid is a running process.
     monkeypatch.setattr(bg, "owner_process_alive", lambda pid: pid != DEAD_PID)
+
+
+@pytest.fixture(autouse=True)
+def _no_leftover_gpu_reading(monkeypatch):
+    # A reading another test prefetched on this thread less than
+    # gpu_probe.MAX_AGE_SECONDS ago would otherwise be used here instead of
+    # the external_gpu_load these tests patch.
+    monkeypatch.setattr(gpu_probe._local, "readings", None, raising=False)
 
 
 def _wait(job_id, timeout=2.0):
