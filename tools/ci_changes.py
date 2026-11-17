@@ -48,7 +48,7 @@ SOURCES_TEST_FILES = (
     "test_secret_redaction.py", "test_b25_redirect_ssrf.py", "test_b28_browser_tier_ssrf.py",
     "test_source_domains.py", "test_feature_switches.py", "test_adaptive_extraction.py",
     "test_installer_service.py", "test_installer_payload.py", "test_page_server.py", "test_db.py",
-    "test_db_lines.py", "test_db_series.py", "test_db_connections.py", "test_db_library_file.py",
+    "test_installer_remote.py", "test_db_lines.py", "test_db_series.py", "test_db_connections.py", "test_db_library_file.py",
     "test_library_isolation_guard.py", "test_ci_changes.py",
 )
 # What the browser tests can exercise through the running app; a backend-only change used to skip them
