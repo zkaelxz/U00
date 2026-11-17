@@ -16,6 +16,7 @@ the drama's own folder.
 
 No FastAPI import.
 """
+import contextlib
 import io
 import os
 import tempfile
@@ -140,3 +141,66 @@ def cover_file(drama_id: int):
     if os.path.dirname(path) != folder or not os.path.isfile(path):
         raise NotFoundError("This title has no cover.")
     return path, _SERVE_TYPES[os.path.splitext(name)[1].lower()]
+
+
+FRAME_TIMEOUT_SECONDS = 60
+# A fifth of the way in skips a black start and a studio logo without seeking to a
+# point a short clip doesn't have.
+_FRAME_FRACTION = 0.2
+_FRAME_FALLBACK_SECONDS = 5.0
+_FRAME_MAX_WIDTH = 1280
+
+
+def _frame_second(video_path: str) -> float:
+    import media_inspect
+    try:
+        duration = float(media_inspect.run_ffprobe(video_path, timeout=20)["format"]["duration"])
+    except (media_inspect.ProbeError, KeyError, TypeError, ValueError):
+        return _FRAME_FALLBACK_SECONDS
+    # A NaN or negative length would make a bad -ss; an unusable one falls back.
+    return duration * _FRAME_FRACTION if duration > 0 else _FRAME_FALLBACK_SECONDS
+
+
+def make_cover_from_video(drama_id: int) -> dict:
+    """Sets the cover from one frame of the title's own video. Goes through
+    save_cover, so the picture is re-encoded with no metadata like an upload."""
+    drama = _require_drama(drama_id)
+    name = drama.get("source_video_filename")
+    folder = db.drama_dir(drama_id)
+    if not isinstance(name, str) or not name or os.path.basename(name) != name \
+            or not os.path.isfile(os.path.join(folder, name)):
+        raise InvalidInputError("This title has no video to take a cover from.")
+    video = os.path.join(folder, name)
+    import video_export
+    from lib import proc
+    from services import media_upload_service
+    fd, frame = tempfile.mkstemp(prefix=".frame_", suffix=".jpg", dir=folder)
+    os.close(fd)
+    try:
+        cmd = ["ffmpeg", "-y", *video_export.local_input(), "-ss", f"{_frame_second(video):.2f}", "-i", video,
+               "-frames:v", "1", "-vf", f"scale='min({_FRAME_MAX_WIDTH},iw)':-2", "-q:v", "3", frame]
+        try:
+            run = proc.run_captured(cmd, timeout=FRAME_TIMEOUT_SECONDS)
+        except OSError as exc:
+            if media_upload_service.ffmpeg_missing(exc, cmd):
+                raise DependencyUnavailableError(media_upload_service.FFMPEG_MISSING) from None
+            raise
+        if run.returncode != 0 or not os.path.getsize(frame):
+            raise InvalidInputError("Couldn't take a picture from this video.")
+        with open(frame, "rb") as f:
+            return save_cover(drama_id, f)
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(frame)
+
+
+def make_cover_if_missing(drama_id: int) -> bool:
+    """Best-effort cover for a title that has none: a failure leaves the title
+    as it was, because a missing picture must never fail an upload or import."""
+    try:
+        if (db.get_drama(drama_id) or {}).get("cover_art_filename"):
+            return False
+        make_cover_from_video(drama_id)
+        return True
+    except Exception:
+        return False

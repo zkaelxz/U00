@@ -63,7 +63,7 @@ import storage
 from lib.safe_paths import plain_file_in
 import video_export
 from lib import settings_schema
-from services import drama_service, ownership_service, settings_service
+from services import cover_art_service, drama_service, ownership_service, settings_service
 from lib.errors import ConflictError, InvalidInputError
 
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".flac", ".ogg")
@@ -502,6 +502,8 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, origin_link=N
     _record_origin(ddir, origin_link, sorted(n for n in named if n))
     if fields["audio_filename"] != old.get("audio_filename"):
         storage.drop_separated_vocals(ddir)
+    if fields.get("source_video_filename"):
+        cover_art_service.make_cover_if_missing(drama_id)
     return {f: fields[f] for f in new_files}
 
 

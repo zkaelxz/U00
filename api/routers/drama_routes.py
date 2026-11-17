@@ -153,6 +153,13 @@ async def post_cover(request: Request, drama_id: int = Path(ge=1)):
         await form.close()
 
 
+@router.post("/{drama_id}/cover/from-video", dependencies=[require_permission("media.upload")], response_model=CoverArtResult,
+             summary="Make the cover from one frame of the title's own video",
+             responses=error_responses(404, 422, 503))
+async def post_cover_from_video(drama_id: int = Path(ge=1)):
+    return await run_in_threadpool(cover_art_service.make_cover_from_video, drama_id)
+
+
 @router.get("/{drama_id}/cover", dependencies=[require_permission("library.read")],
             summary="The cover art image", responses=error_responses(404))
 def get_cover(drama_id: int = Path(ge=1)):

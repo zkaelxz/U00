@@ -26,6 +26,8 @@ class SeriesListItem(BaseModel):
     owned_by_me: bool = Field(description="The signed-in viewer created it.")
     title_count: int
     glossary_term_count: int
+    cover_title_id: Optional[int] = Field(
+        None, description="A visible title of the series that has cover art; its /api/dramas/{id}/cover is the folder picture.")
 
 
 class SeriesListResponse(BaseModel):
