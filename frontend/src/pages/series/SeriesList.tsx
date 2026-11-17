@@ -1,6 +1,7 @@
 /** The Series folder list: every series the viewer can see, each opening its Series page. */
 import { useMemo, useState } from 'react'
 
+import { coverUrl } from '../../api/metadata'
 import { listAllSeries } from '../../api/series'
 import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -46,7 +47,11 @@ export default function SeriesListPage() {
             {shown.map((s) => (
               <li key={s.id}>
                 <a className="series-folder" href={routeHref({ name: 'series', id: s.id })}>
-                  <span aria-hidden="true">📁</span>
+                  {s.cover_title_id ? (
+                    <img className="series-folder-cover" src={coverUrl(s.cover_title_id)} alt="" loading="lazy" />
+                  ) : (
+                    <span className="series-folder-icon" aria-hidden="true">📁</span>
+                  )}
                   <span className="series-folder-name">{s.name}</span>
                   <span className="muted series-folder-count">{s.title_count === 1 ? '1 title' : `${s.title_count} titles`}</span>
                 </a>

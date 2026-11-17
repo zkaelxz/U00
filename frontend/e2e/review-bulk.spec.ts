@@ -76,7 +76,7 @@ test('Bulk sends bulk only when switched on, then shows the pending batch and th
   await expect(page.getByRole('region', { name: 'Bulk batches' })).toHaveCount(0)
 
   // Off: nothing extra is sent.
-  await row.getByRole('button', { name: 'Check consistency' }).click()
+  await row.getByRole('button', { name: 'Check consistency', exact: true }).click()
   await expect.poll(() => bodies.length).toBe(1)
   expect(bodies[0]).toEqual({})
 
@@ -90,7 +90,7 @@ test('Bulk sends bulk only when switched on, then shows the pending batch and th
   await expect(bulk).toHaveAttribute('aria-checked', 'true')
   await expect(ai.getByTestId('review-job-flag').getByRole('switch')).toHaveAttribute('aria-checked', 'false')
   await expect(ai.getByTestId('bulk-warning')).toContainText('structural edits')
-  await row.getByRole('button', { name: 'Check consistency' }).click()
+  await row.getByRole('button', { name: 'Check consistency', exact: true }).click()
   await expect.poll(() => bodies.length).toBe(2)
   expect(bodies[1]).toEqual({ bulk: true })
 
@@ -99,7 +99,7 @@ test('Bulk sends bulk only when switched on, then shows the pending batch and th
   await expect(run.getByTestId('job-panel')).toBeVisible()
   await expect(run.getByRole('status')).toContainText('half price')
   await expect(run.getByRole('status')).toContainText('structural edits')
-  await expect(ai.getByRole('button', { name: 'Tag emotion' })).toBeEnabled()
+  await expect(ai.getByRole('button', { name: 'Tag emotion', exact: true })).toBeEnabled()
 
   // The pending batch is listed with its two-step cancel.
   const batches = page.getByRole('region', { name: 'Bulk batches' })
@@ -120,7 +120,7 @@ test('Bulk is off and explained for an engine without a batch API', async ({ pag
   const ai = await openAi(page)
   await expect(ai.getByText('Still needed for Bulk: Claude or Gemini as the engine (Check options).')).toBeVisible()
   for (const sw of await ai.getByRole('list', { name: 'AI checks to run' }).getByRole('switch').all()) await expect(sw).toBeDisabled()
-  await ai.getByRole('button', { name: 'Flag lines for a second look' }).click()
+  await ai.getByRole('button', { name: 'Flag lines for a second look', exact: true }).click()
   await expect.poll(() => bodies.length).toBe(1)
   expect(bodies[0]).toEqual({})
 

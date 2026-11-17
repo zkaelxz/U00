@@ -5,7 +5,7 @@ import { enableDeveloperMode, openAdvanced, openTranscribeOptions, transcribeCar
 
 // Basic Transcribe: the everyday controls on the Transcribe tab, the Advanced options folds on Tools, and the seven
 // developer knobs only in the DOM when Developer Mode is on.
-const KNOBS = ['Beam size', 'VAD threshold', 'Hallucination guard', 'Separation backend', 'Hardsub OCR', 'Hardsub interval', 'Whisper repeat guard']
+const KNOBS = ['Beam size', 'Quiet-sound cutoff', 'Skip invented text over silence', 'Separation backend', 'Hardsub OCR', 'Hardsub interval', 'Whisper repeat guard']
 
 test('with Developer Mode off the seven knobs are not in the DOM', async ({ page }) => {
   await page.goto('/#/drama/1/source')
@@ -153,7 +153,7 @@ test('with Qwen3 ASR on long audio the Whisper model and Whisper-only switches a
   for (const name of ['Whisper fast mode', 'Whisper repeat guard']) {
     await expect(advanced.getByRole('switch', { name })).toBeDisabled()
   }
-  for (const name of ['VAD threshold', 'Min silence', 'Hallucination guard']) {
+  for (const name of ['Quiet-sound cutoff', 'Min silence', 'Skip invented text over silence']) {
     await expect(advanced.getByLabel(name, { exact: true })).toBeDisabled()
   }
   // A switch the backend does use stays on.

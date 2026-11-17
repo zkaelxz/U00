@@ -16,13 +16,14 @@ the drama's own folder.
 
 No FastAPI import.
 """
+import contextlib
 import io
 import os
 import tempfile
 from typing import TypeGuard
 
 import db
-from lib.errors import (DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
 MAX_COVER_BYTES = 10 * 1024 * 1024
@@ -86,7 +87,7 @@ def _clean_image(data: bytes):
     return out.getvalue(), _FORMATS[fmt][0], width, height
 
 
-def save_cover(drama_id: int, fileobj) -> dict:
+def save_cover(drama_id: int, fileobj, only_if_missing: bool = False) -> dict:
     """Sets or replaces the drama's cover. Returns {drama_id, has_cover_art,
     format, width, height, size_bytes}."""
     _require_drama(drama_id)
@@ -97,6 +98,9 @@ def save_cover(drama_id: int, fileobj) -> dict:
         raise InvalidInputError("The uploaded file is empty.")
     clean, ext, width, height = _clean_image(data)
     folder = db.drama_dir(drama_id)
+    if only_if_missing and (db.get_drama(drama_id) or {}).get("cover_art_filename"):
+        # An automatic cover spends seconds in ffmpeg; the owner may have uploaded one by hand since.
+        raise ConflictError("This title already has a cover.")
     name = f"cover.{ext}"
     fd, tmp = tempfile.mkstemp(prefix=".cover_", suffix=".part", dir=folder)
     try:
@@ -140,3 +144,93 @@ def cover_file(drama_id: int):
     if os.path.dirname(path) != folder or not os.path.isfile(path):
         raise NotFoundError("This title has no cover.")
     return path, _SERVE_TYPES[os.path.splitext(name)[1].lower()]
+
+
+# Short, because the automatic cover runs inside an upload or download job that can't be cancelled meanwhile.
+FRAME_TIMEOUT_SECONDS = 30
+# A fifth of the way in skips a black start and a studio logo without seeking to a
+# point a short clip doesn't have.
+_FRAME_FRACTION = 0.2
+_FRAME_FALLBACK_SECONDS = 5.0
+_FRAME_MAX_WIDTH = 1280
+
+
+def _frame_second(video_path: str) -> float:
+    import media_inspect
+    try:
+        duration = float(media_inspect.run_ffprobe(video_path, timeout=10)["format"]["duration"])
+    except (media_inspect.ProbeError, KeyError, TypeError, ValueError):
+        return _FRAME_FALLBACK_SECONDS
+    # A NaN or negative length would make a bad -ss; an unusable one falls back.
+    return duration * _FRAME_FRACTION if duration > 0 else _FRAME_FALLBACK_SECONDS
+
+
+SITE_THUMBNAIL_NAMES = tuple(f"downloaded_{kind}.{ext}" for kind in ("video", "audio")
+                             for ext in ("jpg", "jpeg", "png", "webp"))
+
+
+def use_site_thumbnail(drama_id: int, folder: str) -> bool:
+    """Best-effort cover from the picture yt-dlp saved next to a downloaded
+    video in `folder`. Goes through save_cover (type, size and pixel caps,
+    re-encode), and never replaces a cover the title already has. Any failure
+    leaves the title as it was: a missing picture must not fail a download."""
+    from lib.safe_paths import plain_file_in
+    if (db.get_drama(drama_id) or {}).get("cover_art_filename"):
+        return False
+    for name in SITE_THUMBNAIL_NAMES:
+        path = plain_file_in(folder, name)
+        if not path or os.path.islink(path) or not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "rb") as f:
+                save_cover(drama_id, f, only_if_missing=True)
+            return True
+        except Exception:
+            return False
+    return False
+
+
+def make_cover_from_video(drama_id: int, only_if_missing: bool = False) -> dict:
+    """Sets the cover from one frame of the title's own video. Goes through
+    save_cover, so the picture is re-encoded with no metadata like an upload."""
+    _require_drama(drama_id)
+    folder = db.drama_dir(drama_id)
+    from services import media_playback_service
+    try:
+        # The same confinement playback uses: a link pointing out of the folder is not read.
+        video, _ = media_playback_service.resolve_media(drama_id, "video")
+    except NotFoundError:
+        raise InvalidInputError("This title has no video to take a cover from.") from None
+    import video_export
+    from lib import proc
+    from services import media_upload_service
+    fd, frame = tempfile.mkstemp(prefix=".frame_", suffix=".jpg", dir=folder)
+    os.close(fd)
+    try:
+        cmd = ["ffmpeg", "-y", *video_export.local_input(), "-ss", f"{_frame_second(video):.2f}", "-i", video,
+               "-frames:v", "1", "-vf", f"scale='min({_FRAME_MAX_WIDTH},iw)':-2", "-q:v", "3", frame]
+        try:
+            run = proc.run_captured(cmd, timeout=FRAME_TIMEOUT_SECONDS)
+        except OSError as exc:
+            if media_upload_service.ffmpeg_missing(exc, cmd):
+                raise DependencyUnavailableError(media_upload_service.FFMPEG_MISSING) from None
+            raise
+        if run.returncode != 0 or not os.path.getsize(frame):
+            raise InvalidInputError("Couldn't take a picture from this video.")
+        with open(frame, "rb") as f:
+            return save_cover(drama_id, f, only_if_missing=only_if_missing)
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(frame)
+
+
+def make_cover_if_missing(drama_id: int) -> bool:
+    """Best-effort cover for a title that has none: a failure leaves the title
+    as it was, because a missing picture must never fail an upload or import."""
+    try:
+        if (db.get_drama(drama_id) or {}).get("cover_art_filename"):
+            return False
+        make_cover_from_video(drama_id, only_if_missing=True)
+        return True
+    except Exception:
+        return False

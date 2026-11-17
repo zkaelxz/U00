@@ -6,7 +6,8 @@ export type StepKey = 'add' | 'transcribe' | 'translate' | 'check' | 'export'
 export type StepState = 'done' | 'current' | 'todo'
 
 export interface StepInput {
-  audioReady: boolean
+  /** Null until the media answer arrives. */
+  audioReady: boolean | null
   /** Null until the progress answer arrives. */
   lineCount: number | null
   translatedCount: number
@@ -23,8 +24,9 @@ export interface Step {
 }
 
 export function titleSteps(i: StepInput): Step[] {
-  const known = i.lineCount !== null
   const lines = i.lineCount ?? 0
+  // With lines, Add is done whatever the media answer says, so only a title without lines waits for it.
+  const known = i.lineCount !== null && (i.audioReady !== null || lines > 0)
   const allTranslated = lines > 0 && i.translatedCount >= lines
   const left = lines - i.translatedCount
   const rows: { key: StepKey; title: string; note: string; done: boolean }[] = [

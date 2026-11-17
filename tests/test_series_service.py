@@ -522,3 +522,16 @@ class TestReleaseDate:
         seen = svc.get_series_page(_p(other), s)["titles"]
         assert {t["id"]: t["release_date"] for t in seen} == {shown: "2025-01-02"}
         assert "2024-01-01" not in repr(seen)
+
+
+def test_series_list_names_a_titled_with_cover_for_the_folder_picture(isolated_db):
+    import db
+    from services import series_service as svc
+    s = db.create_series("Covers")
+    bare = db.create_drama(title_en="No cover", series_id=s)
+    covered = db.create_drama(title_en="Has cover", series_id=s)
+    assert [x["cover_title_id"] for x in svc.list_series()] == [None]
+    db.update_drama(covered, cover_art_filename="cover.jpg")
+    assert [x["cover_title_id"] for x in svc.list_series()] == [covered]
+    db.update_drama(bare, cover_art_filename="cover.png")
+    assert [x["cover_title_id"] for x in svc.list_series()] == [bare]  # the oldest titled one wins

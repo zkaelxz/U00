@@ -881,11 +881,13 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
   color: color-mix(in srgb, var(--muted) 80%, var(--text));
   background: color-mix(in srgb, var(--text) 8%, transparent);
 }
-.pill-accent { color: var(--accent-text); background: var(--accent-soft); }
-.pill-ok { color: var(--ok); background: var(--ok-soft); }
-.pill-warn { color: var(--warn); background: var(--warn-soft); }
-.pill-bad { color: var(--bad); background: var(--bad-soft); }
-.pill-info { color: var(--info); background: var(--info-soft); }
+/* Tinted from --surface, not see-through like the --*-soft tokens: on the page's colour wash a see-through tint
+   took on the wash's hue and fell under 4.5:1 (info and bad in dark, ok and warn in light and sepia). */
+.pill-accent { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.pill-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--surface)); }
+.pill-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, var(--surface)); }
+.pill-bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, var(--surface)); }
+.pill-info { color: var(--info); background: color-mix(in srgb, var(--info) 14%, var(--surface)); }
 .pill-row { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }
 
 /* Legacy aliases: older screens' `button.primary` and `.badge` take the kit look

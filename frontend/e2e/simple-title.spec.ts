@@ -371,7 +371,8 @@ test.describe('the check queue', () => {
 
   test('an open card that is the card\'s last row follows its rounded corners where the list card ends at it', async ({ page }) => {
     seedOneFlaggedLine()
-    await page.setViewportSize({ width: 1100, height: 900 })
+    // Narrower than the tools-beside width, where the list card is no taller than its rows.
+    await page.setViewportSize({ width: 1050, height: 900 })
     await simple(page)
     const open = page.locator('.review-line.is-active')
     await expect(open).toBeVisible()
@@ -387,6 +388,8 @@ test.describe('the check queue', () => {
 
   test('opens on the lines that need a look, says why, and moves on as each one is checked', async ({ page }) => {
     seedCheckLines({ untranslated: true })
+    // Narrower than the This line tab's width, so the open card carries the whole sentence.
+    await page.setViewportSize({ width: 1050, height: 720 })
     await simple(page)
     await page.goto('/#/drama/3/review')
     await expect(queueRadio(page)).toBeChecked()
@@ -811,10 +814,10 @@ test.describe('the check queue', () => {
     await expect(panel.getByRole('alert')).toHaveCount(0)
   })
 
-  test('narrower than 1400px there is no This line: the open card says it all and offers the lines around it', async ({ page }) => {
+  test('narrower than 1100px there is no This line: the open card says it all and offers the lines around it', async ({ page }) => {
     seedCheckLines({ audio: true })
     await mockPeaks(page)
-    await page.setViewportSize({ width: 1100, height: 800 })
+    await page.setViewportSize({ width: 1050, height: 800 })
     await simple(page)
     await page.goto('/#/drama/3/review')
     await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
@@ -997,7 +1000,7 @@ test.describe('the check queue', () => {
   })
 
   // The closed cards of the queue on a wide screen: what tells the lines apart, with the room going to the texts.
-  test('a closed card gives its source and English the room: no speaker or badges until it opens, the chip narrow, nothing cut', async ({ page }) => {
+  test('a closed card gives its source and English the room: the speaker as words but no speaker button or badges until it opens, the chip narrow, nothing cut', async ({ page }) => {
     seedCheckLines({ audio: true, real: true })
     await mockPeaks(page)
     await simple(page)
@@ -1005,7 +1008,7 @@ test.describe('the check queue', () => {
     await expect(card(page, 24)).toHaveAttribute('aria-current', 'true')
     const closed = card(page, 12)
     const [zh, en, chip] = [closed.locator('.review-zh'), closed.getByTestId('line-en'), closed.getByTestId('queue-reason')]
-    for (const width of [1100, 1280, 1440, 1920]) {
+    for (const width of [1050, 1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 900 })
       for (const [what, loc] of [['source', zh], ['English', en]] as const) {
         expect((await loc.boundingBox())!.width, `the ${what} column at ${width}px`).toBeGreaterThanOrEqual(150)
@@ -1023,6 +1026,7 @@ test.describe('the check queue', () => {
       }
       await expect(chip).toHaveText('Too fast to read: 25 characters a second')
       await expect(closed.locator('.review-speaker')).toBeHidden()
+      await expect(closed.locator('.review-queue-speaker'), 'who speaks, as plain words').toHaveText('Wei Wuxian')
       await expect(closed.getByTestId('line-cps')).toBeHidden()
       await expect(closed.getByText(/^Unsure/)).toBeHidden()
       await expect(card(page, 24).locator('.review-speaker')).toHaveText('Wei Wuxian')
@@ -1039,7 +1043,7 @@ test.describe('the check queue', () => {
     await page.goto('/#/drama/3/review')
     const open = card(page, 24)
     await expect(open).toHaveAttribute('aria-current', 'true')
-    for (const width of [1100, 1280]) {
+    for (const width of [900, 1050]) {
       await page.setViewportSize({ width, height: 900 })
       const speaker = open.locator('.review-speaker')
       await expect(speaker).toHaveText('Wei Wuxian')

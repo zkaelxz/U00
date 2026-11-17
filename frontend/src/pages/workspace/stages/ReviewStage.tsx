@@ -28,6 +28,7 @@ import { ResplitLines } from './review/ResplitLines'
 import { StructureSection } from './review/StructureSection'
 import type { LineTarget } from './review/reviewResults'
 import { useDramaJobRunning } from './review/useDramaJobRunning'
+import { useFitToScreen } from './review/useLinesChrome'
 import './review/review.css'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
@@ -123,22 +124,33 @@ export default function ReviewStage() {
   // Play from the source video when there is one (its sound plays even while
   // the picture is folded away), else from the audio; no media, no player.
   const [mediaKind, setMediaKind] = useState<PlayerMediaKind | null>(null)
+  const [hasAudio, setHasAudio] = useState(false)
   useCancellableEffect((cancelled) => {
     getMediaStatus(dramaId).then(
-      (s) => !cancelled() && setMediaKind(s.has_source_video ? 'video' : s.has_audio ? 'audio' : null),
+      (s) => {
+        if (cancelled()) return
+        setMediaKind(s.has_source_video ? 'video' : s.has_audio ? 'audio' : null)
+        setHasAudio(s.has_audio)
+      },
       () => !cancelled() && setMediaKind(drama.has_audio ? 'audio' : null),
     )
   }, [dramaId, drama.has_audio])
 
+  const stageRef = useRef<HTMLDivElement>(null)
+  const fits = useFitToScreen(stageRef)
+  // Wide screens: the source video's card sits at the top of the side column, so the lines keep the whole height beside it.
+  const [watchDock, setWatchDock] = useState<HTMLDivElement | null>(null)
+
   return (
     <LineSelectionProvider titleId={dramaId} reshapes={reshapes}>
-    <div className="stage-review" role="region" aria-label="Review">
+    <div className="stage-review" role="region" aria-label="Review" ref={stageRef}>
       <LinesPanel
         dramaId={dramaId}
         reloads={reloads}
         onChanged={changed}
         jobRunning={jobRunning}
         mediaKind={mediaKind}
+        hasAudio={hasAudio}
         sourceLanguage={drama.source_language}
         prose={drama.content_mode === 'novel_narration'}
         translationEngine={drama.translation_engine}
@@ -152,7 +164,9 @@ export default function ReviewStage() {
         onQueue={setQueueOn}
         onLineTab={setLineTab}
         lineDock={lineTab && lineShown ? lineDock : null}
+        watchDock={fits ? watchDock ?? false : null}
       />
+      <div className="review-watch-slot" ref={setWatchDock} />
       <ReviewChecks
         enabled={!!lineCount}
         dramaId={dramaId}

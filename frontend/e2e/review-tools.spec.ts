@@ -32,8 +32,9 @@ test('one tab level with the four groups; Look for problems holds the four check
   await expect(row.getByRole('button', { name: 'Help: Bulk' })).toBeVisible()
 })
 
+// Below 1100px, where the tools sit under the lines in the page; beside them they scroll in their own column.
 test('each group fits about one desktop screen, with no sideways scroll, light and dark', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.setViewportSize({ width: 1050, height: 800 })
   // Drawn at a 15px root; a panel is as tall as its text, so the one-screen allowance grows with the root size.
   const scale = (await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize))) / 15
   for (const scheme of ['light', 'dark'] as const) {
@@ -121,17 +122,24 @@ test('no group shows more than its first card open by default', async ({ page })
   }
 })
 
-test('from 1400px the tools sit beside the lines as a sticky inspector; below that they stay underneath', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/#/drama/3/review')
-  await expect(tablist(page)).toBeVisible()
-  const lines = (await page.locator('.review-editor').boundingBox())!
-  const tools = (await page.locator('.review-ai').boundingBox())!
-  expect(tools.x).toBeGreaterThanOrEqual(lines.x + lines.width)
-  expect(await page.locator('.review-ai').evaluate((el) => getComputedStyle(el).position)).toBe('sticky')
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+test('from 1100px the tools sit beside the lines in a column that scrolls on its own and the page does not scroll; below that they stay underneath', async ({ page }) => {
+  for (const [width, height] of [[1440, 900], [1280, 720], [1100, 800]]) {
+    await page.setViewportSize({ width, height })
+    await page.goto('/#/drama/3/review')
+    await expect(tablist(page)).toBeVisible()
+    const lines = (await page.locator('.review-editor').boundingBox())!
+    const tools = (await page.locator('.review-ai').boundingBox())!
+    expect(tools.x, `beside at ${width}px`).toBeGreaterThanOrEqual(lines.x + lines.width)
+    expect(await page.locator('.review-ai').evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto')
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight + 1), `no page scroll at ${width}x${height}`).toBe(true)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    for (const name of TABS) {
+      await openTab(page, name)
+      expect(await page.locator('.review-ai').evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `${name} fits the column at ${width}px`).toBe(true)
+    }
+  }
 
-  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.setViewportSize({ width: 1050, height: 800 })
   const lines2 = (await page.locator('.review-editor').boundingBox())!
   const tools2 = (await page.locator('.review-ai').boundingBox())!
   expect(tools2.y).toBeGreaterThanOrEqual(lines2.y + lines2.height - 1)

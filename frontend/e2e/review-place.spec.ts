@@ -101,14 +101,20 @@ function countWholeTitle(page: Page): { n: number } {
 // What a late move would have done by now: the local server answers in a few milliseconds.
 const settle = (page: Page) => page.waitForTimeout(800)
 
+// The lines scroll in the window, or in their own column where Review fits the window (1100px and wider).
 async function expectInView(page: Page, n: number) {
   const box = await row(page, n).boundingBox()
-  const height = page.viewportSize()!.height
+  const { top, height } = await page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>('.review-main')
+    if (!main || getComputedStyle(main).overflowY === 'visible') return { top: 0, height: window.innerHeight }
+    const r = main.getBoundingClientRect()
+    return { top: r.top, height: r.height }
+  })
   expect(box, `#${n} is drawn`).not.toBeNull()
-  expect(box!.y, `#${n} is below the window's top`).toBeGreaterThanOrEqual(0)
-  expect(box!.y + box!.height, `#${n} is above the window's bottom`).toBeLessThanOrEqual(height)
+  expect(box!.y, `#${n} is below the list's top`).toBeGreaterThanOrEqual(top)
+  expect(box!.y + box!.height, `#${n} is above the list's bottom`).toBeLessThanOrEqual(top + height)
   // Brought clear of the bottom edge, not just into view.
-  expect(box!.y, `#${n} sits in the upper half`).toBeLessThan(height / 2)
+  expect(box!.y - top, `#${n} sits in the upper half`).toBeLessThan(height / 2)
 }
 
 async function keepLine55(page: Page) {

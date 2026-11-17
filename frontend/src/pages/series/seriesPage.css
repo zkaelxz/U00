@@ -27,3 +27,5 @@
 .series-folder-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 .series-folder-count { white-space: nowrap; }
 .series-folders li:last-child .series-folder { border-bottom: 0; }
+.series-folder-icon, .series-folder-cover { flex: none; width: 3.5rem; text-align: center; font-size: var(--text-xl); }
+.series-folder-cover { height: 3.5rem; object-fit: cover; border-radius: var(--radius-sm, 6px); }

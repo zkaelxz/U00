@@ -248,7 +248,7 @@ class TestAddDeleteSplit:
         assert [r["id"] for r in _rows(did)] == [ids[0], ids[1], ids[3]]
         assert "tc" not in _notes(did) and "angry" not in _emo_line_ids(did)
         assert _notes(did)["td"] == ids[3]
-        assert db.list_line_history(did)[0]["label"] == "before delete line"
+        assert db.list_line_history(did)[0]["label"] == "before delete line 3"
 
     def test_split_keeps_refs_on_first_piece(self):
         did, ids = _seed([("a", "A"), ("你好世界", "Hello world"), ("c", "C"), ("d", "D")])
@@ -291,6 +291,12 @@ class TestAddDeleteSplit:
         svc.split_line(did, ids[0], ids, at_char=1250, expected_zh=zh, en_at_char=1500,
                        expected_en=en)
         assert len(_rows(did)) == 2
+
+    def test_split_cut_time_is_whole_milliseconds(self):
+        did, ids = _seed([("abc", "")])
+        svc.split_line(did, ids[0], ids, at_char=1, expected_zh="abc")
+        rows = _rows(did)
+        assert rows[0]["end"] == 0.333 and rows[1]["start"] == 0.333
 
     def test_split_proportional_time(self):
         did, ids = _seed([("abcd", "")])
