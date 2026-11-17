@@ -34,7 +34,7 @@ export function TitleFlowStart({ id, onProgress }: { id: number; onProgress: () 
         <ButtonLink variant="primary" href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>Review the glossary</ButtonLink>
       ) : (
         <button type="button" className={buttonClass('primary')} disabled={starting || flowActive(run)} onClick={start}>
-          {error || run?.state === 'stopped' ? 'Continue' : 'Transcribe and translate'}
+          {error || run?.state === 'stopped' ? 'Continue' : 'Transcribe and build glossary'}
         </button>
       )}
       <span className="muted" role="status" aria-live="polite">{flowText(run, STEP_TEXT)}</span>
