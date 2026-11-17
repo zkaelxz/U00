@@ -17,7 +17,7 @@ export const pluralLocale = (n: number, one: string, many = `${one}s`) =>
 
 export const STATUS_LABELS: Record<string, string> = {
   'not started': 'Not started',
-  aligned: 'Aligned',
+  aligned: 'Transcribed',
   translated: 'Translated',
   dubbed: 'Dubbed',
   exported: 'Exported',

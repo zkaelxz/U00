@@ -14,7 +14,7 @@ type Props = {
 }
 
 const HELP =
-  'Every source request goes through this HTTP(S) proxy when set. The address is never shown again once saved, since it can hold a password.'
+  'Source requests go through this HTTP(S) proxy when set, except steps that open the page in a browser, which connect directly. The address is never shown again once saved, since it can hold a password.'
 
 /** The source proxy (PC only). Write-only: the page only knows whether one is set. */
 export function ProxyForm({ settings, onSaved }: Props) {

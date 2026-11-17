@@ -34,7 +34,7 @@ export function titleSteps(i: StepInput): Step[] {
       key: 'translate', title: 'Translate', done: allTranslated,
       note: lines === 0 ? 'Needs lines first' : allTranslated ? 'Every line has English' : `${left} of ${lines} line${lines === 1 ? '' : 's'} left`,
     },
-    { key: 'check', title: 'Check', done: i.exported, note: checkNote(i.riskCount ?? null, allTranslated) },
+    { key: 'check', title: 'Review', done: i.exported, note: checkNote(i.riskCount ?? null, allTranslated) },
     { key: 'export', title: 'Export', done: i.exported, note: 'SRT, VTT, ASS or video' },
   ]
   if (!known) return rows.map((r) => ({ key: r.key, title: r.title, note: '', state: 'todo' as const }))
