@@ -48,10 +48,10 @@ import db
 import en_cleanup
 import sensevoice_tags
 import subtitle_ass
-from engine_backends import engine_registry, shared
+from engine_backends import engine_registry
 from engine_backends import gemini as engine_gemini
 from engine_backends import paid_calls
-from services import (export_service, media_playback_service, ownership_service,
+from services import (engine_failure_service, export_service, media_playback_service, ownership_service,
                       restructure_service, settings_service, translate_run_service, translate_service,
                       workspace_audio_job_service)
 from lib.errors import (
@@ -356,9 +356,8 @@ def learn_style(drama_id: int, engine_name: str | None = None, model: str | None
                                                       usage_cb=usage)
     except ServiceError:
         raise
-    except Exception as e:  # engine/network failure: never leak a key
-        raise ServiceError("The engine call failed: "
-                           + shared.redact_secrets(str(e))[:300]) from None
+    except Exception as e:
+        raise engine_failure_service.engine_failure(e, name, engine_failure_service.ENGINE_FAILED) from None
     prefs = [str(p) for p in (result.get("preferences") or []) if str(p).strip()]
     if not prefs:
         return _style_view(drama_id, drama, message=str(result.get("summary")

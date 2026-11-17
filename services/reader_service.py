@@ -22,9 +22,9 @@ Conventions shared by all of them:
     wiki entry) is only ever read/written through its own drama;
   - plain dicts/lists/str/bytes out, never a filesystem path or key
     (media_file_path is the one server-internal exception, documented);
-  - keys are resolved server-side, never accepted or returned, and an
-    engine failure is passed through diagnostics_report.redact_for_support (keys
-    and absolute paths removed), a local OSError becomes a fixed message;
+  - keys are resolved server-side, never accepted or returned, an engine
+    failure answers with a fixed sentence (engine_failure_service), and a
+    local OSError becomes a fixed message;
   - AI results are matched back by id or name, never by list position;
   - writes are scoped to their own table/fields (vocab_lookups,
     wiki_entries, progress, personal_notes), never a line rewrite.
@@ -51,6 +51,8 @@ Permission contract for routes (user decision, 2026-09-29):
 import os
 import re
 
+import requests
+
 import core as core_module
 from lib import ids as lib_ids
 import db
@@ -64,7 +66,7 @@ from engine_backends import line_text
 import universe_wiki
 import vocab_export
 from engine_backends import paid_calls
-from services import glossary_service, ownership_service, settings_service, translate_service
+from services import engine_failure_service, glossary_service, ownership_service, settings_service, translate_service
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from lib.errors import (
     DependencyUnavailableError,
@@ -267,9 +269,9 @@ def llm_engine(engine_name=None, model=None):
     return engine
 
 
-def _run_engine(fn, meter=None):
+def _run_engine(fn, meter=None, engine=None):
     """meter: (engine, operation, drama_id) for a paid call, so its usage is
-    logged whether or not it worked."""
+    logged whether or not it worked. engine: names it in a failure when no meter is given."""
     import dictionary
     try:
         if meter is None:
@@ -280,12 +282,14 @@ def _run_engine(fn, meter=None):
         raise
     except dictionary.CedictDownloadError as e:  # already user-ready, not an engine failure
         raise DependencyUnavailableError(str(e)) from None
-    except OSError:  # local work (e.g. the CEDICT cache): no path out
-        raise ServiceError("A local dictionary or file step failed; see the app log.") from None
-    except Exception as e:  # engine/network failure: never leak a key or path
-        import diagnostics_report
-        raise ServiceError("The engine call failed: "
-                           + diagnostics_report.redact_for_support(str(e))[:300]) from None
+    except Exception as e:
+        # requests' errors and socket timeouts are OSErrors too, but they are the engine's.
+        if isinstance(e, OSError) and not isinstance(
+                e, (requests.RequestException, ConnectionError, TimeoutError)):
+            # Local work (e.g. the CEDICT cache): no path out.
+            raise ServiceError("A local dictionary or file step failed; see the app log.") from None
+        name = getattr(meter[0] if meter else engine, "name", "")
+        raise engine_failure_service.engine_failure(e, name, engine_failure_service.ENGINE_FAILED) from None
 
 
 def _text_arg(value, field: str, max_len: int) -> str:
@@ -813,7 +817,8 @@ def ask_about_drama(drama_id: int, question: str, chat_history: list | None = No
     logged = []
     try:
         answer = _run_engine(lambda: qa.ask_about_drama(
-            question, lines, drama, engine, chat_history=history, usage_cb=logged.append))
+            question, lines, drama, engine, chat_history=history, usage_cb=logged.append),
+            engine=engine)
     finally:
         # Written for a failed request too: a paid provider may have billed it.
         paid_calls.record_chat_calls(engine, name, "reader_ask", logged, drama_id=drama_id)

@@ -36,7 +36,7 @@ Search pages and titles is the box at the top of the page (or Ctrl+K, ⌘+K), an
 - **Phones and large text.** Pages fit a 320 px wide screen and a phone with its text size turned up without scrolling sideways; a stage tab name too long for its tab ends in "…". With a phone held sideways the title and stage tabs scroll away with the page instead of staying pinned. The Reader and Comic name the title as the page heading, so the browser tab shows it.
 - **Home screen and Share (Android Chrome).** Open Baihe at your household address and choose Install app or Add to Home screen; it then opens full screen. In the installed app, Share on a comic or novel page in Chrome offers Baihe, which opens Sources > Find with the link already in the Paste a link box; nothing is fetched until you press Preview. The shared link is never imported by itself and no file is uploaded. Sign in first if the app asks; the shared link is not kept through sign-in.
 - **Screen readers.** Each page's headings go one level at a time (page title, then its sections, then their parts), so jumping by heading level never skips a level.
-- **Line tools.** A line's actions sheet in Review has "Alternatives (AI)" and "Grammar breakdown (AI)" for study.
+- **Line tools.** A line's actions sheet in Review has "Alternatives (AI)" and "Grammar breakdown (AI)" for study. When one of these, or another one-line AI action (Improve, Explain, a line retry, the episode summary, Learn style, the Reader's questions), fails, the message says why when it can: the key was refused, a rate or daily limit was reached, the engine was too slow or could not be reached.
 
 ## Running the app
 

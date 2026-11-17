@@ -23,7 +23,7 @@ from api import llm_slots
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import auth_service, blocked_retry_service, translate_service
+from services import auth_service, blocked_retry_service, engine_failure_service, translate_service
 from services import translation_version_service as tvs
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from lib.errors import ServiceError
@@ -438,8 +438,8 @@ class TestRetryApi:
             raise RuntimeError(f"401 bad key {FAKE_KEY} at {db.LIBRARY_DIR}")
         _use_engine(monkeypatch, FakeEngine(boom))
         r = client.post(_retry(did, ids[1]), json={"engine": "claude"})
-        assert r.status_code == 500
-        assert r.json()["error"]["message"] == "The engine call failed."
+        assert r.status_code == 503
+        assert r.json()["error"]["message"] == engine_failure_service.ENGINE_FAILED
         _no_leak(r, "401 bad key")
         row = next(x for x in db.load_lines(did) if x["id"] == ids[1])
         assert row["flag"] == "content_blocked"

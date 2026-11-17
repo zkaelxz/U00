@@ -106,7 +106,21 @@ class TestAlternatives:
             raise RuntimeError(f"bad key {SECRET}")
         monkeypatch.setattr(line_tools, "alternative_translations", boom)
         r = client.post(_ai(did, ids[0], "alternatives"), json={})
-        assert r.status_code == 500 and SECRET not in r.text
+        assert r.status_code == 503 and SECRET not in r.text
+
+    def test_rate_limit_names_what_to_do(self, client, monkeypatch):
+        did, ids = _seed()
+
+        class TooMany(Exception):
+            status_code = 429
+
+        def boom(*a, **k):
+            raise TooMany("raw provider text")
+        monkeypatch.setattr(line_tools, "alternative_translations", boom)
+        r = client.post(_ai(did, ids[0], "alternatives"), json={})
+        assert r.status_code == 503 and "raw provider text" not in r.text
+        assert r.json()["error"]["details"]["reason"] == "rate_limited"
+        assert "rate limit was reached" in r.json()["error"]["message"]
 
     def test_other_dramas_line_is_404(self, client, monkeypatch):
         did, ids = _seed()

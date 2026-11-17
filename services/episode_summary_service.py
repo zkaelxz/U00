@@ -7,9 +7,9 @@ missing_after_run_reason() give the plain-words reason for the job result, and
 generate() fills the summary later with an engine the person picks.
 """
 import db
-from engine_backends import engine_registry, shared
+from engine_backends import engine_registry
 from engine_backends import llm_tasks, paid_calls
-from services import (line_ai_service, ownership_service, settings_service, translate_run_service,
+from services import (engine_failure_service, line_ai_service, ownership_service, settings_service, translate_run_service,
                       translate_service)
 from lib.errors import DependencyUnavailableError, ServiceError, UnsupportedOperationError
 
@@ -73,9 +73,8 @@ def generate(drama_id: int, engine_name: str, model: str | None = None) -> dict:
             text = llm_tasks.generate_episode_summary(lines, engine)
     except ServiceError:
         raise
-    except Exception as exc:  # an engine failure must not leak a key
-        raise ServiceError("The engine call failed: "
-                           + shared.redact_secrets(str(exc))[:300]) from None
+    except Exception as exc:
+        raise engine_failure_service.engine_failure(exc, name, engine_failure_service.ENGINE_FAILED) from None
     if not text:
         if name == "ollama" and not translate_run_service.ollama_reachable():
             raise DependencyUnavailableError(f"Ollama not reachable; {CHOOSE}.")
