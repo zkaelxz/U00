@@ -425,7 +425,7 @@ def _ollama_chat_abortable(base_url: str, payload: dict, check, cloud_key: str |
     the GPU for whatever runs next."""
     # The tracking adapter is live_fetch's: it keeps every socket (even one
     # still in its TLS handshake or awaiting headers) reachable for shutdown.
-    from live_fetch import _TrackingAdapter, _shutdown
+    from live.live_fetch import _TrackingAdapter, _shutdown
 
     timeout = _request_timeout(base_url, payload)
     lock = threading.Lock()

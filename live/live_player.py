@@ -23,7 +23,7 @@ import subprocess
 from typing import Any
 
 import background_jobs
-import live_fetch
+from live import live_fetch
 
 SEGMENT_SECONDS = 4
 # The page can delay up to 90 s; the rest is slack for the player to start behind.
@@ -85,7 +85,7 @@ def ffmpeg_cmd(kind: str, folder: str, whitelist: str) -> list:
 
 def start_recorder(kind: str, source_url: str, folder: str, proxy: str | None = None,
                    align: live_fetch.SequenceAlign | None = None) -> Recorder:
-    from live_translate import FFMPEG_FORMAT_WHITELIST
+    from live.live_translate import FFMPEG_FORMAT_WHITELIST
     group: dict[str, Any]
     group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
              else {"start_new_session": True})
@@ -117,7 +117,7 @@ class PlayerRecorders:
         return None
 
     def stop(self, kill: bool = False):
-        from live_translate import stop_capture
+        from live.live_translate import stop_capture
         for rec in self.recorders:
             stop_capture(rec, kill=kill)
 
@@ -162,7 +162,7 @@ def start_if_possible(height, url, audio_url, out_dir, note, should_stop, stream
     A Stop interrupts the lookup (`should_stop`)."""
     if not height:
         return None
-    from live_translate import _run_abortable, resolve_stream_url
+    from live.live_translate import _run_abortable, resolve_stream_url
     try:
         video_url = _run_abortable(lambda: resolve_stream_url(
             url, cookies_browser=cookies_browser, cookies_file=cookies_file, proxy=proxy,
@@ -173,7 +173,7 @@ def start_if_possible(height, url, audio_url, out_dir, note, should_stop, stream
     except background_jobs.JobCancelled:
         raise
     except Exception as exc:
-        from live_whisper import log_failure
+        from live.live_whisper import log_failure
         log_failure("delayed player not started", exc)
         note(UNAVAILABLE_NOTE, "player")
         return None

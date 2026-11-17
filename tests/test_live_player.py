@@ -13,8 +13,8 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
-import live_player
-from live_translate import FFMPEG_FORMAT_WHITELIST
+from live import live_player
+from live.live_translate import FFMPEG_FORMAT_WHITELIST
 from services import live_service
 from lib.errors import NotFoundError
 
@@ -97,7 +97,7 @@ def test_master_playlist_joins_the_audio_rendition_to_the_video(tmp_path):
 
 
 def test_start_if_possible_reports_a_fixed_note_and_returns_none(tmp_path, monkeypatch):
-    import live_translate
+    from live import live_translate
     notes = []
 
     def boom(*a, **k):
@@ -112,8 +112,8 @@ def test_start_if_possible_reports_a_fixed_note_and_returns_none(tmp_path, monke
 
 
 def test_start_if_possible_logs_the_reason_without_the_url(tmp_path, monkeypatch):
-    import live_translate
-    import live_whisper
+    from live import live_translate
+    from live import live_whisper
     logged = []
 
     def boom(*a, **k):
@@ -126,7 +126,7 @@ def test_start_if_possible_logs_the_reason_without_the_url(tmp_path, monkeypatch
 
 
 def test_a_cancel_while_resolving_is_not_swallowed(tmp_path, monkeypatch):
-    import live_translate
+    from live import live_translate
 
     def cancelled(*a, **k):
         raise background_jobs.JobCancelled("x")
@@ -184,7 +184,7 @@ def test_watch_stops_a_failed_player_and_says_so():
 
 
 def test_pumps_of_one_broadcast_start_at_the_same_media_sequence():
-    import live_fetch
+    from live import live_fetch
     align = live_fetch.SequenceAlign()
     # Video joins first and picks its newest-minus-three; audio, with its own window, takes it.
     assert align.agree(870, 860, 873) == 870
@@ -195,7 +195,7 @@ def test_pumps_of_one_broadcast_start_at_the_same_media_sequence():
 
 
 def test_a_failed_start_stops_and_reaps_the_recorder_already_running(tmp_path, monkeypatch):
-    import live_translate
+    from live import live_translate
     stopped = []
     video = object.__new__(live_player.Recorder)
 

@@ -654,7 +654,7 @@ def test_a_member_queue_item_starts_offline(isolated_db, caches, monkeypatch):
 def test_live_whisper_calls_keep_the_sessions_mark():
     """Live loads Whisper on a worker thread of its own, which must not lose
     the session's offline mark."""
-    import live_whisper
+    from live import live_whisper
 
     def member():
         model_offline.set_offline(True)

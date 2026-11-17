@@ -10,8 +10,8 @@ import pytest
 
 import background_jobs
 from jobs import job_launch, job_runner
-import live_pipeline
-import live_translate
+from live import live_pipeline
+from live import live_translate
 from services import live_service, translate_service
 from lib.errors import (DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
@@ -743,7 +743,7 @@ def test_the_live_form_offers_what_the_service_accepts():
     import inspect
     import re as _re
     import core
-    import live_player
+    from live import live_player
     import whisper_models
     from engine_backends import local
     src = open(os.path.join(os.path.dirname(__file__), "..", "frontend", "src", "api", "live.ts"),
