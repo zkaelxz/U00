@@ -1,4 +1,4 @@
-"""voice_venv.py -- voice engines that live in a venv of their own, and running a batch of lines through one.
+"""voice/voice_venv.py -- voice engines that live in a venv of their own, and running a batch of lines through one.
 
 Some voice engines pin packages the app can't share (qwen-tts needs an older transformers
 than Baihe's own models), so each gets its own interpreter under
@@ -20,7 +20,7 @@ import secrets
 import tempfile
 
 import portable
-import voice_worker
+from voice import voice_worker
 from lib import proc
 
 VENVS_DIRNAME = "voice_engines"

@@ -44,13 +44,13 @@ A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set
 - A new optional dependency goes in `diagnostics.OPTIONAL_DEPENDENCIES`; a new `sources.db` column in `_ADDED_COLUMNS` (`sources/store.py`).
 - Comments explain WHY only, never a Step or PR id. No new files, settings or abstractions beyond the task.
 - Keep the removed-name sets, because old saved settings still name removed engines:
-  `REMOVED_ENGINES` (`engine_backends/engine_registry.py`), `REMOVED_VOICE_ENGINES` (`dub.py`),
+  `REMOVED_ENGINES` (`engine_backends/engine_registry.py`), `REMOVED_VOICE_ENGINES` (`voice/dub.py`),
   `REMOVED_ASR_BACKENDS` (`services/asr_options_service.py`), `REMOVED_SOURCES` (`sources/registry.py`).
 
 ## Fragile seams
 - db: `configure_library_dir` rebinds `LIBRARY_DIR`, `DB_PATH` and friends, so read them as `db.X`
   when used and never copy them. A read-then-write transaction starts with `BEGIN IMMEDIATE`. See `docs/database.md`.
-- Process-job workers (`diarize.py`, `resegment.py`, `dub.py`, `dub_narration.py`, `services/transcribe_pipeline.py`, `services/transcribe_service.py`, `services/retranscribe_worker.py`, `services/compare_hear_worker.py`) stay
+- Process-job workers (`diarize.py`, `resegment.py`, `voice/dub.py`, `voice/dub_narration.py`, `services/transcribe_pipeline.py`, `services/transcribe_service.py`, `services/retranscribe_worker.py`, `services/compare_hear_worker.py`) stay
   top-level and picklable: Windows starts them in a fresh interpreter. Every process job starts with spawn,
   its own process group (`start_own_process_group()` first in the worker) and `kill_whole_tree=True`, so a bad
   worker fails on Linux CI too. See `docs/background-jobs.md`.
@@ -88,7 +88,7 @@ whole: `db`, `diagnostics`, `core`, `scanlate`, `services/transcribe_service`, o
 | Review / lines | workspace/stages/ReviewStage.tsx, workspace/stages/review/ | lines_routes.py, review_lines_routes.py, review_extras_routes.py, review_records_routes.py | lines_service.py, review_lines_service.py, line_tools_service.py | line_tools.py, auto_qc.py, resegment.py | lines, line_history, line_provenance | test_lines_service.py, test_review_lines_service.py, test_api_lines.py | review-*.spec.ts | api-and-services.md |
 | Characters / glossary | workspace/stages/CharactersPanel.tsx, workspace/stages/GlossaryPanel.tsx | characters_routes.py, glossary_routes.py, series_people_routes.py | characters_service.py, glossary_service.py, series_people_service.py | translation_memory.py | characters, series_characters, glossary_terms | test_characters_service.py, test_glossary_service.py, test_api_glossary.py | characters-*.spec.ts, glossary-*.spec.ts | database.md |
 | Live translate | Live.tsx, live/ | live_routes.py | live_service.py | live/live_translate.py, live/live_fetch.py | n/a | test_live_service.py, test_live_translate.py, test_live_fetch.py, test_api_live.py | live*.spec.ts | n/a |
-| Dubbing | workspace/stages/VoiceClonePanel.tsx | listen_routes.py, voice_clone_routes.py, narration_routes.py | listen_service.py, voice_clone_service.py, narration_service.py | dub.py, dub_narration.py, voice_id.py | voice_bank, characters | test_dub.py, test_listen_service.py, test_api_listen.py, test_voice_id.py | voice-*.spec.ts | engine-backends.md |
+| Dubbing | workspace/stages/VoiceClonePanel.tsx | listen_routes.py, voice_clone_routes.py, narration_routes.py | listen_service.py, voice_clone_service.py, narration_service.py | voice/dub.py, voice/dub_narration.py, voice/voice_id.py | voice_bank, characters | test_dub.py, test_listen_service.py, test_api_listen.py, test_voice_id.py | voice-*.spec.ts | engine-backends.md |
 | Scanlate / OCR | Comic.tsx, comic/, SavedManga.tsx | scanlate_routes.py, comic_routes.py, saved_comics_routes.py | scanlate_run_service.py, scanlate_pages_service.py, comic_view_service.py | scanlate.py, scanlate_detect.py, scanlate_inpaint.py, ocr.py, hardsub_ocr.py | pages, bubbles | test_scanlate.py, test_ocr.py, test_hardsub_ocr.py, test_api_comic_viewer.py | scanlate*.spec.ts, comic*.spec.ts | n/a |
 | Sources / adapters | Sources.tsx, sources/, Discover.tsx | source_routes.py, sources_*_routes.py | source_service.py, sources_*_service.py | sources/ (adapters in sources/adapters/), page_fetch.py | `sources.db` via sources/store.py | test_sources_*.py, test_api_sources_*.py, test_source_service.py | sources*.spec.ts, source-*.spec.ts | adding-source.md, content-sources.md |
 | Benchmark lab | Benchmark.tsx, benchmark/ | benchmark_routes.py, model_reeval_routes.py, model_registry_routes.py | benchmark_lab_service.py, model_reeval_service.py, model_registry_service.py | benchmark.py, asr_benchmark.py | benchmark_*, model_candidates, model_decisions | test_benchmark_lab.py, test_benchmark.py, test_model_reeval.py, test_api_benchmark.py | lab-*.spec.ts, bench-sections.spec.ts | database.md |

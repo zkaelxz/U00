@@ -90,7 +90,7 @@ class TestHttpCallsHaveTimeouts:
         # urlopen or session.request in one of them from going untimed.
         files = _py_files_under("engine_backends")
         files += [os.path.join(PROJECT_ROOT, n) for n in (
-            "bulk/bulk_translate.py", "dub.py", "navigator.py", "page_fetch.py", "title_library.py",
+            "bulk/bulk_translate.py", "voice/dub.py", "navigator.py", "page_fetch.py", "title_library.py",
             "core.py", "whisper_transcribe.py", "diagnostics.py", "dependency_updates.py",
             "diagnostics_report.py", "memory_headroom.py", "video_download.py",
             "sources/pipeline.py", "sources/front_door.py", "sources/generic_import.py",
@@ -565,7 +565,7 @@ def _repo_modules():
 # Folders of former root modules that can't join the .importlinter layers
 # yet (live/ imports each other with jobs/ and engine_backends/; bulk/ still
 # imports services/ upward), so their files get the root modules' checks.
-ROOT_MODULE_FOLDERS = ("live", "bulk")
+ROOT_MODULE_FOLDERS = ("live", "bulk", "voice")
 
 
 def _root_module_files():
@@ -811,7 +811,7 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "asr_backend.py::Qwen3ASRVadBackend.transcribe": 144,
     "services/workspace_job_service.py::run_translate_job": 119,
     "video_download.py::download": 138,
-    "dub_narration.py::build_narration_track": 128,
+    "voice/dub_narration.py::build_narration_track": 128,
     "db/schema_system.py::_init_benchmark_lab_schema": 126,
     "jobs/job_launch.py::start_process_job": 121,
     "db/schema_system.py::_create_job_tables": 118,
@@ -919,7 +919,7 @@ _CAPTURE_ALLOWED = {
     "installer/service_control.py::__call__": "probe: sc/netsh, timeout=120",
     # pending: ffmpeg runs bounded by timeout= only.
     "audio_extract.py::_run_ffmpeg": "pending: ffmpeg",
-    "dub_narration.py::export_narration_m4b": "pending: ffmpeg",
+    "voice/dub_narration.py::export_narration_m4b": "pending: ffmpeg",
     "hardsub_ocr.py::extract_frames": "pending: ffmpeg",
     "services/media_peaks_service.py::_decode": "pending: ffmpeg",
     "services/speech_coverage_service.py::_decode_chunk": "pending: ffmpeg",

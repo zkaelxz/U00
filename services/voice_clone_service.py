@@ -64,7 +64,7 @@ import background_jobs
 from jobs import job_launch
 import db
 from jobs import job_store
-import dub
+from voice import dub
 import video_export
 from lib.atomic_write import atomic_write
 from services import characters_service
