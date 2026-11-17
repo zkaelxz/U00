@@ -32,8 +32,8 @@ from typing import Optional
 
 import background_jobs
 from jobs import job_launch
-import bulk_providers
-import bulk_translate
+from bulk import bulk_providers
+from bulk import bulk_translate
 import db
 from lib.safe_paths import plain_file_in
 from engine_backends import engine_registry, local, pricing

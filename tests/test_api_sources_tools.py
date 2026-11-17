@@ -12,7 +12,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
-import bulk_import
+from bulk import bulk_import
 import db
 from engine_backends import engine_registry
 from api import auth as api_auth

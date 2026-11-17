@@ -6,8 +6,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import bulk_providers as bp
-import bulk_poll
+from bulk import bulk_providers as bp
+from bulk import bulk_poll
 import translation_finish
 from core import Line
 from services import lines_service

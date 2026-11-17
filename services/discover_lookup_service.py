@@ -26,7 +26,7 @@ from typing import Optional
 
 import background_jobs
 from jobs import job_launch
-import bulk_import
+from bulk import bulk_import
 import db
 import metadata_lookup
 import navigator

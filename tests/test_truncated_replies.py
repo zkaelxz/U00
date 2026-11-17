@@ -87,7 +87,7 @@ class TestSalvageNeverKeepsAHalfString:
         assert shared.parse_id_keyed_json(text, [1, 2], recover=True) == {"1": "a", "2": "b"}
 
     def test_a_bulk_result_stays_strict(self):
-        import bulk_apply
+        from bulk import bulk_apply
         assert bulk_apply._parse_strict('{"1":"a","2":"b","3":"cu', [1, 2, 3]) == {}
 
 

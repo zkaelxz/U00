@@ -6,9 +6,9 @@ first, because it needs `services.translate_run_service` fully defined.
 """
 
 import background_jobs
-import bulk_providers
-import bulk_poll
-import bulk_reflect
+from bulk import bulk_providers
+from bulk import bulk_poll
+from bulk import bulk_reflect
 import db
 from engine_backends import engine_registry
 from services import bulk_job_view, ownership_service, translate_service

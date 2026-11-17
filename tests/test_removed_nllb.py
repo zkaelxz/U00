@@ -3,7 +3,7 @@ refuses a run with the removed-engine message, and old rows keep loading."""
 
 import pytest
 
-import bulk_poll
+from bulk import bulk_poll
 import db
 from engine_backends import engine_registry, fallback, local
 from core import Line
