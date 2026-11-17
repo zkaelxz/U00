@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 from fastapi import Request
 
 from api.security_headers import ADMIN_SECURITY_HEADERS, HOUSEHOLD_SECURITY_HEADERS, HSTS_VALUE, with_default_headers
-from services import ownership_service
+from lib import acting
 from lib.errors import ForbiddenError, UnauthenticatedError
 from api.auth import (MARKER_ATTR, _BODY_METHODS, _GENERIC_403, _authenticate, _cross_site_safe,
                       _is_local_scope)
@@ -326,7 +326,7 @@ class HouseholdGate:
 
 class ActingPrincipalMiddleware:
     """Pure-ASGI middleware, installed only with auth on. Binds a
-    per-request holder (ownership_service.bind_request) that
+    per-request holder (lib.acting.bind_request) that
     require_permission fills with the principal, so background_jobs can
     record which user started a job without every service passing it
     through. Pure ASGI (not BaseHTTPMiddleware) so the context var reaches
@@ -338,8 +338,8 @@ class ActingPrincipalMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
-        token = ownership_service.bind_request()
+        token = acting.bind_request()
         try:
             return await self.app(scope, receive, send)
         finally:
-            ownership_service.unbind_request(token)
+            acting.unbind_request(token)

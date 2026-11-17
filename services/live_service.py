@@ -62,6 +62,7 @@ from lib.errors import (
     NotFoundError,
     ServiceError,
 )
+from lib import acting
 
 WHISPER_SIZES = whisper_models.LIVE_WHISPER_SIZES
 SEGMENT_RANGE = (3, 60)
@@ -615,7 +616,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                                  "model": getattr(eng, "model", None), "starting": True,
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
                                  "source_language": source_language, "stream": stream_ref(url),
-                                 "owner_user_id": ownership_service.acting_user_id(),
+                                 "owner_user_id": acting.acting_user_id(),
                                  "chat": live_chat.ChatBoard() if chat else None}
     try:
         started = job_launch.start_job(

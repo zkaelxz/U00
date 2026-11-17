@@ -69,7 +69,9 @@ from fastapi import Depends, Request
 
 from api import remote_uploads
 from services import auth_service, device_token_service, ownership_service
+from lib import acting
 from lib.errors import ForbiddenError, UnauthenticatedError
+import paid_limits
 
 COOKIE_NAME = "__Host-baihe_session"     # Secure mode (always, except loopback-http dev)
 DEV_COOKIE_NAME = "baihe_session"        # plain-http loopback dev (__Host- needs Secure)
@@ -197,7 +199,7 @@ def require_permission(*permissions: str):
                 _refuse_if_paid_limit_reached(principal)
             raise ForbiddenError(_GENERIC_403)
         request.state.principal = principal
-        ownership_service.note_acting_principal(principal)
+        acting.note_acting_principal(principal)
         require_path_visible(request, principal, stopping=stopping)
         return principal
 
@@ -264,7 +266,7 @@ def require_device_token():
         principal = listener_principal(request.app, device_token_service.authenticate(
             request.headers.getlist("authorization"), ip=client_ip(request)))
         request.state.principal = principal
-        ownership_service.note_acting_principal(principal)
+        acting.note_acting_principal(principal)
         require_path_visible(request, principal)
         return principal
 
@@ -389,7 +391,7 @@ def _refuse_if_paid_limit_reached(principal) -> None:
     limit (the session's permissions leave it out) is told so, not "not allowed"."""
     user_id = (principal or {}).get("user_id")
     if auth_service.paid_engines_held_back(user_id):
-        raise ForbiddenError(auth_service.PAID_LIMIT_MESSAGE, details={"reason": PAID_LIMIT_REASON})
+        raise ForbiddenError(paid_limits.PAID_LIMIT_MESSAGE, details={"reason": PAID_LIMIT_REASON})
 
 
 def require_engines_allowed(request: Request, *engine_names, model=None):

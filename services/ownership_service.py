@@ -43,12 +43,12 @@ User decisions applied (2026-09-29):
 """
 
 import contextlib
-import contextvars
 import re
 import sqlite3
 
 import db
 from engine_backends import engine_registry
+from lib.acting import acting_principal, acting_user_id
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError)
 from services import pc_profile_service
@@ -505,38 +505,7 @@ def get_or_create_series_for(principal, name: str) -> int:
     raise ConflictError("That series name is taken")
 
 
-# --- who is acting, and jobs --------------------------------------
-# A per-request holder set by api.server's ActingPrincipalMiddleware and
-# filled by api.auth's dependencies. The holder is a dict (not the
-# principal itself) because FastAPI runs sync dependencies and handlers in
-# threadpool copies of the request's context: a set() there wouldn't reach
-# the handler, but a mutation of the shared holder does. Threads a job
-# starts get a fresh context, so a job started by a job has no owner.
-_ACTING: contextvars.ContextVar[dict | None] = contextvars.ContextVar("baihe_acting_principal", default=None)
-
-
-def bind_request():
-    """Start a request's holder; returns the token for unbind_request."""
-    return _ACTING.set({})
-
-
-def unbind_request(token) -> None:
-    _ACTING.reset(token)
-
-
-def note_acting_principal(principal) -> None:
-    holder = _ACTING.get()
-    if holder is not None:
-        holder["principal"] = principal
-
-
-def acting_user_id():
-    """The signed-in user this code runs for, or None (the local owner,
-    auth off, a background thread)."""
-    holder = _ACTING.get()
-    return user_id(holder.get("principal")) if holder else None
-
-
+# --- who is acting (lib/acting.py), and jobs ---------------------------
 # Paid calls made in an API request are logged for its signed-in user.
 db.set_spender_lookup(acting_user_id)
 
@@ -547,14 +516,6 @@ def _acting_may_use_hosted_default() -> bool:
 
 
 engine_registry.set_hosted_default_caller_check(_acting_may_use_hosted_default)
-
-
-def acting_principal():
-    """The principal of the API request (or queue start) this code runs
-    for, or None: the local owner, auth off, or a background thread. A job
-    that needs its starter's principal captures it here before it starts."""
-    holder = _ACTING.get()
-    return holder.get("principal") if holder else None
 
 
 def sees_learned_style(principal, profile) -> bool:
@@ -580,8 +541,7 @@ def require_acting_lines_edit() -> None:
     must also hold `lines.edit` (owner decision 2026-10-10). No principal
     noted means the local owner, auth off or a job's own thread,
     which hold every permission."""
-    holder = _ACTING.get()
-    principal = holder.get("principal") if holder else None
+    principal = acting_principal()
     if principal is not None and "lines.edit" not in principal.get("permissions", ()):
         raise ForbiddenError(_REPLACE_NEEDS_EDIT)
 

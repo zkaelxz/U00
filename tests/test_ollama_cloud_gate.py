@@ -260,19 +260,19 @@ def test_hosted_default_is_used_only_after_the_owner_opts_in(isolated_db, monkey
 
 def test_account_without_paid_permission_gets_the_local_default_not_the_hosted_one(isolated_db):
     from engine_backends import engine_registry, local
-    from services import ownership_service
+    from lib import acting
     db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": CLOUD})
     db.set_app_setting("pref.ollama_cloud_default", True)
     assert engine_registry.effective_default_model("ollama") == CLOUD  # owner / no request
-    token = ownership_service.bind_request()
+    token = acting.bind_request()
     try:
-        ownership_service.note_acting_principal({"user_id": 7, "permissions": ["lines.read"]})
+        acting.note_acting_principal({"user_id": 7, "permissions": ["lines.read"]})
         assert engine_registry.effective_default_model("ollama") == local.OLLAMA_DEFAULT_MODEL
-        ownership_service.note_acting_principal(
+        acting.note_acting_principal(
             {"user_id": 8, "permissions": ["lines.read", "engines.paid"]})
         assert engine_registry.effective_default_model("ollama") == CLOUD
     finally:
-        ownership_service.unbind_request(token)
+        acting.unbind_request(token)
 
 
 def test_hosted_tag_stays_refused_for_an_account_without_paid_permission_even_when_allowed(isolated_db):

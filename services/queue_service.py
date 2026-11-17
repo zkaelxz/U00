@@ -44,6 +44,7 @@ from services.queue_translate_settings import (TRANSLATE_KEYS, _NO_CAP, _cap_lef
                                                _translate_cost, check_translate_settings, translate_changed_rows, translate_fields)
 from services.queue_transcribe_settings import (_LANGUAGES, _changed_rows, _on, _row, _transcribe_fields,
                                                  _transcribe_rows)
+from lib import acting
 
 QUEUE_KEY = "job_queue"
 QUEUE_VERSION = 1
@@ -755,13 +756,13 @@ def _start_item(item: dict) -> Optional[str]:
         raise ForbiddenError("The account that added this item can no longer do this step.")
     if item.get("auto_series") is not None:
         series_auto_service.require_on(item["auto_series"])
-    token = ownership_service.bind_request()
+    token = acting.bind_request()
     # The runner thread outlives this item: the adder's offline mark is set
     # for this start only.
     offline = model_offline.set_offline(not item["at_pc"])
     try:
         # Records the job as the adder's, as if they had pressed the button.
-        ownership_service.note_acting_principal(principal)
+        acting.note_acting_principal(principal)
         if item["step"] == DOWNLOAD:
             return quick_video_service.start_download(drama, (item.get("settings") or {}).get("url"))
         if item["step"] == "transcribe":
@@ -782,7 +783,7 @@ def _start_item(item: dict) -> Optional[str]:
         return None
     finally:
         model_offline.reset(offline)
-        ownership_service.unbind_request(token)
+        acting.unbind_request(token)
 
 
 # --- the runner --------------------------------------------------------------
