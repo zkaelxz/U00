@@ -472,20 +472,28 @@ def _room_step(job_id: str, entry: dict, state: dict, now: float) -> None:
         if not _waiting_locked(job_id, run):
             return
         # The start refuses a job id that is still queued; the new run replaces this record.
-        run.update(status="error", error=entry["error"], message="", finished_at=now)
+        # Cancelled and still pending, like a guard stop, so a waiter reads it as still
+        # going during the start rather than Failed.
+        run.update(status="cancelled", message="", finished_at=now)
         _mirror_locked(job_id)
-    with _guard_lock:
-        _pending.pop(job_id, None)
+        with _guard_lock:
+            entry["restarting"] = True
     try:
         _start_again(entry)
     except Exception as exc:
         from engine_backends.redaction import redact_secrets
         from jobs.job_settings import _notify_job_finished
+        _drop_pending(job_id, entry)
         _warn(f"GPU guard: job {job_id} could not be started again", exc)
-        _set_message(run, "It did not start again: " + redact_secrets(str(exc))[:200])
+        with _lock:
+            run.update(status="error", error=entry["error"],
+                       message="It did not start again: " + redact_secrets(str(exc))[:200])
+            if _jobs.get(job_id) is run:
+                _mirror_locked(job_id)
         _notify_job_finished(run.get("description"), "error", job_id=job_id,
                              owner_user_id=run.get("owner_user_id"), reason=entry["error"])
         return
+    _drop_pending(job_id, entry)
     _log(f"GPU guard: job {job_id} started again once the GPU had room")
 
 

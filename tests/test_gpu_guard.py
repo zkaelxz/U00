@@ -549,6 +549,28 @@ class TestWaitForRoom:
         assert _wait_for(lambda: notified == [("done", "room_a")])
         assert _status("room_a") == "done"
 
+    def test_while_it_starts_again_a_waiter_still_reads_it_as_going(self, notified):
+        """Between the old run's end and the new run's start, a queue reading
+        the job (queue_service._job_outcome) must not see Failed."""
+        import memory_headroom
+        seen = []
+
+        def refuse():
+            raise memory_headroom.HeadroomError("Not loading Whisper.", vram_need_mb=3072.0)
+
+        def again():
+            seen.append((gpu_guard.restart_pending("room_e"), _status("room_e")))
+            assert job_launch.start_job("room_e", lambda: None, gpu_touching=True)
+        t = time.time()
+        gpu_guard.tick(now=t, reading=(2048.0, COOL))
+        with gpu_guard.restartable("room_e", again):
+            assert job_launch.start_job("room_e", refuse, gpu_touching=True)
+        assert _wait_for(lambda: _status("room_e") == "queued")
+        gpu_guard.tick(now=t + 20, reading=(4200.0, COOL))
+        assert seen == [(True, "cancelled")]
+        assert _wait_for(lambda: _status("room_e") == "done")
+        assert not gpu_guard.restart_pending("room_e")
+
     def test_gives_up_after_the_wait_as_failed_with_the_notice(self, refused, notified):
         t = time.time()
         gpu_guard.tick(now=t + gpu_guard.ROOM_WAIT_SECONDS + 1, reading=(2048.0, COOL))
