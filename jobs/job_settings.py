@@ -62,8 +62,8 @@ def set_gpu_max_parallel(value: int):
 # An optional local desktop notification when a
 # background job finishes, so a long job (especially a bulk
 # series-translate, which can run unattended for a while) doesn't
-# require watching the page. Off by default -- a Settings toggle turns it
-# on via set_notify_on_completion() below. Backed by db.app_settings, same
+# require watching the page. On by default; a Settings toggle turns it
+# off via set_notify_on_completion() below. Backed by db.app_settings, same
 # reasoning as get/set_gpu_limit_enabled() above.
 
 

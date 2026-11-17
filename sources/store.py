@@ -15,6 +15,7 @@ import re
 import sqlite3
 import threading
 import time
+from typing import Optional
 
 import db
 from lib import sqlite_check
@@ -55,7 +56,7 @@ DEFAULT_SETTINGS = {
     "auto_queue_new_chapters": False,
     "demo_source_enabled": False,
     "disabled_sources": [],
-    "source_pace": {},              # source -> careful|normal|fast; absent means normal
+    "source_pace": {},              # source -> careful|normal|fast; absent means the profile's default
     "adult_sources": [],            # sources the person opted in to adult-flagged works for
     "extraction_diagnostics": False,  # Always show Review Extraction + diagnostics
     # An HTTP(S) proxy URL (e.g. "http://127.0.0.1:8080") every
@@ -472,8 +473,9 @@ def all_settings() -> dict:
     return out
 
 
-def source_pace(source: str) -> str:
-    return (get_setting("source_pace") or {}).get(source, "normal")
+def source_pace(source: str) -> Optional[str]:
+    """The level the person chose, or None when they never chose one."""
+    return (get_setting("source_pace") or {}).get(source)
 
 
 def set_source_pace(source: str, level: str):

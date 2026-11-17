@@ -755,20 +755,12 @@ def resume_bulk_translations(drama_id: int) -> dict:
             "jobs": [{"bulk_job_id": k, "state": v} for k, v in sorted(out.items())]}
 
 
-def _spend_cap_used_up(engine_name: str, model) -> bool:
-    if not engine_cap_applies(engine_name, bool(settings_service.get("gemini_free_tier")), model):
-        return False
-    monthly = month_cap_usd()
-    _cap, refusal = pricing.resolve_cost_cap(
-        None, monthly, db.get_month_spend() if monthly else 0.0)
-    return bool(refusal)
-
-
 def resume_interrupted_at_startup() -> dict:
     """API startup, only while the "bulk.auto_resume" setting is on: resumes
     every drama's pending bulk jobs through resume_pending, the same call as
-    the manual resume. A job whose engine has no key, or whose month's
-    spending cap is used up, is left pending and one notification says so.
+    the manual resume, but only those on a free or local engine. A job on a
+    paid engine (or whose engine has no key) is left pending and one
+    notification says so; the person resumes it by hand.
     Nothing starts while a restore or maintenance holds the library. Never
     raises; returns {"enabled", "resumed", "skipped"} counts."""
     out = {"enabled": False, "resumed": 0, "skipped": 0}
@@ -786,8 +778,9 @@ def resume_interrupted_at_startup() -> dict:
         why = {}
 
         def factory(engine_name, model):
-            if _spend_cap_used_up(engine_name, model):
-                why[engine_name] = "the monthly spending cap is used up"
+            # A restart must never start paid work the person did not just ask for.
+            if engine_cap_applies(engine_name, bool(settings_service.get("gemini_free_tier")), model):
+                why[engine_name] = "paid engines wait until you press Resume"
                 return None
             try:
                 engine = _bulk_engine_factory(engine_name, model)

@@ -32,6 +32,12 @@ class TestLevels:
         assert pacing.effective_level(pacing.DEFAULT_PROFILE, "fast") == "normal"
         assert pacing.effective_level(VETTED, "bogus") == "normal"
 
+    def test_an_unchosen_level_is_fast_only_for_a_vetted_source(self):
+        assert pacing.effective_level(VETTED, None) == "fast"
+        assert pacing.effective_level(pacing.DEFAULT_PROFILE, None) == "normal"
+        assert pacing.effective_level(None, None) == "normal"
+        assert pacing.effective_level(VETTED, "normal") == "normal"   # a chosen level still wins
+
     def test_fast_needs_evidence(self):
         with pytest.raises(ValueError):
             PacingProfile(fast_allowed=True)
