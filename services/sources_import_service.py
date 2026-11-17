@@ -364,7 +364,7 @@ _RECOVER_FAILED = "The AI could not read this page either; nothing was imported.
 
 
 def _ai_recover_job(job_id: str, name: str, series_id: str, chapter_id: str, drama_id: int,
-                    engine):
+                    engine, local: bool = False):
     """Reads one chapter page the adapter could not (the page kept when it
     failed, else one paced fetch) with the AI extraction, at most one AI call,
     and always opens the review for the person: nothing is written here."""
@@ -374,6 +374,7 @@ def _ai_recover_job(job_id: str, name: str, series_id: str, chapter_id: str, dra
         if kept is None:
             background_jobs.update_progress(job_id, 0.1, "Fetching the chapter page...")
             adapter = registry.get_adapter(name, cancel_check=cancel_check)
+            adapter.allow_browser = local
             ladder.check_terms(name, adapter.capabilities())
             ch = next((c for c in adapter.get_chapters(series_id)
                        if str(c.chapter_id) == chapter_id), None)
@@ -405,7 +406,7 @@ def _ai_recover_job(job_id: str, name: str, series_id: str, chapter_id: str, dra
 
 
 def start_ai_recover(name, chapter_id, series_id, drama_id, engine_name, confirm,
-                     principal=None) -> dict:
+                     principal=None, local: bool = False) -> dict:
     """Starts `sourceimport_<drama_id>`: one AI-assisted read of a chapter
     whose page layout changed, ending in a Review extraction (the review's
     import writes the chapter). `engine_name` is already checked by the
@@ -434,7 +435,7 @@ def start_ai_recover(name, chapter_id, series_id, drama_id, engine_name, confirm
     engine = extraction.build_ai_engine(engine_name)
     job_id = import_job_id(drama_id)
     return start_job(job_id, _ai_recover_job, job_id, name, series_id, chapter_id, drama_id,
-                  engine, description=f"AI recovery of one chapter from {name}")
+                  engine, bool(local), description=f"AI recovery of one chapter from {name}")
 
 
 def _drama_created(drama: dict):

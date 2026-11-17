@@ -163,7 +163,7 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
             continue
         try:
             adapter = factory(row["source"])
-            adapter.allow_browser = allow_browser and adapter.allow_browser
+            adapter.allow_browser = allow_browser
             new = check_series(adapter, row)
         except SourceError as e:
             summary["errors"][row["title"]] = f"{e.reason.value}: {e}"
