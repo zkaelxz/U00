@@ -625,8 +625,8 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   `tests/test_installer_iss.py` (static checks of the `.iss` and the workflow),
   `tests/test_installer_runtime.py` (launcher and post-install logic with fakes)
   and `tests/test_portable.py` (`data_dir()`). Also related:
-  `tests/test_installer_service.py` (the service against a fake `sc`, `icacls`
-  and `netsh`), `tests/test_caddyfile_template.py`, `tests/test_shutdown.py`,
+  `tests/test_installer_service.py` and `tests/test_installer_remote.py` (the
+  service against a fake `sc`, `icacls` and `netsh`), `tests/test_caddyfile_template.py`, `tests/test_shutdown.py`,
   `tests/test_update_service.py` and `tests/test_constraints_lock_parity.py`.
 - Windows CI, **on demand** (Actions → Windows Installer → Run workflow, or push
   an `installer-v*` or `v*` tag; never on PRs, because of the minutes budget):
@@ -699,7 +699,7 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
 The app can run as a **Windows service started at boot**, installed and
 removed by this installer, tested by the Windows Installer workflow. Code: [`installer/service.py`](../installer/service.py)
 and its `service_*.py` siblings (standard library only), the `service` task in `baihe.iss`, and the WinSW
-staging in `build_installer.py`. `tests/test_installer_service.py` drives it
+staging in `build_installer.py`. `tests/test_installer_service.py` and `tests/test_installer_remote.py` drive it
 against a fake `sc`/`icacls`/`netsh`; only the workflow's "Service --" steps
 prove it on Windows.
 
