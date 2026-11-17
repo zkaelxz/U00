@@ -1462,7 +1462,7 @@ def test_waiting_note_reads_only_what_the_result_says():
 
 def test_notification_event_schema_takes_waiting_and_its_target_only():
     from pydantic import ValidationError
-    from api.notification_schemas import NotificationEvent
+    from api.schemas import NotificationEvent
     e = NotificationEvent(id=1, at=1.0, kind="waiting", text="Waiting for you: x",
                           target={"page": "glossary", "drama_id": 3})
     assert e.model_dump(exclude_none=True)["target"] == {"page": "glossary", "drama_id": 3}

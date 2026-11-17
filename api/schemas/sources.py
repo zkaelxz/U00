@@ -60,7 +60,6 @@ __all__ = [
     "SourcesChapterImportRequest",
     "SourcesChapterSaveRequest",
     "SourcesUrlPreviewRequest",
-    "SourcesUrlImportRequest",
     "SourceSigninOpenRequest",
     "SourceSigninForgetRequest",
     "SourceSigninForgetResult",
@@ -529,13 +528,6 @@ class SourcesChapterSaveRequest(BaseModel):
 class SourcesUrlPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     url: StrictStr = Field(min_length=1, max_length=2000)
-
-
-class SourcesUrlImportRequest(BaseModel):
-    """Novel text only (thin version). The drama must be a novel drama."""
-    model_config = ConfigDict(extra="forbid")
-    url: StrictStr = Field(min_length=1, max_length=2000)
-    drama_id: int = Field(ge=1)
 
 
 # ---------------------------------------------------------------------------

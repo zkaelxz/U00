@@ -1,5 +1,5 @@
 """
-api/asr_options_schemas.py -- request/response models for the experimental
+api/schemas/asr_options.py -- request/response models for the experimental
 transcription settings (api/routers/asr_options_routes.py).
 """
 
@@ -7,7 +7,13 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas import JobStarted
+from api.schemas.common import JobStarted
+
+__all__ = [
+    "AsrOptions",
+    "AsrVadDownloadStarted",
+    "AsrOptionsUpdate",
+]
 
 
 class AsrOptions(BaseModel):
