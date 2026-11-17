@@ -34,6 +34,7 @@ from engine_backends import line_text
 from engine_backends import llm_tasks as engine_llm_tasks
 from engine_backends import llm_tasks
 from services import (
+    engine_failure_service,
     engine_routing_service,
     ownership_service,
     settings_service,
@@ -305,7 +306,8 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
             f"{engine_name} refused this line on content grounds.") from None
     except Exception as e:
         _log_failure(e)
-        raise ServiceError("The engine call failed.") from None
+        raise engine_failure_service.engine_failure(
+            e, engine_name, engine_failure_service.ENGINE_FAILED) from None
     # One id sent: exactly one answer is accepted, never guessed by position.
     text = results[0] if len(results) == 1 else None
     if not isinstance(text, str) or not text.strip():

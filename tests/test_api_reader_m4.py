@@ -339,7 +339,7 @@ def test_engine_error_is_redacted(client, drama, fake_engine, monkeypatch):
         raise RuntimeError(f"bad key {secret} at /home/user/secret/file.py")
     monkeypatch.setattr(story_context, "who_is_character", boom)
     r = client.post(f"{BASE}/{drama}/story/who", json={"name": "A"})
-    assert r.status_code == 500
+    assert r.status_code == 503
     assert secret not in r.text and "/home/user/secret" not in r.text
 
 
@@ -638,7 +638,7 @@ def test_slot_released_after_exception(client, drama, fake_engine, monkeypatch):
         raise RuntimeError("engine fell over")
     monkeypatch.setattr(qa, "ask_about_drama", boom)
     for _ in range(3):
-        assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 500
+        assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 503
     assert not reader_routes.ACTIVE_CALLERS
     got = [reader_routes.SLOTS.acquire(blocking=False)
            for _ in range(reader_routes.LLM_MAX_IN_FLIGHT)]
@@ -994,9 +994,24 @@ def test_a_failed_ask_still_writes_a_usage_row(client, drama, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("provider down")
     monkeypatch.setattr(qa, "ask_about_drama", boom)
-    assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 500
+    assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 503
     [row] = _usage_rows()
     assert row["operation"] == "reader_ask" and row["estimated_cost_usd"] == 0
+
+
+def test_a_failed_ask_names_the_engine_and_why(client, drama, monkeypatch):
+    import qa
+    import requests
+    _paid(monkeypatch)
+
+    def slow(*a, **k):
+        raise requests.ReadTimeout("read timed out")
+    monkeypatch.setattr(qa, "ask_about_drama", slow)
+    r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"})
+    # A requests error is an OSError too; it is the engine's, not a local file step's.
+    assert r.status_code == 503
+    assert r.json()["error"]["details"]["reason"] == "timed_out"
+    assert r.json()["error"]["message"] == "Claude took too long to answer. Try again."
 
 
 def test_a_local_ollama_ask_is_not_held_to_a_spent_cap(client, drama, monkeypatch):

@@ -116,7 +116,7 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str | None = Non
     work = [Line(idx=ln.idx, start=ln.start, end=ln.end, zh=ln.zh, en=ln.en, id=ln.id)
             for ln in targets]
     line_ai_service.run(lambda: llm_tasks.rewrite_for_pacing_llm(
-        work, engine, usage_cb=usage))
+        work, engine, usage_cb=usage), engine=engine)
 
     changed = [w for w in work if (w.en or "").strip() and w.en.strip() != before[w.id].strip()]
     out: dict = dict(empty, remaining=remaining, unchanged=len(work) - len(changed))
