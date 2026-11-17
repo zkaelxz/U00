@@ -41,7 +41,7 @@ from scanlate import scanlate_tuning
 from scanlate.scanlate_regions import (analyze_page_regions, detect_script_language, lettering_fill,
                               split_separate_lettering, strip_stray_sfx_mark,
                               lettering_size, reclassify_wordy_sfx, flag_katakana_effects,
-                              region_excluded_from_auto)
+                              region_excluded_from_auto, SHAPE_FITTED_KINDS)
 from scanlate.scanlate_fonts import sample_text_style
 from scanlate.scanlate_translate import translate_page_bubbles
 from scanlate.scanlate_watermark import flag_site_marks
@@ -307,9 +307,10 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     flag_bare_numbers(bubbles, source_language)
     _note_skipped_sfx(bubbles, notes)
     if art_captions:
-        bubbles += (captions if captions is not None
-                    else _art_caption_regions(image_path, source_language, bubbles, page, notes,
-                                          ocr_backend))
+        if captions is None:
+            captions = _art_caption_regions(image_path, source_language, bubbles, page, notes,
+                                            ocr_backend)
+        bubbles = with_captions(bubbles, captions)
     if ocr_failed:
         # Fixed text: the exception may carry a model path, and the caller
         # needs "OCR broke" kept apart from "the bubble holds no text".
@@ -427,6 +428,32 @@ def _note_no_bubbles(image_path: str, page, notes: list) -> None:
     notes.append(("warning",
         "No bubbles found on this page. That is normal for covers and splash art; "
         "otherwise try the ML detector (Advanced) or add boxes by hand." + detail))
+
+
+# Share of a region's area inside an art caption from which it is a piece of
+# that caption, not lettering of its own.
+_CAPTION_PART_SHARE = 0.6
+
+
+def drop_parts_of_captions(regions: list, captions: list) -> list:
+    """`regions` without the ones that are pieces of an art caption. The bubble
+    detector can cut a large glowing caption into sign or sfx fragments; each
+    line then sits less than half inside any one fragment, so the caption is
+    found as well, and the fragments' English was set on top of the caption's.
+    Balloons stay: their lettering is their own even where a caption overlaps."""
+    from scanlate.scanlate_art_text import _overlap
+    return [r for r in regions
+            if r.get("kind") in SHAPE_FITTED_KINDS
+            or not any(_overlap(r, c) >= _CAPTION_PART_SHARE for c in captions)]
+
+
+def with_captions(regions: list, captions: list) -> list:
+    """`regions` without the pieces of `captions`, then the captions, renumbered
+    in that reading order."""
+    joined = drop_parts_of_captions(regions, captions) + captions
+    for order, region in enumerate(joined):
+        region["reading_order"] = order
+    return joined
 
 
 def _art_caption_regions(image_path: str, source_language: str, bubbles: list, page,
