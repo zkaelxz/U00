@@ -165,29 +165,49 @@ def _frame_second(video_path: str) -> float:
     return duration * _FRAME_FRACTION if duration > 0 else _FRAME_FALLBACK_SECONDS
 
 
-SITE_THUMBNAIL_NAMES = tuple(f"downloaded_{kind}.{ext}" for kind in ("video", "audio")
-                             for ext in ("jpg", "jpeg", "png", "webp"))
-
-
-def use_site_thumbnail(drama_id: int, folder: str) -> bool:
-    """Best-effort cover from the picture yt-dlp saved next to a downloaded
-    video in `folder`. Goes through save_cover (type, size and pixel caps,
-    re-encode), and never replaces a cover the title already has. Any failure
-    leaves the title as it was: a missing picture must not fail a download."""
-    from lib.safe_paths import plain_file_in
+def use_site_thumbnail(drama_id: int, path: str) -> bool:
+    """Best-effort cover from the picture the downloader saved at `path`
+    (video_download.save_thumbnail). Goes through save_cover (type, size and
+    pixel caps, re-encode), and never replaces a cover the title already has.
+    True only when this call set the cover, so a caller whose job then fails
+    can take it back with remove_cover. Any failure leaves the title as it
+    was: a missing picture must not fail a download."""
     if (db.get_drama(drama_id) or {}).get("cover_art_filename"):
         return False
-    for name in SITE_THUMBNAIL_NAMES:
-        path = plain_file_in(folder, name)
-        if not path or os.path.islink(path) or not os.path.isfile(path):
-            continue
-        try:
-            with open(path, "rb") as f:
-                save_cover(drama_id, f, only_if_missing=True)
-            return True
-        except Exception:
-            return False
-    return False
+    if os.path.islink(path) or not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "rb") as f:
+            save_cover(drama_id, f, only_if_missing=True)
+        return True
+    except Exception:
+        return False
+
+
+def cover_stamp(drama_id: int):
+    """Identifies the stored cover (name and modified time), or None when there is none."""
+    name = (db.get_drama(drama_id) or {}).get("cover_art_filename")
+    if not _servable_name(name):
+        return None
+    try:
+        return name, os.stat(os.path.join(os.path.realpath(db.drama_dir(drama_id)), name)).st_mtime_ns
+    except OSError:
+        return None
+
+
+def remove_cover(drama_id: int, only_if_stamp=None) -> None:
+    """Takes the cover away again: the stored file, then the title's field. For a job that set
+    one automatically and then failed, so a title left with no media shows no picture either.
+    With `only_if_stamp` (from cover_stamp) it does nothing when the cover is no longer the one
+    the job made, so a picture the user uploaded meanwhile is kept."""
+    drama = db.get_drama(drama_id) or {}
+    name = drama.get("cover_art_filename")
+    if not drama or (only_if_stamp is not None and cover_stamp(drama_id) != only_if_stamp):
+        return
+    with contextlib.suppress(OSError):
+        if _servable_name(name):
+            os.remove(os.path.join(os.path.realpath(db.drama_dir(drama_id)), name))
+    db.update_drama(drama_id, cover_art_filename=None)
 
 
 def make_cover_from_video(drama_id: int, only_if_missing: bool = False) -> dict:
