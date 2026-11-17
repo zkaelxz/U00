@@ -13,7 +13,7 @@ import functools
 import db
 import gpu_probe
 import job_force_stop
-from jobs import crash_retry, user_caps
+from jobs import crash_retry, gpu_guard, user_caps
 from jobs.gpu_queue import (_gpu_queue, _gpu_queue_waiting_locked,
                             _gpu_slot_available_locked, _note_gpu_wait_reason_locked, _release_gpu_slot)
 from jobs.job_runner import (_fail_start, _new_entry, _process_watcher, _register_process_job, _spawn,
@@ -209,6 +209,16 @@ def _admit_locked(job_id, gpu_touching, description, owner_user_id):
     return "queued" if queued else "running"
 
 
+def _new_run_locked(job_id: str, mirror: bool = True) -> dict:
+    """Caller holds _lock, right after creating job_id's run and before its
+    thread or process can run: mirrors it (unless already done) and takes
+    a restart a gpu_guard.restartable block offers for it."""
+    if mirror:
+        _mirror_locked(job_id)
+    gpu_guard.take_restart_offer_locked(job_id)
+    return _jobs[job_id]
+
+
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
               description: str | None = None, run_settings: dict | None = None, line_fields=None,
               **kwargs) -> bool:
@@ -257,7 +267,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
             return False
         _jobs[job_id] = _new_entry(status, "thread", gpu_touching, description, owner_user_id,
                                    run_settings, line_fields=line_fields)
-        _mirror_locked(job_id)
+        _new_run_locked(job_id)
         if status == "queued":
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": kwargs, "description": description, "kind": "thread",
@@ -380,7 +390,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             _jobs[job_id] = _new_entry(status, "process", gpu_touching, description, owner_user_id,
                                        run_settings, result=initial_result, process=None,
                                        line_fields=line_fields)
-            _mirror_locked(job_id)
+            _new_run_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
                                 "on_done": on_done, "on_finish": on_finish,
@@ -399,7 +409,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             # mp.Queue()/Process() failed after the slot was taken; no run exists to free it.
             _release_gpu_slot(job_id, gpu_touching)
             raise
-        run = _jobs[job_id]
+        run = _new_run_locked(job_id, mirror=False)
     try:
         proc.start()
         _start_job_thread(_process_watcher, f"job-watcher:{job_id}",

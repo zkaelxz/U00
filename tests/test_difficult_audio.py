@@ -1,5 +1,6 @@
 """The per-title "Difficult audio" option: levelled temporary copy, the Sensitive
 preset, and a relaxed Whisper skip rule. A title without it must run exactly as before."""
+import contextlib
 import inspect
 import os
 import queue
@@ -103,7 +104,11 @@ class TestStartRun:
         did = _title(isolated_db)
         _capture_worker_start(monkeypatch)
         seen = {}
-        monkeypatch.setattr(gpu_guard, "allow_restart", lambda jid, fn: seen.update({jid: fn}))
+        @contextlib.contextmanager
+        def offered(jid, fn):
+            seen[jid] = fn
+            yield
+        monkeypatch.setattr(gpu_guard, "restartable", offered)
         transcribe_service.start_transcribe_run(did, expected_speakers=2, overrides={"beam_size": 3})
         again = seen[f"transcribe_{did}"]
         assert again.func is transcribe_service.start_transcribe_run

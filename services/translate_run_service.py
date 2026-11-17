@@ -415,10 +415,10 @@ def _restartable_when_plain(start):
     @functools.wraps(start)
     def run(*args, **kwargs):
         call = signature.bind(*args, **kwargs).arguments
-        resp = start(*args, **kwargs)
-        if not any(call.get(k) for k in ("force_retranslate", "reflect", "bulk", "line_ids")):
-            gpu_guard.allow_restart(resp["job_id"], functools.partial(run, **call))
-        return resp
+        if any(call.get(k) for k in ("force_retranslate", "reflect", "bulk", "line_ids")):
+            return start(*args, **kwargs)
+        with gpu_guard.restartable(f"translate_{call['drama_id']}", functools.partial(run, **call)):
+            return start(*args, **kwargs)
     return run
 
 

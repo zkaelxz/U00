@@ -1,5 +1,6 @@
 """jobs/gpu_guard.py: Baihe holds, unloads and stops GPU work while the card is
 short of memory or hot. Mocked: readings are passed to tick(), no nvidia-smi."""
+import contextlib
 import threading
 import time
 
@@ -567,6 +568,19 @@ class TestWaitForRoom:
         gpu_guard.tick(now=time.time() + 20, reading=(FREE, COOL))
         assert _status("room_a") == "error" and notified == [("error", "room_a")]
 
+    def test_a_job_refused_the_moment_it_starts_still_waits(self, notified):
+        """Started inside `restartable`, the run is registered before its
+        thread runs, so even an instant refusal goes back to queued."""
+        import memory_headroom
+
+        def refuse():
+            raise memory_headroom.HeadroomError("Not loading Whisper.", vram_need_mb=3072.0)
+        gpu_guard.tick(now=time.time(), reading=(2048.0, COOL))
+        with gpu_guard.restartable("room_c", lambda: None):
+            assert job_launch.start_job("room_c", refuse, gpu_touching=True)
+        assert _wait_for(lambda: _status("room_c") != "running")
+        assert _status("room_c") == "queued" and notified == []
+
     def test_without_a_fresh_card_reading_it_fails_as_before(self, notified):
         import memory_headroom
 
@@ -613,7 +627,11 @@ class TestServicesRegister:
     def test_translation_registers_only_a_plain_run(self, monkeypatch):
         from services import translate_run_service as trs
         seen = {}
-        monkeypatch.setattr(gpu_guard, "allow_restart", lambda jid, fn: seen.update({jid: fn}))
+        @contextlib.contextmanager
+        def offered(jid, fn):
+            seen[jid] = fn
+            yield
+        monkeypatch.setattr(gpu_guard, "restartable", offered)
         # Just the tail of start_translate_run: everything before the launch is stubbed.
         for name in ("_resolve_run_options", "_build_engine_chain", "_prepare_run", "_launch_translate",
                      "_refuse_if_busy"):

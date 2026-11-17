@@ -8,7 +8,7 @@ card is past its temperature limit it
 - holds queued GPU jobs (gpu_slots.acquire asks `hold_reason`),
 - unloads idle models (Ollama's and this process's caches) when memory is short,
 - after the set minutes, stops the running jobs that registered a restart
-  (`allow_restart`) and starts them again through the same call the user
+  (started inside `restartable`) and starts them again through the same call the user
   made, so they queue, wait for the card to clear and pick up as a fresh start.
 
 Only jobs whose re-start is known to be clean register (see docs/background-jobs.md,
@@ -16,6 +16,7 @@ Only jobs whose re-start is known to be clean register (see docs/background-jobs
 that can't be read never holds or stops anything.
 """
 
+import contextlib
 import contextvars
 import threading
 import time
@@ -216,14 +217,44 @@ def restart_pending(job_id: str) -> bool:
 
 # --- restartable jobs --------------------------------------------------------
 
+# (job_id, restart) offered by the `restartable` block this code runs in.
+_offer: contextvars.ContextVar = contextvars.ContextVar("gpu_guard_restart_offer", default=None)
+
+
+@contextlib.contextmanager
+def restartable(job_id: str, restart):
+    """Inside the block, a start of job_id registers its run for restart
+    (allow_restart) as the run is created, before its thread or process can
+    run. Registering after the start returned would let a job that is
+    refused GPU memory at once end Failed instead of waiting for room. Use
+    it only for a job whose stop-and-start again is clean."""
+    token = _offer.set((job_id, restart))
+    try:
+        yield
+    finally:
+        _offer.reset(token)
+
+
+def take_restart_offer_locked(job_id: str) -> None:
+    """Caller holds job_table._lock, right after creating job_id's run."""
+    offer = _offer.get()
+    if offer is not None and offer[0] == job_id:
+        _register(job_id, _jobs.get(job_id), offer[1])
+
+
 def allow_restart(job_id: str, restart) -> None:
     """Lets the guard stop job_id's current run and start it again with
     `restart()` (called with the starter's principal, so ownership and caps
-    are checked as they were). Call it right after a start returned True,
-    only for a job whose stop-and-start again is clean."""
-    from services import ownership_service
+    are checked as they were). Starts go through `restartable` instead, so
+    the run is registered before it can be refused; this registers a run
+    that already exists."""
     with _lock:
         run = _jobs.get(job_id)
+    _register(job_id, run, restart)
+
+
+def _register(job_id, run, restart) -> None:
+    from services import ownership_service
     if run is None or run.get("status") not in ("queued", "running"):
         return
     with _guard_lock:
