@@ -2,6 +2,7 @@
 mocked, tiny fake bytes, isolated library."""
 
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -20,6 +21,11 @@ import video_export
 from api.api_config import ApiSettings
 from api.server import create_app
 from tests.job_helpers import wait_for_job
+import media_inspect
+from services import media_upload_service
+
+# Taken at import, before the autouse fixture in tests/conftest.py swaps in a no-op.
+_REAL_AUDIO_CHECK = media_upload_service.refuse_unreadable_audio
 
 
 def _fake_ffmpeg(job_id, cmd, cwd=None, **kw):
@@ -1124,3 +1130,44 @@ def test_a_video_uploaded_to_a_title_with_a_chosen_mode_keeps_it(client, isolate
     db.update_drama(did, transcript_mode="hardsub_ocr")
     _video_title(client, did)
     assert db.get_drama(did)["transcript_mode"] == "hardsub_ocr"
+
+
+needs_ffprobe = pytest.mark.skipif(shutil.which("ffprobe") is None or shutil.which("ffmpeg") is None,
+                                   reason="needs ffmpeg and ffprobe")
+
+
+@needs_ffprobe
+def test_real_audio_passes_the_check(client, isolated_db, tmp_path, monkeypatch):
+    import db
+    monkeypatch.setattr(media_upload_service, "refuse_unreadable_audio", _REAL_AUDIO_CHECK)
+    wav = tmp_path / "tone.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=duration=0.2",
+                    str(wav)], check=True, timeout=60)
+    did = db.create_drama(title_en="D")
+    r = _up(client, did, "tone.wav", wav.read_bytes())
+    assert r.status_code == 200
+    assert db.get_drama(did)["audio_filename"] == "source.wav"
+
+
+@needs_ffprobe
+def test_a_renamed_non_audio_file_is_refused(client, isolated_db, monkeypatch):
+    import db
+    monkeypatch.setattr(media_upload_service, "refuse_unreadable_audio", _REAL_AUDIO_CHECK)
+    did = db.create_drama(title_en="D")
+    r = _up(client, did, "notes.mp3", b"These are my notes, not audio.\n" * 50)
+    assert r.status_code == 422
+    assert r.json()["error"]["details"]["reason"] == "not_audio"
+    assert db.get_drama(did).get("audio_filename") in (None, "")
+    assert os.listdir(db.drama_dir(did)) == []
+
+
+def test_audio_check_is_skipped_without_ffprobe(client, isolated_db, monkeypatch):
+    import db
+    monkeypatch.setattr(media_upload_service, "refuse_unreadable_audio", _REAL_AUDIO_CHECK)
+
+    def missing(path, timeout=30):
+        raise media_inspect.ProbeError("ffprobe isn't installed.", "missing")
+    monkeypatch.setattr(media_inspect, "run_ffprobe", missing)
+    did = db.create_drama(title_en="D")
+    assert _up(client, did).status_code == 200
+    assert db.get_drama(did)["audio_filename"] == "source.mp3"
