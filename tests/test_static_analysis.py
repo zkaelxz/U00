@@ -564,8 +564,8 @@ def _repo_modules():
 
 # Folders of former root modules outside the .importlinter layers (live/
 # imports each other with jobs/ and engine_backends/; bulk/ still imports
-# services/ upward; scanlate/ has no layer of its own yet), so their files
-# get the root modules' checks.
+# services/ upward; scanlate/ and voice/ have no layer of their own yet), so
+# their files get the root modules' checks.
 ROOT_MODULE_FOLDERS = ("live", "bulk", "scanlate", "voice")
 
 
