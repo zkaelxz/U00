@@ -1,4 +1,4 @@
-// User administration + audit log view (api/admin_users_schemas.py), from the generated schema.
+// User administration + audit log view (api/schemas/admin_users.py), from the generated schema.
 import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']
