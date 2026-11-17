@@ -172,17 +172,17 @@ export default function LivePage() {
   const [startPressed, setStartPressed] = useState(false)
   const developerMode = useDeveloperMode()
   const checkModel = engine === 'ollama' ? model : null
-  const checkKey = `${checkModel}#${recheck}`
+  const gpuCheck = form.use_gpu ? form.whisper_size : null, checkKey = `${checkModel}#${gpuCheck}#${recheck}`
   const ollamaNote = checkModel !== null && ollamaAnswer?.key === checkKey ? ollamaAnswer.note : null
   useEffect(() => {
     if (checkModel === null) return
     let alive = true
-    checkOllama(checkModel).then(
+    checkOllama(checkModel, undefined, gpuCheck === null ? undefined : { whisperSize: gpuCheck, useGpu: true }).then(
       (r) => { if (alive) setOllamaAnswer({ key: checkKey, note: r.ok ? null : (r.message ?? 'Ollama is not ready.') }) },
       () => {},
     )
     return () => { alive = false }
-  }, [checkModel, checkKey])
+  }, [checkModel, checkKey, gpuCheck])
 
   const status = session?.status?.status ?? (session ? 'queued' : null)
   const active = !!session && isActive(status)
@@ -309,7 +309,7 @@ export default function LivePage() {
           </Field>
           {ollamaNote && (
             <p className={startPressed ? 'error' : 'muted'} role={startPressed ? 'alert' : undefined} data-testid="live-ollama-note">
-              {ollamaNote} Pick another engine above, or fix Ollama and{' '}
+              {ollamaNote} Pick another engine or model above, or fix this and{' '}
               <button type="button" className="link" onClick={() => setRecheck((n) => n + 1)}>check again</button>.
             </p>
           )}

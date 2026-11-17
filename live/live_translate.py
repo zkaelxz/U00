@@ -332,6 +332,17 @@ def drop_stock_phrases(segments: list) -> list:
     return [seg for seg in segments if not invented(seg.get("text") or "")]
 
 
+def split_long_caption_lines(segments: list) -> list:
+    """Cuts a line longer than a caption can hold (segment_splitting's 8 s / 40
+    CJK characters) at its sentence ends, then commas, spaces beside CJK text and
+    word pauses. whisper-ja (ja-1.5b) often writes 10-20 s of speech as one
+    segment, which sat on screen as a wall of text. Without the re-split rules an
+    English "Mr. Smith" can be cut after "Mr."; a line with none of these cuts
+    stays whole."""
+    import segment_splitting
+    return segment_splitting.split_long_segments(segments)
+
+
 # One short everyday word per source language for the translator warm-up.
 _WARM_UP_TEXT = {"zh": "好的", "ja": "はい", "ko": "네"}
 
@@ -410,7 +421,7 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
         on_transcribed(time.monotonic() - started)
     checkpoint()
     segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text, overlap_covered_seconds)
-    segments = drop_stock_phrases(segments)
+    segments = split_long_caption_lines(drop_stock_phrases(segments))
     offset = chunk_index * segment_seconds - overlap_seconds + audio_shift
     cues = live_cue_feed.pending_cues(segments, offset, first_id)
     if translate:

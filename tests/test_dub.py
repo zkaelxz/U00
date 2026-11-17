@@ -21,8 +21,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import dub
-import dub_narration
+from voice import dub
+from voice import dub_narration
 from .voice_helpers import speak_with
 from memory_headroom import HeadroomError
 from core import Line
@@ -653,7 +653,7 @@ class TestVenvEngines:
     QWEN = {"engine": "qwen3_tts", "ref_audio": "/clips/a.wav", "ref_text": "嗯"}
 
     def _batch(self, monkeypatch, events):
-        import voice_venv
+        from voice import voice_venv
         seen = {}
         monkeypatch.setattr(voice_venv, "is_ready", lambda engine: True)
         monkeypatch.setattr(dub, "_cuda_available", lambda: False)
@@ -695,7 +695,7 @@ class TestVenvEngines:
             (0, expected), (1, expected)]
 
     def test_a_venv_that_is_not_ready_never_starts(self, monkeypatch, tmp_path):
-        import voice_venv
+        from voice import voice_venv
         monkeypatch.setattr(voice_venv, "is_ready", lambda engine: False)
         monkeypatch.setattr(dub, "_cuda_available", lambda: False)
         monkeypatch.setattr(voice_venv, "run_batch", lambda *a, **k: pytest.fail("started"))
@@ -757,7 +757,7 @@ class TestVenvEngineEdges:
     QWEN = TestVenvEngines.QWEN
 
     def test_a_voice_description_reaches_the_batch_items(self, monkeypatch, tmp_path):
-        import voice_venv
+        from voice import voice_venv
         monkeypatch.setattr(dub, "_cuda_available", lambda: False)
         monkeypatch.setattr(voice_venv, "is_ready", lambda engine: True)
         seen = []
@@ -797,8 +797,7 @@ class TestVenvEngineEdges:
         assert recorded == ["Unknown voice engine."]
 
     def test_no_torch_in_the_app_skips_the_vram_check(self, monkeypatch, tmp_path):
-        import voice_venv
-
+        from voice import voice_venv
         def no_torch():
             raise ModuleNotFoundError("No module named 'torch'")
         monkeypatch.setattr(dub, "_cuda_available", no_torch)

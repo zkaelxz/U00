@@ -156,8 +156,17 @@ const sessionPath = (id: string) => {
 
 /** No model asks about the one Start runs when none is chosen: the server decides, so the answer can't drift from it. */
 export const getLiveOptions = (f?: Fetch) => getJson<LiveFormOptions>('/api/live/options', f)
-export const checkOllama = (model: string, f?: Fetch) =>
-  getJson<LiveOllamaCheck>(model ? `/api/live/ollama-check?model=${encodeURIComponent(model)}` : '/api/live/ollama-check', f)
+/** With a Whisper size and the GPU on, it also says whether the model and Whisper fit in graphics memory. */
+export const checkOllama = (model: string, f?: Fetch, gpu?: { whisperSize: string, useGpu: boolean }) => {
+  const q = new URLSearchParams()
+  if (model) q.set('model', model)
+  if (gpu?.useGpu) {
+    q.set('whisper_size', gpu.whisperSize)
+    q.set('use_gpu', 'true')
+  }
+  const qs = q.toString()
+  return getJson<LiveOllamaCheck>(qs ? `/api/live/ollama-check?${qs}` : '/api/live/ollama-check', f)
+}
 export const startLive = (body: LiveSessionStart, f?: Fetch) =>
   postJson<LiveSessionStarted>('/api/live/sessions', body, f)
 export const listLive = (f?: Fetch) => getJson<LiveSessionSummary[]>('/api/live/sessions', f)

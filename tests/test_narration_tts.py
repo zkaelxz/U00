@@ -24,8 +24,8 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import novel_text
-import dub
-import dub_narration
+from voice import dub
+from voice import dub_narration
 from .voice_helpers import speak_with
 from core import Line
 

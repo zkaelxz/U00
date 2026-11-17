@@ -131,7 +131,7 @@ def speak_in_venv(engine: str, requests: list, workdir: str):
     when its file was written, in the order they finish. Error texts are fixed
     sentences; the engine's own text is only logged, as it can name local paths."""
     import applog
-    import voice_venv
+    from voice import voice_venv
     from engine_backends.shared import redact_secrets
     from memory_headroom import HeadroomError
     try:

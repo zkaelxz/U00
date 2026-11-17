@@ -380,8 +380,8 @@ def test_free_memory_falls_back_to_nvidia_smi(monkeypatch):
 
 
 def test_venv_voice_engine_checks_vram_before_loading(monkeypatch, tmp_path):
-    import dub
-    import voice_venv
+    from voice import dub
+    from voice import voice_venv
     monkeypatch.setattr(dub, "_cuda_available", lambda: True)
     monkeypatch.setattr(vram, "free_vram_mb", lambda: 100.0)
     # Ready, so only the VRAM refusal can stop the batch before its model loads.

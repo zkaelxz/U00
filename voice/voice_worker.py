@@ -1,4 +1,4 @@
-"""voice_worker.py -- the child that speaks a batch of lines inside a voice engine's own venv.
+"""voice/voice_worker.py -- the child that speaks a batch of lines inside a voice engine's own venv.
 
 voice_venv.run_batch starts it as `<venv python> -I -X utf8 voice_worker.py <spec file>`.
 It runs under a different interpreter whose packages clash with the app's (qwen-tts and

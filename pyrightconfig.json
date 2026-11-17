@@ -146,7 +146,7 @@
     "video_download.py",
     "video_export.py",
     "vocab_export.py",
-    "voice_id.py",
+    "voice/voice_id.py",
     "vram.py",
     "whisper_hallucination.py",
     "whisper_models.py",
