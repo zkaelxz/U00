@@ -70,3 +70,35 @@ def test_make_cover_if_missing_never_raises_and_keeps_an_existing_cover(isolated
     monkeypatch.setattr(cover_art_service, "make_cover_from_video",
                         lambda d: pytest.fail("a title with a cover is left alone"))
     assert cover_art_service.make_cover_if_missing(did) is False
+
+
+def test_installing_a_video_makes_a_cover_and_a_failed_frame_does_not_fail_the_install(isolated_db, monkeypatch, tmp_path):
+    from services import media_upload_service
+    monkeypatch.undo()  # the suite-wide switch-off: this test wants the real hook
+    did = db.create_drama(title_en="D")
+    made = []
+    monkeypatch.setattr(cover_art_service, "make_cover_if_missing", lambda d: made.append(d))
+    src = tmp_path / "up.mp4"
+    src.write_bytes(b"not really a video")
+    names = media_upload_service.install_media(did, {"source_video_filename": (str(src), "source", ".mp4")})
+    assert names == {"source_video_filename": "source.mp4"} and made == [did]
+    # the real call on a file ffmpeg can't read: swallowed, title unchanged
+    monkeypatch.undo()
+    src2 = tmp_path / "up2.mp4"
+    src2.write_bytes(b"still not a video")
+    media_upload_service.install_media(did, {"source_video_filename": (str(src2), "source2", ".mp4")})
+    assert db.get_drama(did)["cover_art_filename"] is None
+
+
+def test_a_cover_set_by_hand_meanwhile_is_not_replaced_by_the_automatic_one(isolated_db):
+    import io
+    pytest.importorskip("PIL")
+    from PIL import Image
+    did = db.create_drama(title_en="D")
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4), (1, 2, 3)).save(buf, "PNG")
+    cover_art_service.save_cover(did, io.BytesIO(buf.getvalue()))
+    from lib.errors import ConflictError
+    with pytest.raises(ConflictError):
+        cover_art_service.save_cover(did, io.BytesIO(buf.getvalue()), only_if_missing=True)
+    assert db.get_drama(did)["cover_art_filename"] == "cover.png"

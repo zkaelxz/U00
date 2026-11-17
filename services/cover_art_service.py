@@ -23,7 +23,7 @@ import tempfile
 from typing import TypeGuard
 
 import db
-from lib.errors import (DependencyUnavailableError, InvalidInputError,
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
 MAX_COVER_BYTES = 10 * 1024 * 1024
@@ -87,7 +87,7 @@ def _clean_image(data: bytes):
     return out.getvalue(), _FORMATS[fmt][0], width, height
 
 
-def save_cover(drama_id: int, fileobj) -> dict:
+def save_cover(drama_id: int, fileobj, only_if_missing: bool = False) -> dict:
     """Sets or replaces the drama's cover. Returns {drama_id, has_cover_art,
     format, width, height, size_bytes}."""
     _require_drama(drama_id)
@@ -98,6 +98,9 @@ def save_cover(drama_id: int, fileobj) -> dict:
         raise InvalidInputError("The uploaded file is empty.")
     clean, ext, width, height = _clean_image(data)
     folder = db.drama_dir(drama_id)
+    if only_if_missing and (db.get_drama(drama_id) or {}).get("cover_art_filename"):
+        # An automatic cover spends seconds in ffmpeg; the owner may have uploaded one by hand since.
+        raise ConflictError("This title already has a cover.")
     name = f"cover.{ext}"
     fd, tmp = tempfile.mkstemp(prefix=".cover_", suffix=".part", dir=folder)
     try:
@@ -143,7 +146,8 @@ def cover_file(drama_id: int):
     return path, _SERVE_TYPES[os.path.splitext(name)[1].lower()]
 
 
-FRAME_TIMEOUT_SECONDS = 60
+# Short, because the automatic cover runs inside an upload or download job that can't be cancelled meanwhile.
+FRAME_TIMEOUT_SECONDS = 30
 # A fifth of the way in skips a black start and a studio logo without seeking to a
 # point a short clip doesn't have.
 _FRAME_FRACTION = 0.2
@@ -154,23 +158,24 @@ _FRAME_MAX_WIDTH = 1280
 def _frame_second(video_path: str) -> float:
     import media_inspect
     try:
-        duration = float(media_inspect.run_ffprobe(video_path, timeout=20)["format"]["duration"])
+        duration = float(media_inspect.run_ffprobe(video_path, timeout=10)["format"]["duration"])
     except (media_inspect.ProbeError, KeyError, TypeError, ValueError):
         return _FRAME_FALLBACK_SECONDS
     # A NaN or negative length would make a bad -ss; an unusable one falls back.
     return duration * _FRAME_FRACTION if duration > 0 else _FRAME_FALLBACK_SECONDS
 
 
-def make_cover_from_video(drama_id: int) -> dict:
+def make_cover_from_video(drama_id: int, only_if_missing: bool = False) -> dict:
     """Sets the cover from one frame of the title's own video. Goes through
     save_cover, so the picture is re-encoded with no metadata like an upload."""
     drama = _require_drama(drama_id)
-    name = drama.get("source_video_filename")
     folder = db.drama_dir(drama_id)
-    if not isinstance(name, str) or not name or os.path.basename(name) != name \
-            or not os.path.isfile(os.path.join(folder, name)):
-        raise InvalidInputError("This title has no video to take a cover from.")
-    video = os.path.join(folder, name)
+    from services import media_playback_service
+    try:
+        # The same confinement playback uses: a link pointing out of the folder is not read.
+        video, _ = media_playback_service.resolve_media(drama_id, "video")
+    except NotFoundError:
+        raise InvalidInputError("This title has no video to take a cover from.") from None
     import video_export
     from lib import proc
     from services import media_upload_service
@@ -188,7 +193,7 @@ def make_cover_from_video(drama_id: int) -> dict:
         if run.returncode != 0 or not os.path.getsize(frame):
             raise InvalidInputError("Couldn't take a picture from this video.")
         with open(frame, "rb") as f:
-            return save_cover(drama_id, f)
+            return save_cover(drama_id, f, only_if_missing=only_if_missing)
     finally:
         with contextlib.suppress(OSError):
             os.remove(frame)
@@ -200,7 +205,7 @@ def make_cover_if_missing(drama_id: int) -> bool:
     try:
         if (db.get_drama(drama_id) or {}).get("cover_art_filename"):
             return False
-        make_cover_from_video(drama_id)
+        make_cover_from_video(drama_id, only_if_missing=True)
         return True
     except Exception:
         return False

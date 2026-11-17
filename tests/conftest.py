@@ -229,6 +229,14 @@ def _fake_engine_installed():
 
 
 @pytest.fixture(autouse=True)
+def _no_automatic_cover(monkeypatch):
+    """Installing a fake video would otherwise launch real ffmpeg for the cover; tests/test_cover_from_video.py
+    puts the real call back."""
+    from services import media_upload_service
+    monkeypatch.setattr(media_upload_service, "_auto_cover", lambda drama_id: None)
+
+
+@pytest.fixture(autouse=True)
 def _echo_engine_off_after_each_test():
     """Turning Developer Mode on registers the Echo engine in the process-wide
     engine tables; a test that does so (assistant, source-domain and role tests)
