@@ -1,0 +1,51 @@
+name: Main red alert
+
+# Auto-merge keeps landing PRs onto baihe-subtitler, and a red push or nightly Tests run stops merging until the
+# base is green again (docs/testing-and-ci.md, "Merge flow", step 5). Nothing reported such a run, so 10 red main
+# runs went unseen on 11-12 to 11-14. This opens one issue for a red run, comments on it for each later red run, and
+# closes it when a push or nightly run passes. It runs no code from the repository, so the issues token is safe here.
+on:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+    branches: [baihe-subtitler]
+
+permissions:
+  issues: write
+
+jobs:
+  report:
+    # PR runs are their owners' to read; a cancelled push run was superseded by a later one.
+    if: github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: main-red-alert
+    steps:
+      - name: Open, comment on or close the red-main issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          set -euo pipefail
+          title="Tests are red on baihe-subtitler"
+          open="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title $title" --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
+          case "$CONCLUSION" in
+            failure|timed_out)
+              body="The $EVENT run at ${SHA:0:7} failed: $RUN_URL. Merging stops until baihe-subtitler is green again (docs/testing-and-ci.md, \"Merge flow\", step 5)."
+              if [ -n "$open" ]; then
+                gh issue comment "$open" --repo "$GITHUB_REPOSITORY" --body "$body"
+              else
+                gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+              fi
+              ;;
+            success)
+              if [ -n "$open" ]; then
+                gh issue close "$open" --repo "$GITHUB_REPOSITORY" --comment "Green again: the $EVENT run at ${SHA:0:7} passed: $RUN_URL."
+              fi
+              ;;
+          esac
