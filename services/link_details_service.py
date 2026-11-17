@@ -374,9 +374,11 @@ def _others_private(principal, drama_id) -> bool:
 
 def scan_candidates(principal=None) -> list:
     """Ids of the titles the scan reads: a stored link, at least one blank
-    field, editable by `principal`, and not another user's private title."""
+    field, editable by `principal`, and not another user's private title.
+    Only titles the principal can see in the library: on the Guest profile the
+    PC owner's private titles are hidden there, and the scan listed them."""
     ids = []
-    for drama in db.list_dramas():
+    for drama in db.list_dramas(visible_to=ownership_service.visible_to_filter(principal)):
         if not str(drama.get("source_url") or "").strip() or not _blank_fields(drama):
             continue
         if _others_private(principal, drama["id"]) \
