@@ -3,8 +3,8 @@
 import numpy as np
 from PIL import ImageDraw, ImageFont
 
-import scanlate_tuning
-from scanlate_fonts import (_CJK_CHARS, _CJK_PUNCTUATION, _PLAIN, TypesetStyle, _find_font, find_cjk_font,
+from scanlate import scanlate_tuning
+from scanlate.scanlate_fonts import (_CJK_CHARS, _CJK_PUNCTUATION, _PLAIN, TypesetStyle, _find_font, find_cjk_font,
                             has_cjk)
 
 

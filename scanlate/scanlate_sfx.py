@@ -1,4 +1,4 @@
-"""scanlate_sfx.py -- the small English gloss set beside a sound effect that stays on the art."""
+"""scanlate/scanlate_sfx.py -- the small English gloss set beside a sound effect that stays on the art."""
 
 # A gloss is a note beside the lettering, not a replacement for it: the effect is
 # part of the picture, so it is never painted out.
@@ -78,7 +78,7 @@ def draw_gloss(pil_img, region: dict, font_path: str | None = None, avoid: tuple
     lettering); `bounds`: the box it must stay in (the panel). A narrower wrap is tried
     when the first one has no free spot."""
     from PIL import ImageDraw, ImageFont
-    from scanlate_fonts import _find_font
+    from scanlate.scanlate_fonts import _find_font
     path = _find_font(font_path, category="regular")
     size = int(min(max(min(region["w"], region["h"]) * 0.4, _MIN_PX), _MAX_PX))
     font = ImageFont.truetype(path, size) if path else ImageFont.load_default()

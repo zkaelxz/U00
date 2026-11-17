@@ -8,8 +8,8 @@ from typing import Any
 
 import numpy as np
 
-import scanlate_tuning
-from scanlate_lama import _run_ml_inpaint, lama_ml_weights_cached
+from scanlate import scanlate_tuning
+from scanlate.scanlate_lama import _run_ml_inpaint, lama_ml_weights_cached
 
 
 # Dark-on-light lettering is every pixel under this share of the paper's gray.

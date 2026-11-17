@@ -33,9 +33,9 @@ import background_jobs
 from jobs import job_table
 import db
 import ocr
-import scanlate
-import scanlate_render
-import scanlate_translate
+from scanlate import scanlate
+from scanlate import scanlate_render
+from scanlate import scanlate_translate
 from engine_backends import shared
 from engine_backends import llm_tasks as engine_llm_tasks
 from api import auth as api_auth
@@ -283,7 +283,7 @@ def test_tall_strip_sliced_by_default_and_optional(client):
 
 @needs_cv2
 def test_a_strip_over_the_slice_cap_is_rejected_not_left_whole(monkeypatch):
-    import scanlate_panels
+    from scanlate import scanlate_panels
     monkeypatch.setattr(scanlate_panels, "_MAX_WEBTOON_SLICES", 2)
     with pytest.raises(limits.ImageRejected, match="slice limit"):
         limits.prepare_page(_png(200, 6000))

@@ -13,14 +13,14 @@ import numpy as np
 import pytest
 
 import db
-import scanlate
-import scanlate_regions
-import scanlate_fonts
-import scanlate_render
-import scanlate_text_layout
-import scanlate_translate
-import scanlate_balloons
-import scanlate_panels
+from scanlate import scanlate
+from scanlate import scanlate_regions
+from scanlate import scanlate_fonts
+from scanlate import scanlate_render
+from scanlate import scanlate_text_layout
+from scanlate import scanlate_translate
+from scanlate import scanlate_balloons
+from scanlate import scanlate_panels
 from engine_backends import llm_tasks
 
 
@@ -583,7 +583,7 @@ class TestChunkedPageTranslation:
 def test_windows_fonts_are_looked_for_in_the_real_windows_folder():
     import subprocess
     import sys
-    code = ("import scanlate_fonts as r; "
+    code = ("from scanlate import scanlate_fonts as r; "
             "print('\\n'.join(c for v in r._SYSTEM_FONT_CANDIDATES.values() for c in v))")
     env = {**os.environ, "WINDIR": "D:\\WinOS"}
     out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True,

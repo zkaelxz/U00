@@ -141,8 +141,8 @@ def fake_pipeline(monkeypatch):
             b["translated_text"] = "the translation"
         return "context after this page"
 
-    import scanlate
-    import scanlate_translate
+    from scanlate import scanlate
+    from scanlate import scanlate_translate
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect_and_ocr_page)
     monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate_page_bubbles)
     return calls
@@ -416,7 +416,7 @@ class TestTranslatingAPage:
 
     def test_translation_runs_outside_the_pipeline_lock(self, token, fake_pipeline,
                                                         isolated_db, monkeypatch):
-        import scanlate_translate
+        from scanlate import scanlate_translate
         from engine_backends import engine_registry
         monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: object())
         held_during = []
@@ -436,7 +436,7 @@ class TestTranslatingAPage:
     def test_a_reused_page_is_translated_outside_the_pipeline_lock(self, token, fake_pipeline,
                                                                    isolated_db, monkeypatch):
         import db
-        import scanlate_translate
+        from scanlate import scanlate_translate
         from engine_backends import engine_registry
         monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: object())
         page_server.set_translation_config(engine="claude", api_key="test-key")
@@ -460,7 +460,7 @@ class TestTranslatingAPage:
                                                          isolated_db, monkeypatch):
         """A translation failure must not throw away real OCR text -- the
         same choice the Scanlate tab makes."""
-        import scanlate_translate
+        from scanlate import scanlate_translate
         from engine_backends import engine_registry
         monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: object())
 
@@ -479,7 +479,7 @@ class TestTranslatingAPage:
                                                         isolated_db):
         seen = {}
 
-        import scanlate
+        from scanlate import scanlate
         real = scanlate.detect_and_ocr_page
 
         def capture(image_path, *a, **kw):
@@ -514,7 +514,7 @@ class TestTranslatingAPage:
         upright in the browser; its boxes must be found on that view."""
         Image = pytest.importorskip("PIL.Image")
         seen = {}
-        import scanlate
+        from scanlate import scanlate
         real = scanlate.detect_and_ocr_page
 
         def capture(image_path, *a, **kw):
@@ -933,7 +933,7 @@ class TestAWholeChapterIsAccountedFor:
 
     def test_one_page_failing_does_not_lose_the_others_and_is_named(self, token, fake_pipeline,
                                                                    isolated_db, monkeypatch):
-        import scanlate
+        from scanlate import scanlate
         real = scanlate.detect_and_ocr_page
         seen = {"n": 0}
 
@@ -987,7 +987,7 @@ class TestAWholeChapterIsAccountedFor:
 class TestAPageFailureNeverLeaksOrLeavesDebris:
     def test_a_windows_path_in_an_error_is_not_in_the_response(self, token, fake_pipeline,
                                                               isolated_db, monkeypatch):
-        import scanlate
+        from scanlate import scanlate
         leak = r"C:\Users\alice\AppData\Baihe\library\pages\page_0001.png"
 
         def boom(path, lang, **kw):
@@ -1003,8 +1003,7 @@ class TestAPageFailureNeverLeaksOrLeavesDebris:
 
     def test_an_oserror_path_is_not_in_the_response(self, token, fake_pipeline, isolated_db,
                                                    monkeypatch):
-        import scanlate
-
+        from scanlate import scanlate
         def boom(path, lang, **kw):
             raise OSError(28, "No space left on device", r"C:\Users\alice\lib\x.png")
 
@@ -1015,7 +1014,7 @@ class TestAPageFailureNeverLeaksOrLeavesDebris:
     def test_a_failed_stored_page_is_rolled_back_so_a_retry_does_not_duplicate(
             self, token, fake_pipeline, isolated_db, monkeypatch):
         import db
-        import scanlate
+        from scanlate import scanlate
         drama_id = db.create_drama(title_en="Chapter", media_type="comic")
         real = scanlate.detect_and_ocr_page
         state = {"fail": True}
@@ -1037,7 +1036,7 @@ class TestAPageFailureNeverLeaksOrLeavesDebris:
     def test_a_headroom_error_stops_the_request_once(self, token, fake_pipeline, isolated_db,
                                                     monkeypatch):
         import db
-        import scanlate
+        from scanlate import scanlate
         from memory_headroom import HeadroomError
         drama_id = db.create_drama(title_en="Chapter", media_type="comic")
         calls = {"n": 0}
@@ -1099,7 +1098,7 @@ class TestRecapturingKeepsSavedWork:
     def test_a_corrected_translation_survives_a_recapture(
             self, token, fake_pipeline, isolated_db, monkeypatch, engine):
         import db
-        import scanlate_translate
+        from scanlate import scanlate_translate
         drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
         if engine == "unset":
             monkeypatch.setattr(page_server, "_build_engine", lambda config: None)
@@ -1149,7 +1148,7 @@ class TestRecapturingKeepsSavedWork:
     def test_a_failing_engine_on_a_recapture_leaves_every_bubble_as_it_was(
             self, token, fake_pipeline, isolated_db, monkeypatch):
         import db
-        import scanlate_translate
+        from scanlate import scanlate_translate
         page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
 
         def boom(*a, **kw):
@@ -1162,7 +1161,7 @@ class TestRecapturingKeepsSavedWork:
     def test_a_translation_typed_during_the_llm_call_is_not_overwritten(
             self, token, fake_pipeline, isolated_db, monkeypatch):
         import db
-        import scanlate_translate
+        from scanlate import scanlate_translate
         page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
         gap_id = db.load_bubbles(page["id"])[1]["id"]
         rev = db.get_page(page["id"])["rev"]
@@ -1191,7 +1190,7 @@ class TestRecapturingKeepsSavedWork:
     def test_an_empty_reused_page_written_to_meanwhile_is_left_alone(
             self, token, fake_pipeline, isolated_db, monkeypatch):
         import db
-        import scanlate_translate
+        from scanlate import scanlate_translate
         drama_id, page, body = self._first_capture(token, isolated_db, monkeypatch)
         db.save_bubbles(page["id"], [])
 
@@ -1267,7 +1266,7 @@ class TestConcurrentCapturesOfOneTitle:
         return db.create_drama(title_en="Chapter", media_type="comic")
 
     def _blocking_translate(self, monkeypatch):
-        import scanlate_translate
+        from scanlate import scanlate_translate
         state = {"calls": [], "entered": threading.Event(), "release": threading.Event()}
 
         def translate(bubbles, engine, drama_meta, **kwargs):
@@ -1523,7 +1522,7 @@ class TestConcurrentCapturesOfOneTitle:
         assert page_turns._contexts[key] == "context of the page being translated"
 
     def test_titles_kept_in_memory_are_capped_and_keyed_by_a_hash(self, monkeypatch):
-        import scanlate_translate
+        from scanlate import scanlate_translate
         monkeypatch.setattr(scanlate_translate, "translate_page_bubbles",
                             lambda *a, **kw: "context")
 
@@ -1559,7 +1558,7 @@ class TestConcurrentCapturesOfOneTitle:
 
     def test_context_follows_the_page_finished_last_not_page_order(
             self, token, fake_pipeline, isolated_db, monkeypatch):
-        import scanlate_translate
+        from scanlate import scanlate_translate
         drama_id = self._drama(monkeypatch)
         n = {"calls": 0}
 
@@ -1592,7 +1591,7 @@ def test_captured_pages_from_two_hosts_are_not_judged_third_party():
 @pytest.mark.parametrize("setting", [True, False])
 def test_the_overlay_typeset_follows_the_colour_matching_setting(isolated_db, monkeypatch, setting):
     import db
-    import scanlate_render
+    from scanlate import scanlate_render
     db.set_app_setting("pref.scanlate_match_text_color", setting)
     seen = {}
 

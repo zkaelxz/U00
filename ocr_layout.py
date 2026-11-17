@@ -1,9 +1,7 @@
 """Reading order and furigana filtering for OCR engines that report a box per recognised line."""
 from typing import NamedTuple
 
-import scanlate_tuning
-
-
+from scanlate import scanlate_tuning
 class OcrLine(NamedTuple):
     text: str
     x0: float

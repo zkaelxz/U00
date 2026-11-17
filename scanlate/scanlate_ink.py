@@ -3,7 +3,7 @@
 import numpy as np
 from PIL import Image
 
-from scanlate_inpaint import background_is_dark
+from scanlate.scanlate_inpaint import background_is_dark
 
 
 def chosen_color(box: dict):

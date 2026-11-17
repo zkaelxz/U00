@@ -13,9 +13,9 @@ from PIL import Image
 
 import background_jobs
 import db
-import scanlate
-import scanlate_detect
-import scanlate_box_merge
+from scanlate import scanlate
+from scanlate import scanlate_detect
+from scanlate import scanlate_box_merge
 from services import scanlate_run_service as run_svc
 from lib.errors import ConflictError, InvalidInputError
 from tests.saved_settings import patch_setting
@@ -445,7 +445,7 @@ def test_a_redo_that_keeps_the_text_does_not_detect_or_read_again(harness, monke
 
 
 def test_a_redo_does_not_shorten_a_sign_the_person_typed_by_hand(harness, monkeypatch):
-    import scanlate_render
+    from scanlate import scanlate_render
     did, p1, _, _ = _two_pages(monkeypatch)
     typed = "Typed by hand: a long line that nobody asked the engine to shorten"
     db.save_bubbles(p1, [_region("你好", kind="sign", translated_text="Old hello"),

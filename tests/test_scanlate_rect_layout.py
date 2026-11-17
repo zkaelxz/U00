@@ -5,9 +5,7 @@ import pytest
 PIL = pytest.importorskip("PIL")
 from PIL import Image, ImageDraw
 
-import scanlate_text_layout
-
-
+from scanlate import scanlate_text_layout
 def _ellipse_mask(w, h):
     yy, xx = np.mgrid[0:h, 0:w]
     return ((xx - w / 2) / (w / 2)) ** 2 + ((yy - h / 2) / (h / 2)) ** 2 <= 1

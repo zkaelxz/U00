@@ -266,7 +266,7 @@ def _ml_detector_failure_forgotten():
     """The comic detector remembers a failed model load process-wide; a test that
     triggers one must not make the next test's ML detection fail."""
     yield
-    import scanlate_detect
+    from scanlate import scanlate_detect
     scanlate_detect.forget_ml_failure()
 
 

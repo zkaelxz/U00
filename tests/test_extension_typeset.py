@@ -62,7 +62,7 @@ def test_a_page_that_is_not_saved_never_goes_through_the_library_render(token, f
 
 
 def test_an_unsaved_page_gets_a_typeset_image_when_asked(token, fake_pipeline, drama, monkeypatch):
-    import scanlate_render
+    from scanlate import scanlate_render
     seen = {}
 
     def fake_process(image_path, bubbles, out_path, **kwargs):
@@ -79,15 +79,14 @@ def test_an_unsaved_page_gets_a_typeset_image_when_asked(token, fake_pipeline, d
 
 
 def test_an_unsaved_page_is_not_typeset_unless_asked(token, fake_pipeline, drama, monkeypatch):
-    import scanlate_render
+    from scanlate import scanlate_render
     monkeypatch.setattr(scanlate_render, "process_page", lambda *a, **k: 1 / 0)
     page = _overlay_only(token, drama)
     assert "typeset_image" not in page
 
 
 def test_a_failed_overlay_render_keeps_the_boxes_and_hides_the_detail(token, fake_pipeline, drama, monkeypatch):
-    import scanlate_render
-
+    from scanlate import scanlate_render
     def broken(*args, **kwargs):
         raise RuntimeError("C:\\secret\\model.pt missing")
 
@@ -101,8 +100,7 @@ def test_the_unsaved_page_s_temp_files_are_removed(token, fake_pipeline, drama, 
     import glob
     import tempfile
 
-    import scanlate_render
-
+    from scanlate import scanlate_render
     def ours():
         # Only the prefixes page_server creates: other xdist workers make baihe_test_* dirs in the system temp.
         return set(glob.glob(storage.temp_root() + "/typeset~*")
@@ -160,7 +158,7 @@ def test_regions_say_which_boxes_the_preview_must_not_paint_over_and_which_staye
 
 
 def test_a_saved_page_with_no_text_keeps_a_note_saying_so(token, drama, monkeypatch):
-    import scanlate
+    from scanlate import scanlate
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([], []))
     page = _send(token, drama).payload["pages"][0]
     notes = db.get_page(page["page_id"])["run_notes"]
@@ -217,8 +215,8 @@ def test_no_image_is_sent_when_typeset_is_off(token, fake_pipeline, drama, monke
 
 def test_lines_the_engine_left_empty_are_asked_for_again_and_the_rest_are_counted(
         token, drama, monkeypatch):
-    import scanlate
-    import scanlate_translate
+    from scanlate import scanlate
+    from scanlate import scanlate_translate
     boxes = [{"x": 1, "y": 2, "w": 30, "h": 40, "source_text": text, "translated_text": "",
               "kind": "bubble", "font_category": "regular", "reading_order": i}
              for i, text in enumerate(["잘가라 연다나", "안녕", "뭐라고"])]

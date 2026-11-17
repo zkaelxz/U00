@@ -565,7 +565,7 @@ def _repo_modules():
 # Folders of former root modules that import each other with jobs/ or
 # engine_backends/, so they can't join the .importlinter layers; their
 # files get the root modules' checks instead.
-ROOT_MODULE_FOLDERS = ("live",)
+ROOT_MODULE_FOLDERS = ("live", "scanlate")
 
 
 def _root_module_files():
@@ -818,7 +818,7 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "segment_splitting.py::split_long_segments": 116,
     "db/schema.py::_create_library_tables": 115,
     "db/schema.py::_create_series_tables": 107,
-    "scanlate_lama.py::_build_lama_generator": 105,
+    "scanlate/scanlate_lama.py::_build_lama_generator": 105,
     "epub_io.py::export_epub": 105,
     "services/title_restructure_service.py::_move_novel": 104,
     "sources/adapters/kuaikan.py::_decode_nuxt_state": 103,
