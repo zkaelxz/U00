@@ -26,3 +26,4 @@
 .series-folder { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; padding: var(--space-2) 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; min-width: 0; }
 .series-folder-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
 .series-folder-count { white-space: nowrap; }
+.series-folders li:last-child .series-folder { border-bottom: 0; }

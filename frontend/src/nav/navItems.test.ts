@@ -186,6 +186,8 @@ describe('left rail', () => {
     ['title workspace', { name: 'drama', id: 3, stage: 'review' }, ['Library']],
     ['reader', { name: 'read', id: 3, page: null }, ['Library']],
     ['comic', { name: 'comic', id: 3, page: 2 }, ['Library']],
+    ['series list', { name: 'series-list' }, ['Library']],
+    ['series page', { name: 'series', id: 3 }, ['Library']],
     ['saved manga', { name: 'manga' }, ['Library tools']],
     ['manga series', { name: 'manga-series', source: 's', series: 'x' }, ['Library tools']],
     ['manga chapter', { name: 'manga-read', source: 's', series: 'x', chapter: '1', page: null }, ['Library tools']],
