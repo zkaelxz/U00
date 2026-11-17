@@ -1,12 +1,25 @@
 """
-api/jellyfin_schemas.py -- request/response models for the optional Jellyfin
+api/schemas/jellyfin.py -- request/response models for the optional Jellyfin
 connector (api/routers/jellyfin_routes.py).
 """
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas import AssExportRequest
+from api.schemas.common import AssExportRequest
+
+__all__ = [
+    "JellyfinConfig",
+    "JellyfinConfigUpdate",
+    "JellyfinKeySet",
+    "JellyfinKeyClear",
+    "JellyfinTestResult",
+    "JellyfinScanRequest",
+    "JellyfinScanItem",
+    "JellyfinScanReport",
+    "JellyfinSendRequest",
+    "JellyfinSendResult",
+]
 
 
 class JellyfinConfig(BaseModel):
