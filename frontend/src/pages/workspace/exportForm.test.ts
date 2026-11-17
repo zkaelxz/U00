@@ -57,6 +57,8 @@ describe('buildAssRequest', () => {
     const saved = { form: { ...emptyAssForm('Clean'), tidyTiming: true } }
     expect(assFormFromDraft(saved)?.tidyTiming).toBe(true)
     expect(assFormFromDraft({ form: { field: 'en' } })?.tidyTiming).toBe(false)
+    expect(emptyAssForm('Clean').speakerNames).toBe(false)
+    expect(assFormFromDraft({ form: { speakerNames: true } })?.speakerNames).toBe(true)
   })
   it('maps overrides', () => {
     const f = { ...emptyAssForm('Clean'), size: '48', bold: 'yes' as const, primary: '#FFFFFF', wrapEn: '30', includeNotes: true, notesAsSeparateLine: true }

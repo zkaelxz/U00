@@ -40,6 +40,10 @@ class ChunkCaptioner:
         """Whisper for one chunk, its lines onto the board and its translation
         handed to the worker. Raises JobCancelled once the session is cancelled."""
         scratch = []
+        # Lines the previous chunk held back (hold_back_overlap): this chunk
+        # hears them again only when it is padded with that chunk's tail.
+        held = self.state.pop("held", None)
+        unheard = None
         try:
             # Read before this chunk's file is deleted below --
             # it's the audio the NEXT chunk gets padded with.
@@ -47,6 +51,10 @@ class ChunkCaptioner:
                 path, idx, self.out_dir, self.segment_seconds, self.state["prev_tail"],
                 self.overlap_seconds)
             tail, scratch = window.tail, window.scratch
+            reheard = bool(held) and window.pad_seconds > 0 and held["index"] == idx - 1
+            if held and not reheard:
+                self._release(held, path, worker, final)
+            unheard = held if reheard else None
             if final and window.audio_seconds - window.pad_seconds < live_pipeline.MIN_FINAL_SECONDS:
                 return
             if window.trimmed_seconds:
@@ -56,13 +64,18 @@ class ChunkCaptioner:
             # the chunks after it, not this chunk's start.
             shift = self.state["jump"]
             self.count_jump(idx, path, window.chunk_seconds)
-            new_cues, timing = self._transcribe_window(idx, path, window, shift)
+            new_cues, timing = self._transcribe_window(
+                idx, path, window, shift, covered=held["covered"] if reheard else None)
             if self._superseded():
                 # The session moved on while this one chunk's own
                 # transcribe call was in flight -- its result is stale,
                 # so it's dropped, not applied.
+                unheard = None
                 return
+            unheard = None
             self.runner.mark_model_ready()
+            new_cues, self.state["held"] = hold_back_overlap(
+                new_cues, tail, idx, self.segment_seconds, shift, final)
             self.board.add(new_cues)
             self._hand_to_translator(idx, window, new_cues, timing, worker, final)
             if new_cues:
@@ -80,6 +93,9 @@ class ChunkCaptioner:
             self.skips.busy(idx, exc.label)
             self.state["prev_tail"] = None
         finally:
+            if unheard and not self._superseded():
+                # This chunk never got as far as hearing them: show them as they are.
+                self._release(unheard, path, worker, final)
             self.stage.whisper_over()
             self.state["last"] = idx
             self.runner.flush_ollama_notice()
@@ -89,6 +105,24 @@ class ChunkCaptioner:
                 except OSError:
                     pass
 
+    def _release(self, held, path, worker, final):
+        """Puts held-back lines on the board and queues their translation, under
+        the chunk that heard them. They are not timed as a chunk of their own: a
+        batch with no audio would read as captions 0 s behind."""
+        cues = held["cues"]
+        with self.board.lock:
+            # A cue's id is its place on the board (live_cue_feed).
+            for pos, cue in enumerate(cues):
+                cue["id"] = len(self.board.cues) + pos
+            self.board.add(cues)
+        worker.submit(held["index"], cues, self.runner.timing(path, 0.0), 0.0, keep_all=final,
+                      measured=False)
+
+    def release_held(self, worker):
+        """At the end of a session: lines still held back have no next chunk to wait for."""
+        held = self.state.pop("held", None)
+        if held:
+            self._release(held, "", worker, True)
 
     def count_jump(self, idx, path, chunk_seconds=None):
         """Adds how far chunk `idx` is off its slot (live_audio.jump_seconds)
@@ -120,3 +154,26 @@ class ChunkCaptioner:
             tail["text"] = " ".join(
                 c["text"] for c in new_cues if c["end"] > chunk_end - tail["seconds"])
         self.state["prev_tail"] = tail
+
+
+def hold_back_overlap(cues, tail, idx, segment_seconds, shift, final):
+    """(cues to show now, held) for one chunk. Lines that start in this chunk's
+    last overlap are held back: the next chunk is transcribed with that audio
+    in front and hears them whole, where this chunk heard them cut off. Showing
+    both gave the same speech twice in two different forms, with the second
+    one starting before the first. held is None, or {"index", "cues",
+    "covered"}: covered is how far into the next chunk's padding this chunk's
+    shown lines reach (live_translate.dedup_overlap). The last chunk of a
+    session has no next one, so nothing is held then."""
+    if final or not tail or not cues or not tail.get("seconds"):
+        return cues, None
+    chunk_end = idx * segment_seconds + shift + tail["chunk_seconds"]
+    window_start = chunk_end - tail["seconds"]
+    keep = len(cues)
+    while keep > 0 and cues[keep - 1]["start"] >= window_start:
+        keep -= 1
+    if keep == len(cues):
+        return cues, None
+    held = cues[keep:]
+    return cues[:keep], {"index": idx, "cues": held,
+                         "covered": max(0.0, held[0]["start"] - window_start)}

@@ -165,7 +165,7 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
             )}
           </div>
           {notice && <p role="status">{notice}</p>}
-          <ErrorBanner error={error} describe={{ pcOnly: true }} onDismiss={() => setError(null)} />
+          <ErrorBanner error={error} describe={{ pcOnly: true, reasonAsTitle: true }} onDismiss={() => setError(null)} />
         </div>
   )
 }

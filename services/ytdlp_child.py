@@ -129,7 +129,9 @@ def refusal(info, max_seconds=MAX_DURATION_SECONDS, part=None):
     return "Refused." if refusal_detail(info, max_seconds, part) else None
 
 
-THUMBNAIL_DIRNAME = "site_thumbnail"
+# Where the child leaves the page's own thumbnail (video_download.save_thumbnail); the parent
+# turns it into the cover. Not a name the media can take, which all start with downloaded_.
+THUMBNAIL_NAME = "site_thumbnail.bin"
 
 
 def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts=False,
@@ -152,13 +154,8 @@ def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts
         "fragment_retries": 3,
         "concurrent_fragment_downloads": 1,
         "external_downloader": {"default": "native"},
-        # The thumbnail goes in its own folder: beside the media it takes the media's file
-        # name when its URL ends in the media's extension, and yt-dlp then skips the real download.
-        "paths": {"home": tmp_dir, "temp": tmp_dir, "thumbnail": os.path.join(tmp_dir, THUMBNAIL_DIRNAME)},
+        "paths": {"home": tmp_dir, "temp": tmp_dir},
         "restrictfilenames": True,
-        # The site's own picture, for url_media_service to turn into the title's cover. One
-        # that fails to download is a yt-dlp warning, not a failed download.
-        "writethumbnail": True,
         "quiet": True,
         "no_warnings": True,
     }
@@ -338,7 +335,8 @@ def run_worker(spec: dict, emit) -> None:
             extra_opts=ydl_options(spec["tmp"], hook, match_filter, part=part,
                                    exact_cuts=bool(spec.get("exact_cuts")), audio_only=audio_only,
                                    proxy=spec.get("proxy"), max_height=max_height),
-            cookies_browser=spec.get("cookies_browser"), cookies_file=spec.get("cookies_file"))
+            cookies_browser=spec.get("cookies_browser"), cookies_file=spec.get("cookies_file"),
+            thumbnail_path=os.path.join(spec["tmp"], THUMBNAIL_NAME))
     except ImportError:
         emit({"error": "yt-dlp is not installed", "missing": True})
     except Exception as exc:

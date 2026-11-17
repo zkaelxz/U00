@@ -44,6 +44,25 @@ test('cover upload checks the type, then saves and shows the cover', async ({ pa
   await expect(page.getByRole('button', { name: 'Replace cover' })).toBeVisible()
 })
 
+test('Make cover from video reports the result, and the server\'s reason when it cannot', async ({ page }) => {
+  let calls = 0
+  await page.route('**/api/dramas/1/cover/from-video', (r) => {
+    calls += 1
+    if (calls === 1) {
+      return r.fulfill({ status: 400, json: { error: { code: 'invalid_input', message: 'This title has no video to take a cover from.' } } })
+    }
+    return r.fulfill({ json: { drama_id: 1, width: 640, height: 360 } })
+  })
+  await page.goto('/#/drama/1/source')
+  await openCreditsTab(page, true)
+  const make = page.getByRole('button', { name: 'Make cover from video' })
+  await make.click()
+  await expect(page.getByRole('alert')).toContainText('no video to take a cover from')
+  await make.click()
+  await expect(page.getByRole('status').filter({ hasText: 'Cover made from the video (640×360).' })).toBeVisible()
+  expect(calls).toBe(2)
+})
+
 test('auto-fill lists the known official platforms', async ({ page }) => {
   await page.goto('/#/drama/1/source')
   await openFillIn(page, 'From a page or text')
