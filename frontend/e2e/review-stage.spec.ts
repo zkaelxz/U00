@@ -224,7 +224,7 @@ test('a draft pushed out of view by a reload gets a banner; Discard lets you mov
 
   // A finished job reloads the list and the edited line leaves the Flagged view.
   reloaded = true
-  await page.getByRole('button', { name: 'Flag lines for a second look' }).click()
+  await page.getByRole('button', { name: 'Flag lines for a second look', exact: true }).click()
   done = true
   const banner = page.getByTestId('hidden-edit')
   await expect(banner).toContainText('Your edit to #2 is outside this view.')
@@ -328,7 +328,7 @@ test('a finished review job refetches the lines', async ({ page }) => {
   })
   await open(page)
   const before = lineFetches
-  await page.getByRole('button', { name: 'Flag lines for a second look' }).click()
+  await page.getByRole('button', { name: 'Flag lines for a second look', exact: true }).click()
   await expect(page.getByTestId('job-status')).toContainText('Running')
   done = true
   await expect(page.getByTestId('job-status')).toContainText('Done')
@@ -937,7 +937,7 @@ test('a pending bulk review batch does not lock the checks on a revisit', async 
   await page.route('**/api/jobs/bulk_flag_3', (route) =>
     route.fulfill({ json: { ...job('running'), job_id: 'bulk_flag_3', updated_at: Date.now() / 1000 } }))
   await open(page)
-  await expect(page.getByRole('button', { name: 'Flag lines for a second look' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Flag lines for a second look', exact: true })).toBeEnabled()
   await expect(page.getByTestId('job-status')).toHaveCount(0)
 })
 
@@ -946,7 +946,7 @@ test('a review check left running is shown again, with the checks off', async ({
     route.fulfill({ json: { ...job('running'), job_id: 'flag_3', updated_at: Date.now() / 1000 } }))
   await open(page)
   await expect(page.getByTestId('job-status')).toContainText('Running')
-  await expect(page.getByRole('button', { name: 'Flag lines for a second look' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Flag lines for a second look', exact: true })).toBeDisabled()
   await expect(page.getByText('A review job is running.')).toBeVisible()
 })
 
