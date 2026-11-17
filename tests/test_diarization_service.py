@@ -8,6 +8,7 @@ itself never leaks out of get_diarization_config (only a bool), and
 start_diarization_run never actually spawns a real subprocess/model --
 job_launch.start_process_job is mocked throughout.
 """
+import contextlib
 import os
 
 import pytest
@@ -174,7 +175,11 @@ class TestStartDiarizationRun:
         did, _ = _drama_with_audio(isolated_db)
         monkeypatch.setattr(job_launch, "start_process_job", lambda *a, **k: True)
         seen = {}
-        monkeypatch.setattr(gpu_guard, "allow_restart", lambda jid, fn: seen.update({jid: fn}))
+        @contextlib.contextmanager
+        def offered(jid, fn):
+            seen[jid] = fn
+            yield
+        monkeypatch.setattr(gpu_guard, "restartable", offered)
         diarization_service.start_diarization_run(did, expected_speakers=3, min_speakers=None)
         again = seen[f"diarize_{did}"]
         assert again.func is diarization_service.start_diarization_run
