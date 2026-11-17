@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ProcessMemory, ProcessRow } from '../../api/processMemory'
-import { gpuGapNote, summaryLine, vramCell } from './processMemoryModel'
+import { gpuGapNote, ramCell, summaryLine, vramCell } from './processMemoryModel'
 
 const row = (o: Partial<ProcessRow>): ProcessRow => ({
-  pid: 1, parent_pid: 0, role: 'Python', relation: 'child', ram_bytes: 1_000_000_000, vram_bytes: null, command: 'python', ...o,
+  pid: 1, parent_pid: 0, role: 'Python', relation: 'child', ram_bytes: 1_000_000_000, private_bytes: null, vram_bytes: null, command: 'python', ...o,
 })
 const base: ProcessMemory = {
   checked_at: '2026-11-09T10:00:00+00:00', state: 'ok', server_pid: 1, processes: [],
@@ -15,6 +15,14 @@ describe('process memory model', () => {
   it('says when Windows gives no per-process graphics memory', () => {
     expect(vramCell(row({}))).toBe("Windows doesn't say")
     expect(vramCell(row({ vram_bytes: 4_400_000_000 }))).toBe('4.4 GB')
+  })
+  it('says None when Windows listed its counters and the process is not in them', () => {
+    expect(vramCell(row({ vram_bytes: 0 }))).toBe('None')
+  })
+  it('shows claimed memory only when a trimmed working set hides a lot of it', () => {
+    expect(ramCell(row({ ram_bytes: 3_400_000, private_bytes: 900_000_000 }))).toBe('3.4 MB (900.0 MB claimed)')
+    expect(ramCell(row({ ram_bytes: 900_000_000, private_bytes: 1_000_000_000 }))).toBe('900.0 MB')
+    expect(ramCell(row({ private_bytes: null }))).toBe('1.0 GB')
   })
   it('counts processes and flags ones this server did not start', () => {
     const d = { ...base, processes: [row({}), row({ pid: 2, relation: 'orphan' })] }

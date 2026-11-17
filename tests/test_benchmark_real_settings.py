@@ -15,7 +15,7 @@ import background_jobs
 import benchmark
 import db
 import whisper_transcribe
-from api.benchmark_schemas import BenchmarkRunRequest
+from api.schemas import BenchmarkRunRequest
 from services import benchmark_case_service as cases_svc
 from services import benchmark_lab_service as svc
 from services import asr_options_service, model_readiness_service, transcribe_options_service as opts
@@ -81,7 +81,7 @@ class TestResolveLabOptions:
 
     def test_decode_randomness_defaults_to_default_and_takes_known_choices(self):
         assert opts.resolve_lab_options(None)["decode_randomness"] == "default"
-        assert opts.resolve_lab_options({"decode_randomness": "seeded"})["decode_randomness"] == "seeded"
+        assert opts.resolve_lab_options({"decode_randomness": "temperature_0"})["decode_randomness"] == "temperature_0"
         with pytest.raises(InvalidInputError):
             opts.resolve_lab_options({"decode_randomness": "random"})
 
