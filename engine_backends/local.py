@@ -761,8 +761,11 @@ class OllamaEngine:
                 line_ids=line_ids, engine_name="ollama",
                 line_languages=context.get("line_languages"),
                 sentence_groups=context.get("sentence_groups"), recover_replies=True,
-                # The reply guard set to Off in Settings switches these off too.
-                check_replies=context.get("check_replies") is not False,
+                # The reply guard set to Off in Settings switches these off too. Its
+                # checks read the reply as English (CJK in it is source left behind),
+                # so a request into Chinese, Japanese or Korean skips them.
+                check_replies=(context.get("check_replies") is not False
+                               and context.get("target_language", "en") == "en"),
                 allowed_runs=allowed_source_runs(context.get("glossary_terms"),
                                                  context.get("style_guidelines") or ""),
                 rejected=rejected)

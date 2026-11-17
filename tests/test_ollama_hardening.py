@@ -553,3 +553,20 @@ class TestLineCutAtAQuote:
         monkeypatch.setattr(local, "_ollama_chat", chat)
         _engine().translate_batch(["你好"], {})
         assert "curly quotes" in chat.bodies[0]["messages"][0]["content"]
+class TestRepliesIntoChineseJapaneseKorean:
+    """Standalone Translate (and the page and extension bridges) can ask Ollama for
+    English to zh/ja/ko. The reply check reads every reply as English, so CJK in it
+    was "source text left in it" and every line came back blank."""
+
+    @pytest.mark.parametrize("target,reply", [("zh", "你好。"), ("ja", "こんにちは。"), ("ko", "안녕하세요.")])
+    def test_a_reply_in_the_target_language_is_kept(self, monkeypatch, target, reply):
+        chat = _Chat(_reply('{"1": "%s"}' % reply))
+        monkeypatch.setattr(local, "_ollama_chat", chat)
+        context = {"source_language": "en", "target_language": target, "standalone": True}
+        assert _engine().translate_batch(["Hello."], context) == [reply]
+        assert len(chat.bodies) == 1
+
+    def test_into_english_source_script_is_still_rejected(self, monkeypatch):
+        monkeypatch.setattr(local, "_ollama_chat", _Chat(_reply('{"1": "你好 friend."}')))
+        context = {"source_language": "zh", "target_language": "en"}
+        assert _engine().translate_batch(["你好朋友"], context) == [""]
