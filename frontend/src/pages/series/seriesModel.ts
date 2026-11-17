@@ -137,3 +137,11 @@ export function defaultsPreviewText(p: SeriesDefaultsPreview): string {
   const fields = p.fields_changed === 1 ? '1 setting' : `${p.fields_changed} settings`
   return `${titles} of ${p.title_count} would change (${fields} in all).`
 }
+
+/** Series whose name contains the typed text, in name order so the folder list reads like a file explorer. */
+export function filterSeries<T extends Pick<SeriesListItem, 'name'>>(items: readonly T[], query: string): T[] {
+  const q = query.trim().toLowerCase()
+  return items
+    .filter((s) => !q || s.name.toLowerCase().includes(q))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true }))
+}
