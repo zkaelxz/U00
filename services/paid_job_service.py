@@ -16,7 +16,7 @@ from bulk import bulk_providers
 import db
 from engine_backends import llm_tasks, paid_calls
 from lib.errors import ConflictError, UnsupportedOperationError
-from services import auth_service
+import paid_limits
 
 NO_CAP_MESSAGE = bulk_providers.NO_CAP_MESSAGE
 
@@ -46,7 +46,7 @@ paid_calls.set_default_cap_check_factory(_cap_spent)
 def _stop_job_over_member_limit(user_id, job_id) -> None:
     """A job whose paid call just used up its starter's own monthly limit is
     asked to stop; a translation keeps the lines it finished, as on Cancel."""
-    if job_id and auth_service.paid_limit_reached(user_id):
+    if job_id and paid_limits.paid_limit_reached(user_id):
         background_jobs.request_cancel(job_id)
 
 
@@ -116,7 +116,7 @@ def hold_bulk_spend(key: tuple, estimate_usd: float) -> None:
     estimate) exists, or the job ends."""
     monthly = _monthly_cap()
     user_id = db.current_spender()
-    member_limit = auth_service.paid_limit_usd(user_id)
+    member_limit = paid_limits.paid_limit_usd(user_id)
     with _bulk_holds_lock:
         if key in _bulk_holds:
             # Releasing a refused twin's hold would drop this one's.

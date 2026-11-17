@@ -37,7 +37,7 @@ def on_member_spend(listener):
 
 
 def set_spender_lookup(lookup) -> None:
-    """Registers the request-time lookup (services.ownership_service.acting_user_id)."""
+    """Registers the request-time lookup (lib.acting.acting_user_id)."""
     global _spender_lookup
     _spender_lookup = lookup
 

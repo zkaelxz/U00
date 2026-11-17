@@ -220,6 +220,6 @@ def user_ids_with_key() -> set:
 def acting_key() -> Optional[str]:
     """cloud_key_for_user for the member the current API request (or queue
     start) runs for; None for the owner, with auth off, or without a key."""
-    from services import ownership_service
-    return cloud_key_for_user(ownership_service.acting_user_id())
+    from lib import acting
+    return cloud_key_for_user(acting.acting_user_id())
 

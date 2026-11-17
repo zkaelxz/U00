@@ -683,7 +683,7 @@ def test_cancel_kills_the_hearing_process_within_bounded_time(monkeypatch, tmp_p
 
 def test_translation_leaves_out_a_style_profile_the_starter_may_not_see(monkeypatch, _env):
     # The job thread has no request, so the start hands it the starter's view.
-    from services import ownership_service
+    from lib import acting
     from services.auth_service import PERMISSIONS
     sid = db.get_or_create_series("Shared")
     did, _ = _drama(2, series_id=sid)
@@ -698,12 +698,12 @@ def test_translation_leaves_out_a_style_profile_the_starter_may_not_see(monkeypa
         seen.append(out[1])
         return out
     monkeypatch.setattr(svc.workspace_job_service, "build_run_style_context", spy)
-    token = ownership_service.bind_request()
+    token = acting.bind_request()
     try:
-        ownership_service.note_acting_principal(member)
+        acting.note_acting_principal(member)
         _run(did, translate=True, engine_name="claude")
     finally:
-        ownership_service.unbind_request(token)
+        acting.unbind_request(token)
     _run(did, translate=True, engine_name="claude")
     assert "Someone else's rule" not in seen[0] and "Someone else's rule" in seen[1]
 

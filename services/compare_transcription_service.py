@@ -54,6 +54,7 @@ from lib.errors import (
     NotFoundError,
     UnsupportedOperationError,
 )
+from lib import acting
 
 MAX_LINES = 200
 DISAGREE_FLAG = "engines_disagree"
@@ -352,7 +353,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str | None = Non
                        "retranslate_current": bool(retranslate_current),
                        "locale": settings_service.get("default_locale"),
                        "style_note": settings_service.get("default_style_note") or "",
-                       "principal": ownership_service.acting_principal()}
+                       "principal": acting.acting_principal()}
     tuning = transcribe_options_service._DEFAULT_TUNING
     started = job_launch.start_job(
         job_id, run_second_hearing_job if after_transcription else run_compare_job, job_id, drama_id, [ln.id for ln in picked], audio_path,

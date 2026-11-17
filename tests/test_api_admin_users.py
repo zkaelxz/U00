@@ -20,6 +20,8 @@ from services import auth_service
 from lib.errors import ConflictError, ForbiddenError, NotFoundError
 from tests.api_helpers import loopback_client
 from tests.test_api_household_listener import _h as _household_h, _household_client
+from lib import acting
+import paid_limits
 
 REMOTE = "https://baihe.example.com"
 LOCAL_POST = {"X-Baihe-Local": "1"}
@@ -809,18 +811,18 @@ def test_a_paid_call_is_logged_for_the_account_it_ran_for(isolated_db):
     """A request's own user, a job's starter, and no one (the PC owner) when neither applies."""
     from jobs.job_runner import wait_for_job_threads
     from jobs import job_launch
-    from services import ownership_service
+    from lib import acting
     m, _ = _paid_member()
     db.log_usage(None, "claude", "m", "translate", 1, 1, 0.25)
-    token = ownership_service.bind_request()
+    token = acting.bind_request()
     try:
-        ownership_service.note_acting_principal(auth_service.member_principal(m["id"]))
+        acting.note_acting_principal(auth_service.member_principal(m["id"]))
         db.log_usage(None, "claude", "m", "translate", 1, 1, 0.5)
         # The job records its starter here and logs from its own thread.
         assert job_launch.start_job("paid-attr", lambda: db.log_usage(
             None, "claude", "m", "translate", 1, 1, 0.75))
     finally:
-        ownership_service.unbind_request(token)
+        acting.unbind_request(token)
     assert wait_for_job_threads(5)
     assert _spend_rows() == [(None, 0.25), (m["id"], 0.5), (m["id"], 0.75)]
     assert db.get_month_spend_by_user() == {m["id"]: 1.25}
@@ -837,10 +839,10 @@ def test_a_members_pending_batches_count_against_their_own_limit(isolated_db):
         with pytest.raises(UnsupportedOperationError, match="your own monthly limit"):
             paid_job_service.hold_bulk_spend(paid_job_service.bulk_hold_key(did, "flag"), 2.0)
         assert paid_job_service._bulk_holds == {}
-        assert not auth_service.paid_limit_reached(m["id"])
+        assert not paid_limits.paid_limit_reached(m["id"])
         db.log_usage(None, "claude", "m", "translate", 1, 1, 1.0)
     assert db.get_month_spend_by_user() == {m["id"]: 5.0}
-    assert auth_service.paid_limit_reached(m["id"])
+    assert paid_limits.paid_limit_reached(m["id"])
 
 
 def test_people_list_shows_each_accounts_spend_and_the_members_limit(isolated_db):
@@ -904,7 +906,7 @@ def test_a_member_over_their_limit_loses_paid_engines_until_it_is_raised(isolate
     assert me["paid_limit_reached"] is True and "engines.paid" not in me["permissions"]
     r = c.post("/api/translate", headers=_h(ms), json={"text": "你好"})
     assert r.status_code == 403
-    assert r.json()["error"] == {"code": "forbidden", "message": auth_service.PAID_LIMIT_MESSAGE,
+    assert r.json()["error"] == {"code": "forbidden", "message": paid_limits.PAID_LIMIT_MESSAGE,
                                  "details": {"reason": "paid_limit_reached"}}
     auth_service.admin_set_paid_limit(m["id"], 3)
     assert "engines.paid" in auth_service.resolve_session(ms["session_token"], touch=False)["permissions"]
@@ -917,7 +919,7 @@ def test_a_member_without_the_right_still_gets_the_plain_refusal(isolated_db):
     with db.spending_for(m["id"]):
         db.log_usage(None, "claude", "m", "translate", 1, 1, 2)
     r = c.post("/api/translate", headers=_h(ms), json={"text": "你好"})
-    assert r.status_code == 403 and r.json()["error"]["message"] != auth_service.PAID_LIMIT_MESSAGE
+    assert r.status_code == 403 and r.json()["error"]["message"] != paid_limits.PAID_LIMIT_MESSAGE
 
 
 def test_paid_work_for_a_member_over_their_limit_is_refused_before_each_call(isolated_db):
@@ -947,12 +949,12 @@ def test_a_job_that_crosses_its_starters_limit_is_stopped(isolated_db):
                 seen["stopped_after"] = len(_spend_rows())
                 raise background_jobs.JobCancelled()
 
-    token = ownership_service.bind_request()
+    token = acting.bind_request()
     try:
-        ownership_service.note_acting_principal(auth_service.member_principal(m["id"]))
+        acting.note_acting_principal(auth_service.member_principal(m["id"]))
         assert job_launch.start_job("over-limit", work)
     finally:
-        ownership_service.unbind_request(token)
+        acting.unbind_request(token)
     from jobs.job_runner import wait_for_job_threads
     assert wait_for_job_threads(5)
     assert seen == {"stopped_after": 2}

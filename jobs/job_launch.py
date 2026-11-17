@@ -25,8 +25,8 @@ from lib.errors import ConflictError
 
 
 def _acting_user_id():
-    from services import ownership_service
-    return ownership_service.acting_user_id()
+    from lib import acting
+    return acting.acting_user_id()
 
 
 def _with_member_key(target):
@@ -236,7 +236,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     (tests/test_static_analysis.py). Not passed to target.
 
     The job records who started it (for per-user caps and ownership): the user id of the API
-    request this runs in (ownership_service.acting_user_id), or None for
+    request this runs in (lib.acting.acting_user_id), or None for
     the PC owner, auth off, and jobs started by jobs.
 
     Raises ConflictError once the server's clean stop has begun

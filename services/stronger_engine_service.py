@@ -49,6 +49,7 @@ from lib.errors import (
     ServiceError,
     UnsupportedOperationError,
 )
+from lib import acting
 
 CAPABILITY = "translation.high_quality"
 OPERATION = "stronger_line"
@@ -124,7 +125,7 @@ def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
     is_novel = drama.get("content_mode") == "novel_narration"
     glossary, style, character_names = workspace_job_service.build_run_style_context(
         drama_id, drama, lines, "novel" if is_novel else "audio_drama", with_emotions=False,
-        principal=ownership_service.acting_principal())
+        principal=acting.acting_principal())
     num_ctx = settings_service.get("ollama_num_ctx_override")
     context = translate_pipeline.build_translation_context(
         engine, drama, locale=str(settings_service.get("default_locale")),

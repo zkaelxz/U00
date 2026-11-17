@@ -621,7 +621,6 @@ class TestLayering:
     # checked here, against the wrong-way imports that existed on 2026-11-15.
     # Remove an entry when you fix it; never add one.
     KNOWN_ROOT_IMPORTS_UP = {
-        "bulk.bulk_poll -> services.auth_service",
         "bulk.bulk_poll -> services.line_provenance_service",
         "debug_view -> services.line_provenance_service",
         "ollama_unload -> services.settings_service",
