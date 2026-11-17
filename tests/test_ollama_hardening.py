@@ -537,6 +537,12 @@ class TestLineCutAtAQuote:
         out = _engine().translate_batch(["好的。", "他说你好"], {})
         assert out == ["Okay. ", 'He said "hi" '] and len(chat.bodies) == 1
 
+    @pytest.mark.parametrize("reply", ["好的。 ", "「はい」 ", "네 ", "好的\u3000", "Wait\u2014 ",
+                                       "Hey~ ", "La la \u266a ", "Hi \U0001f60a ", "*sigh* ", "Okay. "])
+    def test_cjk_targets_and_other_endings_are_not_taken_for_a_cut(self, reply):
+        from engine_backends import shared
+        assert not shared._CUT_AT_QUOTE.search(reply)
+
     def test_still_cut_after_the_retry_it_is_left_untranslated_not_kept_half(self, monkeypatch):
         monkeypatch.setattr(local, "_ollama_chat", _Chat(_reply('{"1": "I\'m curious about "}')))
         engine = _engine()

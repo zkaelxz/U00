@@ -556,9 +556,9 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
 
 # Ollama's JSON schema lets a string end only at a plain double quote, so a model
 # that opens a quoted title ("about "L's World"") has its line closed right there:
-# "I'm curious about ", "Oh, ". A value ending in a space after anything but
-# closing punctuation is that cut, and is asked for again.
-_CUT_AT_QUOTE = re.compile(r'[^\s.!?…"”\'’)\]]\s+\Z')
+# "I'm curious about ", "Oh, ". The cut leaves a Latin letter, digit or comma and
+# then ASCII spaces; anything else (CJK targets, a dash, an emoji) is left alone.
+_CUT_AT_QUOTE = re.compile(r"[A-Za-z0-9,]\x20+\Z")
 
 
 def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
