@@ -48,7 +48,7 @@ import { LiveChatSection, ReadChatField } from './live/LiveChat'
 import { DelayedPlayer } from './live/DelayedPlayer'
 import { useLiveSession } from './live/useLiveSession'
 import { StreamEmbed } from './live/StreamEmbed'
-import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, parseStreamUrl, steadyDelay } from './live/embedLogic'
+import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, sessionStream, steadyDelay } from './live/embedLogic'
 import type { LiveCue } from '../types/live'
 import type { TranslateEngine } from '../types/translate'
 import './live.css'
@@ -222,8 +222,8 @@ export default function LivePage() {
   // pressed: leaving it mounted would keep the stream's audio playing.
   // What the running session records, not the form. Its files are served to the PC only.
   const ownPlayer = session?.status?.delayed_player === true && pc !== 'remote'
-  const videoLive = !!session && status === 'running' && !stopping && (!!session.url || ownPlayer)
-  const streamRef = videoLive && session?.url ? parseStreamUrl(session.url) : null
+  const videoLive = !!session && status === 'running' && !stopping && (!!session.url || !!session.status?.stream || ownPlayer)
+  const streamRef = videoLive ? sessionStream(session?.url, session?.status?.stream) : null
   const feed = session ? feedCues(session.cues) : []
   const total = session?.next ?? 0
   const lag = session?.status ? lagLine(session.status) : null

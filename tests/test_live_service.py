@@ -771,3 +771,23 @@ def test_the_live_form_offers_what_the_service_accepts():
                 "max_minutes", "player_height"):
         shown = _re.search(rf"\b{key}: '?([^',\n]+)'?,", defaults).group(1)
         assert str(params[key].default) == shown, key
+
+
+@pytest.mark.parametrize("url, ref", [
+    ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", {"kind": "youtube", "id": "dQw4w9WgXcQ"}),
+    ("https://youtu.be/dQw4w9WgXcQ?t=5", {"kind": "youtube", "id": "dQw4w9WgXcQ"}),
+    ("https://www.twitch.tv/some_streamer", {"kind": "twitch-channel", "id": "some_streamer"}),
+    ("https://www.twitch.tv/videos/123456789", {"kind": "twitch-video", "id": "123456789"}),
+    ("https://www.twitch.tv/some_streamer/clip/abc", None),
+    ("https://www.bilibili.com/video/BV1xx", None),
+    ("not a url", None),
+])
+def test_stream_ref_names_only_the_video(url, ref):
+    assert live_service.stream_ref(url) == ref
+
+
+def test_another_device_gets_the_video_id_but_never_the_link(live):
+    sid = _start(url="https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLsecret")
+    s = live_service.get_session(sid)
+    assert s["stream"] == {"kind": "youtube", "id": "dQw4w9WgXcQ"}
+    assert "PLsecret" not in repr(s) and "youtube.com" not in repr(s)

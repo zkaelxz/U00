@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  AUTO_DELAY_RANGE, AUTO_PROCESSING_GUESS_S, DVR_WAIT_S, NOT_STARTED_NOTE, NO_DELAY_NOTE, UNREACHABLE_NOTE, WAITING_NOTE, autoDelay, canDelay, steadyDelay, captionDelay, delayNote, delayReached, embedSrc, measuredDelay, notStarted, parseStreamUrl, parseYouTubeInfo, planDelay, probeOffset, ytCommand,
+  AUTO_DELAY_RANGE, AUTO_PROCESSING_GUESS_S, DVR_WAIT_S, NOT_STARTED_NOTE, NO_DELAY_NOTE, UNREACHABLE_NOTE, WAITING_NOTE, autoDelay, canDelay, steadyDelay, captionDelay, delayNote, delayReached, embedSrc, measuredDelay, notStarted, parseStreamUrl, parseYouTubeInfo, planDelay, probeOffset, sessionStream, streamFromStatus, ytCommand,
 } from './embedLogic'
 
 const ID = 'dQw4w9WgXcQ'
@@ -268,5 +268,25 @@ describe('steadyDelay', () => {
     expect(steadyDelay(27, 29)).toBe(27)
     expect(steadyDelay(27, 31)).toBe(31)
     expect(steadyDelay(27, 23)).toBe(23)
+  })
+})
+
+describe('streamFromStatus', () => {
+  it('shows a session started elsewhere from the id the server gives', () => {
+    expect(streamFromStatus({ kind: 'youtube', id: 'dQw4w9WgXcQ' })).toEqual({ kind: 'youtube', id: 'dQw4w9WgXcQ' })
+    expect(streamFromStatus({ kind: 'twitch-channel', id: 'some_streamer' })).toEqual({ kind: 'twitch-channel', name: 'some_streamer' })
+    expect(streamFromStatus({ kind: 'twitch-video', id: '123456789' })).toEqual({ kind: 'twitch-video', id: '123456789' })
+  })
+
+  it('refuses anything that is not a valid id of a known kind', () => {
+    expect(streamFromStatus(null)).toBeNull()
+    expect(streamFromStatus({ kind: 'youtube', id: 'x"><script>' })).toBeNull()
+    expect(streamFromStatus({ kind: 'twitch-video', id: 'abc' })).toBeNull()
+    expect(streamFromStatus({ kind: 'bilibili', id: 'BV1xx' })).toBeNull()
+  })
+
+  it('prefers the link this browser started with', () => {
+    expect(sessionStream('https://youtu.be/dQw4w9WgXcQ', { kind: 'twitch-channel', id: 'other' })).toEqual({ kind: 'youtube', id: 'dQw4w9WgXcQ' })
+    expect(sessionStream(null, { kind: 'twitch-channel', id: 'other' })).toEqual({ kind: 'twitch-channel', name: 'other' })
   })
 })
