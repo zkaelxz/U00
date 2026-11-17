@@ -12,7 +12,7 @@ Thin: see services/asr_options_service.py.
 
 from fastapi import APIRouter
 
-from api.asr_options_schemas import AsrOptions, AsrOptionsUpdate, AsrVadDownloadStarted
+from api.schemas import AsrOptions, AsrOptionsUpdate, AsrVadDownloadStarted
 from api.auth import local_only, require_permission
 from api.schemas import error_responses
 from services import asr_options_service
