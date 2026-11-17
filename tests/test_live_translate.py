@@ -25,7 +25,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from live import live_caption
 from live import live_pipeline
+from live import live_whisper
 from live import live_resolve
 from live import live_translate as lt
 
@@ -779,7 +781,7 @@ class TestOverlapDedupAgainstRealAudio:
     run through run_live_job's own pad -> transcribe -> dedup path. The
     final transcript must contain every word exactly once."""
 
-    def _run(self, monkeypatch, tmp_path, job_id, chunks, overlap_seconds=2):
+    def _run(self, monkeypatch, tmp_path, job_id, chunks, overlap_seconds=2, engine=None, notes=None):
         import background_jobs
         from jobs import job_table
         import whisper_transcribe
@@ -820,8 +822,9 @@ class TestOverlapDedupAgainstRealAudio:
 
         segment_seconds = len(chunks[0]) * _BLOCK_SECONDS
         lt.run_live_job(job_id, "http://example.com/live", str(out_dir), segment_seconds,
-                        "zh", "tiny", EchoEngine(), poll_interval=0.01,
-                        overlap_seconds=overlap_seconds)
+                        "zh", "tiny", engine or EchoEngine(), poll_interval=0.01,
+                        overlap_seconds=overlap_seconds,
+                        report_note=(lambda text, key=None: notes.append(text)) if notes is not None else None)
         cues = background_jobs.get_status(job_id)["result"]
         background_jobs.clear_job(job_id)
         return cues, heard, out_dir
@@ -834,19 +837,22 @@ class TestOverlapDedupAgainstRealAudio:
         cues, heard, out_dir = self._run(monkeypatch, tmp_path, "test_overlap_dedup", self.CHUNKS)
 
         assert heard == ["chunk_00000.wav", "padded_00001.wav"]  # chunk 1 really was padded
-        assert [c["text"] for c in cues] == ["今天天气很好", "我们明天去", "北京吧", "好的走吧"]
+        # "我们明天去" starts in chunk 0's last overlap, so chunk 0 holds it back
+        # and chunk 1, padded with that audio, hears the sentence whole.
+        assert [c["text"] for c in cues] == ["今天天气很好", "我们明天去北京吧", "好的走吧"]
         assert "".join(c["text"] for c in cues) == "今天天气很好我们明天去北京吧好的走吧"
         assert [c["translated"] for c in cues] == [f"EN:{c['text']}" for c in cues]
-        # Timestamps are back on the stream's own timeline: "北京吧" is
-        # the first thing after the 4s boundary.
+        # Timestamps are back on the stream's own timeline: the re-heard
+        # sentence starts where chunk 0 heard it start, across the 4s boundary.
         assert [(c["start"], c["end"]) for c in cues] == [
-            (0.0, 2.0), (2.5, 4.0), (4.0, 5.0), (5.5, 7.0)]
+            (0.0, 2.0), (2.5, 5.0), (5.5, 7.0)]
         assert not list(out_dir.glob("padded_*.wav"))  # cleaned up
 
     def test_without_dedup_the_same_audio_would_repeat_the_phrase(self, monkeypatch, tmp_path):
         # Proves the test above can actually see a duplicate: the padded
         # transcription genuinely re-hears "我们明天去".
-        monkeypatch.setattr(lt, "dedup_overlap", lambda segs, overlap, tail: list(segs))
+        monkeypatch.setattr(lt, "dedup_overlap", lambda segs, overlap, tail, covered=None: list(segs))
+        monkeypatch.setattr(live_caption, "hold_back_overlap", lambda cues, *a: (cues, None))
         cues, _, _ = self._run(monkeypatch, tmp_path, "test_overlap_nodedup", self.CHUNKS)
         assert "".join(c["text"] for c in cues).count("我们明天去") == 2
 
@@ -862,7 +868,127 @@ class TestOverlapDedupAgainstRealAudio:
         # real new speech and must survive, not be swallowed with it.
         chunks = [[1, 2, 0, 0, 0, 5, 6, 7], [7, 8, 9, 0, 0, 0, 0, 0]]
         cues, _, _ = self._run(monkeypatch, tmp_path, "test_overlap_repeat_word", chunks)
-        assert [c["text"] for c in cues] == ["今天天气", "我们明天去", "去北京吧"]
+        assert [c["text"] for c in cues] == ["今天天气", "我们明天去去北京吧"]
+
+
+    def test_a_held_back_line_is_still_shown_when_no_chunk_comes_after(self, monkeypatch, tmp_path):
+        cues, _, _ = self._run(monkeypatch, tmp_path, "test_overlap_held_last", self.CHUNKS[:1])
+        assert [c["text"] for c in cues] == ["今天天气很好", "我们明天去"]
+        assert [c["id"] for c in cues] == [0, 1]
+        assert [c["translated"] for c in cues] == ["EN:今天天气很好", "EN:我们明天去"]
+
+
+class TestTranslatorWarmUp:
+    """Loading Whisper frees a local Ollama's VRAM, so the translation model is
+    loaded again before capture starts, not by the first chunk's request."""
+
+    class Recording:
+        def __init__(self, name="ollama", model="translategemma:12b", fail=False):
+            self.name, self.model, self.fail, self.calls = name, model, fail, []
+
+        def translate_batch(self, lines, context):
+            self.calls.append(list(lines))
+            if self.fail and len(self.calls) == 1:
+                raise RuntimeError("model does not fit")
+            return [f"EN:{t}" for t in lines]
+
+    def _run(self, monkeypatch, tmp_path, engine, notes):
+        return TestOverlapDedupAgainstRealAudio()._run(
+            monkeypatch, tmp_path, "test_warm_translator", TestOverlapDedupAgainstRealAudio.CHUNKS,
+            engine=engine, notes=notes)
+
+    def test_a_local_ollama_model_is_loaded_before_the_first_chunk(self, monkeypatch, tmp_path):
+        engine, notes = self.Recording(), []
+        cues, _, _ = self._run(monkeypatch, tmp_path, engine, notes)
+        assert engine.calls[0] == ["好的"]
+        assert ["好的"] not in engine.calls[1:]
+        assert any(n.startswith("translategemma:12b ready in") for n in notes)
+        assert all(c["translated"] == f"EN:{c['text']}" for c in cues)
+
+    def test_whisper_counts_as_ready_before_the_translator_loads(self, monkeypatch, tmp_path):
+        # Otherwise chunk 0's Whisper call may free Ollama's VRAM again and undo the warm-up.
+        order = []
+        monkeypatch.setattr(live_whisper.WhisperRunner, "mark_model_ready",
+                            lambda self: order.append("whisper ready"))
+        engine = self.Recording()
+        real = engine.translate_batch
+        engine.translate_batch = lambda lines, context: order.append(lines[0]) or real(lines, context)
+        self._run(monkeypatch, tmp_path, engine, [])
+        assert order[:2] == ["whisper ready", "好的"]
+
+    def test_a_hosted_engine_or_cloud_model_gets_no_extra_request(self, monkeypatch, tmp_path):
+        for engine in (self.Recording(name="claude", model="claude-sonnet-5-5"),
+                       self.Recording(model="gemma4:31b-cloud")):
+            sub = tmp_path / engine.model.replace(":", "_")
+            sub.mkdir()
+            self._run(monkeypatch, sub, engine, [])
+            assert ["好的"] not in engine.calls
+
+    def test_a_failed_load_is_noted_and_the_session_goes_on(self, monkeypatch, tmp_path):
+        engine, notes = self.Recording(fail=True), []
+        cues, _, _ = self._run(monkeypatch, tmp_path, engine, notes)
+        assert any("could not be loaded before capture (model does not fit)" in n for n in notes)
+        assert [c["translation"] for c in cues] == ["done"] * len(cues)
+
+
+class TestHeldLinesMidSession:
+    def test_held_lines_are_shown_when_the_rehearing_chunk_times_out(self, monkeypatch, tmp_path):
+        real = lt._LiveRun._transcribe_window
+
+        def timing_out(self, idx, *a, **kw):
+            if idx == 1:
+                live_pipeline.request_finish(self.job_id)
+                raise live_whisper.ChunkTimeout(30)
+            return real(self, idx, *a, **kw)
+        monkeypatch.setattr(lt._LiveRun, "_transcribe_window", timing_out)
+        lags = []
+        monkeypatch.setattr(live_pipeline.LagStats, "chunk_done",
+                            lambda self, audio, total: lags.append(audio))
+        cues, _, _ = TestOverlapDedupAgainstRealAudio()._run(
+            monkeypatch, tmp_path, "test_held_timeout", TestOverlapDedupAgainstRealAudio.CHUNKS)
+        assert [c["text"] for c in cues] == ["今天天气很好", "我们明天去"]
+        assert [c["id"] for c in cues] == [0, 1]
+        assert all(c["translated"] == f"EN:{c['text']}" for c in cues)
+        assert 0.0 not in lags   # the released lines are not timed as a chunk of their own
+
+
+class TestHoldBackOverlap:
+    TAIL = {"seconds": 3.0, "chunk_seconds": 10.0}
+
+    def _cue(self, start):
+        return {"start": start, "end": start + 1, "text": f"t{start}"}
+
+    def test_lines_starting_in_the_last_overlap_wait_for_the_next_chunk(self):
+        cues = [self._cue(21.0), self._cue(26.5), self._cue(27.5), self._cue(29.0)]
+        shown, held = live_caption.hold_back_overlap(cues, self.TAIL, 2, 10, 0.0, False)
+        assert [c["start"] for c in shown] == [21.0, 26.5]
+        assert held["index"] == 2 and [c["start"] for c in held["cues"]] == [27.5, 29.0]
+        assert held["covered"] == 0.5   # the shown lines reach 0.5 s into the next chunk's padding
+
+    def test_nothing_is_held_on_the_last_chunk_or_without_overlap(self):
+        cues = [self._cue(28.0)]
+        assert live_caption.hold_back_overlap(cues, self.TAIL, 2, 10, 0.0, True) == (cues, None)
+        assert live_caption.hold_back_overlap(cues, None, 2, 10, 0.0, False) == (cues, None)
+
+    def test_the_fallback_keeps_held_speech_the_previous_chunk_never_showed(self):
+        # The two hearings disagree, so nothing matches; a segment ending in the
+        # overlap is dropped only if it ends inside what the previous chunk showed.
+        segs = [{"start": 0.2, "end": 0.8, "text": "上"}, {"start": 1.5, "end": 2.5, "text": "うん"},
+                {"start": 3.5, "end": 5.0, "text": "次"}]
+        assert [s["text"] for s in lt.dedup_overlap(segs, 3.0, "ちがう")] == ["次"]
+        assert [s["text"] for s in lt.dedup_overlap(segs, 3.0, "ちがう", covered_seconds=1.0)] == [
+            "うん", "次"]
+
+
+class TestStockPhrasesInLive:
+    def test_an_outro_line_alone_is_dropped_and_other_lines_stay(self):
+        segs = [{"start": 0, "end": 1, "text": "みんな元気で何よりですね"},
+                {"start": 1, "end": 2, "text": "ご視聴ありがとうございました"},
+                {"start": 2, "end": 3, "text": "ペースパちゃんありがとう"},
+                {"start": 3, "end": 4, "text": "チャンネル登録よろしくお願いします"}]
+        # A streamer really says the subscribe line, so only the outro goes.
+        assert [s["text"] for s in lt.drop_stock_phrases(segs)] == [
+            "みんな元気で何よりですね", "ペースパちゃんありがとう", "チャンネル登録よろしくお願いします"]
 
 
 class TestOverlapTailTextWindow:

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 // Collapsing the Review toolbar hides the header and stage tabs and shortens the page, which pulls scrollY down by about 110px. With
 // the old 60px expand line the bar collapsed at 161, landed at 57, expanded again and flickered on every scroll.
@@ -19,11 +19,19 @@ db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句',
   execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot })
 })
 
+// A flicker is a scroll handler and a layout change feeding each other, one round per frame, so a
+// count of frames is the window to watch rather than a time that a slow runner may not reach.
+const frames = (page: Page, n: number) => page.evaluate((count) => new Promise<void>((done) => {
+  let left = count
+  const tick = () => (--left <= 0 ? done() : requestAnimationFrame(tick))
+  requestAnimationFrame(tick)
+}), n)
+
 test('phone: the toolbar settles after collapsing and after expanding instead of flickering', async ({ page }) => {
   await page.goto('/#/drama/3/review')
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(40)
   const bar = page.locator('.review-toolbar')
-  await page.waitForTimeout(500)
+  await frames(page, 10)
 
   // Count class flips: a flicker is a loop, so even one extra flip after the first one is the bug.
   await page.evaluate(() => {
@@ -35,13 +43,13 @@ test('phone: the toolbar settles after collapsing and after expanding instead of
 
   await page.evaluate(() => window.scrollTo(0, 161))
   await expect(bar).toHaveClass(/is-collapsed/)
-  await page.waitForTimeout(800)
+  await frames(page, 30)
   await expect(bar).toHaveClass(/is-collapsed/)
   expect(await flips()).toBe(1)
 
   await page.evaluate(() => window.scrollTo(0, 15))
   await expect(bar).not.toHaveClass(/is-collapsed/)
-  await page.waitForTimeout(800)
+  await frames(page, 30)
   await expect(bar).not.toHaveClass(/is-collapsed/)
   expect(await flips()).toBe(2)
 })
