@@ -20,3 +20,9 @@
 .series-defaults-grid select, .series-defaults-grid input { width: 100%; min-width: 0; box-sizing: border-box; }
 .series-defaults-mode { border: 0; padding: 0; margin: 0 0 var(--space-2); display: grid; gap: var(--space-1); }
 .series-defaults-preview ul { margin: var(--space-1) 0 var(--space-2); padding-left: var(--space-4); overflow-wrap: anywhere; }
+
+/* The Series folder list (SeriesList.tsx). */
+.series-folders { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.series-folder { display: flex; align-items: center; gap: var(--space-3); min-height: 44px; padding: var(--space-2) 0; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; min-width: 0; }
+.series-folder-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.series-folder-count { white-space: nowrap; }
