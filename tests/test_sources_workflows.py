@@ -9,7 +9,8 @@ import os
 
 import pytest
 
-from sources import (adaptive, chapter_check, chapter_order, front_door, generic_import,
+from services import chapter_check_service
+from sources import (adaptive, chapter_order, front_door, generic_import,
                      pipeline, registry, store)
 from sources.base import SourceAdapter
 from sources.models import ChapterInfo, PageRef, SearchResult, SourceError, FailureReason
@@ -65,18 +66,18 @@ class TestChapterCheck:
         monkeypatch.setattr(registry, "is_enabled", lambda name: True)
         store.track_series("fake_comic", "s1", "Series", known_chapters=adapter.get_chapters("s1"))
 
-        first = chapter_check.run_check_cycle(adapter_factory=lambda n: adapter)
+        first = chapter_check_service.run_check_cycle(adapter_factory=lambda n: adapter)
         assert first["new"] == 0 and store.list_notifications() == []
 
         adapter.chapters.append(("c3", "第3话"))
-        second = chapter_check.run_check_cycle(adapter_factory=lambda n: adapter)
+        second = chapter_check_service.run_check_cycle(adapter_factory=lambda n: adapter)
         notes = store.list_notifications()
         assert second["new"] == 1
         assert [(n["chapter_id"], n["title"]) for n in notes] == [("c3", "第3话")]
         assert adapter.pages_requested == [] and adapter.downloaded == []
         assert second["queued"] == []
 
-        third = chapter_check.run_check_cycle(adapter_factory=lambda n: adapter)
+        third = chapter_check_service.run_check_cycle(adapter_factory=lambda n: adapter)
         assert third["new"] == 0                     # already known now
 
     def test_a_failing_source_is_recorded_not_raised(self, isolated_db, monkeypatch):
@@ -85,7 +86,7 @@ class TestChapterCheck:
                 raise SourceError("down", FailureReason.TIMEOUT)
         monkeypatch.setattr(registry, "is_enabled", lambda name: True)
         store.track_series("fake_comic", "s1", "Broken series")
-        out = chapter_check.run_check_cycle(
+        out = chapter_check_service.run_check_cycle(
             adapter_factory=lambda n: Broken(make_client("b", ScriptedTransport())))
         assert "Broken series" in out["errors"]
         assert store.list_tracked_series()[0]["last_check_error"]
@@ -93,10 +94,10 @@ class TestChapterCheck:
     def test_check_due_follows_the_interval_and_zero_is_off(self, isolated_db):
         store.set_setting("check_interval_hours", 2)
         store.set_setting("last_check_cycle", 10_000.0)
-        assert not chapter_check.check_due(now=10_000.0 + 3600)
-        assert chapter_check.check_due(now=10_000.0 + 7201)
+        assert not chapter_check_service.check_due(now=10_000.0 + 3600)
+        assert chapter_check_service.check_due(now=10_000.0 + 7201)
         store.set_setting("check_interval_hours", 0)
-        assert not chapter_check.check_due(now=10**9)
+        assert not chapter_check_service.check_due(now=10**9)
 
 
 # ---------------------------------------------------------------------------
@@ -1155,7 +1156,7 @@ class TestTermsOfServiceBlocking:
         monkeypatch.setattr(registry, "is_enabled", lambda name: True)
         store.track_series("fake_comic", "s1", "Series")
         self._prohibit("fake_comic")
-        out = chapter_check.run_check_cycle(adapter_factory=lambda n: adapter)
+        out = chapter_check_service.run_check_cycle(adapter_factory=lambda n: adapter)
         assert out["checked"] == 0 and out["new"] == 0
         assert "Series" in out["errors"] and "TOS_PROHIBITED" in out["errors"]["Series"]
         assert adapter.chapters and store.list_notifications() == []

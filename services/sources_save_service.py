@@ -27,7 +27,7 @@ use. One save runs at a time in this process (`sources_save`, 409
 otherwise). Results carry outcomes and counts only, never paths.
 
 `save_series_chapters` is the save itself, shared with the tracked-series
-check (sources/chapter_check.py), which saves new chapters of a series whose
+check (services/chapter_check_service.py), which saves new chapters of a series whose
 "Save new chapters as CBZ" is on. Two saves of the same chapter at once
 each write their own `.part`, and the rename keeps one whole file.
 """

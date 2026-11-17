@@ -21,6 +21,7 @@ from services import sources_import_service as imp
 from services import sources_search_service as search
 from lib.errors import ConflictError
 from sources import chapter_check, pipeline, registry, store
+from services import chapter_check_service
 from sources.adapters.missevan import MissEvanSource
 from sources.base import SourceAdapter
 from sources.http import PacingPolicy
@@ -397,7 +398,7 @@ def test_chapter_check_auto_import_skips_a_busy_drama(client, fakes, monkeypatch
     hold = threading.Event()
     assert job_launch.start_job(f"sourceimport_{did}", lambda: hold.wait(5))
     try:
-        summary = chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["alpha"]())
+        summary = chapter_check_service.run_check_cycle(adapter_factory=lambda n: fakes["alpha"]())
         assert summary["new"] == 2 and summary["queued"] == []
         assert background_jobs.get_status(f"sourceimport_{did}")["status"] == "running"
     finally:

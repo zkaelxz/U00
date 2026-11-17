@@ -904,7 +904,7 @@ def serve(port: int, generation=None):
 
 def ensure_server_started(port: int = DEFAULT_PORT) -> bool:
     """Starts the endpoint once per process, on a daemon thread -- the same
-    shape `sources/chapter_check.py`'s `ensure_scheduler_started` uses, and
+    shape `services/chapter_check_service.py`'s `ensure_scheduler_started` uses, and
     idempotent, so a repeat call is safe.
 
     Returns True if this call started it.

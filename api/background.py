@@ -1,7 +1,7 @@
 """
 api/background.py -- the background pieces of the app, started once when the
 API process starts (FastAPI lifespan in `api/server.py`):
-- the chapter-check scheduler (`sources.chapter_check.ensure_scheduler_started`):
+- the chapter-check scheduler (`services.chapter_check_service.ensure_scheduler_started`):
   always started. It is a no-op loop unless `check_interval_hours` > 0 and a
   series is tracked.
 - the browser-extension endpoint (`page_server.ensure_server_started`, loopback
@@ -326,8 +326,8 @@ def start_background_services(features_off=frozenset()) -> dict:
         log_warning("bulk batches were not resumed: %s", exc)
     try:
         if "sources" not in features_off:
-            from sources import chapter_check
-            chapter_check.ensure_scheduler_started()
+            from services import chapter_check_service
+            chapter_check_service.ensure_scheduler_started()
             state["chapter_scheduler"] = True
     except Exception as exc:
         log_warning("chapter-check scheduler did not start: %s", exc)

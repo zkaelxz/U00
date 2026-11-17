@@ -369,7 +369,7 @@ _IDENTITY_LOCK = threading.Lock()
 def _is_ours(job_id: str, local: bool = False) -> bool:
     from services import sources_signin_service as signin
     from services import sources_tools_service as tools
-    from sources.chapter_check import CHECK_JOB_ID
+    from services.chapter_check_service import CHECK_JOB_ID
     if job_id in (SEARCH_JOB_ID, URL_PREVIEW_JOB_ID, SAVE_JOB_ID, CHECK_JOB_ID) + tools.job_ids():
         return True
     if signin.is_pc_only_job(job_id):

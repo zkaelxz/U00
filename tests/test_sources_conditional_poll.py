@@ -330,7 +330,7 @@ def test_old_validators_expire_to_a_full_fetch(tracked, monkeypatch):
     server = FakeServer()
     adapter = ListAdapter(make_client("condtest", server))
     _check(adapter, tracked)
-    real_time = chapter_check.time.time
+    real_time = store.time.time
     monkeypatch.setattr(store.time, "time",
                         lambda: real_time() + chapter_check.VALIDATOR_MAX_AGE_SECONDS + 60)
     assert _check(adapter, tracked) == []

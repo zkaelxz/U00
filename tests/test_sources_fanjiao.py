@@ -347,11 +347,12 @@ def test_site_terms_carries_technical_protection():
 def test_check_now_respects_allow_browser(isolated_db, monkeypatch, allow):
     """A "Check now" from another device must not open a browser on the PC
     for a tracked Fanjiao album."""
-    from sources import chapter_check, store
+    from sources import store
+    from services import chapter_check_service
     monkeypatch.setattr(registry, "is_enabled", lambda name: True)
     store.track_series("fanjiao", ALBUM, "一目余生", SHARE, None, known_chapters=[])
     cap = FakeCapture()
-    summary = chapter_check.run_check_cycle(adapter_factory=lambda n: _adapter(cap),
+    summary = chapter_check_service.run_check_cycle(adapter_factory=lambda n: _adapter(cap),
                                             allow_browser=allow)
     if allow:
         assert cap.urls == [SHARE] and summary["checked"] == 1
