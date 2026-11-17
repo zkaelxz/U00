@@ -19,7 +19,7 @@ import time
 
 import db
 import page_capture_checks
-import page_server
+from services import page_server
 import page_turns
 from services import ownership_service
 from lib.errors import ServiceError

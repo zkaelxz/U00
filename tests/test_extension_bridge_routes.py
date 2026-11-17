@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import db
-import page_server
+from services import page_server
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service

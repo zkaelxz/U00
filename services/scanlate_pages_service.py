@@ -66,7 +66,7 @@ def pipeline_lock():
     caches are unlocked module globals (spec §4). It is the extension
     bridge's own _PIPELINE_LOCK, so the bridge and the API jobs in this
     process queue behind each other instead of racing on first load."""
-    import page_server
+    from services import page_server
     return page_server.PIPELINE_LOCK
 
 

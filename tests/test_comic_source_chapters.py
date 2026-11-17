@@ -9,7 +9,7 @@ pytest.importorskip("httpx")
 import comic_chapter_links
 import comic_chapters
 import db
-import page_server
+from services import page_server
 from services import comic_source_chapters_service as svc
 
 from tests.test_page_server import _post

@@ -72,7 +72,7 @@ def test_pip_can_never_run(stubbed, monkeypatch):
 
 
 def test_reset_and_extension_are_stubbed(stubbed, monkeypatch):
-    import page_server
+    from services import page_server
     monkeypatch.setattr(page_server, "load_or_create_token", lambda: pytest.fail("real token read"))
     monkeypatch.setattr(page_server, "ensure_server_started", lambda: pytest.fail("bridge started"))
     client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
