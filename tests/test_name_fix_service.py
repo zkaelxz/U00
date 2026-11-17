@@ -82,3 +82,34 @@ def test_apply_fixes_rejects_bad_input_and_writes_nothing(isolated_db):
 def test_after_transcription_swallows_failures(isolated_db, monkeypatch):
     monkeypatch.setattr(nf, "apply_known_aliases", lambda d: 1 / 0)
     assert nf.after_transcription(1) == {"lines_changed": 0, "replacements": 0}
+
+
+def test_alias_inside_a_novel_chapter_title_line_is_left_alone(isolated_db):
+    from sources import pipeline
+    from sources.models import ChapterInfo
+    did, sid = _title([], [("ヤロ", ["ヤロー"])])
+    for n, (title, body) in enumerate([("ヤロー来る", "ヤローが来た"), ("次", "終わり")], 1):
+        ch = ChapterInfo(source="xbanxia", series_id="s1", chapter_id=f"c{n}", title=title)
+        assert pipeline._append_chapter_text("xbanxia", ch, did, body) == ""
+        pipeline._clear_in_flight("xbanxia", ch, did)
+    db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=t, en="") for i, t in
+                        enumerate(["ヤロー来る", "ヤローが来た", "次", "終わり"])])
+    out = nf.apply_known_aliases(did)
+    assert out == {"lines_changed": 1, "replacements": 1}
+    assert _texts(did) == ["ヤロー来る", "ヤロが来た", "次", "終わり"]
+
+
+def test_a_line_edited_since_it_was_read_is_kept(isolated_db, monkeypatch):
+    did, _ = _title(["ヤローが来た"], [("ヤロ", ["ヤロー"])])
+    real = db.load_line_objects
+
+    def load_then_edit(drama_id):
+        lines = real(drama_id)
+        edited = real(drama_id)
+        edited[0].zh = "手で直した"
+        db.save_lines(drama_id, edited, fields=("zh",))
+        return lines
+    monkeypatch.setattr(db, "load_line_objects", load_then_edit)
+    assert nf.apply_known_aliases(did) == {"lines_changed": 0, "replacements": 0}
+    monkeypatch.undo()
+    assert _texts(did) == ["手で直した"]

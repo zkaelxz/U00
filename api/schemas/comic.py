@@ -1,5 +1,5 @@
 """
-api/comic_schemas.py -- request/response models for the comic viewer
+api/schemas/comic.py -- request/response models for the comic viewer
 routes (api/routers/comic_routes.py). No path or filename field exists on
 any model.
 """
@@ -7,6 +7,11 @@ any model.
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
+
+__all__ = ["ComicPage", "ComicChapter", "ComicPageList", "ComicRegion", "ComicPageRegions", "ComicViewPrefs",
+           "ComicProgress", "ComicViewPrefsView", "ComicProgressRequest", "ComicVisibilityRequest",
+           "ComicVisibilityResult", "ComicStartChapterRequest", "ComicStartChapterResult", "ComicSourceChapter",
+           "ComicSourceChapters"]
 
 
 class ComicPage(BaseModel):

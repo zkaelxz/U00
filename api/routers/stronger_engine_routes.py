@@ -18,7 +18,7 @@ from fastapi import APIRouter, Path, Request
 from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
 from api.schemas import error_responses
-from api.stronger_engine_schemas import (StrongerEngineSuggestions, StrongerLineResult,
+from api.schemas import (StrongerEngineSuggestions, StrongerLineResult,
                                          StrongerLineTryRequest)
 from services import stronger_engine_service as svc
 

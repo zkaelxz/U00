@@ -65,6 +65,7 @@ def ask_for_shorter(engine, source_name: str, wanted: dict, usage_cb=None) -> di
                          fallback=None, usage_cb=usage_cb)
     if not text:
         return {}
-    data = extract_first_json_value(re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip())
+    data = extract_first_json_value(re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip(),
+                                    expect=dict)
     answer = data.get("shortened") if isinstance(data, dict) else None
     return {str(k): v for k, v in answer.items()} if isinstance(answer, dict) else {}

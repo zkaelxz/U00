@@ -6,7 +6,8 @@ import whisper_models
 import pytest
 
 import memory_headroom as mh
-from services import loaded_models_service, settings_service, vram_service
+import vram as vram_mod
+from services import loaded_models_service, settings_service
 from lib.errors import InvalidInputError
 
 GB = 1024
@@ -108,17 +109,17 @@ def test_whisper_loader_refuses_before_importing_the_model(monkeypatch, reserve)
 def test_vram_service_check_fits_honours_the_reserve(reserve):
     # OmniVoice needs about 2 GB: 7 GB free leaves 5 GB.
     reserve(vram=4)
-    vram_service.check_fits("OmniVoice", free_mb=7 * GB)
+    vram_mod.check_fits("OmniVoice", free_mb=7 * GB)
     reserve(vram=6)
     with pytest.raises(mh.HeadroomError):
-        vram_service.check_fits("OmniVoice", free_mb=7 * GB)
+        vram_mod.check_fits("OmniVoice", free_mb=7 * GB)
 
 
 def test_vram_service_unchanged_when_off(reserve):
     reserve()
-    vram_service.check_fits("OmniVoice", free_mb=3 * GB)
-    with pytest.raises(vram_service.InsufficientVramError):
-        vram_service.check_fits("OmniVoice", free_mb=100)
+    vram_mod.check_fits("OmniVoice", free_mb=3 * GB)
+    with pytest.raises(vram_mod.InsufficientVramError):
+        vram_mod.check_fits("OmniVoice", free_mb=100)
 
 
 class TestOllama:

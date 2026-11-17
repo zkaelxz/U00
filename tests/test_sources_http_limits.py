@@ -423,3 +423,9 @@ def test_cross_origin_headers_drop_credentials_and_trim_the_referer():
         "Referer": f"https://u:p@comic.example:8443/read/1?token={SECRET}#p2"})
     assert out == {"Accept": "image/*", "Referer": "https://comic.example:8443/"}
     assert url_guard.cross_origin_headers({"Referer": "about:blank"}) == {}
+
+
+def test_unicode_digit_content_length_is_ignored_not_a_crash(net):
+    net(FakeResp([b"hello"], headers={"Content-Length": "\u00b2"}))
+    r = http_transport._requests_transport("GET", PAGE, {}, None, 5, limits=_limits())
+    assert r.content == b"hello"

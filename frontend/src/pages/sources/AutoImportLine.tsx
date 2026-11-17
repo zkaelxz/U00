@@ -5,6 +5,7 @@ import { getSourcesSettings, updateSourcesSettings } from '../../api/sources'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
+import { isComposingKey } from '../../hooks/useShortcut'
 import type { SourcesSettings, SourcesSettingsUpdate } from '../../types/sources'
 import { CHECK_FIELD, fieldProblem } from './sourcesSettings'
 
@@ -83,7 +84,7 @@ export function AutoImportLine() {
           onChange={(e) => setHours(e.target.value)}
           onBlur={commitHours}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') commitHours()
+            if (e.key === 'Enter' && !isComposingKey(e)) commitHours()
           }}
         />
       </Field>

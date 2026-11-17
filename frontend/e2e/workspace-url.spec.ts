@@ -69,14 +69,31 @@ test('From a URL: toggle, checks, download starts the urlmedia job', async ({ pa
   await expect(page.getByRole('switch', { name: 'Audio only' })).not.toBeChecked()
   await expect(page.getByText('Still needed: tick “Replace the current audio”.')).toBeVisible()
   await page.getByRole('checkbox', { name: 'Replace the current audio' }).check()
+  // Best available sends nothing; a chosen quality is sent as the tallest picture to keep.
+  await expect(page.getByTestId('url-video-quality')).toHaveValue('0')
+  await page.getByTestId('url-video-quality').selectOption('720')
   await download.click()
-  await expect.poll(() => s.bodies).toEqual([{ url: 'https://video.example/watch?v=1', audio_only: false, confirm_replace_audio: true }])
+  await expect.poll(() => s.bodies).toEqual([{ url: 'https://video.example/watch?v=1', audio_only: false, confirm_replace_audio: true, max_height: 720 }])
   await expect(page.getByTestId('job-status')).toContainText('Done')
 
   // The choice is remembered.
   await page.reload()
   await expect(page.getByRole('radio', { name: 'From a URL' })).toBeChecked()
   expect(s.unmocked).toEqual([])
+})
+
+test('From a URL: Enter that confirms an IME word does not start the download', async ({ page }) => {
+  const s = await mockUrlDownload(page)
+  await page.goto('/#/drama/1/source')
+  await page.getByRole('radio', { name: 'From a URL' }).check()
+  const link = page.getByRole('textbox', { name: 'Video or audio link' })
+  await link.fill('https://video.example/watch?v=1')
+  await link.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true, bubbles: true })
+  await link.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 229, bubbles: true })
+  await page.evaluate(() => new Promise((r) => setTimeout(r, 200)))
+  expect(s.bodies).toEqual([])
+  await link.press('Enter')
+  await expect.poll(() => s.bodies).toHaveLength(1)
 })
 
 test('From a URL: audio only over a video says the video is set aside', async ({ page }) => {

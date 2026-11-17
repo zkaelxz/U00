@@ -1,5 +1,5 @@
 """
-services/reading_speed_dismissal_service.py -- remembers which reading-speed
+reading_speed_dismissal.py -- remembers which reading-speed
 flags the user dismissed, so the next translate run or "flag dense lines"
 doesn't raise them again.
 

@@ -1,22 +1,14 @@
-"""api/schemas/library.py -- Library shapes: dramas, series, bulk actions,
-storage, media and export.
+"""api/schemas/library.py -- Library shapes: dramas, series, media and export
+(bulk actions, backup and storage are in library_admin.py).
 """
 
-from enum import Enum
-from typing import TYPE_CHECKING, Annotated, Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, model_validator
 
-from services.library_admin_service import MAX_BULK_IDS as _MAX_BULK_IDS, STATUSES as _LIBRARY_STATUSES
-import db as _db
-import storage as _storage
-
-from api.schemas.common import ConfirmRequest, LibraryPreset
+from api.schemas.common import AssStyleOverrides, ConfirmRequest, DramaDetail, DramaSummary, LibraryPreset
 
 __all__ = [
-    "TempCleanResult",
-    "DramaSummary",
-    "DramaDetail",
     "CaptureNote",
     "CaptureNoteList",
     "DramaSeriesUpdate",
@@ -27,8 +19,6 @@ __all__ = [
     "ReadingSpeedModeUpdate",
     "ClearReadingSpeedFlagsResult",
     "AutoQcFlagResult",
-    "AssStyleOverrides",
-    "AssExportRequest",
     "AssStyleOptions",
     "DramaCreateRequest",
     "DramaMetadataUpdate",
@@ -72,33 +62,6 @@ __all__ = [
     "RawNovelRemoveResult",
     "PresetDeleteResult",
     "VoiceBankDeleteResult",
-    "LibraryDramaIds",
-    "LibraryStatus",
-    "LibraryListTag",
-    "LibraryStoragePreset",
-    "LibraryArtifactKind",
-    "LibraryBulkStatusRequest",
-    "LibraryBulkTagRequest",
-    "LibraryBulkSeriesRequest",
-    "LibraryBulkDeleteRequest",
-    "LibraryBulkTranslateRequest",
-    "LibraryExportRequest",
-    "LibraryBackupRequest",
-    "LibraryUserBackupRequest",
-    "LibraryStorageCleanRequest",
-    "LibraryBulkItem",
-    "LibraryBulkResult",
-    "LibraryBulkDeleteResult",
-    "LibraryBulkTranslateSkip",
-    "LibraryBulkTranslateStarted",
-    "LibraryExportStarted",
-    "LibraryJobStarted",
-    "LibraryArtifactInfo",
-    "LibraryRestoreDone",
-    "LibraryStorageCategory",
-    "LibraryStorageDrama",
-    "LibraryStorageScan",
-    "LibraryStorageCleanResult",
     "MediaUrlDownloadRequest",
     "MediaUrlDownloadStarted",
     "LibraryContinueEntry",
@@ -116,42 +79,6 @@ __all__ = [
 ]
 
 
-class DramaSummary(BaseModel):
-    """One row of the Library's drama list."""
-    id: int
-    title_zh: Optional[str] = None
-    title_en: Optional[str] = None
-    author: Optional[str] = None
-    studio: Optional[str] = None
-    director: Optional[str] = None
-    voice_actors: Optional[str] = Field(default=None, description="Comma-separated, as entered.")
-    status: Optional[str] = Field(
-        default=None, description="Pipeline status: not started / aligned / translated / "
-                                  "dubbed / exported.")
-    source_language: Optional[str] = Field(default=None, description="`zh`, `ja` or `ko`.")
-    media_type: Optional[str] = None
-    content_mode: Optional[str] = None
-    series_id: Optional[int] = None
-    release_date: Optional[str] = Field(
-        default=None, description="Stream / release date, YYYY-MM-DD; empty or null = unknown.")
-    translation_engine: Optional[str] = None
-    custom_tags: List[str] = Field(default_factory=list)
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    is_private: Optional[bool] = Field(
-        default=None, description="Hidden from the household (a drama in a series follows its "
-                                  "series). Only set in the Library list.")
-    owned_by_me: Optional[bool] = Field(
-        default=None, description="The signed-in viewer may change its sharing: they created it, "
-                                  "or they are an admin and it was made at the PC (or they are at "
-                                  "the PC). Only set in the Library list.")
-    line_count: int = Field(default=0, description="Lines the title has. Only counted in the Library list.")
-    translated_count: int = Field(default=0, description="Lines with English text. Only counted in the Library list.")
-    page_count: int = Field(default=0, description="Pages a comic has. Only counted in the Library list.")
-    pages_translated: int = Field(default=0, description="Comic pages with translated text. Only counted in the Library list.")
-    new_chapters: int = Field(default=0, description="New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.")
-
-
 class CaptureNote(BaseModel):
     summary: str
     created_at: str
@@ -159,31 +86,6 @@ class CaptureNote(BaseModel):
 
 class CaptureNoteList(BaseModel):
     items: List[CaptureNote] = Field(description="Newest first, at most 5.")
-
-
-class DramaDetail(DramaSummary):
-    """Everything a client needs to show one drama, minus internals."""
-    summary: Optional[str] = None
-    genre: Optional[str] = None
-    publication_status: Optional[str] = None
-    chapter_count: Optional[int] = None
-    # Shown and edited in the Workspace's Edit details.
-    source_url: Optional[str] = None
-    episode_number: Optional[int] = None
-    episode_summary: Optional[str] = None
-    episode_brief: Optional[str] = None
-    narration_language: Optional[str] = None
-    author_romanized: Optional[str] = None
-    studio_romanized: Optional[str] = None
-    director_romanized: Optional[str] = None
-    voice_actors_romanized: Optional[str] = None
-    series_instructions: Optional[str] = None
-    has_audio: bool = Field(description="A source audio/video file is attached.")
-    has_novel_reference: bool
-    has_cover_art: bool
-    keep_original: bool = Field(
-        default=False, description="\"Keep original files\": storage cleanup never removes "
-                                   "this title's originals and an export always includes them.")
 
 
 class DramaListResponse(BaseModel):
@@ -233,36 +135,6 @@ class AutoQcFlagResult(BaseModel):
     cleared: int
     already_flagged: int
     checked: int
-
-
-class AssStyleOverrides(BaseModel):
-    """Per-request ASS style overrides. Only fields the
-    client sets replace the preset's values; unknown keys are a 422. An
-    explicit JSON null for a field is also a 422 (omit the key instead)."""
-    model_config = ConfigDict(extra="forbid")
-    font: Optional[str] = None
-    size: Optional[int] = None
-    bold: Optional[bool] = None
-    italic: Optional[bool] = None
-    primary: Optional[str] = None
-    outline: Optional[str] = None
-    outline_width: Optional[int] = None
-    shadow: Optional[int] = None
-    alignment: Optional[str] = None
-    sfx_alignment: Optional[str] = None
-    notes_alignment: Optional[str] = None
-
-
-class AssExportRequest(BaseModel):
-    field: str = "en"
-    style: Optional[AssStyleOverrides] = None
-    preset: str = "Clean"
-    speaker_colors: Optional[Dict[str, str]] = None
-    per_speaker_colors: bool = True
-    include_notes: bool = False
-    notes_as_separate_line: bool = False
-    wrap_chars_en: Optional[int] = Field(default=None, ge=0, le=200)
-    wrap_chars_source: Optional[int] = Field(default=None, ge=0, le=200)
 
 
 class AssStyleOptions(BaseModel):
@@ -668,217 +540,6 @@ class VoiceBankDeleteResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Library admin (bulk status/tags/delete/translate, export,
-# backup, artifacts, restore, storage) over services/library_admin_service.py
-# ---------------------------------------------------------------------------
-LibraryDramaIds = Annotated[List[Annotated[StrictInt, Field(ge=1, le=2**31 - 1)]],
-                            Field(min_length=1, max_length=_MAX_BULK_IDS)]
-
-
-# The choices come from a runtime tuple, which a type checker can't read as a Literal.
-if TYPE_CHECKING:
-    LibraryStatus = str
-    LibraryListTag = str
-    LibraryStoragePreset = str
-else:
-    LibraryStatus = Literal[_LIBRARY_STATUSES]
-    LibraryListTag = Literal[tuple(_db.ORGANIZATIONAL_TAGS)]
-    LibraryStoragePreset = Literal[tuple(_storage.STORAGE_QUALITY_PRESETS)]
-
-
-class LibraryArtifactKind(str, Enum):
-    backup = "backup"
-    export = "export"
-    database = "database"
-    user_backup = "user_backup"
-
-
-class LibraryBulkStatusRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    drama_ids: LibraryDramaIds
-    status: LibraryStatus
-
-
-class LibraryBulkTagRequest(BaseModel):
-    """Adds (present=true) or removes one organizational list tag."""
-    model_config = ConfigDict(extra="forbid")
-    drama_ids: LibraryDramaIds
-    tag: LibraryListTag
-    present: StrictBool
-
-
-class LibraryBulkSeriesRequest(BaseModel):
-    """Puts every picked title in one series: `series_id` (0 takes them out)
-    or `new_series_name`, exactly one."""
-    model_config = ConfigDict(extra="forbid")
-    drama_ids: LibraryDramaIds
-    series_id: Optional[StrictInt] = Field(default=None, ge=0, le=2**31 - 1)
-    new_series_name: Optional[str] = Field(default=None, max_length=300)
-
-    @model_validator(mode="after")
-    def _exactly_one(self):
-        if (self.series_id is None) == (self.new_series_name is None):
-            raise ValueError("Pass series_id or new_series_name.")
-        return self
-
-
-class LibraryBulkDeleteRequest(BaseModel):
-    """Needs confirm=true and confirm_text "DELETE"."""
-    model_config = ConfigDict(extra="forbid")
-    drama_ids: LibraryDramaIds
-    confirm: StrictBool = False
-    confirm_text: str = Field("", max_length=32)
-
-
-class LibraryBulkTranslateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    drama_ids: LibraryDramaIds
-    # Omitted: the Settings default English variant.
-    default_locale: Optional[str] = Field(None, max_length=5)
-    # Omitted: each title's saved choice (else genre notes on, she/her off).
-    include_genre_notes: Optional[StrictBool] = None
-    default_female_pronouns: Optional[StrictBool] = None
-
-
-class LibraryExportRequest(BaseModel):
-    """drama_ids omitted: every translated/dubbed/exported drama."""
-    model_config = ConfigDict(extra="forbid")
-    drama_ids: Optional[LibraryDramaIds] = None
-    include_originals: StrictBool = Field(
-        default=False, description="Also zip every title's original audio, video, novel text and "
-        "page scans, not only those of titles pinned with \"Keep original files\".")
-
-
-class LibraryBackupRequest(BaseModel):
-    """database_only=true: the database snapshot alone (fast, small)."""
-    model_config = ConfigDict(extra="forbid")
-    database_only: StrictBool = False
-
-
-class LibraryUserBackupRequest(BaseModel):
-    """Backup of one person's dramas and series. user_id omitted or null:
-    the items owned at the PC (no owner)."""
-    model_config = ConfigDict(extra="forbid")
-    user_id: Optional[StrictInt] = Field(None, ge=1)
-
-
-class LibraryStorageCleanRequest(BaseModel):
-    """Needs confirm=true and confirm_text "CLEAN"."""
-    model_config = ConfigDict(extra="forbid")
-    preset: LibraryStoragePreset
-    confirm: StrictBool = False
-    confirm_text: str = Field("", max_length=32)
-
-
-class LibraryBulkItem(BaseModel):
-    """One requested drama's outcome. error: not_found, job_running,
-    delete_failed, not_translated, no_translated_lines, not_allowed, conflict or failed."""
-    drama_id: int
-    ok: bool
-    error: Optional[str] = None
-    message: Optional[str] = None
-    warning: Optional[str] = None
-    freed_bytes: Optional[int] = None
-
-
-class LibraryBulkResult(BaseModel):
-    results: List[LibraryBulkItem]
-    updated: int
-
-
-class LibraryBulkDeleteResult(BaseModel):
-    results: List[LibraryBulkItem]
-    deleted: int
-
-
-class LibraryBulkTranslateSkip(BaseModel):
-    drama_id: int
-    reason: str
-
-
-class LibraryBulkTranslateStarted(BaseModel):
-    job_id: str
-    queued: List[int]
-    skipped: List[LibraryBulkTranslateSkip]
-
-
-class LibraryExportStarted(BaseModel):
-    job_id: str
-    drama_ids: List[int]
-    results: Optional[List[LibraryBulkItem]] = None
-
-
-class LibraryJobStarted(BaseModel):
-    job_id: str
-
-
-class LibraryArtifactInfo(BaseModel):
-    """The newest finished file of one kind. Never a path."""
-    kind: LibraryArtifactKind
-    name: str
-    size: int
-
-
-class LibraryRestoreDone(BaseModel):
-    restored: bool
-    sessions_revoked: int
-    # True when the backup held no media and the current media was kept.
-    media_kept: bool = False
-    # The previous library stayed beside the restored one (something in it
-    # could not be moved across): the owner must check before deleting it.
-    previous_library_kept: bool = False
-    # Accounts taken from the backup (only into a library that had none).
-    accounts_restored: int = 0
-    # Titles whose owner became the live account with the same email, or the
-    # PC owner (only when the live accounts were kept).
-    titles_reassigned: int = 0
-    # False: the backup holds no readable account, so every title became the PC
-    # owner's (the single-title restore's copy_has_accounts notice). Always True
-    # when the backup's accounts were taken. No UI reads it yet.
-    backup_has_accounts: bool = True
-    # The previous library's other folders the backup lacks: they stay there.
-    folders_left_behind: List[str] = []
-
-
-class LibraryStorageCategory(BaseModel):
-    key: str
-    label: str
-    note: str
-    bytes: int
-    selected: bool
-
-
-class LibraryStorageDrama(BaseModel):
-    drama_id: int
-    total_bytes: int
-    would_free_bytes: int
-    job_running: bool
-
-
-class LibraryStorageScan(BaseModel):
-    """Dry run: nothing is removed."""
-    preset: str
-    categories_to_clean: List[str]
-    total_bytes: int
-    reclaimable_bytes: int
-    would_free_bytes: int
-    categories: List[LibraryStorageCategory]
-    per_drama: List[LibraryStorageDrama]
-
-
-class TempCleanResult(BaseModel):
-    """Counts only: never a path."""
-    removed: int
-    freed_mb: float
-
-
-class LibraryStorageCleanResult(BaseModel):
-    preset: str
-    freed_bytes: int
-    results: List[LibraryBulkItem]
-
-
-# ---------------------------------------------------------------------------
 # Workspace video-URL download (services/url_media_service.py); PC-only.
 # The job is read with GET /api/jobs/{job_id}.
 # ---------------------------------------------------------------------------
@@ -893,6 +554,8 @@ class MediaUrlDownloadRequest(BaseModel):
     part_start: Optional[StrictStr] = Field(default=None, max_length=12)
     part_end: Optional[StrictStr] = Field(default=None, max_length=12)
     exact_cuts: StrictBool = False
+    # "Video quality": the tallest picture to keep; left out means the best on offer.
+    max_height: Optional[Literal[2160, 1440, 1080, 720, 480, 360]] = None
 
 
 class MediaUrlDownloadStarted(BaseModel):

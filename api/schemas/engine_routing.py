@@ -1,5 +1,5 @@
 """
-api/engine_routing_schemas.py -- request/response models for the
+api/schemas/engine_routing.py -- request/response models for the
 "Which engine does what" routes (api/routers/engine_routing_routes.py).
 No key, URL or path field exists on any model.
 """
@@ -7,6 +7,9 @@ No key, URL or path field exists on any model.
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+__all__ = ["CapabilityRoute", "EngineTestOutcome", "EngineRouteStatus", "EngineRouting", "CapabilityEngineRequest",
+           "EngineTestRequest"]
 
 
 class CapabilityRoute(BaseModel):

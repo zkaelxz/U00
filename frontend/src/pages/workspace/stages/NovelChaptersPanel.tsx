@@ -25,7 +25,7 @@ import { buttonClass } from '../../../components/uiClasses'
 import { routeHref } from '../../../router'
 import type { NovelChapterList, NovelChapterRow, NovelChapterText } from '../../../types/novelChapters'
 import { useStage } from '../StageContext'
-import { chaptersHeadline, chaptersSummary, loadedLabel, neighbour, optionLabel, rowMeta, rowTitle, translationLine } from './novelChapters'
+import { appendChapters, chaptersHeadline, chaptersSummary, loadedLabel, neighbour, optionLabel, rowMeta, rowTitle, translationLine } from './novelChapters'
 import { useNovelFilesVersion } from './novelFileEvents'
 import './novelChapters.css'
 
@@ -63,11 +63,19 @@ export function NovelChaptersPanel() {
   // A message to show once the reload that follows a move has cleared the old notice.
   const afterReload = useRef<string | null>(null)
 
+  // Bumped by every first-page load, so a "Show more" page fetched for the old list is dropped.
+  const listLoad = useRef(0)
+  const [moreBusy, setMoreBusy] = useState(false)
+  const moreInFlight = useRef(false)
+
   useEffect(() => {
     let cancelled = false
+    listLoad.current += 1
     getRawChapters(dramaId, 0, PAGE).then(
       (l) => {
         if (cancelled) return
+        // Again on arrival: a "Show more" pressed while this page was loading asked for the old list's offset.
+        listLoad.current += 1
         setList(l)
         setRows(l.chapters)
         setError(null)
@@ -89,10 +97,18 @@ export function NovelChaptersPanel() {
   }, [dramaId, reloads, filesVersion])
 
   const more = useCallback(() => {
+    // A second press before the page arrives would ask for the same offset again.
+    if (moreInFlight.current) return
+    moreInFlight.current = true
+    setMoreBusy(true)
+    const load = listLoad.current
     getRawChapters(dramaId, rows.length, PAGE).then(
-      (l) => setRows((r) => [...r, ...l.chapters]),
-      (e: unknown) => setError(e),
-    )
+      (l) => load === listLoad.current && setRows((r) => appendChapters(r, l.chapters)),
+      (e: unknown) => load === listLoad.current && setError(e),
+    ).finally(() => {
+      moreInFlight.current = false
+      setMoreBusy(false)
+    })
   }, [dramaId, rows.length])
 
   const open = (number: number) => {
@@ -240,7 +256,7 @@ export function NovelChaptersPanel() {
         )}
         {list && rows.length < list.total && (
           <div className="actions">
-            <button type="button" onClick={more}>Show more chapters</button>
+            <button type="button" disabled={moreBusy} onClick={more}>Show more chapters</button>
             <span className="muted">{rows.length.toLocaleString()} of {list.total.toLocaleString()}</span>
           </div>
         )}

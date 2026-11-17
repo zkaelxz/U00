@@ -299,7 +299,7 @@ def test_send_ass_rows_follow_the_video_it_sits_beside(setup, monkeypatch):
 
 def test_send_route_passes_the_ass_request_through(setup, monkeypatch):
     drama, lib = setup
-    from api.jellyfin_schemas import JellyfinSendRequest
+    from api.schemas import JellyfinSendRequest
     from api.routers import jellyfin_routes
     seen = {}
     monkeypatch.setattr(jellyfin_routes.jellyfin_service, "send_to_jellyfin",

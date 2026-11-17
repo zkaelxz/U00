@@ -86,6 +86,12 @@ class TestGenerateEpisodeBrief:
         assert llm_tasks.generate_episode_brief(
             [Line(idx=0, start=0, end=1, zh="你好")], _Engine()) == ""
 
+    def test_a_bracket_in_the_prose_before_the_answer_is_skipped(self, monkeypatch):
+        monkeypatch.setattr(llm_tasks, "call_llm_json",
+                            lambda *a, **k: 'Line [3] is tricky. Answer: {"brief": "Lin is the boss."}')
+        assert llm_tasks.generate_episode_brief(
+            [Line(idx=0, start=0, end=1, zh="你好")], _Engine()) == "Lin is the boss."
+
     def test_an_engine_that_cannot_follow_a_prompt_is_not_called(self, monkeypatch):
         monkeypatch.setattr(llm_tasks, "call_llm_json",
                             lambda *a, **k: pytest.fail("called"))

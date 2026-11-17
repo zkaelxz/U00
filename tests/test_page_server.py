@@ -224,7 +224,7 @@ class TestTheEndpointRefusesWhatItShould:
 
     def test_an_image_over_the_pixel_cap_is_refused_before_decoding(self, token, fake_pipeline,
                                                                     isolated_db, monkeypatch):
-        from services import page_import_limits
+        import page_import_limits
         monkeypatch.setattr(page_import_limits, "MAX_IMAGE_PIXELS", 1000)
         handler = _post(token, {"images": [{"data": _b64(_png_bytes(100, 100)),
                                             "content_type": "image/png"}]})

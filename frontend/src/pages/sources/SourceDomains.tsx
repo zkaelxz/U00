@@ -13,6 +13,7 @@ import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
+import { isComposingKey } from '../../hooks/useShortcut'
 import type { SourceDomainEntry, SourceDomainProposal } from '../../types/sourceDomains'
 import {
   addDomain,
@@ -184,7 +185,7 @@ function DomainRow({
             setProblem('')
           }}
           onKeyDown={(ev) => {
-            if (ev.key === 'Enter') {
+            if (ev.key === 'Enter' && !isComposingKey(ev)) {
               ev.preventDefault()
               add()
             }

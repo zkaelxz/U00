@@ -105,7 +105,7 @@ def _save_flags(job: dict, current: list, counts: dict, guard=()) -> set:
 def _save_applied_english(job: dict, current: list, counts: dict, label: str):
     did = job["drama_id"]
     if counts["applied"]:
-        from services import reading_speed_dismissal_service as dismissals
+        import reading_speed_dismissal as dismissals
         dismissals.flag_dense_lines(did, current)
     # Compare-and-set against the load: an edit saved since then is kept,
     # and nothing lands that was computed from text or timing changed since.
@@ -225,6 +225,16 @@ def _apply_bulk_results_once(bulk_job_id: int, results: list, logged: set) -> di
     return counts
 
 
+def _reply_array(text):
+    """The JSON array a flag, consistency or notes reply holds, or None when
+    the provider cut it off or it isn't one. A request answered with None was
+    paid for and applied nothing, so it is counted, not taken as "no findings"."""
+    if isinstance(text, shared.TruncatedReply):
+        return None
+    value = shared.load_json_reply(text, None)
+    return value if isinstance(value, list) else None
+
+
 def _stale_line(ln, expected_hash: str) -> bool:
     """A line whose source has been deleted, or whose text no longer
     hashes to what it was at submission -- the drop-or-flag guard every
@@ -243,7 +253,7 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
     row_by_id, ids_by_key, current, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
               "kept_your_edit": 0, "failed_requests": 0, "unknown_requests": 0,
-              "unparsable_entries": 0}
+              "unparsable_requests": 0, "unparsable_entries": 0}
     mine = set()
 
     for key, text, usage, error in results:
@@ -254,8 +264,11 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
         if error or text is None:
             counts["failed_requests"] += 1
             continue
-        flagged = line_text.parse_json_array(text, 0)
-        by_id, bad = line_text.parse_flag_entries(flagged)
+        flagged = _reply_array(text)
+        if flagged is None:
+            # Still walk the lines: an edited source must be flagged even when the reply is unreadable.
+            counts["unparsable_requests"] += 1
+        by_id, bad = line_text.parse_flag_entries(flagged) if flagged is not None else ({}, 0)
         counts["unparsable_entries"] += bad
         for lid in ids_by_key[key]:
             row = row_by_id[lid]
@@ -268,6 +281,8 @@ def apply_flag_results(bulk_job_id: int, results) -> dict:
                         ln.flag_note = "Source text changed while bulk flagging was pending -- re-run it"
                 else:
                     counts["dropped_deleted"] += 1
+                continue
+            if flagged is None:
                 continue
             state = json.loads(row["state_at_submit"]) if row.get("state_at_submit") else {}
             if (ln.flag, ln.flag_note or "") != (state.get("flag"), state.get("flag_note") or ""):
@@ -303,7 +318,8 @@ def apply_consistency_results(bulk_job_id: int, results) -> dict:
     entirely stale doesn't wipe out a still-valid earlier check."""
     job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, _, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
-    counts = {"issues_found": 0, "dropped_windows": 0, "failed_requests": 0, "unknown_requests": 0}
+    counts = {"issues_found": 0, "dropped_windows": 0, "failed_requests": 0, "unknown_requests": 0,
+              "unparsable_requests": 0}
     issues = []
     usable_windows = 0
 
@@ -319,10 +335,12 @@ def apply_consistency_results(bulk_job_id: int, results) -> dict:
         if any(_stale_line(cur_by_id.get(lid), row_by_id[lid]["zh_hash"]) for lid in window_ids):
             counts["dropped_windows"] += 1
             continue
+        window_issues = _reply_array(text)
+        if window_issues is None:
+            counts["unparsable_requests"] += 1
+            continue
         usable_windows += 1
-        window_issues = line_text.parse_json_array(text, 0)
-        if isinstance(window_issues, list):
-            issues.extend(i for i in window_issues if isinstance(i, dict) and i.get("term"))
+        issues.extend(i for i in window_issues if isinstance(i, dict) and i.get("term"))
 
     counts["issues_found"] = len(issues)
     if usable_windows:
@@ -402,7 +420,7 @@ def apply_notes_results(bulk_job_id: int, results) -> dict:
     job = require_bulk_job(bulk_job_id)
     row_by_id, ids_by_key, _, cur_by_id = _load_apply_context(bulk_job_id, job["drama_id"])
     counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
-              "failed_requests": 0, "unknown_requests": 0}
+              "failed_requests": 0, "unknown_requests": 0, "unparsable_requests": 0}
     notes = []
 
     for key, text, usage, error in results:
@@ -413,15 +431,18 @@ def apply_notes_results(bulk_job_id: int, results) -> dict:
         if error or text is None:
             counts["failed_requests"] += 1
             continue
-        found = line_text.parse_json_array(text, 0)
+        found = _reply_array(text)
+        if found is None:
+            # Still walk the lines so a changed source is counted.
+            counts["unparsable_requests"] += 1
+            found = []
         by_id = {}
-        if isinstance(found, list):
-            for n in found:
-                if isinstance(n, dict) and n.get("note") and n.get("line_idx") is not None:
-                    try:
-                        by_id.setdefault(int(n["line_idx"]), []).append(n)
-                    except (TypeError, ValueError):
-                        continue
+        for n in found:
+            if isinstance(n, dict) and n.get("note") and n.get("line_idx") is not None:
+                try:
+                    by_id.setdefault(int(n["line_idx"]), []).append(n)
+                except (TypeError, ValueError):
+                    continue
         for lid in ids_by_key[key]:
             ln = cur_by_id.get(lid)
             if _stale_line(ln, row_by_id[lid]["zh_hash"]):

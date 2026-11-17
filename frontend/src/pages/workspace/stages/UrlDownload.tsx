@@ -12,7 +12,8 @@ import { useEffect, useId, useRef, useState } from 'react'
 
 import { hasStatus } from '../../../api/client'
 import { startUrlDownload } from '../../../api/sourcesImport'
-import type { UrlDownloadRequest } from '../../../types/sourcesImport'
+import { VIDEO_HEIGHTS } from '../../../types/sourcesImport'
+import type { UrlDownloadRequest, VideoHeight } from '../../../types/sourcesImport'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
@@ -20,13 +21,17 @@ import { useJob } from '../../../hooks/useJob'
 import { useSimple } from '../StageContext'
 import { refreshReadiness, useReadiness } from '../../../hooks/useReadiness'
 import { usePcOnly } from '../../../hooks/usePcOnly'
+import { isComposingKey } from '../../../hooks/useShortcut'
 import { useStageDraft } from '../../../hooks/useStageDraft'
 import { NeedsInstall } from '../../readiness/NeedsInstall'
 import { urlDownloadNeeds } from '../../readiness/needs'
 import {
   EXACT_CUTS_HELP, MAX_URL_LEN, PART_CLIP_NOTE, QUEUE_NOTE, downloadReason, partProblem,
 } from '../../sources/urlImportFormat'
-import { SWITCHES_FROM_BURNED_IN, URL_DRAFT_SHAPE, URL_DRAFT_STAGE, URL_SETS_VIDEO_ASIDE, isDirectAudioUrl, isDirectMediaUrl } from '../sourceForm'
+import {
+  SAME_LINK_REPLACE_NOTE, SWITCHES_FROM_BURNED_IN, URL_DRAFT_SHAPE, URL_DRAFT_STAGE, URL_SETS_VIDEO_ASIDE,
+  isDirectAudioUrl, isDirectMediaUrl, videoQualityLabel,
+} from '../sourceForm'
 import './urlDownload.css'
 
 type Props = {
@@ -51,9 +56,12 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
   const { draft, save: saveDraft } = useStageDraft(dramaId, URL_DRAFT_STAGE, URL_DRAFT_SHAPE)
   const [typed, setTyped] = useState(draft.url ?? '')
   const [audioOnly, setAudioOnly] = useState(() => draft.audioOnly ?? isDirectAudioUrl(fixedUrl ?? draft.url ?? ''))
+  const [maxHeight, setMaxHeight] = useState<number>(() =>
+    VIDEO_HEIGHTS.includes(draft.maxHeight as VideoHeight) ? (draft.maxHeight as number) : 0,
+  )
   useEffect(() => {
-    saveDraft({ url: typed, audioOnly })
-  }, [saveDraft, typed, audioOnly])
+    saveDraft({ url: typed, audioOnly, maxHeight })
+  }, [saveDraft, typed, audioOnly, maxHeight])
   const [replace, setReplace] = useState(false)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -88,6 +96,7 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
     setError(null)
     const body: UrlDownloadRequest = { url: url.trim(), audio_only: audioOnly, confirm_replace_audio: audioThere && replace }
     if (anyway) body.allow_long = true
+    if (maxHeight && !audioOnly && !isDirectMediaUrl(url)) body.max_height = maxHeight as VideoHeight
     if (hasPart && !isDirectAudioUrl(url)) {
       if (partStart.trim()) body.part_start = partStart.trim()
       if (partEnd.trim()) body.part_end = partEnd.trim()
@@ -120,7 +129,7 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
             placeholder="https://…"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && start()}
+            onKeyDown={(e) => e.key === 'Enter' && !isComposingKey(e) && start()}
           />
         </Field>
       )}
@@ -128,6 +137,21 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
         <Field label="Audio only">
           <Toggle checked={audioOnly} onChange={setAudioOnly} />
         </Field>
+        {!audioOnlyResult && !isDirectMediaUrl(url) && (
+          <Field
+            label="Video quality"
+            help="The largest picture to keep. A smaller one takes less disk space and downloads faster; the subtitles come out the same. If the site has nothing that small, the smallest it has is used."
+          >
+            <select value={maxHeight} onChange={(e) => setMaxHeight(Number(e.target.value))} data-testid="url-video-quality">
+              <option value={0}>Best available</option>
+              {VIDEO_HEIGHTS.map((h) => (
+                <option key={h} value={h}>
+                  {videoQualityLabel(h)}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
       </div>
       {!simple && !isDirectAudioUrl(url) && (
         <fieldset className="url-download-part">
@@ -179,6 +203,7 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
             <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
             Replace the current audio
           </label>
+          {replace && !isDirectMediaUrl(url) && <p className="muted">{SAME_LINK_REPLACE_NOTE}</p>}
           {audioOnlyResult && hasSourceVideo && (
             <p className="muted" data-testid="url-sets-video-aside">
               {URL_SETS_VIDEO_ASIDE}

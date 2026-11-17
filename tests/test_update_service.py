@@ -1272,3 +1272,8 @@ def test_another_versions_schema_does_not_count_for_setup(no_backup, monkeypatch
     monkeypatch.setattr(no_backup, "_offer_schema", ("0.1.9", no_backup._library_schema()))
     with pytest.raises(ConflictError, match="Back up the library first"):
         us.install()
+
+
+def test_download_deadline_grows_with_the_installer_size():
+    assert us.download_deadline_seconds(50 * 1024 * 1024) == us.DOWNLOAD_DEADLINE_SECONDS
+    assert us.download_deadline_seconds(us.MAX_INSTALLER_BYTES) > us.DOWNLOAD_DEADLINE_SECONDS

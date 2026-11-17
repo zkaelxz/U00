@@ -213,6 +213,7 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
     fields = ("dub_filename", "start", "end")
     produced = {ln.id: ln for ln in (result or {}).get("lines") or [] if ln.id is not None}
     current = db.load_line_objects(drama_id)
+    failed = {e.get("line_idx") for e in (result or {}).get("errors") or []}
     matched = False
     for ln in current:
         src = produced.get(ln.id)
@@ -221,9 +222,14 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
         matched = True
         for f in fields:
             setattr(ln, f, getattr(src, f))
+        if src.idx in failed:
+            # The failed unit made no clip, so a name left from an earlier run would point at stale audio.
+            ln.dub_filename = None
     if not matched:
         return
     db.save_lines(drama_id, current, fields=fields)
+    if failed and not any(src.dub_filename and src.idx not in failed for src in produced.values()):
+        return  # nothing was narrated; "dubbed" would claim a track that is only silence
     db.update_drama(drama_id, status="dubbed")
 
 

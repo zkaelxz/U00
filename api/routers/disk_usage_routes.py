@@ -22,7 +22,7 @@ from fastapi import APIRouter, Query
 from fastapi.concurrency import run_in_threadpool
 
 from api.auth import local_only
-from api.disk_usage_schemas import (
+from api.schemas import (
     DiskUsageClearDone, DiskUsageClearRequest, DiskUsageMoveDone, DiskUsageMoveRequest,
     DiskUsageScan, DiskUsageTrashEmptyDone, DiskUsageTrashEmptyRequest, DiskUsageTrashList,
     DiskUsageTrashPurgeDone, DiskUsageTrashPurgeRequest, DiskUsageTrashRestoreDone,
