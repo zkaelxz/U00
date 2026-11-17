@@ -285,6 +285,66 @@ class TestLiveServiceWiring:
             live_service.check_ollama("../x")
 
 
+class TestOllamaCheckGraphicsMemory:
+    """TranslateGemma 27B beside another program on the GPU was refused by the
+    keep-free reserve only after Start; the form now says so first. It counts
+    what Start does: Whisper's load unloads every Ollama model, then the model
+    loads again."""
+
+    @pytest.fixture
+    def gpu(self, monkeypatch):
+        import memory_headroom
+        import ollama_unload
+        import whisper_models
+        monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda b, m: None)
+        monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 5 * 1024 if memory == "vram" else 0)
+        monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
+
+        def setup(free_gb, model_gb, loaded=(), unloads=True):
+            monkeypatch.setattr(ollama_unload, "is_enabled", lambda: unloads)
+            monkeypatch.setattr(memory_headroom, "read_memory_mb",
+                                lambda memory, at_load=False: (32 * 1024, free_gb * 1024))
+            replies = {"/api/tags": {"models": [{"name": "translategemma:27b", "size": model_gb * 1024 ** 3}]},
+                       "/api/ps": {"models": [{"name": n, "size_vram": g * 1024 ** 3} for n, g in loaded]}}
+            monkeypatch.setattr(memory_headroom, "_ollama_json",
+                                lambda url: replies[url[url.index("/api/"):]])
+        return setup
+
+    def test_a_model_and_whisper_that_eat_the_reserve_are_named_before_start(self, gpu):
+        gpu(free_gb=22, model_gb=17)
+        out = live_service.check_ollama("translategemma:27b", "large-v3", True)
+        assert out["ok"] is False
+        assert out["message"].startswith("translategemma:27b and Whisper large-v3 may not fit: they need about")
+        assert "kept free" in out["message"] and "localhost" not in out["message"]
+
+    def test_room_enough_is_ok(self, gpu):
+        gpu(free_gb=30, model_gb=17)
+        assert live_service.check_ollama("translategemma:27b", "large-v3", True) == {
+            "ok": True, "model": "translategemma:27b", "message": None}
+
+    def test_memory_another_loaded_ollama_model_holds_counts_as_free(self, gpu):
+        gpu(free_gb=21, model_gb=17, loaded=[("translategemma:12b", 9)])
+        assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is True
+        gpu(free_gb=21, model_gb=17, loaded=[("translategemma:12b", 9)], unloads=False)
+        assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is False
+
+    def test_the_chosen_model_already_loaded_still_needs_room_beside_whisper(self, gpu):
+        gpu(free_gb=4, model_gb=17, loaded=[("translategemma:27b", 18)], unloads=False)
+        out = live_service.check_ollama("translategemma:27b", "large-v3", True)
+        assert out["ok"] is False and "Whisper large-v3" in out["message"]
+
+    def test_a_whisper_already_loaded_in_this_process_is_not_counted_twice(self, gpu, monkeypatch):
+        import whisper_models
+        gpu(free_gb=25, model_gb=17)
+        assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is False
+        monkeypatch.setattr(whisper_models, "_whisper_model_cache", {"large-v3_gpu": object()})
+        assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is True
+
+    def test_without_the_gpu_nothing_is_said(self, gpu):
+        gpu(free_gb=1, model_gb=17)
+        assert live_service.check_ollama("translategemma:27b", "large-v3", False)["ok"] is True
+
+
 class TestStageTimerCleanup:
     def test_clear_stage_cancels_and_forgets_the_timer(self, isolated_db):
         background_jobs.clear_all_jobs()
