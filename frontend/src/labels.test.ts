@@ -6,6 +6,7 @@ describe('labels', () => {
   it('humanises statuses', () => {
     expect(statusLabel('translated')).toBe('Translated')
     expect(statusLabel('not started')).toBe('Not started')
+    expect(statusLabel('aligned')).toBe('Transcribed')
   })
   it('humanises media types', () => {
     expect(mediaTypeLabel('streamer_vod')).toBe('Streamer VOD')

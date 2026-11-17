@@ -27,7 +27,7 @@ Rereading this list before each commit is cheap; these are the rules a long sess
 - Before pushing, print the lean pytest command for your diff (mapped tests plus the guard set): `python tools/check_change.py`
 - Or run it, stopping with a non-zero exit at the first failure: `python tools/check_change.py --run`
 - The guard set (`tools/check_change.py` `GUARDS`; details in `docs/testing-and-ci.md`, "Guard set and lean output"):
-  `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_agent_docs.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py tests/test_db.py tests/test_diagnostics_and_export.py`
+  `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_agent_docs.py tests/test_repo_map.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py tests/test_db.py tests/test_diagnostics_and_export.py`
 - Frontend, from `frontend/`: `npx tsc -b && npx vitest run`.
 - CI runs the full suite; don't run it locally.
 
