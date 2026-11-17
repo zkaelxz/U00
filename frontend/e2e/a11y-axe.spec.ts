@@ -4,6 +4,8 @@ import { enableDeveloperMode } from './sourceHelpers'
 
 // Fails on any axe violation (WCAG 2.1 A and AA) on these pages. Every page had none when this became a
 // gate, so a new one is a regression; the annotations and the "axe-violations" attachment say what and where.
+// It does not cover colour contrast: axe marks almost every contrast check "incomplete" over the frosted
+// background, which theme-contrast.spec.ts measures instead.
 
 const PAGES = [
   '#/', '#/settings', '#/jobs', '#/translate', '#/make-subtitles', '#/diagnostics',
