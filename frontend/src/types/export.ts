@@ -28,6 +28,7 @@ export interface SubtitleOptions {
   wrapEn?: number
   wrapSource?: number
   tidyTiming?: boolean
+  speakerNames?: boolean
 }
 
 export type AssStyleOverrides = Schemas['AssStyleOverrides']
