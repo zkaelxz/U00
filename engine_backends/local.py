@@ -78,6 +78,12 @@ def id_keyed_schema(ids) -> dict:
             "required": keys, "additionalProperties": False}
 
 
+# The schema ends a string at its first plain double quote, so a quoted title or
+# word inside a line cut the translation there ("I'm curious about ").
+_QUOTE_RULE = ("\n- Inside a translation, write quotation marks as curly quotes (\u201clike this\u201d), "
+               "never a plain \" mark: a plain one ends the JSON string and cuts the line off.")
+
+
 # (base_url, model) pairs whose server refused a JSON schema in `format`
 # (an Ollama too old for structured output); they get plain JSON mode.
 _schema_refused = set()
@@ -688,7 +694,7 @@ class OllamaEngine:
             import memory_headroom
             memory_headroom.check_ollama(self.base_url, self.model)
             self._headroom_checked = True
-        system_text = build_stable_system_text(context)
+        system_text = build_stable_system_text(context) + _QUOTE_RULE
         num_ctx_override = context.get("ollama_num_ctx_override")
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
 
@@ -755,8 +761,11 @@ class OllamaEngine:
                 line_ids=line_ids, engine_name="ollama",
                 line_languages=context.get("line_languages"),
                 sentence_groups=context.get("sentence_groups"), recover_replies=True,
-                # The reply guard set to Off in Settings switches these off too.
-                check_replies=context.get("check_replies") is not False,
+                # The reply guard set to Off in Settings switches these off too. Its
+                # checks read the reply as English (CJK in it is source left behind),
+                # so a request into Chinese, Japanese or Korean skips them.
+                check_replies=(context.get("check_replies") is not False
+                               and context.get("target_language", "en") == "en"),
                 allowed_runs=allowed_source_runs(context.get("glossary_terms"),
                                                  context.get("style_guidelines") or ""),
                 rejected=rejected)
