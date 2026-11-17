@@ -539,17 +539,20 @@ def test_mark_exported_sets_status_only(local_client, drama, isolated_db):
     assert [ln.en for ln in isolated_db.load_line_objects(drama)] == ["Hello", "Bye"]
 
 
+SAME_ORIGIN = {"Sec-Fetch-Site": "same-origin"}
+
+
 @pytest.mark.parametrize("field", ["en", "zh", "bilingual"])
 def test_full_subtitle_export_without_blanks_marks_exported(local_client, drama, isolated_db, field):
     isolated_db.update_drama(drama, status="translated")
-    r = local_client.get(f"/api/export/dramas/{drama}/subtitle?field={field}")
+    r = local_client.get(f"/api/export/dramas/{drama}/subtitle?field={field}", headers=SAME_ORIGIN)
     assert r.status_code == 200
     assert isolated_db.get_drama(drama)["status"] == "exported"
 
 
 def test_ass_export_without_blanks_marks_exported(local_client, drama, isolated_db):
     isolated_db.update_drama(drama, status="translated")
-    assert local_client.post(f"/api/export/dramas/{drama}/ass", json={"field": "en"}).status_code == 200
+    assert local_client.post(f"/api/export/dramas/{drama}/ass", json={"field": "en"}, headers=SAME_ORIGIN).status_code == 200
     assert isolated_db.get_drama(drama)["status"] == "exported"
 
 
@@ -564,7 +567,7 @@ def test_a_readers_export_leaves_the_status_alone(isolated_db):
     u = auth_service.add_user("reader@example.com")
     auth_service.grant_permission(u["id"], "lines.read")
     s = auth_service.create_session(u["id"])
-    headers = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}"}
+    headers = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}", **SAME_ORIGIN}
     did = isolated_db.create_drama(title_en="Shared", owner_user_id=u["id"], is_private=0,
                                    status="translated")
     isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
@@ -574,6 +577,16 @@ def test_a_readers_export_leaves_the_status_alone(isolated_db):
     assert isolated_db.get_drama(did)["status"] == "translated"
 
 
+@pytest.mark.parametrize("fetch_site", [None, "cross-site", "same-site"])
+def test_only_the_apps_own_page_marks_exported(local_client, drama, isolated_db, fetch_site):
+    """The subtitle route is a GET, which skips the CSRF check: a cross-site
+    <img> or link must not change the status."""
+    isolated_db.update_drama(drama, status="translated")
+    headers = {"Sec-Fetch-Site": fetch_site} if fetch_site else {}
+    assert local_client.get(f"/api/export/dramas/{drama}/subtitle", headers=headers).status_code == 200
+    assert isolated_db.get_drama(drama)["status"] == "translated"
+
+
 @pytest.mark.parametrize("field", ["en", "bilingual"])
 def test_subtitle_export_with_a_blank_line_keeps_status(local_client, drama, isolated_db, field):
     isolated_db.update_drama(drama, status="translated")
@@ -581,7 +594,7 @@ def test_subtitle_export_with_a_blank_line_keeps_status(local_client, drama, iso
         Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello"),
         Line(idx=1, start=2.0, end=4.0, zh="再见", en="  "),
     ])
-    assert local_client.get(f"/api/export/dramas/{drama}/subtitle?field={field}").status_code == 200
+    assert local_client.get(f"/api/export/dramas/{drama}/subtitle?field={field}", headers=SAME_ORIGIN).status_code == 200
     assert isolated_db.get_drama(drama)["status"] == "translated"
 
 
@@ -591,9 +604,9 @@ def test_blank_source_text_blocks_source_export_only(local_client, drama, isolat
         Line(idx=0, start=0.0, end=2.0, zh="", en="Hello"),
         Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
     ])
-    local_client.get(f"/api/export/dramas/{drama}/subtitle?field=zh")
+    local_client.get(f"/api/export/dramas/{drama}/subtitle?field=zh", headers=SAME_ORIGIN)
     assert isolated_db.get_drama(drama)["status"] == "translated"
-    local_client.get(f"/api/export/dramas/{drama}/subtitle?field=en")
+    local_client.get(f"/api/export/dramas/{drama}/subtitle?field=en", headers=SAME_ORIGIN)
     assert isolated_db.get_drama(drama)["status"] == "exported"
 
 

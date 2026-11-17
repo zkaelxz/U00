@@ -18,7 +18,7 @@ writes).
 from typing import Optional
 
 from fastapi import APIRouter, Path, Query, Request, Response
-from api.auth import require_permission
+from api.auth import holds, require_permission
 from api.schemas import (AssExportRequest, AssStyleOptions, AutoQcFlagResult, DubbedVideoRequest,
                          ExportReadiness, FlagActionResult, MarkExportedResult,
                          MediaExportStarted, ReadingSpeedMode, ReadingSpeedModeUpdate,
@@ -32,10 +32,12 @@ _MAX_LONG_CUES_REPORTED = 50
 
 def _mark_exported_if_allowed(request: Request, drama_id: int, field: str) -> None:
     # Downloading needs only lines.read, but a status change is an
-    # admin.library write like "Mark as exported"; a reader's download
-    # leaves the status alone.
-    principal = getattr(request.state, "principal", None)
-    if principal and "admin.library" in principal.get("permissions", ()):
+    # admin.library write like "Mark as exported". The subtitle route is a
+    # GET, which skips the CSRF check, so only the app's own page (or a
+    # typed address) may cause the write, never a cross-site <img> or link;
+    # a browser that sends no Sec-Fetch-Site gets the file without the write.
+    if (holds(request, "admin.library")
+            and request.headers.get("sec-fetch-site") in ("same-origin", "none")):
         export_service.mark_exported_if_complete(drama_id, field)
 
 
