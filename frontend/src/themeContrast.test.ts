@@ -183,11 +183,17 @@ describe('text on frost glass over the wash', () => {
   }
 
   for (const [name, theme] of Object.entries(THEMES)) {
-    // --active only ever carries the checked segment's --accent-text label (frost.css), so --muted is not asked of it.
+    // --active only ever carries the checked segment's --active-text label, and sits on the .segmented control's --glass (frost.css).
     const FILLS: Record<string, string[]> = {
       '--glass': ['--text', '--muted', '--accent-text'],
       '--btn': ['--text', '--muted', '--accent-text'],
-      '--active': ['--text', '--accent-text'],
+      '--active': ['--active-text'],
+    }
+    const fgColour = (fg: string) => {
+      if (fg !== '--active-text') return resolve(theme, fg)
+      const ref = FROST[name]['--active-text']?.match(/^var\((--[\w-]+)\)$/)
+      expect(ref, `${name} --active-text`).toBeTruthy()
+      return resolve(theme, ref![1])
     }
     // The header is transparent over the wash at the top of a page, and "Connected" (14px, --ok) sits directly on it with no glass between;
     // scrolled, the bar's own backing is --bg, which the pair list above already covers.
@@ -203,8 +209,9 @@ describe('text on frost glass over the wash', () => {
           const value = FROST[name][fill]
           for (const wash of ['--wash-1', '--wash-2']) {
             const page = over(FROST[name][wash], 60, resolve(theme, '--bg'))
-            const under = value.startsWith('rgba') ? blend(value, page) : value
-            expect(contrast(resolve(theme, fg), under), `${wash} ${value}`).toBeGreaterThanOrEqual(4.5)
+            const base = fill === '--active' ? blend(FROST[name]['--glass'], page) : page
+            const under = value.startsWith('rgba') ? blend(value, base) : value
+            expect(contrast(fgColour(fg), under), `${wash} ${value}`).toBeGreaterThanOrEqual(4.5)
           }
         })
       }
