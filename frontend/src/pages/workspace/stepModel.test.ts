@@ -33,6 +33,11 @@ describe('titleSteps', () => {
     expect(s.every((x) => x.state === 'todo' && x.note === '')).toBe(true)
   })
 
+  it('shows no current step and no notes until it is known whether media is attached', () => {
+    const s = titleSteps({ ...base, audioReady: null })
+    expect(s.every((x) => x.state === 'todo' && x.note === '')).toBe(true)
+  })
+
   it('says how many lines the check queue holds once it is known', () => {
     const note = (riskCount: number | null | undefined) => titleSteps({ ...base, lineCount: 30, translatedCount: 30, riskCount })[3].note
     expect(note(undefined)).toBe('Read and fix the lines')
