@@ -198,6 +198,7 @@ def test_media_stream_permission_on_all_four_routes(isolated_db, did):
         return {"Cookie": f"{api_auth.COOKIE_NAME}={session['session_token']}",
                 api_auth.CSRF_HEADER: session["csrf_token"]}
     kid = auth_service.add_user("kid@example.com")
+    auth_service.revoke_permission(kid["id"], "media.stream")
     no = headers(auth_service.create_session(kid["id"]))
     viewer = auth_service.add_user("viewer@example.com")
     auth_service.grant_permission(viewer["id"], "media.stream")

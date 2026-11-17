@@ -97,8 +97,9 @@ def test_needs_media_stream(isolated_db, tmp_path):
     url = f"/api/library/voice-bank/{eid}/audio"
     assert c.get(url).status_code == 401
     u = auth_service.add_user("kid@example.com")
+    auth_service.revoke_permission(u["id"], "media.stream")
     kid = auth_service.create_session(u["id"])
-    assert c.get(url, headers=session_headers(kid)).status_code == 403     # household default: no media
+    assert c.get(url, headers=session_headers(kid)).status_code == 403
     auth_service.grant_permission(u["id"], "media.stream")
     assert c.get(url, headers=session_headers(kid)).status_code == 200
 

@@ -468,6 +468,7 @@ def test_media_stream_permission_on_listen_and_artifact_and_range(isolated_db, d
                 api_auth.CSRF_HEADER: session["csrf_token"], "Range": "bytes=0-9"}
     reader = auth_service.add_user("reader@example.com")
     auth_service.grant_permission(reader["id"], "library.read")  # not enough
+    auth_service.revoke_permission(reader["id"], "media.stream")
     no = hdrs(auth_service.create_session(reader["id"]))
     viewer = auth_service.add_user("viewer@example.com")
     auth_service.grant_permission(viewer["id"], "media.stream")
