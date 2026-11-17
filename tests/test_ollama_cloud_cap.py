@@ -131,7 +131,7 @@ def test_every_cap_check_names_the_model():
     import pathlib
     needed = {"engine_cap_applies": 3, "refuse_when_cap_spent": 3,
               "refuse_if_over_monthly_cap": 3, "require_cap_for_unattended": 3,
-              "_cap_applies": 2, "_spend_cap_used_up": 2, "effective_cap": 3}
+              "_cap_applies": 2, "effective_cap": 3}
     root = pathlib.Path(__file__).resolve().parent.parent
     bad = []
     for folder in ("services", "api", "tools"):

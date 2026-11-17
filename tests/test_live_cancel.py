@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
 from jobs import job_launch, job_table
-import live_translate as lt
+from live import live_translate as lt
 from services import job_stage_service
 from engine_backends import local
 from engine_backends.shared import TranslationCancelled

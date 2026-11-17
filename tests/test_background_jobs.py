@@ -831,7 +831,7 @@ class TestNotifyOnCompletion:
         job_settings.set_notify_on_completion(False)
         _restore_library(*self._library_state)
 
-    def test_off_by_default_no_notification_attempted(self, monkeypatch):
+    def test_turned_off_no_notification_attempted(self, monkeypatch):
         import sys
         import types
         fake_plyer = types.ModuleType("plyer")
@@ -842,7 +842,8 @@ class TestNotifyOnCompletion:
         monkeypatch.setitem(sys.modules, "plyer", fake_plyer)
         monkeypatch.setitem(sys.modules, "plyer.notification", fake_notification)
 
-        job_launch.start_job("t_notify_off", lambda: None, description="A job")  # off by default
+        job_settings.set_notify_on_completion(False)
+        job_launch.start_job("t_notify_off", lambda: None, description="A job")
         _wait("t_notify_off")
         # Give a late notification a fair chance to appear, or this would
         # pass without ever proving one didn't come.
@@ -1160,8 +1161,8 @@ class TestGpuLimitAndNotifySettingsPersist:
     def test_gpu_limit_defaults_true_when_never_set(self, isolated_db):
         assert job_settings.get_gpu_limit_enabled() is True
 
-    def test_notify_defaults_false_when_never_set(self, isolated_db):
-        assert job_settings.get_notify_on_completion() is False
+    def test_notify_defaults_true_when_never_set(self, isolated_db):
+        assert job_settings.get_notify_on_completion() is True
 
     def test_gpu_limit_read_fails_open_on_a_db_error(self, isolated_db, monkeypatch):
         def boom(*a, **k):

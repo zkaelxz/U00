@@ -263,7 +263,7 @@ def _live_whisper_not_loaded():
     """A Live job loads Whisper before it captures; no test may load a real
     model. The real function stays on `warm_up.real` for its own tests.
     Restores by hand, like the fixture below."""
-    import live_whisper
+    from live import live_whisper
     saved = live_whisper.warm_up
 
     def stub(*args, **kwargs):

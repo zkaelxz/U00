@@ -8,8 +8,8 @@ import pytest
 import background_jobs
 from jobs import job_launch, job_runner
 import whisper_transcribe
-import live_cue_feed
-import live_translate as lt
+from live import live_cue_feed
+from live import live_translate as lt
 
 
 class FakeEngine:

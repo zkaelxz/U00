@@ -72,7 +72,11 @@ DEFAULT_PROFILE = PacingProfile()
 
 def effective_level(profile: Optional[PacingProfile], level: Optional[str]) -> str:
     """The level that actually applies: unknown names and an unvetted `fast`
-    fall back to normal, so a stale saved value can never speed a source up."""
+    fall back to normal, so a stale saved value can never speed a source up.
+    A source nobody chose a level for (None) runs fast only when its profile
+    carries the evidence for it."""
+    if level is None:
+        return "fast" if profile and profile.fast_allowed else DEFAULT_LEVEL
     if level not in LEVELS:
         return DEFAULT_LEVEL
     if level == "fast" and not (profile and profile.fast_allowed):

@@ -516,6 +516,16 @@ def test_split_by_sentences_defaults_on_for_chinese_and_japanese(isolated_db, la
     assert bool(db.get_drama(d["id"])["split_by_sentences"]) is expected
 
 
+def test_new_title_starts_with_speaker_detection_on_and_older_titles_keep_theirs(isolated_db):
+    from services import transcribe_options_service
+    new = db.get_drama(ds.create_drama(source_language="zh")["id"])
+    assert transcribe_options_service.run_start(new)["run_diarize"] is True
+    assert transcribe_options_service.run_start_args(new) == {"run_diarize": True}
+    # A title made before the default changed has nothing saved and stays off.
+    older = db.get_drama(db.create_drama(title_en="Older", source_language="zh"))
+    assert transcribe_options_service.run_start(older)["run_diarize"] is False
+
+
 def test_metadata_title_with_nul_is_rejected(isolated_db):
     d = ds.create_drama(source_language="zh", title_en="T")
     with pytest.raises(InvalidInputError):
