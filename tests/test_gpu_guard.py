@@ -514,8 +514,12 @@ class TestWaitForRoom:
     def refused(self, notified):
         import memory_headroom
         calls = []
+        registered = threading.Event()
 
         def refuse():
+            # A refusal that lands before allow_restart has nothing to wait
+            # for and ends Failed; on a busy runner the job thread can get there first.
+            assert registered.wait(5)
             raise memory_headroom.HeadroomError("Not loading Whisper.", vram_need_mb=3072.0)
 
         def again():
@@ -524,6 +528,7 @@ class TestWaitForRoom:
         gpu_guard.tick(now=time.time(), reading=(2048.0, COOL))
         assert job_launch.start_job("room_a", refuse, gpu_touching=True)
         gpu_guard.allow_restart("room_a", again)
+        registered.set()
         assert _wait_for(lambda: _status("room_a") != "running")
         return calls
 
