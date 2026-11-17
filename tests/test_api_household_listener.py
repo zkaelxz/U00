@@ -633,6 +633,26 @@ class TestRemoteUploads:
         me = _household_client().get("/api/auth/me", headers=_h(s)).json()
         assert auth_service.UPLOAD_PERMISSION not in me["permissions"]
 
+    def test_sign_in_checks_never_run_on_the_event_loop(self, isolated_db, monkeypatch):
+        """Both early gates look the session up in SQLite; on the event loop a
+        slow database would stall every other request on the listener."""
+        _remote_uploads()
+        s = _admin_session()
+        on_loop = []
+        resolve = auth_service.resolve_session
+
+        def spy(token):
+            try:
+                asyncio.get_running_loop()
+                on_loop.append(True)
+            except RuntimeError:
+                on_loop.append(False)
+            return resolve(token)
+        monkeypatch.setattr(auth_service, "resolve_session", spy)
+        assert self._paste(s).status_code == 200
+        # EarlyAuthGate, RemoteUploadGate and the route's own permission check.
+        assert len(on_loop) >= 3 and not any(on_loop)
+
     def test_away_uploads_and_the_switch_are_in_the_activity_log(self, isolated_db):
         _remote_uploads()
         s = _admin_session()

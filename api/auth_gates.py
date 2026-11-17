@@ -12,6 +12,7 @@ import re
 from urllib.parse import urlsplit
 
 from fastapi import Request
+from starlette.concurrency import run_in_threadpool
 
 from api.security_headers import ADMIN_SECURITY_HEADERS, HOUSEHOLD_SECURITY_HEADERS, HSTS_VALUE, with_default_headers
 from lib import acting
@@ -149,7 +150,9 @@ class EarlyAuthGate:
         if self._is_local_only(scope):
             return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
         try:
-            _authenticate(request)
+            # The session lookup reads and writes SQLite; on the event loop a
+            # slow disk or a busy database would stall every other request.
+            await run_in_threadpool(_authenticate, request)
         except (UnauthenticatedError, ForbiddenError) as exc:
             status = 401 if isinstance(exc, UnauthenticatedError) else 403
             return await _json_refusal(status, exc.code, exc.message)(scope, receive, send)
