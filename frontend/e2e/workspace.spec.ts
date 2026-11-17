@@ -336,6 +336,9 @@ test('starts a transcription with the right body, polls the job and cancels it',
   await expect(page.getByRole('button', { name: /^Cancel / })).toHaveCount(0)
 })
 
+// The form's own message, not the one the field shows under its input as you type.
+const formAlert = (page: Page) => page.locator('[role="alert"]:not(.field-error)')
+
 test('an out-of-range option is caught before saving and a server 409 shows a banner', async ({ page }) => {
   await enableDeveloperMode(page)
   await page.route('**/api/transcribe/dramas/1/run', (route) =>
@@ -346,13 +349,13 @@ test('an out-of-range option is caught before saving and a server 409 shows a ba
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   await page.getByLabel('Beam size', { exact: true }).fill('11')
   await page.getByRole('button', { name: 'Save options' }).click()
-  await expect(page.getByRole('alert')).toContainText('Beam size')
+  await expect(formAlert(page)).toContainText('Beam size')
   // Running with the bad value is caught too, and nothing is sent.
   await openTranscribeOptions(page)
   const draft = page.getByLabel('Transcript text', { exact: true })
   if (await draft.count()) await draft.fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('Beam size')
+  await expect(formAlert(page)).toContainText('Beam size')
   await openAdvanced(page)
   await page.getByLabel('Beam size', { exact: true }).fill('5')
 
