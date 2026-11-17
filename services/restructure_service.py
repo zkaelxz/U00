@@ -40,7 +40,7 @@ import dataclasses
 import hashlib
 import json
 import threading
-from typing import Optional
+from typing import Callable, Optional
 
 import core as core_module
 import line_alignment
@@ -142,7 +142,7 @@ def note_ids(drama_id: int) -> set:
     return {n["id"] for n in db.list_translation_notes(drama_id)}
 
 
-def structural_write(drama_id: int, expected_line_ids, label, build,
+def structural_write(drama_id: int, expected_line_ids, label: str | Callable[[], str], build,
                      with_words: bool = False, keep_new_notes: bool = False):
     """load fresh -> check ids -> build(current) -> snapshot -> save, under
     the drama lock. build returns (new_lines, result_line_objects).
@@ -162,7 +162,8 @@ def structural_write(drama_id: int, expected_line_ids, label, build,
         # build works on copies so the snapshot sees the untouched lines
         work = [dataclasses.replace(ln, orig=dict(ln.orig), merged_ids=[]) for ln in current]
         new_lines, touched = build(work)
-        history_id = _commit(drama_id, current, new_lines, label() if callable(label) else label, known_note_ids=known,
+        label_text = label() if callable(label) else label
+        history_id = _commit(drama_id, current, new_lines, label_text, known_note_ids=known,
                              known_emotion_ids=known_emotions)
         handle = undo_handle(drama_id, history_id)
     return {"line_ids": [ln.id for ln in new_lines],
