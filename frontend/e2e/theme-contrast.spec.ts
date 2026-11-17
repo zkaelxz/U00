@@ -13,9 +13,10 @@ const SCREENS = [
 ]
 
 // What this check exists for must be on the screens it walks, or a green run proves nothing.
-const MUST_SEE = ['.pill', '.segmented label:has(input:checked)', '.stage-blocker', '.source-needed']
+// The header's view-mode switch is a segmented control on every screen with its own colours, so it does not count.
+const MUST_SEE = ['.pill', '.segmented:not(.view-mode-switch) label:has(input:checked)', '.stage-blocker', '.source-needed']
 
-type Scan = { problems: string[]; checked: number; seen: string[] }
+type Scan = { problems: string[]; checked: number; seen: string[]; drawn: string }
 
 /** Visible text whose colour is under WCAG AA (4.5:1, or 3:1 for large text) against its background. The background is
  *  the element's stack of background colours laid over the page colour, and over each wash blob at its strongest, so the
@@ -26,12 +27,15 @@ function scan(mustSee: string[]): Scan {
   canvas.width = canvas.height = 1
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!
   type Rgba = [number, number, number, number]
-  // The canvas turns any CSS colour (color-mix, color(srgb ...), named) into sRGB bytes; one it cannot read is an error,
-  // not black.
+  // The canvas turns any CSS colour (color-mix, color(srgb ...), named) into sRGB bytes. A value it cannot read leaves
+  // fillStyle as it was, so it is set over two different colours: if the results differ, the value was not read.
   const parse = (c: string): Rgba => {
-    ctx.fillStyle = '#010203'
+    ctx.fillStyle = '#000'
     ctx.fillStyle = c
-    if (ctx.fillStyle === '#010203' && c.trim() !== '#010203') throw new Error(`unreadable colour "${c}"`)
+    const first = ctx.fillStyle
+    ctx.fillStyle = '#fff'
+    ctx.fillStyle = c
+    if (ctx.fillStyle !== first) throw new Error(`unreadable colour "${c}"`)
     ctx.clearRect(0, 0, 1, 1)
     ctx.fillRect(0, 0, 1, 1)
     const d = ctx.getImageData(0, 0, 1, 1).data
@@ -49,12 +53,14 @@ function scan(mustSee: string[]): Scan {
   const root = getComputedStyle(document.documentElement)
   const page = parse(root.getPropertyValue('--bg'))
   // frost.css draws each wash blob at 60% at its centre.
-  const washes = ['--wash-1', '--wash-2'].map((name) => parse(root.getPropertyValue(name)))
+  const washes = ['--wash-1', '--wash-2'].map((name) => root.getPropertyValue(name).trim()).filter(Boolean).map(parse)
     .filter((w) => w[3] > 0).map((w) => over([w[0], w[1], w[2], 0.6], page))
   const bases = [page, ...washes]
 
   const problems: string[] = []
   let checked = 0
+  let drawn = ''
+  const measured = new Set<string>()
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
   while (walker.nextNode()) {
     const node = walker.currentNode
@@ -64,14 +70,16 @@ function scan(mustSee: string[]): Scan {
     const range = document.createRange()
     range.selectNodeContents(node)
     const box = range.getBoundingClientRect()
-    let el = node.parentElement
+    // Colour, font and attributes are the text's own parent's; the background walk starts at the nearest element with a box.
+    const own = node.parentElement
+    let el = own
     while (el && getComputedStyle(el).display === 'contents') el = el.parentElement
-    if (!el || !box.width || !box.height) continue
-    const style = getComputedStyle(el)
+    if (!own || !el || !box.width || !box.height) continue
+    const style = getComputedStyle(own)
     if (style.visibility === 'hidden') continue
-    if (el.closest('[disabled], [aria-disabled="true"], [aria-hidden="true"], option')) continue
+    if (own.closest('[disabled], [aria-disabled="true"], [aria-hidden="true"], option')) continue
     let opacity = 1
-    for (let a: Element | null = el; a; a = a.parentElement) opacity *= parseFloat(getComputedStyle(a).opacity)
+    for (let a: Element | null = own; a; a = a.parentElement) opacity *= parseFloat(getComputedStyle(a).opacity)
     if (opacity === 0) continue
     const layers: Rgba[] = []
     let onPicture = false
@@ -84,6 +92,8 @@ function scan(mustSee: string[]): Scan {
     }
     if (onPicture) continue
     checked++
+    drawn += `${text}|`
+    for (const sel of mustSee) if (own.closest(sel)) measured.add(sel)
     let worst = Infinity
     for (const base of bases) {
       const bg = layers.reduceRight<Rgba>((below, layer) => over(layer, below), base)
@@ -97,13 +107,14 @@ function scan(mustSee: string[]): Scan {
       problems.push(`${worst.toFixed(2)}:1 "${text.slice(0, 40)}" <${el.tagName.toLowerCase()} class="${el.getAttribute('class') ?? ''}">`)
     }
   }
-  return { problems, checked, seen: mustSee.filter((sel) => document.querySelector(sel)) }
+  return { problems, checked, seen: [...measured], drawn }
 }
 
 for (const theme of THEMES) {
   test(`text is readable on every screen in the ${theme} theme`, async ({ page }) => {
     test.setTimeout(120_000)
-    if (theme !== 'system') await page.addInitScript((t) => localStorage.setItem('baihe.theme', t), theme)
+    // about:blank has no storage, and setItem throws there.
+    if (theme !== 'system') await page.addInitScript((t) => { if (location.protocol !== 'about:') localStorage.setItem('baihe.theme', t) }, theme)
     // Screens fade in, and mid-fade text would be measured at a fraction of its colour; reduced motion turns the fades off.
     await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })
     const seen = new Set<string>()
@@ -114,14 +125,15 @@ for (const theme of THEMES) {
       await page.getByRole('heading', { level: 1 }).first().waitFor()
       if (theme === 'system') await expect(page.locator('html')).not.toHaveAttribute('data-theme', /.*/)
       else await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
-      // Polled until two reads in a row measure the same amount of text: a screen still filling in from the API (a loading
-      // line, a half-drawn card) must neither fail the check nor pass it before its badges and boxes are drawn.
-      let last: Scan = { problems: [], checked: -1, seen: [] }
+      // Polled until two reads 0.4 s apart measure the same text: a screen still filling in from the API (a loading line, a
+      // half-drawn card) must neither fail the check nor pass it before its badges and boxes are drawn. The API's event
+      // stream stays open, so the network never goes idle to wait on instead.
+      let last: Scan = { problems: [], checked: 0, seen: [], drawn: '\0' }
       await expect.poll(async () => {
-        const before = last.checked
+        const before = last.drawn
         last = await page.evaluate(scan, MUST_SEE)
-        return last.checked === before ? last.problems : ['still drawing']
-      }, { message: `${hash}: text under 4.5:1 (3:1 when large)`, timeout: 8_000 }).toEqual([])
+        return last.drawn === before ? last.problems : ['still drawing']
+      }, { message: `${hash}: text under 4.5:1 (3:1 when large)`, timeout: 10_000, intervals: [400] }).toEqual([])
       expect(last.checked, `${hash}: no text was measured`).toBeGreaterThan(5)
       last.seen.forEach((sel) => seen.add(sel))
     }
