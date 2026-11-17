@@ -117,9 +117,9 @@ def _line_language(drama: dict, line) -> str:
     return line.lang or drama.get("source_language") or "zh"
 
 
-def run(fn, meter=None):
+def run(fn, meter=None, engine=None):
     """meter: (engine, operation, drama_id), so the call reaches the usage log,
-    failed requests included."""
+    failed requests included. engine: names it in a failure when no meter is given."""
     try:
         if meter is None:
             return fn()
@@ -129,7 +129,7 @@ def run(fn, meter=None):
     except ServiceError:
         raise
     except Exception as e:
-        name = getattr(meter[0], "name", "") if meter else ""
+        name = getattr(meter[0] if meter else engine, "name", "")
         raise engine_failure_service.engine_failure(e, name, engine_failure_service.ENGINE_FAILED) from None
 
 

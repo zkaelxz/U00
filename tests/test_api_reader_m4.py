@@ -999,6 +999,21 @@ def test_a_failed_ask_still_writes_a_usage_row(client, drama, monkeypatch):
     assert row["operation"] == "reader_ask" and row["estimated_cost_usd"] == 0
 
 
+def test_a_failed_ask_names_the_engine_and_why(client, drama, monkeypatch):
+    import qa
+    import requests
+    _paid(monkeypatch)
+
+    def slow(*a, **k):
+        raise requests.ReadTimeout("read timed out")
+    monkeypatch.setattr(qa, "ask_about_drama", slow)
+    r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"})
+    # A requests error is an OSError too; it is the engine's, not a local file step's.
+    assert r.status_code == 503
+    assert r.json()["error"]["details"]["reason"] == "timed_out"
+    assert r.json()["error"]["message"] == "Claude took too long to answer. Try again."
+
+
 def test_a_local_ollama_ask_is_not_held_to_a_spent_cap(client, drama, monkeypatch):
     import qa
     from services import translate_run_service

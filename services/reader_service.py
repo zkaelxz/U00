@@ -51,6 +51,8 @@ Permission contract for routes (user decision, 2026-09-29):
 import os
 import re
 
+import requests
+
 import core as core_module
 from lib import ids as lib_ids
 import db
@@ -267,9 +269,9 @@ def llm_engine(engine_name=None, model=None):
     return engine
 
 
-def _run_engine(fn, meter=None):
+def _run_engine(fn, meter=None, engine=None):
     """meter: (engine, operation, drama_id) for a paid call, so its usage is
-    logged whether or not it worked."""
+    logged whether or not it worked. engine: names it in a failure when no meter is given."""
     import dictionary
     try:
         if meter is None:
@@ -280,10 +282,13 @@ def _run_engine(fn, meter=None):
         raise
     except dictionary.CedictDownloadError as e:  # already user-ready, not an engine failure
         raise DependencyUnavailableError(str(e)) from None
-    except OSError:  # local work (e.g. the CEDICT cache): no path out
-        raise ServiceError("A local dictionary or file step failed; see the app log.") from None
     except Exception as e:
-        name = getattr(meter[0], "name", "") if meter else ""
+        # requests' errors and socket timeouts are OSErrors too, but they are the engine's.
+        if isinstance(e, OSError) and not isinstance(
+                e, (requests.RequestException, ConnectionError, TimeoutError)):
+            # Local work (e.g. the CEDICT cache): no path out.
+            raise ServiceError("A local dictionary or file step failed; see the app log.") from None
+        name = getattr(meter[0] if meter else engine, "name", "")
         raise engine_failure_service.engine_failure(e, name, engine_failure_service.ENGINE_FAILED) from None
 
 
@@ -812,7 +817,8 @@ def ask_about_drama(drama_id: int, question: str, chat_history: list | None = No
     logged = []
     try:
         answer = _run_engine(lambda: qa.ask_about_drama(
-            question, lines, drama, engine, chat_history=history, usage_cb=logged.append))
+            question, lines, drama, engine, chat_history=history, usage_cb=logged.append),
+            engine=engine)
     finally:
         # Written for a failed request too: a paid provider may have billed it.
         paid_calls.record_chat_calls(engine, name, "reader_ask", logged, drama_id=drama_id)
