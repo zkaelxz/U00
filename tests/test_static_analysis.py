@@ -90,7 +90,7 @@ class TestHttpCallsHaveTimeouts:
         # urlopen or session.request in one of them from going untimed.
         files = _py_files_under("engine_backends")
         files += [os.path.join(PROJECT_ROOT, n) for n in (
-            "bulk_translate.py", "dub.py", "navigator.py", "page_fetch.py", "title_library.py",
+            "bulk/bulk_translate.py", "dub.py", "navigator.py", "page_fetch.py", "title_library.py",
             "core.py", "whisper_transcribe.py", "diagnostics.py", "dependency_updates.py",
             "diagnostics_report.py", "memory_headroom.py", "video_download.py",
             "sources/pipeline.py", "sources/front_door.py", "sources/generic_import.py",
@@ -562,10 +562,10 @@ def _repo_modules():
     return names
 
 
-# Folders of former root modules that import each other with jobs/ or
-# engine_backends/, so they can't join the .importlinter layers; their
-# files get the root modules' checks instead.
-ROOT_MODULE_FOLDERS = ("live",)
+# Folders of former root modules that can't join the .importlinter layers
+# yet (live/ imports each other with jobs/ and engine_backends/; bulk/ still
+# imports services/ upward), so their files get the root modules' checks.
+ROOT_MODULE_FOLDERS = ("live", "bulk")
 
 
 def _root_module_files():
@@ -620,8 +620,8 @@ class TestLayering:
     # checked here, against the wrong-way imports that existed on 2026-11-15.
     # Remove an entry when you fix it; never add one.
     KNOWN_ROOT_IMPORTS_UP = {
-        "bulk_poll -> services.auth_service",
-        "bulk_poll -> services.line_provenance_service",
+        "bulk.bulk_poll -> services.auth_service",
+        "bulk.bulk_poll -> services.line_provenance_service",
         "debug_view -> services.line_provenance_service",
         "ollama_unload -> services.settings_service",
         "translation_finish -> services.line_provenance_service",

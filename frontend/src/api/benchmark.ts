@@ -225,6 +225,9 @@ export const deleteBenchmarkRun = (id: number, f?: Fetch) =>
 /** Download links: the setup, scores and each case's output for a run, or for runs compared on their shared cases. */
 export const runExportUrl = (id: number, format: BenchmarkExportFormat) => apiUrl(`${BASE}/runs/${id}/export?format=${format}`)
 
+/** Every line marked wrong or mixed, across the titles you can see, for comparing engines on them. */
+export const markedLinesExportUrl = (format: BenchmarkExportFormat) => apiUrl(`${BASE}/marked-lines/export?format=${format}`)
+
 export function arenaExportUrl(runIds: number[], format: BenchmarkExportFormat) {
   const params = new URLSearchParams()
   runIds.forEach((id) => params.append('run_ids', String(id)))

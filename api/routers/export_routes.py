@@ -17,8 +17,8 @@ writes).
 
 from typing import Optional
 
-from fastapi import APIRouter, Path, Query, Response
-from api.auth import require_permission
+from fastapi import APIRouter, Path, Query, Request, Response
+from api.auth import holds, require_permission
 from api.schemas import (AssExportRequest, AssStyleOptions, AutoQcFlagResult, DubbedVideoRequest,
                          ExportReadiness, FlagActionResult, MarkExportedResult,
                          MediaExportStarted, ReadingSpeedMode, ReadingSpeedModeUpdate,
@@ -28,6 +28,19 @@ from services import export_service, media_export_service
 router = APIRouter(prefix="/api/export", tags=["export"])
 
 _MAX_LONG_CUES_REPORTED = 50
+
+
+def _mark_exported_if_allowed(request: Request, drama_id: int, field: str) -> None:
+    # Downloading needs only lines.read, but a status change is an
+    # admin.library write like "Mark as exported". The subtitle route is a
+    # GET, which skips the CSRF check, so only the app's own page (or a
+    # typed address) may cause the write, never a cross-site <img> or link;
+    # a browser that sends no Sec-Fetch-Site gets the file without the write.
+    if (holds(request, "admin.library")
+            and request.headers.get("sec-fetch-site") in ("same-origin", "none")):
+        export_service.mark_exported_if_complete(drama_id, field)
+
+
 _MEDIA_TYPES = {"srt": "application/x-subrip", "vtt": "text/vtt", "lrc": "text/plain; charset=utf-8"}
 
 
@@ -42,6 +55,7 @@ def get_export_readiness(drama_id: int = Path(ge=1)):
             summary="Generate SRT/VTT/LRC subtitle text for one drama (plain-text download)",
             responses=error_responses(404, 409, 422))
 def get_subtitle_text(
+        request: Request,
         drama_id: int = Path(ge=1),
         fmt: str = Query("srt", pattern="^(srt|vtt|lrc)$"),
         field: str = Query("en", pattern="^(en|zh|bilingual)$"),
@@ -53,6 +67,7 @@ def get_subtitle_text(
     result = export_service.generate_subtitle_export(
         drama_id, fmt, field, include_notes=include_notes, speaker_names=speaker_names,
         wrap_chars_en=wrap_chars_en, wrap_chars_source=wrap_chars_source, tidy_timing=tidy_timing)
+    _mark_exported_if_allowed(request, drama_id, field)
     extra = {"X-Cue-Fps": f"{result['fps']:.3f}".rstrip("0").rstrip(".")} if result["fps"] else {}
     return Response(
         content=result["text"], media_type=_MEDIA_TYPES[fmt],
@@ -119,13 +134,14 @@ def get_epub(drama_id: int = Path(ge=1), field: str = Query("en", pattern="^(en|
 @router.post("/dramas/{drama_id}/ass", dependencies=[require_permission("lines.read")],
              summary="Generate ASS subtitle text for one drama (plain-text download)",
              responses=error_responses(404, 422))
-def post_ass_text(req: AssExportRequest, drama_id: int = Path(ge=1)):
+def post_ass_text(request: Request, req: AssExportRequest, drama_id: int = Path(ge=1)):
     style = req.style.model_dump(exclude_unset=True) if req.style is not None else None
     text = export_service.generate_ass_text(
         drama_id, field=req.field, style=style, preset=req.preset,
         speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
         include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
         wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source)
+    _mark_exported_if_allowed(request, drama_id, req.field)
     return Response(
         content=text, media_type="text/x-ssa; charset=utf-8",
         headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, req.field, "ass")})

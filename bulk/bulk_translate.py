@@ -26,7 +26,7 @@ from lib import clock
 import hashlib
 import json
 
-from bulk_providers import make_provider, next_deepseek_offpeak_start
+from bulk.bulk_providers import make_provider, next_deepseek_offpeak_start
 import db
 import emotion
 import source_change

@@ -4,10 +4,10 @@ applying each stage's results and submitting the next stage.
 """
 import uuid
 
-from bulk_apply import (junk_check, flag_rejected, require_bulk_job, _load_apply_context, _log_generic_usage, _parse_strict,
+from bulk.bulk_apply import (junk_check, flag_rejected, require_bulk_job, _load_apply_context, _log_generic_usage, _parse_strict,
                         _save_applied_english, _save_flags, _stale_line)
-from bulk_providers import make_provider
-from bulk_translate import (_character_names, _copy_english_lines, _require_batch_engine, _target_lines,
+from bulk.bulk_providers import make_provider
+from bulk.bulk_translate import (_character_names, _copy_english_lines, _require_batch_engine, _target_lines,
                             request_key, zh_hash)
 from engine_backends.medium_prompts import kind_for
 import db

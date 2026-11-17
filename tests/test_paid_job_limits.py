@@ -13,9 +13,9 @@ import pytest
 
 import background_jobs
 from jobs import job_launch, job_runner
-import bulk_providers
-import bulk_poll
-import bulk_translate
+from bulk import bulk_providers
+from bulk import bulk_poll
+from bulk import bulk_translate
 import db
 from engine_backends import translate_pipeline, reflect_pass, engine_registry
 from core import Line

@@ -170,8 +170,7 @@ def test_the_style_text_carries_the_marker_the_switch_looks_for():
 
 
 def test_a_bulk_request_hides_he_and_opens_with_the_note():
-    import bulk_translate
-
+    from bulk import bulk_translate
     class Provider:
         def build_request(self, key, ctx, numbered):
             return prompts.build_batch_user_message(ctx, numbered)
