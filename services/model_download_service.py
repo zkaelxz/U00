@@ -13,6 +13,7 @@ time, and "downloaded" is the same cache check a run's readiness test uses
 """
 
 import functools
+import os
 
 import background_jobs
 import model_pins
