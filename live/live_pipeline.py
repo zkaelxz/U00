@@ -14,8 +14,8 @@ import threading
 import time
 
 import background_jobs
-import live_cue_feed
-import live_whisper
+from live import live_cue_feed
+from live import live_whisper
 
 # Chunks waiting for translation behind the one being translated. Beyond this the
 # oldest waiting chunk is shown untranslated: the queue never grows without bound

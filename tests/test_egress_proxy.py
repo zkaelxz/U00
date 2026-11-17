@@ -23,8 +23,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import live_fetch
-import live_translate
+from live import live_fetch
+from live import live_translate
 from engine_backends import shared
 from services import egress_proxy, live_service
 from lib import url_guard

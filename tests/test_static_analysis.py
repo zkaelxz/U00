@@ -124,7 +124,7 @@ class TestHttpCallsHaveTimeouts:
     def test_live_fetch(self):
         # The live stream fetcher's GETs run on a background thread for the
         # whole session; its stall handling relies on the read timeout.
-        path = os.path.join(PROJECT_ROOT, "live_fetch.py")
+        path = os.path.join(PROJECT_ROOT, "live", "live_fetch.py")
         assert _find_requests_calls_missing_timeout(path, session_verbs=True) == []
         assert "session.get(" in open(path, encoding="utf-8").read(), \
             "the timeout check no longer sees the fetcher's GET"
@@ -562,9 +562,18 @@ def _repo_modules():
     return names
 
 
+# Folders of former root modules that import each other with jobs/ or
+# engine_backends/, so they can't join the .importlinter layers; their
+# files get the root modules' checks instead.
+ROOT_MODULE_FOLDERS = ("live",)
+
+
 def _root_module_files():
-    return sorted(os.path.join(PROJECT_ROOT, e) for e in os.listdir(PROJECT_ROOT)
-                  if e.endswith(".py") and e != "__init__.py")
+    roots = [os.path.join(PROJECT_ROOT, e) for e in os.listdir(PROJECT_ROOT)
+             if e.endswith(".py") and e != "__init__.py"]
+    for folder in ROOT_MODULE_FOLDERS:
+        roots += _py_files_under(folder)
+    return sorted(roots)
 
 
 def _dotted(path):

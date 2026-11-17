@@ -8,8 +8,8 @@ import pytest
 
 import background_jobs
 import db
-import live_translate
-from live_cue_translation import CueTranslator
+from live import live_translate
+from live.live_cue_translation import CueTranslator
 from services import live_service, translate_run_service, translate_service
 from lib.errors import UnsupportedOperationError
 from tests.test_live_service import _start, _terminal, live  # noqa: F401  (the live fixture)

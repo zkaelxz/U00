@@ -25,9 +25,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import live_pipeline
-import live_resolve
-import live_translate as lt
+from live import live_pipeline
+from live import live_resolve
+from live import live_translate as lt
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
 
@@ -1006,7 +1006,7 @@ class TestCaptureEndings:
             background_jobs.clear_job(job_id)
 
     def test_a_fetch_failure_is_a_job_error_with_its_fixed_message(self, monkeypatch):
-        import live_fetch
+        from live import live_fetch
         with pytest.raises(lt.LiveCaptureError) as exc:
             self._run(monkeypatch, _Capture(error=live_fetch.STALLED, code=0), "test_live_fail")
         assert str(exc.value) == live_fetch.STALLED

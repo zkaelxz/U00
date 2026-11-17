@@ -8,10 +8,10 @@ import os
 from collections.abc import Callable
 from typing import Any
 
-import live_audio
-import live_cue_feed
-import live_pipeline
-import live_whisper
+from live import live_audio
+from live import live_cue_feed
+from live import live_pipeline
+from live import live_whisper
 
 # Whisper's initial_prompt has a real, hard limit (roughly the last 224
 # tokens) -- capping what's carried forward here to a generous but bounded
