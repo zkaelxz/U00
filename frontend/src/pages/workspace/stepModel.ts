@@ -24,8 +24,9 @@ export interface Step {
 }
 
 export function titleSteps(i: StepInput): Step[] {
-  const known = i.lineCount !== null && i.audioReady !== null
   const lines = i.lineCount ?? 0
+  // With lines, Add is done whatever the media answer says, so only a title without lines waits for it.
+  const known = i.lineCount !== null && (i.audioReady !== null || lines > 0)
   const allTranslated = lines > 0 && i.translatedCount >= lines
   const left = lines - i.translatedCount
   const rows: { key: StepKey; title: string; note: string; done: boolean }[] = [

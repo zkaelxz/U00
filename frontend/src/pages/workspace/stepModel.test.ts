@@ -33,9 +33,13 @@ describe('titleSteps', () => {
     expect(s.every((x) => x.state === 'todo' && x.note === '')).toBe(true)
   })
 
-  it('shows no current step and no notes until it is known whether media is attached', () => {
+  it('shows no current step and no notes on a title without lines until it is known whether media is attached', () => {
     const s = titleSteps({ ...base, audioReady: null })
     expect(s.every((x) => x.state === 'todo' && x.note === '')).toBe(true)
+  })
+
+  it('does not wait for the media answer once the title has lines', () => {
+    expect(states({ ...base, audioReady: null, lineCount: 30 })).toEqual(['add:done', 'transcribe:done', 'translate:current', 'check:todo', 'export:todo'])
   })
 
   it('says how many lines the check queue holds once it is known', () => {
