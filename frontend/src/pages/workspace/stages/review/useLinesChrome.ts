@@ -24,7 +24,7 @@ export function useScrollCollapse(isPhone: boolean): boolean {
 }
 
 // Rows keep clear of the sticky toolbar through scroll-margin-top, which follows its measured height. The list card's top
-// is published too, so the card can reach the window's bottom when its rows are few (review.css, 1400px and wider).
+// is published too, so the card can reach the window's bottom when its rows are few (review.css, 1100px and wider).
 // Runs after every render because the toolbar element is replaced when the empty-drama state flips.
 export function useToolbarHeight(sectionRef: RefObject<HTMLElement | null>) {
   useEffect(() => {
