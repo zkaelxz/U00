@@ -12,6 +12,9 @@ from api.server import create_app
 from fastapi.testclient import TestClient
 from services import cover_art_service
 
+# Taken at import, before the suite-wide fixture swaps the module's function for a no-op.
+_REAL_MAKE_IF_MISSING = cover_art_service.make_cover_if_missing
+
 
 
 @pytest.fixture
@@ -64,6 +67,7 @@ def test_missing_ffmpeg_is_reported(client, monkeypatch):
 
 
 def test_make_cover_if_missing_never_raises_and_keeps_an_existing_cover(isolated_db, monkeypatch):
+    monkeypatch.setattr(cover_art_service, "make_cover_if_missing", _REAL_MAKE_IF_MISSING)  # the suite-wide switch-off
     did = db.create_drama(title_en="D")
     assert cover_art_service.make_cover_if_missing(did) is False  # no video: swallowed
     db.update_drama(did, cover_art_filename="cover.png")
@@ -74,7 +78,6 @@ def test_make_cover_if_missing_never_raises_and_keeps_an_existing_cover(isolated
 
 def test_installing_a_video_makes_a_cover_and_a_failed_frame_does_not_fail_the_install(isolated_db, monkeypatch, tmp_path):
     from services import media_upload_service
-    monkeypatch.undo()  # the suite-wide switch-off: this test wants the real hook
     did = db.create_drama(title_en="D")
     made = []
     monkeypatch.setattr(cover_art_service, "make_cover_if_missing", lambda d: made.append(d))
@@ -83,7 +86,7 @@ def test_installing_a_video_makes_a_cover_and_a_failed_frame_does_not_fail_the_i
     names = media_upload_service.install_media(did, {"source_video_filename": (str(src), "source", ".mp4")})
     assert names == {"source_video_filename": "source.mp4"} and made == [did]
     # the real call on a file ffmpeg can't read: swallowed, title unchanged
-    monkeypatch.undo()
+    monkeypatch.setattr(cover_art_service, "make_cover_if_missing", _REAL_MAKE_IF_MISSING)
     src2 = tmp_path / "up2.mp4"
     src2.write_bytes(b"still not a video")
     media_upload_service.install_media(did, {"source_video_filename": (str(src2), "source2", ".mp4")})

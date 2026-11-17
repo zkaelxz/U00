@@ -433,11 +433,6 @@ def audio_mode_for_upload(drama_id, transcript_text):
         raise
 
 
-def _auto_cover(drama_id) -> None:
-    """The one call the install makes for a picture, so tests that install fake video bytes can switch it off."""
-    cover_art_service.make_cover_if_missing(drama_id)
-
-
 def install_media(drama_id, new_files, transcribe_new_audio=False, origin_link=None,
                   discard_replaced=False, **fields):
     """Puts new media in place for drama_id. new_files maps a DB field
@@ -508,7 +503,7 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, origin_link=N
     if fields["audio_filename"] != old.get("audio_filename"):
         storage.drop_separated_vocals(ddir)
     if fields.get("source_video_filename"):
-        _auto_cover(drama_id)
+        cover_art_service.make_cover_if_missing(drama_id)
     return {f: fields[f] for f in new_files}
 
 

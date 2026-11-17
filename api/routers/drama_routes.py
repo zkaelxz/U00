@@ -153,7 +153,9 @@ async def post_cover(request: Request, drama_id: int = Path(ge=1)):
         await form.close()
 
 
-@router.post("/{drama_id}/cover/from-video", dependencies=[require_permission("media.upload")], response_model=CoverArtResult,
+# admin.library, not media.upload: nothing is uploaded (the frame comes from the title's own file), so the
+# remote-uploads switch and its upload size limits do not apply.
+@router.post("/{drama_id}/cover/from-video", dependencies=[require_permission("admin.library")], response_model=CoverArtResult,
              summary="Make the cover from one frame of the title's own video",
              responses=error_responses(404, 422, 503))
 async def post_cover_from_video(drama_id: int = Path(ge=1)):

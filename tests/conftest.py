@@ -229,11 +229,15 @@ def _fake_engine_installed():
 
 
 @pytest.fixture(autouse=True)
-def _no_automatic_cover(monkeypatch):
+def _no_automatic_cover():
     """Installing a fake video would otherwise launch real ffmpeg for the cover; tests/test_cover_from_video.py
-    puts the real call back."""
-    from services import media_upload_service
-    monkeypatch.setattr(media_upload_service, "_auto_cover", lambda drama_id: None)
+    puts the real call back. Set by hand, not with `monkeypatch`: asking for it here changes the order other
+    autouse fixtures patch in, and tests/test_model_pins.py and test_whisper_loading.py depend on that order."""
+    from services import cover_art_service
+    real = cover_art_service.make_cover_if_missing
+    cover_art_service.make_cover_if_missing = lambda drama_id: False
+    yield
+    cover_art_service.make_cover_if_missing = real
 
 
 @pytest.fixture(autouse=True)
