@@ -169,6 +169,17 @@ test('lists, filters, searches and edits a line against the real API', async ({ 
   await expect(page.getByTestId('line-flag')).toHaveCount(0)
 })
 
+test('opening a translation puts the caret at its end, and a later click still places it', async ({ page }) => {
+  await open(page)
+  const row = rows(page).nth(0)
+  await row.getByTestId('line-en').click()
+  const box = row.getByLabel('Translation')
+  await expect(box).toBeFocused()
+  expect(await box.evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.value.length])).toEqual([11, 11])
+  await box.click({ position: { x: 3, y: 8 } })
+  expect(await box.evaluate((el: HTMLTextAreaElement) => el.selectionStart)).toBe(0)
+})
+
 test('moving to another line saves a dirty draft first', async ({ page }) => {
   const saves: unknown[] = []
   page.on('request', (r) => {

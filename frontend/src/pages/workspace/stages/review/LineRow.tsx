@@ -254,9 +254,11 @@ function savesOnBlur(e: FocusEvent<HTMLLIElement>, editable: boolean): boolean {
 // A pressed Save or Cancel keeps focus in the box: otherwise the blur saves first, so Save
 // sends a second request and Cancel never gets to warn (Safari and iOS give no relatedTarget).
 // autoFocus puts the caret at 0; editing a translation usually means adding to or fixing its end.
-export const caretToEnd = (e: FocusEvent<HTMLTextAreaElement>) => {
-  const { length } = e.currentTarget.value
-  e.currentTarget.setSelectionRange(length, length)
+// Only when the box opens: on every focus it would undo a click placed mid-text or a select-all.
+export const caretToEnd = (el: HTMLTextAreaElement | null) => {
+  if (!el) return
+  const { length } = el.value
+  el.setSelectionRange(length, length)
 }
 
 const keepFocusInBox = (e: MouseEvent<HTMLElement>) => e.preventDefault()
@@ -480,7 +482,7 @@ function LineEnglish({ line, draft, discardWarning, isPhone, active, actions, on
       <textarea
         aria-label="Translation"
         autoFocus
-        onFocus={caretToEnd}
+        ref={caretToEnd}
         enterKeyHint="next"
         data-field="en"
         value={draft.en}
