@@ -557,7 +557,10 @@ if %_tries% GEQ 60 (
     if not defined BAIHE_NOPAUSE pause
     exit /b 1
 )
-timeout /t 1 /nobreak >nul
+REM Not `timeout`: it refuses to run when stdin is redirected, as it is for
+REM the restart after Update Baihe, and the loop would then spin with no pause.
+REM Two pings to the local machine take about a second.
+ping -n 2 127.0.0.1 >nul
 goto :wait_loop
 
 REM --- Open its own window (Edge app mode, falling back down) ---------------
