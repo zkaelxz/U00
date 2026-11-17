@@ -554,6 +554,13 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
     return result_map
 
 
+# Ollama's JSON schema lets a string end only at a plain double quote, so a model
+# that opens a quoted title ("about "L's World"") has its line closed right there:
+# "I'm curious about ", "Oh, ". The cut leaves a Latin letter, digit or comma and
+# then ASCII spaces; anything else (CJK targets, a dash, an emoji) is left alone.
+_CUT_AT_QUOTE = re.compile(r"[A-Za-z0-9,]\x20+\Z")
+
+
 def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
                                      line_ids=None, engine_name: str | None = None, line_languages=None,
                                      sentence_groups=None, recover_replies: bool = False,
@@ -638,6 +645,8 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
         p = pos[int(key)]
         if _echoed_label(value, key, speaker_names[p] if speaker_names else None):
             return "copied the prompt's numbering or speaker"
+        if _CUT_AT_QUOTE.search(value):
+            return "cut off where a quote mark began"
         return unusable_reply(zh_lines[p], value, allowed_runs)
 
     still_rejected = {}

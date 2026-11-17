@@ -10,7 +10,7 @@ No FastAPI import.
 import json
 
 import db
-import voice_id
+from voice import voice_id
 from lib import ids as lib_ids
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services import ownership_service

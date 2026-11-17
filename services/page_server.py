@@ -367,7 +367,7 @@ def _lines_without_english(bubbles) -> list:
     """The lines translation should have covered but left empty: text read, not skipped, not a
     sound effect left to the art. A partly answered reply (a short line, a name the model dropped)
     ends up here."""
-    import scanlate_regions
+    from scanlate import scanlate_regions
     return [b for b in bubbles
             if not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
             and (b.get("source_text") or "").strip() and not (b.get("translated_text") or "").strip()]
@@ -379,8 +379,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     seconds spent. Notes are appended for a failure, no engine, or lines still empty after the
     retry, so they are counted rather than silently shown as the source text."""
     import db
-    import scanlate_translate
-
+    from scanlate import scanlate_translate
     engine = _build_engine(config)
     if not bubbles:
         return 0.0
@@ -473,7 +472,7 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
     """The cleaned, typeset page as a data: URL for an overlay-only page (nothing is
     stored, so there is no library page to render from), or "" when it cannot be sent.
     The page keeps its plain boxes then, so a failure here only costs the nicer picture."""
-    import scanlate_render
+    from scanlate import scanlate_render
     from services import settings_service
     if not any((b.get("translated_text") or "").strip() and not b.get("skip") for b in bubbles):
         return ""
@@ -507,8 +506,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     against the other pages of the same request.
     """
     import db
-    import scanlate
-
+    from scanlate import scanlate
     if not data:
         raise EndpointError(400, "the image was empty")
     if len(data) > MAX_IMAGE_BYTES:
@@ -957,7 +955,7 @@ def warm_models_soon() -> bool:
     def run():
         from applog import get_logger
         try:
-            import scanlate
+            from scanlate import scanlate
             with PIPELINE_LOCK:
                 warmed = scanlate.warm_models(get_translation_config().get("detect_backend") or "auto")
             if warmed:

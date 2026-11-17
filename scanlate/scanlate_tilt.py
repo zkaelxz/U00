@@ -5,8 +5,7 @@ import math
 import numpy as np
 from PIL import Image
 
-import scanlate_tuning
-
+from scanlate import scanlate_tuning
 log = logging.getLogger(__name__)
 
 

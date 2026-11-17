@@ -5,11 +5,9 @@ import threading
 import pytest
 
 from services import page_server
-import scanlate
-import scanlate_detect
-import scanlate_lama
-
-
+from scanlate import scanlate
+from scanlate import scanlate_detect
+from scanlate import scanlate_lama
 @pytest.fixture
 def models(monkeypatch):
     state = {"detector_cached": True, "eraser_cached": True, "detect": [], "erase": []}

@@ -7,8 +7,8 @@ pytest.importorskip("httpx")
 pytest.importorskip("PIL")
 
 import db
-import scanlate
-import scanlate_translate
+from scanlate import scanlate
+from scanlate import scanlate_translate
 from engine_backends import llm_tasks
 from lib.errors import ConflictError
 from services import scanlate_pages_service as pages_svc

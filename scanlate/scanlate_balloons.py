@@ -2,8 +2,8 @@
 
 import numpy as np
 
-import scanlate_tuning
-from scanlate_page_decode import page_bgr, page_gray
+from scanlate import scanlate_tuning
+from scanlate.scanlate_page_decode import page_bgr, page_gray
 
 
 # ---------------------------------------------------------------------------

@@ -5,14 +5,12 @@ import pytest
 cv2 = pytest.importorskip("cv2")
 
 import ocr_layout
-import scanlate
-import scanlate_detect
-import scanlate_balloons
-import scanlate_box_merge
-import scanlate_inpaint
-import scanlate_regions
-
-
+from scanlate import scanlate
+from scanlate import scanlate_detect
+from scanlate import scanlate_balloons
+from scanlate import scanlate_box_merge
+from scanlate import scanlate_inpaint
+from scanlate import scanlate_regions
 def _page(balloons, size=(300, 400), ground=70):
     """Grey page with white ellipse balloons (black outline) and dark lettering blocks."""
     img = np.full((size[0], size[1]), ground, np.uint8)
@@ -196,7 +194,7 @@ def test_art_with_no_line_of_lettering_keeps_the_usual_mask():
 
 
 def test_a_sign_that_is_one_line_on_a_tilted_band_is_set_along_the_band(tmp_path):
-    import scanlate_render
+    from scanlate import scanlate_render
     from PIL import Image
     page, band, _glyphs = _band_over_art_page()
     src = tmp_path / "band.png"
@@ -243,7 +241,7 @@ def test_a_confident_sign_or_another_kind_is_never_judged_as_art():
 
 
 def test_art_boxed_as_a_sign_is_left_unerased_and_its_translation_set_beside_it(tmp_path):
-    import scanlate_render
+    from scanlate import scanlate_render
     from PIL import Image
     gray = _art_page()
     src = tmp_path / "p.png"
@@ -271,7 +269,7 @@ def _gloss_rect(before, after):
 
 def test_a_gloss_keeps_clear_of_other_regions_and_inside_its_panel():
     from PIL import Image
-    import scanlate_sfx
+    from scanlate import scanlate_sfx
     art = {"x": 100, "y": 100, "w": 40, "h": 100, "translated_text": "What's wrong?"}
     neighbour = {"x": 150, "y": 90, "w": 80, "h": 120}      # the nearest side, taken
     panel = {"x": 80, "y": 60, "w": 200, "h": 300}
@@ -285,7 +283,7 @@ def test_a_gloss_keeps_clear_of_other_regions_and_inside_its_panel():
 
 def test_a_sound_effect_gloss_with_nothing_to_avoid_goes_to_the_right_as_before():
     from PIL import Image
-    import scanlate_sfx
+    from scanlate import scanlate_sfx
     region = {"x": 100, "y": 100, "w": 40, "h": 100, "translated_text": "Boom"}
     blank = np.full((400, 400, 3), 128, np.uint8)
     img = Image.fromarray(blank.copy())

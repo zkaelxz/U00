@@ -8,8 +8,7 @@ tests/test_review_lines_service.py; these check the HTTP contract.
 
 import pytest
 
-import scanlate
-
+from scanlate import scanlate
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 

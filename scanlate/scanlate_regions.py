@@ -13,12 +13,11 @@ import re
 
 import numpy as np
 
-import scanlate_tuning
-
-from scanlate_balloons import TEXT_REGION_KINDS, _holds_balloon_interior, classify_text_regions
-from scanlate_detect import inset_box_for_ocr
-from scanlate_page_decode import page_gray
-from scanlate_panels import detect_panels
+from scanlate import scanlate_tuning
+from scanlate.scanlate_balloons import TEXT_REGION_KINDS, _holds_balloon_interior, classify_text_regions
+from scanlate.scanlate_detect import inset_box_for_ocr
+from scanlate.scanlate_page_decode import page_gray
+from scanlate.scanlate_panels import detect_panels
 
 
 # Region kinds whose text is fitted to the bubble's own outline rather than
@@ -210,6 +209,12 @@ def split_separate_lettering(gray, box: dict) -> list:
     # outline still splits, since lobes and joined frames are drawn that way.
     # The probe is CJK because vertical lettering is only ever CJK.
     if _holds_balloon_interior(roi) and estimate_text_orientation(gray, box, "zh") == "vertical":
+        return [box]
+    if float(np.median(roi)) < 100:
+        # Light lettering on dark art (a glowing caption) is one caption, not
+        # frames drawn side by side. The dark gaps between its letters were
+        # taken for glyphs, and the pieces each covered only part of it, so
+        # the rest of the source showed round the English.
         return [box]
     ink = (roi < int(min(max(150, float(np.median(roi)) * 0.8), 240))).astype(np.uint8)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)

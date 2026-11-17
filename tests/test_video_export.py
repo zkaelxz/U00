@@ -37,8 +37,8 @@ class TestEscapeFilterPath:
 class TestOtherFfmpegTimeouts:
     def test_m4b_fallback_has_a_timeout(self, tmp_path, monkeypatch):
         import subprocess
-        import dub
-        import dub_narration
+        from voice import dub
+        from voice import dub_narration
         seen = []
 
         def fake_run(cmd, **k):
@@ -347,7 +347,7 @@ def test_a_dash_manifest_saved_as_mp4_opens_no_connection(tmp_path):
 
 
 def test_dub_mix_does_not_normalize_and_limits_without_makeup_gain(tmp_path):
-    cmd = ve.replace_audio_with_dub_cmd("in.mp4", "dub.wav", str(tmp_path / "m.mkv"), -20)
+    cmd = ve.replace_audio_with_dub_cmd("in.mp4", "voice.dub.wav", str(tmp_path / "m.mkv"), -20)
     graph = cmd[cmd.index("-filter_complex") + 1]
     assert "amix=inputs=2:duration=first:normalize=0" in graph
     assert "alimiter=limit=0.977:level=0" in graph

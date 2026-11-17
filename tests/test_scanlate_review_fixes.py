@@ -8,11 +8,11 @@ np = pytest.importorskip("numpy")
 from PIL import Image  # noqa: E402
 
 import db  # noqa: E402
-import scanlate_page_decode  # noqa: E402
-import scanlate_panels  # noqa: E402
-import scanlate_inpaint  # noqa: E402
-import scanlate_fonts  # noqa: E402
-import scanlate_text_layout  # noqa: E402
+from scanlate import scanlate_page_decode  # noqa: E402
+from scanlate import scanlate_panels  # noqa: E402
+from scanlate import scanlate_inpaint  # noqa: E402
+from scanlate import scanlate_fonts  # noqa: E402
+from scanlate import scanlate_text_layout  # noqa: E402
 from services import keep_original_service, scanlate_render_service  # noqa: E402
 
 

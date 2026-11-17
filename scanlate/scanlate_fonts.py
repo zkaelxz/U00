@@ -5,7 +5,7 @@ import os
 import re
 from typing import Any
 
-from scanlate_page_decode import page_gray
+from scanlate.scanlate_page_decode import page_gray
 
 
 # One of these three, matching sample_text_style()'s "suggested_style"
@@ -28,7 +28,7 @@ FONT_CATEGORIES = ["regular", "bold", "handwritten"]
 _WINDOWS_FONTS = os.path.join(os.environ.get("WINDIR") or "C:\\Windows", "Fonts")
 # Comic Neue (SIL Open Font License, assets/fonts/): a comic-lettering face that
 # is on every machine, so a page does not depend on which system fonts exist.
-_BUNDLED_FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
+_BUNDLED_FONTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts")
 _SYSTEM_FONT_CANDIDATES = {
     "bold": [
         os.path.join(_BUNDLED_FONTS, "ComicNeue-Bold.ttf"),

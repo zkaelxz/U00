@@ -40,7 +40,7 @@ import unicodedata
 
 from lib import ids as lib_ids
 import db
-import dub
+from voice import dub
 import translation_guide as tguide
 from db import (apply_voice_bank_entry as _db_apply_voice_bank_entry, drama_dir, get_drama,
                 get_voice_bank_entry, list_characters_with_series_names,
@@ -349,7 +349,7 @@ def _current_suggestions(drama_id: int, drama: dict):
     if not embeddings:
         return [], {}
     try:
-        import voice_id
+        from voice import voice_id
     except ImportError:
         return [], {}
     already_named = {c["speaker_label"] for c in list_characters(drama_id) if c["character_name"]}

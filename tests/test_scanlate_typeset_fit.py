@@ -7,8 +7,7 @@ import pytest
 PIL = pytest.importorskip("PIL")
 from PIL import Image
 
-import scanlate_text_layout
-
+from scanlate import scanlate_text_layout
 BOX = {"x": 100, "y": 20, "w": 90, "h": 60}
 
 

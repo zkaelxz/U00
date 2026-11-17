@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-import scanlate_tuning
+from scanlate import scanlate_tuning
 from tools import scanlate_bench as bench
 
 
@@ -108,7 +108,7 @@ class TestPages:
 
     def test_a_run_leaves_the_app_as_it_found_it(self, fonts, tmp_path):
         pytest.importorskip("cv2")
-        import scanlate
+        from scanlate import scanlate
         ocr, min_w = scanlate.ocr_box_region, scanlate_tuning.CV_MIN_W
         assert bench.main(["--pages", "1", "--langs", "ko", "--skip-ocr", "--out", str(tmp_path),
                            "--set", f"CV_MIN_W={min_w + 5}"]) == 0

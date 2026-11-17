@@ -6,6 +6,7 @@ import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { buttonClass } from '../../components/uiClasses'
 import { BenchSection } from './BenchSection'
+import { pickScore, pickTotalsLine } from './blindPickText'
 import {
   STAGE_LABELS, arenaGroups, compareProblem, formatCost, formatLatency, formatScore, formatWhen, judgeRunLine, runConfigLabel,
   plainError, runExtraLabel, runStatusLabel, runStatusTone, stageLabel, toggleCompare,
@@ -121,9 +122,16 @@ const runName = (r: BenchmarkRun) => r.label || runConfigLabel(r)
 
 function ScoreCell({ r }: { r: BenchmarkRun }) {
   const judged = r.judge?.average?.overall
+  const picked = pickScore(r.picks)
   return (
     <>
-      <span className="num">{formatScore(r.aggregate_score)}</span>
+      {picked != null && (
+        <span className="num" title={pickTotalsLine(r.picks)}>
+          your picks {formatScore(picked)}
+          <span className="muted"> · auto </span>
+        </span>
+      )}
+      <span className={picked != null ? 'muted num' : 'num'}>{formatScore(r.aggregate_score)}</span>
       {judged != null && (
         <span className="muted num bench-judge-score" title={judgeRunLine(r.judge)}>
           {' '}

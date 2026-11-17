@@ -8,7 +8,7 @@ import pytest
 
 import background_jobs
 from jobs import job_launch, job_table
-import dub_narration
+from voice import dub_narration
 from services import narration_service, settings_service
 from lib.errors import (ConflictError,
                                      InvalidInputError, NotFoundError)

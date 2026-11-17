@@ -304,8 +304,8 @@ class TestGpuProbeOutsideTheLock:
 
 
 def test_the_cancellable_m4b_encode_has_a_deadline(tmp_path, monkeypatch):
-    import dub_narration
-    from dub import M4B_ENCODE_TIMEOUT_SECONDS
+    from voice import dub_narration
+    from voice.dub import M4B_ENCODE_TIMEOUT_SECONDS
     (tmp_path / "narration_track.wav").write_bytes(b"RIFF")
     seen = {}
     monkeypatch.setattr(bg, "run_cancellable", lambda job_id, cmd, **kw: seen.update(kw))

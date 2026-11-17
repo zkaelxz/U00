@@ -5,9 +5,7 @@ page lookup for re-captures, and the fixed failure messages."""
 import os
 
 import en_cleanup
-import scanlate_regions
-
-
+from scanlate import scanlate_regions
 def regions_for_response(bubbles):
     """Boxes exactly as the pipeline produced them: `x/y/w/h` in absolute
     pixels of the image that was sent, top-left origin. The extension

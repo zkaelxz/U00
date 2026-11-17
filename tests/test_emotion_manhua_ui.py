@@ -9,10 +9,10 @@ import pytest
 import numpy as np
 cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cleanly without it
 import emotion as em
-import scanlate_fonts
-import scanlate_detect
-import scanlate_balloons
-import scanlate_panels
+from scanlate import scanlate_fonts
+from scanlate import scanlate_detect
+from scanlate import scanlate_balloons
+from scanlate import scanlate_panels
 from core import Line
 
 

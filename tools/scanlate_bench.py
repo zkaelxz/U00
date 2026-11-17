@@ -468,7 +468,7 @@ def balloon_interior(page_size, b: Balloon, erode: int = 3) -> np.ndarray:
 
 def run_detect_ocr(page: Page, path: str, args) -> dict:
     """Detection, reading order and OCR through scanlate.detect_and_ocr_page."""
-    import scanlate
+    from scanlate import scanlate
     t0 = time.monotonic()
     bubbles, notes = scanlate.detect_and_ocr_page(
         path, page.lang, detect_backend=args.detect, ocr_backend=args.ocr,
@@ -495,9 +495,9 @@ def run_detect_ocr(page: Page, path: str, args) -> dict:
 
 def run_oracle_ocr(page: Page, path: str, args) -> list:
     """OCR on the true balloon boxes, so OCR is scored apart from detection."""
-    import scanlate
-    from scanlate_regions import estimate_text_orientation
-    from scanlate_page_decode import decode_page, page_gray
+    from scanlate import scanlate
+    from scanlate.scanlate_regions import estimate_text_orientation
+    from scanlate.scanlate_page_decode import decode_page, page_gray
     image = decode_page(path)
     gray = page_gray(path, image)
     out = []
@@ -518,8 +518,8 @@ def run_typeset(page: Page, path: str, detected: list) -> dict:
     `detected`: the detect stage's region per balloon (or None), whose
     font_size and kind the render gets, as it would in the app."""
     import cv2
-    import scanlate_render
-    from scanlate_page_decode import decode_page
+    from scanlate import scanlate_render
+    from scanlate.scanlate_page_decode import decode_page
     rng = random.Random(f"typeset-{page.name}")
     bubbles = []
     for b, det in zip(page.balloons, detected):
@@ -710,8 +710,8 @@ def main(argv=None) -> int:
                     help="draw furigana beside vertical Japanese lettering and score how often OCR reads it")
     ap.add_argument("--save-pages", action="store_true", help="also write the generated pages")
     args = ap.parse_args(argv)
-    import scanlate
-    import scanlate_tuning
+    from scanlate import scanlate
+    from scanlate import scanlate_tuning
     saved_tuning = {k: v for k, v in vars(scanlate_tuning).items() if k.isupper()}
     saved_ocr = scanlate.ocr_box_region
     try:

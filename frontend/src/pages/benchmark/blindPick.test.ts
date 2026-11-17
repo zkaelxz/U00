@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { pickSummaryLine, pickTotalsLine } from './blindPickText'
+import { pickScore, pickSummaryLine, pickTotalsLine } from './blindPickText'
 
 describe('blind pick text', () => {
   it('says nothing for a run nobody picked', () => {
@@ -17,5 +17,11 @@ describe('blind pick text', () => {
       judge_agrees: 2, judge_disagrees: 1, judge_undecided: 1 }
     expect(pickSummaryLine(s)).toBe('Picked 4 of 5: first run 2, second run 1, tied 1 · the judge agreed with you on 2 of 3')
     expect(pickSummaryLine({ ...s, judge_agrees: 0, judge_disagrees: 0 })).not.toContain('judge')
+  })
+
+  it('leads with your picks only once a run has 20 of them, a tie counting half', () => {
+    expect(pickScore(null)).toBeNull()
+    expect(pickScore({ won: 10, lost: 8, tie: 1 })).toBeNull()
+    expect(pickScore({ won: 12, lost: 6, tie: 2 })).toBeCloseTo(0.65)
   })
 })

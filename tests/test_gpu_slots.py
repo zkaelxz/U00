@@ -13,6 +13,7 @@ import background_jobs as bg
 from jobs import job_launch, job_runner, job_settings
 import db
 import diagnostics_torch
+import gpu_probe
 from jobs import gpu_slots, job_store
 
 DEAD_PID = 2 ** 22 + 12345
@@ -23,6 +24,14 @@ OTHER_PID = 2 ** 22 + 23456
 def _pid_alive(monkeypatch):
     # Only DEAD_PID counts as exited; every other pid is a running process.
     monkeypatch.setattr(bg, "owner_process_alive", lambda pid: pid != DEAD_PID)
+
+
+@pytest.fixture(autouse=True)
+def _no_prefetched_reading(monkeypatch):
+    # gpu_probe keeps the last prefetched nvidia-smi reading per thread for a
+    # few seconds; one left by an earlier test in this worker would be used
+    # instead of this test's patched diagnostics_torch reading.
+    monkeypatch.setattr(gpu_probe._local, "readings", None, raising=False)
 
 
 def _wait(job_id, timeout=2.0):

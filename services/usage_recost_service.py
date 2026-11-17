@@ -34,7 +34,7 @@ from lib import clock
 import hashlib
 
 import db
-import bulk_translate
+from bulk import bulk_translate
 from engine_backends import pricing
 from lib.errors import ConflictError, InvalidInputError
 

@@ -259,7 +259,7 @@ def test_a_saved_auto_backend_stays_language_driven(env):
 
 
 def test_the_page_pipeline_receives_the_saved_ocr_settings(env, monkeypatch):
-    import scanlate
+    from scanlate import scanlate
     env.write_text(f"BAIHE_HF_TOKEN={HF_TOKEN}\n", encoding="utf-8")
     _set_prefs(tesseract_cmd="/opt/tess/tesseract")
     seen = {}

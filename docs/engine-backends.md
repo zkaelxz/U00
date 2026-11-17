@@ -202,8 +202,8 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
   `deepseek`, `gemini`, `openai`) and not to free-tier Gemini
   (`engine_cap_applies`). With a `FallbackEngine`, each engine has its own cap
   and spend.
-- `bulk_translate.py` submits whole-drama batches (`bulk_apply.py` applies the results,
-  `bulk_reflect.py` is the Reflect pipeline, `bulk_poll.py` polls, resumes and cancels): Claude Message Batches and
+- `bulk/bulk_translate.py` submits whole-drama batches (`bulk/bulk_apply.py` applies the results,
+  `bulk/bulk_reflect.py` is the Reflect pipeline, `bulk/bulk_poll.py` polls, resumes and cancels): Claude Message Batches and
   Gemini Batch API at `BATCH_PRICE_FACTOR = 0.5`, and DeepSeek scheduled into
   its off-peak window (no batch API). Results are applied by line id, and only
   to a line that still exists, whose source hash is unchanged and whose English
@@ -482,11 +482,11 @@ and the Qwen3 aligner download from Hugging Face on first use; a blocked
 
 ## 4. TTS and dubbing at a glance
 
-Voices are in `dub.py` and narration in `dub_narration.py`; this page only maps them.
+Voices are in `voice/dub.py` and narration in `voice/dub_narration.py`; this page only maps them.
 
 - **Voices:** `CLONE_ENGINES` = `omnivoice`, `qwen3_tts`, `chatterbox`. All three are in
   `LOCAL_MODEL_ENGINES` and `VENV_ENGINES`: each installs into a folder of its own
-  (`voice_venv`) and `voice_worker.py` speaks one batch per engine.
+  (`voice_venv`) and `voice/voice_worker.py` speaks one batch per engine.
   `clone_engine_supports_language` gates original-language narration (zh/ja/ko).
   `clone_map_from_characters` builds one entry per speaker; a speaker with
   no clip gets an OmniVoice designed voice. Emotion tags do not reach the
@@ -494,7 +494,7 @@ Voices are in `dub.py` and narration in `dub_narration.py`; this page only maps 
 - **Removed engines:** `REMOVED_VOICE_ENGINES` (Edge TTS, Piper, F5-TTS, TADA, GPT-SoVITS; Chatterbox came back as a `VENV_ENGINES` engine). A
   stored `clone_engine` or request naming one gets `removed_engine_message`;
   nothing is rewritten or deleted.
-- **Narration:** `dub_narration.build_narration_track` (in `dub_narration.py`)
+- **Narration:** `dub_narration.build_narration_track` (in `voice/dub_narration.py`)
   synthesizes the lines in order and concatenates the clips into
   `narration_track.flac` (an older title's `narration_track.wav` is still read); there is no fitting to subtitle timing. The run is
   `services/listen_service.py`. `export_narration_m4b` builds the audiobook.

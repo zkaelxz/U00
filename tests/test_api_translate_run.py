@@ -73,7 +73,7 @@ def test_no_secrets_in_responses(local_client, monkeypatch):
 # --- Slice 51: bulk batch list + cancel -------------------------------------
 
 def test_bulk_list_and_cancel(local_client, monkeypatch):
-    import bulk_poll
+    from bulk import bulk_poll
     did = _seed()
     other = _seed()
     jid = db.create_bulk_job(did, "claude", "m", "submitted", [(1, "k", "h", "")],
@@ -102,7 +102,7 @@ def test_bulk_list_and_cancel(local_client, monkeypatch):
 
 
 def _provider_env(monkeypatch, provider):
-    import bulk_providers
+    from bulk import bulk_providers
     from engine_backends import engine_registry
     from services import translate_service
     seen = {}

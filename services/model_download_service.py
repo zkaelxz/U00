@@ -198,13 +198,13 @@ def _fetch_nemotron(report, cancelled) -> None:
 
 
 def _lama_ready() -> bool:
-    import scanlate_lama
+    from scanlate import scanlate_lama
     return scanlate_lama.lama_ml_weights_cached()
 
 
 def _fetch_lama(report, cancelled) -> None:
     # One checkpoint file, not the whole repo: scanlate_lama loads only this file.
-    import scanlate_lama
+    from scanlate import scanlate_lama
     try:
         scanlate_lama._load_lama_generator(allow_download=True)
     except ImportError as exc:

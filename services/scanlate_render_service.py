@@ -56,7 +56,7 @@ def _pages_dir(drama_id: int) -> str:
 
 def _custom_fonts(drama_id: int) -> dict:
     """The drama's own saved fonts (`fonts/<category>.ttf`)."""
-    import scanlate_fonts
+    from scanlate import scanlate_fonts
     folder = os.path.join(db.drama_dir(drama_id), "fonts")
     return {cat: os.path.join(folder, f"{cat}.ttf") for cat in scanlate_fonts.FONT_CATEGORIES
             if os.path.isfile(os.path.join(folder, f"{cat}.ttf"))
@@ -70,11 +70,11 @@ def render_page(drama_id: int, page_id: int, notes: list | None = None, cancel_c
     no translation. Warnings (blank regions, an inpaint fallback) are
     appended to `notes` as (level, message). `cancel_check` lets a cancel end the
     wait for the pipeline lock."""
-    import scanlate_render
+    from scanlate import scanlate_render
     notes = notes if notes is not None else []
     page = pages_svc.require_page(drama_id, page_id)
     bubbles = db.load_bubbles(page_id)
-    import scanlate_watermark
+    from scanlate import scanlate_watermark
     if not _placed_regions(bubbles) and not any(
             scanlate_watermark.is_site_mark_region(b) for b in bubbles):
         _drop_stale_typeset(drama_id, page)
@@ -100,8 +100,8 @@ def render_page(drama_id: int, page_id: int, notes: list | None = None, cancel_c
 
 
 def _placed_regions(bubbles: list) -> list:
-    import scanlate_regions
-    import scanlate_sfx
+    from scanlate import scanlate_regions
+    from scanlate import scanlate_sfx
     return [b for b in bubbles if scanlate_sfx.is_glossed(b) or (
         not b.get("skip") and not scanlate_regions.region_excluded_from_auto(b)
         and (b.get("translated_text") or "").strip())]

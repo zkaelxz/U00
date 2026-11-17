@@ -86,8 +86,8 @@ def _slices(png: bytes) -> list:
     the whole strip must not reach the detector, and a cut tail must not be
     dropped without a word."""
     try:
-        import scanlate
-        import scanlate_panels
+        from scanlate import scanlate
+        from scanlate import scanlate_panels
     except ImportError:
         return [png]
     try:

@@ -90,7 +90,7 @@ class TestHttpCallsHaveTimeouts:
         # urlopen or session.request in one of them from going untimed.
         files = _py_files_under("engine_backends")
         files += [os.path.join(PROJECT_ROOT, n) for n in (
-            "bulk_translate.py", "dub.py", "navigator.py", "page_fetch.py", "title_library.py",
+            "bulk/bulk_translate.py", "voice/dub.py", "navigator.py", "page_fetch.py", "title_library.py",
             "core.py", "whisper_transcribe.py", "diagnostics.py", "dependency_updates.py",
             "diagnostics_report.py", "memory_headroom.py", "video_download.py",
             "sources/pipeline.py", "sources/front_door.py", "sources/generic_import.py",
@@ -562,10 +562,11 @@ def _repo_modules():
     return names
 
 
-# Folders of former root modules that import each other with jobs/ or
-# engine_backends/, so they can't join the .importlinter layers; their
-# files get the root modules' checks instead.
-ROOT_MODULE_FOLDERS = ("live",)
+# Folders of former root modules outside the .importlinter layers (live/
+# imports each other with jobs/ and engine_backends/; bulk/ still imports
+# services/ upward; scanlate/ and voice/ have no layer of their own yet), so
+# their files get the root modules' checks.
+ROOT_MODULE_FOLDERS = ("live", "bulk", "scanlate", "voice")
 
 
 def _root_module_files():
@@ -620,8 +621,8 @@ class TestLayering:
     # checked here, against the wrong-way imports that existed on 2026-11-15.
     # Remove an entry when you fix it; never add one.
     KNOWN_ROOT_IMPORTS_UP = {
-        "bulk_poll -> services.auth_service",
-        "bulk_poll -> services.line_provenance_service",
+        "bulk.bulk_poll -> services.auth_service",
+        "bulk.bulk_poll -> services.line_provenance_service",
         "debug_view -> services.line_provenance_service",
         "ollama_unload -> services.settings_service",
         "translation_finish -> services.line_provenance_service",
@@ -811,14 +812,14 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "asr_backend.py::Qwen3ASRVadBackend.transcribe": 144,
     "services/workspace_job_service.py::run_translate_job": 119,
     "video_download.py::download": 138,
-    "dub_narration.py::build_narration_track": 128,
+    "voice/dub_narration.py::build_narration_track": 128,
     "db/schema_system.py::_init_benchmark_lab_schema": 126,
     "jobs/job_launch.py::start_process_job": 121,
     "db/schema_system.py::_create_job_tables": 118,
     "segment_splitting.py::split_long_segments": 116,
     "db/schema.py::_create_library_tables": 115,
     "db/schema.py::_create_series_tables": 107,
-    "scanlate_lama.py::_build_lama_generator": 105,
+    "scanlate/scanlate_lama.py::_build_lama_generator": 105,
     "epub_io.py::export_epub": 105,
     "services/title_restructure_service.py::_move_novel": 104,
     "sources/adapters/kuaikan.py::_decode_nuxt_state": 103,
@@ -919,7 +920,7 @@ _CAPTURE_ALLOWED = {
     "installer/service_control.py::__call__": "probe: sc/netsh, timeout=120",
     # pending: ffmpeg runs bounded by timeout= only.
     "audio_extract.py::_run_ffmpeg": "pending: ffmpeg",
-    "dub_narration.py::export_narration_m4b": "pending: ffmpeg",
+    "voice/dub_narration.py::export_narration_m4b": "pending: ffmpeg",
     "hardsub_ocr.py::extract_frames": "pending: ffmpeg",
     "services/media_peaks_service.py::_decode": "pending: ffmpeg",
     "services/speech_coverage_service.py::_decode_chunk": "pending: ffmpeg",
