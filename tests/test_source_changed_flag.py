@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 from jobs import job_table
-import bulk_poll
+from bulk import bulk_poll
 import db
 import resegment
 import source_change
@@ -384,7 +384,7 @@ class TestTranslateClears:
         assert (row["zh"], row["flag"]) == ("又改了", FLAG)
 
     def test_bulk_result_clears(self, isolated_db):
-        import bulk_providers
+        from bulk import bulk_providers
         from tests.test_bulk_translate import (_answer_every_request, _claude_engine, _drama,
                                                _submit)
         engine = _claude_engine()

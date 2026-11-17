@@ -34,8 +34,8 @@ from typing import Optional
 
 import background_jobs
 from jobs import gpu_guard, job_launch
-import bulk_poll
-import bulk_translate
+from bulk import bulk_poll
+from bulk import bulk_translate
 import translation_finish
 import db
 from engine_backends import engine_registry, llm_tasks, paid_calls, pricing

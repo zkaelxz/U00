@@ -315,7 +315,7 @@ def start_background_services(features_off=frozenset()) -> dict:
     except Exception as exc:
         log_warning("leftover update installers were not swept: %s", exc)
     try:
-        import bulk_poll
+        from bulk import bulk_poll
         bulk_poll.reconcile_stranded_applies()
     except Exception as exc:
         log_warning("bulk batches left mid-apply were not recovered: %s", redact_secrets(str(exc)))

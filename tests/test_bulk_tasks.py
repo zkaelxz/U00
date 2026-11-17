@@ -10,11 +10,11 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import bulk_providers as bp
-import bulk_apply
-import bulk_poll
-import bulk_reflect
-import bulk_translate
+from bulk import bulk_providers as bp
+from bulk import bulk_apply
+from bulk import bulk_poll
+from bulk import bulk_reflect
+from bulk import bulk_translate
 import translation_finish
 from engine_backends import shared as engine_shared
 from core import Line

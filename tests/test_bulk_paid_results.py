@@ -15,11 +15,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
 from jobs import job_launch
-import bulk_providers as bp
-import bulk_apply
-import bulk_poll
-import bulk_reflect
-import bulk_translate
+from bulk import bulk_providers as bp
+from bulk import bulk_apply
+from bulk import bulk_poll
+from bulk import bulk_reflect
+from bulk import bulk_translate
 import translation_finish
 from engine_backends import translate_pipeline, prompts, reflect_prompts
 from engine_backends import gemini as engine_gemini
@@ -1074,9 +1074,8 @@ def test_finish_translation_run_requires_the_runs_own_line_ids(isolated_db):
 
 
 def test_engines_without_a_batch_api_get_the_exact_message():
-    import bulk_reflect
-    import bulk_translate
-
+    from bulk import bulk_reflect
+    from bulk import bulk_translate
     generic = "ollama has no batch API -- bulk mode needs Claude or Gemini."
     for submit in (bulk_translate.submit_bulk_flag, bulk_translate.submit_bulk_consistency,
                    bulk_translate.submit_bulk_emotion, bulk_translate.submit_bulk_translation_notes):
@@ -1094,8 +1093,7 @@ def test_engines_without_a_batch_api_get_the_exact_message():
 
 
 def test_load_apply_context_indexes_rows_by_line_and_request_key(isolated_db, monkeypatch):
-    import bulk_apply
-
+    from bulk import bulk_apply
     rows = [{"line_id": 1, "request_key": "a"}, {"line_id": 2, "request_key": "a"},
             {"line_id": 3, "request_key": "b"}]
     lines = [NS(id=1), NS(id=3)]

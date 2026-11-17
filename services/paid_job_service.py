@@ -12,7 +12,7 @@ import contextlib
 import threading
 
 import background_jobs
-import bulk_providers
+from bulk import bulk_providers
 import db
 from engine_backends import llm_tasks, paid_calls
 from lib.errors import ConflictError, UnsupportedOperationError

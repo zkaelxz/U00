@@ -5,7 +5,7 @@ import json
 import pytest
 
 import background_jobs
-import bulk_import
+from bulk import bulk_import
 import db
 import metadata_lookup
 import navigator
