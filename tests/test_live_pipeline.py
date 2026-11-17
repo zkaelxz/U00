@@ -20,9 +20,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import background_jobs
 from jobs import job_launch, job_table
 import whisper_transcribe
-import live_pipeline
-import live_translate as lt
-import live_whisper
+from live import live_pipeline
+from live import live_translate as lt
+from live import live_whisper
 from engine_backends import shared
 from engine_backends import local
 from engine_backends.shared import request_translations_with_retry
@@ -432,8 +432,8 @@ class IdKeyedEngine:
 
 class TestChunkTranslator:
     def _feed(self, engine, texts):
-        import live_cue_feed
-        import live_cue_translation
+        from live import live_cue_feed
+        from live import live_cue_translation
         cues = live_cue_feed.pending_cues(
             [{"start": i, "end": i + 1, "text": t} for i, t in enumerate(texts)], 0.0, 0)
         translator = live_cue_translation.CueTranslator(engine, "zh")
@@ -486,8 +486,8 @@ class TestChunkTranslator:
             def translate_batch(self, lines, context):
                 contexts.append(context)
                 return [f"EN {t}" for t in lines]
-        import live_cue_feed
-        import live_cue_translation
+        from live import live_cue_feed
+        from live import live_cue_translation
         translator = live_cue_translation.CueTranslator(Capturing(), "zh")
         for chunk in (["a", "b", "c"], ["d", "e", "f"]):
             cues = live_cue_feed.pending_cues(

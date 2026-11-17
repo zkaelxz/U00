@@ -36,13 +36,13 @@ import background_jobs
 from jobs import job_launch
 import db
 import diagnostics_torch
-import live_chat
-import live_cue_feed
-import live_cue_translation
-import live_pipeline
-import live_player
+from live import live_chat
+from live import live_cue_feed
+from live import live_cue_translation
+from live import live_pipeline
+from live import live_player
 import language_packs
-import live_translate
+from live import live_translate
 import storage
 from engine_backends import engine_registry, shared, llm_tasks
 from engine_backends import local as engine_local
@@ -267,7 +267,7 @@ def _remove_dir(session_id: str):
 def _previous_whisper_call():
     """Label of an abandoned Whisper call of an earlier session that is still
     decoding: starting beside it would load a second model copy."""
-    import live_whisper
+    from live import live_whisper
     return live_whisper.outstanding_label()
 
 
