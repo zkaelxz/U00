@@ -119,7 +119,7 @@ the extension bridge.
   `admin.users` for member accounts).
 - The admin listener's lifespan owns the background services; the household
   app's does nothing.
-- The bridge (`page_server.py`) is stdlib `http.server`, not FastAPI, and
+- The bridge (`services/page_server.py`) is stdlib `http.server`, not FastAPI, and
   none of the gates or declarations on this page apply to it. It has its own
   token check and body caps (`MAX_BODY_BYTES`, `MAX_IMAGE_BYTES`). The API
   only controls it, through the `local_only()` routes in

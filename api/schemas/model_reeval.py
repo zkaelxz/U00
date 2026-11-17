@@ -1,5 +1,5 @@
 """
-api/model_reeval_schemas.py -- request/response models for scheduled model
+api/schemas/model_reeval.py -- request/response models for scheduled model
 re-evaluation and promotion (api/routers/model_reeval_routes.py).
 No key field exists on any model.
 """
@@ -8,7 +8,30 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.benchmark_schemas import BenchmarkEstimate
+from api.schemas.common import BenchmarkEstimate
+
+__all__ = [
+    "ModelDecision",
+    "ModelCandidate",
+    "ProductionModel",
+    "ReevalSettings",
+    "ReevalRow",
+    "ReevalProductionRun",
+    "ReevalReport",
+    "ReevalOverview",
+    "ReevalSettingsSaved",
+    "ReevalDecisionList",
+    "ReevalSettingsRequest",
+    "CandidateAddRequest",
+    "CandidateAddResult",
+    "CandidateResult",
+    "RejectRequest",
+    "PromoteRequest",
+    "PromoteResult",
+    "ReevalRunRequest",
+    "ReevalRunStarted",
+    "ReevalEstimate",
+]
 
 
 class _Strict(BaseModel):

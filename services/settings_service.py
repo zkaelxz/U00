@@ -166,7 +166,7 @@ def baihe_ports(api_port: int, household_port: int = 0, public_url: str = "") ->
     Diagnostics Ports panel. The caller passes the API settings' values
     (services may not import api/). `port` is None for the household
     listener while it is off. Numbers and fixed text only."""
-    import page_server
+    from services import page_server
     from services import remote_health_service
     try:
         household = int(household_port or 0)

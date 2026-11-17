@@ -119,7 +119,7 @@ DRIVE = """async ([url, message]) => {
 def _install_fakes():
     """Stands scanlate and the translation engine in with key-free fakes;
     returns the list that records what the image path asked them to do."""
-    import page_server
+    from services import page_server
     import scanlate
     import scanlate_translate
     from engine_backends import engine_registry
@@ -160,7 +160,7 @@ def _start_bridge():
     """Starts the real bridge; returns (token, drama_id), or None when its
     fixed port is taken."""
     import db
-    import page_server
+    from services import page_server
 
     # The manifest's only host permission is the bridge's fixed port, so the
     # bridge must really listen there; a free_port() would be unreachable.
@@ -300,7 +300,7 @@ def _extension_id(context):
 
 
 def _check_options_page(options, ext_id, token, shipped, stand_in, site_port):
-    import page_server
+    from services import page_server
 
     options.goto(f"chrome-extension://{ext_id}/options.html")
     options.fill("#token", token)
@@ -488,7 +488,7 @@ def _check_text_flow(options, page, site_url):
 
 
 def _check_bridge_off(options):
-    import page_server
+    from services import page_server
 
     # Turning the bridge off must leave the extension saying why.
     page_server.stop_server()

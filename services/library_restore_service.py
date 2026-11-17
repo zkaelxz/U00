@@ -34,7 +34,7 @@ MAX_RESTORE_TOTAL_BYTES = 200 * 1024 ** 3  # 200 GiB, expanded total
 # token, plus the temp folder of in-flight work. (Upload members under these names are skipped, so a planted
 # backups/exports/x.zip can never become the "latest export".)
 def restore_kept_names():
-    import page_server
+    from services import page_server
     import storage
     from sources import store as src_store
     return ("backups", src_store.BROWSER_PROFILES_DIRNAME, "source_profiles",

@@ -12,7 +12,7 @@ import pytest
 
 import core
 import db
-import page_server
+from services import page_server
 from api.api_config import ApiSettings
 from api.server import create_app
 from fastapi.testclient import TestClient

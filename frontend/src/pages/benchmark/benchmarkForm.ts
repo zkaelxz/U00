@@ -90,7 +90,7 @@ const CHANGE_LABELS: Record<string, (v: unknown) => string> = {
   whisper_repeat_guard: (v) => (v ? 'repeat guard' : 'no repeat guard'),
   difficult_audio: (v) => (v ? 'difficult audio' : 'no difficult audio'),
   separate_vocals_first: (v) => (v ? 'vocals separated' : 'vocals not separated'),
-  decode_randomness: (v) => (v === 'temperature_0' ? 'temperature 0' : v === 'seeded' ? 'fixed seed' : 'default randomness'),
+  decode_randomness: (v) => (v === 'temperature_0' ? 'temperature 0' : 'default randomness'),
   initial_prompt: () => 'initial prompt',
 }
 
@@ -198,7 +198,7 @@ export function metricName(metric: string | null | undefined): string {
 /** What a run's score means, by stage. */
 export function metricNote(stage: string | null | undefined): string {
   if (stage === 'translation') return 'Score: chrF (character n-gram F-score) against the reference translation, or plain text similarity on runs made without sacrebleu (not a quality rating).'
-  if (stage === 'transcription') return 'Score: 1 − CER (character error rate), or 1 − WER (word error rate) for space-separated languages.'
+  if (stage === 'transcription') return 'Score: 1 − CER (character error rate).'
   if (stage === 'ocr') return 'Score: 1 − CER (character error rate) of the recognised text.'
   return ''
 }

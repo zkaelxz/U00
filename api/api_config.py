@@ -316,7 +316,7 @@ def check_household_bind_safety(settings: ApiSettings):
     listener. Without sign-in configured nobody could sign in there, and
     there would be no public host to allow. `settings` are the admin
     listener's (`load_settings`)."""
-    import page_server
+    from services import page_server
     port = settings.household_port
     if not port:
         raise ValueError("BAIHE_API_HOUSEHOLD_PORT is not set.")

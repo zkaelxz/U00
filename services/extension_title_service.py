@@ -22,7 +22,7 @@ import comic_chapter_links
 import comic_chapters
 import db
 import db.dramas
-import page_server
+from services import page_server
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, ServiceError
 from services import (drama_service, extension_novel_service, link_details_service, ownership_service,
                       source_link_service)
@@ -344,7 +344,7 @@ def _translate_title_once(drama_id: int, original: str, language: str) -> bool:
         from core import LANGUAGE_NAMES
         from engine_backends import engine_registry, llm_tasks, paid_calls
         from engine_backends.line_text import extract_first_json_value
-        import page_server
+        from services import page_server
         from services import translate_run_service
         config = page_server.get_translation_config()
         engine_name = (config.get("engine") or "").strip()

@@ -29,14 +29,3 @@ def fixed_decoding_worker(*args) -> None:
     pin_temperature(faster_whisper.WhisperModel)
     pin_temperature(faster_whisper.BatchedInferencePipeline)
     transcribe_pipeline._transcribe_worker(*args)
-
-
-def seeded_decoding_worker(seed, *args) -> None:
-    """Process target: keeps Whisper's default decode (sampled retries included) but fixes the sampler's
-    seed, then runs the app's own transcription worker. Seeded in the child because the seed is
-    process-wide in ctranslate2 and the app's default must not change."""
-    import ctranslate2
-    from services import transcribe_pipeline
-
-    ctranslate2.set_random_seed(int(seed))
-    transcribe_pipeline._transcribe_worker(*args)

@@ -14,7 +14,8 @@ from jobs import job_launch, job_runner
 import whisper_models
 from lib import ct2_repo
 import diagnostics
-from services import (diarization_service, jobs_service, notification_service, speech_coverage_service,
+from services import (diarization_service, jobs_service, notification_service, settings_service,
+                      speech_coverage_service,
                       transcribe_pipeline, transcribe_service)
 from lib.errors import UnsupportedOperationError
 
@@ -162,13 +163,15 @@ class TestZeroLines:
 
 class TestSpeakerDetectionSkipped:
     @pytest.fixture(autouse=True)
-    def _asr(self, monkeypatch):
+    def _asr(self, monkeypatch, isolated_db):
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
         self.started = []
         monkeypatch.setattr(job_launch, "start_process_job",
                             lambda job_id, target, args=(), **k: self.started.append(job_id) or True)
         self.monkeypatch = monkeypatch
+        # The token and pyannote checks below are pyannote's; Nemotron has its own tests.
+        settings_service.set_settings({"speaker_model": "pyannote"})
 
     def _installed(self, yes):
         real = diagnostics.check_dependency
@@ -212,6 +215,17 @@ class TestSpeakerDetectionSkipped:
         assert job["result"]["diarize_skipped_reason"] is None
         assert "Speaker detection" not in jobs_service.derive_outcome("done", None, job["result"])[1]
 
+    def test_nemotron_starts_without_a_token_only_when_asked(self, drama):
+        settings_service.set_settings({"speaker_model": "nemotron"})
+        self._installed(False)
+        did, audio = drama
+        _, job = _run(did, audio, diarize_audio_path=audio)
+        assert job["result"]["diarize_started"] is False and not self.started
+        background_jobs.clear_job(f"transcribe_{did}")
+        _, job = _run(did, audio, diarize_requested=True, diarize_audio_path=audio)
+        assert job["result"]["diarize_started"] is True and self.started == [f"diarize_{did}"]
+        assert job["result"]["diarize_skipped_reason"] is None
+
     def test_token_and_audio_still_start_diarization(self, drama):
         self._installed(True)
         did, audio = drama
@@ -221,6 +235,10 @@ class TestSpeakerDetectionSkipped:
 
 
 class TestSpeakerNotice:
+    @pytest.fixture(autouse=True)
+    def _pyannote(self, isolated_db):
+        settings_service.set_settings({"speaker_model": "pyannote"})
+
     def test_no_token_notice_is_actionable_and_has_no_secret(self, isolated_db, monkeypatch):
         monkeypatch.setattr(diarization_service.settings_service, "resolve_key", lambda name: "")
         code, text = diarization_service.speaker_detection_problem()
@@ -267,3 +285,18 @@ class TestHardsubNoText:
         assert outcome == "partial"
         assert message.startswith("Finished but found no on-screen text")
         assert "OCR language" in message and "burned-in" in message
+
+
+@pytest.mark.parametrize("model, saved", [("nemotron", True), ("pyannote", False)])
+def test_a_tokenless_run_s_settings_record_whether_speakers_are_detected(isolated_db, monkeypatch, model, saved):
+    """With no token only a Nemotron run detects speakers, and its saved settings say so."""
+    settings_service.set_settings({"speaker_model": model})
+    monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
+    did = isolated_db.create_drama(title_en="D", source_language="zh")
+    run = transcribe_service._resolve_run(
+        did, isolated_db.get_drama(did), source_language="zh", chinese_script="simplified",
+        transcript_mode="whisper", transcript_text=None, asr_backend_choice="whisper",
+        alignment_method=None, audio_path="/x/a.wav", video_path=None, diarize_audio_path="/x/a.wav",
+        run_diarize=True, expected_speakers=None, min_speakers=None, max_speakers=None,
+        initial_prompt=None, extra_names=None)
+    assert run.run_settings["diarize"] is saved

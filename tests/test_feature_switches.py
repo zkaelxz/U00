@@ -107,7 +107,7 @@ def test_off_sources_does_not_start_the_chapter_scheduler(isolated_db, monkeypat
 
 @pytest.mark.parametrize("off,expected", [(frozenset(), 1), (frozenset({"extension"}), 0)])
 def test_extension_endpoint_starts_only_while_the_switch_is_on(isolated_db, monkeypatch, off, expected):
-    import page_server
+    from services import page_server
     from api import background
     from sources import store
 

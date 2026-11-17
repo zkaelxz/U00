@@ -24244,6 +24244,8 @@ export interface components {
             parent_pid: number;
             /** Pid */
             pid: number;
+            /** Private Bytes */
+            private_bytes: number | null;
             /** Ram Bytes */
             ram_bytes: number;
             /**
@@ -28610,6 +28612,8 @@ export interface components {
             soundfile: boolean;
             /** Soynlp */
             soynlp: boolean;
+            /** Speaker Token Needed */
+            speaker_token_needed: boolean;
             /** Sudachi */
             sudachi: boolean;
             /** Tesseract Program */

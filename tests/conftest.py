@@ -281,7 +281,7 @@ def _bridge_models_not_warmed():
     """Starting the extension bridge loads the comic models on a thread; no test may load a
     real model, and a thread left running would log into the next test's library. The real
     function stays on `warm_models_soon.real` for its own tests."""
-    import page_server
+    from services import page_server
     saved = page_server.warm_models_soon
 
     def stub():
@@ -598,14 +598,16 @@ def _workers_do_not_leave_the_test_session(request):
     """Process-job workers call process_worker.start_own_process_group()
     first. Tests that run one in the pytest process would otherwise start a
     new session for it and a watchdog that can end it; only
-    test_background_jobs.py, which exercises that function in real child
-    processes, keeps the real one.
+    test_background_jobs.py and the two files split out of it
+    (test_process_jobs.py, test_job_limits.py), which exercise that
+    function in real child processes, keep the real one.
 
     Patched and restored by hand for the reason given on
     _testclient_defaults_to_loopback."""
     from jobs import process_worker
     original = process_worker.start_own_process_group
-    if not request.module.__name__.endswith("test_background_jobs"):
+    if not request.module.__name__.endswith(
+            ("test_background_jobs", "test_process_jobs", "test_job_limits")):
         process_worker.start_own_process_group = lambda: None
     try:
         yield
@@ -640,7 +642,7 @@ def _isolated_page_server_config():
     module globals, so one test enabling the bridge would leave a provider
     behind that overrides a later test's pushed config. Restored by hand,
     for the same reason as the TestClient fixture above."""
-    import page_server
+    from services import page_server
     with page_server._config_lock:
         saved = (dict(page_server._config), page_server._config_provider)
     try:
