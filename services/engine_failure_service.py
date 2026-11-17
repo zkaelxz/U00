@@ -20,6 +20,9 @@ from lib.errors import DependencyUnavailableError
 
 log = logging.getLogger(__name__)
 
+# The fallback for a failure the user can't act on; the cause goes to the server log.
+ENGINE_FAILED = "The engine call failed. Try again, or pick another engine."
+
 _LABELS = {"claude": "Claude", "gemini": "Gemini", "deepseek": "DeepSeek",
            "openai": "OpenAI", "ollama": "Ollama"}
 

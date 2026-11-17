@@ -344,7 +344,7 @@ class TestLearnStyle:
             raise RuntimeError(f"401 bad key {key}")
         monkeypatch.setattr(adaptive_style, "analyze_edit_patterns", boom)
         r = client.post(f"{BASE}/{did}/style/learn", json={})
-        assert r.status_code == 500 and key not in r.text
+        assert r.status_code == 503 and key not in r.text
 
     def test_monthly_cap_used_up_refuses_paid_not_free(self, client, fake_engine, monkeypatch):
         from services import settings_service

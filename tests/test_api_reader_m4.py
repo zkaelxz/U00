@@ -339,7 +339,7 @@ def test_engine_error_is_redacted(client, drama, fake_engine, monkeypatch):
         raise RuntimeError(f"bad key {secret} at /home/user/secret/file.py")
     monkeypatch.setattr(story_context, "who_is_character", boom)
     r = client.post(f"{BASE}/{drama}/story/who", json={"name": "A"})
-    assert r.status_code == 500
+    assert r.status_code == 503
     assert secret not in r.text and "/home/user/secret" not in r.text
 
 
@@ -638,7 +638,7 @@ def test_slot_released_after_exception(client, drama, fake_engine, monkeypatch):
         raise RuntimeError("engine fell over")
     monkeypatch.setattr(qa, "ask_about_drama", boom)
     for _ in range(3):
-        assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 500
+        assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 503
     assert not reader_routes.ACTIVE_CALLERS
     got = [reader_routes.SLOTS.acquire(blocking=False)
            for _ in range(reader_routes.LLM_MAX_IN_FLIGHT)]
@@ -994,7 +994,7 @@ def test_a_failed_ask_still_writes_a_usage_row(client, drama, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("provider down")
     monkeypatch.setattr(qa, "ask_about_drama", boom)
-    assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 500
+    assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 503
     [row] = _usage_rows()
     assert row["operation"] == "reader_ask" and row["estimated_cost_usd"] == 0
 

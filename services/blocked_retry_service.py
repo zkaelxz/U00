@@ -38,7 +38,7 @@ import db
 from engine_backends import shared, engine_registry
 from engine_backends import line_text
 from engine_backends import paid_calls
-from services import ownership_service, settings_service, translate_run_service, translate_service
+from services import engine_failure_service, ownership_service, settings_service, translate_run_service, translate_service
 from services.review_lines_service import line_dict
 from lib.errors import (
     ConflictError,
@@ -54,7 +54,6 @@ USAGE_OPERATION = "retry_blocked_line"
 BLOCKED_FLAG = "content_blocked"
 DEFAULT_ENGINE = "ollama"   # local, no cloud moderation
 MAX_REASON_CHARS = 300
-ENGINE_FAILED = "The engine call failed."
 # Jobs that write this drama's line text or flags.
 _CONFLICTING_JOB_PREFIXES = background_jobs.LINE_WRITING_JOB_PREFIXES + ("bulk_translate_",)
 
@@ -169,7 +168,8 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
                 "line": _reload(drama_id, line.id)}
     except Exception as e:  # network/engine failure: fixed text, detail to the log
         _log_failure("engine call", e)
-        raise ServiceError(ENGINE_FAILED) from None
+        raise engine_failure_service.engine_failure(
+            e, engine_name, engine_failure_service.ENGINE_FAILED) from None
 
     # translate_batch answers in the order of the ids it was given; with one
     # id sent, anything but exactly one answer is refused, not guessed at.
