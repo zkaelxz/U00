@@ -348,6 +348,12 @@ def ollama_load_mb(base_url: str, model: str):
     return size_mb * 1.1 + 512 if size_mb else None
 
 
+# A loaded Ollama model is its download plus its context cache. Measured on a V100 at
+# Ollama's 16k context, TranslateGemma 12B and 27B took 1.23x their download size
+# (10 GB and 21 GB); the 1.1 the load-time guard uses came in up to 12% low.
+OLLAMA_LOADED_FACTOR = 1.25
+
+
 def ollama_footprint(base_url: str, model: str):
     """(load_mb, loaded, resident_vram_mb) for a local Ollama model: what it takes
     to load whether or not it is loaded now, whether it is, and the graphics
@@ -364,9 +370,10 @@ def ollama_footprint(base_url: str, model: str):
     size_mb = next((float(e.get("size") or 0) / MB for e in tags if wanted in (e.get("name"), e.get("model"))), 0)
     if not size_mb:
         return None
-    loaded = any(wanted in (e.get("name"), e.get("model")) for e in resident)
+    mine = [float(e.get("size_vram") or 0) / MB for e in resident if wanted in (e.get("name"), e.get("model"))]
     resident_mb = sum(float(e.get("size_vram") or 0) for e in resident) / MB
-    return size_mb * 1.1 + 512, loaded, resident_mb
+    # What Ollama reports for the loaded model beats any estimate from its download size.
+    return max([size_mb * OLLAMA_LOADED_FACTOR + 512, *mine]), bool(mine), resident_mb
 
 
 def check_ollama(base_url: str, model: str) -> None:
