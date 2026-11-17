@@ -739,7 +739,7 @@ class TestNemotronBackend:
     """The opt-in Nemotron backend: pyannote stays the default and the fallback."""
 
     @staticmethod
-    def _run(monkeypatch, options, num_speakers=None, nemotron=None):
+    def _run(monkeypatch, options, num_speakers=None, nemotron=None, hf_token="hf_xxx"):
         import diarize_nemotron
         calls = []
 
@@ -753,7 +753,7 @@ class TestNemotronBackend:
         monkeypatch.setattr(diarize, "diarize", lambda *a, **k: (
             [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}], "pyannote-fake", {}))
         result_queue = queue.Queue()
-        diarize.diarize_subprocess_worker("/fake/audio.wav", "hf_xxx", num_speakers, options, result_queue)
+        diarize.diarize_subprocess_worker("/fake/audio.wav", hf_token, num_speakers, options, result_queue)
         return _final(result_queue), calls
 
     def test_turns_from_segments_uses_pyannote_style_labels(self):
@@ -879,6 +879,19 @@ class TestNemotronBackend:
         assert outcome[0] == "ok"
         assert outcome[1]["model"] == "pyannote-fake"
         assert outcome[1]["backend_fallback_reason"]
+
+    def test_without_a_token_nemotron_still_runs(self, monkeypatch):
+        turns = [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_03"}]
+        outcome, _ = self._run(monkeypatch, {"backend": "nemotron"}, nemotron=turns, hf_token=None)
+        assert outcome[1]["model"] == "nemotron-3-diarization"
+
+    def test_without_a_token_a_failed_nemotron_says_pyannote_was_skipped(self, monkeypatch):
+        outcome, _ = self._run(monkeypatch, {"backend": "nemotron"},
+                               nemotron=RuntimeError("no librosa"), hf_token=None)
+        assert outcome[0] == "ok" and outcome[1]["failed_reason"] == "dependency_missing"
+        assert outcome[1]["detail"] == (
+            "Nemotron speaker detection didn't run (RuntimeError: no librosa), and pyannote "
+            "was skipped because no Hugging Face token is configured.")
 
     @pytest.mark.parametrize("options,num", [({"backend": "nemotron"}, 2),
                                              ({"backend": "nemotron", "min_speakers": 2}, None),

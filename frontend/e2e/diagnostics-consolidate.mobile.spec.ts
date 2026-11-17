@@ -36,3 +36,22 @@ test('Setup with models, speaker detection and a task fit a phone with 44px targ
   expect(small).toEqual([])
   expect(unmocked).toEqual([])
 })
+
+test('model downloads name their model and wrap without sideways scroll on a phone', async ({ page }) => {
+  await guardWrites(page)
+  await mockDiagnostics(page, { cache: { hf_cache: [], hf_total_bytes: 0, model_files: [], model_files_total_bytes: 0 } })
+  await page.route('**/api/diagnostics/model-downloads', (r) => r.fulfill({
+    json: { models: [
+      ['whisper_large_v3', 'Whisper large-v3 (about 3 GB)'],
+      ['whisper_breeze_asr_25', 'Breeze-ASR-25, Chinese (about 3 GB)'],
+    ].map(([id, label]) => ({ id, label, downloaded: false, job_id: `model-download:${id}` })) },
+  }))
+  await page.route('**/api/jobs/**', (r) => r.fulfill({ status: 404, json: { detail: 'No such job.' } }))
+  await page.goto('/#/diagnostics')
+  await openDiagTab(page, 'Models')
+  await openSection(page, /^Models/)
+  await expect(page.getByRole('button', { name: 'Download Breeze-ASR-25, Chinese (about 3 GB)' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Download Whisper large-v3 (about 3 GB)' })).toBeVisible()
+  await expectNoSidewaysScroll(page)
+  await page.screenshot({ path: test.info().outputPath('models-downloads-phone.png'), fullPage: true })
+})

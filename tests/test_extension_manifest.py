@@ -22,7 +22,7 @@ import struct
 
 import pytest
 
-import page_server
+from services import page_server
 
 EXTENSION_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extension")

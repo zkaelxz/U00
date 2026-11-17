@@ -49,7 +49,7 @@ test('Simple shows the five actions and the lines, and Full brings the stage tab
   await expect(tabs.getByRole('link', { name: step('Add') })).toHaveAttribute('href', '#/drama/1/source?tab=add')
   await expect(tabs.getByRole('link', { name: step('Transcribe') })).toHaveAttribute('href', '#/drama/1/source?tab=transcribe')
   await expect(tabs.getByRole('link', { name: step('Translate') })).toHaveAttribute('href', '#/drama/1/translate')
-  await expect(tabs.getByRole('link', { name: step('Check') })).toHaveAttribute('href', '#/drama/1/review')
+  await expect(tabs.getByRole('link', { name: step('Review') })).toHaveAttribute('href', '#/drama/1/review')
   await expect(tabs.getByRole('link', { name: step('Export') })).toHaveAttribute('href', '#/drama/1/export')
   await expect(page.getByRole('link', { name: 'Translate 10 lines', exact: true })).toHaveAttribute('href', '#/drama/1/translate')
   await expect(page.getByRole('link', { name: 'Redo transcription' })).toHaveAttribute('href', '#/drama/1/source?tab=transcribe')
@@ -236,7 +236,7 @@ test('Simple lists the steps with the current one marked and its notes', async (
   const steps = page.getByRole('list', { name: 'Steps' })
   await expect(steps.getByRole('listitem')).toHaveCount(5)
   await expect(steps.locator('[aria-current="step"]')).toHaveText('Now · Translate, 4 of 10 left')
-  await expect(steps.getByRole('link')).toHaveText(['Done · Add', 'Done · Transcribe, 10 lines', 'Now · Translate, 4 of 10 left', /^Next · Check(, .+)?$/, 'Export'])
+  await expect(steps.getByRole('link')).toHaveText(['Done · Add', 'Done · Transcribe, 10 lines', 'Now · Translate, 4 of 10 left', /^Next · Review(, .+)?$/, 'Export'])
   // The longer guidance stays as each link's tooltip.
   await expect(steps.getByRole('link', { name: step('Export') })).toHaveAttribute('title', 'SRT, VTT, ASS or video')
 })
@@ -267,12 +267,12 @@ test('an audio or video Simple stage keeps the title page step tabs above it, so
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
   await page.goto('/#/drama/1/translate')
   const steps = page.getByRole('list', { name: 'Steps' })
-  await expect(steps.getByRole('link', { name: step('Check') })).toHaveAttribute('href', '#/drama/1/review')
+  await expect(steps.getByRole('link', { name: step('Review') })).toHaveAttribute('href', '#/drama/1/review')
   await expect(page.getByRole('navigation', { name: 'Title steps' })).toHaveCount(0)
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
   await page.getByRole('link', { name: 'Back to title page' }).click()
   await expect(page).toHaveURL(/#\/drama\/1$/)
-  await page.getByRole('list', { name: 'Steps' }).getByRole('link', { name: step('Check') }).click()
+  await page.getByRole('list', { name: 'Steps' }).getByRole('link', { name: step('Review') }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/review$/)
   await expect(page.getByRole('list', { name: 'Steps' })).toBeVisible()
   // Review is where the title page's lines are too, so it leads back to the Library.
@@ -536,7 +536,7 @@ test.describe('the check queue', () => {
     await expect(page.getByTestId('queue-fine')).toHaveText('24 of 24 look fine')
     // Nothing needs a look, so no line can be marked unseen: Mark the rest is ready.
     await expect(page.getByRole('button', { name: 'Mark the rest as checked', exact: true })).toBeEnabled()
-    await expect(page.getByRole('list', { name: 'Steps' }).locator('[aria-current="step"]')).toHaveText('Now · Check, nothing needs a look')
+    await expect(page.getByRole('list', { name: 'Steps' }).locator('[aria-current="step"]')).toHaveText('Now · Review, nothing needs a look')
     await expect(page.getByRole('link', { name: 'Export', exact: true }).first()).toHaveAttribute('href', '#/drama/3/export')
     // The Review tools still show beside an empty queue.
     await expect(page.getByRole('tablist', { name: 'Review tools' })).toBeVisible()
@@ -595,7 +595,7 @@ test.describe('the check queue', () => {
     await simple(page)
     await page.setViewportSize({ width: 1440, height: 900 })
     const links = page.getByRole('list', { name: 'Steps' }).getByRole('link')
-    const texts = ['Done · Add', 'Done · Transcribe, 24 lines', 'Now · Translate, 1 of 24 left', 'Next · Check, 3 lines need a look', 'Export']
+    const texts = ['Done · Add', 'Done · Transcribe, 24 lines', 'Now · Translate, 1 of 24 left', 'Next · Review, 3 lines need a look', 'Export']
     await expect(links).toHaveText(texts)
     const tops = await links.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)))
     expect(new Set(tops).size, `the step links' tops ${tops}`).toBe(1)
@@ -607,7 +607,7 @@ test.describe('the check queue', () => {
     expect(await outlined.getByRole('link').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('2px')
     await page.goto('/#/drama/3/review')
     await expect(links).toHaveText(texts)
-    await expect(outlined).toHaveText('Next · Check, 3 lines need a look')
+    await expect(outlined).toHaveText('Next · Review, 3 lines need a look')
     await page.goto('/#/drama/3/export')
     await expect(outlined).toHaveText('Export')
     await expectNoSidewaysScroll(page)
@@ -841,7 +841,7 @@ test.describe('the check queue', () => {
     for (const path of ['#/drama/3', '#/drama/3/review']) {
       await page.goto('about:blank')
       await page.goto(`/${path}`)
-      await expect(page.locator('.title-step.is-marked')).toHaveText('Now · Check, 3 lines need a look')
+      await expect(page.locator('.title-step.is-marked')).toHaveText('Now · Review, 3 lines need a look')
       const back = page.getByRole('link', { name: 'Back to Library' })
       await expect(back).toHaveAttribute('href', '#/library')
       await expect(back).toHaveText('‹Library')
@@ -897,7 +897,7 @@ test.describe('the check queue', () => {
     await page.goto('about:blank')
     await page.goto('/#/drama/3/review')
     await expect(queueRadio(page)).toBeChecked()
-    await expect(page.locator('.title-step.is-marked')).toHaveText('Next · Check, 3 lines need a look')
+    await expect(page.locator('.title-step.is-marked')).toHaveText('Next · Review, 3 lines need a look')
     await allRadio(page).check({ force: true })
     await expect(page.locator('.review-line')).toHaveCount(24)
     await expect(page).toHaveURL(address('#/drama/3/review'))
@@ -933,7 +933,7 @@ test.describe('the check queue', () => {
     await expect(page.getByTestId('job-pill')).toHaveText('✓ Done')
     await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
     await expect(page.getByRole('complementary', { name: 'Title panel' })).toHaveCount(0)
-    await expect(steps.locator('[aria-current="step"]')).toHaveText(/^Now · Check/)
+    await expect(steps.locator('[aria-current="step"]')).toHaveText(/^Now · Review/)
     expect(await page.evaluate(() => (window as { stayed?: boolean }).stayed), 'the page was not reloaded').toBe(true)
   })
 
@@ -941,7 +941,7 @@ test.describe('the check queue', () => {
     seedCheckLines()
     await simple(page)
     const steps = page.getByRole('list', { name: 'Steps' })
-    await expect(steps.locator('[aria-current="step"]')).toHaveText('Now · Check, 3 lines need a look')
+    await expect(steps.locator('[aria-current="step"]')).toHaveText('Now · Review, 3 lines need a look')
     await expect(page.getByRole('button', { name: 'Check the 3 lines', exact: true })).toBeVisible()
 
     await page.route('**/api/workflow/dramas/3/progress', (route) => route.fulfill({ status: 500, json: { detail: 'Database is locked' } }))
@@ -952,7 +952,7 @@ test.describe('the check queue', () => {
     // Both answers have been handled by the next frame.
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0))))
     await expect(card(page, 7)).toHaveAttribute('aria-current', 'true')
-    await expect(steps.getByRole('link')).toHaveText(['Done · Add', 'Done · Transcribe, 24 lines', 'Done · Translate', 'Now · Check, 2 lines need a look', 'Next · Export'])
+    await expect(steps.getByRole('link')).toHaveText(['Done · Add', 'Done · Transcribe, 24 lines', 'Done · Translate', 'Now · Review, 2 lines need a look', 'Next · Export'])
     await expect(page.getByRole('button', { name: 'Check the 2 lines', exact: true })).toBeVisible()
     await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
   })

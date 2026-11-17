@@ -15,7 +15,7 @@ const FRESH: SetupReadiness = {
   genanki: false, ebooklib: false, cv2: false, jieba: false, sudachi: false, kiwi: false, nagisa: false, soynlp: false,
   pytesseract: false, paddle_ocr: false, transformers_ok: false, qwen3_asr: false, ffmpeg: true, ffmpeg_libass: true,
   js_runtime: false, tesseract_program: false, manga_ocr: false, plyer: false, trafilatura: false, playwright: false,
-  browser_found: false, gpu_found: true, torch_cuda: false, hf_token_configured: false,
+  browser_found: false, gpu_found: true, torch_cuda: false, hf_token_configured: false, speaker_token_needed: true,
   key_claude: false, key_deepseek: false, key_gemini: false, key_openai: false, key_groq: false,
   ollama_reachable: false, ollama_model_pulled: false,
   whisper_cached_tiny: false, whisper_cached_base: false, whisper_cached_small: false, whisper_cached_medium: false,
@@ -78,6 +78,10 @@ describe('a fresh install', () => {
     expect(token.reason).toContain('terms')
     expect(speakerNeeds({ ...READY, hf_token_configured: false }).map((x) => x.id)).toEqual(['speakers_token'])
     expect(speakerNeeds({ ...READY, pyannote: false }).map((x) => x.id)).toEqual(['speakers_package'])
+  })
+
+  it('asks for no token when the chosen speaker model is Nemotron', () => {
+    expect(speakerNeeds({ ...READY, hf_token_configured: false, speaker_token_needed: false })).toEqual([])
   })
 
   it('asks for a Groq key', () => {

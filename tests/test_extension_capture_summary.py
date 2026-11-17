@@ -4,7 +4,7 @@ import pytest
 
 import applog
 import db
-import page_server
+from services import page_server
 from tests.test_page_server import _post
 
 

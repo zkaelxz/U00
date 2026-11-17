@@ -36,7 +36,7 @@ from fastapi.responses import Response
 from starlette.datastructures import UploadFile
 
 from api.auth import local_only, require_engines_allowed, require_permission
-from api.benchmark_schemas import (BenchmarkArena, BenchmarkCase, BenchmarkCaseCreate,
+from api.schemas import (BenchmarkArena, BenchmarkCase, BenchmarkCaseCreate,
                                    BenchmarkCaseDelete, BenchmarkCaseList, BenchmarkDeleted,
                                    BenchmarkEstimate, BenchmarkImportRequest,
                                    BenchmarkImportResult, BenchmarkOptions,

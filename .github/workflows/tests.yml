@@ -139,9 +139,9 @@ jobs:
             echo 'pytest_shards=[1]' >> "$GITHUB_OUTPUT"
           fi
 
-  # The quick guards (permissions, size allowlist, static analysis, file
-  # organization, split guards, db migrations list) in about a minute, so a
-  # PR that breaks a rule is red long before the full suite finishes.
+  # The quick guards in tests/ci_guards.txt (static analysis, permissions,
+  # split guards, agent docs, repo map) in about a minute, so a PR that
+  # breaks a rule is red long before the full suite finishes.
   guards:
     needs: changes
     runs-on: ubuntu-latest
@@ -205,8 +205,7 @@ jobs:
   # finish together; a test missing from the file is costed at the average.
   # Every shard still runs its slice under xdist across the runner's CPUs (the
   # suite is xdist-safe; the isolated_db fixture gives each worker its own
-  # library). The quick guards (permissions, size allowlist, static analysis,
-  # file organization, split guards, db migrations list) run in the separate
+  # library). The quick guards in tests/ci_guards.txt run in the separate
   # `guards` job in about a minute, so a PR that breaks a rule is red long
   # before this finishes. Before sharding the single job took 12-15 minutes.
   test-shard:

@@ -15,7 +15,7 @@ re-evaluation and promotion. Thin: see services/model_reeval_service.py.
 from fastapi import APIRouter, Path
 
 from api.auth import local_only, require_permission
-from api.model_reeval_schemas import (CandidateAddRequest, CandidateAddResult, CandidateResult,
+from api.schemas import (CandidateAddRequest, CandidateAddResult, CandidateResult,
                                       PromoteRequest, PromoteResult, RejectRequest,
                                       ReevalDecisionList, ReevalEstimate, ReevalOverview,
                                       ReevalRunRequest, ReevalRunStarted, ReevalSettingsRequest,

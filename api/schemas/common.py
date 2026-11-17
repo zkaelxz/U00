@@ -29,6 +29,9 @@ __all__ = [
     "AssExportRequest",
     "DramaSummary",
     "DramaDetail",
+    "BenchmarkJudgeEstimate",
+    "BenchmarkConfigEstimate",
+    "BenchmarkEstimate",
 ]
 
 
@@ -334,3 +337,32 @@ class AssExportRequest(BaseModel):
     notes_as_separate_line: bool = False
     wrap_chars_en: Optional[int] = Field(default=None, ge=0, le=200)
     wrap_chars_source: Optional[int] = Field(default=None, ge=0, le=200)
+
+
+class BenchmarkJudgeEstimate(BaseModel):
+    engine: str
+    model: Optional[str] = None
+    estimated_cost_usd: float
+    cap_applies: bool
+    same_as_tested: List[str] = Field(default_factory=list)
+    warning: Optional[str] = None
+
+
+class BenchmarkConfigEstimate(BaseModel):
+    engine: str
+    model: Optional[str] = None
+    estimated_cost_usd: float
+    cap_applies: bool
+
+
+class BenchmarkEstimate(BaseModel):
+    stage: str
+    case_count: int
+    configs: List[BenchmarkConfigEstimate]
+    estimated_cost_usd: float
+    monthly_cap_usd: float
+    month_spend_usd: float
+    remaining_usd: Optional[float] = None
+    monthly_refusal: Optional[str] = None
+    estimate_above_cap: bool
+    judge: Optional[BenchmarkJudgeEstimate] = None

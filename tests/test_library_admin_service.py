@@ -441,7 +441,7 @@ import sqlite3  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
 
-import page_server  # noqa: E402
+from services import page_server  # noqa: E402
 import shutil  # noqa: E402
 from services import auth_service  # noqa: E402
 from sources import store as src_store  # noqa: E402

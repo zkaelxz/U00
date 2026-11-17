@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-import page_server
+from services import page_server
 import scanlate
 import scanlate_detect
 import scanlate_lama

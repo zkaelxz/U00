@@ -79,3 +79,4 @@ from api.schemas.notification import *  # noqa: F401,F403
 from api.schemas.sources_extraction import *  # noqa: F401,F403
 from api.schemas.jellyfin import *  # noqa: F401,F403
 from api.schemas.metadata_research import *  # noqa: F401,F403
+from api.schemas.model_reeval import *  # noqa: F401,F403
