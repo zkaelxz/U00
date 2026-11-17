@@ -28,6 +28,7 @@ __all__ = [
     "LiveSessionStarted",
     "LiveCue",
     "LiveSessionStatus",
+    "LiveStreamRef",
     "LiveSessionSummary",
     "LiveSessionStopped",
     "LiveChatMessage",
@@ -407,6 +408,11 @@ class LiveCue(BaseModel):
     translation: str   # pending | done | failed | cancelled
 
 
+class LiveStreamRef(BaseModel):
+    kind: str   # youtube | twitch-video | twitch-channel
+    id: str     # the video id, or the Twitch channel name
+
+
 class LiveSessionStatus(BaseModel):
     session_id: str
     status: str   # queued | running | done | error | cancelled
@@ -433,6 +439,8 @@ class LiveSessionStatus(BaseModel):
     player_ready: bool = False
     # Whether this session reads the stream's chat (GET .../chat has the messages).
     chat: bool = False
+    # The video the session follows, for another device to show it; never the link itself.
+    stream: Optional[LiveStreamRef] = None
     cues: List[LiveCue]
     next_index: int
 
