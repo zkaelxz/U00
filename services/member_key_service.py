@@ -23,7 +23,7 @@ Security rules kept here:
 - A member reads, saves and removes only their own (the user id comes from
   their session). An admin sees only whether a member has one, and may
   remove it; that removal is audited. Deactivating an account removes it.
-- A job reads its starter's key once, when it starts (for_job), so removing the key mid-run never moves that run onto the
+- A job reads its starter's key once, when it starts (jobs.job_launch), so removing the key mid-run never moves that run onto the
   owner's account.
 """
 
@@ -223,10 +223,3 @@ def acting_key() -> Optional[str]:
     from services import ownership_service
     return cloud_key_for_user(ownership_service.acting_user_id())
 
-
-def for_job(target):
-    """`target` as a job runs it, carrying the key of whoever starts it: the
-    member of this request, or the key the starting job itself carries. A
-    partial, so a process job's target still pickles."""
-    from engine_backends.local import carry_member_cloud_key, member_cloud_key
-    return carry_member_cloud_key(target, member_cloud_key())
