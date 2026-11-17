@@ -71,6 +71,7 @@ from api import remote_uploads
 from services import auth_service, device_token_service, ownership_service
 from lib import acting
 from lib.errors import ForbiddenError, UnauthenticatedError
+import paid_limits
 
 COOKIE_NAME = "__Host-baihe_session"     # Secure mode (always, except loopback-http dev)
 DEV_COOKIE_NAME = "baihe_session"        # plain-http loopback dev (__Host- needs Secure)
@@ -390,7 +391,7 @@ def _refuse_if_paid_limit_reached(principal) -> None:
     limit (the session's permissions leave it out) is told so, not "not allowed"."""
     user_id = (principal or {}).get("user_id")
     if auth_service.paid_engines_held_back(user_id):
-        raise ForbiddenError(auth_service.PAID_LIMIT_MESSAGE, details={"reason": PAID_LIMIT_REASON})
+        raise ForbiddenError(paid_limits.PAID_LIMIT_MESSAGE, details={"reason": PAID_LIMIT_REASON})
 
 
 def require_engines_allowed(request: Request, *engine_names, model=None):

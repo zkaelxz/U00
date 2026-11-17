@@ -21,6 +21,7 @@ from lib.errors import ConflictError, ForbiddenError, NotFoundError
 from tests.api_helpers import loopback_client
 from tests.test_api_household_listener import _h as _household_h, _household_client
 from lib import acting
+import paid_limits
 
 REMOTE = "https://baihe.example.com"
 LOCAL_POST = {"X-Baihe-Local": "1"}
@@ -838,10 +839,10 @@ def test_a_members_pending_batches_count_against_their_own_limit(isolated_db):
         with pytest.raises(UnsupportedOperationError, match="your own monthly limit"):
             paid_job_service.hold_bulk_spend(paid_job_service.bulk_hold_key(did, "flag"), 2.0)
         assert paid_job_service._bulk_holds == {}
-        assert not auth_service.paid_limit_reached(m["id"])
+        assert not paid_limits.paid_limit_reached(m["id"])
         db.log_usage(None, "claude", "m", "translate", 1, 1, 1.0)
     assert db.get_month_spend_by_user() == {m["id"]: 5.0}
-    assert auth_service.paid_limit_reached(m["id"])
+    assert paid_limits.paid_limit_reached(m["id"])
 
 
 def test_people_list_shows_each_accounts_spend_and_the_members_limit(isolated_db):
@@ -905,7 +906,7 @@ def test_a_member_over_their_limit_loses_paid_engines_until_it_is_raised(isolate
     assert me["paid_limit_reached"] is True and "engines.paid" not in me["permissions"]
     r = c.post("/api/translate", headers=_h(ms), json={"text": "你好"})
     assert r.status_code == 403
-    assert r.json()["error"] == {"code": "forbidden", "message": auth_service.PAID_LIMIT_MESSAGE,
+    assert r.json()["error"] == {"code": "forbidden", "message": paid_limits.PAID_LIMIT_MESSAGE,
                                  "details": {"reason": "paid_limit_reached"}}
     auth_service.admin_set_paid_limit(m["id"], 3)
     assert "engines.paid" in auth_service.resolve_session(ms["session_token"], touch=False)["permissions"]
@@ -918,7 +919,7 @@ def test_a_member_without_the_right_still_gets_the_plain_refusal(isolated_db):
     with db.spending_for(m["id"]):
         db.log_usage(None, "claude", "m", "translate", 1, 1, 2)
     r = c.post("/api/translate", headers=_h(ms), json={"text": "你好"})
-    assert r.status_code == 403 and r.json()["error"]["message"] != auth_service.PAID_LIMIT_MESSAGE
+    assert r.status_code == 403 and r.json()["error"]["message"] != paid_limits.PAID_LIMIT_MESSAGE
 
 
 def test_paid_work_for_a_member_over_their_limit_is_refused_before_each_call(isolated_db):

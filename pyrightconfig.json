@@ -90,6 +90,7 @@
     "page_fetch_profile.py",
     "page_import_limits.py",
     "page_scroll.py",
+    "paid_limits.py",
     "page_turns.py",
     "pending_install.py",
     "pending_install_child.py",
