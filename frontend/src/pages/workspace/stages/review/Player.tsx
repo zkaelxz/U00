@@ -10,7 +10,7 @@ import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
-import { CAPTION_SIZE_OPTIONS, clampTime, FULLSCREEN_IDLE_MS, JUMP_ERROR, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, jumpPlaceholder, playerKeyAction, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, type CaptionSize, type SubtitleChoice } from './playerLogic'
+import { CAPTION_SIZE_OPTIONS, clampTime, FULLSCREEN_IDLE_MS, JUMP_ERROR, lineAt, onMediaError, overlayText, parseJumpTime, playErrorText, PLAYBACK_RATES, jumpPlaceholder, playerKeyAction, popoutCaptionPx, SUBTITLE_OPTIONS, subtitleSrc, validRate, VIDEO_FALLBACK_NOTE, type CaptionSize, type SubtitleChoice } from './playerLogic'
 import { lineNumber } from '../../../../lineNumber'
 import { StageContext } from '../../StageContext'
 import { stageLabel } from '../../stages'
@@ -47,6 +47,8 @@ type Timed = Pick<ReviewLine, 'idx' | 'start' | 'end'>
 interface Props {
   dramaId: number
   kind: PlayerMediaKind
+  // The title also has an audio file, which plays instead when the video can't.
+  hasAudio?: boolean
   ref?: Ref<PlayerHandle>
   // The strip's id, for a button elsewhere that shows or hides it.
   id?: string
@@ -86,7 +88,6 @@ const fullscreenAvailable = () => document.fullscreenEnabled || !!(document as F
 
 const fullscreenElementOf = (doc: Document) => doc.fullscreenElement ?? (doc as FsDoc).webkitFullscreenElement ?? null
 
-const playError = (sourceStage: string) => `Couldn’t play the audio. Check the file on ${sourceStage}.`
 const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
   English: 'No English subtitles yet: nothing is translated.',
   Source: 'No original subtitles yet: nothing is transcribed.',
@@ -96,9 +97,16 @@ const NO_SUBS: Record<Exclude<SubtitleChoice, 'off'>, string> = {
 // Whether the media plays or has failed, and what the page around the player hears of it: each start and stop, and
 // every failed attempt, so a player folded out of sight comes out with its error. Every attempt, not only the first: a
 // player folded again after failing stays failed, and the next Play from outside it must bring it back.
-function usePlayState(onFailed?: () => void) {
+// A video that fails while the title has an audio file switches to the audio instead (see onMediaError).
+function usePlayState(onFailed: (() => void) | undefined, media: RefObject<HTMLMediaElement | null>, video: { url: string; wanted: PlayerMediaKind; hasAudio: boolean }) {
   const [playing, setPlaying] = useState(false)
   const [failed, setFailed] = useState(false)
+  // Keyed on the video's URL, so another title's video is tried again rather than skipped.
+  const [fellBackFrom, setFellBackFrom] = useState<string | null>(null)
+  const fellBack = video.wanted === 'video' && fellBackFrom === video.url
+  const kind: PlayerMediaKind = fellBack ? 'audio' : video.wanted
+  // Where the failed video was, and whether it was playing, for the audio element to pick up from.
+  const resume = useRef<{ at: number; play: boolean } | null>(null)
   const playingNow = useRef(false)
   const listeners = useRef(new Set<() => void>())
   useEffect(() => {
@@ -109,6 +117,23 @@ function usePlayState(onFailed?: () => void) {
     setFailed(true)
     onFailed?.()
   }, [onFailed])
+  const mediaFailed = useCallback((tryingToPlay: boolean) => {
+    const el = media.current
+    if (onMediaError(kind, video.hasAudio) === 'show-error') return fail()
+    // A refused play() and the element's error event can both report one failure; keep the first's place.
+    const prev = resume.current
+    resume.current = { at: prev?.at ?? el?.currentTime ?? 0, play: !!prev?.play || tryingToPlay || (!!el && !el.paused) }
+    setPlaying(false)
+    setFellBackFrom(video.url)
+  }, [media, kind, video.hasAudio, video.url, fail])
+  // Called with the audio element once it has loaded, to carry on from the failed video's place.
+  const pickUp = useCallback((el: HTMLMediaElement, play: () => void) => {
+    const from = resume.current
+    if (!from) return
+    resume.current = null
+    el.currentTime = from.at
+    if (from.play) play()
+  }, [])
   const outside = useMemo<Pick<PlayerHandle, 'isPlaying' | 'onPlayChange'>>(() => ({
     isPlaying: () => playingNow.current,
     onPlayChange: (listener) => {
@@ -118,17 +143,17 @@ function usePlayState(onFailed?: () => void) {
       }
     },
   }), [])
-  return { playing, setPlaying, failed, setFailed, fail, outside }
+  return { playing, setPlaying, failed, setFailed, mediaFailed, outside, kind, fellBack, pickUp }
 }
 
 // A player over the Range endpoint, with a seek bar, jump to time and
 // subtitles from the current lines (the Reader's caption route). Only rendered
 // when the drama has audio (or a source video); the element fetches the stream itself.
-export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost, sourceStage, alwaysOpen = false, lineShownByPage = false, loopLineAt }: Props) {
+export function Player({ dramaId, kind: wantedKind, hasAudio = false, ref, id, onFailed, lines = [], selected = null, captionVersion = 0, englishAbsent = false, trailing, panelHost, sourceStage, alwaysOpen = false, lineShownByPage = false, loopLineAt }: Props) {
   const stage = useContext(StageContext)
   const media = useRef<HTMLMediaElement | null>(null)
   const trackEl = useRef<HTMLTrackElement | null>(null)
-  const { playing, setPlaying, failed, setFailed, fail, outside } = usePlayState(onFailed)
+  const { playing, setPlaying, failed, setFailed, mediaFailed, outside, kind, fellBack, pickUp } = usePlayState(onFailed, media, { url: mediaStreamUrl(dramaId, 'video'), wanted: wantedKind, hasAudio })
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(NaN)
   const [segment, setSegment] = useState<Segment | null>(null)
@@ -260,9 +285,9 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
     if (!el) return
     el.play().catch((e: unknown) => {
       // A pause or a new seek interrupts play(); that is not a failure.
-      if ((e as { name?: string } | null)?.name !== 'AbortError') fail()
+      if ((e as { name?: string } | null)?.name !== 'AbortError') mediaFailed(true)
     })
-  }, [fail])
+  }, [mediaFailed])
 
   const playLine = useCallback(
     (line: Segment) => {
@@ -455,8 +480,9 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
     onLoadedMetadata: (e: SyntheticEvent<HTMLMediaElement>) => {
       setDuration(e.currentTarget.duration)
       applyRate(e.currentTarget)
+      pickUp(e.currentTarget, play)
     },
-    onError: fail,
+    onError: () => mediaFailed(false),
   }
   // The played line only names the position while the playhead is still inside it: a seek made
   // outside the app's own controls (keys on the video, a scrub) must not leave its number on screen.
@@ -644,7 +670,7 @@ export function Player({ dramaId, kind, ref, id, onFailed, lines = [], selected 
         <PopOutButton supported={pop.supported} floating={floating} boxed={boxed} onPop={() => void pop.open()} onReturn={pop.close} onToggleBox={() => setBoxed(!boxed)} />
         {trailing}
       </div>
-      {failed && <p className="error" role="alert">{playError(sourceStage ?? stageLabel('source', titleKind(stage?.drama.media_type, stage?.drama.content_mode)))}</p>}
+      {failed ? <p className="error" role="alert">{playErrorText(kind, sourceStage ?? stageLabel('source', titleKind(stage?.drama.media_type, stage?.drama.content_mode)))}</p> : fellBack && <p className="muted" role="status" data-testid="player-fallback">{VIDEO_FALLBACK_NOTE}</p>}
       <div className="review-player-slot" ref={slotRef} />
       {createPortal(panel, panelBox)}
       {boxed && <FloatingFrame width={boxWidth} onWidth={setBoxWidth} onReturn={() => setBoxed(false)} hostRef={setBoxHost} />}

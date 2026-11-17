@@ -124,9 +124,14 @@ export default function ReviewStage() {
   // Play from the source video when there is one (its sound plays even while
   // the picture is folded away), else from the audio; no media, no player.
   const [mediaKind, setMediaKind] = useState<PlayerMediaKind | null>(null)
+  const [hasAudio, setHasAudio] = useState(false)
   useCancellableEffect((cancelled) => {
     getMediaStatus(dramaId).then(
-      (s) => !cancelled() && setMediaKind(s.has_source_video ? 'video' : s.has_audio ? 'audio' : null),
+      (s) => {
+        if (cancelled()) return
+        setMediaKind(s.has_source_video ? 'video' : s.has_audio ? 'audio' : null)
+        setHasAudio(s.has_audio)
+      },
       () => !cancelled() && setMediaKind(drama.has_audio ? 'audio' : null),
     )
   }, [dramaId, drama.has_audio])
@@ -145,6 +150,7 @@ export default function ReviewStage() {
         onChanged={changed}
         jobRunning={jobRunning}
         mediaKind={mediaKind}
+        hasAudio={hasAudio}
         sourceLanguage={drama.source_language}
         prose={drama.content_mode === 'novel_narration'}
         translationEngine={drama.translation_engine}

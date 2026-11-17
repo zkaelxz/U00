@@ -12,8 +12,9 @@ export function useTitleProgress(id: number, comic: boolean) {
   const [countFailed, setCountFailed] = useState(false)
   const [translatedCount, setTranslatedCount] = useState(0)
   const [exported, setExported] = useState(false)
-  // Audio or video already attached: only then can one button transcribe.
-  const [audioReady, setAudioReady] = useState(false)
+  // Audio or video already attached: only then can one button transcribe. Null until answered, so a slow answer
+  // doesn't show "Add media" on a title whose media is there; a failed answer falls back to "not attached".
+  const [audioReady, setAudioReady] = useState<boolean | null>(null)
   // The check queue's size names the Check step's button; null until known, and a comic has no lines to check.
   const [riskCount, setRiskCount] = useState<number | null>(null)
   // The check queue's size has been asked for and answered (or failed): the Check button's words are final from then on.
@@ -65,7 +66,7 @@ export function useTitleProgress(id: number, comic: boolean) {
   useEffect(() => {
     if (comic) return
     let cancelled = false
-    getTranscribeConfig(id).then((c) => !cancelled && setAudioReady(c.audio_available), () => undefined)
+    getTranscribeConfig(id).then((c) => !cancelled && setAudioReady(c.audio_available), () => !cancelled && setAudioReady(false))
     return () => {
       cancelled = true
     }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { clampTime, jumpPlaceholder, lineAt, overlayText, parseJumpTime, PLAYBACK_RATES, playerKeyAction, popoutCaptionPx, SEEK_STEP_FINE_S, SEEK_STEP_S, SUBTITLE_OPTIONS, subtitleSrc, validRate, type PlayerKey } from './playerLogic'
+import { clampTime, jumpPlaceholder, lineAt, onMediaError, overlayText, parseJumpTime, playErrorText, PLAYBACK_RATES, playerKeyAction, popoutCaptionPx, SEEK_STEP_FINE_S, SEEK_STEP_S, SUBTITLE_OPTIONS, subtitleSrc, validRate, type PlayerKey } from './playerLogic'
 
 describe('parseJumpTime', () => {
   it('reads seconds, mm:ss and h:mm:ss', () => {
@@ -143,5 +143,21 @@ describe('jumpPlaceholder', () => {
   it('falls back to the format hint while focused or typed in', () => {
     expect(jumpPlaceholder(363, true, '')).toBe('mm:ss')
     expect(jumpPlaceholder(363, false, '1:2')).toBe('mm:ss')
+  })
+})
+
+describe('when the media fails', () => {
+  it('falls back from a video to the title’s audio file', () => {
+    expect(onMediaError('video', true)).toBe('use-audio')
+  })
+
+  it('shows the error when there is nothing to fall back to', () => {
+    expect(onMediaError('video', false)).toBe('show-error')
+    expect(onMediaError('audio', true)).toBe('show-error')
+  })
+
+  it('names the medium that failed', () => {
+    expect(playErrorText('video', 'Media')).toBe('Couldn’t play the video. Check the file on Media.')
+    expect(playErrorText('audio', 'Source')).toBe('Couldn’t play the audio. Check the file on Source.')
   })
 })

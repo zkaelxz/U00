@@ -479,6 +479,11 @@ def test_dry_run_writes_nothing_and_needs_no_confirm():
     r = resplit_service.resplit_long_lines(did, ids, dry_run=True)
     assert (r["dry_run"], r["split_lines"], r["pieces"], r["line_count"]) == (True, 1, 3, 5)
     assert r["cleared_translations"] == 1
+    [cut] = r["cuts"]
+    assert (cut["line_id"], cut["idx"]) == (ids[1], 1)
+    assert [set(p) for p in cut["pieces"]] == [{"start", "end", "text"}] * 3
+    assert "".join(p["text"] for p in cut["pieces"]) == LONG
+    assert (cut["pieces"][0]["start"], cut["pieces"][-1]["end"]) == (2.0, 32.0)
     assert db.load_lines(did) == before and db.list_line_history(did) == []
     with pytest.raises(ConflictError):
         resplit_service.resplit_long_lines(did, [999], dry_run=True)
@@ -535,6 +540,7 @@ def test_route_sensitivity_fields(isolated_db):
                           "dry_run": True})
     assert r.status_code == 200, r.text
     assert r.json()["dry_run"] is True and r.json()["pieces"] == 6 and len(db.load_lines(did)) == 3
+    assert sum(len(c["pieces"]) for c in r.json()["cuts"]) == 6
 
 
 # --- bounded / incremental sentence-end checks ---------------------------------

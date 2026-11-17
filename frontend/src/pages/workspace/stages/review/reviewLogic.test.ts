@@ -271,7 +271,7 @@ describe('AI re-segmentation preview (R47)', () => {
 
 const resplit = (o: Partial<ResplitResult>): ResplitResult => ({
   job_id: null, drama_id: null, split_lines: null, lines_before: null, line_count: null, timing: null, aligned_lines: null,
-  cleared_translations: null, speakers_reassigned: null, note: null, dry_run: null, pieces: null, history_id: null,
+  cleared_translations: null, speakers_reassigned: null, note: null, dry_run: null, pieces: null, cuts: null, history_id: null,
   lines_fingerprint: null, ...o,
 })
 
