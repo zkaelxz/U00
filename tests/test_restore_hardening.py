@@ -1,4 +1,4 @@
-"""Tests that a library restore refuses tampered or crafted backups and migrates old-schema ones."""
+"""Tests that a library restore refuses tampered or crafted backups, migrates old-schema ones, and the other restore-safety follow-ups."""
 
 import io
 import os
