@@ -93,8 +93,17 @@ class CueBoard:
                 background_jobs.set_result(self._job_id, live_cue_feed.snapshot(self.cues, []))
 
     def add(self, cues: list) -> None:
+        """Appends cues. A cue never starts before the one shown above it: a line re-heard in the next chunk's
+        overlap can carry an earlier start than the line before it, and a
+        player showing cues by start time would then show them out of order."""
         with self.lock:
-            self.cues.extend(cues)
+            for cue in cues:
+                if self.cues and cue["start"] < self.cues[-1]["start"]:
+                    # Moved, not shortened: a line kept on screen for no time is never read.
+                    late = self.cues[-1]["start"] - cue["start"]
+                    cue["start"] += late
+                    cue["end"] += late
+                self.cues.append(cue)
             self.publish()
 
     def mark_pending(self, cues: list, state: str) -> int:
@@ -241,8 +250,9 @@ class LagStats:
 
 
 class _Work:
-    def __init__(self, idx, cues, timing, audio):
+    def __init__(self, idx, cues, timing, audio, measured=True):
         self.idx, self.cues, self.timing, self.audio = idx, cues, timing, audio
+        self.measured = measured
         self.queued_at = time.monotonic()
 
 
@@ -275,14 +285,17 @@ class TranslationWorker:
     def _stop_now(self) -> bool:
         return self._abandoned or self._cancelled()
 
-    def submit(self, idx: int, cues: list, timing, audio: float, keep_all: bool = False) -> None:
+    def submit(self, idx: int, cues: list, timing, audio: float, keep_all: bool = False,
+               measured: bool = True) -> None:
+        """measured=False: lines with no audio of their own (held back from a
+        chunk), kept out of the lag figures."""
         with self._cond:
             if self._abandoned:
                 return
             dropped = []
             while not keep_all and len(self._queue) >= MAX_TRANSLATE_BACKLOG:
                 dropped.append(self._queue.popleft())
-            self._queue.append(_Work(idx, cues, timing, audio))
+            self._queue.append(_Work(idx, cues, timing, audio, measured))
             self._stats.queue = len(self._queue)
             self._cond.notify_all()
         skipped = sum(self._board.mark_pending(w.cues, live_cue_feed.SKIPPED) for w in dropped)
@@ -361,9 +374,10 @@ class TranslationWorker:
         finally:
             self._stage.translated()
             self._wake.set()
-        total = work.timing.report(work.idx, self._note, cues=len(work.cues),
-                                   queue_wait=queue_wait, queue_depth=depth)
-        self._stats.chunk_done(work.audio, total)
+        if work.measured:
+            total = work.timing.report(work.idx, self._note, cues=len(work.cues),
+                                       queue_wait=queue_wait, queue_depth=depth)
+            self._stats.chunk_done(work.audio, total)
         return True
 
 
