@@ -285,3 +285,18 @@ class TestHardsubNoText:
         assert outcome == "partial"
         assert message.startswith("Finished but found no on-screen text")
         assert "OCR language" in message and "burned-in" in message
+
+
+@pytest.mark.parametrize("model, saved", [("nemotron", True), ("pyannote", False)])
+def test_a_tokenless_run_s_settings_record_whether_speakers_are_detected(isolated_db, monkeypatch, model, saved):
+    """With no token only a Nemotron run detects speakers, and its saved settings say so."""
+    settings_service.set_settings({"speaker_model": model})
+    monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
+    did = isolated_db.create_drama(title_en="D", source_language="zh")
+    run = transcribe_service._resolve_run(
+        did, isolated_db.get_drama(did), source_language="zh", chinese_script="simplified",
+        transcript_mode="whisper", transcript_text=None, asr_backend_choice="whisper",
+        alignment_method=None, audio_path="/x/a.wav", video_path=None, diarize_audio_path="/x/a.wav",
+        run_diarize=True, expected_speakers=None, min_speakers=None, max_speakers=None,
+        initial_prompt=None, extra_names=None)
+    assert run.run_settings["diarize"] is saved
