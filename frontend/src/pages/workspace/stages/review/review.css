@@ -361,8 +361,10 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   /* Keep the strip on one row: the active row already shows its number. */
   .review-player-row [data-testid='player-line'] { display: none; }
   .review-player-row .review-player-toggle { margin-left: auto; }
-  .review-player-row:has(.review-pager) .review-duration { display: none; }
+  /* Without the total, Hide player and Pop out stay on the play row at 390 px instead of Pop out dropping to a line of its own. */
+  .review-player-row .review-duration { display: none; }
   .review-player-row { gap: var(--space-1); }
+  .review-player-row .btn-sm { padding-inline: var(--space-2); }
   .review-page-label { min-width: 2.5em; }
 }
 

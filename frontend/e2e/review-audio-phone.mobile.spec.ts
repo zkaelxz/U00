@@ -31,6 +31,16 @@ test('phone: no blank caption card and the filter chips are not clipped', async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
+test('phone: Hide player and Pop out stay on the play row', async ({ page }) => {
+  await page.goto('/#/drama/3/review')
+  const play = page.locator('.review-player-row button.review-play').first()
+  const rowTop = (await play.boundingBox())!.y
+  for (const name of ['Hide player', 'Pop out']) {
+    const box = (await page.getByRole('button', { name }).boundingBox())!
+    expect(box.y, name).toBeLessThan(rowTop + 44)
+  }
+})
+
 for (const view of ['full', 'simple'] as const) {
   test(`phone, ${view} view: the floating player opens above the line bar, so its buttons stay tappable`, async ({ page }) => {
     // Phones have no always-on-top window, so Pop out floats the player in the page.

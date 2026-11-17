@@ -663,8 +663,9 @@ export function Player({ dramaId, kind: wantedKind, hasAudio = false, ref, id, o
           </label>
         </span>
         {!alwaysOpen && (
-          <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-expanded={open} onClick={() => setOpen(!open)}>
-            {open ? 'Hide player' : 'Show player'}
+          <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-label={open ? 'Hide player' : 'Show player'} aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? 'Hide' : 'Show'}
+            <span className="review-loop-word"> player</span>
           </button>
         )}
         <PopOutButton supported={pop.supported} floating={floating} boxed={boxed} onPop={() => void pop.open()} onReturn={pop.close} onToggleBox={() => setBoxed(!boxed)} />
