@@ -1,6 +1,6 @@
 ---
 name: merge-slice
-description: Merge a finished migration branch into baihe-subtitler using the repo's recipe (base merge, append-only conflict helpers, import and permission checks, focused tests, PR, squash-merge). Use when a slice, service or React branch is ready to land.
+description: Land a finished branch on baihe-subtitler using the repo's recipe (base merge, conflict rules, import and permission checks, focused tests, PR, lane check, auto-merge). Use when a branch is ready to land.
 ---
 
 # /merge-slice `<branch>`
@@ -33,7 +33,7 @@ python -m pytest -q -p no:cacheprovider tests/test_api_permissions.py tests/test
 ```
 - Get the changed test files from `git diff --name-only origin/baihe-subtitler -- tests/`.
 - If `frontend/` changed, run `cd frontend && npx tsc -b && npx vitest run`.
-- If `api/auth.py`, `api/server.py`, `background_jobs.py` or `db/` changed, or the branch touches more than about 10 files, run the full suite instead: `python run_tests.py`.
+- Before pushing, also run the guard set: `python tools/check_change.py` prints the command for your diff. CI runs the full suite on every PR, so don't run it locally as well.
 - Run anything that takes more than about 100 s in the background. Poll it with `kill -0 <pid>` (never `pgrep -f`).
 - A new route must declare exactly one of `require_permission(...)`, `public_route()` or `local_only()`, and must have a row in the route table in `docs/route-permissions.md`. `tests/test_api_permissions.py` enforces both.
 - A test that fails is real. Never skip, xfail or weaken a test to get the merge through.
@@ -45,7 +45,7 @@ git push origin HEAD:<branch>
 ```
 - Open a PR into `baihe-subtitler` with the GitHub MCP tools. The body covers: what changed in plain words, the tests run and their counts, and known gaps and doubts from the branch report.
 - End the PR body with the session's attribution lines.
-- Squash-merge it as `docs/testing-and-ci.md`, "Merge flow", says: after Alex's order, on a full green Tests run at the exact head. If Actions minutes have run out, the full local suite is the gate.
+- Mark it ready, run `python tools/pr_lane.py`, merge the base in again if the lane is overlap, and turn auto-merge (squash) on while fewer than two other PR runs are going; GitHub merges it once `test` and `browser-tests` are green. A risky PR (schema, sign-in or auth, a real-PC test, release steps) waits for Alex's "Merge NNNN". `docs/testing-and-ci.md`, "Merge flow", has the details.
 - Remove the scratch worktree: `git worktree remove <path>`.
 
 ## 5. After merging

@@ -1,41 +1,28 @@
 <!--
-This template is filled in by the session that implements a roadmap step.
-Delete this comment block; keep the headings.
+Fill in each heading; delete this comment. CLAUDE.md, "How to work", says what a PR needs.
 -->
-
-## Roadmap step
-
-Which step this is (e.g. "Step 2 — R0: Permanent line IDs"), and the branch
-it's opened from.
 
 ## What changed
 
-Plain-English summary: what was fixed/added, and what the user will notice
-in the app. Not a copy of the commit log.
+Plain words: what was fixed or added, and what the user will notice in the app. Not a copy of the commit log.
+Name the task or finding this does, and the branch.
 
 ## Testing
 
-- `python run_tests.py` result (pass/fail count, and whether it changed from
-  before this branch).
-- Anything a mocked test can't cover, named explicitly rather than left out.
+- The commands you ran and their pass counts: the area's tests, the guard set (`python tools/check_change.py` prints the
+  command for your diff) and, if `frontend/` changed, `npx tsc -b`, `npx vitest run` and `npm run lint`.
+- Each removed or rewritten test and which of CLAUDE.md's reasons applies.
+- Anything a mocked test can't cover (a real GPU, model, key, site or installer), named rather than left out.
 
 ## Docs
 
-If this changes what a user sees or does: the `docs/user-guide.md` line updated in this PR (name it), or "no user-visible change".
+The user guide line updated in this PR (name the file), or "no user-visible change".
 
-## Exit condition
+## Merge lane
 
-Copy this step's exit condition from the roadmap (it lives on the planning
-branch, not in this repo; the fetch command is in the root `CLAUDE.md`) or from
-the task you were given, and confirm each part is actually met — don't just
-link it.
-
-## Manual check (for the user, after merge)
-
-Copy this step's row from the roadmap's manual-check table (same source as
-above), so it's right here instead of a separate lookup.
+The output of `python tools/pr_lane.py`, and whether this is a risky PR that waits for Alex's "Merge NNNN"
+(`docs/testing-and-ci.md`, "Merge flow").
 
 ## Anything uncertain or out of scope
 
-Anything the implementing session wasn't sure about, intentionally left out,
-or thinks the roadmap itself may have gotten wrong.
+What you weren't sure about, left out on purpose, and follow-ups.
