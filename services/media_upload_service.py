@@ -520,6 +520,8 @@ def refuse_unreadable_audio(staged) -> None:
         if exc.reason != "unreadable":
             return
         probe = {}
+    except OSError:  # ffprobe there but can't be started (e.g. blocked by antivirus)
+        return
     if any(s.get("codec_type") == "audio" for s in probe.get("streams") or []):
         return
     with contextlib.suppress(OSError):
