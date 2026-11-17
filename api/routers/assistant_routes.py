@@ -13,13 +13,11 @@ review and apply by hand.
 
 from fastapi import APIRouter, Path
 
-from api.assistant_schemas import (AssistantAnswer, AssistantAskRequest, AssistantBacklog,
-                                   AssistantBacklogAdd, AssistantBacklogCleared,
-                                   AssistantBacklogDeleted, AssistantBacklogItem,
-                                   AssistantChangelog, AssistantChangelogRequest,
-                                   AssistantConfirm, AssistantReport,
-                                   AssistantReportRequest, AssistantSettings,
-                                   AssistantSettingsUpdate, AssistantTools)
+from api.schemas import (AssistantAnswer, AssistantAskRequest, AssistantBacklog,
+                         AssistantBacklogAdd, AssistantBacklogCleared, AssistantBacklogDeleted,
+                         AssistantBacklogItem, AssistantChangelog, AssistantChangelogRequest,
+                         AssistantConfirm, AssistantReport, AssistantReportRequest,
+                         AssistantSettings, AssistantSettingsUpdate, AssistantTools)
 from api.auth import local_only
 from api.schemas import error_responses
 from services import (assistant_backlog_service as backlog, assistant_settings_service as settings_svc,
