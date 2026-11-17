@@ -12,6 +12,7 @@ import { humanize } from '../../../../components/labels'
 import { languageLabel } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
+import { isComposingKey } from '../../../../hooks/useShortcut'
 import type { LineMark, ReviewLine, SpeakerGuess, TmSuggestion } from '../../../../types/review'
 import type { TimingSuggestion } from '../../../../types/timingCheck'
 import type { TranslateEngine } from '../../../../types/translate'
@@ -58,11 +59,6 @@ export interface EditState {
   // wins over the filled text instead of giving way to it.
   keepTyping?: boolean
 }
-
-// Safari ends an IME composition with a keydown whose isComposing is false but
-// keyCode is 229; without the keyCode check, confirming a word with Enter saves the line.
-export const isComposingKey = (e: { nativeEvent: { isComposing: boolean }; keyCode: number }) =>
-  e.nativeEvent.isComposing || e.keyCode === 229
 
 export interface RowIssue {
   lineId: number

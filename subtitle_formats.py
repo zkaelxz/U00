@@ -116,15 +116,21 @@ def wrap_text(text: str, max_chars: int | None, language=None, chinese_script: s
 # ---------------------------------------------------------- overlap clamp
 
 OVERLAP_FLAG = "timing_overlap"
+# Players drop a cue whose end is not after its start, text and all, so a
+# line that starts with (or just after) the one before it is moved this far
+# along rather than leaving the earlier one no time on screen. A tenth of a
+# second is still a distinct LRC stamp (centiseconds).
+MIN_CLAMPED_CUE_S = 0.1
 
 
 def clamp_overlaps(lines):
     """Returns (copies, clamped_idxs): copies of `lines` where any line
     ending after the next one starts is trimmed back to that start, so no
-    format ever gets an invalid, overlapping cue. The originals are left
-    alone; the caller flags clamped_idxs for review. Overlaps can appear
-    after a manual timing edit or merge, even though alignment itself
-    never produces them."""
+    format ever gets an invalid, overlapping cue. Where that would leave the
+    earlier line under MIN_CLAMPED_CUE_S, the next line's start moves
+    instead. The originals are left alone; the caller flags clamped_idxs for
+    review. Overlaps can appear after a manual timing edit or merge, even
+    though alignment itself never produces them."""
     out = [copy.copy(ln) for ln in lines]
     clamped = []
     # Pairs follow time order, not list order: after a manual retime a later
@@ -132,7 +138,10 @@ def clamp_overlaps(lines):
     by_time = sorted(out, key=lambda ln: ln.start)
     for cur, nxt in zip(by_time, by_time[1:]):
         if cur.end > nxt.start:
-            cur.end = max(nxt.start, cur.start)
+            if nxt.start < cur.start + MIN_CLAMPED_CUE_S:
+                nxt.start = cur.start + MIN_CLAMPED_CUE_S
+                nxt.end = max(nxt.end, nxt.start + MIN_CLAMPED_CUE_S)
+            cur.end = nxt.start
             clamped.append(cur.idx)
     return out, clamped
 
@@ -182,7 +191,8 @@ def tidy_cue_timing(lines, fps=None):
             extended += 1
         elif nxt is not None and nxt.start - ln.end < gap - _TIMING_EPSILON:
             trim = min(gap - (nxt.start - ln.end), gap)
-            if ln.end - trim > ln.start:
+            # A cue clamping already cut to its floor keeps it: a sub-frame cue is dropped by players.
+            if ln.end - trim - ln.start >= MIN_CLAMPED_CUE_S - _TIMING_EPSILON:
                 ln.end -= trim
                 trimmed += 1
     left_long = [i + 1 for i, ln in enumerate(out) if ln.end - ln.start > MAX_DURATION_S]
@@ -191,7 +201,8 @@ def tidy_cue_timing(lines, fps=None):
 
 def overlap_note(ln, next_start: float) -> str:
     return (f"Overlapped the next line by {ln.end - next_start:.2f}s; exports trim its end to "
-            f"{next_start:.2f}s. Adjust the timing to fix it for good.")
+            f"{next_start:.2f}s (or, when both start within {MIN_CLAMPED_CUE_S:.1f}s, start the next "
+            f"line {MIN_CLAMPED_CUE_S:.1f}s after this one). Adjust the timing to fix it for good.")
 
 
 def lines_for_clip(lines, start: float, end: float):
@@ -341,7 +352,7 @@ def flag_dense_lines(lines, field: str = "en", mode: str = DEFAULT_READING_SPEED
     and its note are written: line times are never changed. `lines` are in
     time order, so the next one bounds the free time after a cue.
     `dismissed` is {(line id, text hash)} from
-    reading_speed_dismissal_service: those lines stay unflagged while their
+    reading_speed_dismissal: those lines stay unflagged while their
     English is the text that was dismissed."""
     gap = MIN_GAP_FRAMES / _frame_rate(fps)
 

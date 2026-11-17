@@ -41,7 +41,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from api.auth import (is_local_request, local_only, require_engines_allowed,
                       require_permission)
 from api.schemas import DiscoverJobStarted, SourcesJobStarted, error_responses
-from api.sources_tools_schemas import (DiscoverBulkPastedRequest, SourceExtraction,
+from api.schemas import (DiscoverBulkPastedRequest, SourceExtraction,
                                        SourcesIdentifyMediaRequest, SourcesMediaResource,
                                        SourcesPastedImportRequest,
                                        SourcesPastedPreview, SourcesPastedPreviewRequest,

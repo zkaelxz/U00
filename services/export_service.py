@@ -29,13 +29,13 @@ import auto_qc
 import core as core_module
 import db
 import media_inspect
+import reading_speed_dismissal
 import subtitle_ass
 import subtitle_formats
 from lib.safe_paths import is_device_name
 from services import (
     metadata_service,
     ownership_service,
-    reading_speed_dismissal_service,
     restructure_service,
 )
 from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
@@ -615,7 +615,7 @@ def flag_dense_lines(drama_id: int) -> dict:
     unflagged = [ln for ln in lines if not ln.flag]
     newly_flagged = subtitle_formats.flag_dense_lines(
         lines, mode=subtitle_formats.flagging_mode_of(drama),
-        dismissed=reading_speed_dismissal_service.load_dismissed(drama_id))
+        dismissed=reading_speed_dismissal.load_dismissed(drama_id))
     if newly_flagged:
         kept = save_flags(drama_id, lines, ("en", "start", "end"), with_next=True)
         newly_flagged = sum(1 for ln in unflagged if ln.flag and ln.id not in kept)
@@ -665,7 +665,7 @@ def clear_reading_speed_flags(drama_id: int, recheck: bool = False) -> dict:
         unflagged = [ln for ln in lines if not ln.flag]
         reflagged = (subtitle_formats.flag_dense_lines(
             lines, mode=subtitle_formats.flagging_mode_of(drama),
-            dismissed=reading_speed_dismissal_service.load_dismissed(drama_id)) if recheck else 0)
+            dismissed=reading_speed_dismissal.load_dismissed(drama_id)) if recheck else 0)
         cleared = len(targets)
         if targets or reflagged:
             # The drama lock doesn't keep out single-line edits (they don't take it).

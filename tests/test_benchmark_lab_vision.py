@@ -221,7 +221,7 @@ class TestBounds:
             release.set()
 
     def test_a_picture_over_the_size_limit_is_that_cases_error_and_never_fully_read(self, reads, monkeypatch):
-        from services import page_import_limits
+        import page_import_limits
         _case()
         monkeypatch.setattr(page_import_limits, "MAX_IMAGE_BYTES", 10)
         (sid,) = _run([{"engine": "claude"}])["session_ids"]

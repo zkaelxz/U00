@@ -5,6 +5,8 @@ theming.
 """
 
 import sys
+
+import pytest
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -142,6 +144,19 @@ class TestAdaptiveStyle:
         r = ast_.analyze_edit_patterns([{"zh": "a", "ai_version": "b", "user_version": "c"}] * 20,
                                         PureMT())
         assert r["confidence"] == "none"
+
+    @pytest.mark.parametrize("reply, expected", [
+        ('["x"]', {"preferences": [], "summary": "Could not analyze.", "confidence": "none"}),
+        ('{"preferences": ["Keep it short", 3, {"a": 1}], "summary": 5, "confidence": "high"}',
+         {"preferences": ["Keep it short"], "summary": "", "confidence": "high"}),
+    ])
+    def test_a_reply_of_the_wrong_shape_is_not_learned(self, monkeypatch, reply, expected):
+        class MockLlm:
+            supports_reference = True
+        monkeypatch.setattr(ast_, "call_llm_json", lambda *a, **k: reply)
+        r = ast_.analyze_edit_patterns([{"zh": "a", "ai_version": "b", "user_version": "c"}] * 20,
+                                        MockLlm())
+        assert r == expected
 
     def test_profile_block_empty_when_no_preferences(self):
         assert ast_.profile_to_prompt_block({}) == ""

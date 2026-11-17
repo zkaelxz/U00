@@ -1,5 +1,5 @@
 """
-api/admin_users_schemas.py -- response models for user administration and
+api/schemas/admin_users.py -- response models for user administration and
 the audit log view (api/routers/admin_users_routes.py). No model carries a
 session token, hash, full IP address, user agent or filesystem path.
 """
@@ -7,6 +7,8 @@ session token, hash, full IP address, user agent or filesystem path.
 from typing import List, Optional
 
 from pydantic import BaseModel
+
+__all__ = ["AdminUser", "AdminUserList", "AdminSessionsRevoked", "AuditEvent", "AuditPage"]
 
 
 class AdminUser(BaseModel):

@@ -388,7 +388,8 @@ def _apply(row, result, now, manual=False) -> None:
         fields["channel_name"] = name
     stream_id, notify = c["stream_id"], None
     if c["state"] == "live" and stream_id and not (
-            row.get("last_stream_id") == stream_id and row.get("notified_state") == "live"):
+            row.get("last_stream_id") == stream_id
+            and row.get("notified_state") in ("live", _DEFERRED)):
         notify = "live"
     elif c["state"] == "upcoming" and stream_id and row.get("last_stream_id") != stream_id:
         notify = "upcoming"
@@ -406,6 +407,13 @@ def _apply(row, result, now, manual=False) -> None:
             follow_store.update(row["id"], last_status=f"{LIVE} · {note}"[:follows.MAX_STATUS_LEN])
     if notify:
         _notify(row, notify, c, note, now)
+        if notify == "live" and note and note != _STARTED:
+            follow_store.update(row["id"], notified_state=_DEFERRED)
+    elif note == _STARTED and row.get("notified_state") == _DEFERRED:
+        # The notice already sent said "not started"; a later start that sent nothing would leave
+        # the person believing the stream is not being captured.
+        _notify(row, "live", c, note, now)
+        follow_store.update(row["id"], notified_state="live")
 
 
 def _schedule(row, c, now) -> None:
@@ -421,6 +429,11 @@ def _schedule(row, c, now) -> None:
 
 
 # --- what a check leads to ---------------------------------------------------
+
+_STARTED = "started Live automatically"
+# notified_state for a stream announced live with an automatic start that did not happen yet.
+_DEFERRED = "live-deferred"
+
 
 def _gate_refusal(engine, model) -> str:
     """Why an automatic start may not happen now, else ""."""
@@ -489,14 +502,14 @@ def _auto_start(row, stream_id):
         _log("automatic Live start failed: %s", type(exc).__name__)
         return "not started: Live could not start"
     follow_store.update(row["id"], started_stream_id=stream_id)
-    return "started Live automatically"
+    return _STARTED
 
 
 def _notify(row, kind, c, note, now) -> None:
     name = row.get("channel_name") or follows._label(row["channel_url"])
     push = bool(row.get("pc_owner"))
     if kind == "live":
-        started = note == "started Live automatically"
+        started = note == _STARTED
         text = f"{name} is live now" + (f" ({note})" if note else "")
         notification_service.notify_live_follow(text, row.get("owner_user_id"), row["id"],
                                                 start_action=not started, push=push)

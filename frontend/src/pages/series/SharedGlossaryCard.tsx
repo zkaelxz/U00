@@ -8,6 +8,7 @@ import {
 } from '../../api/sharedGlossary'
 import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
+import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
@@ -116,14 +117,14 @@ export function SharedGlossaryCard({ data, onChanged }: { data: SeriesPageData; 
                 {t.origin === 'shared' && group.can_edit && (
                   <>
                     {' '}
-                    <button
-                      type="button"
-                      className={buttonClass('ghost', 'sm')}
+                    <ConfirmButton
+                      name={t.term_original}
+                      label="Remove…"
+                      verb="remove"
+                      firstClass={buttonClass('ghost', 'sm')}
                       disabled={busy}
-                      onClick={() => run(deleteSharedTerm(group.id, -t.id))}
-                    >
-                      Remove
-                    </button>
+                      onConfirm={() => run(deleteSharedTerm(group.id, -t.id))}
+                    />
                   </>
                 )}
               </span>

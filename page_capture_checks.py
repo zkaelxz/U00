@@ -222,7 +222,7 @@ def upright(data: bytes, ext: str):
     JPEG can be stored sideways with a rotate tag the browser obeys, and
     boxes found on the raw pixels would then sit wrong over the page the
     person sees. Strips are not sliced: the bridge answers per image sent."""
-    from services import page_import_limits
+    import page_import_limits
     try:
         return page_import_limits.prepare_page(data, slice_strips=False)[0]
     except page_import_limits.ImageRejected:
@@ -233,7 +233,7 @@ def sniff_image(data: bytes) -> tuple[str, None] | tuple[None, tuple[int, str]]:
     """(extension, None) from the bytes themselves, or (None, (status, reason)).
     The client's claimed type is only a hint; the pixel cap is read from the
     header so a huge image is refused before anything decodes it."""
-    from services import page_import_limits
+    import page_import_limits
     try:
         return page_import_limits.image_extension(data), None
     except page_import_limits.ImageRejected as exc:

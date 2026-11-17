@@ -199,7 +199,7 @@ def parse_scores(text: str, expected_ids: list) -> dict:
     values, so it can't carry these objects)."""
     try:
         data = line_text.extract_first_json_value(
-            text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip())
+            text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip(), expect=dict)
     except (ValueError, OverflowError, RecursionError):
         return {}
     if not isinstance(data, dict):

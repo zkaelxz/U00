@@ -54,7 +54,7 @@ export function BackupBlock() {
           Database only
         </button>
       </div>
-      <p className="muted">Database only is fast and small. Site sign-ins are never included.</p>
+      <p className="muted">Database only is fast and small. API keys, members' own keys and sign-in sessions are never included, nor are site sign-ins: enter the keys again after a restore.</p>
       <AdminJobLine job={full} busyText="Backing up…" artifact="backup" />
       <ErrorBanner error={full.startError} describe={SERVER} />
       <AdminJobLine job={database} busyText="Backing up the database…" artifact="database" />

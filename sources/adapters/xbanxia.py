@@ -69,6 +69,18 @@ def _labelled_text(soup, *prefixes) -> str:
     return ""
 
 
+_MIN_FALLBACK_CHARS = 30
+_MAX_FALLBACK_LINK_SHARE = 0.5
+
+
+def _looks_like_chapter_text(container) -> bool:
+    total = len(container.get_text(strip=True))
+    if total < _MIN_FALLBACK_CHARS:
+        return False
+    linked = sum(len(a.get_text(strip=True)) for a in container.find_all("a"))
+    return linked / total <= _MAX_FALLBACK_LINK_SHARE
+
+
 @register
 class XbanxiaSource(SourceAdapter):
     name = "xbanxia"
@@ -228,6 +240,10 @@ class XbanxiaSource(SourceAdapter):
             # mismatch.
             candidates = soup.find_all(["div", "article"])
             container = max(candidates, key=lambda c: len(c.get_text(strip=True)), default=None)
+            if container is not None and not _looks_like_chapter_text(container):
+                # A notice or navigation page also has a "largest block";
+                # importing it would save that as the chapter.
+                raise LayoutChanged("the chapter text container")
         if container is None:
             raise LayoutChanged("the chapter text container")
         text = container.get_text("\n", strip=True)

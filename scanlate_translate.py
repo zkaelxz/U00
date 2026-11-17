@@ -154,7 +154,7 @@ def _matched_answer(text, ids: list, previous_context: str):
     if not text:
         return None, previous_context
     data = extract_first_json_value(
-        re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip())
+        re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip(), expect=dict)
     if not isinstance(data, dict) or not isinstance(data.get("translations"), dict):
         return None, previous_context
     got = {str(k): v for k, v in data["translations"].items()}
@@ -367,6 +367,6 @@ def build_chapter_brief(page_texts: list, engine, drama_meta: dict, usage_cb=Non
     if not text:
         return ""
     data = extract_first_json_value(
-        re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip())
+        re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip(), expect=dict)
     brief = data.get("brief") if isinstance(data, dict) else None
     return brief.strip()[:_BRIEF_MAX_CHARS] if isinstance(brief, str) else ""

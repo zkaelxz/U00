@@ -366,7 +366,7 @@ def _translate_title_once(drama_id: int, original: str, language: str) -> bool:
                 max_tokens=150, fallback=None,
                 usage_cb=paid_calls.usage_logger(drama_id, engine_name, engine, "extension_title_translate"))
         data = extract_first_json_value(re.sub(r"^```json|^```|```$", "", (reply or "").strip(),
-                                               flags=re.MULTILINE).strip())
+                                               flags=re.MULTILINE).strip(), expect=dict)
         # The reply becomes a series name too, so it gets the same character cleaning as page names.
         english = _line(data.get("title")) if isinstance(data, dict) else ""
         english = redact_secrets(english)[:drama_service.MAX_NAME_LEN]

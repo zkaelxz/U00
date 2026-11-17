@@ -93,7 +93,7 @@ def _create_job_tables(conn):
         );
         CREATE INDEX IF NOT EXISTS idx_result_cache_kind ON result_cache(kind, created_at);
 
-        -- (services/job_timing_service.py): one row per
+        -- (job_timing.py): one row per
         -- stage of a real job (duration and the estimated spend logged
         -- while it ran). Job ids repeat across runs; `run_started_at`
         -- tells runs apart.

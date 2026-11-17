@@ -40,7 +40,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.auth import listener_principal, require_permission, session_token
 from api.background import log_warning
-from api.notification_schemas import NotificationList
+from api.schemas import NotificationList
 from api.schemas import ErrorResponse, JobRecord, LiveSessionStatus
 from services import auth_service
 from services import event_stream_service as events

@@ -23,12 +23,12 @@ def anki(monkeypatch, tmp_path):
     # A private temp folder, so another worker's clip folders are never counted.
     (tmp_path / "tmp").mkdir()
     monkeypatch.setattr(vocab_export.tempfile, "tempdir", str(tmp_path / "tmp"))
-    seen = {"notes": [], "media": None, "fail_write": False}
+    seen = {"notes": [], "media": None, "fail_write": False, "ids": []}
     mod = types.ModuleType("genanki")
 
     class Deck:
-        def __init__(self, *_a):
-            pass
+        def __init__(self, deck_id, name):
+            seen["ids"].append(("deck", deck_id))
 
         def add_note(self, note):
             seen["notes"].append(note.fields)
@@ -44,7 +44,11 @@ def anki(monkeypatch, tmp_path):
             with open(path, "wb") as fh:
                 fh.write(b"apkg")
 
-    mod.Model = lambda *a, **k: object()
+    def model(model_id, *_a, **_k):
+        seen["ids"].append(("model", model_id))
+        return object()
+
+    mod.Model = model
     mod.Note = lambda model, fields: types.SimpleNamespace(fields=fields)
     mod.Deck, mod.Package = Deck, Package
     monkeypatch.setitem(sys.modules, "genanki", mod)
@@ -132,3 +136,17 @@ def test_a_failure_part_way_removes_the_clip_folder(anki, tmp_path, monkeypatch,
                                                 audio_path=audio)
     assert _clip_dirs() == set()
     assert not (tmp_path / "s.apkg").exists()
+
+
+def test_reexporting_a_deck_keeps_its_anki_ids(anki, tmp_path):
+    """Anki keys decks and note types by id: a new id on every export made
+    each re-import add another deck and another note type."""
+    rows = [{"word": "w", "reading": "", "definitions": ["d"], "first_seen_line_idx": 0}]
+    lines = [_Line(0, "zh", "en", 0.0, 1.0)]
+    for _ in range(2):
+        vocab_export.export_vocab_apkg(rows, "Deck", str(tmp_path / "v.apkg"))
+        vocab_export.export_vocab_apkg_sentence(rows, lines, "Deck (sentences)", str(tmp_path / "s.apkg"))
+    first, second = anki["ids"][:4], anki["ids"][4:]
+    assert first == second
+    assert len({i for _, i in first}) == 4  # two decks, two note types, none shared
+    assert all((1 << 30) <= i < (1 << 31) for _, i in first)

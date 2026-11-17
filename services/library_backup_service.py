@@ -16,6 +16,7 @@ import os
 import tempfile
 import time
 import zipfile
+import zlib
 
 import background_jobs
 from jobs import job_launch
@@ -280,15 +281,38 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
     return skipped
 
 
+def _check_backup_zip(path: str):
+    """Raises OSError unless the zip at `path` passes what a restore and the
+    auto backup check: the restore's zip checks (CRCs, unsafe or encrypted
+    members), a sound library.db and, when present, a sound sources.db, which
+    a restore would refuse. Runs on the partial file, before it is named as a
+    backup, so a failed check only ever removes that file."""
+    # Imported here: both modules import this one.
+    from services import auto_backup_files as abf
+    from services import library_backup_restore_service as lbr
+    try:
+        lbr.validate_backup_file(path, check_disk=False, check_limits=False)
+        with zipfile.ZipFile(path) as zf, storage.job_workdir("backup_check") as tmp:
+            abf.extract_db(zf, tmp)
+            if "sources.db" in zf.namelist():
+                abf._check_sources_db(zf, tmp)
+    except (InvalidInputError, zipfile.BadZipFile, KeyError, EOFError, zlib.error):
+        raise OSError("backup zip is damaged") from None
+
+
 def _backup_job(job_id):
     background_jobs.update_progress(job_id, 0.0, "Copying the database...")
     skipped = []
-    name, size = _write_artifact(
-        "backup", ".zip", "The backup could not be written.",
-        lambda dest: skipped.extend(write_backup_zip(
+
+    def write(dest):
+        skipped.extend(write_backup_zip(
             dest,
             progress=lambda frac, msg: background_jobs.update_progress(job_id, frac, msg),
-            should_cancel=lambda: background_jobs.is_cancel_requested(job_id))))
+            should_cancel=lambda: background_jobs.is_cancel_requested(job_id)))
+        background_jobs.update_progress(job_id, _BACKUP_FILES_SHARE, "Checking the backup...")
+        _check_backup_zip(dest)
+
+    name, size = _write_artifact("backup", ".zip", "The backup could not be written.", write)
     background_jobs.set_result(job_id, {"name": name, "size": size, "skipped_count": len(skipped)})
     background_jobs.update_progress(job_id, 1.0, skipped_note("Backup ready.", len(skipped)))
 

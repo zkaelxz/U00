@@ -24,7 +24,7 @@ The local-ntfy switch (BAIHE_NTFY_ALLOW_LOCAL) has no route on purpose.
 from fastapi import APIRouter, Request
 
 from api.auth import local_only, require_permission
-from api.notification_schemas import NotificationCategoriesRequest, NotificationSettingsStatus
+from api.schemas import NotificationCategoriesRequest, NotificationSettingsStatus
 from api.routers.settings_routes import read_body, require_confirm, require_local_admin
 from api.schemas import (NotificationChannelClearRequest,
                          NotificationChannelResult, NotificationChannelSetRequest,

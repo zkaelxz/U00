@@ -16,7 +16,7 @@ Thin: see services/engine_routing_service.py.
 from fastapi import APIRouter
 
 from api.auth import local_only, require_permission
-from api.engine_routing_schemas import (CapabilityEngineRequest, CapabilityRoute,
+from api.schemas import (CapabilityEngineRequest, CapabilityRoute,
                                         EngineRouteStatus, EngineRouting, EngineTestRequest)
 from api.schemas import error_responses
 from services import engine_routing_service as svc

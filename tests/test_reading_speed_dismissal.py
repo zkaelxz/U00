@@ -5,7 +5,8 @@ import pytest
 
 import subtitle_formats as sf
 from core import Line
-from services import drama_service, export_service, lines_service, reading_speed_dismissal_service as svc
+import reading_speed_dismissal as svc
+from services import drama_service, export_service, lines_service
 
 DENSE = "This translation is far too long to read in two seconds."
 

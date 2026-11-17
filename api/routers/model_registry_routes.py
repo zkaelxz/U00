@@ -20,7 +20,7 @@ migration assistant. Thin: see services/model_registry_service.py.
 from fastapi import APIRouter, Path
 
 from api.auth import local_only, require_permission
-from api.model_registry_schemas import (ModelOverrideClearRequest, ModelOverrideRequest,
+from api.schemas import (ModelOverrideClearRequest, ModelOverrideRequest,
                                         ModelOverrideResult, ModelStatus,
                                         PresetModelSwitchRequest, PresetModelSwitchResult)
 from api.routers.settings_routes import require_confirm

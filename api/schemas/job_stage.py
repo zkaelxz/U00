@@ -1,5 +1,5 @@
 """
-api/job_stage_schemas.py -- models for the per-stage job timing
+api/schemas/job_stage.py -- models for the per-stage job timing
 route (api/routers/job_stage_routes.py). Stage names are fixed labels from
 Baihe's own code.
 """
@@ -7,6 +7,8 @@ Baihe's own code.
 from typing import List
 
 from pydantic import BaseModel
+
+__all__ = ["JobStage", "JobStageRun", "JobStageTimings"]
 
 
 class JobStage(BaseModel):

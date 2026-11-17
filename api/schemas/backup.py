@@ -1,5 +1,5 @@
 """
-api/backup_schemas.py -- request/response models for the automatic backup
+api/schemas/backup.py -- request/response models for the automatic backup
 routes (api/routers/backup_routes.py, as redefined
 2026-09-29). The only path on any model is `folder`, the backup folder the
 owner typed themselves (every route here is local_only). Backup copies are
@@ -10,6 +10,11 @@ folder's own listing, never used as a path.
 from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
+
+__all__ = ["BackupFrequency", "SnapshotKind", "SnapshotCopy", "AutoBackupSettings", "AutoBackupSettingsUpdate",
+           "BackupNowRequest", "BackupJobStarted", "SnapshotInfo", "SnapshotDrama", "SnapshotDramaList",
+           "RestoreDramaRequest", "RestoreDramaDone", "DeleteSnapshotRequest", "DeleteSnapshotDone",
+           "BackupFileDrama", "BackupFileDramaList", "ImportedDrama", "ImportDramasDone"]
 
 BackupFrequency = Literal["daily", "weekly", "monthly"]
 SnapshotKind = Literal["db-only", "full"]
