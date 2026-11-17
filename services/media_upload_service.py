@@ -59,6 +59,7 @@ import audio_extract
 import background_jobs
 from jobs import job_launch
 import db
+import media_inspect
 import storage
 from lib.safe_paths import plain_file_in
 import video_export
@@ -82,6 +83,8 @@ UPLOAD_CONTENT_MODES = ("audio_drama", "streamer_vod")
 NO_UPLOAD_MODE = ("This title has no audio to upload (it is set to work from a novel). "
                    "Change what you are working from to Audio drama or Streamer/VOD first.")
 _BAD_TYPE = "Unsupported file type. Upload an audio or video file."
+_NOT_AUDIO = ("That file isn't audio Baihe can read, though its name says it is. Nothing was "
+              "changed. Upload the audio file itself.")
 _KEPT_VIDEO = "The uploaded video was kept in this title's folder; the title's audio is unchanged."
 _EXTRACT_FAILED = f"Could not read audio from that video file. {_KEPT_VIDEO}"
 FFMPEG_MISSING = "ffmpeg is not installed or not on PATH."
@@ -507,6 +510,23 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, origin_link=N
     return {f: fields[f] for f in new_files}
 
 
+def refuse_unreadable_audio(staged) -> None:
+    """Refuses (and removes) an upload that ffprobe reads as not audio at all, such as
+    a document renamed .mp3: put in place, it showed "Audio attached" and failed only at
+    Transcribe. A missing or slow ffprobe lets it through, since Transcribe says why."""
+    try:
+        probe = media_inspect.run_ffprobe(staged)
+    except media_inspect.ProbeError as exc:
+        if exc.reason != "unreadable":
+            return
+        probe = {}
+    if any(s.get("codec_type") == "audio" for s in probe.get("streams") or []):
+        return
+    with contextlib.suppress(OSError):
+        os.remove(staged)
+    raise InvalidInputError(_NOT_AUDIO, details={"reason": "not_audio"})
+
+
 def _keep_failed_upload(ddir, staged, ext):
     """Moves a video whose audio couldn't be extracted to kept_media/. If
     even that fails it stays at its hidden staged name, where
@@ -715,6 +735,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         ext, size, staged = _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio)
         ddir = db.drama_dir(drama_id)
         if ext not in VIDEO_EXTENSIONS:
+            refuse_unreadable_audio(staged)
             try:
                 name = install_media(drama_id, {"audio_filename": (staged, "source", ext)},
                                     transcribe_new_audio=transcribe_options is None)[

@@ -241,6 +241,17 @@ def _no_automatic_cover():
 
 
 @pytest.fixture(autouse=True)
+def _uploads_not_probed():
+    """Most upload tests send a few placeholder bytes as audio; tests/test_api_media_upload.py
+    puts the real ffprobe check back. Set by hand for the same ordering reason as above."""
+    from services import media_upload_service
+    real = media_upload_service.refuse_unreadable_audio
+    media_upload_service.refuse_unreadable_audio = lambda staged: None
+    yield
+    media_upload_service.refuse_unreadable_audio = real
+
+
+@pytest.fixture(autouse=True)
 def _echo_engine_off_after_each_test():
     """Turning Developer Mode on registers the Echo engine in the process-wide
     engine tables; a test that does so (assistant, source-domain and role tests)
