@@ -136,8 +136,6 @@ def _flags(cls) -> str:
         flags.append("sign-in required")
     elif cls.auth_supported:
         flags.append("sign-in optional")
-    if not cls.allow_browser:
-        flags.append("no browser")
     if not cls.chapters_in_site_order:
         flags.append("chapters sorted by number")
     return ", ".join(flags)

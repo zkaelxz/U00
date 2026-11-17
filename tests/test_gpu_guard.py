@@ -1,5 +1,6 @@
 """jobs/gpu_guard.py: Baihe holds, unloads and stops GPU work while the card is
 short of memory or hot. Mocked: readings are passed to tick(), no nvidia-smi."""
+import contextlib
 import threading
 import time
 
@@ -548,6 +549,30 @@ class TestWaitForRoom:
         assert _wait_for(lambda: notified == [("done", "room_a")])
         assert _status("room_a") == "done"
 
+    def test_while_it_starts_again_a_waiter_still_reads_it_as_going(self, notified):
+        """Between the old run's end and the new run's start, a queue reading
+        the job (queue_service._job_outcome) must not see Failed."""
+        import memory_headroom
+        seen = []
+
+        def refuse():
+            raise memory_headroom.HeadroomError("Not loading Whisper.", vram_need_mb=3072.0)
+
+        def again():
+            from services import jobs_service
+            api = jobs_service.get_job("room_e")
+            seen.append((gpu_guard.restart_pending("room_e"), api["status"], api["outcome"]))
+            assert job_launch.start_job("room_e", lambda: None, gpu_touching=True)
+        t = time.time()
+        gpu_guard.tick(now=t, reading=(2048.0, COOL))
+        with gpu_guard.restartable("room_e", again):
+            assert job_launch.start_job("room_e", refuse, gpu_touching=True)
+        assert _wait_for(lambda: _status("room_e") == "queued")
+        gpu_guard.tick(now=t + 20, reading=(4200.0, COOL))
+        assert seen == [(True, "queued", None)]
+        assert _wait_for(lambda: _status("room_e") == "done")
+        assert not gpu_guard.restart_pending("room_e")
+
     def test_gives_up_after_the_wait_as_failed_with_the_notice(self, refused, notified):
         t = time.time()
         gpu_guard.tick(now=t + gpu_guard.ROOM_WAIT_SECONDS + 1, reading=(2048.0, COOL))
@@ -571,6 +596,66 @@ class TestWaitForRoom:
         settings_service.set_settings({"gpu_guard": False})
         gpu_guard.tick(now=time.time() + 20, reading=(FREE, COOL))
         assert _status("room_a") == "error" and notified == [("error", "room_a")]
+
+    def test_a_job_refused_the_moment_it_starts_still_waits(self, notified):
+        """Started inside `restartable`, the run is registered before its
+        thread runs, so even an instant refusal goes back to queued."""
+        import memory_headroom
+
+        def refuse():
+            raise memory_headroom.HeadroomError("Not loading Whisper.", vram_need_mb=3072.0)
+        gpu_guard.tick(now=time.time(), reading=(2048.0, COOL))
+        with gpu_guard.restartable("room_c", lambda: None):
+            assert job_launch.start_job("room_c", refuse, gpu_touching=True)
+        assert _wait_for(lambda: _status("room_c") != "running")
+        assert _status("room_c") == "queued" and notified == []
+
+    def test_a_job_refused_again_each_time_ends_after_the_restart_limit(self, notified):
+        """The restart count is carried into the new run as it registers, even
+        when that run is refused before the guard's start call returns."""
+        import memory_headroom
+
+        def refuse():
+            raise memory_headroom.HeadroomError("Not loading Whisper.", vram_need_mb=3072.0)
+
+        def start():
+            with gpu_guard.restartable("room_d", start):
+                assert job_launch.start_job("room_d", refuse, gpu_touching=True)
+            # Refused inside the guard's call, the case that lost the count.
+            assert _wait_for(lambda: _status("room_d") != "running")
+        t = time.time()
+        gpu_guard.tick(now=t, reading=(2048.0, COOL))
+        start()
+        for i in range(1, gpu_guard.MAX_RESTARTS + 1):
+            assert _status("room_d") == "queued"
+            gpu_guard.tick(now=t + 20 * i, reading=(4200.0, COOL))
+        assert _status("room_d") == "error" and notified[-1] == ("error", "room_d")
+
+    def test_a_guard_stopped_job_refused_as_it_starts_again_waits(self, notified):
+        """A run the guard starts again after a stop is registered while the
+        stopped one is still pending; refused at once, it waits too."""
+        import memory_headroom
+        started = []
+
+        def refuse():
+            raise memory_headroom.HeadroomError("Not loading Whisper.", vram_need_mb=3072.0)
+
+        def again():
+            with gpu_guard.restartable("stop_r", again):
+                assert job_launch.start_job("stop_r", refuse, gpu_touching=True)
+            assert _wait_for(lambda: _status("stop_r") != "running")
+        with gpu_guard.restartable("stop_r", again):
+            assert _stoppable("stop_r", started)
+        assert _wait_for(lambda: started)
+        t = time.time()
+        gpu_guard.tick(now=t, reading=(SHORT, COOL))
+        gpu_guard.tick(now=t + 120, reading=(SHORT, COOL))
+        assert _wait_for(lambda: _status("stop_r") == "cancelled")
+        job_settings.set_gpu_limit_enabled(False)
+        gpu_guard.tick(now=t + 140, reading=(2048.0, COOL))
+        gpu_guard.tick(now=t + 140 + gpu_guard.CLEAR_SECONDS + 1, reading=(2048.0, COOL))
+        assert _status("stop_r") == "queued" and notified == []
+        assert gpu_guard.restart_pending("stop_r")
 
     def test_without_a_fresh_card_reading_it_fails_as_before(self, notified):
         import memory_headroom
@@ -618,7 +703,11 @@ class TestServicesRegister:
     def test_translation_registers_only_a_plain_run(self, monkeypatch):
         from services import translate_run_service as trs
         seen = {}
-        monkeypatch.setattr(gpu_guard, "allow_restart", lambda jid, fn: seen.update({jid: fn}))
+        @contextlib.contextmanager
+        def offered(jid, fn):
+            seen[jid] = fn
+            yield
+        monkeypatch.setattr(gpu_guard, "restartable", offered)
         # Just the tail of start_translate_run: everything before the launch is stubbed.
         for name in ("_resolve_run_options", "_build_engine_chain", "_prepare_run", "_launch_translate",
                      "_refuse_if_busy"):

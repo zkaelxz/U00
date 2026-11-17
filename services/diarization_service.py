@@ -394,19 +394,19 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     # id is already running/queued: report it instead of silently no-opping.
     args = (audio_path, hf_token, expected_speakers or None,
             worker_options(min_speakers, max_speakers))
-    started = job_launch.start_process_job(
-        job_id, diarize.diarize_subprocess_worker, args=args,
-        cpu_retry_args=cpu_retry_args(args), gpu_touching=True, description=f"Diarization (title #{drama_id})",
-        kill_whole_tree=True, start_method="spawn",
-        on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual,
-                                   min_speakers, max_speakers,
-                                   speakers_at_start=speakers_snapshot(drama_id)),
-        run_settings=run_settings_service.for_diarize(
-            expected_speakers, min_speakers, max_speakers, settings_service.get("use_gpu"),
-            overwrite_manual=overwrite_manual), line_fields=("speaker", "speaker_manual"))
-    if not started:
-        raise ConflictError(f"A diarization job is already running for title {drama_id}.")
     # Speakers are applied only when a run finishes, so a stopped run left
     # nothing behind and a fresh start is clean.
-    gpu_guard.allow_restart(job_id, again)
+    with gpu_guard.restartable(job_id, again):
+        started = job_launch.start_process_job(
+            job_id, diarize.diarize_subprocess_worker, args=args,
+            cpu_retry_args=cpu_retry_args(args), gpu_touching=True, description=f"Diarization (title #{drama_id})",
+            kill_whole_tree=True, start_method="spawn",
+            on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual,
+                                       min_speakers, max_speakers,
+                                       speakers_at_start=speakers_snapshot(drama_id)),
+            run_settings=run_settings_service.for_diarize(
+                expected_speakers, min_speakers, max_speakers, settings_service.get("use_gpu"),
+                overwrite_manual=overwrite_manual), line_fields=("speaker", "speaker_manual"))
+    if not started:
+        raise ConflictError(f"A diarization job is already running for title {drama_id}.")
     return {"job_id": job_id}

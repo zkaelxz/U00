@@ -408,6 +408,31 @@ def test_chapter_check_auto_import_skips_a_busy_drama(client, fakes, monkeypatch
     assert not [j for j in background_jobs.list_all_jobs() if str(j).startswith("source_import_")]
 
 
+@pytest.mark.parametrize("allow", [True, False])
+def test_chapter_check_auto_import_opens_a_browser_only_when_the_check_may(client, fakes,
+                                                                          monkeypatch, allow):
+    """The scheduled check runs on the PC and may render; a "Check now" from
+    another device may not, and neither may the import it queues."""
+    seen = []
+    Base = _make("alpha")
+
+    class Fake(Base):
+        def get_chapter_text(self, ch):
+            seen.append(self.allow_browser)
+            return super().get_chapter_text(ch)
+    fakes["alpha"] = Fake
+    did = _novel()
+    store.track_series("alpha", "s1", "Series T", "", did,
+                       known_chapters=[c for c in _chapters("alpha", "s1") if c.chapter_id == "c1"])
+    store.set_setting("auto_queue_new_chapters", True)
+    monkeypatch.setattr(registry, "is_enabled", lambda name: True)
+    summary = chapter_check_service.run_check_cycle(adapter_factory=lambda n: fakes["alpha"](),
+                                                    allow_browser=allow)
+    assert summary["queued"]
+    wait_for_job(f"sourceimport_{did}", missing_ok=True)
+    assert seen and set(seen) == {allow}
+
+
 def test_add_page_images_never_overwrites_an_existing_file(fakes):
     from tests.sources_helpers import png
     did = db.create_drama(title_en="M", media_type="manhua")
