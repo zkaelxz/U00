@@ -172,8 +172,7 @@ export default function LivePage() {
   const [startPressed, setStartPressed] = useState(false)
   const developerMode = useDeveloperMode()
   const checkModel = engine === 'ollama' ? model : null
-  const gpuCheck = form.use_gpu ? form.whisper_size : null
-  const checkKey = `${checkModel}#${gpuCheck}#${recheck}`
+  const gpuCheck = form.use_gpu ? form.whisper_size : null, checkKey = `${checkModel}#${gpuCheck}#${recheck}`
   const ollamaNote = checkModel !== null && ollamaAnswer?.key === checkKey ? ollamaAnswer.note : null
   useEffect(() => {
     if (checkModel === null) return
