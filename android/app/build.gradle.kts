@@ -12,7 +12,8 @@ android {
         targetSdk = 34
         // Each build offered as an update must be higher than the one it replaces.
         versionCode = (project.findProperty("baiheVersionCode") as String?)?.toInt() ?: 1
-        versionName = "0.1"
+        // Android's app info shows only the name: a fixed "0.1" made every build look the same.
+        versionName = "0.1.$versionCode"
     }
 
     buildTypes {
