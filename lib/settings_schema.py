@@ -222,7 +222,7 @@ SETTINGS = (
     _own("model_reeval_last_attempt", "json", None),
 
     # --- Preferences
-    _own("notify_on_completion", "bool", False, label="Notify when a job finishes",
+    _own("notify_on_completion", "bool", True, label="Notify when a job finishes",
          tab="preferences", section="Notifications"),
     _own("notify_categories", "json", {}, custom=True, tab="preferences",
          section="Notifications", label="Notification categories"),
@@ -231,7 +231,7 @@ SETTINGS = (
          custom=True, tab="preferences", section="Automatic backups", label="Automatic backups"),
     _own("comic_save", "json", {}, custom=True, tab="preferences", section="Save folder",
          label="Save folder"),
-    _own("update.auto_check", "bool", False, label="Check for updates automatically",
+    _own("update.auto_check", "bool", True, label="Check for updates automatically",
          tab="preferences", section="App updates"),
     _own("update.last_check_at", "float", 0.0, min=0),
     # Shown by the App updates card, which saves it through /api/system/update/settings.
@@ -263,8 +263,9 @@ SETTINGS = (
     _pref("second_hearing", "bool", False, label="Hear doubtful lines a second time",
           help="After a transcription, the lines Whisper was least sure of (up to 30) are heard again by Qwen3-ASR, or by Whisper on a Qwen3 title, and flagged where the two disagree. Nothing is rewritten. It adds a second model load and some GPU time to every run, and waits like any GPU job.",
           tab="system", section="Performance"),
-    Setting("bulk_auto_resume", "bulk.auto_resume", "bool", False,
-            label="Resume interrupted batches", tab="system",
+    Setting("bulk_auto_resume", "bulk.auto_resume", "bool", True,
+            label="Resume interrupted batches",
+            help="After a restart, batches on a free local engine start again by themselves. Batches on a paid engine stay paused until you press Resume, and one notification says they are waiting.", tab="system",
             section="Resume interrupted batches"),
     _pref("keep_free_vram_gb", "float", 0.0, min=0, max=_KEEP_FREE_GB_MAX, digits=1,
           label="Keep free graphics memory", unit="GB", placeholder="Off",
