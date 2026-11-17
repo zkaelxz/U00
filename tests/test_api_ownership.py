@@ -1226,7 +1226,7 @@ class TestJobs:
 
     def test_every_job_route_hides_other_users_jobs(self, world, monkeypatch):
         import background_jobs
-        import live_chat
+        from live import live_chat
         from services import live_service
         sid = "live_" + "b" * 32
         status = {"status": "done", "progress": 1.0, "message": "", "result": {"rows": []},

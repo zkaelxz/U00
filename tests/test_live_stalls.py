@@ -20,9 +20,9 @@ import background_jobs
 from jobs import gpu_queue, job_launch, job_runner, job_table
 import whisper_transcribe
 import whisper_models
-import live_audio
-import live_translate as lt
-import live_whisper
+from live import live_audio
+from live import live_translate as lt
+from live import live_whisper
 import ollama_unload
 from jobs import gpu_slots
 from services import live_service

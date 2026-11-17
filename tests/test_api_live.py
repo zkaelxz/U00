@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_launch
 import db
-import live_translate
+from live import live_translate
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app

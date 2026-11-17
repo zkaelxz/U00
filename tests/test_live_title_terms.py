@@ -3,7 +3,7 @@ import pytest
 
 from jobs import job_launch
 import db
-import live_cue_translation as lct
+from live import live_cue_translation as lct
 from core import Line
 from engine_backends.prompts import build_batch_user_message, build_stable_system_text
 from services import language_pack_service as packs, live_service

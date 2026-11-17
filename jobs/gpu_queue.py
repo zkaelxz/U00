@@ -104,7 +104,7 @@ def _note_gpu_wait_reason_locked(job_id):
     job = _jobs.get(job_id)
     if job is None or job.get("status") != "queued":
         return
-    import live_whisper
+    from live import live_whisper
     from jobs import gpu_guard
     reason = gpu_guard.hold_reason()
     if reason is None and live_whisper.gpu_claim_held():
