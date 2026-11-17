@@ -265,7 +265,7 @@ _WAITING_NOTE = "Waiting for another comic job to finish with the OCR and detect
 
 
 def _detector_note(detect_backend: str, notes: list) -> tuple:
-    import scanlate_detect
+    from scanlate import scanlate_detect
     fell_back = any(scanlate_detect.ML_FALLBACK_SENTENCE in str(n[-1]) for n in notes)
     if detect_backend == "cv" or fell_back:
         why = " (the ML detector could not run)" if fell_back else ""
@@ -337,7 +337,7 @@ def _translate_with_image(by_key: dict, page_image, engine, drama: dict, context
     """(result, new_context) of the page-with-image request, or (None, context)
     after a note when it failed or its answer could not be matched by id, so
     the caller translates the page from its text instead."""
-    import scanlate_translate
+    from scanlate import scanlate_translate
     data, mime, scale = page_image
     regions = [{"id": key, "text": b["source_text"],
                 "box": {name: round(b[name] * scale) for name in ("x", "y", "w", "h")},
@@ -366,8 +366,8 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     say why); context is the new rolling context, or None if none.
     `page_image` is _page_image's result: the page is then sent with its
     regions, and the text-only request below is the fallback when that fails."""
-    import scanlate_regions
-    import scanlate_translate
+    from scanlate import scanlate_regions
+    from scanlate import scanlate_translate
     # A sound effect is translated only to be glossed beside the art, so it is
     # asked for only when the person turned that on.
     gloss_sfx = bool(settings_service.get("scanlate_sfx_gloss"))
@@ -450,9 +450,9 @@ def _condense_signs(drama_id: int, page_id: int, bubbles: list, engine, engine_n
     """Shortens the English of a sign that would be set below the readable size on its band.
     A page whose picture can't be read, or an answer that can't be used, leaves the full
     translation as it was; only the stop signals the run lets through are raised."""
-    import scanlate_condense
-    import scanlate_page_decode
-    import scanlate_render
+    from scanlate import scanlate_condense
+    from scanlate import scanlate_page_decode
+    from scanlate import scanlate_render
     from core import LANGUAGE_NAMES
     if not any(b.get("kind") == "sign" and b.get("translated_text") for b in bubbles):
         return
@@ -513,7 +513,7 @@ def _detect_stage(drama_id: int, drama: dict, page_id: int, mode: str, detect_kw
     """Detection and OCR for one page: no AI call, so the run can do it for the
     next page while this one is being translated. Returns "skipped" (final
     outcome) or the detected page for _process_page to translate and save."""
-    import scanlate
+    from scanlate import scanlate
     page = db.get_page(page_id, drama_id=drama_id)
     if page is None:
         return "skipped"                        # deleted meanwhile
@@ -560,7 +560,7 @@ def _flag_repeated_site_marks(drama_id: int, page_id: int, bubbles: list) -> Non
     this one: a site's stamp, which the per-page check misses when OCR drops
     the address. Runs when the page is processed, not when it is detected: the
     read-ahead detects the next page before this one's regions are saved."""
-    import scanlate_watermark
+    from scanlate import scanlate_watermark
     page = db.get_page(page_id) or {}
     width, height = int(page.get("width") or 0), int(page.get("height") or 0)
     earlier = []
@@ -600,7 +600,7 @@ def _join_page_break_caption(drama_id: int, drama: dict, previous_id: int, page_
     half is written only if that region still holds the text read here, the
     previous page's only after this page's, so a caption edited meanwhile is
     never left half joined; a page whose half was written is typeset again."""
-    import scanlate
+    from scanlate import scanlate
     previous = db.get_page(previous_id, drama_id=drama_id)
     if previous is None or not int(previous.get("height") or 0):
         return
@@ -738,7 +738,7 @@ def _chapter_brief(jid: str, drama_id: int, drama: dict, page_ids: list, ahead: 
     the same chapter again on the same engine costs no call. Never stops the run: any failure but a cancel, a memory
     refusal or a timeout (which end the run for every page anyway) gives ""."""
     import hashlib
-    import scanlate_translate
+    from scanlate import scanlate_translate
     from engine_backends.run_limits import TranslateRunStopped
     background_jobs.update_progress(jid, 0.0, "Reading the whole chapter first")
     job_timing.mark_stage(jid, "Read every page")
@@ -798,7 +798,7 @@ def _run_job(*args, **kwargs):
 
 def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: str, engine,
                    detect_backend: str, art_captions: bool = False, keep_text: bool = False):
-    import scanlate_detect
+    from scanlate import scanlate_detect
     scanlate_detect.forget_ml_failure()
     drama = db.get_drama(drama_id) or {}
     lang = drama.get("source_language") or "zh"

@@ -15,3 +15,14 @@ export function pickSummaryLine(s: BenchmarkPickSummary): string {
   if (decided) parts.push(`the judge agreed with you on ${s.judge_agrees} of ${decided}`)
   return parts.join(' · ')
 }
+
+/** Below this many picks a run's share of wins is too noisy to lead with (Kae, 2026-11-17). */
+export const PICKS_HEADLINE_MIN = 20
+
+/** The run's share of your blind picks (a tie counts half), once it has enough of them to be the
+ *  main score; null before that, when the automatic score leads. */
+export function pickScore(p: BenchmarkPickTotals | null | undefined): number | null {
+  if (!p) return null
+  const total = p.won + p.lost + p.tie
+  return total >= PICKS_HEADLINE_MIN ? (p.won + p.tie / 2) / total : null
+}

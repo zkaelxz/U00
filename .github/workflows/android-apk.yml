@@ -1,10 +1,10 @@
 name: Android APK
 
 # Builds the release APK (signed with the debug key, not debuggable) of the Android app (android/) and runs its unit tests.
-# The build runs on demand only, never on every PR: the app is not part of the
-# server's tests. The wrapper check also runs on any PR that changes the
-# wrapper, because gradle-wrapper.jar is a binary nobody can review in a diff
-# and it runs on the PC whenever the app is built there.
+# It runs on demand, and on a PR that changes android/: a compile error merged on 11-09 failed 5 of the next 8 runs,
+# and the server's tests never build the app. A PR run builds and tests only: it never reads the signing secret and
+# never publishes. The wrapper check also runs on those PRs, because gradle-wrapper.jar is a binary nobody can review
+# in a diff and it runs on the PC whenever the app is built there.
 # Without the ANDROID_DEBUG_KEYSTORE_BASE64 secret the build is signed with
 # the runner's throwaway debug key: it can be sideloaded but no phone accepts it
 # as an update to an app signed with another key, so it is not published.
@@ -17,10 +17,8 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - "android/gradle/wrapper/**"
+      - "android/**"
       - "**/gradle-wrapper.jar"
-      - "android/gradlew"
-      - "android/gradlew.bat"
       - ".github/workflows/android-apk.yml"
 
 permissions:
@@ -39,7 +37,6 @@ jobs:
       - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c  # v6.4.1
 
   apk:
-    if: github.event_name == 'workflow_dispatch'
     needs: wrapper
     outputs:
       publish: ${{ steps.key.outputs.publish }}
@@ -54,6 +51,7 @@ jobs:
       # owner's keystore there keeps one signing key across runs and PCs.
       - name: Restore the signing key
         id: key
+        if: github.event_name == 'workflow_dispatch'
         env:
           KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
         run: |

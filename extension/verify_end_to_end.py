@@ -120,8 +120,8 @@ def _install_fakes():
     """Stands scanlate and the translation engine in with key-free fakes;
     returns the list that records what the image path asked them to do."""
     from services import page_server
-    import scanlate
-    import scanlate_translate
+    from scanlate import scanlate
+    from scanlate import scanlate_translate
     from engine_backends import engine_registry
 
     calls = []

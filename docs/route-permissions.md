@@ -81,6 +81,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/benchmark/dramas/{drama_id}/lines/{line_id}/regression` | local_only() |
 | `POST /api/benchmark/estimate` | admin.diagnostics |
 | `POST /api/benchmark/import` | local_only() |
+| `GET /api/benchmark/marked-lines/export` | admin.diagnostics |
 | `GET /api/benchmark/options` | admin.diagnostics |
 | `GET /api/benchmark/runs` | admin.diagnostics |
 | `POST /api/benchmark/runs` | local_only() |

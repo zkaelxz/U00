@@ -2,8 +2,8 @@
 
 import numpy as np
 
-import scanlate_tuning
-from scanlate_balloons import _balloon_interior
+from scanlate import scanlate_tuning
+from scanlate.scanlate_balloons import _balloon_interior
 
 
 def _box_iou(a: dict, b: dict) -> float:

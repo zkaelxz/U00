@@ -15,21 +15,21 @@ from PIL import Image, ImageDraw, ImageFont
 
 from lib.atomic_write import replace_file
 
-import scanlate_art_text
-import scanlate_sfx
-import scanlate_tilt
-import scanlate_tuning
-from scanlate_balloons import balloon_outside_mask, bubble_erase_mask, bubble_shape_mask
-from scanlate_page_decode import decode_page, page_gray
-from scanlate_fonts import _CJK_PUNCTUATION, _PLAIN, TypesetStyle, _find_font, _note_missing_cjk_font
-from scanlate_ink import _fade_lettering, _sampled_inks, _text_fill, chosen_color
-from scanlate_inpaint import (
+from scanlate import scanlate_art_text
+from scanlate import scanlate_sfx
+from scanlate import scanlate_tilt
+from scanlate import scanlate_tuning
+from scanlate.scanlate_balloons import balloon_outside_mask, bubble_erase_mask, bubble_shape_mask
+from scanlate.scanlate_page_decode import decode_page, page_gray
+from scanlate.scanlate_fonts import _CJK_PUNCTUATION, _PLAIN, TypesetStyle, _find_font, _note_missing_cjk_font
+from scanlate.scanlate_ink import _fade_lettering, _sampled_inks, _text_fill, chosen_color
+from scanlate.scanlate_inpaint import (
     erase_box, InpaintModelUnavailable, inpaint_region, is_art_mistaken_for_sign, sign_text_line,
 )
-from scanlate_lama import lama_ml_weights_cached
-from scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
-from scanlate_text_layout import _dark_under, _layout_in_mask, _symmetrised, render_text_in_box
-from scanlate_watermark import is_site_mark_region, logo_box
+from scanlate.scanlate_lama import lama_ml_weights_cached
+from scanlate.scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
+from scanlate.scanlate_text_layout import _dark_under, _layout_in_mask, _symmetrised, render_text_in_box
+from scanlate.scanlate_watermark import is_site_mark_region, logo_box
 
 
 # Shown when a page is cleaned without the LaMa-manga weights. "auto" then
@@ -344,8 +344,8 @@ def _draw_glosses(pil_img, page, bubbles: list, art_signs: list, font_path) -> N
             scanlate_sfx.draw_gloss(pil_img, b, font_path=font_path)
     if not art_signs:
         return
-    from scanlate_panels import detect_panels
-    from scanlate_regions import _panel_for_box
+    from scanlate.scanlate_panels import detect_panels
+    from scanlate.scanlate_regions import _panel_for_box
     try:
         panels = detect_panels("", image=page)
     except ValueError:

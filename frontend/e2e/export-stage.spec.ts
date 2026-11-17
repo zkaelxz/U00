@@ -80,6 +80,22 @@ test('shows readiness and generates subtitle and ASS text', async ({ page }) => 
   await expect(page.getByTestId('export-download')).toHaveAttribute('download', 'Grandmaster of Demonic Cultivation - subtitles (en).ass')
 })
 
+test('Speaker names is sent for SRT and hidden for ASS', async ({ page }) => {
+  await withExportLines(page)
+  await page.route('**/api/export/dramas/1/subtitle?*', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/plain; charset=utf-8', body: '1\n00:00:01,000 --> 00:00:02,000\nWei: hi\n' }))
+  await page.goto('/#/drama/1/export')
+  await openExportBlock(page, 'Subtitle file')
+  const toggle = page.getByLabel('Speaker names', { exact: true })
+  await expect(toggle).not.toBeChecked()
+  await toggle.check()
+  const req = page.waitForRequest((r) => r.url().includes('/subtitle?'))
+  await page.getByRole('button', { name: 'Download SRT', exact: true }).click()
+  expect((await req).url()).toContain('speaker_names=true')
+  await page.getByLabel('Format', { exact: true }).selectOption('ass')
+  await expect(page.getByLabel('Speaker names', { exact: true })).toHaveCount(0)
+})
+
 test('the button names the format', async ({ page }) => {
   await withExportLines(page)
   await page.route('**/api/export/dramas/1/subtitle?*', (route) =>

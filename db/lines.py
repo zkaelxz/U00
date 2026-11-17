@@ -598,6 +598,22 @@ _LOAD_COLUMNS = ("id, idx, start, end, zh, en, speaker, dub_filename, flag, flag
                  "speaker_manual, sfx, lang, reviewed, ass_event, confidence, mark")
 
 
+def list_marked_lines(visible_to: int | None = None) -> list:
+    """Every line with a mark, across titles, with its title, in title then
+    line order. `visible_to`: a user id; when set, only titles that user may
+    see (db.drama_visible_sql)."""
+    query = ("SELECT d.id AS drama_id, d.title_en, d.title_zh, d.source_language, l.id AS line_id,"
+             " l.idx, l.start, l.end, l.speaker, l.mark, l.zh, l.en"
+             " FROM lines l JOIN dramas d ON d.id = l.drama_id WHERE l.mark IS NOT NULL")
+    params: list = []
+    if visible_to is not None:
+        clause, params = db.drama_visible_sql("d", visible_to)
+        query += f" AND {clause}"
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute(query + " ORDER BY d.id, l.idx, l.id", params).fetchall()
+    return [dict(r) for r in rows]
+
+
 def load_lines(drama_id: int, with_words: bool = False, ids=None):
     """with_words adds word_timings, which only the re-split paths need.
     ids: only these lines (a page of them; the list must stay well under
