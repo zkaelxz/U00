@@ -484,3 +484,18 @@ export function parseJump(text: string, max: number): number | null {
   if (!/^\d+$/.test(t) || max < 1) return null
   return Math.min(Math.max(Number(t), 1), max)
 }
+
+/** Ctrl/Cmd+Z, not typed into a field (text fields keep their own undo) and not mid-IME. */
+export function isUndoKey(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean; isComposing?: boolean; keyCode?: number }, inTextField: boolean): boolean {
+  if (e.isComposing || e.keyCode === 229 || inTextField) return false
+  return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'z'
+}
+
+/** The name of one AI check's Bulk switch and help button; the same word on four rows is not a name. */
+export const bulkControlName = (checkLabel: string) => `Bulk: ${checkLabel}`
+
+/** The hidden live text after a split cut moves; the pieces' own full stops would double the one added here. */
+export function splitAnnouncement(first: string, second: string): string {
+  const bare = (t: string) => t.replace(/[.。]\s*$/, '')
+  return `First piece: ${bare(first)}. Second piece: ${bare(second)}.`
+}

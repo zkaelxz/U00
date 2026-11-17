@@ -1,5 +1,8 @@
+import { useEffect, useRef } from 'react'
+
+import { isTextEntry } from '../../../../hooks/useShortcut'
 import { buttonClass } from '../../../../components/uiClasses'
-import { mentionsLineHistory } from './reviewLogic'
+import { isUndoKey, mentionsLineHistory } from './reviewLogic'
 
 interface Props {
   message: string
@@ -37,6 +40,23 @@ export function ReviewStatus({ text, onOpenHistory }: { text: string | null; onO
 // dismissed, the next edit or an edit saved to a line (the caller clears it);
 // Records -> Line history stays the fallback and is named in the text.
 export function UndoNotice({ message, busy, onUndo, onDismiss, onOpenHistory, testId = 'undo-notice', historyNote = true, className }: Props) {
+  const undoRef = useRef({ busy, onUndo })
+  useEffect(() => {
+    undoRef.current = { busy, onUndo }
+  })
+  // useShortcut drops every Ctrl/Meta combo, so this listens itself. Text fields keep
+  // their own text undo, and an IME composition must not be interrupted.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || undoRef.current.busy || !isUndoKey(e, isTextEntry(e.target))) return
+      // An open dialog hides the edit this would undo, so the key must not reach past it.
+      if (document.querySelector('dialog[open]')) return
+      e.preventDefault()
+      undoRef.current.onUndo()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
   return (
     <div className={['review-undo', className].filter(Boolean).join(' ')} role="status" data-testid={testId}>
       <span className="review-undo-text">

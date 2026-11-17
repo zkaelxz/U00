@@ -56,6 +56,6 @@ test('Review AI checks are off, with the reason, when the title engine has no ke
   await config(page, 'claude', noKey('claude'))
   await page.goto('/#/drama/3/review')
   const ai = await openAi(page)
-  await expect(ai.getByRole('button', { name: 'Check consistency' })).toBeDisabled()
+  await expect(ai.getByRole('button', { name: 'Check consistency', exact: true })).toBeDisabled()
   await expect(ai.getByTestId('engine-gate').first()).toContainText('Claude has no API key')
 })

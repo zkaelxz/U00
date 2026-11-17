@@ -29,6 +29,7 @@ import { QWEN3_BACKENDS, qwen3Need, whisperNeed } from '../../../readiness/needs
 import { useLineSelectionContext } from './LineSelectionContext'
 import { transcribeExtraNames, whisperExclusionReason } from '../../sourceForm'
 import { promptFields } from '../transcribePrompt'
+import { optionLabel } from '../transcribeConfigForm'
 import { isTerminalStatus, offersCancel } from '../../../../types/jobs'
 import type { CompareEstimate, CompareOptions, CompareProposal, CompareResult } from '../../../../types/workspace'
 import {
@@ -46,6 +47,7 @@ import {
   isSameText,
   promptProblem,
   textDiff,
+  unavailableBackendNotes,
   type SelectionForm,
   type SelectionMode,
 } from './compareTranscriptionLogic'
@@ -404,7 +406,7 @@ export function CompareTranscription({
           <Field label="ASR backend">
             <select value={backend} onChange={(e) => setBackend(e.target.value)} disabled={busy}>
               {options.backends.map((b) => (
-                <option key={b.id} value={b.id} disabled={!b.available && b.id !== backend}>
+                <option key={b.id} value={b.id} disabled={!b.available && b.id !== backend} title={b.available ? undefined : b.reason ?? undefined}>
                   {b.label}{b.id === options.saved_asr_backend ? ' (saved)' : ''}{b.available ? '' : ' (unavailable)'}
                 </option>
               ))}
@@ -414,6 +416,10 @@ export function CompareTranscription({
         {chosenBackend && !chosenBackend.available && (
           <p className="error" role="alert">{chosenBackend.reason}</p>
         )}
+        {/* An option's title tooltip is not shown on touch screens or read out reliably, so the reasons are also written out. */}
+        {unavailableBackendNotes(options.backends, backend).map((note) => (
+          <p key={note} className="muted">{note}</p>
+        ))}
         {backendNeed && <NeedsInstall need={backendNeed} />}
         <Field label="Hint for the model (names, terms)" help="Optional. Replaces the automatic Whisper prompt for this run; leave empty to use the glossary names plus the extra names below.">
           <input
@@ -434,7 +440,7 @@ export function CompareTranscription({
           />
         </Field>
         <p className="muted">
-          Alignment stays “{options.saved_alignment_method}”: it decides timing, not the words heard, so it can’t change
+          Alignment stays “{optionLabel(options.saved_alignment_method)}”: it decides timing, not the words heard, so it can’t change
           a candidate. One candidate per run.
         </p>
         <Field label="Also translate" help={`Translates the heard text with this title’s translation settings (${options.translation_engine}) so you can compare the English. It counts toward the monthly and job spending caps.`}>
