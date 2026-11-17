@@ -5,9 +5,9 @@ import pytest
 pytest.importorskip("PIL")
 from PIL import Image
 
-import scanlate_render
-import scanlate_text_layout
-from scanlate_fonts import TypesetStyle
+from scanlate import scanlate_render
+from scanlate import scanlate_text_layout
+from scanlate.scanlate_fonts import TypesetStyle
 
 BOX = {"x": 0, "y": 0, "w": 200, "h": 120}
 TEXT = "Hello there friend"
@@ -77,8 +77,7 @@ def test_the_bridge_reads_the_popup_style_and_ignores_junk():
 
 def test_a_stronger_erase_clears_more_around_the_lettering():
     cv2 = pytest.importorskip("cv2")
-    import scanlate_inpaint
-
+    from scanlate import scanlate_inpaint
     def fringe_left(grow):
         page = np.full((80, 120, 3), 255, np.uint8)
         cv2.putText(page, "HI", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 0, 0), 3)

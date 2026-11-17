@@ -28,7 +28,7 @@ import db
 import debug_view
 import raw_transcript
 import review_thresholds
-import scanlate
+from scanlate import scanlate
 import segment_splitting
 from engine_backends import llm_tasks
 from services import ownership_service

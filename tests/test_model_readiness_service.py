@@ -679,7 +679,7 @@ def test_scanlate_render_and_export_start_offline_for_a_member(isolated_db, monk
 def test_lama_loads_the_cached_file_only_when_marked(monkeypatch):
     import sys
     import types
-    import scanlate_lama
+    from scanlate import scanlate_lama
     calls = []
 
     def hf_hub_download(repo_id, filename, token=None, **kwargs):

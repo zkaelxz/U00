@@ -2,10 +2,8 @@
 import numpy as np
 import pytest
 
-import scanlate_condense
-import scanlate_render
-
-
+from scanlate import scanlate_condense
+from scanlate import scanlate_render
 def _signs():
     return [{"kind": "sign", "translated_text": "Traffic is jammed. All AB line trains have stopped running."},
             {"kind": "sign", "translated_text": "Closed"},
@@ -94,7 +92,7 @@ def test_a_sign_without_a_band_has_no_fitted_size():
 
 
 def test_the_run_shortens_a_long_sign_and_says_so(monkeypatch):
-    import scanlate_page_decode
+    from scanlate import scanlate_page_decode
     from services import scanlate_run_service as run
     monkeypatch.setattr(run.db, "get_page", lambda *a, **k: {})
     monkeypatch.setattr(run.render_svc, "original_path", lambda *a, **k: "page.png")

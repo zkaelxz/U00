@@ -14,9 +14,9 @@ from typing import Literal, overload
 
 import numpy as np
 
-import scanlate_tuning
-from scanlate_box_merge import _LOOSE_TEXT_LABEL, _form_cells, dedupe_overlapping_boxes
-from scanlate_page_decode import page_bgr, page_gray
+from scanlate import scanlate_tuning
+from scanlate.scanlate_box_merge import _LOOSE_TEXT_LABEL, _form_cells, dedupe_overlapping_boxes
+from scanlate.scanlate_page_decode import page_bgr, page_gray
 
 
 @overload

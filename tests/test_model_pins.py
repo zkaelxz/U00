@@ -19,8 +19,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Modules that download from the Hub. dub.py (frozen) and diarize.py (pyannote,
 # gated behind the owner's own token) are not pinned yet.
-LOADER_MODULES = ("whisper_models.py", "qwen3_native.py", "ocr.py", "scanlate_detect.py",
-                  "scanlate_lama.py")
+LOADER_MODULES = ("whisper_models.py", "qwen3_native.py", "ocr.py", "scanlate/scanlate_detect.py",
+                  "scanlate/scanlate_lama.py")
 DOWNLOAD_CALLS = {"from_pretrained", "snapshot_download", "hf_hub_download",
                   "try_to_load_from_cache"}
 
@@ -28,8 +28,8 @@ DOWNLOAD_CALLS = {"from_pretrained", "snapshot_download", "hf_hub_download",
 def _repos_the_loaders_name():
     import ocr
     import qwen3_native
-    import scanlate_detect
-    import scanlate_lama
+    from scanlate import scanlate_detect
+    from scanlate import scanlate_lama
     from services import transcribe_options_service
     # Every size a title may store or Live may pick.
     sizes = {*transcribe_options_service._allowed_whisper_sizes(), *whisper_models.WHISPER_MODELS,

@@ -1,7 +1,7 @@
 """Comic panels and slicing a long webtoon strip into pages."""
 
-import scanlate_tuning
-from scanlate_page_decode import page_bgr
+from scanlate import scanlate_tuning
+from scanlate.scanlate_page_decode import page_bgr
 
 
 def detect_panels(image_path: str, min_panel_frac: float = 0.02, image=None):

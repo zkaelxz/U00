@@ -7,12 +7,11 @@ cv2 = pytest.importorskip("cv2")
 PIL = pytest.importorskip("PIL")
 from PIL import Image, ImageDraw, ImageFont
 
-import scanlate_fonts
-import scanlate_ink
-import scanlate_render
-import scanlate_text_layout
-import scanlate_tuning
-
+from scanlate import scanlate_fonts
+from scanlate import scanlate_ink
+from scanlate import scanlate_render
+from scanlate import scanlate_text_layout
+from scanlate import scanlate_tuning
 BOX = {"x": 20, "y": 20, "w": 120, "h": 50}
 
 

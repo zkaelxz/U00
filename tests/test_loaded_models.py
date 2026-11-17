@@ -231,7 +231,7 @@ def test_free_route_is_refused_for_a_remote_caller(isolated_db):
 
 def test_the_other_ocr_engines_and_the_bubble_detector_are_freed(monkeypatch):
     import ocr
-    import scanlate_detect
+    from scanlate import scanlate_detect
     for name in ("_paddle_instances", "_paddle_line_instances", "_rapidocr_instances"):
         monkeypatch.setitem(ocr.__dict__, name, {"ch": object()})
     monkeypatch.setitem(scanlate_detect.__dict__, "_bubble_ml_model", object())

@@ -19,8 +19,8 @@ def redo_region(drama_id: int, page_id: int, region_id: int, expected_rev: int,
     compare-and-set write and starts a re-render of the page. Nothing is written when the read
     or the translation fails. 409: the page moved on since `expected_rev`, or a job runs on the
     title. Returns the page detail."""
-    import scanlate
-    import scanlate_translate
+    from scanlate import scanlate
+    from scanlate import scanlate_translate
     if mode not in MODES:
         raise InvalidInputError("mode must be 'both' or 'translate'.")
     drama = pages_svc.require_drama(drama_id)

@@ -85,7 +85,7 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
     """Translates one page as the next link of its title's context chain.
     Other titles never wait on this title's lock. `extras` (character_notes,
     page_image) go to `translate_page_bubbles` as given."""
-    import scanlate_translate
+    from scanlate import scanlate_translate
     key = _chain_key(drama_id, source_url)
     if key is None:
         scanlate_translate.translate_page_bubbles(
