@@ -1010,6 +1010,11 @@ class _TakesRecorded(set):
 
 
 def test_starts_are_spaced_apart(client, env, monkeypatch):
+    # The clock moves only when the test moves it: on the real clock a runner
+    # that reached the second job late found the spacing already over, and it
+    # never showed as queued.
+    now = [svc._clock() + 100.0]
+    monkeypatch.setattr(svc, "_clock", lambda: now[0])
     monkeypatch.setattr(svc, "START_SPACING_SECONDS", 0.5)
     running = _TakesRecorded()
     monkeypatch.setattr(svc, "_running", running)
@@ -1019,9 +1024,12 @@ def test_starts_are_spaced_apart(client, env, monkeypatch):
     assert _start(client, b, url=_link(2)).status_code == 200
     _until(lambda: len(gate.starts) == 1)
     _until(lambda: _message(b) == "Queued: 1st in line")
+    now[0] += 0.4
+    time.sleep(0.6)  # longer than one wait in the queue loop
+    assert len(running.takes) == 1
+    now[0] += 0.1
     _until(lambda: len(gate.starts) == 2)
-    assert len(running.takes) == 2
-    assert running.takes[1] - running.takes[0] >= 0.45
+    assert running.takes[1] - running.takes[0] == pytest.approx(0.5)
     gate.open()
     assert wait_for_job(f"urlmedia_{b}", missing_ok=True)["status"] == "done"
 
