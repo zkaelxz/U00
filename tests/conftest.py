@@ -281,7 +281,7 @@ def _bridge_models_not_warmed():
     """Starting the extension bridge loads the comic models on a thread; no test may load a
     real model, and a thread left running would log into the next test's library. The real
     function stays on `warm_models_soon.real` for its own tests."""
-    import page_server
+    from services import page_server
     saved = page_server.warm_models_soon
 
     def stub():
@@ -642,7 +642,7 @@ def _isolated_page_server_config():
     module globals, so one test enabling the bridge would leave a provider
     behind that overrides a later test's pushed config. Restored by hand,
     for the same reason as the TestClient fixture above."""
-    import page_server
+    from services import page_server
     with page_server._config_lock:
         saved = (dict(page_server._config), page_server._config_provider)
     try:

@@ -168,7 +168,7 @@ or `series` go when the parent goes.
 | `profiles`, `progress`, `personal_notes`, `reading_history` | Reader profiles (a default one always exists) and each profile's place, notes and history | `reader_service`, `comic_view_service` | `save_progress`, `save_personal_notes`; `progress` is keyed `(drama_id, profile_id)` |
 | `style_profile` | Learned style per scope (`global` or a series), with `history_json` (last 5 kept) | `review_extras_service` | `save_style_profile`, `replace_style_profile`, `restore_style_profile` |
 | `presets` | Saved translation settings | `translate_run_service`, `glossary_service` | `save_preset`, `insert_preset` |
-| `translate_history` | Standalone translations, `user_id` per owner | `translate_service`, `page_server.py` | `save_translate_history` |
+| `translate_history` | Standalone translations, `user_id` per owner | `translate_service`, `services/page_server.py` | `save_translate_history` |
 | `usage_log` | Token and cost log; `drama_id` is `ON DELETE SET NULL`, so spend survives deleting a title | engine callers via `log_usage` | `log_usage`; `get_month_spend` reads it |
 | `bulk_jobs`, `bulk_job_lines` | Provider batch-API translations in flight | `bulk_translate.py`, `bulk_apply.py`, `bulk_reflect.py`, `bulk_poll.py` | `create_bulk_job`, `update_bulk_job`, `set_bulk_job_line_result_texts` |
 | `voice_bank` | Reusable voice clips; the file lives in `library/voice_bank/` | `voice_clone_service` | `save_voice_bank_entry` copies the clip first, then inserts |

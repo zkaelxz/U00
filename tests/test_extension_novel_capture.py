@@ -13,7 +13,7 @@ import pytest
 
 import background_jobs
 import db
-import page_server
+from services import page_server
 from lib.errors import NotFoundError
 from services import extension_novel_service as novel
 from sources import chapter_manifest, pipeline

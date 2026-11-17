@@ -10,7 +10,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import db
-import page_server
+from services import page_server
 from engine_backends import engine_registry, pricing
 from api import auth as api_auth
 from api import background

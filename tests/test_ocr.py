@@ -604,7 +604,7 @@ class TestModelLock:
         # Scanlate holds the page pipeline lock around OCR; the novel OCR job
         # doesn't. Taking the OCR lock inside the pipeline lock, and never the
         # other way round, means neither can wait on the other forever.
-        import page_server
+        from services import page_server
 
         def scanlate_page():
             with page_server.PIPELINE_LOCK:
