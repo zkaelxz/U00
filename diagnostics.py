@@ -51,7 +51,8 @@ OPTIONAL_DEPENDENCIES = {
     "jieba": ("jieba", "Chinese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pypinyin": ("pypinyin", "Chinese pinyin (Reader)", "feature"),
     "sudachipy": ("sudachipy", "Japanese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
-    "pykakasi": ("pykakasi", "Japanese furigana (Reader)", "feature"),
+    "pykakasi": ("pykakasi", "Japanese furigana (Reader; licensed GPL-3.0-or-later)",
+                 "feature"),
     "kiwipiepy": ("kiwipiepy", "Korean word segmentation (Reader)", "feature"),
     "budoux": ("budoux", "Japanese/Chinese phrase-aware subtitle line breaking", "feature"),
     "transformers": ("transformers", "Qwen3-ASR and Qwen3 forced alignment (5.15 or newer), "
@@ -74,7 +75,7 @@ OPTIONAL_DEPENDENCIES = {
                         "feature"),
     "pypdf": ("pypdf", "Scanlate PDF import (splitting a PDF into pages)", "feature"),
     "genanki": ("genanki", "Anki .apkg export (Reader vocab)", "feature"),
-    "ebooklib": ("ebooklib", "EPUB import/export", "feature"),
+    "ebooklib": ("ebooklib", "EPUB import/export (licensed AGPL-3.0-or-later)", "feature"),
     "plyer": ("plyer", "desktop notification when a background job finishes (Settings toggle, "
                        "off by default)", "feature"),
     "playwright": ("playwright", "reading JavaScript-rendered sites (baihehub, Fanjiao; the "
@@ -102,7 +103,8 @@ OPTIONAL_DEPENDENCIES = {
     # Qwen3's own tokenisation for forced alignment; transformers' processor
     # raises if the package for the title's language is missing.
     "nagisa": ("nagisa", "Qwen3 forced alignment of Japanese (word splitting)", "feature"),
-    "soynlp": ("soynlp", "Qwen3 forced alignment of Korean (word splitting)", "feature"),
+    "soynlp": ("soynlp", "Qwen3 forced alignment of Korean (word splitting; licensed GPL-3.0)",
+               "feature"),
     "cryptography": ("cryptography", "Google sign-in token checks, live capture of AES-128 "
                                      "encrypted HLS streams, release-signature checks of "
                                      "in-app updates", "feature"),
