@@ -10,7 +10,7 @@ import resegment
 import story_context
 from core import LANGUAGE_NAMES
 import translation_guide
-from api import benchmark_schemas
+from api.schemas import benchmark as benchmark_schemas
 from services import (reader_service, source_service, benchmark_lab_service, discover_catalog_service, drama_service,
                       live_service, media_export_service, media_upload_service,
                       transcribe_service, voice_clone_service)
