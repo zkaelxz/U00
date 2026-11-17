@@ -44,6 +44,7 @@ class TestGetDiarizationConfig:
             diarization_service.get_diarization_config(999999)
 
     def test_no_audio_and_no_prior_run(self, isolated_db, monkeypatch):
+        settings_service.set_settings({"speaker_model": "pyannote"})
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: None)
         did, _ = _drama_without_audio(isolated_db)
         result = diarization_service.get_diarization_config(did)
@@ -109,10 +110,31 @@ class TestStartDiarizationRun:
             diarization_service.start_diarization_run(999999)
 
     def test_missing_hf_token_raises_dependency_unavailable(self, isolated_db, monkeypatch):
+        settings_service.set_settings({"speaker_model": "pyannote"})
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: None)
         did, _ = _drama_with_audio(isolated_db)
         with pytest.raises(DependencyUnavailableError):
             diarization_service.start_diarization_run(did)
+
+    def test_nemotron_starts_without_a_token(self, isolated_db, monkeypatch):
+        """Nemotron is a public model: only pyannote needs the Hugging Face token."""
+        settings_service.set_settings({"speaker_model": "nemotron"})
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: None)
+        did, _ = _drama_with_audio(isolated_db)
+        calls = []
+        monkeypatch.setattr(job_launch, "start_process_job",
+                            lambda job_id, target, args=(), **k: calls.append(args) or True)
+        assert diarization_service.start_diarization_run(did) == {"job_id": f"diarize_{did}"}
+        assert calls[0][1] is None and calls[0][3]["backend"] == "nemotron"
+        assert diarization_service.speaker_detection_problem() is None
+
+    def test_a_speaker_count_still_needs_the_token_with_nemotron(self, isolated_db, monkeypatch):
+        """Nemotron can't take a count, so a typed one runs pyannote, which needs the token."""
+        settings_service.set_settings({"speaker_model": "nemotron"})
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: None)
+        did, _ = _drama_with_audio(isolated_db)
+        with pytest.raises(DependencyUnavailableError):
+            diarization_service.start_diarization_run(did, expected_speakers=2)
 
     def test_missing_audio_raises_unsupported_operation(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
