@@ -168,7 +168,7 @@ def _frame_second(video_path: str) -> float:
 def make_cover_from_video(drama_id: int, only_if_missing: bool = False) -> dict:
     """Sets the cover from one frame of the title's own video. Goes through
     save_cover, so the picture is re-encoded with no metadata like an upload."""
-    drama = _require_drama(drama_id)
+    _require_drama(drama_id)
     folder = db.drama_dir(drama_id)
     from services import media_playback_service
     try:
