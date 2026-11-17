@@ -118,6 +118,7 @@ def _fail(job_id: str, kind: str, source: str, e):
 
 def _signin_job(job_id: str, name: str, url: str):
     adapter = registry.get_adapter(name)
+    adapter.allow_browser = True  # its routes are local_only()
     background_jobs.update_progress(job_id, 0.1, "Waiting for you in the browser window on the "
                                                  "PC. Close it once the page is open.")
     try:
@@ -188,6 +189,7 @@ def _tier_fn(tier: AccessTier, adapter, name: str, url: str):
 
 def _tier_job(job_id: str, name: str, tier_key: str, url: str):
     adapter = registry.get_adapter(name)
+    adapter.allow_browser = True  # its routes are local_only()
     tier = TIERS[tier_key]
     background_jobs.update_progress(job_id, 0.1, "Testing...")
     try:

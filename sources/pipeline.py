@@ -442,7 +442,8 @@ def append_recovered_chapter(source: str, ch, drama_id: int, text: str) -> str:
 
 
 def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=None,
-                   skip_ids=None, on_layout_changed=None, series_url: str = ""):
+                   skip_ids=None, on_layout_changed=None, series_url: str = "",
+                   allow_browser: bool = False):
     """Background-job body. `chapters` are ChapterInfo (or their dicts) --
     only the ones the person ticked. Stores a result dict with per-chapter
     outcomes, the final Source Access stats, and a hand-off record if a
@@ -492,6 +493,7 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
         adapter = registry.get_adapter(
             source, cache=cache, status_cb=publish,
             cancel_check=lambda: background_jobs.is_cancel_requested(job_id))
+        adapter.allow_browser = allow_browser
     else:
         adapter.client.cache = cache
         adapter.client.status_cb = publish
@@ -647,7 +649,7 @@ def _import_text_chapter(adapter, source: str, ch, drama_id: int, on_layout_chan
 
 
 def start_import(source: str, series_id: str, chapters, drama_id: int, skip_ids=None,
-                 series_url: str = "") -> bool:
+                 series_url: str = "", allow_browser: bool = False) -> bool:
     """Claims `sourceimport_<drama_id>`. False, starting nothing, while any
     job for the drama runs here or (per job_records) in the other process.
     Chapters already imported into the drama are skipped unless `skip_ids`
@@ -663,5 +665,5 @@ def start_import(source: str, series_id: str, chapters, drama_id: int, skip_ids=
     job_id = import_job_id(drama_id)
     return job_launch.start_job(
         job_id, run_import_job, job_id, source, chapters, drama_id, skip_ids=skip_ids,
-        series_url=series_url,
+        series_url=series_url, allow_browser=allow_browser,
         description=f"Import {len(chapters)} chapter(s) from {source}", line_fields=())

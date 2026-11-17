@@ -495,6 +495,26 @@ def test_ai_recover_fetches_once_when_the_kept_page_is_gone(client, fakes, engin
     assert _result(client, f"sourceimport_{did}")[1]["result"]["review_open"] is True
 
 
+@pytest.mark.parametrize("local", [True, False])
+def test_ai_recover_opens_a_browser_only_for_a_request_from_this_pc(client, fakes, engines,
+                                                                   monkeypatch, local):
+    from api.routers import sources_import_routes
+    did = _novel()
+    _stopped(client, fakes, did)
+    extraction.take_layout_page(did, "alpha", "s1", "c2")
+    seen = []
+    listed = fakes["alpha"].get_chapters
+
+    def spy(self, series_id):
+        seen.append(self.allow_browser)
+        return listed(self, series_id)
+    monkeypatch.setattr(fakes["alpha"], "get_chapters", spy)
+    monkeypatch.setattr(sources_import_routes, "is_local_request", lambda request: local)
+    assert _recover(client, did).status_code == 200
+    _result(client, f"sourceimport_{did}")
+    assert seen == [local]
+
+
 def test_ai_recover_needs_confirm_and_an_engine(client, fakes, engines):
     did = _novel()
     _stopped(client, fakes, did)

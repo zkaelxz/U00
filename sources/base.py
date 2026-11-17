@@ -190,10 +190,11 @@ class SourceAdapter:
     #: listing isn't reliably in reading order; chapter_order.reading_order
     #: sorts those by number.
     chapters_in_site_order = True
-    #: False for a request not from this PC (the API sets it per job):
-    #: an adapter that opens a browser inside get_series/get_chapters/get_pages
-    #: must refuse instead (docs/remote-access-decision.md: "no browser").
-    allow_browser = True
+    #: True only when the work was asked for at this PC (the caller sets it per
+    #: job): an adapter that opens a browser inside get_series/get_chapters/
+    #: get_pages must refuse otherwise (docs/remote-access-decision.md: "no
+    #: browser"). Off by default, so a caller that forgets to say opens none.
+    allow_browser = False
     #: True when the site only gives its content to a real browser render
     #: (no static-HTTP path to fall back on), so the Sources tab turns
     #: Search and Import off until the browser is available.

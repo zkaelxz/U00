@@ -85,7 +85,9 @@ class FakeCapture:
 
 def _adapter(capture=None, clock=None):
     client = make_client("fanjiao", clock=clock)
-    return fanjiao.FanjiaoSource(client=client, capture=capture or FakeCapture())
+    a = fanjiao.FanjiaoSource(client=client, capture=capture or FakeCapture())
+    a.allow_browser = True  # work asked for at this PC
+    return a
 
 
 def test_registered_and_metadata_only():
@@ -182,6 +184,7 @@ def test_render_is_paced_through_the_client():
     client = make_client("fanjiao", clock=clock,
                          host_min_interval={"www.fanjiao.co": 10.0})
     a = fanjiao.FanjiaoSource(client=client, capture=cap)
+    a.allow_browser = True
     a.get_series("1")
     a.get_series("2")
     assert len(cap.urls) == 2
@@ -249,8 +252,13 @@ def test_default_capture_uses_page_fetchs_guarded_session(monkeypatch):
 
     monkeypatch.setattr(page_fetch, "api_capture_session", fake_session)
     a = fanjiao.FanjiaoSource(client=make_client("fanjiao"))
+    a.allow_browser = True
     assert a.get_series(ALBUM).title == "一目余生"
     assert seen == {"url": SHARE, "pattern": fanjiao.API_PATTERN}
+
+
+def test_an_adapter_opens_no_browser_unless_its_caller_says_the_work_is_local():
+    assert fanjiao.FanjiaoSource(client=make_client("fanjiao")).allow_browser is False
 
 
 def test_no_browser_for_a_request_not_from_this_pc():
@@ -293,6 +301,7 @@ def test_browser_failures_become_source_errors(monkeypatch, exc, reason):
 
     monkeypatch.setattr(page_fetch, "api_capture_session", broken)
     a = fanjiao.FanjiaoSource(client=make_client("fanjiao"))
+    a.allow_browser = True
     with pytest.raises(SourceError) as e:
         a.get_series(ALBUM)
     assert e.value.reason == reason
