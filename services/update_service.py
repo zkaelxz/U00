@@ -217,7 +217,7 @@ def include_prereleases() -> bool:
 
 def get_auto_check() -> bool:
     try:
-        return db.get_app_setting(AUTO_CHECK_KEY, False) is True
+        return db.get_app_setting(AUTO_CHECK_KEY, True) is True
     except Exception:
         return False
 

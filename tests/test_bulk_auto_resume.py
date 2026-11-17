@@ -43,8 +43,13 @@ def _setup(monkeypatch):
     return did
 
 
-def test_off_by_default_touches_nothing(isolated_db, monkeypatch):
+def test_on_by_default(isolated_db):
+    assert settings_service.get("bulk_auto_resume") is True
+
+
+def test_turned_off_touches_nothing(isolated_db, monkeypatch):
     did = _setup(monkeypatch)
+    settings_service.set_settings({"bulk_auto_resume": False})
     bid = _pending_batch(did)
     calls = []
     monkeypatch.setattr(bulk_poll, "resume_pending", lambda *a, **k: calls.append(a) or {})
@@ -146,7 +151,8 @@ def test_startup_hook_runs_it_and_survives_its_failure(isolated_db, monkeypatch)
 
 def test_settings_route_writes_the_toggle(isolated_db):
     client = TestClient(create_app(), headers={"X-Baihe-Local": "1"})
-    assert client.get("/api/settings").json()["bulk_auto_resume"] is False
+    assert client.get("/api/settings").json()["bulk_auto_resume"] is True
+    assert client.post("/api/settings", json={"bulk_auto_resume": False}).json()["bulk_auto_resume"] is False
     assert client.post("/api/settings", json={"bulk_auto_resume": True}).json()["bulk_auto_resume"] is True
     assert client.post("/api/settings", json={"bulk_auto_resume": "yes"}).status_code == 422
 
