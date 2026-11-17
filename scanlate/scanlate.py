@@ -310,9 +310,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         if captions is None:
             captions = _art_caption_regions(image_path, source_language, bubbles, page, notes,
                                             ocr_backend)
-        bubbles = drop_parts_of_captions(bubbles, captions) + captions
-        for order, b in enumerate(bubbles):
-            b["reading_order"] = order
+        bubbles = with_captions(bubbles, captions)
     if ocr_failed:
         # Fixed text: the exception may carry a model path, and the caller
         # needs "OCR broke" kept apart from "the bubble holds no text".
@@ -447,6 +445,15 @@ def drop_parts_of_captions(regions: list, captions: list) -> list:
     return [r for r in regions
             if r.get("kind") in SHAPE_FITTED_KINDS
             or not any(_overlap(r, c) >= _CAPTION_PART_SHARE for c in captions)]
+
+
+def with_captions(regions: list, captions: list) -> list:
+    """`regions` without the pieces of `captions`, then the captions, renumbered
+    in that reading order."""
+    joined = drop_parts_of_captions(regions, captions) + captions
+    for order, region in enumerate(joined):
+        region["reading_order"] = order
+    return joined
 
 
 def _art_caption_regions(image_path: str, source_language: str, bubbles: list, page,
