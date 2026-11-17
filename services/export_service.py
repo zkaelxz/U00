@@ -786,7 +786,7 @@ def mark_exported_if_complete(drama_id: int, field: str) -> bool:
     drama = ownership_service.require_drama(drama_id)
     if drama.get("status") == "exported":
         return False
-    return db.set_status_if(drama_id, drama.get("status"), "exported")
+    return db.set_status_if(drama_id, drama["status"], "exported")
 
 
 def mark_exported(drama_id: int) -> dict:
