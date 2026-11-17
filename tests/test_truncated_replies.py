@@ -65,6 +65,27 @@ class TestSalvageNeverKeepsAHalfString:
         text = '{"1":"first","1":"second","2":"x'
         assert shared.parse_id_keyed_json(text, [1, 2], truncated=True) == {"1": "first"}
 
+    def test_a_local_model_reply_with_unescaped_quotes_keeps_the_whole_line(self):
+        # A local model (recover=True) often quotes a word without escaping it;
+        # the line used to come back as just "When I hear ".
+        text = '{"1": "When I hear "Yuri," I think of it.", "2": "It\'s "L", huh?"}'
+        assert shared.parse_id_keyed_json(text, [1, 2], recover=True) == {
+            "1": 'When I hear "Yuri," I think of it.', "2": 'It\'s "L", huh?'}
+
+    def test_a_local_model_reply_cut_off_after_a_stray_quote_keeps_no_half_line(self):
+        text = '{"1": "a", "2": "He said "no'
+        assert shared.parse_id_keyed_json(text, [1, 2], recover=True) == {"1": "a"}
+
+    @pytest.mark.parametrize("text", [
+        '{"1": "a", "2": "b",}', '{"translations": {"1": "a", "2": "b",}}', '[{"1": "a", "2": "b"]',
+        '{"1": "a", "2": "b", "note": "x}', '{"1": "a" "2": "b"}', '{"1": "a",\n"2": "b"\n}'])
+    def test_other_broken_local_model_json_still_keeps_every_finished_line(self, text):
+        assert shared.parse_id_keyed_json(text, [1, 2, 3], recover=True) == {"1": "a", "2": "b"}
+
+    def test_a_local_model_reply_in_a_wrapper_is_unwrapped(self):
+        text = '{"translations": {"1": "a", "2": "b"}}'
+        assert shared.parse_id_keyed_json(text, [1, 2], recover=True) == {"1": "a", "2": "b"}
+
     def test_a_bulk_result_stays_strict(self):
         import bulk_apply
         assert bulk_apply._parse_strict('{"1":"a","2":"b","3":"cu', [1, 2, 3]) == {}

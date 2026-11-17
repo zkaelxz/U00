@@ -190,3 +190,10 @@ test('a failed settings load shows Retry, and Retry brings the other tabs back',
   await expect(banner).toHaveCount(0)
   await expect(page.getByRole('tab', { name: /Engines/ })).toBeVisible()
 })
+
+test('Settings links to the user guide in a new tab', async ({ page }) => {
+  await page.goto('/#/settings')
+  const help = page.getByRole('link', { name: 'Help: user guide' })
+  await expect(help).toHaveAttribute('href', /\/docs\/user-guide\.md$/)
+  await expect(help).toHaveAttribute('target', '_blank')
+})

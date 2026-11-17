@@ -70,9 +70,10 @@ class _Torch:
 @pytest.fixture
 def gpu(monkeypatch):
     import vram
-    from services import settings_service
+    import stored_settings
     state = {"use_gpu": True, "fits": True, "asked_mb": []}
-    monkeypatch.setattr(settings_service, "get", lambda key: state[key] if key == "use_gpu" else None)
+    monkeypatch.setattr(stored_settings, "read",
+                        lambda key, choices_of=None: state[key] if key == "use_gpu" else None)
 
     def check_fits(what, required_mb=None, free_mb=None):
         state["asked_mb"].append(required_mb)

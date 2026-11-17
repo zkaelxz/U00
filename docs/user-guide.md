@@ -48,6 +48,8 @@ Set `BAIHE_API_SERVE_FRONTEND=0` to run API-only.
 
 ## The rest of the guide
 
+In the app, **Help: user guide** at the top of Settings opens this guide.
+
 - [Setup](user-guide-setup.md): installing from source, portable mode, ffmpeg and updates, developer setup and ports, resetting for testing.
 - [Subtitles](user-guide-subtitles.md): translation, transcription and OCR, dubbing and voice cloning.
 - [Reader and library](user-guide-library.md): the Reader, the Library, Discover, Manhua and Scanlate, metadata and site tools.
