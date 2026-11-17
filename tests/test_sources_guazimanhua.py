@@ -112,7 +112,7 @@ class TestPagesArePlainHttpNotBrowserRendered:
     shows page images directly in the static HTML. This test asserts the
     CURRENT, re-verified real behavior: a single plain HTTP GET, images
     read straight out of section.reader-images -- not a
-    page_fetch.smart_fetch-shaped mock."""
+    browser-rendered page mock."""
 
     def test_extracts_real_page_images_from_a_plain_http_response(self):
         chapter_url = f"{BASE}/chapter.php?id=101"
