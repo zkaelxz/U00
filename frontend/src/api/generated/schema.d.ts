@@ -22380,6 +22380,7 @@ export interface components {
             status: string;
             /** Stop Reason */
             stop_reason: string | null;
+            stream: components["schemas"]["LiveStreamRef"] | null;
             /**
              * Translate Queue
              * @default 0
@@ -22415,6 +22416,13 @@ export interface components {
             session_id: string;
             /** Status */
             status: string;
+        };
+        /** LiveStreamRef */
+        LiveStreamRef: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
         };
         /** LncrawlImportRequest */
         LncrawlImportRequest: {

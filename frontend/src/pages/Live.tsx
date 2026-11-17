@@ -48,7 +48,7 @@ import { LiveChatSection, ReadChatField } from './live/LiveChat'
 import { DelayedPlayer } from './live/DelayedPlayer'
 import { useLiveSession } from './live/useLiveSession'
 import { StreamEmbed } from './live/StreamEmbed'
-import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, parseStreamUrl, steadyDelay } from './live/embedLogic'
+import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, parseStreamUrl, steadyDelay, streamFromStatus } from './live/embedLogic'
 import type { LiveCue } from '../types/live'
 import type { TranslateEngine } from '../types/translate'
 import './live.css'
@@ -222,8 +222,10 @@ export default function LivePage() {
   // pressed: leaving it mounted would keep the stream's audio playing.
   // What the running session records, not the form. Its files are served to the PC only.
   const ownPlayer = session?.status?.delayed_player === true && pc !== 'remote'
-  const videoLive = !!session && status === 'running' && !stopping && (!!session.url || ownPlayer)
-  const streamRef = videoLive && session?.url ? parseStreamUrl(session.url) : null
+  // A device that didn't start the session has no link, only the id the server gives every device.
+  const followed = session?.url ? parseStreamUrl(session.url) : streamFromStatus(session?.status?.stream)
+  const videoLive = !!session && status === 'running' && !stopping && (!!followed || ownPlayer)
+  const streamRef = videoLive ? followed : null
   const feed = session ? feedCues(session.cues) : []
   const total = session?.next ?? 0
   const lag = session?.status ? lagLine(session.status) : null
