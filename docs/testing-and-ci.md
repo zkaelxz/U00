@@ -320,7 +320,7 @@ tests that CI's shards run and that a short list tends to miss (`tests/test_diag
 `expected_files.py`, so a new top-level `.py` fails there; `tests/test_db.py` holds `_INIT_DB_MIGRATED_COLUMNS`):
 
     tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py
-    tests/test_agent_docs.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py
+    tests/test_agent_docs.py tests/test_repo_map.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py
     tests/test_db.py tests/test_diagnostics_and_export.py
 
 The `guards` job also runs `basedpyright` (pinned to 1.40.2) over the packages in `pyrightconfig.json`'s `include`.

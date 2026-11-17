@@ -119,6 +119,20 @@ def diarization_ready() -> bool:
         and _tree_has(community, "pytorch_model.bin")
 
 
+def nemotron_ready() -> bool:
+    import diarize_nemotron
+    folder = _hf_snapshot(diarize_nemotron.MODEL_ID)
+    return bool(folder) and hf_model_ready(diarize_nemotron.MODEL_ID) and os.path.isfile(
+        os.path.join(folder, "processor_config.json"))
+
+
+def _speaker_model_ready(expected_speakers=None, min_speakers=None, max_speakers=None):
+    # Imported here: diarization_service pulls in the transcription stack.
+    from services import diarization_service
+    pyannote = diarization_service.needs_pyannote(expected_speakers, min_speakers, max_speakers)
+    return diarization_ready if pyannote else nemotron_ready
+
+
 def omnivoice_ready() -> bool:
     import dub
     return hf_model_ready(dub.OMNIVOICE_REPO)
@@ -235,8 +249,8 @@ def for_aligner() -> list:
     return [aligner_ready]
 
 
-def for_diarization() -> list:
-    return [diarization_ready]
+def for_diarization(expected_speakers=None, min_speakers=None, max_speakers=None) -> list:
+    return [_speaker_model_ready(expected_speakers, min_speakers, max_speakers)]
 
 
 def for_sensevoice() -> list:
@@ -325,8 +339,11 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
             needs.append(qwen_asr_ready)
         if mode != "whisper" and drama.get("alignment_method") == "qwen3_forced_align":
             needs.append(aligner_ready)
-    if run_diarize and settings_service.resolve_key("hf_token"):
-        needs.append(diarization_ready)
+    if run_diarize:
+        # The run's speaker count isn't known here; the chosen model decides.
+        check = _speaker_model_ready()
+        if check is nemotron_ready or settings_service.resolve_key("hf_token"):
+            needs.append(check)
     return needs
 
 

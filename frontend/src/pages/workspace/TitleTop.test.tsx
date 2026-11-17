@@ -153,7 +153,7 @@ describe('the phone\'s header', () => {
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
     expect(header.indexOf('data-testid="drama-title"')).toBeLessThan(header.indexOf('>More</button>'))
     expect(header.indexOf('>More</button>')).toBeLessThan(header.indexOf('steps-fold-toggle'))
-    expect(header).toContain('<span>Step 4 of 5 · Check</span> <span class="steps-fold-position" data-testid="queue-position">1 of 3 to look at</span>')
+    expect(header).toContain('<span>Step 4 of 5 · Review</span> <span class="steps-fold-position" data-testid="queue-position">1 of 3 to look at</span>')
     expect(header).toContain('aria-hidden="true"><div class="title-top-progress-fill" style="width:33.33333333333333%"></div>')
   })
 
