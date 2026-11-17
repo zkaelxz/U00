@@ -12,8 +12,8 @@ export const REVIEW_TOOLS_GROUPS: { id: ReviewToolsGroup; label: string }[] = [
   { id: 'finish', label: 'Finish' },
 ]
 
-// The tools sit in a column beside the lines from this width; review.css's inspector rules use the same 1400px.
-export const TOOLS_BESIDE_LINES = '(min-width: 1400px)'
+// The tools sit in a column beside the lines from this width; review.css's inspector rules use the same 1100px.
+export const TOOLS_BESIDE_LINES = '(min-width: 1100px)'
 
 // A tab another part of the stage can put first in the row (the check queue's open line). It is never a
 // remembered tab and no link names it, so it lives beside the groups rather than among them.
