@@ -1,7 +1,7 @@
 """Test stand-in for the voice engines: routes narration through a per-line fake instead of a voice venv."""
 
-import dub_narration
-from dub import VENV_LINE_FAILED
+from voice import dub_narration
+from voice.dub import VENV_LINE_FAILED
 from memory_headroom import HeadroomError
 
 

@@ -12,9 +12,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import voice_id as vid
-
-
+from voice import voice_id as vid
 class TestCosineSimilarity:
     def test_identical_vectors_are_1(self):
         assert vid.cosine_similarity([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) == 1.0

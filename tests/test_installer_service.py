@@ -258,7 +258,7 @@ class TestFolders:
         import app_tools
         import browser_support
         import pending_install
-        import voice_venv
+        from voice import voice_venv
         from services import android_app_service, sources_save_service, vdb_names_service
         for name in (os.path.basename(pending_install.state_dir()), browser_support.FOLDER_NAME,
                      app_tools.FOLDER_NAME, sources_save_service.SAVE_DIRNAME, voice_venv.VENVS_DIRNAME,

@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-import dub
+from voice import dub
 from core import Line
 from services import characters_service as cs
 from lib.errors import InvalidInputError, NotFoundError
