@@ -113,7 +113,7 @@ function groqNeed(r: SetupReadiness | null): Need | null {
   }
 }
 
-/** Speaker detection: the pyannote package (with torch), then a Hugging Face token. Two needs, two fixes. */
+/** Speaker detection: the pyannote package (with torch), then a Hugging Face token when the chosen model needs one. Two needs, two fixes. */
 export function speakerNeeds(r: SetupReadiness | null): Need[] {
   if (!r) return []
   const out: Need[] = []
@@ -125,7 +125,7 @@ export function speakerNeeds(r: SetupReadiness | null): Need[] {
       reason: `Speaker detection needs pyannote.audio and torch. Missing: ${names(missing)}.`,
     })
   }
-  if (!r.hf_token_configured) {
+  if (!r.hf_token_configured && r.speaker_token_needed) {
     out.push({
       id: 'speakers_token', label: 'Hugging Face token', action: 'settings', packages: [],
       reason: "Speaker detection needs a Hugging Face token, and you must accept the speaker model's terms on its Hugging Face page.",

@@ -28610,6 +28610,8 @@ export interface components {
             soundfile: boolean;
             /** Soynlp */
             soynlp: boolean;
+            /** Speaker Token Needed */
+            speaker_token_needed: boolean;
             /** Sudachi */
             sudachi: boolean;
             /** Tesseract Program */

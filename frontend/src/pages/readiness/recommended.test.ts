@@ -8,7 +8,7 @@ const FRESH = Object.fromEntries([
   'anthropic', 'yt_dlp', 'pypdf', 'genanki', 'ebooklib', 'cv2', 'jieba', 'sudachi', 'kiwi', 'nagisa', 'soynlp', 'pytesseract',
   'paddle_ocr', 'transformers_ok', 'qwen3_asr', 'ffmpeg_libass', 'js_runtime', 'tesseract_program', 'torch_cuda', 'hf_token_configured',
   'key_claude', 'key_deepseek', 'key_gemini', 'key_openai', 'key_groq', 'ollama_reachable', 'ollama_model_pulled',
-].map((k) => [k, false]).concat([['ffmpeg', true], ['gpu_found', true]])) as unknown as SetupReadiness
+].map((k) => [k, false]).concat([['ffmpeg', true], ['gpu_found', true], ['speaker_token_needed', true]])) as unknown as SetupReadiness
 const READY = Object.fromEntries(Object.keys(FRESH).map((k) => [k, true])) as unknown as SetupReadiness
 
 describe('recommended installs', () => {

@@ -11,12 +11,12 @@ const FIELDS = [
   'anthropic', 'yt_dlp', 'pypdf', 'genanki', 'ebooklib', 'cv2', 'jieba', 'sudachi', 'kiwi', 'nagisa', 'soynlp', 'pytesseract',
   'paddle_ocr', 'transformers_ok', 'qwen3_asr', 'ffmpeg', 'ffmpeg_libass', 'js_runtime', 'tesseract_program', 'gpu_found',
   'manga_ocr', 'plyer', 'trafilatura', 'playwright', 'browser_found',
-  'torch_cuda', 'hf_token_configured', 'key_claude', 'key_deepseek', 'key_gemini', 'key_openai', 'key_groq', 'ollama_reachable',
+  'torch_cuda', 'hf_token_configured', 'speaker_token_needed', 'key_claude', 'key_deepseek', 'key_gemini', 'key_openai', 'key_groq', 'ollama_reachable',
   'ollama_model_pulled',
 ]
 const ALL = (on: boolean) => Object.fromEntries(FIELDS.map((f) => [f, on]))
 /** A fresh GPU server: an NVIDIA card, FFmpeg, and nothing else. */
-const FRESH = { ...ALL(false), ffmpeg: true, ffmpeg_libass: true, gpu_found: true }
+const FRESH = { ...ALL(false), ffmpeg: true, ffmpeg_libass: true, gpu_found: true, speaker_token_needed: true }
 const READY = ALL(true)
 
 async function setup(page: Page, readiness: Record<string, boolean>, config: Record<string, unknown> = {}) {
