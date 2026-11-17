@@ -105,3 +105,30 @@ def test_a_cover_set_by_hand_meanwhile_is_not_replaced_by_the_automatic_one(isol
     with pytest.raises(ConflictError):
         cover_art_service.save_cover(did, io.BytesIO(buf.getvalue()), only_if_missing=True)
     assert db.get_drama(did)["cover_art_filename"] == "cover.png"
+
+
+def _png(color=(9, 9, 9)):
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (6, 4), color).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_a_downloaded_site_thumbnail_becomes_the_cover(isolated_db, tmp_path):
+    pytest.importorskip("PIL")
+    did = db.create_drama(title_en="D")
+    (tmp_path / "downloaded_video.png").write_bytes(_png())
+    assert cover_art_service.use_site_thumbnail(did, str(tmp_path)) is True
+    assert db.get_drama(did)["cover_art_filename"] == "cover.png"
+
+
+def test_a_site_thumbnail_never_replaces_a_cover_and_junk_is_ignored(isolated_db, tmp_path):
+    pytest.importorskip("PIL")
+    did = db.create_drama(title_en="D")
+    (tmp_path / "downloaded_video.jpg").write_bytes(b"<html>not an image</html>")
+    assert cover_art_service.use_site_thumbnail(did, str(tmp_path)) is False
+    assert db.get_drama(did)["cover_art_filename"] is None
+    (tmp_path / "downloaded_video.jpg").write_bytes(_png((1, 1, 1)))
+    cover_art_service.save_cover(did, io.BytesIO(_png((200, 0, 0))))
+    assert cover_art_service.use_site_thumbnail(did, str(tmp_path)) is False
+    assert db.get_drama(did)["cover_art_filename"] == "cover.png"

@@ -165,6 +165,31 @@ def _frame_second(video_path: str) -> float:
     return duration * _FRAME_FRACTION if duration > 0 else _FRAME_FALLBACK_SECONDS
 
 
+SITE_THUMBNAIL_NAMES = tuple(f"downloaded_{kind}.{ext}" for kind in ("video", "audio")
+                             for ext in ("jpg", "jpeg", "png", "webp"))
+
+
+def use_site_thumbnail(drama_id: int, folder: str) -> bool:
+    """Best-effort cover from the picture yt-dlp saved next to a downloaded
+    video in `folder`. Goes through save_cover (type, size and pixel caps,
+    re-encode), and never replaces a cover the title already has. Any failure
+    leaves the title as it was: a missing picture must not fail a download."""
+    from lib.safe_paths import plain_file_in
+    if (db.get_drama(drama_id) or {}).get("cover_art_filename"):
+        return False
+    for name in SITE_THUMBNAIL_NAMES:
+        path = plain_file_in(folder, name)
+        if not path or os.path.islink(path) or not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "rb") as f:
+                save_cover(drama_id, f, only_if_missing=True)
+            return True
+        except Exception:
+            return False
+    return False
+
+
 def make_cover_from_video(drama_id: int, only_if_missing: bool = False) -> dict:
     """Sets the cover from one frame of the title's own video. Goes through
     save_cover, so the picture is re-encoded with no metadata like an upload."""
