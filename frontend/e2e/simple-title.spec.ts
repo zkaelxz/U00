@@ -371,7 +371,8 @@ test.describe('the check queue', () => {
 
   test('an open card that is the card\'s last row follows its rounded corners where the list card ends at it', async ({ page }) => {
     seedOneFlaggedLine()
-    await page.setViewportSize({ width: 1100, height: 900 })
+    // Narrower than the tools-beside width, where the list card is no taller than its rows.
+    await page.setViewportSize({ width: 1050, height: 900 })
     await simple(page)
     const open = page.locator('.review-line.is-active')
     await expect(open).toBeVisible()
