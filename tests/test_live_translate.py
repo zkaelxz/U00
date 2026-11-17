@@ -952,6 +952,24 @@ class TestHeldLinesMidSession:
         assert 0.0 not in lags   # the released lines are not timed as a chunk of their own
 
 
+    def test_held_lines_the_second_hearing_leaves_out_are_shown_as_first_heard(self, monkeypatch, tmp_path):
+        real = _fake_transcribe_by_decoding_audio
+
+        def forgets_the_padding(path, **kw):
+            segs = real(path, **kw)
+            # The padded hearing of chunk 1 leaves out what it heard in chunk 0's tail.
+            return [s for s in segs if s["start"] >= 2.0] if "padded" in os.path.basename(path) else segs
+        monkeypatch.setitem(globals(), "_fake_transcribe_by_decoding_audio", forgets_the_padding)
+        cues, heard, _ = TestOverlapDedupAgainstRealAudio()._run(
+            monkeypatch, tmp_path, "test_held_lost", TestOverlapDedupAgainstRealAudio.CHUNKS)
+        assert heard == ["chunk_00000.wav", "padded_00001.wav"]
+        # Without the first hearing, "我们明天去" was lost: the filter above took the whole re-heard sentence.
+        assert [c["text"] for c in cues] == ["今天天气很好", "我们明天去", "好的走吧"]
+        assert [c["id"] for c in cues] == [0, 1, 2]
+        assert [c["start"] for c in cues] == sorted(c["start"] for c in cues)
+        assert all(c["translated"] == f"EN:{c['text']}" for c in cues)
+
+
 class TestHoldBackOverlap:
     TAIL = {"seconds": 3.0, "chunk_seconds": 10.0}
 
@@ -964,6 +982,12 @@ class TestHoldBackOverlap:
         assert [c["start"] for c in shown] == [21.0, 26.5]
         assert held["index"] == 2 and [c["start"] for c in held["cues"]] == [27.5, 29.0]
         assert held["covered"] == 0.5   # the shown lines reach 0.5 s into the next chunk's padding
+
+    def test_only_held_lines_no_new_line_covers_count_as_unheard(self):
+        held = [self._cue(27.5), self._cue(29.0)]
+        again = [{"start": 27.4, "end": 28.6, "text": "x"}, {"start": 31.0, "end": 32.0, "text": "y"}]
+        assert [c["start"] for c in live_caption.unheard_again(held, again)] == [29.0]
+        assert live_caption.unheard_again(held, [{"start": 27.0, "end": 31.0, "text": "z"}]) == []
 
     def test_nothing_is_held_on_the_last_chunk_or_without_overlap(self):
         cues = [self._cue(28.0)]
@@ -989,6 +1013,31 @@ class TestStockPhrasesInLive:
         # A streamer really says the subscribe line, so only the outro goes.
         assert [s["text"] for s in lt.drop_stock_phrases(segs)] == [
             "みんな元気で何よりですね", "ペースパちゃんありがとう", "チャンネル登録よろしくお願いします"]
+
+
+class TestLongLinesInLive:
+    """whisper-ja wrote 10-20 s of speech as one segment, a wall of text on screen."""
+
+    LONG = ("今日はね、朝からずっと雨が降ってて本当に大変だったんですよ。"
+            "でもね、みんなのコメント見てたら元気出てきました。ありがとうございます。")
+
+    def test_a_long_line_is_cut_at_its_sentence_ends(self, monkeypatch, tmp_path):
+        import whisper_transcribe
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
+                            lambda path, **kw: [{"start": 0.0, "end": 16.0, "text": self.LONG}])
+        chunk_path = tmp_path / "chunk_00000.wav"
+        chunk_path.write_bytes(b"x")
+        cues = lt.process_chunk(str(chunk_path), 0, 20, "ja", "ja-1.5b", engine=None, translate=False)
+        assert [c["text"] for c in cues] == ["今日はね、朝からずっと雨が降ってて本当に大変だったんですよ。",
+                                             "でもね、みんなのコメント見てたら元気出てきました。", "ありがとうございます。"]
+        assert [c["id"] for c in cues] == [0, 1, 2]
+        assert cues[0]["start"] == 0.0 and cues[-1]["end"] == 16.0
+        assert all(a["end"] <= b["start"] for a, b in zip(cues, cues[1:]))
+
+    def test_short_lines_and_lines_with_no_cut_stay_whole(self):
+        segs = [{"start": 0, "end": 3, "text": "はい。そうです。"},
+                {"start": 3, "end": 15, "text": "あ" * 30}]
+        assert lt.split_long_caption_lines(segs) == segs
 
 
 class TestOverlapTailTextWindow:

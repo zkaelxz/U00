@@ -7,7 +7,7 @@ pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
 import background_jobs
-import dub_narration
+from voice import dub_narration
 from core import Line
 from jobs import job_launch
 from services import listen_service
@@ -200,7 +200,7 @@ class TestTestVoice:
     def test_a_default_voice_is_the_one_a_full_run_gives_that_speaker(self, client, isolated_db, thread_jobs):
         did = self._title(isolated_db)
         client.post(f"/api/listen/dramas/{did}/test-voice", json={"speaker_label": "S2"})
-        import dub
+        from voice import dub
         # S1 and S2 are both bare, so S2 is the second default voice, not the first.
         assert thread_jobs[0]["args"][1]["instruct"] == dub.DEFAULT_VOICE_DESCRIPTIONS[1]
 

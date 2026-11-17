@@ -14,10 +14,10 @@ import shutil
 
 import background_jobs
 import db
-import dub
-import dub_narration
+from voice import dub
+from voice import dub_narration
 import novel_text
-import voice_venv
+from voice import voice_venv
 from jobs import job_launch
 from services import ownership_service
 from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError

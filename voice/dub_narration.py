@@ -14,7 +14,7 @@ from novel_text import (  # noqa: F401 (re-exported)
     narration_paragraph_ends)
 
 from audio_levelling import level_clip
-from dub import (NO_VOICE_ERROR, engine_refusal, M4B_ENCODE_TIMEOUT_SECONDS, VENV_ENGINES, VENV_LINE_FAILED,
+from voice.dub import (NO_VOICE_ERROR, engine_refusal, M4B_ENCODE_TIMEOUT_SECONDS, VENV_ENGINES, VENV_LINE_FAILED,
                  clip_signature, speak_in_venv, _voice_for_signature)
 
 

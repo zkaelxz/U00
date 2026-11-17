@@ -15,7 +15,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
-import voice_venv
+from voice import voice_venv
 from api.api_config import ApiSettings
 from api.server import create_app
 from jobs import job_runner
