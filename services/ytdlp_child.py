@@ -151,6 +151,10 @@ def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts
         "external_downloader": {"default": "native"},
         "paths": {"home": tmp_dir, "temp": tmp_dir},
         "restrictfilenames": True,
+        # The site's own picture, kept beside the media as downloaded_<kind>.<jpg|png|webp>
+        # for url_media_service to turn into the title's cover. A thumbnail that fails to
+        # download is a yt-dlp warning, not a failed download.
+        "writethumbnail": True,
         "quiet": True,
         "no_warnings": True,
     }

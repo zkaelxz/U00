@@ -225,6 +225,7 @@ def test_ydl_options_caps_filters_and_no_cookies(client, env):
     assert o["concurrent_fragment_downloads"] == 1
     assert o["external_downloader"] == {"default": "native"}
     assert o["restrictfilenames"] is True
+    assert o["writethumbnail"] is True
     assert not [k for k in o if "cookie" in k.lower()]
     tmp = o["paths"]["home"]
     assert o["paths"]["temp"] == tmp and os.path.dirname(tmp) == storage.temp_root()
@@ -1496,3 +1497,13 @@ def test_the_same_link_again_still_keeps_the_old_files_of_a_title_that_keeps_ori
     db.update_drama(did, keep_original=1)
     _again(client, did)
     assert len(_kept_media(did)) == 2
+
+
+def test_a_link_download_offers_the_site_thumbnail_before_installing(client, env, monkeypatch):
+    from services import cover_art_service
+    seen = []
+    monkeypatch.setattr(cover_art_service, "use_site_thumbnail", lambda did, folder: seen.append((did, folder)))
+    did = _drama()
+    assert _run(client, did)["status"] == "done"
+    assert [d for d, _ in seen] == [did]
+    assert os.path.basename(seen[0][1]).startswith("urlmedia_")

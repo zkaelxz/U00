@@ -72,6 +72,7 @@ import storage
 from engine_backends import shared
 import video_export
 from services import (
+    cover_art_service,
     drama_service,
     egress_proxy,
     link_details_service,
@@ -767,6 +768,9 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
         origin = url if not direct_ext and whole else None
         if title and not (drama.get("title_en") or drama.get("title_zh")):
             fields["title_zh"] = str(title).strip()[:300]
+        if not direct_ext:
+            # Before install_media, so its own frame-grab cover finds one and leaves it.
+            cover_art_service.use_site_thumbnail(drama_id, tmp)
         try:
             media_upload_service.install_media(drama_id, new_files, transcribe_new_audio=True,
                                                 origin_link=origin,
