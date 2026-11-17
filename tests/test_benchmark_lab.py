@@ -867,7 +867,7 @@ class TestLabBugHunt:
             svc.arena([a, b])
 
     def test_the_request_and_arena_limits_are_the_services_own(self):
-        from api.benchmark_schemas import BenchmarkRunRequest
+        from api.schemas import BenchmarkRunRequest
         limits = [m.max_length for m in BenchmarkRunRequest.model_fields["configs"].metadata
                   if hasattr(m, "max_length")]
         assert limits == [svc.MAX_CONFIGS]
