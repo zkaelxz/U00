@@ -30,8 +30,11 @@ def _acting_user_id():
 
 
 def _with_member_key(target):
-    from services import member_key_service
-    return member_key_service.for_job(target)
+    """`target` as a job runs it, carrying the key of whoever starts it: the
+    member of this request, or the key the starting job itself carries. A
+    partial, so a process job's target still pickles."""
+    from engine_backends.local import carry_member_cloud_key, member_cloud_key
+    return carry_member_cloud_key(target, member_cloud_key())
 
 
 # Set while a library restore swaps the library folder: no job may start
