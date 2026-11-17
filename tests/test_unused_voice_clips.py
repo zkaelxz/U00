@@ -97,7 +97,7 @@ def test_same_name_in_other_title_is_independent(c):
 def test_only_known_kinds_directly_in_voice_refs(c):
     did = _drama()
     _clip(did, "notes.txt")
-    _clip(did, "Ann.wav")                       # dub.extract_reference_clips output
+    _clip(did, "Ann.wav")                       # a clip named after its speaker, as an older extraction wrote
     _clip(did, f"candidates/{HEX}.wav")
     _clip(did, f"clone_ref_{HEX}.txt")
     _clip(did, f"clone_pick_{HEX}.mp3")
