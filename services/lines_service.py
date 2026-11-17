@@ -105,8 +105,9 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
     the English and flags the line `source_changed`; changing the speaker
     sets `speaker_manual`. `expected` maps field -> the old value the
     client saw; any mismatch is a 409 with nothing written.
-    A changed `en` also records an edit sample and translation memory, as
-    Save edits does. Returns the line as stored afterwards."""
+    A changed `en` also records an edit sample, as Save edits does, but not
+    translation memory: that learns only when the line is marked Checked
+    (`set_reviewed`). Returns the line as stored afterwards."""
     passed = {k: v for k, v in (("start", start), ("end", end), ("zh", zh), ("en", en),
                                 ("speaker", speaker), ("sfx", sfx)) if v is not None}
     if lang is not None:
@@ -192,8 +193,6 @@ def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en
                                   engine=prov.get("engine"), model=prov.get("model"),
                                   prompt_version=prov.get("prompt_version"),
                                   flag=before_flag, mark=before_mark)
-        if drama.get("series_id") and ln.en.strip():
-            db.record_translation_memory(drama["series_id"], ln.zh, ln.en)
     return _reload_dict(drama_id, line_id)
 
 
@@ -242,15 +241,23 @@ def set_reviewed(drama_id: int, line_id: int, reviewed: bool, expected_en=None) 
     column. Idempotent. Returns the line as stored afterwards.
     `expected_en` is the English the reviewer saw. The write is one
     compare-and-set on the English, so text that changed since (a translate
-    job, another tab) is a 409 and never gets a mark nobody earned."""
+    job, another tab) is a 409 and never gets a mark nobody earned.
+    Checking is what teaches the series' translation memory, so an unchecked
+    save never does. Saving new English unchecks the line, so a later edit
+    reaches memory only when the line is checked again, which replaces the
+    older entry for that source. Unchecking leaves memory alone: the person
+    approved that pair once and may only be re-reading it."""
     if not isinstance(reviewed, bool):
         raise InvalidInputError("reviewed must be true or false.")
     if expected_en is not None and not isinstance(expected_en, str):
         raise InvalidInputError("expected_en must be text.")
-    _, _, ln = load(drama_id, line_id)
+    drama, _, ln = load(drama_id, line_id)
     seen = ln.en or "" if expected_en is None else expected_en
     if not db.update_line_fields_if(drama_id, line_id, {"reviewed": int(reviewed)}, {"en": seen}):
         raise ConflictError("This line changed since you loaded it.", details={"fields": ["en"]})
+    if reviewed:
+        if drama.get("series_id") and seen.strip() and (ln.zh or "").strip():
+            db.record_translation_memory(drama["series_id"], ln.zh, seen)
     return _reload_dict(drama_id, line_id)
 
 

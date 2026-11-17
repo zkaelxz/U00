@@ -164,9 +164,16 @@ def _skip_space(text: str, i: int) -> int:
     return i
 
 
-# One complete "id": "text" pair (local models, see _recover_id_keyed); the value's closing quote proves it was
-# written to the end, unlike the pair a reply was cut off in.
-_ID_PAIR_RE = re.compile(r'"\s*(\d+)\s*"\s*:\s*"((?:[^"\\]|\\.)*)"')
+# One complete "id": "text" pair (local models, see _recover_id_keyed). The value ends at the
+# first quote that is followed by what can come after a value (a comma and the next key or a
+# closing bracket, a bracket, or a next "id": with its comma missing), not at the first quote:
+# a local model often writes a quoted word unescaped ("When I hear "Yuri," ..."), and stopping
+# there kept "When I hear " as the whole translation. A pair the reply was cut off in has no
+# such ending, so it is never kept.
+_ID_PAIR_RE = re.compile(
+    r'"\s*(\d+)\s*"\s*:\s*"((?:[^\\]|\\.)*?)"'
+    r'(?=\s*(?:,\s*(?:"[^"\n]{0,40}"\s*:|[}\]])|[}\]]|"\s*\d+\s*"\s*:))', re.DOTALL)
+_UNESCAPED_QUOTE_RE = re.compile(r'(?<!\\)((?:\\\\)*)"')
 
 
 def _salvage_pairs(text: str, expected_str: set) -> dict:
@@ -174,8 +181,9 @@ def _salvage_pairs(text: str, expected_str: set) -> dict:
     for m in _ID_PAIR_RE.finditer(text):
         if m.group(1) not in expected_str:
             continue
+        body = _UNESCAPED_QUOTE_RE.sub(lambda q: q.group(1) + '\\"', m.group(2))
         try:
-            found[m.group(1)] = json.loads(f'"{m.group(2)}"')
+            found[m.group(1)] = json.loads(f'"{body}"')
         except json.JSONDecodeError:
             continue
     return found
@@ -207,6 +215,9 @@ def _recover_id_keyed(text: str, expected_str: set) -> dict:
         if salvaged:
             return salvaged
     for data in reversed(objects):
+        # A single-key wrapper ({"translations": {...}}) is opened, as the strict parse does.
+        if len(data) == 1 and isinstance(next(iter(data.values())), dict):
+            data = next(iter(data.values()))
         found = {str(k): v for k, v in data.items() if str(k) in expected_str and isinstance(v, str)}
         if found:
             return found

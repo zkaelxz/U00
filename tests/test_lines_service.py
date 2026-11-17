@@ -90,14 +90,36 @@ class TestPatch:
         svc.patch_line(did, ids[0], speaker="")
         assert _row(did, ids[0])["speaker"] is None
 
-    def test_edit_sample_and_tm_recorded(self, isolated_db):
+    def test_edit_sample_recorded_but_unchecked_save_teaches_no_memory(self, isolated_db):
         did, ids = _seed(series=True)
         svc.patch_line(did, ids[0], en="Hi there")
         samples = db.list_edit_samples(did)
         assert [(s["ai_version"], s["user_version"]) for s in samples] == [("Hello", "Hi there")]
+        assert db.list_translation_memory(db.get_drama(did)["series_id"]) == []
+
+    def test_checking_after_a_save_records_the_saved_english(self, isolated_db):
+        did, ids = _seed(series=True)
+        svc.patch_line(did, ids[0], en="Hi there")
+        svc.set_reviewed(did, ids[0], True)
         sid = db.get_drama(did)["series_id"]
         assert [(e["source_text"], e["translation"]) for e in db.list_translation_memory(sid)] \
             == [("你好", "Hi there")]
+
+    def test_editing_a_checked_line_unchecks_it_and_checking_again_replaces_the_entry(self, isolated_db):
+        did, ids = _seed(series=True)
+        sid = db.get_drama(did)["series_id"]
+        svc.set_reviewed(did, ids[0], True)
+        svc.patch_line(did, ids[0], en="Hi there")
+        assert not _row(did, ids[0])["reviewed"]
+        assert [e["translation"] for e in db.list_translation_memory(sid)] == ["Hello"]
+        svc.set_reviewed(did, ids[0], True)
+        assert [e["translation"] for e in db.list_translation_memory(sid)] == ["Hi there"]
+
+    def test_unchecking_keeps_the_memory_entry(self, isolated_db):
+        did, ids = _seed(series=True)
+        svc.set_reviewed(did, ids[0], True)
+        svc.set_reviewed(did, ids[0], False)
+        assert len(db.list_translation_memory(db.get_drama(did)["series_id"])) == 1
 
     def test_edit_sample_records_what_made_the_corrected_text(self, isolated_db):
         from services import line_provenance_service
@@ -157,9 +179,10 @@ class TestPatch:
         _real_save(did, [c])
         assert [s["line_id"] for s in db.list_source_edits(did)] == [None]
 
-    def test_no_tm_without_series_and_no_sample_when_unchanged(self, isolated_db):
+    def test_checking_without_series_records_no_memory_and_no_sample_when_unchanged(self, isolated_db):
         did, ids = _seed()
         svc.patch_line(did, ids[0], en="Hi there")
+        svc.set_reviewed(did, ids[0], True)
         assert db.list_translation_memory(1) == []
         svc.patch_line(did, ids[2], en="Thanks")
         assert len(db.list_edit_samples(did)) == 1

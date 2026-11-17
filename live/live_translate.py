@@ -82,7 +82,7 @@ from live import live_whisper
 from live.live_caption import CHUNK_CONTEXT_CARRY_CHARS as _CONTEXT_CARRY_CHARS  # noqa: F401
 from live.live_audio import read_wav_tail, write_padded_chunk  # noqa: F401 -- re-exported for callers and tests
 from live.live_caption import ChunkCaptioner
-from live.live_cue_translation import CueTranslator
+from live.live_cue_translation import CueTranslator, build_live_context
 from live.live_resolve import LiveCaptureError, resolve_stream_url
 from live.live_tokens import LEADING_NON_WORD_RE, TOKEN_RE, tokens
 
@@ -237,7 +237,8 @@ def clear_stale_chunks(out_dir: str):
 _MAX_LEADING_SKIP = 2
 
 
-def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> list:
+def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str,
+                  covered_seconds: float | None = None) -> list:
     """
     Drops the re-transcribed overlap region from a padded chunk's
     segments (timestamps still relative to the padded audio, so the
@@ -263,6 +264,11 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> lis
     are dropped -- they're wholly audio the previous chunk already
     emitted text for -- and a segment straddling the boundary is kept
     whole, preferring a possible repeated word over losing new speech.
+
+    covered_seconds: how much of the overlap the previous chunk emitted text
+    for, when it held back its last lines (live_caption.hold_back_overlap);
+    the fallback then drops only segments ending inside that part, so the
+    held-back speech heard again here is kept. None means all of it.
     """
     segments = list(segments)
     if overlap_seconds <= 0 or not segments:
@@ -291,7 +297,8 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> lis
             break
 
     if cut is None:
-        return [seg for seg in segments if seg["end"] > overlap_seconds]
+        covered = overlap_seconds if covered_seconds is None else min(covered_seconds, overlap_seconds)
+        return [seg for seg in segments if seg["end"] > covered]
 
     _, cut_pos, cut_char = head[cut - 1]
     kept = []
@@ -307,6 +314,26 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> lis
         kept.append(seg)
     return kept
 
+
+# A streamer really does ask viewers to subscribe, so those stock lines stay in Live.
+_SUBSCRIBE_RE = re.compile(r"チャンネル登録|subscribe|구독", re.IGNORECASE)
+
+
+def drop_stock_phrases(segments: list) -> list:
+    """Drops a line that is only a credit or outro phrase ("ご視聴ありがとうございました").
+    Whisper invents these on laughter and pauses mid-stream, and the file pipeline's
+    rule (drop one only with 5 s of silence each side) rarely applies inside one
+    short chunk. A streamer who really says it loses that one line from a feed that
+    is not saved."""
+    import whisper_hallucination
+
+    def invented(text):
+        return whisper_hallucination.is_stock_phrase(text) and not _SUBSCRIBE_RE.search(text)
+    return [seg for seg in segments if not invented(seg.get("text") or "")]
+
+
+# One short everyday word per source language for the translator warm-up.
+_WARM_UP_TEXT = {"zh": "好的", "ja": "はい", "ko": "네"}
 
 # A few seconds: long enough to re-hear a word or short phrase cut at a
 # chunk boundary, short enough that the extra audio re-transcribed per
@@ -324,7 +351,8 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
                    context_prompt: str = "", overlap_seconds: float = 0.0,
                    overlap_tail_text: str = "", on_stage=None, is_cancelled=None,
                    translator=None, first_id: int = 0, on_cues=None, guard=None,
-                   audio_shift: float = 0.0, on_transcribed=None, translate: bool = True):
+                   audio_shift: float = 0.0, on_transcribed=None, translate: bool = True,
+                   overlap_covered_seconds: float | None = None):
     """
     Transcribes one chunk and translates each resulting line, shifting
     timestamps by this chunk's position in the stream so cues from
@@ -381,7 +409,8 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     if on_transcribed:
         on_transcribed(time.monotonic() - started)
     checkpoint()
-    segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text)
+    segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text, overlap_covered_seconds)
+    segments = drop_stock_phrases(segments)
     offset = chunk_index * segment_seconds - overlap_seconds + audio_shift
     cues = live_cue_feed.pending_cues(segments, offset, first_id)
     if translate:
@@ -515,7 +544,7 @@ class _LiveRun(ChunkCaptioner):
             return
         if self.stream_url_check is not None:
             self.stream_url_check(self.source_url)
-        if not self._warm_whisper():
+        if not self._warm_whisper() or not self._warm_translator():
             return
         self._capture_and_caption()
 
@@ -531,6 +560,9 @@ class _LiveRun(ChunkCaptioner):
         try:
             self.note(f"Whisper {self.whisper_size} ready in "
                       f"{live_whisper.warm_start(self.runner, self.whisper_size, self.use_gpu):.1f} s.")
+            # The load was a successful Whisper call: chunk 0 must not free Ollama
+            # again and undo the translator warm-up that follows.
+            self.runner.mark_model_ready()
         except background_jobs.JobCancelled:
             background_jobs.update_progress(self.job_id, 1.0, self.runner.finish())
             return False
@@ -539,6 +571,47 @@ class _LiveRun(ChunkCaptioner):
             live_whisper.log_failure("Whisper warm-up failed", exc)
             self.note("Whisper could not be warmed up; chunk 0 will try loading it.")
         self.runner.flush_ollama_notice()
+        return True
+
+    def _warm_translator(self):
+        """Loads a local Ollama model with one tiny request before capture. False
+        when a cancel ended the job during the load.
+
+        Loading Whisper frees a local Ollama's VRAM (ollama_unload.JobScope), so
+        without this the first chunk's translation waits for the model to load
+        (43 s for TranslateGemma 12B on a V100) and the chunks behind it are
+        skipped to keep up."""
+        from engine_backends.local import abort_check_var, is_ollama_cloud_model
+        from engine_backends.shared import TranslationCancelled, _cancel_check_var, redact_secrets
+        model = str(getattr(self.engine, "model", "") or "")
+        if getattr(self.engine, "name", "") != "ollama" or is_ollama_cloud_model(model):
+            return True
+        self.report(f"Loading {model} in Ollama before capture...",
+                    cancel_message="Cancelling... the translation model is loading.",
+                    slow_after=60, slow_note="Still loading after {secs} s: a large model "
+                                             "can take a minute or two from disk.")
+        tokens = (_cancel_check_var.set(self.should_stop), abort_check_var.set(self.should_stop))
+        started = time.monotonic()
+        try:
+            self.engine.translate_batch(
+                [_WARM_UP_TEXT.get(self.source_language, "OK")],
+                build_live_context(self.source_language, [], [1], self.reply_without_thinking))
+        except (TranslationCancelled, background_jobs.JobCancelled):
+            background_jobs.update_progress(self.job_id, 1.0, "Stopped.")
+            return False
+        except Exception as exc:
+            # The first chunk tries again and shows its own error the usual way.
+            live_whisper.log_failure("Translator warm-up failed", exc)
+            self.note(f"{model} could not be loaded before capture "
+                      f"({redact_secrets(str(exc))[:200]}); the first chunk will try again.")
+            return True
+        finally:
+            _cancel_check_var.reset(tokens[0])
+            abort_check_var.reset(tokens[1])
+        if self.should_stop():
+            background_jobs.update_progress(self.job_id, 1.0, "Stopped.")
+            return False
+        self.note(f"{model} ready in {time.monotonic() - started:.1f} s.")
         return True
 
     def _capture_and_caption(self):
@@ -641,6 +714,8 @@ class _LiveRun(ChunkCaptioner):
                 self.caption(idx, path, worker, final=True)
             except background_jobs.JobCancelled:
                 break
+        if not self.should_stop():
+            self.release_held(worker)
         worker.finish()
 
     def _wind_down(self):
@@ -657,7 +732,7 @@ class _LiveRun(ChunkCaptioner):
                 stop_capture(self.proc)
         background_jobs.update_progress(self.job_id, 1.0, self.runner.finish())
 
-    def _transcribe_window(self, idx, path, window, shift=0.0):
+    def _transcribe_window(self, idx, path, window, shift=0.0, covered=None):
         self.stage.audio = window.audio_seconds
         timing = self.runner.timing(path, window.audio_seconds)
 
@@ -669,7 +744,7 @@ class _LiveRun(ChunkCaptioner):
             self.engine, use_gpu=self.use_gpu, context_prompt=self.state["context"],
             translator=self.translator, first_id=len(self.board.cues), translate=False,
             overlap_seconds=window.pad_seconds, overlap_tail_text=window.tail_text,
-            audio_shift=window.trimmed_seconds + shift,
+            audio_shift=window.trimmed_seconds + shift, overlap_covered_seconds=covered,
             guard=lambda call: self.runner.run(call, self.limit, f"chunk {idx}"),
             on_transcribed=whisper_done,
             on_stage=lambda step: self.stage.chunk(step, idx),
