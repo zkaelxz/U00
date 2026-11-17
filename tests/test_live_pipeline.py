@@ -496,3 +496,16 @@ class TestChunkTranslator:
         assert [s for s, _ in contexts[-1]["recent_context"]] == ["a", "b", "c"]
         assert contexts[-1]["line_ids"] == [4, 5, 6]
         assert contexts[-1]["recent_as_data"] is True
+
+
+class TestCueBoardOrder:
+    def test_a_cue_never_starts_before_the_one_above_it(self, monkeypatch):
+        published = []
+        monkeypatch.setattr(background_jobs, "set_result", lambda job_id, result, **kw: published.append(result))
+        board = live_pipeline.CueBoard("board_order", lambda: True)
+        board.add([{"id": 0, "start": 10.0, "end": 12.0, "text": "a"},
+                   {"id": 1, "start": 19.0, "end": 20.0, "text": "b"}])
+        board.add([{"id": 2, "start": 17.0, "end": 18.5, "text": "c"},
+                   {"id": 3, "start": 21.0, "end": 22.0, "text": "d"}])
+        assert [(c["start"], c["end"]) for c in published[-1]] == [
+            (10.0, 12.0), (19.0, 20.0), (19.0, 20.5), (21.0, 22.0)]
