@@ -214,6 +214,9 @@ def check_ollama(model: Optional[str] = None, whisper_size: Optional[str] = None
     return {"ok": room is None, "model": model, "message": room}
 
 
+_GPU_PAIR_OVERHEAD_MB = 1024
+
+
 def _gpu_room_note(model: str, whisper_size: Optional[str]) -> Optional[str]:
     """Why the model and Whisper may not fit in graphics memory, or None. Without
     it a model refused by the keep-free reserve (TranslateGemma 27B beside another
@@ -235,8 +238,11 @@ def _gpu_room_note(model: str, whisper_size: Optional[str]) -> Optional[str]:
     cached = f"{whisper_size}_gpu" in whisper_models._whisper_model_cache
     whisper_mb = 0 if cached else (memory_headroom.estimate_mb("whisper", whisper_size or "") or (0, 0))[0]
     label = f"{model} and Whisper {key}" if whisper_mb else model
+    # Two programs on the card each hold their own CUDA runtime; on the V100 ja-1.5b
+    # beside TranslateGemma 12B took about 1 GB more than its Whisper estimate.
+    overhead_mb = _GPU_PAIR_OVERHEAD_MB if whisper_mb and ollama_mb else 0
     try:
-        memory_headroom.check_need(label, ollama_mb + whisper_mb, "vram", free_mb=free_mb)
+        memory_headroom.check_need(label, ollama_mb + whisper_mb + overhead_mb, "vram", free_mb=free_mb)
     except memory_headroom.HeadroomError as exc:
         verb = "need" if whisper_mb else "needs"
         return (str(exc).replace(f"Not loading {label}: it needs", f"{label} may not fit: {'they' if whisper_mb else 'it'} {verb}", 1))
