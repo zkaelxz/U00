@@ -265,7 +265,9 @@ def test_response_names_no_path(client, did, ffmpeg):
 def test_requires_media_stream(isolated_db, did, ffmpeg):
     from tests.test_api_permissions import _app, _h, _remote, _user_named
     c = _remote(_app())
-    _, plain = _user_named("a@example.com", "lines.read")
+    from services import auth_service
+    u, plain = _user_named("a@example.com", "lines.read")
+    auth_service.revoke_permission(u["id"], "media.stream")
     assert c.get(_url(did), headers=_h(plain)).status_code == 403
     _, streamer = _user_named("b@example.com", "media.stream")
     assert c.get(_url(did), headers=_h(streamer)).status_code == 200

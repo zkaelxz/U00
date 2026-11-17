@@ -20,6 +20,7 @@ def test_add_user_gets_household_defaults_only(adb):
     assert u["email"] == "kid@example.com"
     assert set(u["permissions"]) == set(auth.HOUSEHOLD_DEFAULT_PERMISSIONS)
     assert "engines.paid" not in u["permissions"] and "admin.users" not in u["permissions"]
+    assert "media.stream" in u["permissions"]   # a new member's player works (2026-11-17)
     with pytest.raises(ConflictError):
         auth.add_user("kid@example.com")
     with pytest.raises(InvalidInputError):

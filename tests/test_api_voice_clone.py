@@ -560,10 +560,12 @@ def _headers(session):
             api_auth.CSRF_HEADER: session["csrf_token"]}
 
 
-def _household(*extra, email="kid@example.com"):
+def _household(*extra, email="kid@example.com", without=()):
     u = auth_service.add_user(email)
     for p in extra:
         auth_service.grant_permission(u["id"], p)
+    for p in without:
+        auth_service.revoke_permission(u["id"], p)
     return _headers(auth_service.create_session(u["id"], "pytest", "203.0.113.9"))
 
 
@@ -590,13 +592,13 @@ class TestAuthOn:
     def test_household_flow_and_limits(self, isolated_db, tools):
         c = _remote()
         did = _drama(speakers=("A",), durations=[6.0])
-        h = _household()
+        h = _household(without=("media.stream",))
         r = c.post(f"{BASE}/{did}/reference-clips/extract", headers=h, json={"speaker_label": "A"})
         assert r.status_code == 200, r.text
         wait_for_job(r.json()["job_id"], timeout=120)
         cands = c.get(f"{BASE}/{did}/reference-clips/candidates", headers=h).json()["speakers"][0]["candidates"]
         cid = cands[0]["id"]
-        # preview needs media.stream (off by default)
+        # preview needs media.stream
         assert c.get(f"{BASE}/{did}/reference-clips/candidates/{cid}/audio", headers=h).status_code == 403
         assert c.post(f"{BASE}/{did}/reference-clips/candidates/{cid}/choose", headers=h).status_code == 200
         assert c.post(f"{BASE}/{did}/series-link", headers=h,
