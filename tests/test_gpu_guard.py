@@ -581,6 +581,53 @@ class TestWaitForRoom:
         assert _wait_for(lambda: _status("room_c") != "running")
         assert _status("room_c") == "queued" and notified == []
 
+    def test_a_job_refused_again_each_time_ends_after_the_restart_limit(self, notified):
+        """The restart count is carried into the new run as it registers, even
+        when that run is refused before the guard's start call returns."""
+        import memory_headroom
+
+        def refuse():
+            raise memory_headroom.HeadroomError("Not loading Whisper.", vram_need_mb=3072.0)
+
+        def start():
+            with gpu_guard.restartable("room_d", start):
+                assert job_launch.start_job("room_d", refuse, gpu_touching=True)
+            # Refused inside the guard's call, the case that lost the count.
+            assert _wait_for(lambda: _status("room_d") != "running")
+        t = time.time()
+        gpu_guard.tick(now=t, reading=(2048.0, COOL))
+        start()
+        for i in range(1, gpu_guard.MAX_RESTARTS + 1):
+            assert _status("room_d") == "queued"
+            gpu_guard.tick(now=t + 20 * i, reading=(4200.0, COOL))
+        assert _status("room_d") == "error" and notified[-1] == ("error", "room_d")
+
+    def test_a_guard_stopped_job_refused_as_it_starts_again_waits(self, notified):
+        """A run the guard starts again after a stop is registered while the
+        stopped one is still pending; refused at once, it waits too."""
+        import memory_headroom
+        started = []
+
+        def refuse():
+            raise memory_headroom.HeadroomError("Not loading Whisper.", vram_need_mb=3072.0)
+
+        def again():
+            with gpu_guard.restartable("stop_r", again):
+                assert job_launch.start_job("stop_r", refuse, gpu_touching=True)
+            assert _wait_for(lambda: _status("stop_r") != "running")
+        with gpu_guard.restartable("stop_r", again):
+            assert _stoppable("stop_r", started)
+        assert _wait_for(lambda: started)
+        t = time.time()
+        gpu_guard.tick(now=t, reading=(SHORT, COOL))
+        gpu_guard.tick(now=t + 120, reading=(SHORT, COOL))
+        assert _wait_for(lambda: _status("stop_r") == "cancelled")
+        job_settings.set_gpu_limit_enabled(False)
+        gpu_guard.tick(now=t + 140, reading=(2048.0, COOL))
+        gpu_guard.tick(now=t + 140 + gpu_guard.CLEAR_SECONDS + 1, reading=(2048.0, COOL))
+        assert _status("stop_r") == "queued" and notified == []
+        assert gpu_guard.restart_pending("stop_r")
+
     def test_without_a_fresh_card_reading_it_fails_as_before(self, notified):
         import memory_headroom
 
