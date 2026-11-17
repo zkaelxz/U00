@@ -723,6 +723,21 @@ def test_one_block_of_lettering_and_a_small_box_stay_one_region():
     assert scanlate_regions.split_separate_lettering(two, small) == [small]
 
 
+def test_light_lettering_on_dark_art_stays_one_region():
+    """A glowing caption on dark art: the dark gaps inside its letters were taken
+    for glyphs, and the caption was cut into pieces that each covered part of it."""
+    cv2 = pytest.importorskip("cv2")
+    page = np.full((700, 800), 25, np.uint8)
+    for bx, by, count in ((60, 100, 6), (160, 300, 4), (60, 500, 6)):
+        for col in range(count):
+            x = bx + col * 100
+            cv2.rectangle(page, (x, by), (x + 80, by + 90), 235, -1)
+            cv2.rectangle(page, (x + 15, by + 15), (x + 35, by + 75), 25, -1)
+            cv2.rectangle(page, (x + 45, by + 15), (x + 65, by + 75), 25, -1)
+    box = {"x": 0, "y": 0, "w": 800, "h": 700, "kind": "sign"}
+    assert scanlate_regions.split_separate_lettering(page, box) == [box]
+
+
 def _frame_with_curls_and_a_caption(size=(700, 800)):
     """Small corner curls (many, so their height is the page's median) and a line
     of tall lettering with a dash after it, as in a captioned frame."""

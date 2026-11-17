@@ -12,8 +12,8 @@ import pytest
 import background_jobs as bg
 from jobs import job_launch, job_runner, job_settings
 import db
-import gpu_probe
 import diagnostics_torch
+import gpu_probe
 from jobs import gpu_slots, job_store
 
 DEAD_PID = 2 ** 22 + 12345
@@ -27,10 +27,10 @@ def _pid_alive(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _no_leftover_gpu_reading(monkeypatch):
-    # A reading another test prefetched on this thread less than
-    # gpu_probe.MAX_AGE_SECONDS ago would otherwise be used here instead of
-    # the external_gpu_load these tests patch.
+def _no_prefetched_reading(monkeypatch):
+    # gpu_probe keeps the last prefetched nvidia-smi reading per thread for a
+    # few seconds; one left by an earlier test in this worker would be used
+    # instead of this test's patched diagnostics_torch reading.
     monkeypatch.setattr(gpu_probe._local, "readings", None, raising=False)
 
 
