@@ -1,6 +1,8 @@
 """
 services/benchmark_export_service.py -- a Benchmark Lab run, or a comparison
-of runs, as CSV or JSON: the setup, the scores and each case's output. UI-free.
+of runs, as CSV or JSON: the setup, the scores and each case's output; and
+every line you marked wrong or mixed, across titles, for comparing engines on
+the lines that went wrong. UI-free.
 
 Cells are written as they are (no spreadsheet formula hardening, by the
 owner's decision). Errors and notes arrive already redacted from
@@ -14,10 +16,13 @@ import json
 import db
 from services import benchmark_judge_service as judge_svc
 from services import benchmark_runs_service as runs_svc
+from services import ownership_service
 from lib.errors import InvalidInputError
 
 FORMATS = ("csv", "json")
 _RUN_COLUMNS = ("run_id", "run_label", "stage", "engine", "model", "prompt_version", "settings")
+_MARKED_COLUMNS = ("drama_id", "title", "source_language", "line_id", "idx", "start", "end",
+                   "speaker", "mark", "source_text", "english")
 _RESULT_COLUMNS = ("case_id", "case_label", "language", "reference_version", "source_text",
                    "reference_text", "output_text", "score", "metric", "scorer", "passed",
                    "duration_seconds", "cost_usd", "judge_overall", "error")
@@ -66,6 +71,16 @@ def comparison_data(run_ids: list) -> dict:
             "left_out": out["left_out"], "rows": rows}
 
 
+def marked_lines_data(principal) -> dict:
+    """Every marked line on the titles this caller may see."""
+    rows = db.list_marked_lines(ownership_service.visible_to_filter(principal))
+    return {"kind": "marked", "lines": [
+        {"drama_id": r["drama_id"], "title": r["title_en"] or r["title_zh"] or "",
+         "source_language": r["source_language"], "line_id": r["line_id"], "idx": r["idx"],
+         "start": r["start"], "end": r["end"], "speaker": r["speaker"], "mark": r["mark"],
+         "source_text": r["zh"], "english": r["en"]} for r in rows]}
+
+
 def _csv_rows(data: dict):
     if data["kind"] == "run":
         yield from ((data["run"], r) for r in data["results"])
@@ -79,6 +94,10 @@ def _csv_rows(data: dict):
 def _render_csv(data: dict) -> bytes:
     buf = io.StringIO(newline="")
     writer = csv.writer(buf)
+    if data["kind"] == "marked":
+        writer.writerow(_MARKED_COLUMNS)
+        writer.writerows([line[c] for c in _MARKED_COLUMNS] for line in data["lines"])
+        return buf.getvalue().encode("utf-8-sig")
     writer.writerow(_RUN_COLUMNS + _RESULT_COLUMNS)
     for run, result in _csv_rows(data):
         setup = [run["id"], run.get("label"), run.get("stage"), run.get("engine"), run.get("model"),
@@ -93,6 +112,8 @@ def render(data: dict, fmt: str):
         raise InvalidInputError("format must be csv or json.")
     if data["kind"] == "run":
         stem = f"benchmark-run-{data['run']['id']}"
+    elif data["kind"] == "marked":
+        stem = "marked-lines"
     else:
         stem = "benchmark-comparison-" + "-".join(str(run["id"]) for run in data["runs"])
     if fmt == "csv":
