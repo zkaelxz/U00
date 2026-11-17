@@ -11,6 +11,8 @@ export interface SeriesListItem {
   owned_by_me: boolean
   title_count: number
   glossary_term_count: number
+  // A visible title with cover art: /api/dramas/{id}/cover is the folder picture.
+  cover_title_id?: number | null
 }
 
 interface SeriesTitle {

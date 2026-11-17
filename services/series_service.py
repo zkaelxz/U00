@@ -94,7 +94,8 @@ def list_series(principal=None) -> list:
         out.append({"id": s["id"], "name": s["name"], "is_private": bool(s.get("is_private")),
                     "owned_by_me": uid is not None and s.get("owner_user_id") == uid,
                     "title_count": counts["visible_titles"],
-                    "glossary_term_count": counts["glossary_terms"]})
+                    "glossary_term_count": counts["glossary_terms"],
+                    "cover_title_id": db.series_cover_title_id(s["id"], visible_to=visible_to)})
     return out
 
 

@@ -32,6 +32,10 @@ export function uploadCover(id: number, file: File, f?: Fetch) {
   return postMultipart<CoverArtResult>(`/api/dramas/${id}/cover`, form, f)
 }
 
+// One frame of the title's own video becomes the cover (media.upload).
+export const makeCoverFromVideo = (id: number, f: Fetch = fetch) =>
+  postJson<CoverArtResult>(`/api/dramas/${id}/cover/from-video`, {}, f)
+
 // An <img src>; `v` busts the browser cache after a new upload.
 export const coverUrl = (id: number, v: number | string = 0) =>
   apiUrl(`/api/dramas/${id}/cover${v ? `?v=${encodeURIComponent(String(v))}` : ''}`)
