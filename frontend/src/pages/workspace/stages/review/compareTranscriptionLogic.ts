@@ -198,3 +198,11 @@ export function compareRunText(r: { line_count: number; asr_backend: string | nu
 
 // Remembers which finished run the viewer cleared, so it stays gone after a reload (the server keeps it).
 export const clearedKey = (dramaId: number) => `review.compare.cleared.${dramaId}`
+
+/** The reason each unavailable backend gives, written out for the ones the select's tooltip hides (the chosen one has its own alert). */
+export function unavailableBackendNotes(
+  backends: { id: string; label: string; available: boolean; reason: string | null }[],
+  chosenId: string,
+): string[] {
+  return backends.filter((b) => !b.available && b.reason && b.id !== chosenId).map((b) => `${b.label} is unavailable: ${b.reason}`)
+}

@@ -18,5 +18,5 @@ test('an out-of-range pause is refused before saving', async ({ page }) => {
   await openAdvanced(page)
   await page.getByRole('spinbutton', { name: 'Pause that can split a long line' }).fill('2.5')
   await page.getByRole('button', { name: 'Save options' }).click()
-  await expect(page.getByText(/must be between 0.1 and 2/)).toBeVisible()
+  await expect(page.locator('[role="alert"]:not(.field-error)')).toContainText(/must be between 0.1 and 2/)
 })

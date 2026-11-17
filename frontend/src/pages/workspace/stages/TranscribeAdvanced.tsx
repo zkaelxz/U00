@@ -17,6 +17,7 @@ import {
   MIN_PAUSE_SEC_DEFAULT,
   MIN_SILENCE_MS_DEFAULT,
   RANGES,
+  rangeFieldError,
   VAD_THRESHOLD_DEFAULT,
   type RunField,
 } from '../sourceForm'
@@ -113,8 +114,8 @@ export function TranscribeAdvanced(p: Props) {
     return {
       zone: 'grid',
       node: (
-        <Field label={label} help={withReason(help, reason)} unit={unit}>
-          <input type="number" step={step} value={cf[key]} disabled={!!reason} onChange={(e) => setC(key, e.target.value)} />
+        <Field label={label} help={withReason(help, reason)} unit={unit} error={key in RANGES ? rangeFieldError(key as keyof typeof RANGES, cf[key]) : null}>
+          <input type="number" step={step} min={key in RANGES ? RANGES[key as keyof typeof RANGES].min : undefined} max={key in RANGES ? RANGES[key as keyof typeof RANGES].max : undefined} value={cf[key]} disabled={!!reason} onChange={(e) => setC(key, e.target.value)} />
         </Field>
       ),
     }
@@ -226,7 +227,7 @@ export function TranscribeAdvanced(p: Props) {
             : ''),
       ),
     realign_long_segments: () => toggle('Realign long segments', 'realign_long_segments', 'Experimental, off by default. Re-times each line against its own audio with the MMS aligner (needs torchaudio and uroman, about 1.1 GB on first use). It only changes timing, not the text.', undefined, p.needs?.realign),
-    vad_threshold: () => num('VAD threshold', 'vad_threshold', 0.05, `${rangeHint(RANGES.vad_threshold.min, RANGES.vad_threshold.max, { default: VAD_THRESHOLD_DEFAULT })} Higher ignores more quiet sound.`, undefined, 'vad_threshold'),
+    vad_threshold: () => num('Quiet-sound cutoff', 'vad_threshold', 0.05, `${rangeHint(RANGES.vad_threshold.min, RANGES.vad_threshold.max, { default: VAD_THRESHOLD_DEFAULT })} Also called the VAD threshold: how sure the speech detector must be before a sound counts as speech. Higher ignores more quiet sound.`, undefined, 'vad_threshold'),
     hardsub_interval_sec: () => num('Hardsub interval', 'hardsub_interval_sec', 0.1, `${rangeHint(RANGES.hardsub_interval_sec.min, RANGES.hardsub_interval_sec.max, { unit: 's', default: HARDSUB_INTERVAL_DEFAULT })} How often video frames are read for on-screen text.`, 's'),
     alignment_method: () =>
       select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'],
@@ -300,7 +301,7 @@ export function TranscribeAdvanced(p: Props) {
         p.needs?.separation,
       ),
     hallucination_silence_sec: () =>
-      num('Hallucination guard', 'hallucination_silence_sec', 0.5, `Experimental. Off (0) by default: 0 or ${rangeHint(0.5, 10, { unit: 's' })} Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Local Whisper only: ignored by Qwen3-ASR, Groq, Mixed languages and Fast mode.`, 's', 'hallucination_guard'),
+      num('Skip invented text over silence', 'hallucination_silence_sec', 0.5, `Experimental. Also called the hallucination guard. Off (0) by default: 0 or ${rangeHint(0.5, 10, { unit: 's' })} Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Local Whisper only: ignored by Qwen3-ASR, Groq, Mixed languages and Fast mode.`, 's', 'hallucination_guard'),
     whisper_repeat_guard: () =>
       toggle(
         'Whisper repeat guard',

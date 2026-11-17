@@ -1,4 +1,5 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 import type { PlayerMediaKind } from '../../../../api/media'
 import { listAllLines } from '../../../../api/restructure'
@@ -88,6 +89,9 @@ interface Props {
   onLineTab?: (shown: boolean) => void
   // The This line tab's empty panel, once the tools have drawn it: the open card's panel goes in there.
   lineDock?: HTMLElement | null
+  // The side column's top slot, where a source video's card goes; null while the screen is too narrow for that column,
+  // false while that slot is still being drawn (the card waits rather than being drawn inline and then moved).
+  watchDock?: HTMLElement | null | false
 }
 
 const PHONE = '(max-width: 640px)'
@@ -103,7 +107,7 @@ const STATUS_MS = 8000
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 
-export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, onOpenHistory, goTo, onQueue, onLineTab, lineDock = null }: Props) {
+export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, onOpenHistory, goTo, onQueue, onLineTab, lineDock = null, watchDock = null }: Props) {
   const isPhone = useMediaQuery(PHONE)
   const simple = useSimple()
   const isWide = useMediaQuery(WIDE) // tablets and wider: a source video gets its own sticky card beside the lines
@@ -323,6 +327,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // Phones: the pager shares the player's row so the sticky toolbar stays short.
   const pagerInPlayer = isPhone && mediaKind !== null && showPager && !collapsed && !mediaFolded
   const sideVideo = isWide && !isPhone && mediaKind === 'video' && !emptyDrama
+  const videoInSlot = sideVideo && watchDock !== null // its waveform then stays over the lines, where it has their width
   const looseMedia = isPhone || (isShort && !sideVideo) // pinned, they left one list line visible on a short screen
 
   // Tall wide screens pin it in the toolbar; phones and short screens put it under the player dock.
@@ -422,7 +427,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
                   panelHost={looseMedia ? playerDock : sideVideo ? sideDock : undefined}
                   trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
                 />
-                {!looseMedia && !sideVideo && waveform}
+                {!looseMedia && (!sideVideo || videoInSlot) && waveform}
               </>
             ) : null
           }
@@ -562,20 +567,30 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         <ThisLineDock dock={lineDock} dramaId={dramaId} line={active} sound={mediaKind === 'audio'} player={player} reloads={reloads}
                       sourceLanguage={sourceLanguage} onShowLine={actions.showOnPage} />
       )}
-      {sideVideo && (
-        <aside className="card review-watch" aria-label="Video with subtitles">
-          <h2 className="card-title">Video with subtitles</h2>
-          <div className="review-watch-dock" ref={setSideDock} />{waveform}
+      {sideVideo && watchDock !== false && (
+        <WatchCard slot={watchDock}>
+          <div className="review-watch-dock" ref={setSideDock} />{!videoInSlot && waveform}
           <ReadFromVideo
             player={player}
             sourceLanguage={sourceLanguage ?? ''}
             lineStart={active ? active.start : null}
             onText={(zh) => void readIntoLine({ zh })} translationEngine={translationEngine} onReadTranslated={(zh, en) => void readIntoLine({ zh, en })} dramaId={dramaId} lines={shown} onBatchSaved={onChanged}
           />
-        </aside>
+        </WatchCard>
       )}
     </section>
   )
+}
+
+// The source video's card: beside the lines, or on wide screens in the side column's top slot (`slot`).
+function WatchCard({ slot, children }: { slot: HTMLElement | null; children: ReactNode }) {
+  const card = (
+    <aside className="card review-watch" aria-label="Video with subtitles">
+      <h2 className="card-title">Video with subtitles</h2>
+      {children}
+    </aside>
+  )
+  return slot ? createPortal(card, slot) : card
 }
 
 function SelectAllShown({ shown }: { shown: ReviewLine[] }) {

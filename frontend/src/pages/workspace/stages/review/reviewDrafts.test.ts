@@ -4,6 +4,8 @@ import { pickDraft, readDraft, writeDraft } from '../../../../hooks/useStageDraf
 import { MERGE_DRAFT_STAGE, mergeFormDefaults } from './aiExtrasLogic'
 import { COMPARE_DRAFT_SHAPE, COMPARE_DRAFT_STAGE } from './compareTranscriptionLogic'
 import { RESPLIT_DRAFT_SHAPE, RESPLIT_DRAFT_STAGE } from './reviewResegment'
+import { buildPatch, draftFromLine } from './reviewDraft'
+import type { ReviewLine } from '../../../../types/review'
 
 // The Review tools' drafts: what each form writes, read back through its shape.
 const memory = () => {
@@ -38,5 +40,18 @@ describe('review tool drafts', () => {
 
   it('each tool has its own key', () => {
     expect(new Set([COMPARE_DRAFT_STAGE, RESPLIT_DRAFT_STAGE, MERGE_DRAFT_STAGE]).size).toBe(3)
+  })
+})
+
+describe('time display and editing at millisecond precision', () => {
+  const line = { ...({} as ReviewLine), id: 1, idx: 0, zh: 'a', en: 'b', speaker: null, start: 1.5, end: 8.140425531914893, sfx: false, lang: null } as unknown as ReviewLine
+  it('shows End rounded to milliseconds', () => {
+    expect(draftFromLine(line).end).toBe('8.14')
+  })
+  it('does not send an untouched time as a change', () => {
+    expect(buildPatch(line, draftFromLine(line))).toBeNull()
+    const patch = buildPatch(line, { ...draftFromLine(line), start: '2' })
+    expect(patch).toMatchObject({ start: 2 })
+    expect(patch).not.toHaveProperty('end')
   })
 })
