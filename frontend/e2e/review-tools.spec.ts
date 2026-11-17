@@ -121,14 +121,15 @@ test('no group shows more than its first card open by default', async ({ page })
   }
 })
 
-test('from 1400px the tools sit beside the lines as a sticky inspector; below that they stay underneath', async ({ page }) => {
+test('from 1400px the tools sit beside the lines in a column that scrolls on its own and the page does not scroll; below that they stay underneath', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/#/drama/3/review')
   await expect(tablist(page)).toBeVisible()
   const lines = (await page.locator('.review-editor').boundingBox())!
   const tools = (await page.locator('.review-ai').boundingBox())!
   expect(tools.x).toBeGreaterThanOrEqual(lines.x + lines.width)
-  expect(await page.locator('.review-ai').evaluate((el) => getComputedStyle(el).position)).toBe('sticky')
+  expect(await page.locator('.review-ai').evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto')
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
   await page.setViewportSize({ width: 1280, height: 800 })

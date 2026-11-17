@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useState, type RefObject } from 'react'
 
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { TOOLS_BESIDE_LINES } from './reviewToolsTabs'
@@ -57,7 +57,8 @@ export function useToolbarHeight(sectionRef: RefObject<HTMLElement | null>) {
 // stage, at each level up to the page, is watched, as is a block added or removed beside it.
 export function useFitToScreen(ref: RefObject<HTMLElement | null>): boolean {
   const fits = useMediaQuery(TOOLS_BESIDE_LINES)
-  useEffect(() => {
+  // Before paint, so the first frame does not draw the stage at the full window's height.
+  useLayoutEffect(() => {
     const stage = ref.current
     if (!fits || !stage) return
     const measure = () => stage.style.setProperty('--review-top', `${stage.getBoundingClientRect().top + window.scrollY}px`)

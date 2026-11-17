@@ -89,8 +89,9 @@ interface Props {
   onLineTab?: (shown: boolean) => void
   // The This line tab's empty panel, once the tools have drawn it: the open card's panel goes in there.
   lineDock?: HTMLElement | null
-  // The side column's top slot, where a source video's card goes; null while the screen is too narrow for that column.
-  watchDock?: HTMLElement | null
+  // The side column's top slot, where a source video's card goes; null while the screen is too narrow for that column,
+  // false while that slot is still being drawn (the card waits rather than being drawn inline and then moved).
+  watchDock?: HTMLElement | null | false
 }
 
 const PHONE = '(max-width: 640px)'
@@ -326,7 +327,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // Phones: the pager shares the player's row so the sticky toolbar stays short.
   const pagerInPlayer = isPhone && mediaKind !== null && showPager && !collapsed && !mediaFolded
   const sideVideo = isWide && !isPhone && mediaKind === 'video' && !emptyDrama
-  const videoInSlot = sideVideo && !!watchDock // its waveform then stays over the lines, where it has their width
+  const videoInSlot = sideVideo && watchDock !== null // its waveform then stays over the lines, where it has their width
   const looseMedia = isPhone || (isShort && !sideVideo) // pinned, they left one list line visible on a short screen
 
   // Tall wide screens pin it in the toolbar; phones and short screens put it under the player dock.
@@ -566,8 +567,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         <ThisLineDock dock={lineDock} dramaId={dramaId} line={active} sound={mediaKind === 'audio'} player={player} reloads={reloads}
                       sourceLanguage={sourceLanguage} onShowLine={actions.showOnPage} />
       )}
-      {sideVideo && (
-        <WatchCard slot={videoInSlot ? watchDock : null}>
+      {sideVideo && watchDock !== false && (
+        <WatchCard slot={watchDock}>
           <div className="review-watch-dock" ref={setSideDock} />{!videoInSlot && waveform}
           <ReadFromVideo
             player={player}

@@ -158,7 +158,7 @@ export default function ReviewStage() {
         onQueue={setQueueOn}
         onLineTab={setLineTab}
         lineDock={lineTab && lineShown ? lineDock : null}
-        watchDock={fits ? watchDock : null}
+        watchDock={fits ? watchDock ?? false : null}
       />
       <div className="review-watch-slot" ref={setWatchDock} />
       <ReviewChecks
