@@ -83,24 +83,37 @@ export const RANGES = {
   beam_size: { label: 'Beam size', min: 1, max: 10, integer: true },
   min_silence_ms: { label: 'Min silence (ms)', min: MIN_SILENCE_MS_MIN, max: MIN_SILENCE_MS_MAX, integer: true },
   min_pause_sec: { label: 'Pause that can split a long line (s)', min: MIN_PAUSE_SEC_MIN, max: MIN_PAUSE_SEC_MAX, integer: false },
-  vad_threshold: { label: 'VAD threshold', min: 0.1, max: 0.9, integer: false },
+  vad_threshold: { label: 'Quiet-sound cutoff', min: 0.1, max: 0.9, integer: false },
   hardsub_interval_sec: { label: 'Hardsub interval (s)', min: 0.5, max: 3.0, integer: false },
 } as const
 
 export const DEFAULT_HALLUCINATION_SILENCE_SEC = 0
 
+function rangeProblem(key: keyof typeof RANGES, v: number): string | null {
+  const r = RANGES[key]
+  if (!Number.isFinite(v) || v < r.min || v > r.max || (r.integer && !Number.isInteger(v))) {
+    return `${r.label} must be ${r.integer ? 'a whole number ' : ''}between ${r.min} and ${r.max}.`
+  }
+  return null
+}
+
+// The problem with one number field's text as typed, so it shows under the input instead of only on Save.
+// A blank field is not a problem yet: nothing has been typed.
+export function rangeFieldError(key: keyof typeof RANGES, raw: string): string | null {
+  return raw.trim() === '' ? null : rangeProblem(key, Number(raw))
+}
+
 // Returns the first out-of-range knob as a sentence, or null when valid.
 export function validateConfig(update: TranscribeConfigUpdate): string | null {
-  for (const [key, r] of Object.entries(RANGES)) {
-    const v = update[key as keyof typeof RANGES]
+  for (const key of Object.keys(RANGES) as (keyof typeof RANGES)[]) {
+    const v = update[key]
     if (v === undefined) continue
-    if (!Number.isFinite(v) || v < r.min || v > r.max || (r.integer && !Number.isInteger(v))) {
-      return `${r.label} must be ${r.integer ? 'a whole number ' : ''}between ${r.min} and ${r.max}.`
-    }
+    const problem = rangeProblem(key, v)
+    if (problem) return problem
   }
   const h = update.hallucination_silence_sec
   if (h !== undefined && (!Number.isFinite(h) || (h !== 0 && (h < 0.5 || h > 10)))) {
-    return 'Hallucination guard must be 0 (off) or between 0.5 and 10 seconds.'
+    return 'Skip invented text over silence must be 0 (off) or between 0.5 and 10 seconds.'
   }
   return null
 }

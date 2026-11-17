@@ -199,7 +199,7 @@ test('AI checks send the chosen engine and model; emotion sends the audio-cues c
   const ai = await openAi(page)
 
   // Nothing chosen: every field is left to the server's defaults.
-  await ai.getByRole('button', { name: 'Check consistency' }).click()
+  await ai.getByRole('button', { name: 'Check consistency', exact: true }).click()
   await expect.poll(() => bodies.consistency).toEqual({})
 
   const opts = await open(page, 'Check options')
@@ -210,11 +210,11 @@ test('AI checks send the chosen engine and model; emotion sends the audio-cues c
   await cues.click()
   await expect(cues).toHaveAttribute('aria-checked', String(!wasOn))
 
-  await ai.getByRole('button', { name: 'Tag emotion' }).click()
+  await ai.getByRole('button', { name: 'Tag emotion', exact: true }).click()
   await expect.poll(() => bodies.emotion).toEqual({ engine: eng.name, model: eng.models[0], use_audio_cues: !wasOn })
-  await ai.getByRole('button', { name: 'Generate notes' }).click()
+  await ai.getByRole('button', { name: 'Generate notes', exact: true }).click()
   await expect.poll(() => bodies.notes).toEqual({ engine: eng.name, model: eng.models[0] })
-  await ai.getByRole('button', { name: 'Flag lines for a second look' }).click()
+  await ai.getByRole('button', { name: 'Flag lines for a second look', exact: true }).click()
   await expect.poll(() => bodies.flag).toEqual({ engine: eng.name, model: eng.models[0] })
 })
 
@@ -242,9 +242,9 @@ test('a running job and a start error show above the review tabs', async ({ page
   const ai = await openAi(page)
   const group = page.getByRole('group', { name: 'AI checks' })
 
-  await ai.getByRole('button', { name: 'Check consistency' }).click()
+  await ai.getByRole('button', { name: 'Check consistency', exact: true }).click()
   await expect(ai.getByText('A review job is running.')).toBeVisible()
-  await expect(ai.getByRole('button', { name: 'Tag emotion' })).toBeDisabled()
+  await expect(ai.getByRole('button', { name: 'Tag emotion', exact: true })).toBeDisabled()
   await expect(group.locator('.review-toolbox > *').first()).toHaveAttribute('data-testid', 'job-panel')
   if (SHOTS) {
     await page.setViewportSize({ width: 1280, height: 800 })
@@ -255,7 +255,7 @@ test('a running job and a start error show above the review tabs', async ({ page
   await page.goto('about:blank')
   refuse = true
   await page.goto('/#/drama/3/review')
-  await aiChecks(page).getByRole('button', { name: 'Check consistency' }).click()
+  await aiChecks(page).getByRole('button', { name: 'Check consistency', exact: true }).click()
   const banner = group.locator('.review-toolbox > .error-banner')
   await expect(banner).toBeVisible()
   if (SHOTS) {

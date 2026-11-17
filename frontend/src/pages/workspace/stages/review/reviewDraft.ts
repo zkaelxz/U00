@@ -43,13 +43,16 @@ export function sourceTextLang(lineLang: string | null | undefined, sourceLangua
   return lineLang || sourceLanguage || 'zh'
 }
 
+// Times are stored to more digits than anyone reads; the editor shows and compares milliseconds.
+const toMs = (seconds: number) => Math.round(seconds * 1000) / 1000
+
 export function draftFromLine(line: ReviewLine): LineDraft {
   return {
     zh: line.zh,
     en: line.en,
     speaker: line.speaker ?? '',
-    start: String(line.start),
-    end: String(line.end),
+    start: String(toMs(line.start)),
+    end: String(toMs(line.end)),
     sfx: line.sfx,
     lang: line.lang ?? '',
   }
@@ -113,7 +116,8 @@ export function buildPatch(line: ReviewLine, draft: LineDraft): LinePatch | stri
   for (const key of ['start', 'end'] as const) {
     if (draft[key].trim() === '' || Number.isNaN(Number(draft[key]))) return `Enter a number for ${key}.`
     const n = Number(draft[key])
-    if (n !== line[key]) {
+    // Compared at the precision the draft shows, or an untouched time would be sent as a change.
+    if (n !== toMs(line[key])) {
       patch[key] = n
       expected[key] = line[key]
     }

@@ -12,6 +12,7 @@ import {
   isSameText,
   promptProblem,
   textDiff,
+  unavailableBackendNotes,
 } from './compareTranscriptionLogic'
 
 const form = (over: Partial<typeof EMPTY_SELECTION_FORM>) => ({ ...EMPTY_SELECTION_FORM, ...over })
@@ -165,5 +166,17 @@ describe('returning to a comparison', () => {
 
   it('keeps a separate cleared marker per title', () => {
     expect(clearedKey(3)).not.toBe(clearedKey(4))
+  })
+})
+
+describe('unavailableBackendNotes', () => {
+  const backends = [
+    { id: 'whisper', label: 'Whisper', available: true, reason: null },
+    { id: 'qwen3_asr', label: 'Qwen3 ASR', available: false, reason: 'Needs torch.' },
+    { id: 'anime_whisper', label: 'Anime-whisper', available: false, reason: 'Needs a download.' },
+  ]
+  it('writes out each unavailable backend\'s reason except the chosen one', () => {
+    expect(unavailableBackendNotes(backends, 'whisper')).toEqual(['Qwen3 ASR is unavailable: Needs torch.', 'Anime-whisper is unavailable: Needs a download.'])
+    expect(unavailableBackendNotes(backends, 'qwen3_asr')).toEqual(['Anime-whisper is unavailable: Needs a download.'])
   })
 })

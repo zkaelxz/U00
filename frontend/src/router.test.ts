@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseRoute, routeHref } from './router'
+import { isUnknownRoute, parseRoute, routeHref } from './router'
 
 describe('parseRoute', () => {
   it('parses the Library tools page', () => {
@@ -199,5 +199,15 @@ describe('follow route', () => {
     expect(routeHref({ name: 'follow', id: 7 })).toBe('#/follow/7')
     expect(parseRoute('#/follow/0')).toEqual({ name: 'library' })
     expect(parseRoute('#/follow/x')).toEqual({ name: 'library' })
+  })
+})
+
+describe('isUnknownRoute', () => {
+  it('flags a hash that names no screen so the address can be reset', () => {
+    expect(isUnknownRoute('#/no-such-page')).toBe(true)
+    expect(isUnknownRoute('#/drama/abc')).toBe(true)
+  })
+  it('leaves real screens and the Library alone', () => {
+    for (const h of ['', '#', '#/', '#/library', '#/jobs', '#/drama/3/review', '#/settings?card=x']) expect(isUnknownRoute(h)).toBe(false)
   })
 })

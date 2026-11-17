@@ -489,7 +489,7 @@ class TestSplitAndMerge:
         did, ids = _seed()
         svc.split_line(did, ids[0], ids, at_char=3, expected_zh=TEXT)
         rows = db.load_lines(did)
-        assert rows[0]["end"] == pytest.approx(START + (END - START) * 3 / len(TEXT))
+        assert rows[0]["end"] == round(START + (END - START) * 3 / len(TEXT), 3)
         assert _stored(did) == [None, None]
 
     def test_typed_time_is_kept_and_words_still_partitioned(self):
