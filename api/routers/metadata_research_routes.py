@@ -16,7 +16,7 @@ from fastapi import APIRouter, Path, Request
 
 from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
-from api.metadata_research_schemas import (ProvenanceList, ResearchApplied, ResearchApply,
+from api.schemas import (ProvenanceList, ResearchApplied, ResearchApply,
                                            ResearchBudget, ResearchRequest, ResearchResult)
 from api.routers.library_routes import to_detail
 from api.schemas import error_responses

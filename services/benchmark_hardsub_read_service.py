@@ -10,7 +10,8 @@ import os
 import re
 
 import db
-from services import image_text_service, page_import_limits
+import page_import_limits
+from services import image_text_service
 from services.benchmark_scoring_service import score_output
 
 # Two reads of one caption differ by a character or two when one picture is slightly blurred; below this

@@ -32,12 +32,10 @@ __all__ = [
     "AdminAddUserRequest",
     "NotificationChannel",
     "NotificationOutcome",
-    "NotificationStatus",
     "NotificationChannelSetRequest",
     "NotificationChannelClearRequest",
     "NotificationChannelResult",
     "NotificationTestResult",
-    "NotificationTarget",
 ]
 
 
@@ -179,13 +177,6 @@ NotificationChannel = Literal["discord", "ntfy"]
 NotificationOutcome = Literal["sent", "failed", "refused", "not_configured"]
 
 
-class NotificationStatus(BaseModel):
-    """Configured booleans only: never a webhook URL, host or topic."""
-    discord_configured: bool
-    ntfy_configured: bool
-    ntfy_allow_local: bool
-
-
 class NotificationChannelSetRequest(BaseModel):
     """Write-only channel URL. `value` is a secret: never echoed back, and
     validation errors never include it."""
@@ -206,12 +197,3 @@ class NotificationChannelResult(BaseModel):
 class NotificationTestResult(BaseModel):
     results: Dict[NotificationChannel, NotificationOutcome]
 
-
-class NotificationTarget(BaseModel):
-    """Where a "waiting" bell entry's Open goes: a page and the one id it needs
-    (notification_service.clean_target). Never a URL or path; the app builds
-    the link."""
-    model_config = ConfigDict(extra="forbid")
-    page: Literal["glossary", "review", "series", "jobs"]
-    drama_id: Optional[StrictInt] = Field(None, ge=1)
-    series_id: Optional[StrictInt] = Field(None, ge=1)

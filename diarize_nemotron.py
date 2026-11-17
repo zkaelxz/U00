@@ -119,7 +119,11 @@ def diarize(audio_path: str, use_gpu: bool = False, on_progress=None) -> tuple[l
         MODEL_ID, local_files_only=local_only,
         device_map="cuda" if use_gpu and torch.cuda.is_available() else "cpu")
     say(0.1, "Detecting speakers (Nemotron)...")
-    audio, _ = librosa.load(audio_path, sr=SAMPLE_RATE, mono=True)
+    import audio_extract
+    # An upload keeps its own container (source.m4a), which soundfile, librosa's reader,
+    # can't open; the same ffmpeg decode pyannote's path uses makes it a wav first.
+    with audio_extract.sndfile_readable(audio_path) as readable:
+        audio, _ = librosa.load(readable, sr=SAMPLE_RATE, mono=True)
     inputs = processor(audio, sampling_rate=SAMPLE_RATE).to(model.device, dtype=model.dtype)
     with torch.inference_mode():
         logits = model(**inputs).logits

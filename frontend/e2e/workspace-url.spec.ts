@@ -82,6 +82,20 @@ test('From a URL: toggle, checks, download starts the urlmedia job', async ({ pa
   expect(s.unmocked).toEqual([])
 })
 
+test('From a URL: Enter that confirms an IME word does not start the download', async ({ page }) => {
+  const s = await mockUrlDownload(page)
+  await page.goto('/#/drama/1/source')
+  await page.getByRole('radio', { name: 'From a URL' }).check()
+  const link = page.getByRole('textbox', { name: 'Video or audio link' })
+  await link.fill('https://video.example/watch?v=1')
+  await link.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true, bubbles: true })
+  await link.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 229, bubbles: true })
+  await page.evaluate(() => new Promise((r) => setTimeout(r, 200)))
+  expect(s.bodies).toEqual([])
+  await link.press('Enter')
+  await expect.poll(() => s.bodies).toHaveLength(1)
+})
+
 test('From a URL: audio only over a video says the video is set aside', async ({ page }) => {
   const s = await mockUrlDownload(page, { hasAudio: true, hasSourceVideo: true })
   await page.goto('/#/drama/1/source')

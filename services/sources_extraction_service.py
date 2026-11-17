@@ -75,7 +75,7 @@ import comic_chapters
 import db
 from engine_backends import shared, engine_registry
 from services import drama_service
-from services import page_import_limits as limits
+import page_import_limits as limits
 from services import settings_service
 from lib.errors import (
     ConflictError,
@@ -700,7 +700,7 @@ def _comic_items(rv: _Review) -> list:
 
 def _usable(rv: _Review, i: int) -> bool:
     """Downloaded, an accepted type (PNG/JPEG/WebP) with a size within the
-    page rules (services/page_import_limits.py, header only): only such an
+    page rules (page_import_limits.py, header only): only such an
     image can become a page."""
     c = rv.candidates[i]
     size = rv.sizes.get(i, 0)

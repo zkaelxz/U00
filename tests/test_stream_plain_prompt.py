@@ -182,3 +182,53 @@ def test_translate_form_start_drops_untouched_old_defaults(isolated_db):
     start = config["translate_start"]
     assert "context_window" not in start and "batch_size" not in start
     assert start["context_window_ahead"] == 4 and start["locale"] == "en-GB"
+
+
+def _flagged_stream_title():
+    from core import Line
+    did = db.create_drama(title_en="F", content_mode="streamer_vod", source_language="zh")
+    db.save_lines(did, [Line(idx=0, start=0, end=2, zh="你好", en="Hi", flag="mistranslation")])
+    return did
+
+
+class _Gemma:
+    name = "ollama"
+    model = GEMMA
+    supports_reference = False  # the fix-flag job's plain translate_batch path
+
+    def __init__(self):
+        self.guidelines = []
+        self.last_usage = {}
+
+    def translate_batch(self, zh_lines, context):
+        self.guidelines.append(context.get("style_guidelines", ""))
+        return ["Hello there." for _ in zh_lines]
+
+
+def test_fix_flagged_uses_the_plain_prompt_on_a_gemma4_stream_title(isolated_db):
+    import background_jobs
+    from services.workspace_review_job_service import run_fix_flagged_lines_job
+    settings_service.set_settings({"stream_plain_prompt": True})
+    did = _flagged_stream_title()
+    engine = _Gemma()
+    try:
+        run_fix_flagged_lines_job("fix-plain", did, db.load_line_objects(did), None, "medium", False,
+                                  "zh", engine, "ollama")
+    finally:
+        background_jobs.clear_job("fix-plain")
+    assert engine.guidelines and all(stream_recipe.is_active(g) for g in engine.guidelines)
+
+
+def test_line_ai_uses_the_plain_prompt_on_a_gemma4_stream_title(isolated_db, monkeypatch):
+    import line_tools
+    from services import line_ai_service, translate_service
+    settings_service.set_settings({"stream_plain_prompt": True})
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
+    monkeypatch.setattr(engine_registry, "get_engine",
+                        lambda *a, **k: type("_LlmGemma", (_Gemma,), {"supports_reference": True})())
+    seen = {}
+    monkeypatch.setattr(line_tools, "improve_line",
+                        lambda zh, en, engine, style_guidelines="", **k: seen.update(style=style_guidelines) or "Hello.")
+    did = _flagged_stream_title()
+    line_ai_service.improve_line(did, db.load_lines(did)[0]["id"], engine_name="ollama", model=GEMMA)
+    assert stream_recipe.is_active(seen["style"])

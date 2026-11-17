@@ -66,7 +66,7 @@ def test_error_responses_documents_each_code_with_the_error_envelope():
 def test_shared_request_bases_keep_each_models_name_and_strictness():
     import pytest
     from pydantic import ValidationError
-    from api.diagnostics_install_schemas import DiagnosticsUpgradeCheckRequest
+    from api.schemas import DiagnosticsUpgradeCheckRequest
 
     for model in (schemas.BrowserInstallRequest, schemas.DeleteConfirm, schemas.EngineKeyClearRequest):
         assert issubclass(model, schemas.ConfirmRequest)

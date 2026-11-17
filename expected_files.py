@@ -101,6 +101,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "page_fetch_browser.py",
     "page_fetch_guard.py",
     "page_fetch_profile.py",
+    "page_import_limits.py",
     "page_scroll.py",
     "page_capture_checks.py",
     "page_server.py",

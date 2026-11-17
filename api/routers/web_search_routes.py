@@ -15,7 +15,7 @@ from fastapi import APIRouter, Request
 from api.auth import client_ip, local_only, require_permission
 from api.routers.settings_routes import require_confirm, require_local_admin
 from api.schemas import error_responses
-from api.web_search_schemas import (WebSearchConfig, WebSearchConfigUpdate, WebSearchRequest,
+from api.schemas import (WebSearchConfig, WebSearchConfigUpdate, WebSearchRequest,
                                     WebSearchResults, WebSearchStatus, WebSearchTestResult)
 from services import web_search_service
 

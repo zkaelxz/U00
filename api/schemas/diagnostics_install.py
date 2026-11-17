@@ -1,5 +1,5 @@
 """
-api/diagnostics_install_schemas.py -- Pydantic models for
+api/schemas/diagnostics_install.py -- Pydantic models for
 api/routers/diagnostics_installs_routes.py (package install and GPU PyTorch
 setup, Deno install, "Test first" for an update).
 """
@@ -8,8 +8,22 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from api.schemas import (ConfirmRequest, DiagnosticsInstallResult, DiagnosticsTorchVerify, JobStarted, JobState,
-                         UpgradeRequest)
+from api.schemas.common import (ConfirmRequest, DiagnosticsInstallResult, DiagnosticsTorchVerify, JobStarted, JobState,
+                                UpgradeRequest)
+
+__all__ = [
+    "DiagnosticsJobState",
+    "DiagnosticsJobStarted",
+    "DiagnosticsDenoResult",
+    "DiagnosticsDenoStatus",
+    "DiagnosticsDenoInstallRequest",
+    "DiagnosticsUpgradeCheckRequest",
+    "DiagnosticsUpgradeCheckResult",
+    "DiagnosticsUpgradeCheckState",
+    "DiagnosticsDependencyInstallResult",
+    "DiagnosticsDependencyInstallState",
+    "DiagnosticsCudaRuntimeStatus",
+]
 
 
 class DiagnosticsJobState(JobState):

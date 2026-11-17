@@ -43,7 +43,7 @@ import, a pasted-URL chain has no chapter ids to mark imported or retry.
 runs adaptive.import_comic (same opt-in LLM fallback) and adds the kept
 pages to a manhua/manga/manhwa drama through pipeline.add_page_images, the
 Scanlate upload path, under the shared page-upload rules
-(services/page_import_limits.py): downloads go through the same paced,
+(page_import_limits.py): downloads go through the same paced,
 guarded client (every redirect hop re-checked) with the per-image byte cap,
 and a per-import budget (generic_import.DownloadBudget: at most
 MAX_FILES_PER_IMPORT download attempts and MAX_IMPORT_BYTES in all; image or
@@ -78,7 +78,7 @@ import comic_chapters
 import db
 from engine_backends import shared as engine_shared
 from services import drama_service, ownership_service
-from services import page_import_limits as limits
+import page_import_limits as limits
 from services import sources_extraction_service as extraction
 from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,

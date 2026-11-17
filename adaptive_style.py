@@ -66,12 +66,15 @@ def analyze_edit_patterns(edit_samples, engine, existing_profile: dict | None = 
 
     text = call_llm_json(engine, prompt, max_tokens=1500, fallback="{}", usage_cb=usage_cb)
     data = load_json_reply(text, None)
-    if data is None:
+    if not isinstance(data, dict):
         return {"preferences": [], "summary": "Could not analyze.", "confidence": "none"}
+    # Preferences become prompt lines, so only text is kept.
+    preferences = data.get("preferences")
+    summary, confidence = data.get("summary"), data.get("confidence")
     return {
-        "preferences": data.get("preferences", []),
-        "summary": data.get("summary", ""),
-        "confidence": data.get("confidence", "low"),
+        "preferences": [p for p in preferences if isinstance(p, str)] if isinstance(preferences, list) else [],
+        "summary": summary if isinstance(summary, str) else "",
+        "confidence": confidence if isinstance(confidence, str) else "low",
     }
 
 

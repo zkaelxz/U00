@@ -33,7 +33,8 @@ SNAPSHOT_LABEL = "before 3-run review"
 
 _lock = threading.Lock()
 # drama_id -> {"line_ids", "history_id", "started", "last_job_token", "original": {line id: English before
-# the review}, "runs": [{line id: English}], "written": {line id: English}, "picks": {line id: run number}}
+# the review}, "runs": [{line id: English}], "sources": [{line id: source text}] (per run),
+# "written": {line id: English}, "picks": {line id: run number}}
 _sessions: dict = {}
 
 
@@ -79,7 +80,7 @@ def begin(drama_id: int, line_ids=None) -> dict:
         if drama_id in _sessions:
             raise ConflictError("A 3-run review is already open for this title. Finish or close it first.")
         _sessions[drama_id] = {"line_ids": targets, "history_id": history_id, "started": time.time(),
-                               "last_job_token": None, "runs": [], "picks": {},
+                               "last_job_token": None, "runs": [], "sources": [], "picks": {},
                                "original": {ln.id: ln.en or "" for ln in chosen},
                                "written": {ln.id: ln.en or "" for ln in chosen}}
     return {"line_ids": targets, "history_id": history_id, "runs_done": 0}
@@ -110,8 +111,11 @@ def capture_run(drama_id: int, run_number: int) -> dict:
         if token is None or token <= session["started"] or token == session["last_job_token"]:
             raise ConflictError("That is not a new translation run for this review. Run it again.")
         session["last_job_token"] = token
-        current = {ln.id: ln.en or "" for ln in db.load_line_objects(drama_id)}
-        session["runs"].append({lid: current.get(lid, "") for lid in session["line_ids"]})
+        lines = {ln.id: ln for ln in db.load_line_objects(drama_id)}
+        session["runs"].append({lid: lines[lid].en or "" if lid in lines else ""
+                                for lid in session["line_ids"]})
+        session["sources"].append({lid: lines[lid].zh or "" if lid in lines else ""
+                                   for lid in session["line_ids"]})
         session["written"] = dict(session["runs"][-1])
         session["picks"] = {}
     return state(drama_id)
@@ -144,7 +148,8 @@ def state(drama_id: int) -> dict:
 def pick_runs(drama_id: int, picks: list) -> dict:
     """Writes the chosen run's English for each {line_id, run}. Returns
     {applied: [line id], skipped: [line id]}; a skipped line was edited since
-    the text this review last wrote, or was deleted."""
+    the text this review last wrote, has a different source than the picked
+    run translated, or was deleted."""
     ownership_service.require_drama(drama_id)
     _refuse_if_busy(drama_id)
     if not isinstance(picks, list) or not picks or len(picks) > MAX_LINES:
@@ -159,7 +164,9 @@ def pick_runs(drama_id: int, picks: list) -> dict:
             if lid in seen or lid not in session["written"] or run not in range(1, RUNS + 1):
                 raise InvalidInputError("Each pick needs one line of this review and a run from 1 to 3.")
             seen.add(lid)
-            writes.append((lid, {"en": session["runs"][run - 1][lid]}, {"en": session["written"][lid]}, run))
+            # A run's English is a translation of the source it was made from; once that changed, it no longer fits.
+            expected = {"en": session["written"][lid], "zh": session["sources"][run - 1][lid]}
+            writes.append((lid, {"en": session["runs"][run - 1][lid]}, expected, run))
         missed = set(db.update_lines_fields_if_many(drama_id, [(lid, v, e) for lid, v, e, _r in writes]))
         applied = []
         for lid, values, _e, run in writes:

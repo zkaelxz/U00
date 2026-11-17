@@ -19,6 +19,11 @@ const NAMED = new Set([
   'arrowdown', 'arrowup', 'arrowleft', 'arrowright', 'home', 'end', 'pagedown', 'pageup',
 ])
 
+// Safari ends an IME composition with a keydown whose isComposing is false but
+// keyCode is 229; without the keyCode check, confirming a word with Enter submits the field.
+export const isComposingKey = (e: { nativeEvent: { isComposing: boolean }; keyCode: number }) =>
+  e.nativeEvent.isComposing || e.keyCode === 229
+
 /** Normalised combo, or null when the key is never a list shortcut. */
 export function comboOf(e: KeyLike): string | null {
   if (e.isComposing || e.ctrlKey || e.metaKey) return null

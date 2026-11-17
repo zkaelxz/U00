@@ -44,7 +44,7 @@ def extract_metadata_llm(page_text: str, engine, max_chars: int = 6000):
 
     data = load_json_reply(text, None)
     if data is None:  # models often wrap the object in a sentence
-        data = extract_first_json_value(text)
+        data = extract_first_json_value(text, expect=dict)
     if isinstance(data, list) and len(data) == 1:
         data = data[0]
     if not isinstance(data, dict):

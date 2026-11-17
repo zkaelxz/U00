@@ -21,6 +21,7 @@ import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { useReattachJob } from '../../../hooks/useReattachJob'
+import { isComposingKey } from '../../../hooks/useShortcut'
 import { isBulkJobId, translateJobIds } from '../stageJobIds'
 import { parseRoute, routeHref } from '../../../router'
 import type {
@@ -206,7 +207,7 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
               value={name}
               autoFocus
               onChange={(e) => { setName(e.target.value); setTaken(null) }}
-              onKeyDown={(e) => { if (e.key === 'Enter') save(false) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !isComposingKey(e)) save(false) }}
             />
           </Field>
           <button type="button" className="primary" disabled={pending} onClick={() => save(false)}>Save profile</button>
@@ -366,6 +367,8 @@ function RunPanel({
     const bad = validateRun(f, config.translation_engine, config.bulk_supported_engines)
     setProblem(bad)
     if (bad) return
+    // The Last run card's Retry reaches here without the disabled main button, so the gate is checked again.
+    if (gate) return setProblem(gate.reason)
     if (reviewFirst && canReview && !afterReview) {
       setReviewNote(null)
       setResumeOpen(false)

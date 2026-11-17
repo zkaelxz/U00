@@ -102,6 +102,43 @@ class TestChecks:
                                          "- 青云 -> Qingyun")
         assert runs == {"白鹤", "青云"}
 
+    def test_the_apps_own_guidance_text_allows_no_source_script(self):
+        import translation_guide as tguide
+        guidelines = tguide.build_style_guidelines(
+            "audio_drama", [{"term_original": "白鹤", "term_translation": "Baihe", "policy": "keep_pinyin"}],
+            include_genre_notes=True, default_female_pronouns=True, custom_notes="Keep 师尊 as written.")
+        runs = guard.allowed_source_runs([], guidelines)
+        assert runs == {"白鹤", "师尊"}
+        assert guard.unusable_reply("她来了", "她 came.", runs) == "source text left in it"
+        assert guard.unusable_reply("姐姐等等", "姐姐, wait.", runs) == "source text left in it"
+        assert guard.unusable_reply("师尊来了", "师尊 came.", runs) is None
+
+    def test_an_apology_about_the_task_is_unusable_but_apologetic_dialogue_is_not(self):
+        assert guard.unusable_reply(SOURCES[0], "I'm sorry, but I can't translate this line.") == "a refusal"
+        assert guard.unusable_reply(SOURCES[0], "I apologize, but I cannot assist with this request.") == "a refusal"
+        assert guard.unusable_reply("对不起，我不能留下", "I'm sorry, but I can't stay.") is None
+        assert guard.unusable_reply("对不起，我帮不了你", "Sorry, I can't help you.") is None
+        assert guard.unusable_reply("陛下恕罪，臣不能从命", "I'm sorry, Your Majesty, I cannot comply.") is None
+        assert guard.unusable_reply("抱歉，我不行，助理在等我", "Sorry, I can't, my assistant is waiting.") is None
+        assert guard.unusable_reply("抱歉，我去不了。你能帮我翻译吗？",
+                                    "Sorry, I can't go. Will you translate for me?") is None
+
+    def test_the_first_json_value_of_the_wanted_type_is_taken_from_prose(self):
+        from engine_backends.line_text import extract_first_json_value
+        text = 'Line [3] looks off. Result: {"title": "X"}'
+        assert extract_first_json_value(text, expect=dict) == {"title": "X"}
+        assert extract_first_json_value('Here: ["a", "b"]', expect=list) == ["a", "b"]
+        assert extract_first_json_value('Here: ["a", "b"]') == ["a", "b"]
+        assert extract_first_json_value("Line [3] only", expect=dict) is None
+
+    def test_a_line_with_no_source_text_is_not_sent(self):
+        engine = Scripted()
+        lines = _lines()
+        lines[2].zh = "  "
+        _run(engine, lines)
+        assert engine.calls == [[100, 101, 103, 104, 105]]
+        assert lines[2].en == ""
+
 
 class TestMergedPair:
     def test_one_reask_repairs_a_merged_pair(self):
