@@ -133,6 +133,10 @@ test('from 1100px the tools sit beside the lines in a column that scrolls on its
     expect(await page.locator('.review-ai').evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto')
     expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight + 1), `no page scroll at ${width}x${height}`).toBe(true)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    for (const name of TABS) {
+      await openTab(page, name)
+      expect(await page.locator('.review-ai').evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `${name} fits the column at ${width}px`).toBe(true)
+    }
   }
 
   await page.setViewportSize({ width: 1050, height: 800 })
