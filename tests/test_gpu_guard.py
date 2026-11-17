@@ -559,7 +559,9 @@ class TestWaitForRoom:
             raise memory_headroom.HeadroomError("Not loading Whisper.", vram_need_mb=3072.0)
 
         def again():
-            seen.append((gpu_guard.restart_pending("room_e"), _status("room_e")))
+            from services import jobs_service
+            api = jobs_service.get_job("room_e")
+            seen.append((gpu_guard.restart_pending("room_e"), api["status"], api["outcome"]))
             assert job_launch.start_job("room_e", lambda: None, gpu_touching=True)
         t = time.time()
         gpu_guard.tick(now=t, reading=(2048.0, COOL))
@@ -567,7 +569,7 @@ class TestWaitForRoom:
             assert job_launch.start_job("room_e", refuse, gpu_touching=True)
         assert _wait_for(lambda: _status("room_e") == "queued")
         gpu_guard.tick(now=t + 20, reading=(4200.0, COOL))
-        assert seen == [(True, "cancelled")]
+        assert seen == [(True, "queued", None)]
         assert _wait_for(lambda: _status("room_e") == "done")
         assert not gpu_guard.restart_pending("room_e")
 

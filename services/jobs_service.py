@@ -24,7 +24,7 @@ import db
 from services import job_stage_service, ownership_service, run_settings_service
 import diagnostics_report
 import background_jobs
-from jobs import gpu_queue, job_table
+from jobs import gpu_guard, gpu_queue, job_table
 import job_force_stop
 from jobs import job_store
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
@@ -610,6 +610,10 @@ def _redact(record: dict) -> dict:
     out["message"] = scrub_text(record.get("message") or "")
     out["error"] = scrub_text(record.get("error") or "") or None
     out["gpu_touching"] = bool(record.get("gpu_touching"))
+    if out.get("status") == "cancelled" and gpu_guard.starting_again(record.get("job_id")):
+        # The GPU guard ends a waiting run just before it starts the new one under
+        # the same id; a page polling the job must not read that as Cancelled.
+        out["status"] = "queued"
     outcome, message = derive_outcome(out.get("status"), out["error"], out["result"],
                                       record.get("detail_state"), job_id=record.get("job_id"))
     out["outcome"] = outcome

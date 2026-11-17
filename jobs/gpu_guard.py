@@ -311,6 +311,15 @@ def wait_for_room_locked(job_id: str, run: dict, need_mb, error: str) -> bool:
     return True
 
 
+def starting_again(job_id: str) -> bool:
+    """True while the guard is starting job_id again: its old run already
+    reads "cancelled" (a start refuses an id still queued) and the new run
+    is not created yet."""
+    with _guard_lock:
+        entry = _pending.get(job_id)
+        return bool(entry and entry.get("restarting"))
+
+
 def _pending_other_than_restart(job_id) -> bool:
     """Caller holds _guard_lock. True while job_id waits in _pending, unless
     it is the stopped run the guard is starting again right now: the new run
