@@ -776,9 +776,12 @@ class TestNemotronBackend:
         assert turns[0]["confidence"] == [round(float(probs[a:b, 1].mean()), 2)
                                           for a, b in ((5, 15), (15, 25), (25, 29))]
 
-    def test_diarize_keeps_the_frame_probabilities_as_turn_confidence(self, monkeypatch):
+    @pytest.mark.parametrize("source, decoded", [("/fake/audio.wav", "/fake/audio.wav"),
+                                                  ("/fake/source.m4a", "/tmp/decoded.wav")])
+    def test_diarize_keeps_the_frame_probabilities_as_turn_confidence(self, monkeypatch, source, decoded):
         """The whole diarize() call with transformers, torch and librosa faked: the
-        turns it returns carry the sigmoid of the model's logits."""
+        turns it returns carry the sigmoid of the model's logits, and an uploaded
+        .m4a is decoded to a wav before librosa reads it."""
         import contextlib
         import types
         import numpy as np
@@ -836,15 +839,29 @@ class TestNemotronBackend:
         fake_torch = types.SimpleNamespace(
             inference_mode=contextlib.nullcontext,
             cuda=types.SimpleNamespace(is_available=lambda: False, empty_cache=lambda: None))
-        fake_librosa = types.SimpleNamespace(load=lambda *a, **k: (np.zeros(3200, "float32"), 16000))
+        loads = []
+
+        def fake_load(path, **k):
+            # soundfile, librosa's reader, refuses an .m4a ("Format not recognised").
+            if not path.endswith(".wav"):
+                raise RuntimeError("Format not recognised")
+            loads.append(path)
+            return np.zeros(3200, "float32"), 16000
+
+        @contextlib.contextmanager
+        def fake_readable(path):
+            yield path if path.endswith(".wav") else "/tmp/decoded.wav"
+        import audio_extract
+        monkeypatch.setattr(audio_extract, "sndfile_readable", fake_readable)
         monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
-        monkeypatch.setitem(sys.modules, "librosa", fake_librosa)
+        monkeypatch.setitem(sys.modules, "librosa", types.SimpleNamespace(load=fake_load))
         monkeypatch.setattr(diarize_nemotron, "_pyannote_embedder", lambda use_gpu: None)
-        turns, prints = diarize_nemotron.diarize("/fake/audio.wav")
+        turns, prints = diarize_nemotron.diarize(source)
         assert turns == [{"start": 0.0, "end": 0.2, "speaker": "SPEAKER_00",
                           "confidence": [0.88, 0.62]}]
         assert prints == {}
+        assert loads == [decoded]
 
     def test_nemotron_turns_are_used_when_chosen(self, monkeypatch):
         turns = [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_03"}]
