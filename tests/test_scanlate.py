@@ -1129,6 +1129,50 @@ class TestArtCaptionsAlone:
         assert bubbles == [] and any("No bubbles found" in m for _, m in notes)
 
 
+class TestCaptionCutIntoFragments:
+    """The ML detector cut a big glowing caption into sign and sfx pieces. The
+    caption was found on the art as well, and the pieces' English was set on top
+    of the caption's."""
+
+    def _page(self, tmp_path, monkeypatch, caption):
+        from scanlate import scanlate_art_text
+        from PIL import Image
+        path = tmp_path / "p.png"
+        Image.new("RGB", (400, 400), (20, 20, 20)).save(path)
+        pieces = [{"x": 50, "y": 50, "w": 120, "h": 40, "kind": "sign"},
+                  {"x": 180, "y": 50, "w": 60, "h": 40, "kind": "sfx"},
+                  {"x": 50, "y": 300, "w": 150, "h": 80, "kind": "bubble"}]
+        monkeypatch.setattr(scanlate, "detect_bubbles", lambda *a, **k: [dict(p) for p in pieces])
+        monkeypatch.setattr(scanlate, "merge_fragment_boxes", lambda boxes, gray: boxes)
+        monkeypatch.setattr(scanlate, "_split_frames", lambda boxes, gray: (boxes, set()))
+
+        def regions(image_path, boxes, lang, page_id=None, image=None):
+            from types import SimpleNamespace
+            for b in boxes:
+                yield SimpleNamespace(to_bubble=lambda b=b: {**b, "language": lang, "reading_order": 0})
+        monkeypatch.setattr(scanlate, "analyze_page_regions", regions)
+        monkeypatch.setattr(scanlate, "ocr_box_region", lambda *a, **k: "좋아")
+        monkeypatch.setattr(scanlate_art_text, "find_art_captions", lambda *a, **k: [caption])
+        return scanlate.detect_and_ocr_page(str(path), "ko", art_captions=True)[0]
+
+    def test_pieces_inside_the_caption_are_dropped_and_the_caption_kept(self, tmp_path, monkeypatch):
+        found = self._page(tmp_path, monkeypatch,
+                           {"x": 40, "y": 40, "w": 220, "h": 60, "source_text": "너무 좋아서 죽고 싶어"})
+        assert [b["kind"] for b in found] == ["bubble", "caption"]
+        assert [b["reading_order"] for b in found] == [0, 1]
+
+    def test_a_balloon_under_a_caption_keeps_its_own_lettering(self, tmp_path, monkeypatch):
+        found = self._page(tmp_path, monkeypatch,
+                           {"x": 40, "y": 290, "w": 220, "h": 100, "source_text": "좋은 곳에 가고 싶어"})
+        assert [b["kind"] for b in found] == ["sign", "sfx", "bubble", "caption"]
+
+    def test_lettering_only_brushed_by_a_caption_stays(self, tmp_path, monkeypatch):
+        # The caption covers a third of the sign piece and none of the others.
+        found = self._page(tmp_path, monkeypatch,
+                           {"x": 130, "y": 90, "w": 200, "h": 60, "source_text": "좋은 곳에 가고 싶어"})
+        assert [b["kind"] for b in found] == ["sign", "sfx", "bubble", "caption"]
+
+
 class TestMlLoadFailureIsRemembered:
     def test_a_failed_load_is_not_retried_on_the_next_page_until_forgotten(self, synthetic_page, monkeypatch):
         attempts = []
