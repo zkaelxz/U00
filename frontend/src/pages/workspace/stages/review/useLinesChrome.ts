@@ -1,5 +1,8 @@
 import { useEffect, useState, type RefObject } from 'react'
 
+import { useMediaQuery } from '../../../../hooks/useMediaQuery'
+import { TOOLS_BESIDE_LINES } from './reviewToolsTabs'
+
 const COLLAPSE_PX = 160
 const COLLAPSE_BACK_PX = 20
 
@@ -46,6 +49,38 @@ export function useToolbarHeight(sectionRef: RefObject<HTMLElement | null>) {
     measure()
     return () => ro.disconnect()
   })
+}
+
+// Wide screens fit Review to the window, so the page itself never scrolls and only the lines and the side column do
+// (review.css). The stage's height is the window less what sits above it, so its top is published as --review-top.
+// Whatever above it changes height (a wrapped title, a job pill, a notice) moves that top, so every block above the
+// stage, at each level up to the page, is watched, as is a block added or removed beside it.
+export function useFitToScreen(ref: RefObject<HTMLElement | null>): boolean {
+  const fits = useMediaQuery(TOOLS_BESIDE_LINES)
+  useEffect(() => {
+    const stage = ref.current
+    if (!fits || !stage) return
+    const measure = () => stage.style.setProperty('--review-top', `${stage.getBoundingClientRect().top + window.scrollY}px`)
+    const watch = () => {
+      ro.disconnect()
+      for (let el: Element | null = stage; el && el !== document.body; el = el.parentElement) {
+        for (let prev = el.previousElementSibling; prev; prev = prev.previousElementSibling) ro.observe(prev)
+      }
+      measure()
+    }
+    const ro = new ResizeObserver(measure)
+    const added = new MutationObserver(watch)
+    if (stage.parentElement) added.observe(stage.parentElement, { childList: true })
+    watch()
+    window.addEventListener('resize', measure)
+    return () => {
+      ro.disconnect()
+      added.disconnect()
+      window.removeEventListener('resize', measure)
+      stage.style.removeProperty('--review-top')
+    }
+  }, [fits, ref])
+  return fits
 }
 
 // Clears a transient value (a status line, a highlight) a while after it was set.

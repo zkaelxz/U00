@@ -53,7 +53,8 @@
   .review-editor.has-side .review-body { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
 .review-editor.has-side:has(.review-player-panel[hidden]) { grid-template-columns: minmax(0, 1fr); }
-.review-editor:has(.review-player-panel[hidden]) .review-watch { display: none; }
+.review-watch:has(.review-player-panel[hidden]) { display: none; }
+.review-watch-slot:empty { display: none; }
 /* A fixed height, not a max: the gap and install notes under the waveform come and go with the view, and the card must not jump with them. align-content: start because a grid with spare height would otherwise stretch its rows and move the video as the notes come and go. */
 .review-watch { position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2)); padding: var(--space-3); gap: var(--space-2); height: calc(100vh - var(--bar-h, 0px) - var(--space-4)); overflow-y: auto; align-content: start; }
 .review-watch .card-title { font-size: var(--text-md); }
@@ -186,27 +187,8 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 /* Open, the panel sits right under the toolbar: sticky, a toolbar with the player and waveform (~380px) covered its labels and first rows on a 800px-tall screen. */
 .review-editor.is-replacing .review-toolbar { position: static; }
 .review-editor.is-replacing .review-line { scroll-margin-top: calc(var(--bar-h, 0px) + var(--space-2)); }
-/* Desktop with a side video: one column as tall as the screen, video and waveform on top and the toolbar, Find and replace and lines scrolling underneath, so the video never leaves view. Only on tall screens, and only from 1400px, where the checks sit in a column beside it: narrower, they stack under the lines and a pinned column would cover them. On a shorter screen the video shrinks, or the card would leave the lines a few rows. The sticky toolbar sticks to the scrolling section's top, not the page's, and rows scroll to just under it. */
-@media (min-width: 1400px) {
-  .review-editor.has-side {
-    grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: var(--space-2);
-    position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2));
-    height: calc(100vh - var(--bar-h, 0px) - var(--space-4));
-  }
-  .review-editor.has-side > .review-watch { grid-row: 1; position: static; height: auto; max-height: 62vh; }
-  .review-editor.has-side > .review-watch .review-stage { max-height: 22vh; }
-  /* position: relative so absolutely placed children (the sr-only page and line counts) are clipped by this scroller; anchored to the sticky section instead, they sat at their place in the full list and stretched the page into empty space below. */
-  .review-editor.has-side > .review-main { grid-row: 2; align-self: stretch; min-height: 0; overflow-y: auto; align-content: start; position: relative; }
-  .review-editor.has-side .review-toolbar { top: 0; }
-  .review-editor.has-side .review-line { scroll-margin-top: calc(var(--review-toolbar-h, 9rem) + var(--space-2)); }
-  .review-editor.has-side.is-replacing .review-line { scroll-margin-top: var(--space-2); }
-}
-@media (min-width: 1400px) and (max-height: 859px) {
-  .review-editor.has-side > .review-watch { max-height: 52vh; }
-  .review-editor.has-side > .review-watch .review-stage { max-height: 14vh; }
-}
 /* Full screen: the side-video caps above (higher specificity) would otherwise shrink the picture to a small box on a black screen. */
-.review-editor.has-side > .review-watch .review-player-frame.is-fullscreen .review-stage { max-height: none; }
+.review-watch .review-player-frame.is-fullscreen .review-stage { max-height: none; }
 .review-replace { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
 .review-replace-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
 .review-replace-head h2 { margin: 0; }
@@ -784,6 +766,9 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-line.is-queue:not(.is-active) > .review-line-meta > .review-line-ref {
     order: 1; flex: none; display: flex; gap: 0.4rem; width: 5.75rem; font-size: var(--text-sm); color: var(--muted); white-space: nowrap;
   }
+  .review-line.is-queue:not(.is-active) .review-line-ref { flex-wrap: wrap; row-gap: 2px; }
+  /* Wraps between words in the narrow column rather than being cut; only a single name longer than the column breaks. */
+  .review-queue-speaker { flex-basis: 100%; min-width: 0; white-space: normal; overflow-wrap: break-word; }
   .review-line.is-queue:not(.is-active) > .review-body { order: 2; flex: 1 1 21rem; min-width: min(21rem, 100%); margin-top: 0; }
   .review-line.is-queue:not(.is-active) :is(.review-zh, button.review-en) { font-size: var(--text-md); }
   .review-line.is-queue:not(.is-active) > .review-line-meta > .review-queue-reason {
@@ -901,3 +886,46 @@ button.review-speaker:hover, button.review-speaker[aria-expanded='true'] { backg
 /* Your marks. The desktop buttons are ordinary small buttons; a pressed one takes its mark's colour. */
 .review-mark[aria-pressed='true'].review-mark-wrong { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, var(--surface)); }
 .review-mark[aria-pressed='true'].review-mark-mixed { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, var(--surface)); }
+
+/* ---- wide screens: Review fits the window ----
+   From 1400px (TOOLS_BESIDE_LINES) the stage is exactly as tall as the window below what sits above it (--review-top,
+   useFitToScreen), so the page never scrolls: the lines scroll inside their own column, and the side column (a source
+   video's card on top, the checks and tools under it) inside its own. A video above the lines left them a few rows on a
+   short screen, and the page scrolled the header in and out. Below 26rem the stage stops shrinking and the page scrolls
+   instead, so the lines always keep room for several rows. */
+@media (min-width: 1400px) {
+  .stage-review {
+    grid-template-rows: auto minmax(0, 1fr); align-items: stretch; row-gap: var(--space-3);
+    --review-h: max(26rem, calc(100vh - var(--review-top, 0px) - var(--space-4)));
+    height: var(--review-h);
+  }
+  .stage-review:has(> .review-watch-slot > .review-watch) { grid-template-columns: minmax(0, 1fr) 28rem; }
+  .stage-review > .review-editor, .stage-review > .review-editor.has-side {
+    grid-column: 1; grid-row: 1 / -1; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); align-items: stretch; min-height: 0;
+  }
+  /* A flex column, so the queue's card can grow to the column's foot when its rows are few, as drawn. position: relative so
+     absolutely placed children (the sr-only counts) are clipped by this scroller rather than stretching the page. */
+  .stage-review > .review-editor > .review-main {
+    display: flex; flex-direction: column; min-height: 0; overflow-y: auto; position: relative;
+  }
+  .stage-review > .review-editor > .review-main > * { flex: none; }
+  .stage-review > .review-editor > .review-main > .review-list-card:has(.review-line.is-queue) { flex: 1 0 auto; min-height: 0; }
+  .stage-review .review-editor .review-toolbar { top: 0; }
+  .stage-review .review-editor .review-lines .review-line { scroll-margin-top: calc(var(--review-toolbar-h, 9rem) + var(--space-2)); }
+  .stage-review .review-editor.is-replacing .review-lines .review-line { scroll-margin-top: var(--space-2); }
+
+  /* The video takes at most about 60% of the column, so the open line's panel under it keeps room on a short screen. */
+  .stage-review > .review-watch-slot { grid-column: 2; grid-row: 1; display: grid; min-height: 0; max-height: calc(var(--review-h) * 0.6); }
+  .stage-review > .review-watch-slot:has(.review-player-panel[hidden]) { display: none; }
+  .stage-review > .review-watch-slot > .review-watch { position: static; height: auto; min-height: 0; overflow-y: auto; }
+  .stage-review > .review-watch-slot .review-stage { max-height: 22vh; }
+  .stage-review > .review-ai { grid-row: 2; position: static; max-height: none; min-height: 0; }
+}
+/* A short window: the toolbar scrolls away with the lines instead of staying pinned. Pinned, its filters, search, pager
+   and player filled the lines' column and no line showed however far the list was scrolled. */
+@media (min-width: 1400px) and (max-height: 899px) {
+  .stage-review .review-editor .review-toolbar { position: static; }
+  .stage-review .review-editor .review-lines .review-line { scroll-margin-top: var(--space-2); }
+  .stage-review:not(:has(> .review-watch-slot > .review-watch)) > .review-ai,
+  .stage-review:has(> .review-watch-slot .review-player-panel[hidden]) > .review-ai { grid-row: 1 / -1; }
+}

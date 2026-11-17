@@ -596,6 +596,8 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
               {!isPhone && !simple && <>–{formatTime(line.end)}</>}
             </span>
           )}
+          {/* A closed queue row has no room for the speaker's button, but who speaks is what a reader scans the list for. */}
+          {queue && !active && !prose && line.speaker && <span className="review-queue-speaker">{line.speaker}</span>}
         </span>
         {!prose && !isPhone && (!simple || line.flag === READING_SPEED_FLAG) && <LineCps line={line} />}
         {!prose && line.speaker && <>{phoneCard && <span className="review-card-dot" aria-hidden="true">·</span>}<SpeakerChip dramaId={dramaId} line={line} actions={actions} /></>}
