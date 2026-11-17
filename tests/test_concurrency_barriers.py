@@ -46,20 +46,30 @@ def test_one_gpu_slot_goes_to_one_taker(isolated_db):
 
 
 def test_llm_slots_never_run_past_the_server_cap():
+    # The winners hold their slots until every thread has tried for one: a
+    # timer could free them before a slow runner gets the last threads there,
+    # and those would then win too.
     release = threading.Event()
+    attempts = []
+    attempts_lock = threading.Lock()
+
+    def tried():
+        with attempts_lock:
+            attempts.append(1)
+            if len(attempts) == THREADS:
+                release.set()
 
     def worker(n):
         request = SimpleNamespace(state=SimpleNamespace(principal={"user_id": n}))
         try:
             with llm_slots.llm_slot(request):
-                release.wait(timeout=2.0)
+                tried()
+                release.wait(timeout=5.0)
             return True
         except RateLimitedError:
+            tried()
             return False
 
-    releaser = threading.Timer(0.5, release.set)
-    releaser.start()
     outcomes = _race(worker)
-    releaser.cancel()
     assert outcomes.count(True) == llm_slots.LLM_MAX_IN_FLIGHT
     assert llm_slots.ACTIVE_CALLERS == set()
