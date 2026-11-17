@@ -185,7 +185,7 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
                 continue
             try:
                 queued = start_import(row["source"], row["series_id"], new, row["drama_id"],
-                                      series_url=row.get("url") or "")
+                                      series_url=row.get("url") or "", allow_browser=allow_browser)
             except ConflictError as e:
                 # The drama is being deleted or cleaned up right now. The new
                 # chapters are already known, so a later check won't offer
