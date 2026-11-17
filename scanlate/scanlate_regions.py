@@ -210,6 +210,12 @@ def split_separate_lettering(gray, box: dict) -> list:
     # The probe is CJK because vertical lettering is only ever CJK.
     if _holds_balloon_interior(roi) and estimate_text_orientation(gray, box, "zh") == "vertical":
         return [box]
+    if float(np.median(roi)) < 100:
+        # Light lettering on dark art (a glowing caption) is one caption, not
+        # frames drawn side by side. The dark gaps between its letters were
+        # taken for glyphs, and the pieces each covered only part of it, so
+        # the rest of the source showed round the English.
+        return [box]
     ink = (roi < int(min(max(150, float(np.median(roi)) * 0.8), 240))).astype(np.uint8)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
     side = min(roi.shape[:2])
