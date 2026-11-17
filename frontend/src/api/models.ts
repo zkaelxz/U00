@@ -1,5 +1,5 @@
 // Model health (api/routers/model_registry_routes.py,
-// api/model_registry_schemas.py): is a model this app is set up to use
+// api/schemas/model_registry.py): is a model this app is set up to use
 // deprecated, retired or no longer listed by its provider? The status read
 // needs admin.diagnostics and never calls out. The provider check and the
 // preset switch and model overrides are PC only and go through pcOnlyFetch (X-Baihe-Local; a 403

@@ -1,4 +1,4 @@
-// Mirrors api/sources_extraction_schemas.py and the job results of
+// Mirrors api/schemas/sources_extraction.py and the job results of
 // services/sources_import_service.py (Sources parity SO09, SO06, SO10): the
 // pasted-URL AI fallback, the comic import and Review extraction. Names only; no key ever
 // reaches the browser. URLs are scheme+host+path.

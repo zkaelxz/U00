@@ -1,4 +1,4 @@
-// Models for /api/data-usage, taken from the generated schema (api/disk_usage_schemas.py).
+// Models for /api/data-usage, taken from the generated schema (api/schemas/disk_usage.py).
 // Every `path` is relative to the app's data folder and uses "/"; no model holds an absolute path.
 import type { components } from '../api/generated/schema'
 

@@ -1,4 +1,4 @@
-// Mirrors api/metadata_research_schemas.py (grounded research).
+// Mirrors api/schemas/metadata_research.py (grounded research).
 import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']
