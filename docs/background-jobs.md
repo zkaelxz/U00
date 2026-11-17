@@ -291,7 +291,8 @@ While held:
   of a 5 GB reserve during the 2-minute wait), and never during the clear minute, every running GPU
   job that registered a restart is stopped with `request_cancel` (the same stop as the
   Stop button) and started again through the call that started it, under its starter's
-  principal (`allow_restart`). With the GPU limit on the new run queues held at once;
+  principal. A job registers by starting inside `gpu_guard.restartable`, which records the
+  run as it is created, before it can be refused memory and end Failed. With the GPU limit on the new run queues held at once;
   with it off it waits for the card to clear first. A restart refused as busy (a stopped
   translation's last Ollama request still running) is retried for 15 min. After
   `MAX_RESTARTS` (3) restarts in a row a further stop is final, and the job says so.

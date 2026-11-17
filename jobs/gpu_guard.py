@@ -8,7 +8,7 @@ card is past its temperature limit it
 - holds queued GPU jobs (gpu_slots.acquire asks `hold_reason`),
 - unloads idle models (Ollama's and this process's caches) when memory is short,
 - after the set minutes, stops the running jobs that registered a restart
-  (`allow_restart`) and starts them again through the same call the user
+  (started inside `restartable`) and starts them again through the same call the user
   made, so they queue, wait for the card to clear and pick up as a fresh start.
 
 Only jobs whose re-start is known to be clean register (see docs/background-jobs.md,
@@ -16,6 +16,7 @@ Only jobs whose re-start is known to be clean register (see docs/background-jobs
 that can't be read never holds or stops anything.
 """
 
+import contextlib
 import contextvars
 import threading
 import time
@@ -216,18 +217,52 @@ def restart_pending(job_id: str) -> bool:
 
 # --- restartable jobs --------------------------------------------------------
 
+# (job_id, restart) offered by the `restartable` block this code runs in.
+_offer: contextvars.ContextVar = contextvars.ContextVar("gpu_guard_restart_offer", default=None)
+# How many times the guard has started this job again, while it does so: the
+# new run registers inside that call and can be refused (and moved to
+# _pending) before the call returns, so the count can't be added afterwards.
+_restarts_so_far: contextvars.ContextVar = contextvars.ContextVar("gpu_guard_restarts", default=0)
+
+
+@contextlib.contextmanager
+def restartable(job_id: str, restart):
+    """Inside the block, a start of job_id registers its run for restart
+    (allow_restart) as the run is created, before its thread or process can
+    run. Registering after the start returned would let a job that is
+    refused GPU memory at once end Failed instead of waiting for room. Use
+    it only for a job whose stop-and-start again is clean."""
+    token = _offer.set((job_id, restart))
+    try:
+        yield
+    finally:
+        _offer.reset(token)
+
+
+def take_restart_offer_locked(job_id: str) -> None:
+    """Caller holds job_table._lock, right after creating job_id's run."""
+    offer = _offer.get()
+    if offer is not None and offer[0] == job_id:
+        _register(job_id, _jobs.get(job_id), offer[1])
+
+
 def allow_restart(job_id: str, restart) -> None:
     """Lets the guard stop job_id's current run and start it again with
     `restart()` (called with the starter's principal, so ownership and caps
-    are checked as they were). Call it right after a start returned True,
-    only for a job whose stop-and-start again is clean."""
-    from lib import acting
+    are checked as they were). Starts go through `restartable` instead, so
+    the run is registered before it can be refused; this registers a run
+    that already exists."""
     with _lock:
         run = _jobs.get(job_id)
+    _register(job_id, run, restart)
+
+
+def _register(job_id, run, restart) -> None:
+    from lib import acting
     if run is None or run.get("status") not in ("queued", "running"):
         return
     with _guard_lock:
-        _restartable[job_id] = {"run": run, "restart": restart, "restarts": 0,
+        _restartable[job_id] = {"run": run, "restart": restart, "restarts": _restarts_so_far.get(),
                                 "principal": acting.acting_principal()}
 
 
@@ -263,7 +298,7 @@ def wait_for_room_locked(job_id: str, run: dict, need_mb, error: str) -> bool:
     with _guard_lock:
         entry = _restartable.get(job_id)
         if entry is None or not (entry["run"] is run or _follows_promotion(entry, run)) \
-                or entry["restarts"] >= MAX_RESTARTS or job_id in _pending \
+                or entry["restarts"] >= MAX_RESTARTS or _pending_other_than_restart(job_id) \
                 or _state["at"] is None or now - _state["at"] > STALE_SECONDS:
             return False
         del _restartable[job_id]
@@ -274,6 +309,38 @@ def wait_for_room_locked(job_id: str, run: dict, need_mb, error: str) -> bool:
     run.update(status="queued", error=None, message=_room_text(need_mb, floor, free))
     _mirror_locked(job_id)
     return True
+
+
+def starting_again(job_id: str) -> bool:
+    """True while the guard is starting job_id again: its old run already
+    reads "cancelled" (a start refuses an id still queued) and the new run
+    is not created yet."""
+    with _guard_lock:
+        entry = _pending.get(job_id)
+        return bool(entry and entry.get("restarting"))
+
+
+def _pending_other_than_restart(job_id) -> bool:
+    """Caller holds _guard_lock. True while job_id waits in _pending, unless
+    it is the stopped run the guard is starting again right now: the new run
+    may itself be refused at once and wait in its place."""
+    entry = _pending.get(job_id)
+    return entry is not None and not entry.get("restarting")
+
+
+def _start_again(entry) -> None:
+    """entry's restart(), as its starter, with the restart count the new run registers with."""
+    def counted():
+        _restarts_so_far.set(entry["restarts"] + 1)
+        return entry["restart"]()
+    _call_as(entry["principal"], counted)
+
+
+def _drop_pending(job_id, entry) -> None:
+    """Drops entry from _pending unless a new run of job_id waits there in its place."""
+    with _guard_lock:
+        if _pending.get(job_id) is entry:
+            del _pending[job_id]
 
 
 def _call_as(principal, fn):
@@ -414,24 +481,28 @@ def _room_step(job_id: str, entry: dict, state: dict, now: float) -> None:
         if not _waiting_locked(job_id, run):
             return
         # The start refuses a job id that is still queued; the new run replaces this record.
-        run.update(status="error", error=entry["error"], message="", finished_at=now)
+        # Cancelled and still pending, like a guard stop, so a waiter reads it as still
+        # going during the start rather than Failed.
+        run.update(status="cancelled", message="", finished_at=now)
         _mirror_locked(job_id)
-    with _guard_lock:
-        _pending.pop(job_id, None)
+        with _guard_lock:
+            entry["restarting"] = True
     try:
-        _call_as(entry["principal"], entry["restart"])
+        _start_again(entry)
     except Exception as exc:
         from engine_backends.redaction import redact_secrets
         from jobs.job_settings import _notify_job_finished
+        _drop_pending(job_id, entry)
         _warn(f"GPU guard: job {job_id} could not be started again", exc)
-        _set_message(run, "It did not start again: " + redact_secrets(str(exc))[:200])
+        with _lock:
+            run.update(status="error", error=entry["error"],
+                       message="It did not start again: " + redact_secrets(str(exc))[:200])
+            if _jobs.get(job_id) is run:
+                _mirror_locked(job_id)
         _notify_job_finished(run.get("description"), "error", job_id=job_id,
                              owner_user_id=run.get("owner_user_id"), reason=entry["error"])
         return
-    with _guard_lock:
-        again = _restartable.get(job_id)
-        if again is not None:
-            again["restarts"] = entry["restarts"] + 1
+    _drop_pending(job_id, entry)
     _log(f"GPU guard: job {job_id} started again once the GPU had room")
 
 
@@ -468,29 +539,27 @@ def _restart_pending(state: dict, now: float) -> None:
         if (state["short"] or state["hot"]) and not get_gpu_limit_enabled():
             _set_message(run, _stopped_text(entry["why"]))
             continue
+        with _guard_lock:
+            entry["restarting"] = True
         try:
-            _call_as(entry["principal"], entry["restart"])
+            _start_again(entry)
         except ConflictError:
+            with _guard_lock:
+                entry["restarting"] = False
             if now - entry["stopped_at"] < RESTART_RETRY_SECONDS:
                 _set_message(run, _stopped_text(entry["why"]))
                 continue
-            with _guard_lock:
-                _pending.pop(job_id, None)
+            _drop_pending(job_id, entry)
             _set_message(run, f"Stopped: {entry['why']}. It could not start again: it was still busy.")
             continue
         except Exception as exc:
             from engine_backends.redaction import redact_secrets
-            with _guard_lock:
-                _pending.pop(job_id, None)
+            _drop_pending(job_id, entry)
             _warn(f"GPU guard: job {job_id} could not be started again", exc)
             _set_message(run, f"Stopped: {entry['why']}. It did not start again: "
                               + redact_secrets(str(exc))[:200])
             continue
-        with _guard_lock:
-            _pending.pop(job_id, None)
-            again = _restartable.get(job_id)
-            if again is not None:
-                again["restarts"] = entry["restarts"] + 1
+        _drop_pending(job_id, entry)
         _log(f"GPU guard: job {job_id} started again")
 
 

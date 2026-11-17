@@ -309,15 +309,15 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         expected_speakers=expected_speakers, min_speakers=min_speakers,
         max_speakers=max_speakers, initial_prompt=initial_prompt, extra_names=extra_names)
     job_id = f"transcribe_{drama_id}"
-    if transcript_mode == "hardsub_ocr":
-        started = _start_hardsub_job(job_id, drama_id, drama, run, tesseract_cmd)
-    else:
-        started = _start_worker_job(job_id, drama_id, drama, run)
-    if not started:
-        raise ConflictError(f"A transcription is already running for title {drama_id}.")
     # A stopped transcription applies nothing, so a fresh start is clean (a
     # Whisper decode picks up from its checkpoints).
-    gpu_guard.allow_restart(job_id, again)
+    with gpu_guard.restartable(job_id, again):
+        if transcript_mode == "hardsub_ocr":
+            started = _start_hardsub_job(job_id, drama_id, drama, run, tesseract_cmd)
+        else:
+            started = _start_worker_job(job_id, drama_id, drama, run)
+    if not started:
+        raise ConflictError(f"A transcription is already running for title {drama_id}.")
     return {"job_id": job_id}
 
 
@@ -722,21 +722,21 @@ def _chain_diarization(job_id, drama_id, hf_token, diarize_audio_path, expected_
     try:
         args = (diarize_audio_path, hf_token, expected_speakers or None,
                 diarization_service.worker_options(min_speakers, max_speakers))
-        started = job_launch.start_process_job(
-            f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker, args=args,
-            cpu_retry_args=diarization_service.cpu_retry_args(args), gpu_touching=True, description=f"Diarization (title #{drama_id})",
-            kill_whole_tree=True, start_method="spawn",
-            on_done=diarization_service.make_apply_on_done(
-                drama_id, expected_speakers, min_speakers=min_speakers,
-                max_speakers=max_speakers,
-                speakers_at_start=diarization_service.speakers_snapshot(drama_id)),
-            run_settings=run_settings_service.for_diarize(
-                expected_speakers, min_speakers, max_speakers,
-                bool(settings_service.get("use_gpu"))), line_fields=("speaker", "speaker_manual"))
-        if started:
-            gpu_guard.allow_restart(f"diarize_{drama_id}", functools.partial(
-                diarization_service.start_diarization_run, drama_id, expected_speakers,
-                min_speakers=min_speakers, max_speakers=max_speakers))
+        again = functools.partial(diarization_service.start_diarization_run, drama_id, expected_speakers,
+                                  min_speakers=min_speakers, max_speakers=max_speakers)
+        with gpu_guard.restartable(f"diarize_{drama_id}", again):
+            started = job_launch.start_process_job(
+                f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker, args=args,
+                cpu_retry_args=diarization_service.cpu_retry_args(args), gpu_touching=True,
+                description=f"Diarization (title #{drama_id})",
+                kill_whole_tree=True, start_method="spawn",
+                on_done=diarization_service.make_apply_on_done(
+                    drama_id, expected_speakers, min_speakers=min_speakers,
+                    max_speakers=max_speakers,
+                    speakers_at_start=diarization_service.speakers_snapshot(drama_id)),
+                run_settings=run_settings_service.for_diarize(
+                    expected_speakers, min_speakers, max_speakers,
+                    bool(settings_service.get("use_gpu"))), line_fields=("speaker", "speaker_manual"))
     except ConflictError:
         # A clean stop cancels every job and refuses new ones, so one
         # that began after the lines were saved refuses the follow-up
