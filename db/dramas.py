@@ -423,3 +423,15 @@ def set_custom_tag(drama_id: int, tag: str, present: bool):
     if present:
         tags.append(tag)
     db.update_drama(drama_id, custom_tags=", ".join(tags))
+
+
+def series_cover_title_id(series_id: int, visible_to=None):
+    """The id of the oldest title in the series that has cover art and that
+    `visible_to` may see (same filter as series_content_counts), or None."""
+    vis_sql, vis_params = ("1", []) if visible_to is None \
+        else db.drama_visible_sql("d", visible_to)
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute(
+            "SELECT d.id FROM dramas d WHERE d.series_id = ? AND COALESCE(d.cover_art_filename, '') != '' "
+            f"AND {vis_sql} ORDER BY d.id LIMIT 1", (series_id, *vis_params)).fetchone()
+    return row["id"] if row else None

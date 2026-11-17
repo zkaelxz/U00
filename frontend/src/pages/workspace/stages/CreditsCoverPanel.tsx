@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { coverUrl, romanizeCredits, uploadCover } from '../../../api/metadata'
+import { coverUrl, makeCoverFromVideo, romanizeCredits, uploadCover } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
@@ -23,6 +23,7 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
   const [file, setFile] = useState<File | null>(null)
   const [fileKey, setFileKey] = useState(0)
   const [uploading, setUploading] = useState(false)
+  const [grabbing, setGrabbing] = useState(false)
   const [coverVersion, setCoverVersion] = useState(0)
   const [coverBroken, setCoverBroken] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -68,6 +69,25 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
       },
       (e: unknown) => {
         setUploading(false)
+        setError(e)
+      },
+    )
+  }
+
+  const grabFrame = () => {
+    setGrabbing(true)
+    setError(null)
+    setNotice(null)
+    makeCoverFromVideo(dramaId).then(
+      (r) => {
+        setGrabbing(false)
+        setCoverBroken(false)
+        setCoverVersion(Date.now())
+        setNotice(`Cover made from the video (${r.width}×${r.height}).`)
+        refetchDrama()
+      },
+      (e: unknown) => {
+        setGrabbing(false)
         setError(e)
       },
     )
@@ -133,6 +153,12 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
                 <div>
                   <button type="button" disabled={!file || !!problem || uploading} onClick={upload}>
                     {uploading ? 'Uploading…' : drama.has_cover_art ? 'Replace cover' : 'Upload cover'}
+                  </button>
+                </div>
+                {/* No video flag on the title: a title without one gets the server's "no video" message. */}
+                <div>
+                  <button type="button" className={buttonClass('ghost', 'sm')} disabled={grabbing} onClick={grabFrame}>
+                    {grabbing ? 'Making cover…' : 'Make cover from video'}
                   </button>
                 </div>
               </div>

@@ -3375,6 +3375,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/{drama_id}/cover/from-video": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make the cover from one frame of the title's own video */
+        post: operations["post_cover_from_video_api_dramas__drama_id__cover_from_video_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/{drama_id}/duplicate": {
         parameters: {
             query?: never;
@@ -27637,6 +27654,11 @@ export interface components {
         };
         /** SeriesListItem */
         SeriesListItem: {
+            /**
+             * Cover Title Id
+             * @description A visible title of the series that has cover art; its /api/dramas/{id}/cover is the folder picture.
+             */
+            cover_title_id: number | null;
             /** Glossary Term Count */
             glossary_term_count: number;
             /** Id */
@@ -42101,6 +42123,55 @@ export interface operations {
             };
             /** @description Content Too Large */
             413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_cover_from_video_api_dramas__drama_id__cover_from_video_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoverArtResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
