@@ -48,6 +48,8 @@ DYNAMIC_KEYS = {
     ("services/settings_service.py", "settings_schema.BY_KEY[key].store_key"):
         "the schema writer: the store_key of a declared, validated row",
     ("services/settings_service.py", "setting.store_key"):
+        "is_saved: the store_key of a declared row",
+    ("stored_settings.py", "setting.store_key"):
         "the schema reader: the store_key of a declared row",
     ("services/settings_service.py", "ENGINE_TEST_GENERATION_PREFIX + engine"):
         "engine_test_gen.<engine>: one counter per engine, created on first key write",
@@ -227,7 +229,7 @@ class TestEveryKeyIsDeclared:
         for rel in _tracked("*.py"):
             if rel.startswith("tests/"):
                 continue
-            literals |= set(re.findall(r'\bsettings_service\.get\("([a-z_.]+)"\)', _read(rel)))
+            literals |= set(re.findall(r'\b(?:settings_service\.get|stored_settings\.read)\("([a-z_.]+)"\)', _read(rel)))
         assert literals and literals <= names, literals - names
 
     @pytest.mark.parametrize("rel,prefix", [

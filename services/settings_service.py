@@ -19,6 +19,7 @@ from jobs import job_settings
 import memory_headroom
 import ollama_unload
 import portable
+import stored_settings
 from lib import settings_schema
 from lib.errors import InvalidInputError
 
@@ -466,19 +467,6 @@ _SCHEMA_CHOICES = {
 }
 
 
-_warned_unreadable_keys = set()
-
-
-def _warn_unreadable_once(key: str) -> None:
-    # Once per key so a locked database doesn't flood the log on every read; the
-    # exception text is left out because it can carry a path.
-    if key in _warned_unreadable_keys:
-        return
-    _warned_unreadable_keys.add(key)
-    import applog
-    applog.get_logger().warning("Setting '%s' could not be read; using its default.", key)
-
-
 def _choices_for(key: str):
     setting = settings_schema.BY_KEY[key]
     return _SCHEMA_CHOICES[setting.choices]() if setting.choices else None
@@ -495,16 +483,7 @@ def get(key: str):
     """The one reader of a declared setting (lib/settings_schema.py), as a typed
     value. A missing, unreadable or invalid stored value reads as the schema
     default. Keys held in .env are secrets and go through resolve_key instead."""
-    import db
-    setting = settings_schema.BY_KEY[key]
-    if setting.store != "db":
-        raise ValueError(f"'{key}' is not stored in app_settings.")
-    try:
-        return settings_schema.coerce(key, db.get_app_setting(setting.store_key),
-                                      _choices_for(key))
-    except Exception:
-        _warn_unreadable_once(key)
-        return settings_schema.default_of(setting)
+    return stored_settings.read(key, lambda: _choices_for(key))
 
 
 def is_saved(key: str) -> bool:

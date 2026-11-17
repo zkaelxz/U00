@@ -78,10 +78,10 @@ def settings() -> dict:
     read problem keeps the defaults."""
     out = {"enabled": True, "temp_limit": 85, "stop_minutes": 2}
     try:
-        from services import settings_service
-        out["enabled"] = bool(settings_service.get(ENABLED_KEY))
+        import stored_settings
+        out["enabled"] = bool(stored_settings.read(ENABLED_KEY))
         for name, key in (("temp_limit", TEMP_KEY), ("stop_minutes", STOP_MINUTES_KEY)):
-            value = settings_service.get(key)
+            value = stored_settings.read(key)
             if isinstance(value, int) and not isinstance(value, bool):
                 out[name] = value
     except Exception as exc:

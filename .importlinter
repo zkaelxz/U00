@@ -27,7 +27,6 @@ layers =
 # check); never add one.
 ignore_imports =
     jobs.gpu_guard -> services.ownership_service
-    jobs.gpu_guard -> services.settings_service
     jobs.job_launch -> services.member_key_service
     jobs.job_launch -> services.ownership_service
     jobs.job_runner -> services.jobs_service
