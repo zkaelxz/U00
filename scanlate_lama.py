@@ -227,8 +227,8 @@ def _lama_on_gpu(generator, pixels: int, torch):
     if _lama_gpu_broken or pixels > _GPU_MAX_PIXELS or not torch.cuda.is_available():
         return None
     import vram
-    from services import settings_service
-    if not settings_service.get("use_gpu"):
+    import stored_settings
+    if not stored_settings.read("use_gpu"):
         return None
     need = (0 if "cuda" in _lama_gpu else _GPU_FIRST_LOAD_MB) + pixels / 1_000_000 * _GPU_MB_PER_MEGAPIXEL
     try:

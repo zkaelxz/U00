@@ -3,11 +3,18 @@ import { expect, test } from './fixtures'
 test('Settings names a stopped server in one banner, not one per request', async ({ page }) => {
   await page.goto('/#/library')
   await expect(page.locator('main')).toBeVisible()
-  await page.route('**/api/**', (route) => route.abort())
+  // Every request the page makes fails; the check is that all of them have failed and still one banner shows.
+  let pending = 0
+  await page.route('**/api/**', async (route) => {
+    pending += 1
+    await route.abort()
+    pending -= 1
+  })
   await page.goto('/#/settings')
   const banners = page.locator('.banner:visible').filter({ hasText: 'Could not reach Baihe' })
   await expect(banners.first()).toBeVisible()
-  await page.waitForTimeout(500)
+  await page.waitForLoadState('networkidle')
+  await expect.poll(() => pending).toBe(0)
   await expect(banners).toHaveCount(1)
   await expect(banners.getByRole('button', { name: 'Retry' })).toBeVisible()
 })

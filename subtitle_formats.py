@@ -21,7 +21,7 @@ import re
 from typing import Any
 
 import review_thresholds
-from core import fmt_ts, notes_suffix, sfx_cue_text
+from core import cue_speaker_name, fmt_ts, notes_suffix, sfx_cue_text
 
 # ---------------------------------------------------------------- wrapping
 
@@ -422,9 +422,12 @@ def _cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=True, escape=Fals
 
 def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict | None = None,
                  wrap_chars: dict | None = None,
-                 language=None, chinese_script: str = "simplified") -> str:
+                 language=None, chinese_script: str = "simplified",
+                 speaker_names: dict | None = None) -> str:
     """field: "en", "zh" or "bilingual". wrap_chars: optional
-    {"en": n, "zh": n} per-line character limits (see wrap_text)."""
+    {"en": n, "zh": n} per-line character limits (see wrap_text).
+    speaker_names: see core.cue_speaker_name; a named cue is wrapped in a
+    <v Name> voice tag."""
     cues = ["WEBVTT\n"]
     for i, ln in enumerate(lines, start=1):
         text = _cue_text(ln, field, notes_by_idx, wrap_chars, escape=True,
@@ -432,6 +435,9 @@ def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict | None = None,
         # A blank line ends a cue, so the rest of the text would be lost:
         # keep only the lines that have something on them.
         text = "\n".join(part for part in re.split(r"\r\n|\r|\n", text) if part.strip())
+        name = cue_speaker_name(ln, speaker_names)
+        if name and text:
+            text = f"<v {_vtt_escape(name)}>{text}</v>"
         cues.append(f"{i}\n{_vtt_ts(ln.start)} --> {_vtt_ts(ln.end)}\n{text}\n")
     return "\n".join(cues)
 
@@ -447,7 +453,8 @@ def _lrc_ts(seconds: float) -> str:
 
 def lines_to_lrc(lines, field: str = "en", notes_by_idx: dict | None = None,
                  wrap_chars: dict | None = None,
-                 language=None, chinese_script: str = "simplified") -> str:
+                 language=None, chinese_script: str = "simplified",
+                 speaker_names: dict | None = None) -> str:
     """Lyrics-style timed text: one stamp per cue, where a cue starts. A cue
     that ends before the next one starts also gets an empty stamp at its end,
     so a player doesn't keep showing it through the gap (LRC has no end
@@ -464,6 +471,9 @@ def lines_to_lrc(lines, field: str = "en", notes_by_idx: dict | None = None,
         texts = ([_cue_text(ln, "en", notes_by_idx, **cue), _cue_text(ln, "zh", None, **cue)]
                  if field == "bilingual" else [_cue_text(ln, field, notes_by_idx, **cue)])
         parts = [p for p in (" ".join(t.split()) for t in texts) if p]
+        name = cue_speaker_name(ln, speaker_names)
+        if name:
+            parts = [f"{name}: {p}" for p in parts]
         if parts:
             shown.append((ln, parts))
     out = []

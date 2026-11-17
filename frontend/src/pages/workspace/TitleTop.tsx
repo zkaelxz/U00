@@ -55,7 +55,7 @@ export function TitleMainAction({ id, progress, onCheck }: {
       // With audio attached one button transcribes, finds glossary names and stops at the glossary review.
       return input.audioReady && input.lineCount !== null
         ? <TitleFlowStart id={id} onProgress={onFlowProgress} />
-        : <ButtonLink variant="primary" href={to.transcribe}>Transcribe and translate</ButtonLink>
+        : <ButtonLink variant="primary" href={to.transcribe}>Transcribe and build glossary</ButtonLink>
     case 'translate':
       return <ButtonLink variant="primary" href={to.translate}>{left > 0 ? `Translate ${left} ${left === 1 ? 'line' : 'lines'}` : 'Translate'}</ButtonLink>
     case 'check': {
