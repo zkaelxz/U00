@@ -43536,6 +43536,7 @@ export interface operations {
                 wrap_chars_en?: number;
                 wrap_chars_source?: number;
                 tidy_timing?: boolean;
+                speaker_names?: boolean;
             };
             header?: never;
             path: {

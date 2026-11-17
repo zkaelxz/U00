@@ -340,9 +340,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     else:
         colors = subtitle_ass.default_speaker_colors(ln.speaker for ln in lines)
 
-    speaker_names = {c["speaker_label"]: c["character_name"]
-                     for c in db.list_characters_with_series_names(drama_id)
-                     if c.get("character_name")}
+    speaker_names = _speaker_display_names(drama_id)
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
     ass_header, ass_header_key = subtitle_ass.ass_header_for(drama.get("ass_styles"), lines)
 
@@ -497,6 +495,12 @@ def _require_exportable_text(lines, field: str):
                             else "This title has no original-language text to export.")
 
 
+def _speaker_display_names(drama_id: int) -> dict:
+    return {c["speaker_label"]: c["character_name"]
+            for c in db.list_characters_with_series_names(drama_id)
+            if c.get("character_name")}
+
+
 def generate_subtitle_text(drama_id: int, fmt: str, field: str, **options) -> str:
     """The text of generate_subtitle_export, for callers that don't need
     the adjusted-cue count."""
@@ -508,7 +512,8 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
                              wrap_chars_en: Optional[int] = None,
                              wrap_chars_source: Optional[int] = None,
                              tidy_timing: bool = False,
-                             fps: Optional[float] = None) -> dict:
+                             fps: Optional[float] = None,
+                             speaker_names: bool = False) -> dict:
     """Generates SRT, VTT or LRC subtitle text for one drama -- pure and
     read-only: never writes to the database, never flags a line, never
     writes a file to disk. The caller decides what to do with the
@@ -527,6 +532,11 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     wrap_chars_en/wrap_chars_source optionally cap characters per line
     (subtitle_formats.wrap_lines); None on either side leaves that
     language unwrapped.
+
+    speaker_names (default off) starts each cue of a line that has a speaker
+    with the speaker's character name (the label when it has none): "Name: "
+    in SRT and LRC, a <v Name> tag in VTT. Lines with no speaker, and SFX
+    cues, are unchanged.
 
     tidy_timing (SRT and bilingual SRT only, default off) runs
     subtitle_formats.tidy_cue_timing at `fps`; without one, the frame rate
@@ -555,13 +565,14 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
 
     wrap_chars = build_wrap_chars(wrap_chars_en, wrap_chars_source)
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
+    names = _speaker_display_names(drama_id) if speaker_names else None
 
     if fmt == "vtt":
         return _export_result(subtitle_formats.lines_to_vtt(
-            lines, field, notes_by_idx, wrap_chars, **break_language(drama)))
+            lines, field, notes_by_idx, wrap_chars, **break_language(drama), speaker_names=names))
     if fmt == "lrc":
         return _export_result(subtitle_formats.lines_to_lrc(
-            export_lines, field, notes_by_idx, wrap_chars, **break_language(drama)))
+            export_lines, field, notes_by_idx, wrap_chars, **break_language(drama), speaker_names=names))
 
     if tidy_timing and fps is None:
         fps = _probe_title_fps(drama_id, drama)
@@ -569,9 +580,9 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
                      else (export_lines, None))
     wrapped = subtitle_formats.wrap_lines(timed, wrap_chars, **break_language(drama))
     if field == "bilingual":
-        text = core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx)
+        text = core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx, speaker_names=names)
     else:
-        text = core_module.lines_to_srt(wrapped, field, notes_by_idx=notes_by_idx)
+        text = core_module.lines_to_srt(wrapped, field, notes_by_idx=notes_by_idx, speaker_names=names)
     return _export_result(text, report, fps if tidy_timing else None)
 
 
