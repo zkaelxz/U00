@@ -247,18 +247,6 @@ def series_content_counts(series_id: int, visible_to=None):
     return out
 
 
-def series_cover_title_id(series_id: int, visible_to=None):
-    """The id of the oldest title in the series that has cover art and that
-    `visible_to` may see (same filter as series_content_counts), or None."""
-    vis_sql, vis_params = ("1", []) if visible_to is None \
-        else db.drama_visible_sql("d", visible_to)
-    with contextlib.closing(db.get_conn()) as conn:
-        row = conn.execute(
-            "SELECT d.id FROM dramas d WHERE d.series_id = ? AND COALESCE(d.cover_art_filename, '') != '' "
-            f"AND {vis_sql} ORDER BY d.id LIMIT 1", (series_id, *vis_params)).fetchone()
-    return row["id"] if row else None
-
-
 def delete_series(series_id: int, expected=None):
     """Deletes a series in one transaction. Returns None for an unknown
     series; {"deleted": False, "counts": ...} without writing anything when

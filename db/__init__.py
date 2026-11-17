@@ -485,7 +485,7 @@ from db.library_folder import (  # noqa: E402,F401
 
 from db.dramas import (  # noqa: E402,F401
     create_drama, delete_drama, drama_has_translated_lines, drama_visible_sql, earlier_episode_summaries,
-    get_drama,
+    get_drama, series_cover_title_id,
     get_library_stats, line_progress_by_drama, list_dramas, list_dramas_by_series, list_dramas_by_series_ids,
     list_dramas_recently_active,
     search_lines_globally, set_status_if, update_drama, ORGANIZATIONAL_TAGS, MERGED_TAG,
@@ -829,7 +829,7 @@ from db.auth import (  # noqa: F401
     set_item_private,
     set_item_owner,
     series_has_unowned_drama,
-    rename_series, series_content_counts, series_cover_title_id, delete_series, copy_series_terms,
+    rename_series, series_content_counts, delete_series, copy_series_terms,
     update_series_instructions, set_series_defaults,
     get_series_auto_pipeline, set_series_auto_pipeline, list_series_auto_pipelines, set_series_speaker_mode, get_series_speaker_mode,
     apply_series_settings, get_series_speaker_colours, set_series_speaker_colours,
