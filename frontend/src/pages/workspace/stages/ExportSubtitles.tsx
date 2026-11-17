@@ -83,6 +83,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
     return getSubtitleText(dramaId, {
       fmt, field: form.field, includeNotes: form.includeNotes, wrapEn: en.value, wrapSource: src.value,
       tidyTiming: form.tidyTiming && fmt === 'srt',
+      speakerNames: form.speakerNames,
     })
   }
 
@@ -124,6 +125,11 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
             <option value="ass">ASS</option>
           </select>
         </Field>
+        {fmt !== 'ass' && (
+          <Field label="Speaker names" help="Start each cue with its speaker's name: Name: in SRT and LRC, a voice tag in VTT. Lines with no speaker are unchanged.">
+            <Toggle checked={form.speakerNames} onChange={(v) => set('speakerNames', v)} />
+          </Field>
+        )}
         <Field label="Language">
           <select value={form.field} onChange={(e) => set('field', e.target.value as SubtitleField)}>
             <option value="en">English</option>

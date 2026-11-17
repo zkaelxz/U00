@@ -916,3 +916,48 @@ class TestAssDownloadUsesTheTitlesVideo:
         # A video name whose file is gone does not fall back to the audio file.
         isolated_db.update_drama(did, source_video_filename="gone.mp4")
         assert export_service.generate_ass_text(did, "zh")
+
+
+class TestSpeakerNamesInSubtitles:
+    @pytest.fixture
+    def did(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello", speaker="SPEAKER_00"),
+            Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye", speaker="SPEAKER_01"),
+            Line(idx=2, start=4.0, end=6.0, zh="好", en="Okay"),
+        ])
+        isolated_db.upsert_character(did, "SPEAKER_00", character_name="Wei")
+        return did
+
+    @pytest.mark.parametrize("fmt", ["srt", "vtt", "lrc"])
+    def test_off_by_default(self, did, fmt):
+        text = export_service.generate_subtitle_text(did, fmt, "en")
+        assert "Wei" not in text and "SPEAKER_01" not in text
+
+    def test_srt_prefix_uses_character_name_then_label(self, did):
+        text = export_service.generate_subtitle_text(did, "srt", "en", speaker_names=True)
+        assert "Wei: Hello" in text
+        assert "SPEAKER_01: Bye" in text
+        assert "\nOkay\n" in text
+
+    def test_srt_bilingual_prefixes_first_line(self, did):
+        text = export_service.generate_subtitle_text(did, "srt", "bilingual", speaker_names=True)
+        assert "Wei: Hello\n你好" in text
+
+    def test_vtt_uses_voice_tag(self, did):
+        text = export_service.generate_subtitle_text(did, "vtt", "en", speaker_names=True)
+        assert "<v Wei>Hello</v>" in text
+        assert "<v SPEAKER_01>Bye</v>" in text
+        assert "\nOkay\n" in text
+
+    def test_lrc_prefix(self, did):
+        text = export_service.generate_subtitle_text(did, "lrc", "en", speaker_names=True)
+        assert "[00:00.00]Wei: Hello" in text
+        assert "[00:04.00]Okay" in text
+
+    def test_sfx_cue_has_no_name(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="", en="door", speaker="A", sfx=True)])
+        text = export_service.generate_subtitle_text(did, "srt", "en", speaker_names=True)
+        assert "A:" not in text and "[door]" in text
