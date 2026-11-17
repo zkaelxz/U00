@@ -53,7 +53,7 @@ class FakeYDL:
         return False
 
     def prepare_filename(self, info):
-        return self.opts["outtmpl"].replace("%(ext)s", info["ext"])
+        return self.opts["outtmpl"]["default"].replace("%(ext)s", info["ext"])
 
     def extract_info(self, url, download=True):
         FakeYDL.calls.append(url)
@@ -231,7 +231,9 @@ def test_ydl_options_caps_filters_and_no_cookies(client, env):
     tmp = o["paths"]["home"]
     assert o["paths"]["temp"] == tmp and os.path.dirname(tmp) == storage.temp_root()
     assert os.path.basename(tmp).startswith("urlmedia_")
-    assert os.path.dirname(o["outtmpl"]) == tmp
+    assert os.path.dirname(o["outtmpl"]["default"]) == tmp
+    # The thumbnail's own template: yt-dlp ignores paths["thumbnail"] for an absolute one.
+    assert os.path.dirname(o["outtmpl"]["thumbnail"]) == o["paths"]["thumbnail"]
     assert o["allowed_extractors"] == ["default", "-generic"]
     mf = o["match_filter"]
     assert mf({"duration": 60}) is None

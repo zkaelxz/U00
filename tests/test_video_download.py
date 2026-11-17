@@ -33,7 +33,9 @@ def _install_fake_yt_dlp(extract_info_fn=None, raise_exc=None):
             return extract_info_fn(url) if extract_info_fn else {"id": "abc", "ext": "m4a"}
 
         def prepare_filename(self, info):
-            return calls["opts"]["outtmpl"].replace("%(ext)s", info["ext"])
+            tmpl = calls["opts"]["outtmpl"]
+            tmpl = tmpl["default"] if isinstance(tmpl, dict) else tmpl
+            return tmpl.replace("%(ext)s", info["ext"])
 
     fake_module = types.ModuleType("yt_dlp")
     fake_module.YoutubeDL = FakeYoutubeDL
@@ -278,3 +280,37 @@ class TestDownloadCookiesReachYtDlp:
             assert "cookie-based login" not in str(exc_info.value)
         finally:
             _teardown()
+
+
+class TestThumbnailFolder:
+    def teardown_method(self):
+        _teardown()
+
+    def test_a_thumbnail_folder_gets_its_own_template(self, tmp_path):
+        # yt-dlp ignores paths["thumbnail"] for an absolute template, so without its own
+        # template the site's picture lands beside the media (found on a real download).
+        out_dir = str(tmp_path / "dl")
+        thumbs = os.path.join(out_dir, "site_thumbnail")
+        def fake_info(url):
+            open(os.path.join(out_dir, "downloaded_video.mp4"), "wb").close()
+            return {"id": "abc", "ext": "mp4"}
+        calls = _install_fake_yt_dlp(extract_info_fn=fake_info)
+        import video_download
+        importlib.reload(video_download)
+        path = video_download.download("https://example.com/v", out_dir, audio_only=False,
+                                       extra_opts={"paths": {"home": out_dir, "thumbnail": thumbs}})
+        tmpl = calls["opts"]["outtmpl"]
+        assert tmpl["default"] == os.path.join(out_dir, "downloaded_video.%(ext)s")
+        assert tmpl["thumbnail"] == os.path.join(thumbs, "downloaded_video.%(ext)s")
+        assert path == os.path.join(out_dir, "downloaded_video.mp4")
+
+    def test_no_thumbnail_folder_keeps_the_plain_template(self, tmp_path):
+        out_dir = str(tmp_path / "dl")
+        def fake_info(url):
+            open(os.path.join(out_dir, "downloaded_audio.flac"), "wb").close()
+            return {"id": "abc", "ext": "m4a"}
+        calls = _install_fake_yt_dlp(extract_info_fn=fake_info)
+        import video_download
+        importlib.reload(video_download)
+        video_download.download("https://example.com/v", out_dir)
+        assert calls["opts"]["outtmpl"] == os.path.join(out_dir, "downloaded_audio.%(ext)s")

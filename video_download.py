@@ -165,6 +165,12 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
     extra_hooks = list(extra.pop("progress_hooks", None) or [])
     ydl_opts.update(extra)
     ydl_opts["progress_hooks"] = [_hook] + extra_hooks
+    # yt-dlp ignores `paths` for an absolute template, so a thumbnail folder asked for there
+    # needs its own template too, or the thumbnail lands beside the media instead.
+    thumb_dir = (ydl_opts.get("paths") or {}).get("thumbnail")
+    if thumb_dir and isinstance(ydl_opts["outtmpl"], str):
+        ydl_opts["outtmpl"] = {"default": ydl_opts["outtmpl"],
+                               "thumbnail": os.path.join(thumb_dir, os.path.basename(ydl_opts["outtmpl"]))}
 
     try:
         with yt_dlp.YoutubeDL(cast("_Params", ydl_opts)) as ydl:

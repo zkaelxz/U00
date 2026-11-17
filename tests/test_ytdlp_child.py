@@ -23,7 +23,7 @@ class YoutubeDL:
     def __exit__(self, *a):
         return False
     def prepare_filename(self, info):
-        return self.opts["outtmpl"].replace("%(ext)s", "m4a")
+        return self.opts["outtmpl"]["default"].replace("%(ext)s", "m4a")
     def extract_info(self, url, download=True):
         mode = os.environ["FAKE_YTDLP_MODE"]
         if mode == "silent":
@@ -39,7 +39,7 @@ class YoutubeDL:
                 f.write(str(os.getpid()) + " " + str(grand.pid))
             time.sleep(120)
         if mode in ("forge", "forge_nonce"):
-            out_dir = os.path.dirname(self.opts["outtmpl"])
+            out_dir = os.path.dirname(self.opts["outtmpl"]["default"])
             spec = os.path.join(out_dir, "ytdlp_spec.json")
             part = os.path.join(out_dir, "downloaded_audio.m4a.part")
             open(part, "wb").write(b"x")
