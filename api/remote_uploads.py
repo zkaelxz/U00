@@ -11,6 +11,7 @@ import logging
 import tempfile
 import threading
 
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 
 from services import auth_service
@@ -131,7 +132,8 @@ class RemoteUploadGate:
         if is_local_request(request):
             return await self.app(scope, receive, send)
         try:
-            principal = _authenticate(request)
+            # Off the event loop for the same reason as EarlyAuthGate.
+            principal = await run_in_threadpool(_authenticate, request)
         except (UnauthenticatedError, ForbiddenError) as exc:
             status = 401 if isinstance(exc, UnauthenticatedError) else 403
             return await _json_refusal(status, exc.code, exc.message)(scope, receive, send)
