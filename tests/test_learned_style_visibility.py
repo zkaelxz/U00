@@ -16,8 +16,7 @@ import db
 import line_tools
 from engine_backends import engine_registry
 from core import Line
-from services import (library_admin_service, line_ai_service, ownership_service,
-                      review_extras_service, review_jobs_service, review_records_service,
+from services import (library_admin_service, line_ai_service, review_extras_service, review_jobs_service, review_records_service,
                       translate_run_service, translate_service, workspace_job_service)
 from services import workspace_review_job_service as wrjs
 from services.auth_service import PERMISSIONS
@@ -72,11 +71,11 @@ def acting(people):
     tokens = []
 
     def bind(principal):
-        tokens.append(ownership_service.bind_request())
-        ownership_service.note_acting_principal(principal)
+        tokens.append(acting.bind_request())
+        acting.note_acting_principal(principal)
     yield bind
     for token in reversed(tokens):
-        ownership_service.unbind_request(token)
+        acting.unbind_request(token)
 
 
 

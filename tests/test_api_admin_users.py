@@ -20,6 +20,7 @@ from services import auth_service
 from lib.errors import ConflictError, ForbiddenError, NotFoundError
 from tests.api_helpers import loopback_client
 from tests.test_api_household_listener import _h as _household_h, _household_client
+from lib import acting
 
 REMOTE = "https://baihe.example.com"
 LOCAL_POST = {"X-Baihe-Local": "1"}
@@ -809,18 +810,18 @@ def test_a_paid_call_is_logged_for_the_account_it_ran_for(isolated_db):
     """A request's own user, a job's starter, and no one (the PC owner) when neither applies."""
     from jobs.job_runner import wait_for_job_threads
     from jobs import job_launch
-    from services import ownership_service
+    from lib import acting
     m, _ = _paid_member()
     db.log_usage(None, "claude", "m", "translate", 1, 1, 0.25)
-    token = ownership_service.bind_request()
+    token = acting.bind_request()
     try:
-        ownership_service.note_acting_principal(auth_service.member_principal(m["id"]))
+        acting.note_acting_principal(auth_service.member_principal(m["id"]))
         db.log_usage(None, "claude", "m", "translate", 1, 1, 0.5)
         # The job records its starter here and logs from its own thread.
         assert job_launch.start_job("paid-attr", lambda: db.log_usage(
             None, "claude", "m", "translate", 1, 1, 0.75))
     finally:
-        ownership_service.unbind_request(token)
+        acting.unbind_request(token)
     assert wait_for_job_threads(5)
     assert _spend_rows() == [(None, 0.25), (m["id"], 0.5), (m["id"], 0.75)]
     assert db.get_month_spend_by_user() == {m["id"]: 1.25}
@@ -947,12 +948,12 @@ def test_a_job_that_crosses_its_starters_limit_is_stopped(isolated_db):
                 seen["stopped_after"] = len(_spend_rows())
                 raise background_jobs.JobCancelled()
 
-    token = ownership_service.bind_request()
+    token = acting.bind_request()
     try:
-        ownership_service.note_acting_principal(auth_service.member_principal(m["id"]))
+        acting.note_acting_principal(auth_service.member_principal(m["id"]))
         assert job_launch.start_job("over-limit", work)
     finally:
-        ownership_service.unbind_request(token)
+        acting.unbind_request(token)
     from jobs.job_runner import wait_for_job_threads
     assert wait_for_job_threads(5)
     assert seen == {"stopped_after": 2}

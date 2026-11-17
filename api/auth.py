@@ -69,6 +69,7 @@ from fastapi import Depends, Request
 
 from api import remote_uploads
 from services import auth_service, device_token_service, ownership_service
+from lib import acting
 from lib.errors import ForbiddenError, UnauthenticatedError
 
 COOKIE_NAME = "__Host-baihe_session"     # Secure mode (always, except loopback-http dev)
@@ -197,7 +198,7 @@ def require_permission(*permissions: str):
                 _refuse_if_paid_limit_reached(principal)
             raise ForbiddenError(_GENERIC_403)
         request.state.principal = principal
-        ownership_service.note_acting_principal(principal)
+        acting.note_acting_principal(principal)
         require_path_visible(request, principal, stopping=stopping)
         return principal
 
@@ -264,7 +265,7 @@ def require_device_token():
         principal = listener_principal(request.app, device_token_service.authenticate(
             request.headers.getlist("authorization"), ip=client_ip(request)))
         request.state.principal = principal
-        ownership_service.note_acting_principal(principal)
+        acting.note_acting_principal(principal)
         require_path_visible(request, principal)
         return principal
 

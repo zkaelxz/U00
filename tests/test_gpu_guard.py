@@ -386,27 +386,27 @@ class TestStopAndRestart:
         assert _status("plain_a") == "running"
 
     def test_restart_runs_as_its_starter(self, monkeypatch):
-        from services import ownership_service
+        from lib import acting
         seen = []
         started = []
 
         def again():
-            seen.append(ownership_service.acting_principal())
+            seen.append(acting.acting_principal())
             _stoppable("own_a", started)
 
-        token = ownership_service.bind_request()
+        token = acting.bind_request()
         try:
-            ownership_service.note_acting_principal({"id": 7, "permissions": []})
+            acting.note_acting_principal({"id": 7, "permissions": []})
             assert _stoppable("own_a", started)
             gpu_guard.allow_restart("own_a", again)
         finally:
-            ownership_service.unbind_request(token)
+            acting.unbind_request(token)
         t = self._short_for(2, time.time())
         assert _wait_for(lambda: _status("own_a") != "running")
         gpu_guard.tick(now=t + 20, reading=(SHORT, COOL))
         assert seen == [{"id": 7, "permissions": []}]
         # The poller's own context is untouched.
-        assert ownership_service.acting_principal() is None
+        assert acting.acting_principal() is None
 
     def test_after_max_restarts_a_stop_is_final_and_says_so(self, job):
         started, calls = job

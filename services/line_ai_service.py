@@ -36,6 +36,7 @@ from lib.errors import (
     ServiceError,
     UnsupportedOperationError,
 )
+from lib import acting
 
 MAX_ISSUE_CHARS = 500
 
@@ -145,7 +146,7 @@ def improve_line(drama_id: int, line_id: int, engine_name: str | None = None, mo
     # Same builder as a translate run, so the line's emotion guidance
     # is included too.
     _glossary, guidelines, _names = workspace_job_service.build_run_style_context(
-        drama_id, drama, [line], preset, principal=ownership_service.acting_principal(),
+        drama_id, drama, [line], preset, principal=acting.acting_principal(),
         engine_name=name, model=getattr(engine, "model", model))
     suggestion = run(lambda: line_tools.improve_line(
         line.zh, line.en, engine, issue=issue,

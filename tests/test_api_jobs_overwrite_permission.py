@@ -21,10 +21,10 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import (auth_service, diarization_service, ownership_service,
-                      review_jobs_service, settings_service, transcribe_service,
+from services import (auth_service, diarization_service, review_jobs_service, settings_service, transcribe_service,
                       translate_run_service, translate_service)
 from lib.errors import ForbiddenError
+from lib import acting
 
 NO_EDIT = ("library.read", "lines.read", "jobs.start")
 WITH_EDIT = NO_EDIT + ("lines.edit",)
@@ -52,13 +52,13 @@ def _env(isolated_db, monkeypatch):
 
 @contextlib.contextmanager
 def _acting(perms):
-    token = ownership_service.bind_request()
-    ownership_service.note_acting_principal(
+    token = acting.bind_request()
+    acting.note_acting_principal(
         {"user_id": 7, "is_admin": False, "is_local_owner": False, "permissions": list(perms)})
     try:
         yield
     finally:
-        ownership_service.unbind_request(token)
+        acting.unbind_request(token)
 
 
 def _drama(rows=(), **fields):
