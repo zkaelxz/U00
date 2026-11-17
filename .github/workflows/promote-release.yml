@@ -25,9 +25,18 @@ permissions:
   contents: read
 
 jobs:
+  # Known advisories in what the tag ships stop the promotion; the weekly run
+  # alone left days between an advisory and the next Monday. It reads the
+  # tag's code with a read-only token, apart from the promote job.
+  audit:
+    uses: ./.github/workflows/dependency-audit-code.yml
+    with:
+      ref: refs/tags/${{ inputs.tag }}
+
   # Runs nothing from the repository (no checkout): only gh against the
   # release that the tag's own run published.
   promote:
+    needs: audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: release-main

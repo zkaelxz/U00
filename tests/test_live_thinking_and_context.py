@@ -300,11 +300,11 @@ class TestOllamaCheckGraphicsMemory:
         monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 5 * 1024 if memory == "vram" else 0)
         monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
 
-        def setup(free_gb, model_gb, loaded=(), unloads=True):
+        def setup(free_gb, model_gb, loaded=(), unloads=True, name="translategemma:27b"):
             monkeypatch.setattr(ollama_unload, "is_enabled", lambda: unloads)
             monkeypatch.setattr(memory_headroom, "read_memory_mb",
-                                lambda memory, at_load=False: (32 * 1024, free_gb * 1024))
-            replies = {"/api/tags": {"models": [{"name": "translategemma:27b", "size": model_gb * 1024 ** 3}]},
+                                lambda memory, at_load=False: (48 * 1024, free_gb * 1024))
+            replies = {"/api/tags": {"models": [{"name": name, "size": model_gb * 1024 ** 3}]},
                        "/api/ps": {"models": [{"name": n, "size_vram": g * 1024 ** 3} for n, g in loaded]}}
             monkeypatch.setattr(memory_headroom, "_ollama_json",
                                 lambda url: replies[url[url.index("/api/"):]])
@@ -318,14 +318,14 @@ class TestOllamaCheckGraphicsMemory:
         assert "kept free" in out["message"] and "localhost" not in out["message"]
 
     def test_room_enough_is_ok(self, gpu):
-        gpu(free_gb=30, model_gb=17)
+        gpu(free_gb=33, model_gb=17)
         assert live_service.check_ollama("translategemma:27b", "large-v3", True) == {
             "ok": True, "model": "translategemma:27b", "message": None}
 
     def test_memory_another_loaded_ollama_model_holds_counts_as_free(self, gpu):
-        gpu(free_gb=21, model_gb=17, loaded=[("translategemma:12b", 9)])
+        gpu(free_gb=24, model_gb=17, loaded=[("translategemma:12b", 9)])
         assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is True
-        gpu(free_gb=21, model_gb=17, loaded=[("translategemma:12b", 9)], unloads=False)
+        gpu(free_gb=24, model_gb=17, loaded=[("translategemma:12b", 9)], unloads=False)
         assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is False
 
     def test_the_chosen_model_already_loaded_still_needs_room_beside_whisper(self, gpu):
@@ -335,10 +335,23 @@ class TestOllamaCheckGraphicsMemory:
 
     def test_a_whisper_already_loaded_in_this_process_is_not_counted_twice(self, gpu, monkeypatch):
         import whisper_models
-        gpu(free_gb=25, model_gb=17)
+        gpu(free_gb=27, model_gb=17)
         assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is False
         monkeypatch.setattr(whisper_models, "_whisper_model_cache", {"large-v3_gpu": object()})
         assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is True
+
+    @pytest.mark.parametrize("model,download_gb,whisper,real_gb", [
+        ("translategemma:12b", 8.1, "ja-1.5b", 15.4), ("translategemma:27b", 17.0, "large-v3", 24.2)])
+    def test_it_warns_wherever_the_measured_v100_need_would_break_the_reserve(
+            self, gpu, model, download_gb, whisper, real_gb):
+        # Peak GPU memory a cold Live run took on the V100 (Ollama at 16k context).
+        gpu(free_gb=real_gb + 5 - 0.1, model_gb=download_gb, name=model)
+        assert live_service.check_ollama(model, whisper, True)["ok"] is False
+
+    def test_ollamas_own_size_for_the_loaded_model_beats_the_estimate(self, gpu):
+        # Estimated 21.75 GB; Ollama says the loaded model holds 24 GB.
+        gpu(free_gb=10, model_gb=17, loaded=[("translategemma:27b", 24)])
+        assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is False
 
     def test_without_the_gpu_nothing_is_said(self, gpu):
         gpu(free_gb=1, model_gb=17)

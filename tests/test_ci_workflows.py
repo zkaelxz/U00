@@ -101,3 +101,30 @@ def test_a_pr_build_never_reads_the_signing_key_or_publishes():
     staged = [s for s in steps if "baihe-android-publish" in str(s) or s.get("name") == "Stage the files the server fetches"]
     assert staged and all(s["if"] == "steps.key.outputs.publish == 'true'" for s in staged)
     assert wf["jobs"]["publish"]["if"].startswith("github.event_name == 'workflow_dispatch'")
+
+
+# --- dependency audit before a release is promoted ----------------------------------
+
+def test_promoting_a_release_waits_for_an_audit_of_the_tags_code():
+    promote = _load("promote-release.yml")["jobs"]
+    assert promote["promote"]["needs"] == "audit"
+    audit = promote["audit"]
+    assert audit["uses"] == "./.github/workflows/dependency-audit-code.yml"
+    assert audit["with"]["ref"] == "refs/tags/${{ inputs.tag }}"
+
+
+def test_the_audit_checks_out_the_given_commit_with_a_read_only_token():
+    code = _load("dependency-audit-code.yml")
+    assert "workflow_call" in _on(code)
+    assert code["permissions"] == {"contents": "read"}
+    for name, job in code["jobs"].items():
+        assert "permissions" not in job, name
+        checkouts = [s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@")]
+        assert [c["with"]["ref"] for c in checkouts] == ["${{ inputs.ref }}"], name
+    assert set(code["jobs"]) == {"python", "npm", "go"}
+
+
+def test_the_weekly_audit_still_runs_the_same_checks():
+    weekly = _load("dependency-audit.yml")
+    assert weekly["jobs"]["code"]["uses"] == "./.github/workflows/dependency-audit-code.yml"
+    assert "schedule" in _on(weekly)
