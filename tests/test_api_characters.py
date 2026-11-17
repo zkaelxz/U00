@@ -15,7 +15,7 @@ pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
 
-import dub
+from voice import dub
 from core import Line
 from lib.errors import NotFoundError
 

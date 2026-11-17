@@ -31,6 +31,7 @@ import shutil
 import threading
 import uuid
 from typing import Optional
+from urllib.parse import urlsplit
 
 import background_jobs
 from jobs import job_launch
@@ -104,6 +105,32 @@ def clean_message(text) -> str:
     text = jobs_service.URL_PATTERN.sub("[URL]", str(text))
     text = _PATH_RE.sub("<path>", shared.redact_secrets(text))
     return text.splitlines()[0][:500] if text.strip() else ""
+
+
+_TWITCH_HOSTS = ("twitch.tv", "www.twitch.tv", "m.twitch.tv")
+_TWITCH_NAME = re.compile(r"[A-Za-z0-9_]{1,25}")
+_TWITCH_VIDEO = re.compile(r"[0-9]{1,15}")
+
+
+def stream_ref(url: str) -> Optional[dict]:
+    """The embeddable video a start link points at, as a kind and an id only
+    (Kae, 2026-11-17: other signed-in devices may show the video, but the
+    fetched URL itself never leaves the server); None for any other link."""
+    vid = live_chat.video_id(url)
+    if vid:
+        return {"kind": "youtube", "id": vid}
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return None
+    if (parts.hostname or "").lower() not in _TWITCH_HOSTS:
+        return None
+    path = [p for p in parts.path.split("/") if p]
+    if len(path) == 2 and path[0] == "videos" and _TWITCH_VIDEO.fullmatch(path[1]):
+        return {"kind": "twitch-video", "id": path[1]}
+    if len(path) == 1 and _TWITCH_NAME.fullmatch(path[0]):
+        return {"kind": "twitch-channel", "id": path[0]}
+    return None
 
 
 def _cue_text(text) -> str:
@@ -550,7 +577,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
         _sessions[session_id] = {"dir": out_dir, "engine": engine_name,
                                  "model": getattr(eng, "model", None), "starting": True,
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
-                                 "source_language": source_language,
+                                 "source_language": source_language, "stream": stream_ref(url),
                                  "owner_user_id": acting.acting_user_id(),
                                  "chat": live_chat.ChatBoard() if chat else None}
     try:
@@ -692,6 +719,7 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "delayed_player": bool(entry.get("delayed_player")),
             "player_ready": live_player.ready(entry.get("dir")),
             "chat": entry.get("chat") is not None,
+            "stream": entry.get("stream"),
             **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},
             "cues": out, "next_index": max(after, len(cues))}
 

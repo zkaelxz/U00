@@ -31,9 +31,8 @@ from tests.job_helpers import wait_for_job
 REMOTE = "https://baihe.example.com"
 SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
 ABS_PATH = "/home/someone/private/thing"
-LATEST = svc.DENO_DOWNLOADS[("Linux", "x86_64")]
-VERSIONED = ("https://github.com/denoland/deno/releases/download/v2.9.7/"
-             "deno-x86_64-unknown-linux-gnu.zip")
+ASSET = svc.DENO_ASSETS[("Linux", "x86_64")][0]
+PINNED = f"https://github.com/denoland/deno/releases/download/v{svc.DENO_VERSION}/{ASSET}"
 _REAL_DENO_RUNS = svc._deno_runs
 ASSET_HOST = "https://release-assets.githubusercontent.com/github-production-release-asset/1/x"
 
@@ -69,7 +68,7 @@ def env(isolated_db, monkeypatch, tmp_path):
     """Linux x86_64, no deno on PATH, nothing running; the download table is
     served by `routes` (URL -> response factory)."""
     from services import library_admin_service
-    state = {"running": False, "which": None, "routes": {}, "requests": [], "timeouts": []}
+    state = {"monkeypatch": monkeypatch, "running": False, "which": None, "routes": {}, "requests": [], "timeouts": []}
     monkeypatch.setattr(library_admin_service, "any_job_running", lambda: state["running"])
     monkeypatch.setattr(svc.platform, "system", lambda: "Linux")
     monkeypatch.setattr(svc.platform, "machine", lambda: "x86_64")
@@ -105,15 +104,15 @@ def env(isolated_db, monkeypatch, tmp_path):
     packages_svc._UPDATES.update(checked_at=None, packages={})
 
 
-def _serve_release(state, zip_bytes=None, checksum=None):
+def _serve_release(state, zip_bytes=None, pinned_sha=None):
+    """Serves the pinned asset URL (via one redirect to asset storage) and pins
+    `pinned_sha` for it, by default the real digest of the served zip."""
     z = _zip() if zip_bytes is None else zip_bytes
-    digest = hashlib.sha256(z).hexdigest() if checksum is None else checksum
+    sha = hashlib.sha256(z).hexdigest() if pinned_sha is None else pinned_sha
+    state["monkeypatch"].setitem(svc.DENO_ASSETS, ("Linux", "x86_64"), (ASSET, sha))
     state["routes"].update({
-        LATEST: lambda: _Resp(302, location=VERSIONED),
-        VERSIONED: lambda: _Resp(302, location=ASSET_HOST + "?zip"),
+        PINNED: lambda: _Resp(302, location=ASSET_HOST + "?zip"),
         ASSET_HOST + "?zip": lambda: _Resp(200, z),
-        VERSIONED + ".sha256sum": lambda: _Resp(302, location=ASSET_HOST + "?sum"),
-        ASSET_HOST + "?sum": lambda: _Resp(200, f"{digest}  deno.zip\n".encode()),
     })
 
 
@@ -137,7 +136,7 @@ def test_deno_download_installs_verified_binary(client, env):
     assert st["status"] == "done", st
     assert env["dest"].read_bytes() == b"#!deno-binary"
     # Every request came from the static table or an allowlisted hop, with a timeout.
-    assert env["requests"][0] == LATEST
+    assert env["requests"] == [PINNED, ASSET_HOST + "?zip"]
     assert all(t == svc.REQUEST_TIMEOUT for t in env["timeouts"])
     b = client.get("/api/diagnostics/deno").json()
     last = b["last_result"]
@@ -147,7 +146,7 @@ def test_deno_download_installs_verified_binary(client, env):
 
 
 def test_deno_checksum_mismatch_installs_nothing(client, env):
-    _serve_release(env, checksum="0" * 64)
+    _serve_release(env, pinned_sha="0" * 64)
     assert client.post("/api/diagnostics/deno/install", json={"confirm": True}).status_code == 200
     st = wait_for_job(svc.DENO_JOB_ID)
     assert st["status"] == "error"
@@ -156,8 +155,19 @@ def test_deno_checksum_mismatch_installs_nothing(client, env):
     assert last["ok"] is False and "checksum" in last["message"]
 
 
+def test_deno_pin_covers_every_platform_with_a_real_looking_hash():
+    assert set(svc.DENO_ASSETS) == {("Windows", "x86_64"), ("Linux", "x86_64"),
+                                    ("Linux", "aarch64"), ("Darwin", "x86_64"),
+                                    ("Darwin", "aarch64")}
+    for asset, sha in svc.DENO_ASSETS.values():
+        assert asset.startswith("deno-") and asset.endswith(".zip")
+        assert len(sha) == 64 and sha == sha.lower() and int(sha, 16)
+    assert len({sha for _, sha in svc.DENO_ASSETS.values()}) == 5
+    assert "latest" not in PINNED and f"/v{svc.DENO_VERSION}/" in PINNED
+
+
 @pytest.mark.parametrize("hop", [
-    "http://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-unknown-linux-gnu.zip",
+    "http://github.com/denoland/deno/releases/download/v2.9.8/deno-x86_64-unknown-linux-gnu.zip",
     "https://evil.example/deno.zip",
     "https://github.com.evil.example/x",
     "https://user:pw@github.com/x",
@@ -165,7 +175,7 @@ def test_deno_checksum_mismatch_installs_nothing(client, env):
 ])
 def test_deno_refuses_unexpected_redirects(client, env, hop):
     _serve_release(env)
-    env["routes"][LATEST] = lambda: _Resp(302, location=hop)
+    env["routes"][PINNED] = lambda: _Resp(302, location=hop)
     client.post("/api/diagnostics/deno/install", json={"confirm": True})
     assert wait_for_job(svc.DENO_JOB_ID)["status"] == "error"
     assert hop not in env["requests"]

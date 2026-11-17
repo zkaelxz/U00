@@ -412,6 +412,12 @@ def get_arena_export(run_ids: List[int] = Query(min_length=2, max_length=svc.MAX
     return _download(export_svc.comparison_data(run_ids), format)
 
 
+@router.get("/marked-lines/export", dependencies=_READ, responses=_ERRS,
+            summary="Every line marked wrong or mixed, across the titles you can see, as CSV or JSON")
+def get_marked_lines_export(request: Request, format: str = Query(default="csv", max_length=8)):
+    return _download(export_svc.marked_lines_data(request.state.principal), format)
+
+
 @router.get("/sweep", dependencies=_READ, response_model=BenchmarkSweepState,
             summary="The latest settings sweep, its recommendation and the decision on it")
 def get_sweep():

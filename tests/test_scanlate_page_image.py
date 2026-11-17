@@ -11,7 +11,7 @@ PIL = pytest.importorskip("PIL")
 from PIL import Image
 
 import db
-import scanlate_translate
+from scanlate import scanlate_translate
 from engine_backends import vision
 from services import scanlate_run_service as run_svc
 from tests.saved_settings import patch_setting

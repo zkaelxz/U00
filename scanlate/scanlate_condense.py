@@ -5,8 +5,7 @@ sits on, so it can be set at a readable size.
 import json
 import re
 
-import scanlate_tuning
-
+from scanlate import scanlate_tuning
 # A long English sentence on a sign whose Chinese is a few characters: the band is one line high, and
 # the typesetter would shrink it until it can't be read. Only the sign's own text is rewritten.
 _NOTE = (" Keep every fact: each name, number, place and what happens. Drop only filler words and "

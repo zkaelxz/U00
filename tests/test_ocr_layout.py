@@ -6,9 +6,7 @@ import pytest
 
 import ocr
 import ocr_layout
-import scanlate_tuning
-
-
+from scanlate import scanlate_tuning
 def quad(x0, y0, x1, y1):
     return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
 

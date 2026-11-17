@@ -265,7 +265,7 @@ class TestEngineInstallChecks:
         assert "ffmpeg" in listen_service._missing_engine_dependency("omnivoice")
 
     def test_omnivoice_counts_as_installed_only_when_its_venv_is_ready(self, monkeypatch, tmp_path):
-        import voice_venv
+        from voice import voice_venv
         monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path))
         # Its package is never importable in the app's own environment.
         self._without(monkeypatch, "omnivoice")
@@ -276,7 +276,7 @@ class TestEngineInstallChecks:
 
     def test_qwen3_tts_counts_as_installed_only_when_its_venv_is_ready(self, monkeypatch,
                                                                         tmp_path):
-        import voice_venv
+        from voice import voice_venv
         monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path))
         # Its package is never importable in the app's own environment.
         self._without(monkeypatch, "qwen_tts")
@@ -298,7 +298,7 @@ class TestUpgradeFromTheDubStage:
     def test_old_dub_leftovers_do_not_stop_startup_or_listen(self, isolated_db):
         from services import jobs_service
         did = _drama(isolated_db, [_line(0, speaker="S1")], status="dubbed")
-        isolated_db.set_app_setting("dub.pacing", {"max_speedup": 1.3})
+        isolated_db.set_app_setting("voice.dub.pacing", {"max_speedup": 1.3})
         isolated_db.set_app_setting("dub_keep_background", True)
         isolated_db.set_app_setting("storage.dub_bitrate", "192k")
         isolated_db.save_job_record(f"dub_{did}", status="done", progress=1.0)
@@ -311,4 +311,4 @@ class TestUpgradeFromTheDubStage:
         config = listen_service.get_listen_config(did)
         assert config["track_available"] is False
         assert jobs_service.get_job(f"dub_{did}")["status"] == "done"
-        assert isolated_db.get_app_setting("dub.pacing") == {"max_speedup": 1.3}
+        assert isolated_db.get_app_setting("voice.dub.pacing") == {"max_speedup": 1.3}

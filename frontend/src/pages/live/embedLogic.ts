@@ -51,6 +51,23 @@ export function parseStreamUrl(raw: string): StreamRef | null {
   return null
 }
 
+/**
+ * The stream the server says a session follows (its kind and id only, never the link), checked
+ * like a pasted one, so a device that didn't start the session can still show its video.
+ */
+export function streamFromStatus(ref: { kind: string; id: string } | null | undefined): StreamRef | null {
+  if (!ref) return null
+  if (ref.kind === 'youtube') return ytRef(ref.id)
+  if (ref.kind === 'twitch-video' && TWITCH_VIDEO.test(ref.id)) return { kind: 'twitch-video', id: ref.id }
+  if (ref.kind === 'twitch-channel' && TWITCH_NAME.test(ref.id)) return { kind: 'twitch-channel', name: ref.id }
+  return null
+}
+
+/** The browser that started a session knows its link; any other device has only the id the server gives. */
+export function sessionStream(url: string | null | undefined, ref: { kind: string; id: string } | null | undefined): StreamRef | null {
+  return url ? parseStreamUrl(url) : streamFromStatus(ref)
+}
+
 function ytRef(id: string | null | undefined): StreamRef | null {
   return id && YT_ID.test(id) ? { kind: 'youtube', id } : null
 }

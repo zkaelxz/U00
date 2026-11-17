@@ -410,7 +410,7 @@ def test_dubbed_media_needs_a_dubbed_video(setup):
     with pytest.raises(InvalidInputError):
         jf.send_to_jellyfin(drama, media="dubbed", refresh=False)
     from services import artifact_service
-    path = artifact_service.output_path(drama, "dubbed_video", "dub.mp4")
+    path = artifact_service.output_path(drama, "dubbed_video", "voice.dub.mp4")
     with open(path, "wb") as f:
         f.write(b"dub")
     jf.send_to_jellyfin(drama, media="dubbed", refresh=False)

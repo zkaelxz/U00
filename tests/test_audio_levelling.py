@@ -3,8 +3,7 @@
 import numpy as np
 
 import audio_levelling as levelling
-import dub
-
+from voice import dub
 RATE = 16000
 FULL = 32768.0
 

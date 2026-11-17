@@ -248,7 +248,7 @@ def test_no_pil_in_serve_path():
     import pathlib
     src = pathlib.Path(__file__).parent.parent / "services" / "comic_view_service.py"
     text = src.read_text(encoding="utf-8")
-    assert "PIL" not in text.replace("(no PIL)", "") and "import scanlate" not in text
+    assert "PIL" not in text.replace("(no PIL)", "") and "import scanlate" not in text and "from scanlate" not in text
 
 
 def test_commonpath_valueerror_is_404(client, comic, monkeypatch):

@@ -27,8 +27,8 @@ def pipeline(isolated_db, monkeypatch):
     """Page n's one bubble reads "p<n>"; each step is logged in the order it happened. The
     first translation waits (up to 5 s) for the second page's read to begin, so `overlapped`
     says whether the two ran at the same time."""
-    import scanlate
-    import scanlate_translate
+    from scanlate import scanlate
+    from scanlate import scanlate_translate
     monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
     state = {"reads": 0, "log": [], "contexts": {}, "second_read": threading.Event(),
              "overlapped": None, "fail_read": None}

@@ -16,10 +16,10 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
-import bulk_providers as bp
-import bulk_poll
-import bulk_reflect
-import bulk_translate
+from bulk import bulk_providers as bp
+from bulk import bulk_poll
+from bulk import bulk_reflect
+from bulk import bulk_translate
 from engine_backends import pricing
 from engine_backends import claude as engine_claude
 from engine_backends import gemini as engine_gemini

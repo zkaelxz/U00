@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { addTitleCorrections, getTitleCorrections } from '../../api/benchmark'
+import { addTitleCorrections, getTitleCorrections, markedLinesExportUrl } from '../../api/benchmark'
 import type { BenchmarkSet, TitleCorrections } from '../../types/benchmark'
 import { api } from '../../api/client'
 import { Field } from '../../components/Field'
@@ -131,6 +131,10 @@ export function CorrectionsSection({ sets, pc, onDone }: { sets: BenchmarkSet[];
         {problems[0] && <span className="muted" data-testid="corrections-reason">{problems[0]}</span>}
       </div>
       {result && <p role="status" data-testid="corrections-result">{result}</p>}
+      <p className="muted">
+        Lines you marked wrong or mixed, from every title:{' '}
+        <a href={markedLinesExportUrl('csv')} download>Download marked lines (CSV)</a>
+      </p>
       {error && (
         <p className="error" role="alert">
           {error}

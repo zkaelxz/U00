@@ -5,7 +5,7 @@ Chunks a page's regions into engine calls, matches the answers back by id, and
 carries a short context string from page to page.
 """
 
-from scanlate_regions import region_excluded_from_auto
+from scanlate.scanlate_regions import region_excluded_from_auto
 
 
 _MAX_CONTEXT_CHARS = 1000

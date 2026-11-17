@@ -9,14 +9,14 @@ import time
 
 import background_jobs
 from jobs import job_launch, job_table
-from bulk_apply import (apply_bulk_results, apply_consistency_results, apply_emotion_results,
+from bulk.bulk_apply import (apply_bulk_results, apply_consistency_results, apply_emotion_results,
                         apply_flag_results, apply_notes_results, require_bulk_job)
-from bulk_providers import (BulkAuthError, PollGuard, is_deepseek_offpeak,
+from bulk.bulk_providers import (BulkAuthError, PollGuard, is_deepseek_offpeak,
                             make_provider, next_deepseek_offpeak_start, reschedule_for_next_window,
                             WindowGate, offpeak_cap)
-from bulk_reflect import (_advance_pipeline, _fail_keeping_drafts, apply_reflect_stage_results,
+from bulk.bulk_reflect import (_advance_pipeline, _fail_keeping_drafts, apply_reflect_stage_results,
                           sibling_stage_job)
-from bulk_translate import _character_names, _utcnow
+from bulk.bulk_translate import _character_names, _utcnow
 import db
 import job_force_stop
 from engine_backends import shared, translate_pipeline, pricing

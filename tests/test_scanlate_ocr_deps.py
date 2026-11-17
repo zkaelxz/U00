@@ -11,7 +11,7 @@ pytest.importorskip("PIL")
 import background_jobs
 import db
 import ocr
-import scanlate
+from scanlate import scanlate
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_run_service as run_svc
 from lib.errors import DependencyUnavailableError

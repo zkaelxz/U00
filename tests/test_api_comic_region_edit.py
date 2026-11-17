@@ -198,7 +198,7 @@ def test_undo_of_a_kind_edit_puts_the_kind_back(client):
 
 
 def test_choosing_sfx_also_includes_the_box_and_undo_takes_both_back(client):
-    import scanlate_regions
+    from scanlate import scanlate_regions
     did, pid, (rid, _o) = _page()
     r = client.patch(_url(did, pid, rid), json={"expected_rev": 0, "changes": {"kind": "sfx"}})
     assert r.status_code == 200, r.text
