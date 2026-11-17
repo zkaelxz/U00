@@ -307,6 +307,10 @@ function AddPersonForm({ busy, onAdded }: { busy: boolean; onAdded: (user: Admin
         They sign in with Google using this email. They start with the household rights (see the library, read and
         edit subtitles, start and stop jobs, use Review); tick more in their Rights row once they are added.
       </p>
+      <p className="muted">
+        While your Google app is in testing, also add the same email to its test users (Google Cloud Console, OAuth
+        consent screen), or Google refuses the sign-in before it reaches Baihe.
+      </p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <Field label="Email">
         <input type="email" required autoComplete="off" spellCheck={false} maxLength={MAX_EMAIL_CHARS}

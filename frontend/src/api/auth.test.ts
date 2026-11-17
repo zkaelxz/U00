@@ -68,6 +68,7 @@ describe('login_error', () => {
   it('has a plain message for each code, and a generic one otherwise', () => {
     expect(loginErrorMessage('denied')).toBe('Sign-in was cancelled. You can try again.')
     expect(loginErrorMessage('not_allowed')).toMatch(/isn't on this household's list/)
+    expect(loginErrorMessage('not_allowed')).toMatch(/test users in Google Cloud/)
     expect(loginErrorMessage('expired')).toMatch(/expired/)
     expect(loginErrorMessage('provider_error')).toMatch(/Google sign-in didn't work/)
     const generic = "Sign-in didn't work. Please try again."
