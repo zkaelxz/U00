@@ -15,7 +15,7 @@ from lib.errors import ConflictError, InvalidInputError, NotFoundError
 import sqlite3
 import tempfile
 
-import page_server
+from services import page_server
 from services import auth_service
 from sources import store as src_store
 from tests.test_library_admin_service import (_backup_bytes, _leftovers, _new, _restore, _rewrite, _write,
