@@ -131,8 +131,8 @@ test('with audio attached and no lines, the main button starts the flow instead 
   })
   await page.goto('/#/drama/1')
   await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
-  await expect(page.getByRole('button', { name: 'Transcribe and translate' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Transcribe and translate' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Transcribe and build glossary' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Transcribe and build glossary' })).toHaveCount(0)
 })
 
 test('a comic has a Simple page with Open in Scanlate and Add pages, and Full is the workspace', async ({ page }) => {
@@ -989,14 +989,14 @@ test.describe('the check queue', () => {
     })
     await simple(page)
     await expect(page.getByRole('complementary', { name: 'Title panel' })).toBeVisible()
-    const flow = page.getByRole('button', { name: 'Transcribe and translate', exact: true })
+    const flow = page.getByRole('button', { name: 'Transcribe and build glossary', exact: true })
     const before = await flow.elementHandle()
     await flow.click()
     await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
     await expect(page.getByRole('complementary', { name: 'Title panel' })).toHaveCount(0)
     await expect(page.locator('.title-main-row [role="status"]')).toHaveText('Finding names for the glossary')
     await expect(flow).toBeDisabled()
-    expect(await before!.evaluate((el) => el.isConnected && el.textContent), 'the same button, still on the page').toBe('Transcribe and translate')
+    expect(await before!.evaluate((el) => el.isConnected && el.textContent), 'the same button, still on the page').toBe('Transcribe and build glossary')
   })
 
   // The closed cards of the queue on a wide screen: what tells the lines apart, with the room going to the texts.

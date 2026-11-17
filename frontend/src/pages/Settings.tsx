@@ -14,6 +14,7 @@ import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RetryBanner } from '../components/RetryBanner'
 import { PageShell } from '../components/PageShell'
+import { buttonClass } from '../components/uiClasses'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -58,6 +59,9 @@ import { Tabs } from '../components/Tabs'
 import { seedPageTabFolds } from '../components/sectionStorage'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import './settings/settings.css'
+
+// The guide lives in the repository, so it is always the version the docs pass last updated.
+const USER_GUIDE_URL = 'https://github.com/zkaelxz/U00/blob/baihe-subtitler/docs/user-guide.md'
 
 // Members who get 403 on the settings call see only these cards: their own account tab, plus Update Baihe
 // for an admin on the household address, whose update works from a phone.
@@ -276,6 +280,7 @@ export default function SettingsPage() {
       title="Settings"
       label="Settings"
       className="settings-page"
+      actions={<a className={buttonClass('secondary', 'sm')} href={USER_GUIDE_URL} target="_blank" rel="noopener noreferrer">Help: user guide</a>}
       tabs={(
         <>
           {loaded && <SettingsSearch query={query} onQuery={setQuery} total={searching ? match.total : null} />}

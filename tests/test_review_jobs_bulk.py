@@ -13,9 +13,9 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 
 import background_jobs
-import bulk_poll
-import bulk_providers
-import bulk_translate
+from bulk import bulk_poll
+from bulk import bulk_providers
+from bulk import bulk_translate
 import db
 from engine_backends import engine_registry
 from api.api_config import ApiSettings

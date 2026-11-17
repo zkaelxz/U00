@@ -15,6 +15,9 @@ PENDING, DONE, FAILED, CANCELLED = "pending", "done", "failed", "cancelled"
 SKIPPED = "skipped"
 # The note CueTranslator puts in place of a translation it could not get.
 FAILED_PREFIX = "[translation failed"
+# A blank reply is shown as a failure: as "done" the line would read as
+# translated while showing nothing, and the captions would show no text.
+EMPTY_REPLY_NOTE = f"{FAILED_PREFIX}: the engine sent back no translation]"
 
 
 def pending_cues(segments, offset: float, first_id: int) -> list:
@@ -36,6 +39,7 @@ def snapshot(settled: list, chunk: list) -> list:
 
 
 def _finish(cue: dict, translated: str) -> None:
+    translated = translated if isinstance(translated, str) and translated.strip() else EMPTY_REPLY_NOTE
     cue["translated"] = translated
     cue["translation"] = FAILED if translated.startswith(FAILED_PREFIX) else DONE
 

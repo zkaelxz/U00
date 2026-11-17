@@ -7,7 +7,7 @@ decided in bulk_poll.py.
 import json
 from typing import NamedTuple
 
-from bulk_translate import BATCH_PRICE_FACTOR, zh_hash
+from bulk.bulk_translate import BATCH_PRICE_FACTOR, zh_hash
 import db
 import emotion
 import source_change

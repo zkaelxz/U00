@@ -151,9 +151,30 @@ def _start(job_id, out_dir, engine, **kw):
 
 
 class TestBlockedOllamaTranslation:
+    def test_cancel_during_the_translator_warm_up_returns_promptly(
+            self, jobs, silent_ollama, tmp_path, monkeypatch):
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://stream")
+        captured = []
+        monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: captured.append(1) or FakeProc())
+        engine = local.OllamaEngine(model="translategemma:12b",
+                                    base_url=f"http://127.0.0.1:{silent_ollama.port}")
+        assert _start("live_cancel_warm", _chunk_dir(tmp_path), engine)
+
+        assert _wait(lambda: silent_ollama.accepted == 1)
+        assert "Loading translategemma:12b in Ollama before capture" in _shown("live_cancel_warm")
+        started = time.monotonic()
+        background_jobs.request_cancel("live_cancel_warm")
+        assert _wait(lambda: background_jobs.get_status("live_cancel_warm")["status"] != "running",
+                     PROMPT)
+        assert time.monotonic() - started < PROMPT
+        assert _wait(lambda: silent_ollama.hung_up == 1)
+        assert captured == []  # capture never started
+
     def test_status_names_ollama_then_cancel_returns_promptly(
             self, jobs, silent_ollama, tmp_path, monkeypatch):
         import whisper_transcribe
+        # This test is about a chunk's request blocking, not the load before capture.
+        monkeypatch.setattr(lt._LiveRun, "_warm_translator", lambda self: True)
         monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://stream")
         monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
         stopped = []

@@ -3,7 +3,7 @@ services/translate_run_options.py -- the request checks of start_translate_run:
 which options may combine, and which lines a run will translate.
 """
 
-import bulk_translate
+from bulk import bulk_translate
 import db
 from engine_backends import local, engine_registry
 from engine_backends import fallback as engine_fallback

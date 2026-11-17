@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 from jobs import job_launch
-import bulk_poll
+from bulk import bulk_poll
 import db
 from api.server import create_app
 from services import notification_service, settings_service
