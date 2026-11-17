@@ -136,7 +136,7 @@ test('Full screen asks the wrapper (picture, subtitles and controls) and follows
 })
 
 test('full screen fills the screen when the video is pinned beside the lines', async ({ page }) => {
-  // From 1400px wide the side video caps its stage height; full screen must override that.
+  // With the tools beside the lines the side video caps its stage height; full screen must override that.
   await page.setViewportSize({ width: 1600, height: 900 })
   await page.getByRole('button', { name: 'Full screen' }).click()
   await expect(page.getByRole('button', { name: 'Exit full screen' })).toBeVisible()
