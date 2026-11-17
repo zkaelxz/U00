@@ -1,5 +1,5 @@
 """
-api/sources_import_schemas.py -- response models for the import
+api/schemas/sources_import.py -- response models for the import
 state route (GET /api/sources/{name}/import-state). Text is scrubbed by
 the service; no URL field exists on any model.
 """
@@ -7,6 +7,8 @@ the service; no URL field exists on any model.
 from typing import List, Literal
 
 from pydantic import BaseModel
+
+__all__ = ["SourcesImportRetryRow", "SourcesImportState"]
 
 
 class SourcesImportRetryRow(BaseModel):

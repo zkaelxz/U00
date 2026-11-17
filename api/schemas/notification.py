@@ -1,7 +1,8 @@
 """
-api/notification_schemas.py -- request/response models for the
+api/schemas/notification.py -- request/response models for the
 notification routes added after the first version (the category switches and
-the in-app list). The channel models live in api/schemas/extension_access.py. No
+the in-app list). The channel models live in api/schemas/extension_access.py and the shared
+NotificationStatus/NotificationTarget in api/schemas/common.py. No
 model carries a webhook URL, host, topic, path or job id.
 """
 
@@ -9,7 +10,14 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 
-from api.schemas import NotificationStatus, NotificationTarget
+from api.schemas.common import NotificationStatus, NotificationTarget
+
+__all__ = [
+    "NotificationSettingsStatus",
+    "NotificationCategoriesRequest",
+    "NotificationEvent",
+    "NotificationList",
+]
 
 
 class NotificationSettingsStatus(NotificationStatus):

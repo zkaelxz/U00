@@ -110,8 +110,8 @@ def _cuda_available() -> bool:
 def _check_vram(model_name):
     """Refuse a GPU load that clearly won't fit, with a
     plain message, before the model starts loading."""
-    from services import vram_service
-    vram_service.check_fits(model_name)
+    import vram
+    vram.check_fits(model_name)
 
 
 OMNIVOICE_REPO = "k2-fsa/OmniVoice"

@@ -30,7 +30,7 @@ from fastapi.responses import Response
 from api.auth import (is_local_request, local_only, require_engines_allowed,
                       require_permission)
 from api.schemas import SourcesJobStarted, error_responses
-from api.sources_extraction_schemas import (ExtractionComicRerunRequest,
+from api.schemas import (ExtractionComicRerunRequest,
                                             ExtractionImportRequest,
                                             ExtractionNovelRerunRequest,
                                             ExtractionProfileSaved, ExtractionReview,

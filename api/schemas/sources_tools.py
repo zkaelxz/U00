@@ -1,5 +1,5 @@
 """
-api/sources_tools_schemas.py -- request/response models for the Sources
+api/schemas/sources_tools.py -- request/response models for the Sources
 tools routes (api/routers/sources_tools_routes.py) and the Discover pasted
 listing route. The shared SourcesJobStarted lives in api/schemas/sources.py.
 
@@ -13,6 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field, StrictStr
 
 from services.discover_lookup_service import MAX_PASTED_LISTING_CHARS
 from services.sources_tools_service import MAX_PASTED_HTML_BYTES
+
+__all__ = ["SourcesPreflightRequest", "SourcesPastedPreviewRequest", "SourcesPastedImportRequest",
+           "SourcesIdentifyMediaRequest", "SourcesMediaResource", "SourcesPastedPreview", "SourceExtractionAccess",
+           "SourceExtraction", "DiscoverBulkPastedRequest"]
 
 _URL = Field(min_length=1, max_length=2000)
 

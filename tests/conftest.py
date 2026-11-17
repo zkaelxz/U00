@@ -598,14 +598,16 @@ def _workers_do_not_leave_the_test_session(request):
     """Process-job workers call process_worker.start_own_process_group()
     first. Tests that run one in the pytest process would otherwise start a
     new session for it and a watchdog that can end it; only
-    test_background_jobs.py, which exercises that function in real child
-    processes, keeps the real one.
+    test_background_jobs.py and the two files split out of it
+    (test_process_jobs.py, test_job_limits.py), which exercise that
+    function in real child processes, keep the real one.
 
     Patched and restored by hand for the reason given on
     _testclient_defaults_to_loopback."""
     from jobs import process_worker
     original = process_worker.start_own_process_group
-    if not request.module.__name__.endswith("test_background_jobs"):
+    if not request.module.__name__.endswith(
+            ("test_background_jobs", "test_process_jobs", "test_job_limits")):
         process_worker.start_own_process_group = lambda: None
     try:
         yield

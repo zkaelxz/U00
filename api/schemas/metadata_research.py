@@ -1,12 +1,26 @@
 """
-api/metadata_research_schemas.py -- request/response models for grounded
+api/schemas/metadata_research.py -- request/response models for grounded
 metadata research (api/routers/metadata_research_routes.py).
 """
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.schemas import DramaDetail
+from api.schemas.common import DramaDetail
+
+__all__ = [
+    "ResearchRequest",
+    "ResearchSource",
+    "ResearchField",
+    "ResearchRelated",
+    "ResearchModelBudget",
+    "ResearchBudget",
+    "ResearchResult",
+    "ResearchApply",
+    "ResearchApplied",
+    "ProvenanceRow",
+    "ProvenanceList",
+]
 
 
 class ResearchRequest(BaseModel):

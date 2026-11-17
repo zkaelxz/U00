@@ -11,7 +11,7 @@ import background_jobs
 import db
 from engine_backends import engine_registry
 import whisper_transcribe
-from api.benchmark_schemas import BenchmarkRunRequest
+from api.schemas import BenchmarkRunRequest
 from services import benchmark_lab_service as lab
 from services import benchmark_runs_service as runs
 from services import model_readiness_service, translate_service

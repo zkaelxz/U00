@@ -1,5 +1,5 @@
 """
-api/stronger_engine_schemas.py -- request/response models for the
+api/schemas/stronger_engine.py -- request/response models for the
 "Try with a stronger engine" routes (api/routers/stronger_engine_routes.py).
 No key, URL or path field exists on any model.
 """
@@ -7,6 +7,8 @@ No key, URL or path field exists on any model.
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict
+
+__all__ = ["StrongerLineSuggestion", "StrongerEngineSuggestions", "StrongerLineTryRequest", "StrongerLineResult"]
 
 
 class StrongerLineSuggestion(BaseModel):

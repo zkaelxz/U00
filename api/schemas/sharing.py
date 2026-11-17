@@ -1,11 +1,14 @@
 """
-api/sharing_schemas.py -- request/response models for who can see each
+api/schemas/sharing.py -- request/response models for who can see each
 drama and series (api/routers/sharing_routes.py). No email, path or
 secret is part of any of them.
 """
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
+
+__all__ = ["SharingItem", "SharingList", "SetPrivateRequest", "SetPrivateResult", "SetOwnerRequest",
+           "SetOwnerResult", "ShareByDefault"]
 
 
 class SharingItem(BaseModel):

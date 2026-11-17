@@ -1,8 +1,8 @@
 """
-api/sources_extraction_schemas.py -- request/response models for the
+api/schemas/sources_extraction.py -- request/response models for the
 pasted-URL extraction extras: the AI fallback opt-in on the URL imports,
 the engine list, the comic import and the Review extraction step. The
-shared SourcesUrlImportRequest lives in api/schemas/sources.py. No model
+shared SourcesUrlImportRequest lives in api/schemas/common.py. No model
 carries a key, and no response carries one.
 """
 
@@ -10,8 +10,38 @@ from typing import TYPE_CHECKING, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
-from api.schemas import SourcesUrlImportRequest
+from api.schemas.common import SourcesUrlImportRequest
 from services.sources_import_service import FOLLOW_STOPS, MAX_FOLLOW_PAGES
+
+__all__ = [
+    "SourcesUrlImportAiRequest",
+    "SourcesUrlImportFollowRequest",
+    "SourcesAiRecoverRequest",
+    "SourcesAiEngines",
+    "SourcesComicUrlImportRequest",
+    "ExtractionFieldConfidence",
+    "ExtractionOverall",
+    "ExtractionConfidence",
+    "ExtractionPendingProfile",
+    "ExtractionReport",
+    "ExtractionOption",
+    "ExtractionContainer",
+    "ExtractionIdText",
+    "ExtractionLink",
+    "ExtractionNovel",
+    "ExtractionImage",
+    "ExtractionComic",
+    "ExtractionFollowedPage",
+    "FollowStop",
+    "ExtractionFollow",
+    "ExtractionReview",
+    "ExtractionRevisionRequest",
+    "ExtractionImportRequest",
+    "ExtractionNovelRerunRequest",
+    "ExtractionImageChoice",
+    "ExtractionComicRerunRequest",
+    "ExtractionProfileSaved",
+]
 
 
 class SourcesUrlImportAiRequest(SourcesUrlImportRequest):

@@ -76,3 +76,20 @@ test('Benchmark Lab: a running reading shows progress and is polled until it fin
   await expect(section.getByTestId('hard-sub-reading-result')).toContainText('Read 40 of 40 stretches', { timeout: 10_000 })
   expect(calls).toBeGreaterThanOrEqual(2)
 })
+
+test('Benchmark Lab: a running reading keeps checking after one failed check', async ({ page }) => {
+  let calls = 0
+  await page.route('**/api/benchmark/dramas/*/hard-sub-reading', (r) => {
+    calls += 1
+    if (calls === 1) return r.fulfill({ json: { status: 'running', progress: 0.5, message: 'Reading 20 of 40', result: null } })
+    if (calls === 2) return r.fulfill({ status: 500, json: { error: { code: 'application_error', message: 'Busy.' } } })
+    return r.fulfill({ json: { status: 'done', progress: 1, message: 'Done', result: outcome } })
+  })
+  await page.goto('/#/benchmark')
+  await openBenchTab(page, 'Golden sets')
+  const section = page.locator('details', { hasText: 'Hard-sub reading result' })
+  await section.getByText('Hard-sub reading result', { exact: true }).click()
+  await section.getByLabel('Title', { exact: true }).selectOption({ index: 1 })
+  await expect(section.getByTestId('hard-sub-reading-running')).toHaveText('Reading 20 of 40')
+  await expect(section.getByTestId('hard-sub-reading-result')).toContainText('Read 40 of 40 stretches.', { timeout: 15_000 })
+})

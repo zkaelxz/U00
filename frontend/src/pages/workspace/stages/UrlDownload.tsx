@@ -21,6 +21,7 @@ import { useJob } from '../../../hooks/useJob'
 import { useSimple } from '../StageContext'
 import { refreshReadiness, useReadiness } from '../../../hooks/useReadiness'
 import { usePcOnly } from '../../../hooks/usePcOnly'
+import { isComposingKey } from '../../../hooks/useShortcut'
 import { useStageDraft } from '../../../hooks/useStageDraft'
 import { NeedsInstall } from '../../readiness/NeedsInstall'
 import { urlDownloadNeeds } from '../../readiness/needs'
@@ -128,7 +129,7 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
             placeholder="https://…"
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && start()}
+            onKeyDown={(e) => e.key === 'Enter' && !isComposingKey(e) && start()}
           />
         </Field>
       )}

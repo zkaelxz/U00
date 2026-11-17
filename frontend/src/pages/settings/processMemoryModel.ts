@@ -15,7 +15,16 @@ export const STATE_NOTE: Record<ProcessMemory['state'], string> = {
   unavailable: "Couldn't read the process list.",
 }
 
-export const vramCell = (r: ProcessRow) => (r.vram_bytes == null ? "Windows doesn't say" : formatDecimalBytes(r.vram_bytes))
+// 0 means Windows listed the graphics counters and this process isn't in them;
+// null means the counters couldn't be read at all.
+export const vramCell = (r: ProcessRow) =>
+  r.vram_bytes == null ? "Windows doesn't say" : r.vram_bytes === 0 ? 'None' : formatDecimalBytes(r.vram_bytes)
+
+/** RAM now (working set), plus the memory the process has claimed even if Windows has paged it out. */
+export const ramCell = (r: ProcessRow) =>
+  r.private_bytes != null && r.private_bytes > r.ram_bytes * 1.5 && r.private_bytes - r.ram_bytes > 100_000_000
+    ? `${formatDecimalBytes(r.ram_bytes)} (${formatDecimalBytes(r.private_bytes)} claimed)`
+    : formatDecimalBytes(r.ram_bytes)
 
 export function summaryLine(d: ProcessMemory): string {
   const n = d.processes.length

@@ -265,7 +265,7 @@ class TestGenericComicImport:
             == "http://site.invalid:8080/c/1?k=v"
 
     def test_downloads_without_a_budget_use_the_page_upload_caps(self, isolated_db, monkeypatch):
-        from services import page_import_limits as limits
+        import page_import_limits as limits
         budget = generic_import.default_budget()
         assert (budget.max_images, budget.max_total_bytes) == (limits.MAX_FILES_PER_IMPORT,
                                                                limits.MAX_IMPORT_BYTES)

@@ -1,5 +1,8 @@
 """The Diagnostics model download: what can be fetched, who may start it, and how a
 job ends. The Hub and ModelScope fetches are replaced; no network, no model."""
+import sys
+import time
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -48,7 +51,7 @@ def test_lists_each_model_with_whether_it_is_on_disk(client, models):
     state["sensevoice"] = True
     body = client.get("/api/diagnostics/model-downloads").json()
     assert {m["id"]: m["downloaded"] for m in body["models"]} == {
-        "qwen3_asr": False, "sensevoice": True, "manga_ocr": False, "lama_manga": False, "nemotron_diarization": False,
+        "qwen3_asr": False, "sensevoice": True, "manga_ocr": False, "lama_manga": False, "nemotron_diarization": False, "pyannote_diarization": False,
         "whisper_large_v3": False, "whisper_large_v3_turbo": False, "whisper_ja_1_5b": False,
         "whisper_kotoba_v2": False, "whisper_medium": False, "whisper_anime": False,
         "whisper_breeze_asr_25": False}
@@ -191,3 +194,73 @@ def test_nemotron_download_fetches_only_the_files_the_loader_reads(monkeypatch):
     monkeypatch.setattr(svc, "_fetch_hub", lambda repos, report, cancelled, allow_patterns=None: calls.append((repos, allow_patterns)))
     svc._fetch_nemotron(lambda *a: None, lambda: False)
     assert calls == [(["nvidia/Nemotron-3-Diarization"], ["config.json", "processor_config.json", "model.safetensors"])]
+
+
+def test_pyannote_download_uses_the_saved_token_and_explains_a_refusal(monkeypatch):
+    import types
+    from services import settings_service
+    huggingface_hub = types.ModuleType("huggingface_hub")
+    monkeypatch.setitem(sys.modules, "huggingface_hub", huggingface_hub)
+    monkeypatch.setattr(settings_service, "resolve_key", lambda key: "tok")
+    calls = []
+    huggingface_hub.snapshot_download = lambda repo, **kw: calls.append((repo, kw["token"]))
+    svc._fetch_pyannote(lambda *a: None, lambda: False)
+    assert calls == [("pyannote/speaker-diarization-community-1", "tok")]
+
+    class GatedRepoError(Exception):
+        pass
+
+    def refuse(repo, **kw):
+        raise GatedRepoError("401 for a token that is not allowed")
+    huggingface_hub.snapshot_download = refuse
+    with pytest.raises(svc.ModelDownloadFailed) as err:
+        svc._fetch_pyannote(lambda *a: None, lambda: False)
+    assert "accept the terms at https://huggingface.co/pyannote/speaker-diarization-community-1" in str(err.value)
+    assert "tok" not in str(err.value).replace("token", "")
+
+
+def test_pyannote_download_without_a_token_says_where_to_add_one(monkeypatch):
+    from services import settings_service
+    monkeypatch.setattr(settings_service, "resolve_key", lambda key: None)
+    with pytest.raises(svc.ModelDownloadFailed, match="Hugging Face token"):
+        svc._fetch_pyannote(lambda *a: None, lambda: False)
+
+
+def _fake_child(monkeypatch, tmp_path, script):
+    """Runs `script` (a python snippet) in place of the ModelScope download child."""
+    import types
+    for name in ("modelscope", "modelscope.hub"):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    monkeypatch.setitem(sys.modules, "modelscope.hub.snapshot_download", types.ModuleType("modelscope.hub.snapshot_download"))
+    monkeypatch.setenv("MODELSCOPE_CACHE", str(tmp_path))
+    monkeypatch.setattr(svc, "_MODELSCOPE_CHILD", script)
+    monkeypatch.setattr(svc, "_POLL_SECONDS", 0.05)
+
+
+def test_sensevoice_download_reports_bytes_from_the_cache(monkeypatch, tmp_path):
+    folder = tmp_path / "models" / "iic" / "SenseVoiceSmall"
+    _fake_child(monkeypatch, tmp_path, (
+        "import os, time\n"
+        f"os.makedirs({str(folder)!r}, exist_ok=True)\n"
+        f"open({str(folder / 'model.pt')!r}, 'wb').write(b'x' * 5000000)\n"
+        "time.sleep(1)"))
+    seen = []
+    svc._fetch_modelscope(lambda f, m: seen.append(m), lambda: False)
+    assert any("5 MB so far" in m for m in seen)
+
+
+def test_sensevoice_download_that_receives_nothing_is_stopped_with_a_plain_reason(monkeypatch, tmp_path):
+    _fake_child(monkeypatch, tmp_path, "import time; time.sleep(30)")
+    monkeypatch.setattr(svc, "_STALL_SECONDS", 0.2)
+    started = time.monotonic()
+    with pytest.raises(svc.ModelDownloadFailed, match="ModelScope"):
+        svc._fetch_modelscope(lambda f, m: None, lambda: False)
+    assert time.monotonic() - started < 15   # the child was killed, not waited for
+
+
+def test_sensevoice_download_cancel_stops_the_child(monkeypatch, tmp_path):
+    _fake_child(monkeypatch, tmp_path, "import time; time.sleep(30)")
+    started = time.monotonic()
+    with pytest.raises(background_jobs.JobCancelled):
+        svc._fetch_modelscope(lambda f, m: None, lambda: True)
+    assert time.monotonic() - started < 15

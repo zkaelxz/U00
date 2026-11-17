@@ -1148,3 +1148,19 @@ def test_fix_flagged_cancel_kills_the_whisper_process_within_bounded_time(
     job_runner.wait_for_job_threads(10)
     assert isolated_db.load_lines(did)[0]["flag"] == "mistranslation"
     _clear(job_id)
+
+
+def test_fix_flagged_save_keeps_a_source_edited_meanwhile(isolated_db):
+    did = isolated_db.create_drama(title_en="FixSrc")
+    isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"原{i}", en=f"old{i}",
+                                      flag="mistranslation") for i in range(2)])
+    lines = isolated_db.load_line_objects(did)
+    lines[0].en, lines[0].flag = "new0", None
+    lines[1].zh, lines[1].en, lines[1].flag = "听到的", "heard1", None
+    edited = isolated_db.load_line_objects(did)
+    edited[0].zh = "改过的原文"
+    isolated_db.save_lines(did, edited, fields=("zh",))
+    assert fixflag_transcribe.save_fixed(did, lines) == {"kept_your_edit": [lines[0].id]}
+    saved = isolated_db.load_line_objects(did)
+    assert (saved[0].zh, saved[0].en) == ("改过的原文", "old0")
+    assert (saved[1].zh, saved[1].en) == ("听到的", "heard1")

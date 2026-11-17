@@ -18,7 +18,7 @@ the module that defines a name (`from engine_backends import shared`).
 - Tests patch the module that uses a name (e.g. `engine_backends.llm_tasks.call_llm_json`).
 
 ## Tests
-- `tests/test_translate_engines.py`, `tests/test_secret_redaction.py`, `tests/test_line_ids.py`
+- `tests/test_translate_engines.py` (with `test_engine_providers`, `test_engine_llm_tasks`, `test_engine_costs`), `tests/test_secret_redaction.py`, `tests/test_line_ids.py`
 - `tests/test_openai_engine.py`, `tests/test_translate_fallback_chain.py`, `tests/test_engine_key_lists.py`
 - `tests/fake_engine.py` is the shared fake engine
 - `tests/test_static_analysis.py` (`test_translate_engines` timeouts, SDK client timeouts)

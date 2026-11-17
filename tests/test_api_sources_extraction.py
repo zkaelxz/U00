@@ -336,7 +336,7 @@ def test_comic_download_caps_and_content_type(client, env, comic, monkeypatch):
     comic.files["https://img.comic.example/77/5/002.png"] = ("text/html", b"<html>not an image</html>")
     one = max(len(comic.files[f"https://img.comic.example/77/5/{i:03d}.png"][1]) for i in (1, 3, 4))
     icon = len(comic.files["https://comic.example/icon.png"][1])
-    from services import page_import_limits as limits
+    import page_import_limits as limits
     monkeypatch.setattr(limits, "MAX_IMPORT_BYTES", icon + one * 3 + 10)   # icon + 3 pages
     monkeypatch.setattr(limits, "MAX_FILES_PER_IMPORT", 6)                 # attempts
     did = _comic_drama()
@@ -798,7 +798,7 @@ def test_a_signed_next_link_shows_only_the_host():
 
 
 # ---------------------------------------------------------------------------
-# Shared page-upload rules (services/page_import_limits.py; lead request)
+# Shared page-upload rules (page_import_limits.py; lead request)
 # ---------------------------------------------------------------------------
 
 def _img(fmt, w, h, shade=40, exif_orientation=None):
@@ -824,7 +824,7 @@ def _skipped_reasons(res):
 
 
 def test_limits_accepted_types_and_caps(monkeypatch):
-    from services import page_import_limits as limits
+    import page_import_limits as limits
     assert limits.check_image(_img("PNG", 20, 30))[0] == "PNG"
     assert limits.check_image(_img("JPEG", 20, 30))[0] == "JPEG"
     assert limits.check_image(_img("WEBP", 20, 30))[0] == "WEBP"
@@ -843,7 +843,7 @@ def test_limits_accepted_types_and_caps(monkeypatch):
 
 def test_pixel_cap_is_checked_before_any_decode(monkeypatch):
     from PIL import ImageFile
-    from services import page_import_limits as limits
+    import page_import_limits as limits
     big = _img("PNG", 20, 30)
     monkeypatch.setattr(limits, "MAX_IMAGE_PIXELS", 500)
     loads = []
@@ -860,7 +860,7 @@ def test_pixel_cap_is_checked_before_any_decode(monkeypatch):
 def test_exif_orientation_applied_and_strips_sliced(monkeypatch):
     import io
     from PIL import Image
-    from services import page_import_limits as limits
+    import page_import_limits as limits
     [(body, ext)] = limits.prepare_page(_img("JPEG", 40, 20, exif_orientation=6))
     assert ext == ".png" and Image.open(io.BytesIO(body)).size == (20, 40)
     [(body, ext)] = limits.prepare_page(_img("JPEG", 40, 20))
@@ -884,7 +884,7 @@ def test_exif_orientation_applied_and_strips_sliced(monkeypatch):
 
 
 def test_comic_import_skips_over_cap_images_without_failing(client, env, comic, monkeypatch):
-    from services import page_import_limits as limits
+    import page_import_limits as limits
     env["fetch"].pages[COMIC_URL] = comic_page_html(5)
     _set_page(comic, 2, "image/gif", _img("GIF", 800, 1200))
     _set_page(comic, 3, "image/tiff", _img("TIFF", 800, 1200))
@@ -900,7 +900,7 @@ def test_comic_import_skips_over_cap_images_without_failing(client, env, comic, 
 
 
 def test_comic_per_image_byte_cap_is_the_clients(env, comic, monkeypatch):
-    from services import page_import_limits as limits
+    import page_import_limits as limits
     from services import sources_import_service as imp
     seen = []
     real = imp.adaptive.import_comic
@@ -984,7 +984,7 @@ def _truncated_rotated_jpeg():
 
 
 def test_damaged_image_is_rejected_not_raised():
-    from services import page_import_limits as limits
+    import page_import_limits as limits
     with pytest.raises(limits.ImageRejected, match="damaged or incomplete"):
         limits.prepare_page(_truncated_rotated_jpeg())
     strip = _img("PNG", 100, 400)

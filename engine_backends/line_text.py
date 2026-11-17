@@ -111,23 +111,26 @@ def build_numbered_lines(ids: list, zh_lines: list, speaker_names: list | None =
     return "\n".join(out)
 
 
-def extract_first_json_value(text: str):
+def extract_first_json_value(text: str, expect: type | None = None):
     """Finds and parses the first valid JSON object/array anywhere in
     text, tolerating surrounding prose ("Here you go:\n{...}\nHope that
     helps!") -- small local models wrap their JSON in commentary like
     this often. Uses the real JSON decoder to find the end of the
     value (via raw_decode), rather than a regex guessing at matching
     brackets, so a brace/bracket character inside a string value can't
-    make it stop early or grab too much. Returns None if nothing in
-    the text parses as JSON."""
+    make it stop early or grab too much. expect (dict or list): skip
+    values of the other type, so prose like "Line [3] looks off" before
+    the answer object isn't taken for it. Returns None if nothing in
+    the text parses as JSON (of that type)."""
     decoder = json.JSONDecoder()
     for i, ch in enumerate(text):
         if ch in "{[":
             try:
                 value, _ = decoder.raw_decode(text, i)
-                return value
             except json.JSONDecodeError:
                 continue
+            if expect is None or isinstance(value, expect):
+                return value
     return None
 
 

@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Path, Request
 
 from api.auth import local_only
-from api.jellyfin_schemas import (JellyfinConfig, JellyfinConfigUpdate, JellyfinKeyClear,
+from api.schemas import (JellyfinConfig, JellyfinConfigUpdate, JellyfinKeyClear,
                                   JellyfinKeySet, JellyfinScanReport, JellyfinScanRequest,
                                   JellyfinSendRequest, JellyfinSendResult, JellyfinTestResult)
 from api.routers.settings_routes import read_body, require_confirm, require_local_admin

@@ -1,5 +1,5 @@
 """
-services/page_import_limits.py -- the page-upload rules for comic pages
+page_import_limits.py -- the page-upload rules for comic pages
 (user decision 2026-09-29), meant to be shared by every path that adds
 pages to a drama. Used today by the pasted-URL comic import and its reviewed
 import (Sources parity SO06/SO10, services/sources_import_service.py and

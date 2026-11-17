@@ -1,10 +1,13 @@
 """
-api/web_search_schemas.py -- request/response models for the optional
+api/schemas/web_search.py -- request/response models for the optional
 web-search fallback (api/routers/web_search_routes.py).
 """
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+__all__ = ["WebSearchStatus", "WebSearchConfig", "WebSearchConfigUpdate", "WebSearchRequest", "WebSearchResult",
+           "WebSearchResults", "WebSearchTestResult"]
 
 
 class WebSearchStatus(BaseModel):
