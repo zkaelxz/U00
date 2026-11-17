@@ -47,3 +47,25 @@ def test_editing_a_future_maintenance_style_package_is_red():
 def test_unrelated_path_is_not_treated_as_protected():
     tier = at.classify_action("modify_code", touches_paths=["tabs/workspace_tab.py"])
     assert tier is at.ActionTier.YELLOW
+
+
+def test_the_assistant_schemas_file_is_red():
+    tier = at.classify_action("modify_code", touches_paths=["api/schemas/assistant.py"])
+    assert tier is at.ActionTier.RED
+
+
+def test_every_protected_name_is_a_tracked_file_and_red():
+    # Protection is by file name, so a move or rename that forgets this
+    # list would silently leave the moved file editable. Only tracked files
+    # count: a venv inside the checkout holds other files with these names.
+    import subprocess
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    tracked = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True, text=True,
+                             check=True, timeout=60).stdout.split()
+    by_name = {}
+    for path in tracked:
+        by_name.setdefault(path.rsplit("/", 1)[-1], []).append(path)
+    assert sorted(at._PROTECTED_MODULE_NAMES - by_name.keys()) == []
+    for name in at._PROTECTED_MODULE_NAMES:
+        for path in by_name[name]:
+            assert at.classify_action("modify_code", touches_paths=[path]) is at.ActionTier.RED
