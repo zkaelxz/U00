@@ -58,6 +58,7 @@ from lib.errors import (
     MissingPackageError,
     UnsupportedOperationError,
 )
+from lib import acting
 
 # Every paid engine, so a new one is capped without another list to update.
 _CAP_ENGINES = tuple(n for n in engine_registry.ENGINES if n not in engine_registry.FREE_ENGINES)
@@ -547,7 +548,7 @@ def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts,
         drama_id, drama, lines, opts.style_preset,
         include_genre_notes=include_genre_notes,
         default_female_pronouns=default_female_pronouns,
-        principal=ownership_service.acting_principal(), memory_examples=memory_examples,
+        principal=acting.acting_principal(), memory_examples=memory_examples,
         engine_name=opts.engine_name, model=opts.model)
     novel_reference = load_novel_reference(drama_id, drama)
     resp = {"job_id": job_id, "drama_id": drama_id, "engine": opts.engine_name,

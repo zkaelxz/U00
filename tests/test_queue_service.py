@@ -614,17 +614,17 @@ def _member_running_two_jobs(jobs):
     """A member who owns a title and already runs as many jobs as the cap
     allows, started directly (not from the queue)."""
     from jobs import user_caps
-    from services import ownership_service
+    from lib import acting
     member = auth_service.add_user("m@example.com")
     auth_service.grant_permission(member["id"], "jobs.start")
     principal = {"user_id": member["id"], "is_admin": False, "permissions": ["jobs.start"]}
-    token = ownership_service.bind_request()
-    ownership_service.note_acting_principal(principal)
+    token = acting.bind_request()
+    acting.note_acting_principal(principal)
     try:
         for n in range(user_caps.MAX_RUNNING_JOBS_PER_USER):
             jobs._start(f"direct_{n}")
     finally:
-        ownership_service.unbind_request(token)
+        acting.unbind_request(token)
     return principal
 
 

@@ -65,7 +65,7 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     principal: whom the run is for; the learned style is left out unless
     they may see it (ownership_service.sees_learned_style). A job thread
     has no acting principal, so its starter passes the one captured at
-    start (ownership_service.acting_principal).
+    start (lib.acting.acting_principal).
     memory_examples: add the series' approved translation-memory pairs closest
     to these lines to the prompt (off unless the Translate form asks).
     engine_name/model: the run's engine (Translate, the Library batch, Fix flagged and line

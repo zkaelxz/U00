@@ -258,12 +258,12 @@ def allow_restart(job_id: str, restart) -> None:
 
 
 def _register(job_id, run, restart) -> None:
-    from services import ownership_service
+    from lib import acting
     if run is None or run.get("status") not in ("queued", "running"):
         return
     with _guard_lock:
         _restartable[job_id] = {"run": run, "restart": restart, "restarts": _restarts_so_far.get(),
-                                "principal": ownership_service.acting_principal()}
+                                "principal": acting.acting_principal()}
 
 
 def _forget_ended_locked() -> None:
@@ -345,16 +345,16 @@ def _drop_pending(job_id, entry) -> None:
 
 def _call_as(principal, fn):
     """fn() with `principal` as the acting principal, in a context of its own."""
-    from services import ownership_service
+    from lib import acting
 
     def run():
-        token = ownership_service.bind_request()
+        token = acting.bind_request()
         try:
             if principal is not None:
-                ownership_service.note_acting_principal(principal)
+                acting.note_acting_principal(principal)
             return fn()
         finally:
-            ownership_service.unbind_request(token)
+            acting.unbind_request(token)
     return contextvars.Context().run(run)
 
 
