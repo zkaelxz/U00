@@ -222,7 +222,7 @@ export default function LivePage() {
   // pressed: leaving it mounted would keep the stream's audio playing.
   // What the running session records, not the form. Its files are served to the PC only.
   const ownPlayer = session?.status?.delayed_player === true && pc !== 'remote'
-  const videoLive = !!session && status === 'running' && !stopping && (!!sessionStream(session.url, session.status?.stream) || ownPlayer)
+  const videoLive = !!session && status === 'running' && !stopping && (!!session.url || !!session.status?.stream || ownPlayer)
   const streamRef = videoLive ? sessionStream(session?.url, session?.status?.stream) : null
   const feed = session ? feedCues(session.cues) : []
   const total = session?.next ?? 0
