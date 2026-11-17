@@ -7,7 +7,7 @@ counts a skip as a pass: if one of those libraries stopped being installed, whol
 skip and the job would stay green. A skip is keyed by its test file and reason (not line or test
 name, which move with every edit), so a known reason in a known file may skip any number of tests,
 and a new reason anywhere fails. The allowlist is the skips that job has today: libraries it
-deliberately does not install.
+deliberately does not install, and a CJK font the runner lacks.
 """
 import ast
 import sys
@@ -20,6 +20,8 @@ ALLOWED = {
     ("tests/test_scanlate.py",
      "could not import 'huggingface_hub': No module named 'huggingface_hub'"),
     ("tests/test_scanlate.py", "could not import 'torch': No module named 'torch'"),
+    # The runner has no Chinese, Japanese or Korean font installed.
+    ("tests/test_scanlate_bench.py", "no CJK font on this machine"),
 }
 
 

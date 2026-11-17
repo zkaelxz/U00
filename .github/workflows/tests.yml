@@ -348,7 +348,7 @@ jobs:
 
       # opencv headless: the runner has no libGL for the full wheel.
       - name: Install dependencies
-        run: pip install -r requirements-core.txt -r requirements-ci.txt jieba pypinyin opencc-python-reimplemented ebooklib genanki soundfile opencv-contrib-python-headless -c constraints.txt
+        run: pip install -r requirements-core.txt -r requirements-ci.txt jieba pypinyin opencc-python-reimplemented ebooklib genanki soundfile pypdf opencv-contrib-python-headless -c constraints.txt
 
       - name: Install ffmpeg
         run: |
