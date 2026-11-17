@@ -498,6 +498,16 @@ def test_the_scan_previews_and_writes_nothing(client, env):
     assert not d["author"] and not d["release_date"] and not d["title_zh"]
 
 
+def test_on_the_guest_profile_the_scan_leaves_out_the_owners_private_titles(env, monkeypatch):
+    from services import pc_profile_service
+    shared = db.create_drama(title_en="Shared", source_url="https://www.youtube.com/watch")
+    hidden = db.create_drama(title_en="PC owner's private", is_private=1,
+                             source_url="https://www.youtube.com/watch")
+    assert set(svc.scan_candidates(None)) == {shared, hidden}
+    monkeypatch.setattr(pc_profile_service, "guest_active", lambda: True)
+    assert svc.scan_candidates(None) == [shared]
+
+
 def test_the_scan_is_cancellable_and_refuses_a_second_start(client, env):
     for n in range(4):
         db.create_drama(title_en=f"T{n}", source_url="https://www.youtube.com/watch")
