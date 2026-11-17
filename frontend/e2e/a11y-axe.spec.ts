@@ -1,9 +1,11 @@
 import AxeBuilder from '@axe-core/playwright'
-import { test } from './fixtures'
+import { expect, test } from './fixtures'
 import { enableDeveloperMode } from './sourceHelpers'
 
-// Reports axe violations per page without failing: the app has existing violations, and a blocking gate
-// should only replace this once the list is cleared (see the annotations and the "axe-violations" attachment).
+// Fails on any axe violation (WCAG 2.1 A and AA) on these pages. Every page had none when this became a
+// gate, so a new one is a regression; the annotations and the "axe-violations" attachment say what and where.
+// It does not cover colour contrast: axe marks almost every contrast check "incomplete" over the frosted
+// background, which theme-contrast.spec.ts measures instead.
 
 const PAGES = [
   '#/', '#/settings', '#/jobs', '#/translate', '#/make-subtitles', '#/diagnostics',
@@ -11,7 +13,7 @@ const PAGES = [
 ]
 
 for (const hash of PAGES) {
-  test(`axe report: ${hash}`, async ({ page }, testInfo) => {
+  test(`axe: ${hash}`, async ({ page }, testInfo) => {
     await enableDeveloperMode(page)
     await page.goto(`/${hash}`)
     await page.getByRole('heading', { level: 1 }).first().waitFor()
@@ -25,6 +27,6 @@ for (const hash of PAGES) {
     }))
     for (const v of summary) testInfo.annotations.push({ type: `axe ${v.impact}`, description: `${v.id}: ${v.help} (${v.nodes})` })
     await testInfo.attach('axe-violations', { body: JSON.stringify(summary, null, 2), contentType: 'application/json' })
-    console.log(`AXE ${hash}: ${JSON.stringify(summary)}`)
+    expect(summary, `axe violations on ${hash}`).toEqual([])
   })
 }
