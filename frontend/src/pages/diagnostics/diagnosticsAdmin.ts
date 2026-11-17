@@ -238,10 +238,14 @@ export const MODEL_DOWNLOAD_IDS: Record<string, string[]> = {
   'manga-ocr': ['manga_ocr'],
   'LaMa-manga': ['lama_manga'],
   'Nemotron-3-Diarization': ['nemotron_diarization'],
+  'pyannote diarization model': ['pyannote_diarization'],
   'Whisper (faster-whisper)': [
     'whisper_large_v3', 'whisper_large_v3_turbo', 'whisper_ja_1_5b', 'whisper_kotoba_v2', 'whisper_medium', 'whisper_anime', 'whisper_breeze_asr_25',
   ],
 }
+
+const GENERIC_NO_BUTTON_NOTE = 'No Download button here: it downloads the first time a feature needs it.'
+export const noDownloadButtonNote = (): string => GENERIC_NO_BUTTON_NOTE
 
 /** Why the last download of a model did not finish, or null (nothing started, running, or done). */
 export function modelDownloadProblem(
