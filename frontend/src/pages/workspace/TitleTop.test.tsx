@@ -101,7 +101,7 @@ describe('the main button where the lines are', () => {
 
   it('keeps the one-button flow once it has started, after the lines arrive', () => {
     browser(false)
-    expect(render({ ...AT.translate, flowOn: true }, { home: true })).toMatch(/<button type="button" class="[^"]*">Transcribe and translate<\/button>/)
+    expect(render({ ...AT.translate, flowOn: true }, { home: true })).toMatch(/<button type="button" class="[^"]*">Transcribe and build glossary<\/button>/)
     expect(render(AT.translate, { home: true })).toContain('>Translate 1 line</a>')
   })
 })

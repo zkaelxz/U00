@@ -133,3 +133,16 @@ def test_ids_run_on_across_chunks_and_a_mid_chunk_result_holds_the_earlier_chunk
     assert mid
     assert [c["id"] for c in mid[0]] == [0, 1, 2, 3]
     assert all(len(r) <= 4 for r in published)
+
+
+def test_a_blank_reply_is_shown_as_failed_not_as_done(monkeypatch, tmp_path):
+    class Blank(FakeEngine):
+        def translate_batch(self, lines, context):
+            return ["" if lines[0] == "一" else f"EN {lines[0]}"]
+    monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda path, **kw: [
+        {"start": 0.0, "end": 1.0, "text": "一"}])
+    chunk = tmp_path / "chunk_00000.wav"
+    chunk.write_bytes(b"x")
+    cues = lt.process_chunk(str(chunk), 0, 20, "zh", "small", Blank())
+    assert cues[0]["translation"] == "failed"
+    assert cues[0]["translated"] == live_cue_feed.EMPTY_REPLY_NOTE

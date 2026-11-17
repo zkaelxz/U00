@@ -16,6 +16,8 @@ import time
 import pytest
 
 from services import settings_service
+import stored_settings
+from lib import settings_schema
 
 
 def _write_env(tmp_path, contents):
@@ -109,7 +111,7 @@ def test_an_unreadable_setting_warns_once_per_key_and_returns_the_default(monkey
 
     monkeypatch.setattr(db, "get_app_setting", boom)
     monkeypatch.setattr(applog, "get_logger", lambda: _Log())
-    monkeypatch.setattr(settings_service, "_warned_unreadable_keys", set())
+    monkeypatch.setattr(stored_settings, "_warned_unreadable_keys", set())
     expected = settings_schema.default_of(settings_schema.BY_KEY["developer_mode"])
     assert settings_service.get("developer_mode") == expected
     assert settings_service.get("developer_mode") == expected
@@ -157,3 +159,19 @@ def test_a_remote_uploads_stamp_from_the_developer_mode_days_does_not_count(isol
     db.set_app_setting("remote_uploads", True)
     db.set_app_setting("remote_uploads.on_at", time.time())
     assert settings_service.remote_uploads_on() is False
+
+
+def test_stored_settings_refuses_a_choices_setting_it_cannot_check(isolated_db):
+    # The modules below services/ read through stored_settings, which can't
+    # build a choices list; a key with one must go through settings_service.get.
+    with pytest.raises(ValueError):
+        stored_settings.read("default_engine")
+    assert settings_service.get("default_engine") == stored_settings.read(
+        "default_engine", lambda: settings_service._choices_for("default_engine"))
+
+
+def test_a_failing_choices_list_still_reads_as_the_default(isolated_db, monkeypatch):
+    monkeypatch.setattr(settings_service, "_choices_for", lambda key: 1 / 0)
+    monkeypatch.setattr(stored_settings, "_warned_unreadable_keys", set())
+    expected = settings_schema.default_of(settings_schema.BY_KEY["default_engine"])
+    assert settings_service.get("default_engine") == expected
