@@ -472,7 +472,7 @@ The weekly `dependency-canary.yml` workflow installs the newest versions the req
 secrets. A failure means a new release broke something; reproduce with `scripts/dependency_canary.py <package>`.
 
 Scheduled and manually dispatched workflows (`dependency-canary.yml`, `dependency-audit.yml`) and Dependabot
-only run from the repository's default branch, which is `baihe-subtitler` (the old `main` branch no longer exists).
+only run from the repository's default branch, which is `baihe-subtitler` (the old `main` branch no longer exists). Promote Release also runs the code half of the audit (`dependency-audit-code.yml`) on the tag before it promotes.
 
 ### Before and after an upgrade on your PC (smoke pack)
 
