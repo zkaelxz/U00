@@ -159,3 +159,39 @@ class TestMaxSizeImport:
         r = _upload(_local(), rows=rows, files=files)
         assert r.status_code == 200, r.text[:300]
         assert r.json()["clips"] == 250
+
+
+class TestMarkedLinesExport:
+    """Every line marked wrong or mixed, across titles, as one file."""
+
+    def _title(self, name, lines, **kw):
+        did = db.create_drama(title_en=name, **kw)
+        db.save_lines(did, lines)
+        return did
+
+    def test_lists_marked_lines_from_every_title_and_nothing_else(self, isolated_db):
+        from core import Line
+        a = self._title("Alpha", [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi", mark="wrong"),
+                                  Line(idx=1, start=1.0, end=2.0, zh="再见", en="Bye")])
+        b = self._title("Beta", [Line(idx=0, start=3.0, end=4.0, zh="谢谢", en="Thank", mark="mixed")])
+        r = _local().get(f"{BASE}/marked-lines/export?format=csv")
+        assert r.status_code == 200 and "marked-lines.csv" in r.headers["content-disposition"]
+        rows = r.content.decode("utf-8-sig").splitlines()
+        assert rows[0].startswith("drama_id,title,") and len(rows) == 3
+        assert "Alpha" in rows[1] and "你好" in rows[1] and "wrong" in rows[1]
+        assert "Beta" in rows[2] and "mixed" in rows[2] and "再见" not in r.text
+        j = _local().get(f"{BASE}/marked-lines/export?format=json").json()
+        assert [(ln["drama_id"], ln["mark"], ln["english"]) for ln in j["lines"]] == [
+            (a, "wrong", "Hi"), (b, "mixed", "Thank")]
+
+    def test_a_member_sees_only_titles_they_may_see(self, isolated_db):
+        from core import Line
+        mine = self._title("Mine", [Line(idx=0, start=0.0, end=1.0, zh="一", en="One", mark="wrong")],
+                           owner_user_id=5, is_private=1)
+        self._title("Theirs", [Line(idx=0, start=0.0, end=1.0, zh="二", en="Two", mark="wrong")],
+                    owner_user_id=6, is_private=1)
+        assert [r["drama_id"] for r in db.list_marked_lines(visible_to=5)] == [mine]
+        assert len(db.list_marked_lines()) == 2
+
+    def test_not_for_a_remote_caller_without_diagnostics(self, isolated_db):
+        assert _remote().get(f"{BASE}/marked-lines/export").status_code in (401, 403)
