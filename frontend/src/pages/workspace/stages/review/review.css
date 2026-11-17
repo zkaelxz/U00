@@ -914,7 +914,8 @@ button.review-speaker:hover, button.review-speaker[aria-expanded='true'] { backg
   .stage-review > .review-watch-slot:has(.review-player-panel[hidden]) { display: none; }
   .stage-review > .review-watch-slot > .review-watch { position: static; height: auto; min-height: 0; overflow-y: auto; }
   .stage-review > .review-watch-slot .review-stage { max-height: 22vh; }
-  .stage-review > .review-ai { grid-row: 2; min-height: 0; }
+  /* align-content: start, or the column's spare height stretches the tab row and the cards. */
+  .stage-review > .review-ai { grid-row: 2; min-height: 0; align-content: start; }
   .stage-review:not(:has(> .review-watch-slot > .review-watch)) > .review-ai,
   .stage-review:has(> .review-watch-slot .review-player-panel[hidden]) > .review-ai { grid-row: 1 / -1; }
 }
