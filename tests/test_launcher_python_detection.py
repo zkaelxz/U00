@@ -84,3 +84,11 @@ class TestStartBatStubDetection:
         assert "%PYCMD% -m venv" in text
         # The old hardcoded call must be gone from the venv-creation line.
         assert "\npython -m venv" not in text
+
+
+def test_launchers_never_pause_with_timeout():
+    """`timeout` refuses to run when stdin is redirected (the detached restart
+    after Update Baihe), so a wait loop built on it spins with no pause and
+    gives up early on a slow start."""
+    for name in ("start.bat", "setup.bat", "make_shortcut.bat", "uninstall.bat"):
+        assert not re.search(r"^\s*timeout\b", _read(name), re.I | re.M), name
