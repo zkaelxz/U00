@@ -25776,6 +25776,24 @@ export interface components {
              */
             sampled_seconds_ago: number | null;
         };
+        /** ResplitCut */
+        ResplitCut: {
+            /** Idx */
+            idx: number;
+            /** Line Id */
+            line_id: number;
+            /** Pieces */
+            pieces: components["schemas"]["ResplitPiece"][];
+        };
+        /** ResplitPiece */
+        ResplitPiece: {
+            /** End */
+            end: number;
+            /** Start */
+            start: number;
+            /** Text */
+            text: string;
+        };
         /**
          * ResplitResult
          * @description Either the finished summary (estimated timing) or, with align_to_audio,
@@ -25786,6 +25804,8 @@ export interface components {
             aligned_lines: number | null;
             /** Cleared Translations */
             cleared_translations: number | null;
+            /** Cuts */
+            cuts: components["schemas"]["ResplitCut"][] | null;
             /** Drama Id */
             drama_id: number | null;
             /** Dry Run */

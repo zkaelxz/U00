@@ -3,6 +3,7 @@ import { shot } from './shots'
 
 import { expectNoSidewaysScroll, json, mockAppShell } from './mockHelpers'
 import { showTranslateCard } from './translateTabs'
+import { silentWav } from './playerMocks'
 
 // Translate > Characters extras (inventory C02, C04, C07, C08): voice-match
 // suggestions (accept/reject), sample lines and the "shared with series"
@@ -37,17 +38,6 @@ type SpeakerClips = { speaker_label: string; candidates: Clip[]; skip_reason: st
 
 const clip = (n: number, ref_text = ''): Clip => ({ id: String(n).repeat(32).slice(0, 32), start: n * 10, end: n * 10 + 4.5, duration: 4.5, ref_text })
 
-// Silence, so the browser really plays (and, if short, ends) it.
-function silentWav(seconds: number): Buffer {
-  const rate = 8000
-  const data = Math.round(rate * seconds)
-  const b = Buffer.alloc(44 + data)
-  b.write('RIFF', 0); b.writeUInt32LE(36 + data, 4); b.write('WAVE', 8)
-  b.write('fmt ', 12); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22)
-  b.writeUInt32LE(rate, 24); b.writeUInt32LE(rate, 28); b.writeUInt16LE(1, 32); b.writeUInt16LE(8, 34)
-  b.write('data', 36); b.writeUInt32LE(data, 40); b.fill(128, 44)
-  return b
-}
 type Person = { id: number; character_name: string; aliases: string; notes: string; pronouns: string }
 
 async function mockAll(page: Page) {

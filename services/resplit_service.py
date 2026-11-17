@@ -233,7 +233,8 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
     preset's duration limit. Pieces under 0.8 s or 4 CJK characters / 2 words
     are folded into a neighbour in "more" and "sentence".
 
-    dry_run only counts (no write, no confirm, allowed while a job runs).
+    dry_run only reports the plan: counts plus each cut line's pieces (no
+    write, no confirm, allowed while a job runs).
     Timing is proportional to text length, or with align_to_audio a
     `resplit_<id>` job uses the Qwen3 aligner (proportional, with a note, when
     it or the audio is missing). Snapshot "before re-split" first."""
@@ -260,6 +261,10 @@ def resplit_long_lines(drama_id: int, expected_line_ids, *, align_to_audio: bool
         return {"dry_run": True, "split_lines": len(plan), "pieces": pieces,
                 "lines_before": len(lines), "line_count": len(lines) - len(plan) + pieces,
                 "cleared_translations": sum(1 for ln in lines if ln.id in plan and ln.en.strip()),
+                "cuts": [{"line_id": ln.id, "idx": ln.idx,
+                          "pieces": [{k: p[k] for k in ("start", "end", "text")}
+                                     for p in plan[ln.id]]}
+                         for ln in lines if ln.id in plan],
                 "note": "" if plan else _nothing_to_split(lines, cfg)}
     _check_resplit_confirm(lines, plan, confirm)
     if not align_to_audio or not plan:
