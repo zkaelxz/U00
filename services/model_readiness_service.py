@@ -134,7 +134,7 @@ def _speaker_model_ready(expected_speakers=None, min_speakers=None, max_speakers
 
 
 def omnivoice_ready() -> bool:
-    import dub
+    from voice import dub
     return hf_model_ready(dub.OMNIVOICE_REPO)
 
 
@@ -349,7 +349,7 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
 
 def for_dub(drama_id: int, tts_engine: str = "omnivoice") -> list:
     import db
-    import dub
+    from voice import dub
     drama = db.get_drama(drama_id)
     if drama is None:
         return []

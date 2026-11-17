@@ -8,9 +8,8 @@ import time
 
 import pytest
 
-import voice_venv
-import voice_worker
-
+from voice import voice_venv
+from voice import voice_worker
 FAKE_WORKER = r'''
 import json, os, sys, time
 spec = json.load(open(sys.argv[1], encoding="utf-8"))

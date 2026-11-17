@@ -14,7 +14,7 @@ import diagnostics_report
 import diagnostics_torch
 import job_process_kill
 import portable
-import voice_venv
+from voice import voice_venv
 from engine_backends import shared
 from jobs import job_launch
 from lib.errors import ConflictError, InvalidInputError

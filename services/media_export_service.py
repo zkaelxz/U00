@@ -31,7 +31,7 @@ from core import ISO_639_2
 from jobs import job_launch
 import db
 from services.source_service import drama_file_path
-import dub_narration
+from voice import dub_narration
 import novel_text
 import storage
 import video_export
