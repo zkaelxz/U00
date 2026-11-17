@@ -52,6 +52,7 @@ def get_subtitle_text(
     result = export_service.generate_subtitle_export(
         drama_id, fmt, field, include_notes=include_notes,
         wrap_chars_en=wrap_chars_en, wrap_chars_source=wrap_chars_source, tidy_timing=tidy_timing)
+    export_service.mark_exported_if_complete(drama_id, field)
     extra = {"X-Cue-Fps": f"{result['fps']:.3f}".rstrip("0").rstrip(".")} if result["fps"] else {}
     return Response(
         content=result["text"], media_type=_MEDIA_TYPES[fmt],
@@ -125,6 +126,7 @@ def post_ass_text(req: AssExportRequest, drama_id: int = Path(ge=1)):
         speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
         include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
         wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source)
+    export_service.mark_exported_if_complete(drama_id, req.field)
     return Response(
         content=text, media_type="text/x-ssa; charset=utf-8",
         headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, req.field, "ass")})

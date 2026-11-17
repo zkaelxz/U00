@@ -50,7 +50,7 @@ interface Props {
 // The one primary panel: Format, Language and a single Export (download) button.
 // Notes and line wrapping live in Advanced; the shared form also feeds ASS and burned-in video.
 export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLines }: Props) {
-  const { dramaId, drama } = useStage()
+  const { dramaId, drama, refetchDrama } = useStage()
   const blocked = exportBlocked(totalLines)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -102,6 +102,8 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
         setTiming(form.tidyTiming && fmt === 'srt' ? tidied : null)
         if (!text.trim()) return
         downloadText(fmt === 'srt' ? srtFileText(text) : text, filename, MIME[fmt])
+        // The server marks a complete export as exported; pick the new status up.
+        refetchDrama()
       },
       (e: unknown) => {
         if (mine !== latest.current) return

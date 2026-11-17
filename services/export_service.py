@@ -772,6 +772,24 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
             os.remove(out_path)
 
 
+def mark_exported_if_complete(drama_id: int, field: str) -> bool:
+    """Sets the title's status to "exported" after a full subtitle file with no
+    blank lines (every line has text in the exported language; both for
+    bilingual). Exports are always the whole title, so "full" needs no check.
+    "exported" is the last status, so a title already there is left alone and
+    nothing is ever moved backwards. Writes only `status`. Returns whether
+    the status was set by this call."""
+    lines = core_module.lines_from_rows(db.load_lines(drama_id))
+    wanted = {"en": ("en",), "zh": ("zh",), "bilingual": ("en", "zh")}[field]
+    if not lines or any(not (getattr(ln, f, "") or "").strip() for ln in lines for f in wanted):
+        return False
+    drama = ownership_service.require_drama(drama_id)
+    if drama.get("status") == "exported":
+        return False
+    db.update_drama(drama_id, status="exported")
+    return True
+
+
 def mark_exported(drama_id: int) -> dict:
     """The Export stage's "Mark as exported": sets only the drama's status
     to "exported" (no other field is touched). Raises NotFoundError."""

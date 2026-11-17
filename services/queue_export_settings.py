@@ -77,5 +77,6 @@ def run_export(drama: dict, settings: Optional[dict] = None) -> None:
             raise
         artifact_service.set_download_language(
             drama["id"], "subtitle", name, export_service.field_language(drama, field))
+        export_service.mark_exported_if_complete(drama["id"], field)
     finally:
         job_launch.exit_maintenance()

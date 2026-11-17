@@ -539,6 +539,49 @@ def test_mark_exported_sets_status_only(local_client, drama, isolated_db):
     assert [ln.en for ln in isolated_db.load_line_objects(drama)] == ["Hello", "Bye"]
 
 
+@pytest.mark.parametrize("field", ["en", "zh", "bilingual"])
+def test_full_subtitle_export_without_blanks_marks_exported(local_client, drama, isolated_db, field):
+    isolated_db.update_drama(drama, status="translated")
+    r = local_client.get(f"/api/export/dramas/{drama}/subtitle?field={field}")
+    assert r.status_code == 200
+    assert isolated_db.get_drama(drama)["status"] == "exported"
+
+
+def test_ass_export_without_blanks_marks_exported(local_client, drama, isolated_db):
+    isolated_db.update_drama(drama, status="translated")
+    assert local_client.post(f"/api/export/dramas/{drama}/ass", json={"field": "en"}).status_code == 200
+    assert isolated_db.get_drama(drama)["status"] == "exported"
+
+
+@pytest.mark.parametrize("field", ["en", "bilingual"])
+def test_subtitle_export_with_a_blank_line_keeps_status(local_client, drama, isolated_db, field):
+    isolated_db.update_drama(drama, status="translated")
+    isolated_db.save_lines(drama, [
+        Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello"),
+        Line(idx=1, start=2.0, end=4.0, zh="再见", en="  "),
+    ])
+    assert local_client.get(f"/api/export/dramas/{drama}/subtitle?field={field}").status_code == 200
+    assert isolated_db.get_drama(drama)["status"] == "translated"
+
+
+def test_blank_source_text_blocks_source_export_only(local_client, drama, isolated_db):
+    isolated_db.update_drama(drama, status="translated")
+    isolated_db.save_lines(drama, [
+        Line(idx=0, start=0.0, end=2.0, zh="", en="Hello"),
+        Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+    ])
+    local_client.get(f"/api/export/dramas/{drama}/subtitle?field=zh")
+    assert isolated_db.get_drama(drama)["status"] == "translated"
+    local_client.get(f"/api/export/dramas/{drama}/subtitle?field=en")
+    assert isolated_db.get_drama(drama)["status"] == "exported"
+
+
+def test_mark_exported_if_complete_is_a_no_op_when_already_exported(drama, isolated_db):
+    isolated_db.update_drama(drama, status="exported")
+    assert export_service.mark_exported_if_complete(drama, "en") is False
+    assert isolated_db.get_drama(drama)["status"] == "exported"
+
+
 def test_mark_exported_unknown_drama_404(local_client):
     assert local_client.post("/api/export/dramas/999/mark-exported").status_code == 404
 
