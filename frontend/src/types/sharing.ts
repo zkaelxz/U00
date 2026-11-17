@@ -1,4 +1,4 @@
-// Who can see each drama and series (api/sharing_schemas.py), from the generated schema.
+// Who can see each drama and series (api/schemas/sharing.py), from the generated schema.
 import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']

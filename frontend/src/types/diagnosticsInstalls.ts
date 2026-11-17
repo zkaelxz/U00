@@ -1,4 +1,4 @@
-// Mirrors api/diagnostics_install_schemas.py (package install and GPU PyTorch
+// Mirrors api/schemas/diagnostics_install.py (package install and GPU PyTorch
 // setup, Deno install, "Test first").
 import type { components } from '../api/generated/schema'
 

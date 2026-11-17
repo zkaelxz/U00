@@ -1,5 +1,5 @@
 // Model re-evaluation (api/routers/model_reeval_routes.py,
-// api/model_reeval_schemas.py): the production model, the re-evaluation
+// api/schemas/model_reeval.py): the production model, the re-evaluation
 // schedule, candidate models with their recorded decisions, the latest
 // report and the decision history. Reads and the estimate need
 // admin.diagnostics; every write is PC only and goes through pcOnlyFetch
