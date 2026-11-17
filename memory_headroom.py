@@ -79,8 +79,8 @@ def reserved_mb(memory: str) -> float:
         import db
         if not os.path.exists(db.DB_PATH):
             return 0.0  # no library yet means no saved setting; reading would create one
-        from services import settings_service
-        gb = settings_service.get(KEEP_FREE_KEYS[memory])
+        import stored_settings
+        gb = stored_settings.read(KEEP_FREE_KEYS[memory])
         return max(0.0, float(gb) if isinstance(gb, (int, float)) else 0.0) * 1024
     except Exception:
         return 0.0

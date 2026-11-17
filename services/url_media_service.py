@@ -53,6 +53,7 @@ Audio-only clears an older source_video_filename and moves that video there too.
 Errors are fixed strings: never the URL, a path or yt-dlp's raw text.
 """
 
+import contextlib
 import importlib.util
 import os
 import re
@@ -768,16 +769,22 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
         origin = url if not direct_ext and whole else None
         if title and not (drama.get("title_en") or drama.get("title_zh")):
             fields["title_zh"] = str(title).strip()[:300]
-        if not direct_ext:
-            # Before install_media, so its own frame-grab cover finds one and leaves it.
-            cover_art_service.use_site_thumbnail(drama_id, os.path.join(tmp, ytdlp_child.THUMBNAIL_DIRNAME))
+        # Before install_media, so its own frame-grab cover finds one and leaves it.
+        site_cover = not direct_ext and cover_art_service.use_site_thumbnail(
+            drama_id, os.path.join(tmp, ytdlp_child.THUMBNAIL_NAME))
+        site_cover_stamp = cover_art_service.cover_stamp(drama_id) if site_cover else None
         try:
             media_upload_service.install_media(drama_id, new_files, transcribe_new_audio=True,
                                                 origin_link=origin,
                                                 discard_replaced=not drama.get("keep_original"),
                                                 **fields)
-        except (OSError, sqlite3.Error):
-            raise RuntimeError(_SAVE_FAILED) from None
+        except BaseException as exc:
+            if site_cover_stamp:  # a title that got no media must not keep this job's picture
+                with contextlib.suppress(Exception):
+                    cover_art_service.remove_cover(drama_id, only_if_stamp=site_cover_stamp)
+            if isinstance(exc, (OSError, sqlite3.Error)):
+                raise RuntimeError(_SAVE_FAILED) from None
+            raise
         drama_service.set_source_url_once(drama_id, url)
         filled = link_details_service.fill_after_download(drama_id, link) if link is not None else []
         background_jobs.set_result(job_id, {"kind": "url_media", "audio_only": bool(audio_only),

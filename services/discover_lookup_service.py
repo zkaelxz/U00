@@ -9,8 +9,8 @@ Rules (spec sections 3 and 5):
     and its key is resolved server-side. No key is ever accepted from or
     returned to a client.
   - Every user-supplied URL is fetched through `services.safe_fetch`
-    (public hosts only, pinned, capped, static). Never `page_fetch`,
-    `smart_fetch` or a rendered browser.
+    (public hosts only, pinned, capped, static). Never `page_fetch`
+    or a rendered browser.
   - `ladder.check_terms` is called at the fetch boundary (currently a
     no-op by user decision; re-enabling it covers this service too).
   - Errors are `lib.errors` with fixed messages; any user-visible text

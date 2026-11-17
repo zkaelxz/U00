@@ -623,9 +623,7 @@ class TestLayering:
         "bulk.bulk_poll -> services.auth_service",
         "bulk.bulk_poll -> services.line_provenance_service",
         "debug_view -> services.line_provenance_service",
-        "memory_headroom -> services.settings_service",
         "ollama_unload -> services.settings_service",
-        "scanlate_lama -> services.settings_service",
         "translation_finish -> services.line_provenance_service",
     }
     KNOWN_DB_IMPORTS_OF_ROOT_MODULES = {
