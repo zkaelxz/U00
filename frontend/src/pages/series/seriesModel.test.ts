@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { SeriesDefaultsField, SeriesDeletePreview, SeriesListItem } from '../../api/series'
 import {
   ceilingProblem, money, copyPreviewText, copyResultText, copySources, defaultsForm, defaultsPreviewText, deleteBlocked, deleteLines, isSeriesTab,
-  renameProblem, settingsFromForm, shownValue,
+  filterSeries, renameProblem, settingsFromForm, shownValue,
 } from './seriesModel'
 
 const preview = (over: Partial<SeriesDeletePreview> = {}): SeriesDeletePreview => ({
@@ -104,5 +104,16 @@ describe('auto-run ceiling', () => {
 
   it('shows money with cents', () => {
     expect(money(0.5)).toBe('$0.50')
+  })
+})
+
+describe('filterSeries', () => {
+  const items = [{ name: 'HS' }, { name: 'anvil00' }, { name: 'Chime' }]
+  it('sorts by name ignoring case', () => {
+    expect(filterSeries(items, '').map((s) => s.name)).toEqual(['anvil00', 'Chime', 'HS'])
+  })
+  it('keeps names that contain the text, ignoring case and outer spaces', () => {
+    expect(filterSeries(items, '  CHI ').map((s) => s.name)).toEqual(['Chime'])
+    expect(filterSeries(items, 'zzz')).toEqual([])
   })
 })

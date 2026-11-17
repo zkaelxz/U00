@@ -335,7 +335,7 @@ export default function SeriesPage({ id, tab: initialTab }: { id: number; tab?: 
         <nav aria-label="Breadcrumb" className="reader-crumbs">
           <a href={routeHref({ name: 'library' })}>Library</a>
           <span aria-hidden="true"> / </span>
-          <span>Series</span>
+          <a href={routeHref({ name: 'series-list' })}>Series</a>
         </nav>
       )}
       meta={data && (
