@@ -1,4 +1,4 @@
-// Benchmark Lab shapes (api/benchmark_schemas.py); the calls that use them are in api/benchmark.ts.
+// Benchmark Lab shapes (api/schemas/benchmark.py); the calls that use them are in api/benchmark.ts.
 import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']

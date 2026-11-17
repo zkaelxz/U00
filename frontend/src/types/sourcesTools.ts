@@ -1,5 +1,5 @@
 // Sources tools (feature inventory SO02, SO03, SO08, SO16) and the Discover
-// pasted listing (DI07). Mirrors api/sources_tools_schemas.py and the job
+// pasted listing (DI07). Mirrors api/schemas/sources_tools.py and the job
 // results in services/sources_tools_service.py. URLs are scheme+host+path;
 // server text is scrubbed.
 import type { components } from '../api/generated/schema'

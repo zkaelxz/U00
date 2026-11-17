@@ -9,7 +9,7 @@ import type { TranslateEngine } from '../types/translate'
 /** Mirrors engine_backends/vision.py VISION_ENGINES (DeepSeek takes no pictures). */
 const VISION_ENGINE_NAMES = ['claude', 'gemini', 'openai', 'ollama']
 
-/** The server rejects anything but these (services/page_import_limits.py); WebP is sent on as PNG. */
+/** The server rejects anything but these (page_import_limits.py); WebP is sent on as PNG. */
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 /** Mirrors services/image_text_service.MAX_EDGE: past it the server cuts the picture down. */
 export const MAX_EDGE = 2000
