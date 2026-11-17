@@ -150,7 +150,7 @@ def test_unsaved_title_resolves_to_genre_on_she_her_off(isolated_db, builder_cal
 def test_the_chosen_toggles_are_baked_into_the_persisted_bulk_args(isolated_db, monkeypatch):
     """A resumed off-peak job re-reads translate_args, so the guidance text it
     sends must be the one the run was started with, whatever is saved later."""
-    import bulk_translate
+    from bulk import bulk_translate
     did = _drama(isolated_db)
     drama = db.get_drama(did)
     _glossary, guidelines, _names = workspace_job_service.build_run_style_context(

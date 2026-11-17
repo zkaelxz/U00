@@ -8,10 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
-import bulk_poll
-import bulk_providers
-import bulk_reflect
-import bulk_translate
+from bulk import bulk_poll
+from bulk import bulk_providers
+from bulk import bulk_reflect
+from bulk import bulk_translate
 import db
 from engine_backends import engine_registry
 from engine_backends import claude as engine_claude

@@ -3,8 +3,8 @@ services/bulk_submit_service.py -- builds the zero-argument callable that submit
 bulk translation (provider batch, bulk Reflect, or the DeepSeek off-peak schedule)
 from inside the background job, so the provider call never blocks the request.
 """
-import bulk_reflect
-import bulk_translate
+from bulk import bulk_reflect
+from bulk import bulk_translate
 import db
 from engine_backends import translate_pipeline
 import translation_guide

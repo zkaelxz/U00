@@ -6,7 +6,7 @@ import pytest
 import requests
 import urllib3
 
-import bulk_providers
+from bulk import bulk_providers
 import whisper_transcribe
 import qa
 from engine_backends import gemini, llm_tasks, local, openai_compat, shared
