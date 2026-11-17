@@ -194,8 +194,10 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
     return engine_name, engine
 
 
-def check_ollama(model: Optional[str] = None) -> dict:
-    """{ok, model, message}: whether Ollama answers and has the model, so the
+def check_ollama(model: Optional[str] = None, whisper_size: Optional[str] = None,
+                 use_gpu: bool = False) -> dict:
+    """{ok, model, message}: whether Ollama answers and has the model, and
+    whether it and Whisper (on the GPU) fit beside the keep-free reserve, so the
     Live form can say so before Start. The message is the plain text the chat
     call uses and never carries the Ollama address."""
     from services import translate_run_service
@@ -208,7 +210,37 @@ def check_ollama(model: Optional[str] = None) -> dict:
             settings_service.ollama_url(), model)
     except engine_local.OllamaUnavailableError as exc:
         return {"ok": False, "model": model, "message": shared.redact_secrets(exc.message)}
-    return {"ok": True, "model": model, "message": None}
+    room = _gpu_room_note(model, whisper_size) if use_gpu else None
+    return {"ok": room is None, "model": model, "message": room}
+
+
+def _gpu_room_note(model: str, whisper_size: Optional[str]) -> Optional[str]:
+    """Why the model and Whisper may not fit in graphics memory, or None. Without
+    it a model refused by the keep-free reserve (TranslateGemma 27B beside another
+    program on the GPU) only failed after Start, once Whisper had loaded and the
+    first chunks were waiting. It counts what Start does: Whisper's load first
+    unloads every Ollama model (when Settings lets it), then the model loads again."""
+    import memory_headroom
+    import ollama_unload
+    footprint = memory_headroom.ollama_footprint(settings_service.ollama_url(), model)
+    reading = memory_headroom.read_memory_mb("vram", at_load=True)
+    if not footprint or reading is None:
+        return None
+    load_mb, loaded, resident_mb = footprint
+    unloads = ollama_unload.is_enabled()
+    free_mb = reading[1] + (resident_mb if unloads else 0)
+    ollama_mb = load_mb if unloads or not loaded else 0
+    key = memory_headroom.whisper_key(whisper_size or "")
+    # A Whisper an earlier session left loaded in this process already holds its memory.
+    cached = f"{whisper_size}_gpu" in whisper_models._whisper_model_cache
+    whisper_mb = 0 if cached else (memory_headroom.estimate_mb("whisper", whisper_size or "") or (0, 0))[0]
+    label = f"{model} and Whisper {key}" if whisper_mb else model
+    try:
+        memory_headroom.check_need(label, ollama_mb + whisper_mb, "vram", free_mb=free_mb)
+    except memory_headroom.HeadroomError as exc:
+        verb = "need" if whisper_mb else "needs"
+        return (str(exc).replace(f"Not loading {label}: it needs", f"{label} may not fit: {'they' if whisper_mb else 'it'} {verb}", 1))
+    return None
 
 
 def _language_whisper_defaults() -> dict:

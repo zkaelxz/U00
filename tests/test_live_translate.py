@@ -991,6 +991,31 @@ class TestStockPhrasesInLive:
             "みんな元気で何よりですね", "ペースパちゃんありがとう", "チャンネル登録よろしくお願いします"]
 
 
+class TestLongLinesInLive:
+    """whisper-ja wrote 10-20 s of speech as one segment, a wall of text on screen."""
+
+    LONG = ("今日はね、朝からずっと雨が降ってて本当に大変だったんですよ。"
+            "でもね、みんなのコメント見てたら元気出てきました。ありがとうございます。")
+
+    def test_a_long_line_is_cut_at_its_sentence_ends(self, monkeypatch, tmp_path):
+        import whisper_transcribe
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
+                            lambda path, **kw: [{"start": 0.0, "end": 16.0, "text": self.LONG}])
+        chunk_path = tmp_path / "chunk_00000.wav"
+        chunk_path.write_bytes(b"x")
+        cues = lt.process_chunk(str(chunk_path), 0, 20, "ja", "ja-1.5b", engine=None, translate=False)
+        assert [c["text"] for c in cues] == ["今日はね、朝からずっと雨が降ってて本当に大変だったんですよ。",
+                                             "でもね、みんなのコメント見てたら元気出てきました。", "ありがとうございます。"]
+        assert [c["id"] for c in cues] == [0, 1, 2]
+        assert cues[0]["start"] == 0.0 and cues[-1]["end"] == 16.0
+        assert all(a["end"] <= b["start"] for a, b in zip(cues, cues[1:]))
+
+    def test_short_lines_and_lines_with_no_cut_stay_whole(self):
+        segs = [{"start": 0, "end": 3, "text": "はい。そうです。"},
+                {"start": 3, "end": 15, "text": "あ" * 30}]
+        assert lt.split_long_caption_lines(segs) == segs
+
+
 class TestOverlapTailTextWindow:
     """What run_live_job hands the NEXT chunk as overlap_tail_text: only
     what the previous chunk emitted for its own last overlap_seconds --
