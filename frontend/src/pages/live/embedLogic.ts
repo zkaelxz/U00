@@ -63,6 +63,11 @@ export function streamFromStatus(ref: { kind: string; id: string } | null | unde
   return null
 }
 
+/** The browser that started a session knows its link; any other device has only the id the server gives. */
+export function sessionStream(url: string | null | undefined, ref: { kind: string; id: string } | null | undefined): StreamRef | null {
+  return url ? parseStreamUrl(url) : streamFromStatus(ref)
+}
+
 function ytRef(id: string | null | undefined): StreamRef | null {
   return id && YT_ID.test(id) ? { kind: 'youtube', id } : null
 }
