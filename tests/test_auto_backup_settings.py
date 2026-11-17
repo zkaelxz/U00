@@ -357,10 +357,10 @@ class TestPeriodicTick:
 class TestApiBackgroundHooks:
     def test_startup_runs_tombstone_sweep_and_due_check(self, isolated_db, monkeypatch):
         from api import background
-        from sources import chapter_check
+        from services import chapter_check_service
         calls = []
         monkeypatch.setattr(background, "_started", None)
-        monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda: None)
+        monkeypatch.setattr(chapter_check_service, "ensure_scheduler_started", lambda: None)
         monkeypatch.setattr(drama_service, "cleanup_stale_tombstones",
                             lambda *a, **k: calls.append("sweep") or 0)
         monkeypatch.setattr(abs_, "cleanup_stale_leftovers",
@@ -371,9 +371,9 @@ class TestApiBackgroundHooks:
 
     def test_startup_survives_failures(self, isolated_db, monkeypatch):
         from api import background
-        from sources import chapter_check
+        from services import chapter_check_service
         monkeypatch.setattr(background, "_started", None)
-        monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda: None)
+        monkeypatch.setattr(chapter_check_service, "ensure_scheduler_started", lambda: None)
 
         def boom(*a, **k):
             raise RuntimeError("x")

@@ -18,7 +18,8 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
 from lib import url_guard
-from sources import auth_browser, chapter_check, ladder, registry, store
+from sources import auth_browser, ladder, registry, store
+from services import chapter_check_service
 from sources.auth_browser import LoginCheck
 from sources.base import SourceAdapter
 from sources.http import PacingPolicy
@@ -123,8 +124,8 @@ def test_check_now_announces_new_chapters(client, fakes):
                        known_chapters=[ChapterInfo("alpha", "s1", "c1", "1", "")])
     cls.chapter_ids = ["c1", "c2"]
     r = client.post("/api/sources/check-now")
-    assert r.status_code == 200 and r.json() == {"job_id": chapter_check.CHECK_JOB_ID}
-    body = _result(client, chapter_check.CHECK_JOB_ID).json()
+    assert r.status_code == 200 and r.json() == {"job_id": chapter_check_service.CHECK_JOB_ID}
+    body = _result(client, chapter_check_service.CHECK_JOB_ID).json()
     assert body["status"] == "done"
     assert body["result"]["checked"] == 1 and body["result"]["new"] == 1
     notes = client.get("/api/sources/notifications").json()
@@ -144,7 +145,7 @@ def _browser_flag_seen(client, fakes, monkeypatch, local):
     monkeypatch.setattr(api_auth, "is_local_request", lambda request: local)
     monkeypatch.setattr("api.routers.sources_catalog_routes.is_local_request", lambda request: local)
     assert client.post("/api/sources/check-now").status_code == 200
-    _result(client, chapter_check.CHECK_JOB_ID)
+    _result(client, chapter_check_service.CHECK_JOB_ID)
     return seen
 
 
@@ -178,7 +179,7 @@ def test_check_now_second_start_is_409(client, fakes):
         assert r.status_code == 409 and r.json()["error"]["details"]["job_id"] == "sources_chapter_check"
     finally:
         gate.set()
-        wait_for_job(chapter_check.CHECK_JOB_ID, missing_ok=True)
+        wait_for_job(chapter_check_service.CHECK_JOB_ID, missing_ok=True)
 
 
 def test_check_now_errors_are_scrubbed(client, fakes, monkeypatch):
@@ -189,7 +190,7 @@ def test_check_now_errors_are_scrubbed(client, fakes, monkeypatch):
         raise RuntimeError(f"failed {SITE}/x?key={SECRET} in {db.LIBRARY_DIR}/sources.db")
     monkeypatch.setattr(fakes["alpha"], "get_chapters", boom)
     client.post("/api/sources/check-now")
-    body = _result(client, chapter_check.CHECK_JOB_ID).json()
+    body = _result(client, chapter_check_service.CHECK_JOB_ID).json()
     assert body["result"]["checked"] == 0 and "Alpha" in body["result"]["errors"]
     assert SECRET not in client.get("/api/sources/tracked").text
 
@@ -425,7 +426,7 @@ def test_auth_on_permissions(fakes):
     assert c.post("/api/sources/settings/proxy", json={"url": ""}, headers=ha).status_code == 403
     auth_service.grant_permission(admin["id"], "sources.import")
     assert c.post("/api/sources/check-now", headers=ha).status_code == 200
-    wait_for_job(chapter_check.CHECK_JOB_ID, missing_ok=True)
+    wait_for_job(chapter_check_service.CHECK_JOB_ID, missing_ok=True)
     assert c.get("/api/sources/jobs/sources_chapter_check/result", headers=ha).status_code == 200
 
 

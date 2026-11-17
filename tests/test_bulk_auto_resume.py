@@ -135,8 +135,8 @@ def test_startup_error_is_swallowed_and_logged_redacted(isolated_db, monkeypatch
 
 def test_startup_hook_runs_it_and_survives_its_failure(isolated_db, monkeypatch):
     from api import background
-    from sources import chapter_check
-    monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda: None)
+    from services import chapter_check_service
+    monkeypatch.setattr(chapter_check_service, "ensure_scheduler_started", lambda: None)
     seen = []
     monkeypatch.setattr(svc, "resume_interrupted_at_startup", lambda: seen.append(1))
     monkeypatch.setattr(background, "_started", None)

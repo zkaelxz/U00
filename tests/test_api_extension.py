@@ -23,7 +23,7 @@ REMOTE = "https://baihe.example.com"
 
 @pytest.fixture
 def fakes(isolated_db, monkeypatch):
-    from sources import chapter_check
+    from services import chapter_check_service
     calls = {"scheduler": 0, "page_server": 0, "stop": 0}
     state = {"on": False}
 
@@ -43,7 +43,7 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(page_server, "ensure_server_started", serve)
     monkeypatch.setattr(page_server, "stop_server", stop)
     monkeypatch.setattr(page_server, "server_running", lambda: state["on"])
-    monkeypatch.setattr(chapter_check, "ensure_scheduler_started", sched)
+    monkeypatch.setattr(chapter_check_service, "ensure_scheduler_started", sched)
     monkeypatch.setattr(background, "_started", None)
     return calls
 

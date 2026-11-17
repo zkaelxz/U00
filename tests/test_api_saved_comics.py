@@ -13,7 +13,8 @@ pytest.importorskip("httpx")
 
 from services import saved_comics_service as library
 from services import sources_save_service as saves
-from sources import chapter_check, registry, store
+from sources import registry, store
+from services import chapter_check_service
 from sources.models import FailureReason, SourceError
 from tests.sources_helpers import png
 from tests.test_api_sources_import import _chapters, _make, client, fakes  # noqa: F401
@@ -254,13 +255,13 @@ def test_check_saves_new_chapters_of_series_that_ask_for_it(fakes, root, monkeyp
     fakes["comicx"] = _make("comicx", comic=True)
     monkeypatch.setattr(registry, "is_enabled", lambda name: True)
     _track("comicx")
-    summary = chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
+    summary = chapter_check_service.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
     assert summary["new"] == 2 and summary["saved"] == [] and not os.path.exists(root)
     # new chapters again, now with saving on
     store.set_tracked_save("comicx", "s1", True)
     with store.connect() as conn:
         conn.execute("DELETE FROM known_chapters WHERE chapter_id != 'c1'")
-    summary = chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
+    summary = chapter_check_service.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
     assert summary["new"] == 2 and summary["saved"] == ["Series T"] and summary["errors"] == {}
     folder = os.path.join(root, "Comicx", "Series T [s1]")
     assert sorted(os.listdir(folder)) == ["0002 第2章.cbz", "0003 第10章.cbz"]
@@ -272,7 +273,7 @@ def test_a_failed_save_is_reported_and_the_chapters_stay_announced(fakes, root, 
     monkeypatch.setattr(registry, "is_enabled", lambda name: True)
     _track("comicx")
     store.set_tracked_save("comicx", "s1", True)
-    summary = chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
+    summary = chapter_check_service.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
     assert summary["new"] == 2 and summary["saved"] == ["Series T"]
     assert summary["errors"]["Series T"].startswith("Saving as CBZ: 1 chapter(s) not saved")
     assert store.known_chapter_ids("comicx", "s1") == {"c1", "c2", "c10"}
@@ -284,19 +285,19 @@ def test_a_failed_auto_save_is_retried_on_the_next_check(fakes, root, monkeypatc
     monkeypatch.setattr(registry, "is_enabled", lambda name: True)
     _track("comicx")
     store.set_tracked_save("comicx", "s1", True)
-    chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
+    chapter_check_service.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
     folder = os.path.join(root, "Comicx", "Series T [s1]")
     assert os.listdir(folder) == ["0003 第10章.cbz"]
     assert store.save_pending_ids(store.list_tracked_series()[0]) == ["c2"]
     # No new chapters now, but the one that failed is saved this time.
     fail.clear()
-    summary = chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
+    summary = chapter_check_service.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
     assert summary["new"] == 0 and summary["saved"] == ["Series T"] and summary["errors"] == {}
     assert sorted(os.listdir(folder)) == ["0002 第2章.cbz", "0003 第10章.cbz"]
     assert store.save_pending_ids(store.list_tracked_series()[0]) == []
     # Nothing owed: a later check fetches no pages.
     fakes["comicx"].calls.clear()
-    chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
+    chapter_check_service.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
     assert fakes["comicx"].calls == []
 
 
@@ -397,7 +398,7 @@ def test_the_chapter_check_saves_for_whoever_turned_saving_on(fakes, root, monke
     monkeypatch.setattr(registry, "is_enabled", lambda name: True)
     _track("comicx")
     store.set_tracked_save("comicx", "s1", True, by_user_id=4)
-    chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
+    chapter_check_service.run_check_cycle(adapter_factory=lambda n: fakes["comicx"]())
     assert saves.series_saved_by(4) == {("Comicx", "Series T [s1]")}
     assert {s["series"] for s in library.list_series(
         {"user_id": 4, "is_admin": False, "is_local_owner": False})} == {"Series T [s1]"}

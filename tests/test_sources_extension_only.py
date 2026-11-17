@@ -19,7 +19,8 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import sources_extension_service as ext
 from lib import url_guard
-from sources import chapter_check, extension_marker, generic_import, health, ladder, registry, store
+from sources import extension_marker, generic_import, health, ladder, registry, store
+from services import chapter_check_service
 from sources.base import SourceAdapter
 
 SOURCE = "miaoqumh"
@@ -259,7 +260,7 @@ def test_scheduled_check_skips_quietly(isolated_db):
         raise RuntimeError("not reached")
 
     extension_marker.mark(SOURCE)
-    summary = chapter_check.run_check_cycle(adapter_factory=factory)
+    summary = chapter_check_service.run_check_cycle(adapter_factory=factory)
     assert asked == ["manhuagui"]
     assert summary["extension_only"] == ["Marked"]
     assert "Marked" not in summary["errors"]

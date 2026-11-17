@@ -92,10 +92,10 @@ def test_all_off_still_serves_the_rest_of_the_app(isolated_db):
 
 def test_off_sources_does_not_start_the_chapter_scheduler(isolated_db, monkeypatch):
     from api import background
-    from sources import chapter_check
+    from services import chapter_check_service
 
     started = []
-    monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda: started.append(1))
+    monkeypatch.setattr(chapter_check_service, "ensure_scheduler_started", lambda: started.append(1))
     monkeypatch.setattr(background, "_started", None)
     try:
         state = background.start_background_services(frozenset({"sources"}))

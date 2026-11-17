@@ -136,10 +136,10 @@ def _quietly(fn) -> None:
 
 def stop_new_work() -> None:
     """No new scheduled check, poller tick or browser from here on."""
-    from sources import chapter_check
+    from services import chapter_check_service
     import page_fetch_browser
     from services import live_follow_poller
-    _quietly(chapter_check.stop_scheduler)
+    _quietly(chapter_check_service.stop_scheduler)
     _quietly(live_follow_poller.stop)
     if _background_stopper is not None:
         _quietly(_background_stopper)
