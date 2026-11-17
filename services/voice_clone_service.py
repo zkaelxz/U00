@@ -27,8 +27,9 @@ Extraction: the job extracts up to `max_candidates` clips for the one
 speaker asked for and the user picks one (preview-then-pick, rather than
 storing one clip per speaker for every speaker at once). Source segments
 are the speaker's diarization turns when the drama has them, else the
-speaker's own transcript lines. Scoring is the same as
-`dub.extract_reference_clips` (3-12 s, closest to 6 s first); the
+speaker's own transcript lines. Scoring keeps segments of 3-12 s,
+closest to 6 s first (long enough to anchor a voice, short enough to stay
+clean); the
 transcript for a candidate is a line of that speaker starting inside the
 segment. Clips are cut with ffmpeg (a timeout, and
 cancel kills it) instead of pydub.
@@ -107,7 +108,6 @@ MAX_CLIP_SECONDS = 30.0
 FFPROBE_TIMEOUT_SECONDS = 30
 _CHUNK = 1024 * 1024
 
-# Extraction (C01): same bounds and target as dub.extract_reference_clips.
 EXTRACT_MIN_SECONDS = 3.0
 EXTRACT_MAX_SECONDS = 12.0
 EXTRACT_TARGET_SECONDS = 6.0
@@ -429,9 +429,8 @@ def _speaker_segments(drama_id: int, speaker_label: str, lines: list) -> list:
 
 def pick_segments(segments, max_candidates: int):
     """(chosen, skip): the up-to-max_candidates segments in [3, 12] s,
-    closest to 6 s first (dub.extract_reference_clips' score), and, when
-    none qualify, {"reason": "too_short"|"too_long"|"no_segments",
-    "closest_duration"} like its `skipped` dict."""
+    closest to 6 s first, and, when none qualify,
+    {"reason": "too_short"|"too_long"|"no_segments", "closest_duration"}."""
     usable = [(s, e) for s, e in segments
               if EXTRACT_MIN_SECONDS <= e - s <= EXTRACT_MAX_SECONDS]
     usable.sort(key=lambda se: (abs((se[1] - se[0]) - EXTRACT_TARGET_SECONDS), se[0]))

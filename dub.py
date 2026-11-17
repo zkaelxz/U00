@@ -6,8 +6,8 @@ narration track on top of it, speaking the translation or, via
 narrate_original, the drama's own source-language text.
 
 Voices come from OmniVoice, Qwen3-TTS or Chatterbox (see CLONE_ENGINES); each
-runs in a venv of its own (voice_venv). Reference clips can be auto-extracted per speaker from the original audio
-(extract_reference_clips()) or set manually. A speaker with no clip gets a
+runs in a venv of its own (voice_venv). Reference clips can be cut per speaker from the original audio
+(services/voice_clone_service.py) or set manually. A speaker with no clip gets a
 designed voice from a plain description. build_narration_track() takes a
 character_clone_map (clone_map_from_characters() builds it, one entry per
 speaker) and speaks each line with that speaker's entry.
@@ -191,7 +191,7 @@ def clone_map_from_characters(characters, drama_dir: str,
     speaker_labels: every speaker in the lines (None for lines with no
     speaker). One with no entry yet gets a distinct designed voice when
     default_engine is OmniVoice. A character's elevenlabs_voice_id (hosted
-    cloning, since removed) is ignored -- see clone_removed_message()."""
+    cloning, since removed) is ignored."""
     out = {}
     for c in characters:
         label = c["speaker_label"]
@@ -229,77 +229,10 @@ def engine_blockers(characters, tts_engine) -> list:
     return out
 
 
-# Hosted cloning was removed, but characters cloned with it keep
-# their stored voice id (the column stays, as the record of how their
-# already-generated audio was made) -- they're simply not cloned any more.
-REMOVED_CLONE_MESSAGE = ("This character was previously cloned via ElevenLabs, which has been "
-                         "removed. Re-clone via OmniVoice to keep using a cloned "
-                         "voice for them.")
-
-
-def clone_removed_message(character):
-    """REMOVED_CLONE_MESSAGE for a db.list_characters() row that was
-    cloned with the removed hosted engine, else None."""
-    return REMOVED_CLONE_MESSAGE if character.get("elevenlabs_voice_id") else None
-
-
 def clone_map_uses_local_model(character_clone_map: dict) -> bool:
     """Whether generating with this map needs the GPU slot."""
     return any(v.get("engine") in LOCAL_MODEL_ENGINES
                for v in (character_clone_map or {}).values())
-
-
-def extract_reference_clips(audio_path: str, speaker_segments, drama_dir: str,
-                             min_duration: float = 3.0, max_duration: float = 12.0):
-    """For each detected speaker, finds one reasonably clean, isolated
-    segment of their voice (not overlapping another speaker) to use as
-    a cloning reference clip. Returns (clips, skipped):
-
-    clips: {speaker_label: {"path", "start", "end"}} for every speaker
-    a suitable segment was found for. Pair this with the matching
-    line's Chinese text as `ref_text` for the voice engine
-    -- the original audio's own words, not the translation, since the
-    clip is still in the original voice.
-
-    skipped: {speaker_label: {"closest_duration", "reason"}} for every
-    OTHER speaker who has segments but none in [min_duration,
-    max_duration] -- reason is "too_short" or "too_long", naming which
-    bound their closest available segment actually missed, so a caller
-    can explain the gap instead of a bare "no clone reference set" that
-    looks identical to auto-extract never having run at all."""
-    from pydub import AudioSegment
-    audio = AudioSegment.from_file(audio_path)
-
-    best_by_speaker = {}
-    durations_by_speaker = {}
-    for seg in speaker_segments:
-        dur = seg["end"] - seg["start"]
-        durations_by_speaker.setdefault(seg["speaker"], []).append(dur)
-        if not (min_duration <= dur <= max_duration):
-            continue
-        prev_best = best_by_speaker.get(seg["speaker"])
-        # prefer clips closest to ~6s -- long enough to anchor voice, short enough to stay clean
-        score = -abs(dur - 6.0)
-        if prev_best is None or score > prev_best[0]:
-            best_by_speaker[seg["speaker"]] = (score, seg)
-
-    ref_clips_dir = os.path.join(drama_dir, "voice_refs")
-    os.makedirs(ref_clips_dir, exist_ok=True)
-    out = {}
-    for speaker, (_, seg) in best_by_speaker.items():
-        clip = audio[int(seg["start"] * 1000):int(seg["end"] * 1000)]
-        clip_path = os.path.join(ref_clips_dir, f"{speaker}.wav")
-        clip.export(clip_path, format="wav")
-        out[speaker] = {"path": clip_path, "start": seg["start"], "end": seg["end"]}
-
-    skipped = {}
-    for speaker, durations in durations_by_speaker.items():
-        if speaker in out:
-            continue
-        closest = min(durations, key=lambda d: (min_duration - d) if d < min_duration else (d - max_duration))
-        skipped[speaker] = {"closest_duration": closest,
-                            "reason": "too_short" if closest < min_duration else "too_long"}
-    return out, skipped
 
 
 # A clip's filename carries a short signature of exactly what
