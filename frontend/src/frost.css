@@ -12,6 +12,7 @@
   --btn-edge: rgba(23, 32, 47, 0.16);
   --btn-shadow: 0 1px 2px rgba(23, 32, 47, 0.08);
   --active: #ffffff;
+  --active-text: var(--accent-text);
   --wash-1: #ffd2b3;
   --wash-2: #a9dcff;
 }
@@ -26,6 +27,7 @@
     --btn-edge: rgba(255, 255, 255, 0.22);
     --btn-shadow: none;
     --active: rgba(142, 197, 255, 0.18);
+    --active-text: var(--text);
     --wash-1: #5a3a62;
     --wash-2: #1f4f78;
   }
@@ -38,6 +40,8 @@
   --btn-edge: rgba(255, 255, 255, 0.22);
   --btn-shadow: none;
   --active: rgba(142, 197, 255, 0.18);
+  /* The light-blue accent on the blue selected tint was under 4.5:1 where the wash sits behind it; the tint alone marks the choice. */
+  --active-text: var(--text);
   --wash-1: #5a3a62;
   --wash-2: #1f4f78;
 }
@@ -158,7 +162,7 @@ textarea {
   border: 1px solid var(--btn-edge);
 }
 .segmented label { border-radius: var(--radius-sm); }
-.segmented label:has(input:checked) { background: var(--active); color: var(--accent-text); box-shadow: var(--btn-shadow); }
+.segmented label:has(input:checked) { background: var(--active); color: var(--active-text); box-shadow: var(--btn-shadow); }
 
 /* Tab labels stay whole words. On a phone the row wraps onto a second line instead of squeezing a label until it breaks inside the word or scrolling the rest out of sight. */
 @media (max-width: 640px) {

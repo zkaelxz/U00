@@ -28,6 +28,7 @@ import { ResplitLines } from './review/ResplitLines'
 import { StructureSection } from './review/StructureSection'
 import type { LineTarget } from './review/reviewResults'
 import { useDramaJobRunning } from './review/useDramaJobRunning'
+import { useFitToScreen } from './review/useLinesChrome'
 import './review/review.css'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
@@ -135,9 +136,14 @@ export default function ReviewStage() {
     )
   }, [dramaId, drama.has_audio])
 
+  const stageRef = useRef<HTMLDivElement>(null)
+  const fits = useFitToScreen(stageRef)
+  // Wide screens: the source video's card sits at the top of the side column, so the lines keep the whole height beside it.
+  const [watchDock, setWatchDock] = useState<HTMLDivElement | null>(null)
+
   return (
     <LineSelectionProvider titleId={dramaId} reshapes={reshapes}>
-    <div className="stage-review" role="region" aria-label="Review">
+    <div className="stage-review" role="region" aria-label="Review" ref={stageRef}>
       <LinesPanel
         dramaId={dramaId}
         reloads={reloads}
@@ -158,7 +164,9 @@ export default function ReviewStage() {
         onQueue={setQueueOn}
         onLineTab={setLineTab}
         lineDock={lineTab && lineShown ? lineDock : null}
+        watchDock={fits ? watchDock ?? false : null}
       />
+      <div className="review-watch-slot" ref={setWatchDock} />
       <ReviewChecks
         enabled={!!lineCount}
         dramaId={dramaId}
