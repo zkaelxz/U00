@@ -4,7 +4,7 @@ import pytest
 
 import comic_chapters
 import db
-import page_server
+from services import page_server
 from services import extension_title_service as titles
 
 from tests.test_page_server import _b64, _png_bytes, _post, fake_pipeline  # noqa: F401

@@ -5,7 +5,7 @@ import pytest
 
 import db
 import page_capture_checks
-import page_server
+from services import page_server
 import storage
 from services import scanlate_render_service as render_svc
 

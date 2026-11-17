@@ -610,7 +610,7 @@ class TestLocalOnlyNeedsPreflightedPost:
 
     @pytest.fixture(autouse=True)
     def _no_page_server(self, monkeypatch):
-        import page_server
+        from services import page_server
         monkeypatch.setattr(page_server, "ensure_server_started", lambda *a, **k: True)
         monkeypatch.setattr(page_server, "load_or_create_token", lambda: "tok")
 
