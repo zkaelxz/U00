@@ -81,7 +81,7 @@ class TestResolveLabOptions:
 
     def test_decode_randomness_defaults_to_default_and_takes_known_choices(self):
         assert opts.resolve_lab_options(None)["decode_randomness"] == "default"
-        assert opts.resolve_lab_options({"decode_randomness": "seeded"})["decode_randomness"] == "seeded"
+        assert opts.resolve_lab_options({"decode_randomness": "temperature_0"})["decode_randomness"] == "temperature_0"
         with pytest.raises(InvalidInputError):
             opts.resolve_lab_options({"decode_randomness": "random"})
 
