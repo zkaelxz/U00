@@ -553,6 +553,27 @@ def test_ass_export_without_blanks_marks_exported(local_client, drama, isolated_
     assert isolated_db.get_drama(drama)["status"] == "exported"
 
 
+def test_a_readers_export_leaves_the_status_alone(isolated_db):
+    """Downloading needs only lines.read; marking Exported is an
+    admin.library write, so a reader's full export changes nothing."""
+    from fastapi.testclient import TestClient
+    from api import auth as api_auth
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    from services import auth_service
+    u = auth_service.add_user("reader@example.com")
+    auth_service.grant_permission(u["id"], "lines.read")
+    s = auth_service.create_session(u["id"])
+    headers = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}"}
+    did = isolated_db.create_drama(title_en="Shared", owner_user_id=u["id"], is_private=0,
+                                   status="translated")
+    isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
+    c = TestClient(create_app(ApiSettings(auth_mode="on", serve_frontend=False)),
+                   base_url="https://baihe.example.com", raise_server_exceptions=False)
+    assert c.get(f"/api/export/dramas/{did}/subtitle", headers=headers).status_code == 200
+    assert isolated_db.get_drama(did)["status"] == "translated"
+
+
 @pytest.mark.parametrize("field", ["en", "bilingual"])
 def test_subtitle_export_with_a_blank_line_keeps_status(local_client, drama, isolated_db, field):
     isolated_db.update_drama(drama, status="translated")
