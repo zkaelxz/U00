@@ -175,6 +175,8 @@ def use_site_thumbnail(drama_id: int, folder: str) -> bool:
     re-encode), and never replaces a cover the title already has. Any failure
     leaves the title as it was: a missing picture must not fail a download."""
     from lib.safe_paths import plain_file_in
+    if (db.get_drama(drama_id) or {}).get("cover_art_filename"):
+        return False
     for name in SITE_THUMBNAIL_NAMES:
         path = plain_file_in(folder, name)
         if not path or os.path.islink(path) or not os.path.isfile(path):

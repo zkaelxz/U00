@@ -129,6 +129,9 @@ def refusal(info, max_seconds=MAX_DURATION_SECONDS, part=None):
     return "Refused." if refusal_detail(info, max_seconds, part) else None
 
 
+THUMBNAIL_DIRNAME = "site_thumbnail"
+
+
 def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts=False,
                 audio_only=True, proxy=None, max_height=None) -> dict:
     """The options merged over video_download's own (they win). Never any
@@ -149,11 +152,12 @@ def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts
         "fragment_retries": 3,
         "concurrent_fragment_downloads": 1,
         "external_downloader": {"default": "native"},
-        "paths": {"home": tmp_dir, "temp": tmp_dir},
+        # The thumbnail goes in its own folder: beside the media it takes the media's file
+        # name when its URL ends in the media's extension, and yt-dlp then skips the real download.
+        "paths": {"home": tmp_dir, "temp": tmp_dir, "thumbnail": os.path.join(tmp_dir, THUMBNAIL_DIRNAME)},
         "restrictfilenames": True,
-        # The site's own picture, kept beside the media as downloaded_<kind>.<jpg|png|webp>
-        # for url_media_service to turn into the title's cover. A thumbnail that fails to
-        # download is a yt-dlp warning, not a failed download.
+        # The site's own picture, for url_media_service to turn into the title's cover. One
+        # that fails to download is a yt-dlp warning, not a failed download.
         "writethumbnail": True,
         "quiet": True,
         "no_warnings": True,
