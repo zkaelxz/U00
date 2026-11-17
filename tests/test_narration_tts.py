@@ -182,10 +182,6 @@ class TestCloneMapFromCharacters:
             "/d")
         assert m == {"A": {"engine": "omnivoice", "ref_audio": os.path.join("/d", "a.wav"), "ref_text": ""}}
 
-    def test_a_removed_hosted_clone_says_so(self):
-        assert "has been removed" in dub.clone_removed_message(self._char("A", elevenlabs_voice_id="v1"))
-        assert dub.clone_removed_message(self._char("A")) is None
-
     def test_a_clip_wins_over_a_description(self):
         m = dub.clone_map_from_characters(
             [self._char("A", ref_audio_filename="a.wav", clone_engine="omnivoice", voice_design="male")], "/d")

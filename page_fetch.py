@@ -13,18 +13,15 @@ which would dutifully find nothing and report "couldn't extract
 metadata" -- indistinguishable from a genuinely empty page. That's a
 silent failure, and silent failures are worse than loud ones.
 
-So this module does three things:
-  1. Detects when a fetch returned a shell rather than content.
-  2. Optionally renders the page properly with a headless browser.
-  3. Falls back to an explicit "paste the text yourself" path that
-     always works, instead of pretending.
+So this module detects when a fetch returned a shell rather than
+content, and renders pages properly with a headless browser.
 """
 
 import re
 from contextlib import contextmanager
 
 from page_fetch_browser import _require_playwright
-from page_fetch_guard import _UA, _goto, _guarded_chromium, _guarded_page
+from page_fetch_guard import _goto, _guarded_chromium, _guarded_page
 from page_scroll import scroll_through_and_settle
 import storage
 
@@ -121,43 +118,6 @@ def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
         "confidence": min(score, 1.0),
         "reasons": reasons,
     }
-
-
-STATIC_FETCH_MAX_BYTES = 5_000_000
-STATIC_FETCH_MAX_REDIRECTS = 5
-STATIC_FETCH_MAX_ERROR_BYTES = 4096   # an error page's body is never needed, only its status
-
-
-class HTTPStatusError(Exception):
-    """The site answered with an error status."""
-
-    def __init__(self, status: int):
-        super().__init__(f"HTTP {status}")
-        self.status = status
-
-
-def fetch_static(url: str, timeout: int = 20):
-    """Plain fetch. Returns (html, text). Raises on network failure, and
-    `url_guard.UnsafeURLError` when the URL or any redirect hop is not a
-    public http(s) address."""
-    from bs4 import BeautifulSoup
-    from lib import http, url_guard
-
-    # The raw guard, not `http.check_public`, so the caller still sees the
-    # guard's own exceptions and fixed messages (see `_redact`).
-    resp = http.get(url, timeout=timeout, max_bytes=STATIC_FETCH_MAX_BYTES,
-                    deadline=max(timeout, 1) * 3, max_redirects=STATIC_FETCH_MAX_REDIRECTS,
-                    max_error_bytes=STATIC_FETCH_MAX_ERROR_BYTES,
-                    guard=url_guard.resolve_public, headers={"User-Agent": _UA})
-    if resp.status >= 400:
-        raise HTTPStatusError(resp.status)
-    html = resp.text()
-
-    soup = BeautifulSoup(html, "html.parser")
-    for tag in soup(["script", "style", "noscript"]):
-        tag.decompose()
-    text = "\n".join(l.strip() for l in soup.get_text("\n").splitlines() if l.strip())
-    return html, text
 
 
 def fetch_rendered(url: str, timeout: int = 30, wait_selector: str | None = None,
@@ -296,91 +256,3 @@ def _visible_lines(html: str) -> str:
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
     return "\n".join(l.strip() for l in soup.get_text("\n").splitlines() if l.strip())
-
-
-def _redact(exc) -> str:
-    """A fixed-text reason for a failed fetch. str(exc) is never echoed: a
-    requests error carries the URL it connected to (the pinned IP, or a
-    redirect target the site chose) and may hold query-string tokens, which
-    redact_secrets does not mask. Only the guard's own fixed messages and
-    the install hint for a missing browser are passed through."""
-    from engine_backends.shared import redact_secrets
-    from lib import url_guard
-    if isinstance(exc, (url_guard.UnsafeURLError, url_guard.URLResolveError, ImportError)):
-        return redact_secrets(str(exc))
-    if isinstance(exc, HTTPStatusError):
-        return f"the site answered HTTP {exc.status}"
-    status = getattr(getattr(exc, "response", None), "status_code", None)
-    if isinstance(status, int):
-        return f"the site answered HTTP {status}"
-    return "the connection failed"
-
-
-def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):
-    """
-    Fetches a page and tells you honestly what you got.
-
-    Tries a static fetch first (fast, no dependencies). If that looks
-    like an unrendered shell and allow_render is on, retries with a
-    headless browser. Never silently returns an empty shell as though
-    it were real content.
-
-    Returns:
-      {"text": str, "method": "static"|"rendered"|"failed",
-       "shell_check": {...}, "needs_manual": bool, "message": str}
-    """
-    result = {"text": "", "method": "failed", "shell_check": {},
-              "needs_manual": False, "message": ""}
-
-    try:
-        html, text = fetch_static(url, timeout=timeout)
-    except Exception as e:
-        result["needs_manual"] = True
-        result["message"] = f"Couldn't reach that page: {_redact(e)}"
-        return result
-
-    check = looks_like_unrendered_shell(html, text)
-    result["shell_check"] = check
-
-    if not check["is_shell"]:
-        result["text"] = text
-        result["method"] = "static"
-        result["message"] = "Fetched successfully."
-        return result
-
-    # It's a shell. Try rendering it properly.
-    if allow_render:
-        try:
-            _html_r, text_r = fetch_rendered(url, timeout=max(timeout, 30))
-            recheck = looks_like_unrendered_shell(_html_r, text_r)
-            if not recheck["is_shell"]:
-                result["text"] = text_r
-                result["method"] = "rendered"
-                result["message"] = "This page needed JavaScript; rendered it with a browser."
-                result["shell_check"] = recheck
-                return result
-            result["text"] = text_r
-            result["method"] = "rendered"
-            result["needs_manual"] = True
-            result["message"] = (
-                "Rendered the page, but it still looks empty -- the content may be "
-                "behind a login, or loaded only after interaction. "
-                "Try the manual paste option.")
-            result["shell_check"] = recheck
-            return result
-        except ImportError as e:
-            result["needs_manual"] = True
-            result["message"] = (
-                "This page is built with JavaScript, so a plain fetch only returns an "
-                f"empty shell.\n\n{_redact(e)}\n\nOr use the manual paste option below.")
-            return result
-        except Exception as e:
-            result["needs_manual"] = True
-            result["message"] = f"Browser rendering failed: {_redact(e)}. Try the manual paste option."
-            return result
-
-    result["needs_manual"] = True
-    result["message"] = (
-        "This page is built with JavaScript -- a plain fetch returns only the page "
-        "furniture, not the listings. Enable browser rendering or paste the text manually.")
-    return result
