@@ -55,6 +55,29 @@ test('the first Tab stop is a skip link that moves focus into main', async ({ pa
   expect(new URL(page.url()).hash).toBe('#/settings')
 })
 
+test.describe('Review skip link', () => {
+  test.beforeEach(() => seedLines())
+  test.afterAll(() => clearLines())
+
+  test('the second Tab stop on Review skips to the active line', async ({ page }) => {
+    await page.goto('/#/drama/3/review')
+    const activeRow = page.locator('li[data-line-id][tabindex="0"]')
+    await expect(activeRow).toHaveCount(1)
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Tab')
+    const skip = page.getByRole('link', { name: 'Skip to lines' })
+    await expect(skip).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(activeRow).toBeFocused()
+  })
+
+  test('other pages have no Skip to lines link', async ({ page }) => {
+    await page.goto('/#/settings')
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Settings')
+    await expect(page.getByRole('link', { name: 'Skip to lines' })).toHaveCount(0)
+  })
+})
+
 test.describe('Line history', () => {
   test.beforeEach(() => seedLines())
   test.afterAll(() => clearLines())

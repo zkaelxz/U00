@@ -19,12 +19,12 @@ import { jobSucceeded, type JobRecord } from '../../../../types/jobs'
 import type { ResplitResult, ResplitSensitivity } from '../../../../types/restructure'
 import { runInstallJob } from '../../../diagnostics/installJob'
 import { useInstallPlan } from '../../../diagnostics/useInstallPlan'
-import { useStage } from '../../StageContext'
+import { useStage, useTitleTextLang } from '../../StageContext'
 import { resplitJobId } from '../../stageJobIds'
 import { JobPanel } from '../JobPanel'
 import type { SpeakerTimeSummary } from '../../../../types/workspace'
 import { speakerTimeFooter, speakerTimeLines, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, type UndoHandle } from './reviewLogic'
-import { JOB_RUNNING_MESSAGE, QUICK_SPLIT_DEFAULTS, RESPLIT_DRAFT_SHAPE, RESPLIT_DRAFT_STAGE, RESPLIT_DURATION_CAPS, RESPLIT_SENSITIVITIES, quickSplitHelp, quickSplitLimits, resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, wordSplitterPackages } from './reviewResegment'
+import { JOB_RUNNING_MESSAGE, QUICK_SPLIT_DEFAULTS, RESPLIT_DRAFT_SHAPE, RESPLIT_DRAFT_STAGE, RESPLIT_DURATION_CAPS, RESPLIT_SENSITIVITIES, quickSplitHelp, quickSplitLimits, resplitCutRows, resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, wordSplitterPackages, type ResplitCutRow } from './reviewResegment'
 import { UndoNotice } from './UndoNotice'
 import { retireUndoOffer, useUndoOffer } from './undoOffer'
 
@@ -78,6 +78,9 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
   const [error, setError] = useState<unknown>(null)
   const [needsConfirm, setNeedsConfirm] = useState(false)
   const [summary, setSummary] = useState<string | null>(null)
+  // Keyed on the preview's summary, so any later status line hides the list without resetting it everywhere.
+  const [cutsFor, setCutsFor] = useState<{ summary: string; rows: ResplitCutRow[]; more: number } | null>(null)
+  const textLang = useTitleTextLang()
   const [undo, setUndo] = useUndoOffer<UndoHandle>('resplit', dramaId)
   const undoing = useRef(false)
   // Set when the Undo notice (and the button that had focus) goes away, so the
@@ -137,7 +140,11 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
         expected_line_ids: lines.map((l) => l.id), confirm, dry_run: dryRun,
         ...(oneClick ? { align_to_audio: true, max_seconds: quickLimits.seconds } : { align_to_audio: align, sensitivity: chosen, max_seconds: cap }),
       })
-      if (dryRun) setSummary(resplitPreviewSummary(r))
+      if (dryRun) {
+        const text = resplitPreviewSummary(r)
+        setSummary(text)
+        setCutsFor({ summary: text, ...resplitCutRows(r.cuts) })
+      }
       else if (r.job_id) {
         startedHere.current = true
         setJobId(r.job_id)
@@ -351,6 +358,16 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
           <p role="status" data-testid="resplit-summary" tabIndex={-1} ref={takeFocus}>
             {summary}
           </p>
+        )}
+        {cutsFor && cutsFor.summary === summary && cutsFor.rows.length > 0 && (
+          <ul className="review-matches" aria-label="Planned cuts" data-testid="resplit-cuts">
+            {cutsFor.rows.map((c) => (
+              <li key={c.key}>
+                <span className="muted">#{c.number} · cut at {c.at}</span> <span lang={textLang}>{c.pieces}</span>
+              </li>
+            ))}
+            {cutsFor.more > 0 && <li className="muted">and {cutsFor.more} more</li>}
+          </ul>
         )}
         {structureErrorText(error) ? (
           <p className="error" role="alert">{structureErrorText(error)}</p>
