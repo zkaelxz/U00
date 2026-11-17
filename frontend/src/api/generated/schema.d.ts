@@ -50262,6 +50262,8 @@ export interface operations {
         parameters: {
             query?: {
                 model?: string;
+                whisper_size?: string;
+                use_gpu?: boolean;
             };
             header?: never;
             path?: never;
