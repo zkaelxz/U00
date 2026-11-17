@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  arenaExportUrl, checkBenchmarkClips, deleteBenchmarkRun, editCaseReference, getCaseEdits, importBenchmarkClips, runExportUrl, setCaseExcluded,
+  arenaExportUrl, checkBenchmarkClips, deleteBenchmarkRun, editCaseReference, getCaseEdits, importBenchmarkClips, markedLinesExportUrl, runExportUrl, setCaseExcluded,
   acceptHardSubCaptions, applyHardSubReading, getHardSubCaptions, addHardSubCases, addRegressionCase, buildBenchmarkSet, casesQuery, createBenchmarkCase, deleteBenchmarkCase, estimateBenchmark, getBenchmarkArena, getBenchmarkCases,
   getBenchmarkOptions, getBenchmarkRun, getBenchmarkSets, importGoldenSet, listBenchmarkRuns, startBenchmarkRun,
 } from './benchmark'
@@ -181,6 +181,7 @@ describe('benchmark api: clips, case clean-up, run delete and export', () => {
 
   it('links to the export of a run and of a comparison', () => {
     expect(runExportUrl(3, 'csv')).toBe('/api/benchmark/runs/3/export?format=csv')
+    expect(markedLinesExportUrl('csv')).toBe('/api/benchmark/marked-lines/export?format=csv')
     expect(arenaExportUrl([3, 5], 'json')).toBe('/api/benchmark/arena/export?run_ids=3&run_ids=5&format=json')
   })
 })
