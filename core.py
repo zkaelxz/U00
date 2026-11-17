@@ -298,18 +298,32 @@ def _srt_text(text: str) -> str:
     return "\n".join(part for part in (text or "").splitlines() if part.strip())
 
 
-def lines_to_srt(lines, field="en", notes_by_idx: dict | None = None) -> str:
+def cue_speaker_name(ln, speaker_names: dict | None) -> str:
+    """The name a cue is attributed to, or "" for none. speaker_names None
+    means the option is off; a dict maps speaker labels to character names
+    (a label with no entry is shown as it is). SFX cues are not speech, so
+    they carry no name."""
+    if speaker_names is None or getattr(ln, "sfx", False) or not getattr(ln, "speaker", ""):
+        return ""
+    return " ".join((speaker_names.get(ln.speaker) or ln.speaker).split())
+
+
+def lines_to_srt(lines, field="en", notes_by_idx: dict | None = None,
+                 speaker_names: dict | None = None) -> str:
     out = []
     for i, ln in enumerate(lines, start=1):
         text = getattr(ln, field)
         if getattr(ln, "sfx", False):
             text = sfx_cue_text(text)
-        text = _srt_text(text + notes_suffix(ln.idx, notes_by_idx))
+        name = cue_speaker_name(ln, speaker_names)
+        text = _srt_text((f"{name}: " if name and text.strip() else "") + text
+                         + notes_suffix(ln.idx, notes_by_idx))
         out.append(f"{i}\n{fmt_ts(ln.start)} --> {fmt_ts(ln.end)}\n{text}\n")
     return "\n".join(out)
 
 
-def lines_to_bilingual_srt(lines, notes_by_idx: dict | None = None) -> str:
+def lines_to_bilingual_srt(lines, notes_by_idx: dict | None = None,
+                           speaker_names: dict | None = None) -> str:
     out = []
     for i, ln in enumerate(lines, start=1):
         en, zh = ln.en, ln.zh
@@ -317,7 +331,9 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict | None = None) -> str:
             en, zh = sfx_cue_text(en), sfx_cue_text(zh)
         en, zh = _srt_text(en), _srt_text(zh)
         text = f"{en}\n{zh}" if en else zh
-        text = _srt_text(text + notes_suffix(ln.idx, notes_by_idx))
+        name = cue_speaker_name(ln, speaker_names)
+        text = _srt_text((f"{name}: " if name and text.strip() else "") + text
+                         + notes_suffix(ln.idx, notes_by_idx))
         out.append(f"{i}\n{fmt_ts(ln.start)} --> {fmt_ts(ln.end)}\n{text}\n")
     return "\n".join(out)
 

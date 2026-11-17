@@ -25,6 +25,7 @@ export function subtitleQuery(o: SubtitleOptions): string {
   if (o.wrapEn !== undefined) p.set('wrap_chars_en', String(o.wrapEn))
   if (o.wrapSource !== undefined) p.set('wrap_chars_source', String(o.wrapSource))
   if (o.tidyTiming) p.set('tidy_timing', 'true')
+  if (o.speakerNames) p.set('speaker_names', 'true')
   return p.toString()
 }
 
