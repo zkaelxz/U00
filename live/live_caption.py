@@ -74,6 +74,13 @@ class ChunkCaptioner:
                 return
             unheard = None
             self.runner.mark_model_ready()
+            lost = unheard_again(held["cues"], new_cues) if reheard else []
+            if lost:
+                # The second hearing left them out (Whisper skipped them, or the
+                # overlap match trimmed them): the first hearing is all there is.
+                self._release({**held, "cues": lost}, path, worker, final)
+                for cue in new_cues:
+                    cue["id"] += len(lost)
             new_cues, self.state["held"] = hold_back_overlap(
                 new_cues, tail, idx, self.segment_seconds, shift, final)
             self.board.add(new_cues)
@@ -154,6 +161,11 @@ class ChunkCaptioner:
             tail["text"] = " ".join(
                 c["text"] for c in new_cues if c["end"] > chunk_end - tail["seconds"])
         self.state["prev_tail"] = tail
+
+
+def unheard_again(held: list, cues: list) -> list:
+    """The held lines no cue of the re-hearing chunk overlaps in time."""
+    return [h for h in held if not any(c["start"] < h["end"] and c["end"] > h["start"] for c in cues)]
 
 
 def hold_back_overlap(cues, tail, idx, segment_seconds, shift, final):
