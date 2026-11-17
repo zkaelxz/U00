@@ -10,7 +10,7 @@ import type { PcMode } from '../../hooks/usePcOnly'
 import type { DiagnosticsHfCacheEntry, DiagnosticsModelCache, DiagnosticsModelDownload, ModelEngineVersion } from '../../types/diagnostics'
 import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 import { ModelDownload } from './ModelDownload'
-import { MODEL_DOWNLOAD_IDS, MODEL_FOLDER_LABELS, engineRow, hasModelCache, modelCacheSummary, reconcileModels } from './diagnosticsAdmin'
+import { MODEL_DOWNLOAD_IDS, MODEL_FOLDER_LABELS, engineRow, noDownloadButtonNote, hasModelCache, modelCacheSummary, reconcileModels } from './diagnosticsAdmin'
 
 /**
  * "Models": each model engine with its status and the Hugging Face downloads
@@ -94,23 +94,39 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
         <>
           {cache && hasCache && <p className="muted">Downloaded: {modelCacheSummary(cache)}</p>}
           <ul className="diag-rows model-engines" aria-label="Model engines">
-            {rows.map(({ engine, cached, notDownloaded }) => (
+            {rows.map(({ engine, cached, notDownloaded }) => {
+              const engineDownloads = pc === 'remote' || !engine.installed ? [] : downloads
+                .filter((d) => (MODEL_DOWNLOAD_IDS[engine.name] ?? []).includes(d.id))
+              // The per-model list below says which models are missing, so the engine line stays quiet.
+              const showNotDownloaded = notDownloaded && engineDownloads.length === 0
+              return (
               <li key={engine.name}>
-                <span>{engineRow(engine)}{notDownloaded && <span className="muted"> · not downloaded</span>}</span>
+                <span>{engineRow(engine)}{showNotDownloaded && <span className="muted"> · not downloaded</span>}</span>
+                {showNotDownloaded && pc !== 'remote' && <span className="muted" data-testid="no-download-button"> · {noDownloadButtonNote()}</span>}
                 {!engine.installed && (
                   <span className="muted" data-testid="engine-not-installed">
                     {engine.help && <> · {engine.help}</>}
                     {engine.package && <> · <CardLink card="packages" onGoTo={onGoTo}>Install it in Packages and installs</CardLink></>}
                   </span>
                 )}
-                {pc !== 'remote' && engine.installed && downloads
-                  .filter((d) => (MODEL_DOWNLOAD_IDS[engine.name] ?? []).includes(d.id) && !d.downloaded)
-                  .map((d) => <ModelDownload key={d.id} model={d} onFinished={downloadFinished} />)}
+                {engineDownloads.length > 0 && (
+                  <ul className="model-downloads" aria-label={`${engine.name} models`}>
+                    {engineDownloads.map((d) => (
+                      <li key={d.id}>
+                        <span className="model-download-name">{d.label}</span>
+                        {d.downloaded
+                          ? <span className="muted"> · downloaded</span>
+                          : <><span className="muted"> · not downloaded</span><ModelDownload model={d} onFinished={downloadFinished} /></>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {cached.length > 0 && (
                   <ul className="diag-rows diag-cache" aria-label={`${engine.name} downloads`}>{cached.map(hfRow)}</ul>
                 )}
               </li>
-            ))}
+              )
+            })}
           </ul>
         </>
       )}

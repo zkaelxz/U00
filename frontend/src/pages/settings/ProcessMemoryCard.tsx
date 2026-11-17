@@ -12,9 +12,8 @@ import { CardFoldContext } from '../../components/cardFold'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
-import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 import { refreshedLine } from './loadedModelsModel'
-import { RELATION_LABEL, STATE_NOTE, gpuGapNote, summaryLine, vramCell } from './processMemoryModel'
+import { RELATION_LABEL, STATE_NOTE, gpuGapNote, ramCell, summaryLine, vramCell } from './processMemoryModel'
 
 const TITLE = 'Memory by process'
 
@@ -85,7 +84,7 @@ export function ProcessMemoryCard({ openSignal = 0 }: { openSignal?: number }) {
                     <tr key={r.pid}>
                       <td>{r.role} (PID {r.pid})</td>
                       <td>{RELATION_LABEL[r.relation]}</td>
-                      <td>{formatDecimalBytes(r.ram_bytes)}</td>
+                      <td>{ramCell(r)}</td>
                       <td>{vramCell(r)}</td>
                       <td className="process-command">{r.command}</td>
                     </tr>
