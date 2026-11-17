@@ -22,7 +22,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from engine_backends import local
 from services import auth_service, library_backup_service, member_key_service, settings_service
-from services import ownership_service
+from lib import acting
 from lib.errors import InvalidInputError
 
 KEY = "0123456789abcdef0123456789abcdef.AbCdEfGhIjKlMnOpQrStUvWx"
@@ -468,12 +468,12 @@ def test_qa_errors_on_the_own_key_path_name_the_members_account(monkeypatch):
 def _start_as(user_id, target):
     """Starts a job as if from a request by `user_id` (None: the owner)."""
     from jobs import job_launch
-    token = ownership_service.bind_request()
+    token = acting.bind_request()
     try:
-        ownership_service.note_acting_principal(None if user_id is None else {"user_id": user_id})
+        acting.note_acting_principal(None if user_id is None else {"user_id": user_id})
         return job_launch.start_job(f"member-key-test-{user_id}", target)
     finally:
-        ownership_service.unbind_request(token)
+        acting.unbind_request(token)
 
 
 def _key_seen_by_a_job(user_id, before_run=None):
@@ -508,10 +508,10 @@ def test_removing_the_key_mid_run_does_not_move_the_run_to_the_owners_account(en
 def test_a_request_without_a_job_uses_the_signed_in_members_key(env):
     u = auth_service.add_user("kid@example.com")
     member_key_service.save(u["id"], KEY)
-    token = ownership_service.bind_request()
+    token = acting.bind_request()
     try:
-        ownership_service.note_acting_principal({"user_id": u["id"]})
+        acting.note_acting_principal({"user_id": u["id"]})
         assert local.member_cloud_key() == KEY
     finally:
-        ownership_service.unbind_request(token)
+        acting.unbind_request(token)
     assert local.member_cloud_key() is None

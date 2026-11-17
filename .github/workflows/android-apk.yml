@@ -83,12 +83,18 @@ jobs:
 
       # Phones were offered a debuggable build before; a debuggable APK lets USB debugging read
       # the stored sign-in, so a build that is one must never be published.
-      - name: Refuse a debuggable APK
+      - name: Refuse a debuggable APK or one without its version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           apk=android/app/build/outputs/apk/release/app-release.apk
           aapt2="$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n 1)"
           "$aapt2" dump badging "$apk" > badging.txt
           grep -q "^package: name='app.baihe.shell'" badging.txt
+          if ! grep -q "versionName='0.1.$((1000 + RUN_NUMBER))'" badging.txt; then
+            echo "::error title=Version name::The APK's version name doesn't carry its build number."
+            exit 1
+          fi
           if grep -q "application-debuggable" badging.txt; then
             echo "::error title=Debuggable APK::The release APK is debuggable."
             exit 1

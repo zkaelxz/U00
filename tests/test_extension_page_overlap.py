@@ -144,21 +144,21 @@ def test_each_page_is_heard_as_it_finishes_and_a_listener_that_fails_stops_nothi
 def test_every_page_runs_for_the_member_who_sent_the_batch(pipeline, monkeypatch, count):
     """The member's identity picks their key and books the spend to them, so a page worked on a
     thread of its own must still see it."""
-    from services import ownership_service
+    from lib import acting
     seen = []
     real = page_server.translate_image
 
     def spy(*args, **kwargs):
-        seen.append(ownership_service.acting_principal())
+        seen.append(acting.acting_principal())
         return real(*args, **kwargs)
     monkeypatch.setattr(page_server, "translate_image", spy)
     member = {"id": 7, "email": "m@example.com"}
-    bound = ownership_service.bind_request()
+    bound = acting.bind_request()
     try:
-        ownership_service.note_acting_principal(member)
+        acting.note_acting_principal(member)
         _send(count)
     finally:
-        ownership_service.unbind_request(bound)
+        acting.unbind_request(bound)
     assert seen == [member] * count
 
 

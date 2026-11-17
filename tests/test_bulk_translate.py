@@ -26,6 +26,7 @@ from engine_backends import gemini as engine_gemini
 from core import Line
 from lib import http
 from tests.http_fakes import StreamedBody
+import paid_limits
 
 
 # ---------------------------------------------------------------------------
@@ -707,7 +708,7 @@ class TestDeepSeekOffPeak:
                                   now_fn=lambda: offpeak, monthly_cap_usd=50.0)
         job = isolated_db.get_bulk_job(bulk_id)
         assert engine.seen == []
-        assert job["status"] == "failed" and job["last_error"] == auth_service.PAID_LIMIT_MESSAGE
+        assert job["status"] == "failed" and job["last_error"] == paid_limits.PAID_LIMIT_MESSAGE
         background_jobs.clear_job("t_ds_limit")
 
     def test_an_orphaned_running_job_is_resumed_after_a_restart(self, isolated_db, monkeypatch):

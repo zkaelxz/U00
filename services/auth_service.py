@@ -35,6 +35,7 @@ from lib.device_label import device_label
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError, RateLimitedError, UnauthenticatedError,
                                      UnsupportedOperationError)
+import paid_limits
 
 # One catalogue, one place. Household defaults are granted to a newly
 # allowlisted user; the opt-in list exists but is granted only explicitly.
@@ -515,39 +516,18 @@ def effective_permissions(user_id: int) -> list:
             if p in PERMISSIONS and p not in ADMIN_FLAG_PERMISSIONS]
 
 
-def paid_limit_usd(user_id) -> float | None:
-    """A member's own monthly limit for paid engines, or None when none applies."""
-    row = db.auth_get_user(user_id) if isinstance(user_id, int) else None
-    if not row or row["is_admin"] or row.get("monthly_paid_cap_usd") is None:
-        return None
-    return float(row["monthly_paid_cap_usd"])
-
-
-def paid_limit_reached(user_id) -> bool:
-    """A member whose own monthly limit for paid engines is used up (spend
-    counted like the library-wide cap, from an active reset, with their
-    pending bulk batches)."""
-    limit = paid_limit_usd(user_id)
-    return limit is not None and db.get_user_month_spend(user_id) >= limit
-
-
-PAID_LIMIT_MESSAGE = ("You've used this month's limit for paid engines, so they're off for you "
-                      "until next month or until the PC owner raises your limit. Free engines "
-                      "such as Ollama still work.")
-
-
 def refuse_if_paid_limit_reached(user_id) -> None:
     """For paid work about to spend on a member's behalf (and before each
     paid call of a running job): refused once their own limit is used up."""
-    if paid_limit_reached(user_id):
-        raise UnsupportedOperationError(PAID_LIMIT_MESSAGE)
+    if paid_limits.paid_limit_reached(user_id):
+        raise UnsupportedOperationError(paid_limits.PAID_LIMIT_MESSAGE)
 
 
 def paid_engines_held_back(user_id) -> bool:
     """The member was given `engines.paid` but their own limit is used up,
     so working_permissions leaves it out for now."""
     return (isinstance(user_id, int) and PAID_PERMISSION in effective_permissions(user_id)
-            and paid_limit_reached(user_id))
+            and paid_limits.paid_limit_reached(user_id))
 
 
 def working_permissions(user_id: int) -> list:
@@ -556,7 +536,7 @@ def working_permissions(user_id: int) -> list:
     limit is used up, so no paid work starts for them. The People screen
     still shows the right as given (effective_permissions)."""
     perms = effective_permissions(user_id)
-    if PAID_PERMISSION in perms and paid_limit_reached(user_id):
+    if PAID_PERMISSION in perms and paid_limits.paid_limit_reached(user_id):
         perms = [p for p in perms if p != PAID_PERMISSION]
     return perms
 
@@ -575,7 +555,7 @@ def member_principal(user_id: int):
             "is_local_owner": False, "admin_override": False,
             "permissions": [p for p in db.auth_get_permissions(row["id"])
                             if p in PERMISSIONS and p not in ADMIN_FLAG_PERMISSIONS
-                            and not (p == PAID_PERMISSION and paid_limit_reached(row["id"]))]}
+                            and not (p == PAID_PERMISSION and paid_limits.paid_limit_reached(row["id"]))]}
 
 
 def grant_permission(user_id: int, permission: str, actor_id=None) -> dict:

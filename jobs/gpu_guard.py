@@ -221,14 +221,14 @@ def allow_restart(job_id: str, restart) -> None:
     `restart()` (called with the starter's principal, so ownership and caps
     are checked as they were). Call it right after a start returned True,
     only for a job whose stop-and-start again is clean."""
-    from services import ownership_service
+    from lib import acting
     with _lock:
         run = _jobs.get(job_id)
     if run is None or run.get("status") not in ("queued", "running"):
         return
     with _guard_lock:
         _restartable[job_id] = {"run": run, "restart": restart, "restarts": 0,
-                                "principal": ownership_service.acting_principal()}
+                                "principal": acting.acting_principal()}
 
 
 def _forget_ended_locked() -> None:
@@ -278,16 +278,16 @@ def wait_for_room_locked(job_id: str, run: dict, need_mb, error: str) -> bool:
 
 def _call_as(principal, fn):
     """fn() with `principal` as the acting principal, in a context of its own."""
-    from services import ownership_service
+    from lib import acting
 
     def run():
-        token = ownership_service.bind_request()
+        token = acting.bind_request()
         try:
             if principal is not None:
-                ownership_service.note_acting_principal(principal)
+                acting.note_acting_principal(principal)
             return fn()
         finally:
-            ownership_service.unbind_request(token)
+            acting.unbind_request(token)
     return contextvars.Context().run(run)
 
 

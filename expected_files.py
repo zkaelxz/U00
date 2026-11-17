@@ -85,6 +85,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "page_scroll.py",
     "page_capture_checks.py",
     "page_turns.py",
+    "paid_limits.py",
     "portable.py",
     "process_guard.py",
     "qwen3_native.py",

@@ -337,6 +337,21 @@ def test_a_full_disk_after_the_update_finished_is_not_called_broken(root, monkey
     assert _current(root) == NEW and _app_version(root) == NEW and sw.read_journal(root) is None
 
 
+def test_a_full_disk_when_recording_done_does_not_roll_a_good_update_back(root, monkeypatch):
+    _crash_after(root, 2)
+    record = sw._record
+
+    def full_on_done(root_, journal, state, step=None):
+        if state == sw.DONE:
+            raise OSError(28, "No space left on device")
+        record(root_, journal, state, step)
+    monkeypatch.setattr(sw, "_record", full_on_done)
+    sw.finish(root, sw.read_journal(root))
+    assert sw.read_journal(root) is None
+    assert sw.recover(root, sleep=lambda s: None) is None
+    assert _current(root) == NEW and _app_version(root) == NEW
+
+
 def test_a_crash_after_the_manifest_was_written_still_rolls_back_cleanly(root):
     _crash_after(root, 2)
     sw.set_installed_version(root, NEW, OLD)
