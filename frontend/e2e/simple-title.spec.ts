@@ -997,7 +997,7 @@ test.describe('the check queue', () => {
   })
 
   // The closed cards of the queue on a wide screen: what tells the lines apart, with the room going to the texts.
-  test('a closed card gives its source and English the room: no speaker or badges until it opens, the chip narrow, nothing cut', async ({ page }) => {
+  test('a closed card gives its source and English the room: the speaker as words but no speaker button or badges until it opens, the chip narrow, nothing cut', async ({ page }) => {
     seedCheckLines({ audio: true, real: true })
     await mockPeaks(page)
     await simple(page)
@@ -1023,6 +1023,7 @@ test.describe('the check queue', () => {
       }
       await expect(chip).toHaveText('Too fast to read: 25 characters a second')
       await expect(closed.locator('.review-speaker')).toBeHidden()
+      await expect(closed.locator('.review-queue-speaker'), 'who speaks, as plain words').toHaveText('Wei Wuxian')
       await expect(closed.getByTestId('line-cps')).toBeHidden()
       await expect(closed.getByText(/^Unsure/)).toBeHidden()
       await expect(card(page, 24).locator('.review-speaker')).toHaveText('Wei Wuxian')
