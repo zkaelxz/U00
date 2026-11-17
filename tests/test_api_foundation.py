@@ -666,6 +666,8 @@ class TestDiarizationEndpoints:
     GET /api/jobs/{job_id} (Migration Slice 8), not duplicated here."""
 
     def test_config_contract_shape(self, local_client, isolated_db):
+        from services import settings_service
+        settings_service.set_settings({"speaker_model": "pyannote"})
         did = isolated_db.create_drama(title_en="D")
         body = local_client.get(f"/api/diarization/dramas/{did}/config").json()
         assert body == {
@@ -694,6 +696,8 @@ class TestDiarizationEndpoints:
         assert resp.status_code == 400
 
     def test_run_with_no_token_is_503(self, local_client, isolated_db, monkeypatch):
+        from services import settings_service
+        settings_service.set_settings({"speaker_model": "pyannote"})
         monkeypatch.delenv("BAIHE_HF_TOKEN", raising=False)
         monkeypatch.delenv("HF_TOKEN", raising=False)
         did = isolated_db.create_drama(title_en="D")
