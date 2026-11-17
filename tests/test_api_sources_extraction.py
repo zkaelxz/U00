@@ -865,7 +865,7 @@ def test_exif_orientation_applied_and_strips_sliced(monkeypatch):
     assert ext == ".png" and Image.open(io.BytesIO(body)).size == (20, 40)
     [(body, ext)] = limits.prepare_page(_img("JPEG", 40, 20))
     assert ext == ".jpg"                                  # untouched
-    import scanlate
+    from scanlate import scanlate
     calls = []
 
     def fake_slices(path, out_dir, *a, **k):

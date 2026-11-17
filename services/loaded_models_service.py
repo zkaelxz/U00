@@ -108,7 +108,7 @@ def _app_rows() -> dict:
         for key in list(getattr(aligner, "_aligner_model_cache", {})):
             models.append({"name": "Qwen3 forced aligner", "kind": "Alignment",
                            "device": _device_label(key)})
-        if getattr(sys.modules.get("scanlate_lama"), "_lama_gpu", None):
+        if getattr(sys.modules.get("scanlate.scanlate_lama"), "_lama_gpu", None):
             models.append({"name": "LaMa-manga", "kind": "Comic text eraser",
                            "device": _device_label("cuda")})
         ocr_module = sys.modules.get("ocr")

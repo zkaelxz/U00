@@ -2,9 +2,7 @@
 
 import pytest
 
-import scanlate_watermark as wm
-
-
+from scanlate import scanlate_watermark as wm
 def _r(text, x=10, y=10, w=100, h=20, **kw):
     return {"x": x, "y": y, "w": w, "h": h, "source_text": text, "skip": False, **kw}
 

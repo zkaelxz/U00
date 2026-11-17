@@ -12,13 +12,11 @@ import cv2
 from PIL import Image
 
 import ocr
-import scanlate
-import scanlate_art_text as art
-import scanlate_inpaint
-import scanlate_lama
-import scanlate_render
-
-
+from scanlate import scanlate
+from scanlate import scanlate_art_text as art
+from scanlate import scanlate_inpaint
+from scanlate import scanlate_lama
+from scanlate import scanlate_render
 def _line(x, y, w, h, text):
     return {"x": x, "y": y, "w": w, "h": h, "text": text}
 

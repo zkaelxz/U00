@@ -15,18 +15,16 @@ import numpy as np
 cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cleanly without it
 
 import model_pins
-import scanlate
-import scanlate_fonts
-import scanlate_ink
-import scanlate_render
-import scanlate_text_layout
-import scanlate_detect
-import scanlate_box_merge
-import scanlate_panels
-import scanlate_inpaint
-import scanlate_lama
-
-
+from scanlate import scanlate
+from scanlate import scanlate_fonts
+from scanlate import scanlate_ink
+from scanlate import scanlate_render
+from scanlate import scanlate_text_layout
+from scanlate import scanlate_detect
+from scanlate import scanlate_box_merge
+from scanlate import scanlate_panels
+from scanlate import scanlate_inpaint
+from scanlate import scanlate_lama
 @pytest.fixture
 def temp_dir():
     d = tempfile.mkdtemp(prefix="baihe_scanlate_test_")
@@ -1109,7 +1107,7 @@ class TestWebtoonSliceCap:
 class TestArtCaptionsAlone:
     def test_a_page_of_only_lettering_on_the_art_is_not_reported_as_having_no_bubbles(
             self, tmp_path, monkeypatch):
-        import scanlate_art_text
+        from scanlate import scanlate_art_text
         from PIL import Image
         path = tmp_path / "p.png"
         Image.new("RGB", (200, 200), (20, 20, 20)).save(path)
@@ -1121,7 +1119,7 @@ class TestArtCaptionsAlone:
         assert not any("No bubbles found" in m for _, m in notes)
 
     def test_no_bubbles_and_no_captions_still_says_so(self, tmp_path, monkeypatch):
-        import scanlate_art_text
+        from scanlate import scanlate_art_text
         from PIL import Image
         path = tmp_path / "p.png"
         Image.new("RGB", (200, 200), (20, 20, 20)).save(path)

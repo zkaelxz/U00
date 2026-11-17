@@ -10,8 +10,8 @@ plain OpenCV inpainting leaves ghosts of the letters on busy art.
 
 import numpy as np
 
-from scanlate_inpaint import background_is_dark
-from scanlate_watermark import looks_like_site_mark
+from scanlate.scanlate_inpaint import background_is_dark
+from scanlate.scanlate_watermark import looks_like_site_mark
 
 # Paddle's detector runs out of memory on a full-height webtoon page, so the
 # page is shrunk to this on its longest side for detection only.
@@ -132,7 +132,7 @@ def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=No
     {"x","y","w","h","source_text"} in full-page pixels. Lines are read with
     RapidOCR when that is the page OCR backend, else with PaddleOCR."""
     import ocr
-    from scanlate_page_decode import decode_page
+    from scanlate.scanlate_page_decode import decode_page
     page = image if image is not None else decode_page(image_path)
     h, w = page.shape[:2]
     scale = min(1.0, _DETECT_LIMIT_SIDE / float(max(h, w)))
@@ -182,7 +182,7 @@ def _paint_out_over_dark_art(page, box: dict) -> bool:
     and says whether it did. The brightness mask in caption_mask() finds only the
     white outline, so both LaMa and OpenCV drew the glow and the letters' fill
     back as a grey smudge on dark art."""
-    from scanlate_inpaint import _dark_art_fill, background_is_dark
+    from scanlate.scanlate_inpaint import _dark_art_fill, background_is_dark
     import cv2
     ph, pw = page.shape[:2]
     x, y = max(0, box["x"]), max(0, box["y"])
@@ -203,8 +203,8 @@ def paint_out_captions(page, boxes: list, backend: str = "auto"):
     isn't downloaded or can't load, or a caption was too large for it. Nothing
     is raised: the caller shows the OpenCV result with a note."""
     import cv2
-    from scanlate_inpaint import _resolve_inpaint_backend
-    from scanlate_lama import _run_ml_inpaint
+    from scanlate.scanlate_inpaint import _resolve_inpaint_backend
+    from scanlate.scanlate_lama import _run_ml_inpaint
     model_usable = _resolve_inpaint_backend(backend) == "ml"
     all_by_model = model_usable
     for box in boxes:
@@ -298,7 +298,7 @@ def draw_caption(pil_img, box: dict, text: str, style: dict | None = None, font_
     original strokes were. Without a glow (lettering on a light background) a
     dark outline keeps it readable."""
     from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
-    from scanlate_fonts import _find_font
+    from scanlate.scanlate_fonts import _find_font
     style = style or {"fill": (255, 255, 255), "glow": None}
     align = style.get("align", "center")
     # Bold is the default for a style that carries no measured weight.

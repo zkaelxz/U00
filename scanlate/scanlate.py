@@ -33,18 +33,18 @@ import numpy as np
 from memory_headroom import HeadroomError
 from ocr import auto_ocr_backend
 
-from scanlate_box_merge import merge_fragment_boxes
-from scanlate_detect import BubbleModelUnavailable, detect_bubbles, detect_bubbles_cv, inset_box_for_ocr
-from scanlate_page_decode import decode_page, page_gray
-from scanlate_panels import split_webtoon_strip
-import scanlate_tuning
-from scanlate_regions import (analyze_page_regions, detect_script_language, lettering_fill,
+from scanlate.scanlate_box_merge import merge_fragment_boxes
+from scanlate.scanlate_detect import BubbleModelUnavailable, detect_bubbles, detect_bubbles_cv, inset_box_for_ocr
+from scanlate.scanlate_page_decode import decode_page, page_gray
+from scanlate.scanlate_panels import split_webtoon_strip
+from scanlate import scanlate_tuning
+from scanlate.scanlate_regions import (analyze_page_regions, detect_script_language, lettering_fill,
                               split_separate_lettering, strip_stray_sfx_mark,
                               lettering_size, reclassify_wordy_sfx, flag_katakana_effects,
                               region_excluded_from_auto)
-from scanlate_fonts import sample_text_style
-from scanlate_translate import translate_page_bubbles
-from scanlate_watermark import flag_site_marks
+from scanlate.scanlate_fonts import sample_text_style
+from scanlate.scanlate_translate import translate_page_bubbles
+from scanlate.scanlate_watermark import flag_site_marks
 
 
 def warm_models(detect_backend: str = "auto") -> list:
@@ -52,8 +52,8 @@ def warm_models(detect_backend: str = "auto") -> list:
     first page after the app starts does not wait for them (about 6 s of a first page on a 3080 Ti
     PC). Downloads nothing; a model that is not on disk, or is not the chosen detector, is left
     alone. Returns the names of the models it loaded. The caller holds the pipeline lock."""
-    import scanlate_detect
-    import scanlate_lama
+    from scanlate import scanlate_detect
+    from scanlate import scanlate_lama
     blank = np.full((64, 64, 3), 255, dtype=np.uint8)
     warmed = []
     if detect_backend in ("auto", "ml") and scanlate_detect.bubble_ml_weights_cached():
@@ -434,7 +434,7 @@ def _art_caption_regions(image_path: str, source_language: str, bubbles: list, p
     """Regions (kind "caption") for lettering on the artwork that no bubble
     covers, with the OCR detector's own text. Appended after the bubbles in
     reading order. A failure leaves the page with its bubbles and a note."""
-    import scanlate_art_text
+    from scanlate import scanlate_art_text
     try:
         found = scanlate_art_text.find_art_captions(image_path, source_language, bubbles,
                                                     image=page,
@@ -469,7 +469,7 @@ def join_caption_across_pages(previous: dict, bubbles: list, engine,
     in place; `save_fn(page_id, bubbles)`, when given, saves the previous page
     again with its half. A failed translation keeps both per-page translations;
     a memory refusal, a cancel or a stopped run is raised, as for a page."""
-    import scanlate_art_text
+    from scanlate import scanlate_art_text
     from engine_backends.run_limits import TranslateRunStopped
     from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
 

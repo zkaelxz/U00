@@ -177,7 +177,7 @@ def _typeset_style(raw):
     to its default rather than refusing the page: it is a preference, not data."""
     if not isinstance(raw, dict):
         return None
-    import scanlate_fonts
+    from scanlate import scanlate_fonts
     return scanlate_fonts.TypesetStyle(
         min_font=raw.get("min_font"), stroke=raw.get("stroke") is True,
         align=str(raw.get("align") or "auto"), erase_grow=raw.get("erase_grow"),

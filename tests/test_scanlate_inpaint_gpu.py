@@ -5,9 +5,7 @@ import contextlib
 
 import pytest
 
-import scanlate_lama
-
-
+from scanlate import scanlate_lama
 class _OutOfMemory(RuntimeError):
     pass
 

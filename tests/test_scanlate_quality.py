@@ -9,16 +9,16 @@ import pytest
 
 cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core
 
-import scanlate
-import scanlate_detect
-import scanlate_balloons
-import scanlate_box_merge
-import scanlate_page_decode
-import scanlate_panels
-import scanlate_regions
-import scanlate_render
-import scanlate_tuning
-from scanlate_inpaint import inpaint_region
+from scanlate import scanlate
+from scanlate import scanlate_detect
+from scanlate import scanlate_balloons
+from scanlate import scanlate_box_merge
+from scanlate import scanlate_page_decode
+from scanlate import scanlate_panels
+from scanlate import scanlate_regions
+from scanlate import scanlate_render
+from scanlate import scanlate_tuning
+from scanlate.scanlate_inpaint import inpaint_region
 
 
 def _save(tmp_path, img, name="page.png"):
@@ -414,7 +414,7 @@ def test_hatching_as_dark_as_the_lettering_is_erased_as_before(tmp_path, monkeyp
 
 def test_a_balloon_without_hatching_is_erased_as_before(tmp_path, monkeypatch):
     plain = _hatched_balloon((15, 15, 15), (255, 255, 255))
-    import scanlate_inpaint
+    from scanlate import scanlate_inpaint
     gray = cv2.cvtColor(plain, cv2.COLOR_BGR2GRAY)
     keep = np.ones(gray.shape, bool)
     assert (scanlate_inpaint._without_hatching(gray, keep) == gray).all()

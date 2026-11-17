@@ -5,7 +5,7 @@ import pytest
 pytest.importorskip("PIL")
 from PIL import Image
 
-import scanlate_sfx
+from scanlate import scanlate_sfx
 from services import scanlate_run_service as run_svc
 from tests.saved_settings import patch_setting
 
@@ -48,7 +48,7 @@ def test_sound_effects_join_the_translation_request_only_with_the_setting(monkey
         asked.update(keyed)
         return {k: "thud" for k in keyed}, None
 
-    import scanlate_translate
+    from scanlate import scanlate_translate
     monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", by_id)
     region = _sfx(translated_text="")
     ok, _ = run_svc._translate([region], object(), "claude", {}, None, "", 1, [])
