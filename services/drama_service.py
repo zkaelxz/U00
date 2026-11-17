@@ -28,6 +28,7 @@ No FastAPI import: plain dicts in, plain dicts out.
 
 import contextlib
 import datetime
+import json
 from lib import clock
 import logging
 import os
@@ -188,6 +189,9 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         # Whisper or Whisper + Qwen title comes back as minute-long lines.
         # Existing titles keep their stored value.
         fields["split_by_sentences"] = 1
+    # Speaker detection starts on: Nemotron runs without a Hugging Face token, so a new title
+    # gets speakers without a setup step. Titles made before keep their own saved choice.
+    fields["transcribe_start_json"] = json.dumps({"run_diarize": True})
     # Settings > Defaults for new dramas (the column's own default is
     # claude, so an unstamped drama would never see the setting); a profile's
     # settings replace it, except what doesn't suit the title's language.
