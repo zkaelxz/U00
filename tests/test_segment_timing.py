@@ -10,7 +10,6 @@ import whisper_models
 import segment_splitting
 from segment_splitting import WORD_EDGE_PAD_END, WORD_EDGE_PAD_START
 
-from line_alignment import split_user_transcript
 
 
 class TestTightenToWords:
@@ -442,16 +441,6 @@ class TestWordTimestampsKept:
             assert sum(len(p["words"]) for p in out) == len(text)
 
 
-def test_sentence_splits_keep_closing_quotes_and_decimals_whole():
-    import novel_text
-
-    chunks = novel_text.chunk_novel_text("他说：「走吧。」" + "然后离开了。" * 3, max_chars=10)
-    assert all(not c.startswith("」") for c in chunks)
-    assert chunks[0] == "他说：「走吧。」"
-    assert split_user_transcript("气温是37.5度。他走了。") == ["气温是37.5度。", "他走了。"]
-    assert split_user_transcript("“走吧。”他说。") == ["“走吧。”", "他说。"]
-
-
 class TestSanitizeSegmentTimes:
     def test_repairs_zero_negative_and_past_the_end_times(self):
         segs = [{"start": 1.0, "end": 1.0, "text": "a"}, {"start": 5.0, "end": 4.0, "text": "b"},
@@ -596,12 +585,3 @@ def test_whisper_lines_keep_their_times_without_the_detector(monkeypatch):
     monkeypatch.setitem(sys.modules, "faster_whisper", None)
     segs = [{"start": 1.0, "end": 2.0, "text": "a"}]
     assert whisper_transcribe._fit_to_speech(segs, "audio.wav") == [{"start": 1.0, "end": 2.0, "text": "a"}]
-
-
-def test_segment_texts_join_without_spaces_next_to_cjk_and_with_them_between_words():
-    from line_alignment import join_segment_texts
-
-    assert join_segment_texts(["你好，", "世界"]) == "你好，世界"
-    assert join_segment_texts(["今日は", " いい天気"]) == "今日はいい天気"
-    assert join_segment_texts(["hello", "world", ""]) == "hello world"
-    assert join_segment_texts(["안녕하세요", "여러분"]) == "안녕하세요 여러분"

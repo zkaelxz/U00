@@ -341,6 +341,33 @@ class TestBlankSubtitleExportDetection:
         assert sum(1 for ln in lines if ln.en.strip()) == 0
 
 
+class TestModelSelection:
+    """The Claude model was hardcoded to an older generation with no UI
+    to change it -- these lock in the fix."""
+
+    def test_default_is_current_not_legacy(self):
+        import inspect
+        from engine_backends import claude as engine_claude
+        default = inspect.signature(engine_claude.ClaudeEngine.__init__).parameters["model"].default
+        assert default == "claude-sonnet-5-5"
+
+    def test_every_selectable_model_has_pricing(self):
+        from engine_backends import pricing
+        for model in pricing.CLAUDE_MODELS:
+            assert model in pricing.PRICING_PER_MILLION_TOKENS
+
+    def test_get_engine_threads_a_chosen_model_through(self, monkeypatch):
+        import types
+        from engine_backends import pricing, engine_registry
+        fake = types.ModuleType("anthropic")
+        fake.Anthropic = lambda api_key, **kw: types.SimpleNamespace(api_key=api_key, **kw)
+        fake.Timeout = lambda **kw: kw
+        monkeypatch.setitem(sys.modules, "anthropic", fake)
+        for model in pricing.CLAUDE_MODELS:
+            eng = engine_registry.get_engine("claude", "fake-key", model)
+            assert eng.model == model
+
+
 class TestVadSensitivity:
     def test_transcribe_signature_accepts_min_silence_duration(self):
         import inspect
@@ -867,3 +894,22 @@ def test_lines_whose_time_was_guessed_are_flagged_and_matched_lines_are_not():
     assert [ln.flag for ln in lines] == [None, "timing_uncertain", "timing_uncertain", None]
     assert lines[1].flag_note == GUESSED_TIMING_NOTE
     assert lines[0].flag_note == lines[3].flag_note == ""
+
+
+def test_sentence_splits_keep_closing_quotes_and_decimals_whole():
+    import novel_text
+
+    chunks = novel_text.chunk_novel_text("他说：「走吧。」" + "然后离开了。" * 3, max_chars=10)
+    assert all(not c.startswith("」") for c in chunks)
+    assert chunks[0] == "他说：「走吧。」"
+    assert split_user_transcript("气温是37.5度。他走了。") == ["气温是37.5度。", "他走了。"]
+    assert split_user_transcript("“走吧。”他说。") == ["“走吧。”", "他说。"]
+
+
+def test_segment_texts_join_without_spaces_next_to_cjk_and_with_them_between_words():
+    from line_alignment import join_segment_texts
+
+    assert join_segment_texts(["你好，", "世界"]) == "你好，世界"
+    assert join_segment_texts(["今日は", " いい天気"]) == "今日はいい天気"
+    assert join_segment_texts(["hello", "world", ""]) == "hello world"
+    assert join_segment_texts(["안녕하세요", "여러분"]) == "안녕하세요 여러분"

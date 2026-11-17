@@ -83,33 +83,6 @@ class TestDnsDiagnosis:
         assert diagnose_hostname("localhost")["status"] in ("ok", "blocked", "no_dns")
 
 
-class TestModelSelection:
-    """The Claude model was hardcoded to an older generation with no UI
-    to change it -- these lock in the fix."""
-
-    def test_default_is_current_not_legacy(self):
-        import inspect
-        from engine_backends import claude as engine_claude
-        default = inspect.signature(engine_claude.ClaudeEngine.__init__).parameters["model"].default
-        assert default == "claude-sonnet-5-5"
-
-    def test_every_selectable_model_has_pricing(self):
-        from engine_backends import pricing
-        for model in pricing.CLAUDE_MODELS:
-            assert model in pricing.PRICING_PER_MILLION_TOKENS
-
-    def test_get_engine_threads_a_chosen_model_through(self, monkeypatch):
-        import types
-        from engine_backends import pricing, engine_registry
-        fake = types.ModuleType("anthropic")
-        fake.Anthropic = lambda api_key, **kw: types.SimpleNamespace(api_key=api_key, **kw)
-        fake.Timeout = lambda **kw: kw
-        monkeypatch.setitem(sys.modules, "anthropic", fake)
-        for model in pricing.CLAUDE_MODELS:
-            eng = engine_registry.get_engine("claude", "fake-key", model)
-            assert eng.model == model
-
-
 class TestGpuInferenceFailureFallback:
     """Regression cover for a real, previously-uncaught crash: ctranslate2
     (which faster-whisper wraps) defers all CUDA initialization until the
