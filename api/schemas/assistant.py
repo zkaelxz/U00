@@ -1,5 +1,5 @@
 """
-api/assistant_schemas.py -- request/response models for the maintenance
+api/schemas/assistant.py -- request/response models for the maintenance
 assistant routes (api/routers/assistant_routes.py). No
 model carries a key, a token or an absolute path.
 """
@@ -8,8 +8,33 @@ from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-BacklogKind = Literal["bug", "feature", "note"]
-Scalar = Union[str, int, float, bool, None]
+__all__ = [
+    "AssistantTier",
+    "AssistantSettings",
+    "AssistantSettingsUpdate",
+    "AssistantTool",
+    "AssistantTools",
+    "AssistantChatTurn",
+    "AssistantAskRequest",
+    "AssistantReportRequest",
+    "AssistantReport",
+    "AssistantPatch",
+    "AssistantBacklogSuggestion",
+    "AssistantToolCall",
+    "AssistantReview",
+    "AssistantAnswer",
+    "AssistantChangelogRequest",
+    "AssistantChangelog",
+    "AssistantBacklogItem",
+    "AssistantBacklog",
+    "AssistantBacklogAdd",
+    "AssistantConfirm",
+    "AssistantBacklogDeleted",
+    "AssistantBacklogCleared",
+]
+
+_BacklogKind = Literal["bug", "feature", "note"]
+_Scalar = Union[str, int, float, bool, None]
 
 
 class AssistantTier(BaseModel):
@@ -97,14 +122,14 @@ class AssistantPatch(BaseModel):
 
 
 class AssistantBacklogSuggestion(BaseModel):
-    kind: BacklogKind
+    kind: _BacklogKind
     text: str
 
 
 class AssistantToolCall(BaseModel):
     id: str
     name: str
-    args: Dict[str, Scalar]
+    args: Dict[str, _Scalar]
     ok: bool
     summary: str
 
@@ -156,7 +181,7 @@ class AssistantChangelog(BaseModel):
 
 class AssistantBacklogItem(BaseModel):
     id: int
-    kind: BacklogKind
+    kind: _BacklogKind
     text: str
     created_at: str
 
@@ -167,7 +192,7 @@ class AssistantBacklog(BaseModel):
 
 class AssistantBacklogAdd(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: BacklogKind
+    kind: _BacklogKind
     text: str = Field(min_length=1, max_length=1000)
 
 
