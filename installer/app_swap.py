@@ -546,7 +546,14 @@ def prune(root, keep) -> list:
 def finish(root, journal) -> None:
     """After the new version answered: record it, forget the journal, and
     delete the copies older than the one just replaced."""
-    _record(root, journal, DONE)
+    try:
+        _record(root, journal, DONE)
+    except OSError:
+        # A full disk right after the new version answered left the journal
+        # at CHECKING, and the next start rolled the good update back.
+        # Removing the journal needs no space; the manifest below still
+        # records the new version.
+        clear_journal(root)
     set_installed_version(root, journal["new"], journal["base_version"])
     clear_journal(root)
     unregister_recovery()
