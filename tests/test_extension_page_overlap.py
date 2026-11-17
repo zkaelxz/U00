@@ -8,7 +8,7 @@ import time
 import pytest
 
 import db
-import page_server
+from services import page_server
 from memory_headroom import HeadroomError
 from services import extension_bridge_service as bridge
 

@@ -99,6 +99,13 @@ class TestSettings:
             with pytest.raises(ValueError):
                 load_settings({"BAIHE_API_HOUSEHOLD_PORT": bad})
 
+    def test_household_lifespan_never_gives_the_extension_bridge_its_port(self, monkeypatch):
+        from services import page_server
+        monkeypatch.setattr(page_server, "_app_port", 8600)
+        with _household_client():
+            pass
+        assert page_server._app_port == 8600
+
     def test_household_settings_are_derived_and_locked_down(self):
         admin = ApiSettings(household_port=HOUSEHOLD_PORT, allow_key_writes=True,
                             background_services=True, cookie_secure=False, **SIGN_IN)
@@ -159,7 +166,7 @@ class TestSettings:
 class TestHouseholdNeverLocal:
     @pytest.fixture(autouse=True)
     def _no_page_server(self, monkeypatch):
-        import page_server
+        from services import page_server
         monkeypatch.setattr(page_server, "ensure_server_started", lambda *a, **k: True)
         monkeypatch.setattr(page_server, "load_or_create_token", lambda: "tok")
 

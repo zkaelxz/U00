@@ -34,7 +34,7 @@ import threading
 import zipfile
 
 import db
-import page_server
+from services import page_server
 from engine_backends import engine_registry
 from services import settings_service, translate_service
 from lib.errors import InvalidInputError, NotFoundError

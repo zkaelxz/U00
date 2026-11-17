@@ -3,7 +3,7 @@ not yet worked on are left alone."""
 import pytest
 
 import db
-import page_server
+from services import page_server
 
 from tests.test_page_server import _b64, _png_bytes, _post, fake_pipeline  # noqa: F401
 from tests.test_page_server import token, _reset_module_state  # noqa: F401

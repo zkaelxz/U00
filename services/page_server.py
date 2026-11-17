@@ -1,5 +1,5 @@
 """
-page_server.py -- the small, localhost-only HTTP endpoint the browser
+services/page_server.py -- the small, localhost-only HTTP endpoint the browser
 extension talks to.
 
 **Why this exists at all.** The adapters in `sources/` do bulk import:
@@ -123,6 +123,9 @@ PIPELINE_LOCK = threading.Lock()
 _server_lock = threading.Lock()
 _server_started = False
 _server = None          # the running ThreadingHTTPServer, for stop_server()
+# The API's own port, which /health hands the extension for its "open the app"
+# link. The API pushes it in at startup because services may not import api/.
+_app_port = None
 # Bumped by every start and stop, so a server thread still binding when
 # stop_server() runs knows not to serve, and a failed old start can't mark a
 # newer one as stopped.
@@ -244,6 +247,11 @@ def set_translation_config(**kwargs):
         for key, value in kwargs.items():
             if key in _config:
                 _config[key] = value
+
+
+def set_app_port(port):
+    global _app_port
+    _app_port = port
 
 
 def set_config_provider(provider):
@@ -812,9 +820,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._check_access()
             if self.path.split("?")[0] != "/health":
                 raise EndpointError(404, "unknown endpoint")
-            from api import api_config
-            self._send_json(200, extension_bridge_service.health_payload(
-                app_port=api_config.load_settings().port))
+            self._send_json(200, extension_bridge_service.health_payload(app_port=_app_port))
         except EndpointError as e:
             self._fail(e)
         except Exception:
