@@ -70,46 +70,61 @@ def _modelscope_cache_root() -> str:
     return os.environ.get("MODELSCOPE_CACHE") or os.path.join(os.path.expanduser("~"), ".cache", "modelscope")
 
 
+# The child is a separate process so a stalled ModelScope download can really be stopped:
+# a thread inside snapshot_download cannot be cancelled and would keep running.
+_MODELSCOPE_CHILD = ("import sys; from modelscope.hub.snapshot_download import snapshot_download; "
+                     "snapshot_download(sys.argv[1])")
+_DOWNLOAD_TIMEOUT_SECONDS = 60 * 60
+
+
 def _fetch_modelscope(report, cancelled) -> None:
-    import threading
+    import sys
     import time
+    import job_process_kill
     import sensevoice_tags
+    from lib.proc import stream_tree
     try:
-        from modelscope.hub.snapshot_download import snapshot_download
+        import modelscope.hub.snapshot_download  # noqa: F401  (checked here for a plain message)
     except ImportError as exc:
         raise ModelDownloadFailed(
             "SenseVoice needs its package first: install SenseVoice (FunASR) in "
             "Packages and installs.") from exc
     report(0.0, "Downloading SenseVoice…")
-    outcome: dict = {}
-
-    def work():
-        try:
-            snapshot_download(sensevoice_tags.MODEL_ID)
-        except BaseException as exc:  # handed to the job thread below
-            outcome["error"] = exc
-        finally:
-            outcome["done"] = True
-
-    threading.Thread(target=work, daemon=True, name="sensevoice-download").start()
     root, needle = _modelscope_cache_root(), sensevoice_tags.MODEL_ID.split("/")[-1]
-    last_bytes, last_change = -1, time.monotonic()
-    while not outcome.get("done"):
-        time.sleep(_POLL_SECONDS)
+    state = {"bytes": -1, "changed": time.monotonic(), "checked": 0.0, "stalled": False}
+
+    def watch() -> bool:
         if cancelled():
-            raise background_jobs.JobCancelled()
+            return True
+        now = time.monotonic()
+        if now - state["checked"] < _POLL_SECONDS:
+            return False
+        state["checked"] = now
         got = _bytes_under(root, needle)
-        if got != last_bytes:
-            last_bytes, last_change = got, time.monotonic()
-            report(min(got / _SENSEVOICE_APPROX_BYTES, 0.98),
-                   f"Downloading SenseVoice… {got / 1e6:.0f} MB so far")
-        elif time.monotonic() - last_change > _STALL_SECONDS:
-            raise ModelDownloadFailed(
-                "SenseVoice downloads from ModelScope (not Hugging Face) and received nothing for "
-                "2 minutes. That server may be blocked or very slow from this network. Try again "
-                "later or on another connection.")
-    if "error" in outcome:
-        raise outcome["error"]
+        if got != state["bytes"]:
+            state["bytes"], state["changed"] = got, now
+            report(min(got / _SENSEVOICE_APPROX_BYTES, 0.98), f"Downloading SenseVoice… {got / 1e6:.0f} MB so far")
+        elif now - state["changed"] > _STALL_SECONDS:
+            state["stalled"] = True
+        return state["stalled"]
+
+    end = {"returncode": None, "timed_out": False, "cancelled": False}
+    last_line = ""
+    for item in stream_tree([sys.executable, "-I", "-c", _MODELSCOPE_CHILD, sensevoice_tags.MODEL_ID],
+                            _DOWNLOAD_TIMEOUT_SECONDS, cancel=watch, warn=job_process_kill._warn_via_jobs):
+        if "line" in item:
+            last_line = item["line"] or last_line
+        else:
+            end = item
+    if state["stalled"]:
+        raise ModelDownloadFailed(
+            "SenseVoice downloads from ModelScope (not Hugging Face) and received nothing for "
+            "2 minutes, so it was stopped. That server may be blocked or very slow from this "
+            "network. Try again later or on another connection.")
+    if end["cancelled"]:
+        raise background_jobs.JobCancelled()
+    if end["timed_out"] or end["returncode"] != 0:
+        raise ModelDownloadFailed(f"SenseVoice download failed: {redact_for_support(last_line)[:200]}")
 
 
 class ModelDownloadFailed(Exception):

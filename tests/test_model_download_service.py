@@ -1,6 +1,7 @@
 """The Diagnostics model download: what can be fetched, who may start it, and how a
 job ends. The Hub and ModelScope fetches are replaced; no network, no model."""
 import sys
+import time
 
 import pytest
 
@@ -225,37 +226,41 @@ def test_pyannote_download_without_a_token_says_where_to_add_one(monkeypatch):
         svc._fetch_pyannote(lambda *a: None, lambda: False)
 
 
-def _fake_modelscope(monkeypatch, snapshot):
+def _fake_child(monkeypatch, tmp_path, script):
+    """Runs `script` (a python snippet) in place of the ModelScope download child."""
     import types
-    mod = types.ModuleType("modelscope.hub.snapshot_download")
-    mod.snapshot_download = snapshot
     for name in ("modelscope", "modelscope.hub"):
         monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
-    monkeypatch.setitem(sys.modules, "modelscope.hub.snapshot_download", mod)
-    monkeypatch.setattr(svc, "_POLL_SECONDS", 0.01)
+    monkeypatch.setitem(sys.modules, "modelscope.hub.snapshot_download", types.ModuleType("modelscope.hub.snapshot_download"))
+    monkeypatch.setenv("MODELSCOPE_CACHE", str(tmp_path))
+    monkeypatch.setattr(svc, "_MODELSCOPE_CHILD", script)
+    monkeypatch.setattr(svc, "_POLL_SECONDS", 0.05)
 
 
 def test_sensevoice_download_reports_bytes_from_the_cache(monkeypatch, tmp_path):
-    import time
-    monkeypatch.setenv("MODELSCOPE_CACHE", str(tmp_path))
     folder = tmp_path / "models" / "iic" / "SenseVoiceSmall"
-    folder.mkdir(parents=True)
-
-    def snapshot(model_id):
-        (folder / "model.pt").write_bytes(b"x" * 5000)
-        time.sleep(0.1)
-    _fake_modelscope(monkeypatch, snapshot)
+    _fake_child(monkeypatch, tmp_path, (
+        "import os, time\n"
+        f"os.makedirs({str(folder)!r}, exist_ok=True)\n"
+        f"open({str(folder / 'model.pt')!r}, 'wb').write(b'x' * 5000000)\n"
+        "time.sleep(1)"))
     seen = []
     svc._fetch_modelscope(lambda f, m: seen.append(m), lambda: False)
-    assert any("5 MB" in m or "0 MB" in m for m in seen[1:])
+    assert any("5 MB so far" in m for m in seen)
 
 
-def test_sensevoice_download_that_receives_nothing_fails_with_a_plain_reason(monkeypatch, tmp_path):
-    import threading
-    monkeypatch.setenv("MODELSCOPE_CACHE", str(tmp_path))
-    release = threading.Event()
-    _fake_modelscope(monkeypatch, lambda model_id: release.wait(5))
-    monkeypatch.setattr(svc, "_STALL_SECONDS", 0.05)
+def test_sensevoice_download_that_receives_nothing_is_stopped_with_a_plain_reason(monkeypatch, tmp_path):
+    _fake_child(monkeypatch, tmp_path, "import time; time.sleep(30)")
+    monkeypatch.setattr(svc, "_STALL_SECONDS", 0.2)
+    started = time.monotonic()
     with pytest.raises(svc.ModelDownloadFailed, match="ModelScope"):
         svc._fetch_modelscope(lambda f, m: None, lambda: False)
-    release.set()
+    assert time.monotonic() - started < 15   # the child was killed, not waited for
+
+
+def test_sensevoice_download_cancel_stops_the_child(monkeypatch, tmp_path):
+    _fake_child(monkeypatch, tmp_path, "import time; time.sleep(30)")
+    started = time.monotonic()
+    with pytest.raises(background_jobs.JobCancelled):
+        svc._fetch_modelscope(lambda f, m: None, lambda: True)
+    assert time.monotonic() - started < 15
