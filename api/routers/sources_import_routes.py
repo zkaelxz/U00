@@ -113,7 +113,8 @@ def post_ai_recover(body: SourcesAiRecoverRequest, request: Request,
     engine = extraction.resolve_ai_engine_name(True, body.engine)
     require_engines_allowed(request, engine)
     return svc.start_ai_recover(name, chapter_id, body.series_id, body.drama_id, engine,
-                                body.confirm, principal=request.state.principal)
+                                body.confirm, principal=request.state.principal,
+                                local=is_local_request(request))
 
 
 @router.get("/{name}/import-state", dependencies=[require_permission("sources.import")],

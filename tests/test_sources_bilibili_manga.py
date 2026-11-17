@@ -60,8 +60,9 @@ def _adapter(routes, rendered_fetch, clock=None, **kw):
     clock = clock or FakeClock()
     t = ScriptedTransport(routes, clock)
     client = make_client("bilibili_manga", t, clock, max_retries=kw.pop("max_retries", 0))
-    return bilibili_manga.BilibiliMangaSource(
-        client=client, rendered_fetch=rendered_fetch, **kw), t
+    a = bilibili_manga.BilibiliMangaSource(client=client, rendered_fetch=rendered_fetch, **kw)
+    a.allow_browser = True  # work asked for at this PC
+    return a, t
 
 
 def _chapter(url=CHAPTER_URL, chapter_id="1000012345"):
