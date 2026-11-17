@@ -25,6 +25,10 @@ __all__ = [
     "SourcesUrlImportRequest",
     "DiagnosticsInstallResult",
     "DiagnosticsTorchVerify",
+    "AssStyleOverrides",
+    "AssExportRequest",
+    "DramaSummary",
+    "DramaDetail",
 ]
 
 
@@ -239,3 +243,94 @@ class DiagnosticsTorchVerify(BaseModel):
     cuda_available: Optional[bool] = None
     device: Optional[str] = None
     error: Optional[str] = None
+
+
+class DramaSummary(BaseModel):
+    """One row of the Library's drama list."""
+    id: int
+    title_zh: Optional[str] = None
+    title_en: Optional[str] = None
+    author: Optional[str] = None
+    studio: Optional[str] = None
+    director: Optional[str] = None
+    voice_actors: Optional[str] = Field(default=None, description="Comma-separated, as entered.")
+    status: Optional[str] = Field(
+        default=None, description="Pipeline status: not started / aligned / translated / "
+                                  "dubbed / exported.")
+    source_language: Optional[str] = Field(default=None, description="`zh`, `ja` or `ko`.")
+    media_type: Optional[str] = None
+    content_mode: Optional[str] = None
+    series_id: Optional[int] = None
+    release_date: Optional[str] = Field(
+        default=None, description="Stream / release date, YYYY-MM-DD; empty or null = unknown.")
+    translation_engine: Optional[str] = None
+    custom_tags: List[str] = Field(default_factory=list)
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    is_private: Optional[bool] = Field(
+        default=None, description="Hidden from the household (a drama in a series follows its "
+                                  "series). Only set in the Library list.")
+    owned_by_me: Optional[bool] = Field(
+        default=None, description="The signed-in viewer may change its sharing: they created it, "
+                                  "or they are an admin and it was made at the PC (or they are at "
+                                  "the PC). Only set in the Library list.")
+    line_count: int = Field(default=0, description="Lines the title has. Only counted in the Library list.")
+    translated_count: int = Field(default=0, description="Lines with English text. Only counted in the Library list.")
+    page_count: int = Field(default=0, description="Pages a comic has. Only counted in the Library list.")
+    pages_translated: int = Field(default=0, description="Comic pages with translated text. Only counted in the Library list.")
+    new_chapters: int = Field(default=0, description="New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.")
+
+
+class DramaDetail(DramaSummary):
+    """Everything a client needs to show one drama, minus internals."""
+    summary: Optional[str] = None
+    genre: Optional[str] = None
+    publication_status: Optional[str] = None
+    chapter_count: Optional[int] = None
+    # Shown and edited in the Workspace's Edit details.
+    source_url: Optional[str] = None
+    episode_number: Optional[int] = None
+    episode_summary: Optional[str] = None
+    episode_brief: Optional[str] = None
+    narration_language: Optional[str] = None
+    author_romanized: Optional[str] = None
+    studio_romanized: Optional[str] = None
+    director_romanized: Optional[str] = None
+    voice_actors_romanized: Optional[str] = None
+    series_instructions: Optional[str] = None
+    has_audio: bool = Field(description="A source audio/video file is attached.")
+    has_novel_reference: bool
+    has_cover_art: bool
+    keep_original: bool = Field(
+        default=False, description="\"Keep original files\": storage cleanup never removes "
+                                   "this title's originals and an export always includes them.")
+
+
+class AssStyleOverrides(BaseModel):
+    """Per-request ASS style overrides. Only fields the
+    client sets replace the preset's values; unknown keys are a 422. An
+    explicit JSON null for a field is also a 422 (omit the key instead)."""
+    model_config = ConfigDict(extra="forbid")
+    font: Optional[str] = None
+    size: Optional[int] = None
+    bold: Optional[bool] = None
+    italic: Optional[bool] = None
+    primary: Optional[str] = None
+    outline: Optional[str] = None
+    outline_width: Optional[int] = None
+    shadow: Optional[int] = None
+    alignment: Optional[str] = None
+    sfx_alignment: Optional[str] = None
+    notes_alignment: Optional[str] = None
+
+
+class AssExportRequest(BaseModel):
+    field: str = "en"
+    style: Optional[AssStyleOverrides] = None
+    preset: str = "Clean"
+    speaker_colors: Optional[Dict[str, str]] = None
+    per_speaker_colors: bool = True
+    include_notes: bool = False
+    notes_as_separate_line: bool = False
+    wrap_chars_en: Optional[int] = Field(default=None, ge=0, le=200)
+    wrap_chars_source: Optional[int] = Field(default=None, ge=0, le=200)
