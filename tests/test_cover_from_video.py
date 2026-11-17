@@ -117,18 +117,104 @@ def _png(color=(9, 9, 9)):
 def test_a_downloaded_site_thumbnail_becomes_the_cover(isolated_db, tmp_path):
     pytest.importorskip("PIL")
     did = db.create_drama(title_en="D")
-    (tmp_path / "downloaded_video.png").write_bytes(_png())
-    assert cover_art_service.use_site_thumbnail(did, str(tmp_path)) is True
+    path = tmp_path / "site_thumbnail.bin"
+    path.write_bytes(_png())  # raw bytes: the picture's type comes from the bytes, not the name
+    assert cover_art_service.use_site_thumbnail(did, str(path)) is True
     assert db.get_drama(did)["cover_art_filename"] == "cover.png"
 
 
 def test_a_site_thumbnail_never_replaces_a_cover_and_junk_is_ignored(isolated_db, tmp_path):
     pytest.importorskip("PIL")
     did = db.create_drama(title_en="D")
-    (tmp_path / "downloaded_video.jpg").write_bytes(b"<html>not an image</html>")
-    assert cover_art_service.use_site_thumbnail(did, str(tmp_path)) is False
+    path = tmp_path / "site_thumbnail.bin"
+    path.write_bytes(b"<html>not an image</html>")
+    assert cover_art_service.use_site_thumbnail(did, str(path)) is False
     assert db.get_drama(did)["cover_art_filename"] is None
-    (tmp_path / "downloaded_video.jpg").write_bytes(_png((1, 1, 1)))
+    assert cover_art_service.use_site_thumbnail(did, str(tmp_path / "missing.bin")) is False
+    path.write_bytes(_png((1, 1, 1)))
     cover_art_service.save_cover(did, io.BytesIO(_png((200, 0, 0))))
-    assert cover_art_service.use_site_thumbnail(did, str(tmp_path)) is False
+    assert cover_art_service.use_site_thumbnail(did, str(path)) is False
     assert db.get_drama(did)["cover_art_filename"] == "cover.png"
+
+
+def test_remove_cover_deletes_the_file_and_clears_the_field(isolated_db):
+    pytest.importorskip("PIL")
+    did = db.create_drama(title_en="D")
+    cover_art_service.save_cover(did, io.BytesIO(_png()))
+    stored = os.path.join(db.drama_dir(did), "cover.png")
+    assert os.path.exists(stored)
+    cover_art_service.remove_cover(did)
+    assert not os.path.exists(stored)
+    assert db.get_drama(did)["cover_art_filename"] is None
+    cover_art_service.remove_cover(did)  # nothing left: no error
+    cover_art_service.remove_cover(99999)  # no such title: no error
+
+
+class _Response:
+    def __init__(self, chunks):
+        self.chunks, self.closed = list(chunks), False
+
+    def read(self, n):
+        return self.chunks.pop(0) if self.chunks else b""
+
+    def close(self):
+        self.closed = True
+
+
+class _Ydl:
+    def __init__(self, response=None, error=None):
+        self.response, self.error, self.urls = response, error, []
+
+    def urlopen(self, url):
+        self.urls.append(url)
+        if self.error:
+            raise self.error
+        return self.response
+
+
+def test_save_thumbnail_writes_what_the_page_names(tmp_path):
+    import video_download
+    out = tmp_path / "t.bin"
+    ydl = _Ydl(_Response([b"ab", b"cd"]))
+    assert video_download.save_thumbnail(ydl, {"thumbnail": "https://img.example/t.jpg"}, str(out)) is True
+    assert out.read_bytes() == b"abcd" and ydl.urls == ["https://img.example/t.jpg"] and ydl.response.closed
+
+
+def test_save_thumbnail_refuses_what_is_not_an_http_picture_url(tmp_path):
+    import video_download
+    out = tmp_path / "t.bin"
+    for info in ({}, {"thumbnail": None}, {"thumbnail": "file:///etc/passwd"}, {"thumbnail": "ftp://x/y"}, None):
+        ydl = _Ydl(_Response([b"x"]))
+        assert video_download.save_thumbnail(ydl, info, str(out)) is False
+        assert ydl.urls == []
+    assert not out.exists()
+
+
+def test_save_thumbnail_stops_at_the_byte_cap_and_keeps_nothing(tmp_path):
+    import video_download
+    out = tmp_path / "t.bin"
+    endless = _Response([b"x" * 1000] * 10_000)
+    assert video_download.save_thumbnail(_Ydl(endless), {"thumbnail": "https://i.example/t"}, str(out),
+                                         max_bytes=5000) is False
+    assert not out.exists() and not os.path.exists(str(out) + ".part")
+    assert len(endless.chunks) > 9_000  # it stopped reading; it did not drain the stream
+
+
+def test_save_thumbnail_gives_up_on_a_stalled_read_and_on_errors(tmp_path):
+    import threading
+    import video_download
+    out = tmp_path / "t.bin"
+    release = threading.Event()
+
+    class Stalled(_Response):
+        def read(self, n):
+            release.wait(5)
+            return b""
+    try:
+        assert video_download.save_thumbnail(_Ydl(Stalled([])), {"thumbnail": "https://i.example/t"}, str(out),
+                                             seconds=0.2) is False
+    finally:
+        release.set()
+    assert video_download.save_thumbnail(_Ydl(error=OSError("refused")), {"thumbnail": "https://i.example/t"},
+                                         str(out)) is False
+    assert not out.exists()

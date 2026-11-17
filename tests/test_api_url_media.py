@@ -225,8 +225,8 @@ def test_ydl_options_caps_filters_and_no_cookies(client, env):
     assert o["concurrent_fragment_downloads"] == 1
     assert o["external_downloader"] == {"default": "native"}
     assert o["restrictfilenames"] is True
-    assert o["writethumbnail"] is True
-    assert o["paths"]["thumbnail"] == os.path.join(o["paths"]["home"], ytdlp_child.THUMBNAIL_DIRNAME)
+    # yt-dlp's own thumbnail writer has no size or time limit; video_download.save_thumbnail reads it instead.
+    assert "writethumbnail" not in o and "thumbnail" not in o["paths"]
     assert not [k for k in o if "cookie" in k.lower()]
     tmp = o["paths"]["home"]
     assert o["paths"]["temp"] == tmp and os.path.dirname(tmp) == storage.temp_root()
@@ -1503,8 +1503,35 @@ def test_the_same_link_again_still_keeps_the_old_files_of_a_title_that_keeps_ori
 def test_a_link_download_offers_the_site_thumbnail_before_installing(client, env, monkeypatch):
     from services import cover_art_service
     seen = []
-    monkeypatch.setattr(cover_art_service, "use_site_thumbnail", lambda did, folder: seen.append((did, folder)))
+    monkeypatch.setattr(cover_art_service, "use_site_thumbnail", lambda did, path: seen.append((did, path)))
     did = _drama()
     assert _run(client, did)["status"] == "done"
     assert [d for d, _ in seen] == [did]
-    assert os.path.basename(seen[0][1]) == ytdlp_child.THUMBNAIL_DIRNAME
+    assert os.path.basename(seen[0][1]) == ytdlp_child.THUMBNAIL_NAME
+
+
+def test_a_failed_install_takes_back_the_cover_this_download_made(client, env, monkeypatch):
+    from services import cover_art_service, media_upload_service
+    did = _drama()
+    monkeypatch.setattr(cover_art_service, "use_site_thumbnail", lambda d, path: True)
+    removed = []
+    monkeypatch.setattr(cover_art_service, "remove_cover", lambda d: removed.append(d))
+
+    def failing_install(*a, **kw):
+        raise OSError("disk full")
+    monkeypatch.setattr(media_upload_service, "install_media", failing_install)
+    st = _run(client, did)
+    assert st["status"] == "error", st
+    assert removed == [did]
+
+
+def test_a_cover_the_download_did_not_make_survives_a_failed_install(client, env, monkeypatch):
+    from services import cover_art_service, media_upload_service
+    did = _drama()
+    monkeypatch.setattr(cover_art_service, "use_site_thumbnail", lambda d, path: False)
+    removed = []
+    monkeypatch.setattr(cover_art_service, "remove_cover", lambda d: removed.append(d))
+    monkeypatch.setattr(media_upload_service, "install_media",
+                        lambda *a, **kw: (_ for _ in ()).throw(OSError("disk full")))
+    assert _run(client, did)["status"] == "error"
+    assert removed == []

@@ -18,7 +18,9 @@ would be -- only point it at content you actually have the right to use
 terms permit it).
 """
 
+import contextlib
 import os
+import threading
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -71,9 +73,70 @@ def cookie_options(browser: str | None = None, cookies_file: str | None = None) 
     return {}
 
 
+THUMBNAIL_MAX_BYTES = 10 * 1024 * 1024
+THUMBNAIL_SECONDS = 15.0
+
+
+def save_thumbnail(ydl, info, path: str, max_bytes: int = THUMBNAIL_MAX_BYTES,
+                   seconds: float = THUMBNAIL_SECONDS) -> bool:
+    """Best-effort copy of the page's own thumbnail to `path` (raw bytes; the cover code
+    checks that they are a picture). Read through `ydl`, so the same proxy and guard as the
+    media apply. yt-dlp's own `writethumbnail` has no size or time limit, and a thumbnail
+    that never ends must not fail a download whose media already arrived, so the read runs
+    in a thread that is abandoned after `seconds` and stops at `max_bytes`. Any failure
+    returns False and leaves no file."""
+    url = info.get("thumbnail") if isinstance(info, dict) else None
+    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+        return False
+    result: dict = {}
+    # The time limit is the thread join below (yt-dlp's opener takes no timeout argument).
+    open_url = ydl.urlopen
+
+    def read():
+        try:
+            response = open_url(url)
+            try:
+                data = bytearray()
+                while len(data) <= max_bytes:
+                    chunk = response.read(64 * 1024)
+                    if not chunk:
+                        break
+                    data += chunk
+                result["data"] = bytes(data)
+            finally:
+                response.close()
+        except Exception:
+            pass
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    reader.join(seconds)
+    data = result.get("data")
+    if reader.is_alive() or not data or len(data) > max_bytes:
+        return False
+    part = path + ".part"
+    try:
+        with open(part, "wb") as f:
+            f.write(data)
+        os.replace(part, path)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.remove(part)
+        return False
+    return True
+
+
+def _report_metadata(ydl, info, title_cb, thumbnail_path) -> None:
+    """Runs while the YoutubeDL session is still open: the thumbnail is read through it."""
+    if title_cb and (title := info.get("title")):
+        title_cb(title)
+    if thumbnail_path:
+        save_thumbnail(ydl, info, thumbnail_path)
+
+
 def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
              title_cb=None, cookies_browser: str | None = None, cookies_file: str | None = None,
-             extra_opts: dict | None = None) -> str:
+             extra_opts: dict | None = None, thumbnail_path: str | None = None) -> str:
     """Downloads `url` into `out_dir` and returns the path to the
     resulting file.
 
@@ -170,8 +233,7 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
         with yt_dlp.YoutubeDL(cast("_Params", ydl_opts)) as ydl:
             info = ydl.extract_info(url, download=True)
             final_path = ydl.prepare_filename(info)
-            if title_cb and (title := info.get("title")):
-                title_cb(title)
+            _report_metadata(ydl, info, title_cb, thumbnail_path)
     except Exception as exc:
         aborted = _find_aborted(exc)
         if aborted is not None:
