@@ -49,6 +49,8 @@ export function UndoNotice({ message, busy, onUndo, onDismiss, onOpenHistory, te
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || undoRef.current.busy || !isUndoKey(e, isTextEntry(e.target))) return
+      // An open dialog hides the edit this would undo, so the key must not reach past it.
+      if (document.querySelector('dialog[open]')) return
       e.preventDefault()
       undoRef.current.onUndo()
     }
