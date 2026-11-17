@@ -291,7 +291,7 @@ test('Ollama missing: says so plainly, keeps the engine, and another engine can 
   const live = await openLive(page)
   const note = live.getByTestId('live-ollama-note')
   await expect(note).toContainText('Ollama doesn\'t have the model translategemma:27b')
-  await expect(note).toContainText('Pick another engine above')
+  await expect(note).toContainText('Pick another engine or model above')
   await expect(live.getByLabel('AI engine', { exact: true })).toHaveValue('ollama')
   await live.getByLabel('AI engine', { exact: true }).selectOption('deepseek')
   await expect(note).toHaveCount(0)

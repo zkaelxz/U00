@@ -224,6 +224,16 @@ describe('requests', () => {
     ])
   })
 
+  it('asks about graphics memory only when the GPU is on', async () => {
+    const f = ok({ ok: true, model: 'm', message: null })
+    await checkOllama('translategemma:27b', f, { whisperSize: 'large-v3', useGpu: true })
+    await checkOllama('translategemma:27b', f, { whisperSize: 'large-v3', useGpu: false })
+    expect(f.mock.calls.map((c) => (c as unknown as [string])[0])).toEqual([
+      '/api/live/ollama-check?model=translategemma%3A27b&whisper_size=large-v3&use_gpu=true',
+      '/api/live/ollama-check?model=translategemma%3A27b',
+    ])
+  })
+
   it('polls with after and stops by id; a malformed id never reaches the network', async () => {
     const f = ok({})
     await getLive(SID, 7.9, f)

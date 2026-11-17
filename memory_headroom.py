@@ -338,6 +338,37 @@ def _ollama_ram_need_mb(base_url: str, need_mb: float) -> float:
     return max(0.0, need_mb - reading[1])
 
 
+def ollama_load_mb(base_url: str, model: str):
+    """About how much memory a local Ollama model takes to load (its download
+    size plus context cache), or None when it is already loaded, hosted, or
+    unknown to this Ollama."""
+    if _is_cloud_tag(model) or not _is_loopback(base_url):
+        return None
+    size_mb = _ollama_size_mb_if_not_loaded(base_url.rstrip("/"), model)
+    return size_mb * 1.1 + 512 if size_mb else None
+
+
+def ollama_footprint(base_url: str, model: str):
+    """(load_mb, loaded, resident_vram_mb) for a local Ollama model: what it takes
+    to load whether or not it is loaded now, whether it is, and the graphics
+    memory every loaded Ollama model holds. None when hosted, remote or unknown."""
+    if _is_cloud_tag(model) or not _is_loopback(base_url):
+        return None
+    base_url = base_url.rstrip("/")
+    wanted = model if ":" in model else f"{model}:latest"
+    try:
+        resident = [e for e in _ollama_json(f"{base_url}/api/ps").get("models") or [] if isinstance(e, dict)]
+        tags = [e for e in _ollama_json(f"{base_url}/api/tags").get("models") or [] if isinstance(e, dict)]
+    except Exception:
+        return None
+    size_mb = next((float(e.get("size") or 0) / MB for e in tags if wanted in (e.get("name"), e.get("model"))), 0)
+    if not size_mb:
+        return None
+    loaded = any(wanted in (e.get("name"), e.get("model")) for e in resident)
+    resident_mb = sum(float(e.get("size_vram") or 0) for e in resident) / MB
+    return size_mb * 1.1 + 512, loaded, resident_mb
+
+
 def check_ollama(base_url: str, model: str) -> None:
     """Before a translation on a local Ollama model: a model Ollama has not
     loaded yet takes about its download size plus context cache, in VRAM and
@@ -346,10 +377,9 @@ def check_ollama(base_url: str, model: str) -> None:
     if not (vram_kept or ram_kept) or _is_cloud_tag(model) or not _is_loopback(base_url):
         return
     base_url = base_url.rstrip("/")
-    size_mb = _ollama_size_mb_if_not_loaded(base_url, model)
-    if not size_mb:
+    need_mb = ollama_load_mb(base_url, model)
+    if not need_mb:
         return
-    need_mb = size_mb * 1.1 + 512
     label = f"the Ollama model {model}"
     if vram_kept:
         check_need(label, need_mb, "vram")
