@@ -121,7 +121,8 @@ test('sends the sensitivity and duration cap with the split', async ({ page }) =
 test('previews the split without writing, and the empty note names the sensitivity', async ({ page }) => {
   const calls = await mockResplit(page, (b) =>
     b.sensitivity === 'sentence'
-      ? { json: { dry_run: true, split_lines: 31, pieces: 118, lines_before: 260, line_count: 347 } }
+      ? { json: { dry_run: true, split_lines: 31, pieces: 118, lines_before: 260, line_count: 347,
+          cuts: [{ line_id: 9, idx: 4, pieces: [{ start: 2, end: 9.4, text: '你好。' }, { start: 9.4, end: 20, text: '再见。' }] }] } }
       : { json: { split_lines: 0, note: 'No line is over the limits at More sensitivity. Try "Sentence by sentence".' } },
   )
   const group = await openResplit(page)
@@ -130,6 +131,7 @@ test('previews the split without writing, and the empty note names the sensitivi
   await group.getByRole('combobox', { name: 'Split sensitivity' }).selectOption('sentence')
   await group.getByRole('button', { name: 'Preview split' }).click()
   await expect(group.getByTestId('resplit-summary')).toHaveText('Preview: 31 lines would be split into 118.')
+  await expect(group.getByTestId('resplit-cuts')).toHaveText('#5 · cut at 0:09.4 你好。 | 再见。')
   expect(calls.resplits.map((b) => [b.sensitivity, b.dry_run])).toEqual([['more', true], ['sentence', true]])
   expect(calls.reassigns).toBe(0)
 })

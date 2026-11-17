@@ -3,7 +3,7 @@ import path from 'node:path'
 
 import { expect, test } from '@playwright/test'
 
-import { currentTime, FOUR_LINES, seedVideo, seekVideo, stubFullscreen } from './playerMocks'
+import { currentTime, FOUR_LINES, seedVideo, seekVideo, silentWav, stubFullscreen } from './playerMocks'
 
 // The Review video: arrow-key seeking, subtitles drawn over the picture (never
 // changing the layout) and full screen.
@@ -103,6 +103,17 @@ test('the language select still chooses the subtitle text, and Off removes it', 
   await expect(overlay).toHaveText('你好')
   await page.getByRole('combobox', { name: /Subtitles/ }).selectOption('off')
   await expect(overlay).toHaveCount(0)
+})
+
+test('a video that cannot play falls back to the title’s audio file and says so', async ({ page }) => {
+  await page.route('**/api/media/dramas/3/status', async (route) => {
+    const res = await route.fetch()
+    await route.fulfill({ response: res, json: { ...(await res.json()), has_audio: true } })
+  })
+  await page.route('**/api/media/dramas/3/video', (route) => route.fulfill({ status: 500, body: '' }))
+  await page.route('**/api/media/dramas/3/audio', (route) => route.fulfill({ status: 200, contentType: 'audio/wav', body: silentWav(12) }))
+  await page.reload()
+  await expect(page.getByTestId('player-fallback')).toHaveText('The video couldn’t play, so the audio file is used.')
 })
 
 test('Full screen asks the wrapper (picture, subtitles and controls) and follows fullscreenchange', async ({ page }) => {

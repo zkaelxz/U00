@@ -2,6 +2,7 @@
 // URL (the Reader's caption route, built from the current lines) and the line
 // under the playhead.
 
+import type { PlayerMediaKind } from '../../../../api/media'
 import { captionUrl } from '../../../../api/reader'
 import type { CaptionTrack } from '../../../../types/reader'
 import type { ReviewLine } from '../../../../types/review'
@@ -130,4 +131,19 @@ export const FULLSCREEN_IDLE_MS = 3000
 // The Jump box shows the live playback time until the viewer focuses it or types; typed text always wins.
 export function jumpPlaceholder(time: number, focused: boolean, typed: string): string {
   return focused || typed !== '' ? 'mm:ss' : formatDuration(time)
+}
+
+/**
+ * What the player does when its media fails to load or play: a video the browser can't decode often sits beside a
+ * playable audio file, so it switches to that once; anything else is shown as an error.
+ */
+export function onMediaError(kind: PlayerMediaKind, hasAudio: boolean): 'use-audio' | 'show-error' {
+  return kind === 'video' && hasAudio ? 'use-audio' : 'show-error'
+}
+
+export const VIDEO_FALLBACK_NOTE = 'The video couldn’t play, so the audio file is used.'
+
+/** The error names the medium that failed, so a video problem isn't reported as the audio. */
+export function playErrorText(kind: PlayerMediaKind, sourceStage: string): string {
+  return `Couldn’t play the ${kind}. Check the file on ${sourceStage}.`
 }
