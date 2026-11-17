@@ -20,7 +20,8 @@ import db
 from services import auth_service, drama_service, sources_registry_service
 from services import ownership_service as own
 from services import sources_tracking_service as tracking
-from sources import chapter_check, pipeline, registry, store
+from sources import pipeline, registry, store
+from services import chapter_check_service
 from sources.base import SourceAdapter
 from sources.http import PacingPolicy
 from sources.models import ChapterInfo, PageRef, SourceError
@@ -122,7 +123,7 @@ def _raw_path(did):
 
 
 def _cycle_then_wait(did):
-    summary = chapter_check.run_check_cycle()
+    summary = chapter_check_service.run_check_cycle()
     st = wait_for_job(pipeline.import_job_id(did), missing_ok=True)
     return summary, st
 
@@ -150,10 +151,10 @@ def made_private(env):
 
 
 def _denied(did, env, name="alpha"):
-    summary = chapter_check.run_check_cycle()
+    summary = chapter_check_service.run_check_cycle()
     wait_for_job(pipeline.import_job_id(did), missing_ok=True)
     assert summary["new"] == 2 and summary["queued"] == []
-    assert summary["errors"] == {"Series T": chapter_check.LINK_UNAVAILABLE}
+    assert summary["errors"] == {"Series T": chapter_check_service.LINK_UNAVAILABLE}
     assert env[name].calls == []
     assert not os.path.exists(_raw_path(did))
     assert store.imported_chapter_ids(name, SERIES, did) == set()
@@ -372,7 +373,7 @@ def _link_then_delete(env, comic):
 @pytest.mark.parametrize("comic", [False, True], ids=["novel", "comic"])
 def test_desired_deleted_drama_gets_no_import_and_row_reports_it(env, comic):
     name, did = _link_then_delete(env, comic=comic)
-    summary = chapter_check.run_check_cycle()
+    summary = chapter_check_service.run_check_cycle()
     wait_for_job(pipeline.import_job_id(did), missing_ok=True)
     assert summary["queued"] == []
     assert env[name].calls == []
@@ -380,7 +381,7 @@ def test_desired_deleted_drama_gets_no_import_and_row_reports_it(env, comic):
     row = _row(name)
     assert row["drama_id"] == did          # the link is kept, not cleared
     assert row["last_check_error"] == "Auto-import skipped: the linked drama is not available."
-    assert summary["errors"] == {"Series T": chapter_check.LINK_UNAVAILABLE}
+    assert summary["errors"] == {"Series T": chapter_check_service.LINK_UNAVAILABLE}
     assert store.imported_chapter_ids(name, SERIES, did) == set()
 
 
@@ -411,7 +412,7 @@ def test_a_held_drama_keeps_its_new_chapters_for_retry_and_the_cycle_goes_on(env
         store.track_series(name, SERIES, title, "", did,
                            known_chapters=[c for c in _chapters(name) if c.chapter_id == "c1"])
     with job_launch.hold_title(held, "busy"):
-        summary = chapter_check.run_check_cycle()
+        summary = chapter_check_service.run_check_cycle()
     wait_for_job(pipeline.import_job_id(free), missing_ok=True)
     assert summary["queued"] == ["Free series"]
     assert "being deleted" in summary["errors"]["Held series"]

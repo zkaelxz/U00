@@ -17,7 +17,7 @@ and hands it to the existing Scanlate / Workspace paths unchanged.
   store.py           persistence (its own sources.db)
   registry.py        adapter registration + multi-source search
   chapter_order.py   natural/CJK chapter sorting
-  chapter_check.py   scheduled new-chapter checks (notify, don't download)
+  chapter_check.py   one tracked series' new-chapter check (notify, don't download)
   generic_import.py  one-off paste-a-URL import (comic pages / novel text)
   front_door.py      "paste any URL": classify, preview, route
   pipeline.py        hand-off into Scanlate / Workspace + import jobs

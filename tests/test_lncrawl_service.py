@@ -452,8 +452,8 @@ class TestStaleSweep:
         monkeypatch.setattr(drama_service, "cleanup_stale_tombstones", lambda: 0)
         monkeypatch.setattr(auto_backup_service, "cleanup_stale_leftovers", lambda: 0)
         monkeypatch.setattr(auto_backup_service, "periodic_tick", lambda: None)
-        from sources import chapter_check
-        monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda: None)
+        from services import chapter_check_service
+        monkeypatch.setattr(chapter_check_service, "ensure_scheduler_started", lambda: None)
         from sources import store
         monkeypatch.setattr(store, "get_setting", lambda name: False)
         bg.start_background_services()

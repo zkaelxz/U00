@@ -26,7 +26,7 @@ REMOTE = "https://baihe.example.com"
 @pytest.fixture
 def env(isolated_db, tmp_path, monkeypatch):
     """An empty .env for this test, no key env vars, faked bridge/scheduler."""
-    from sources import chapter_check
+    from services import chapter_check_service
     path = tmp_path / ".env"
     monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
     for names in settings_service.ENV_NAMES.values():
@@ -41,7 +41,7 @@ def env(isolated_db, tmp_path, monkeypatch):
 
     monkeypatch.setattr(page_server, "ensure_server_started", serve)
     monkeypatch.setattr(page_server, "server_running", lambda: state["on"])
-    monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda: None)
+    monkeypatch.setattr(chapter_check_service, "ensure_scheduler_started", lambda: None)
     monkeypatch.setattr(background, "_started", None)
     return path
 

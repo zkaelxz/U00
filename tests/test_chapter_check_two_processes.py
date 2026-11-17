@@ -5,7 +5,8 @@ import threading
 import time
 from types import SimpleNamespace
 
-from sources import chapter_check, registry, store
+from sources import registry, store
+from services import chapter_check_service
 
 from .sources_helpers import ScriptedTransport, make_client
 from .test_sources_workflows import FakeComicSource
@@ -77,18 +78,18 @@ def test_second_cycle_while_one_runs_is_skipped(isolated_db, monkeypatch):
     slow = Slow(make_client("fake_comic", ScriptedTransport()), chapters=[("c1", "1")])
     out = {}
     t = threading.Thread(target=lambda: out.update(
-        a=chapter_check.run_check_cycle(adapter_factory=lambda n: slow)))
+        a=chapter_check_service.run_check_cycle(adapter_factory=lambda n: slow)))
     t.start()
     assert entered.wait(10)
     other = _adapter([("c1", "1")])
-    second = chapter_check.run_check_cycle(adapter_factory=lambda n: other)
+    second = chapter_check_service.run_check_cycle(adapter_factory=lambda n: other)
     assert second["skipped"] is True and second["checked"] == 0
     gate.set()
     t.join(10)
     assert out["a"]["new"] == 1 and "skipped" not in out["a"]
     assert len(store.list_notifications()) == 1
     # released at the end: a manual cycle runs again
-    assert "skipped" not in chapter_check.run_check_cycle(adapter_factory=lambda n: other)
+    assert "skipped" not in chapter_check_service.run_check_cycle(adapter_factory=lambda n: other)
 
 
 def test_scheduled_cycle_skips_if_another_process_just_finished(isolated_db, monkeypatch):
@@ -99,20 +100,20 @@ def test_scheduled_cycle_skips_if_another_process_just_finished(isolated_db, mon
     called = []
     adapter = _adapter([("c1", "1")])
     factory = lambda n: called.append(n) or adapter  # noqa: E731
-    assert chapter_check.run_check_cycle(adapter_factory=factory, scheduled=True)["skipped"]
+    assert chapter_check_service.run_check_cycle(adapter_factory=factory, scheduled=True)["skipped"]
     assert called == []
     store.set_setting("last_check_cycle", time.time() - 2 * 3600)
-    out = chapter_check.run_check_cycle(adapter_factory=factory, scheduled=True)
+    out = chapter_check_service.run_check_cycle(adapter_factory=factory, scheduled=True)
     assert "skipped" not in out and called == ["fake_comic"]
 
 
 def test_scheduler_loop_starts_scheduled_cycles(isolated_db, monkeypatch):
     calls = []
-    monkeypatch.setattr(chapter_check, "start_check_now", lambda **k: calls.append(k))
-    monkeypatch.setattr(chapter_check, "_scheduler_started", False)
+    monkeypatch.setattr(chapter_check_service, "start_check_now", lambda **k: calls.append(k))
+    monkeypatch.setattr(chapter_check_service, "_scheduler_started", False)
     monkeypatch.setattr(store, "list_tracked_series", lambda: [{"source": "x"}])
-    monkeypatch.setattr(chapter_check, "check_due", lambda: True)
-    chapter_check.ensure_scheduler_started(poll_seconds=3600)
+    monkeypatch.setattr(chapter_check_service, "check_due", lambda: True)
+    chapter_check_service.ensure_scheduler_started(poll_seconds=3600)
     end = time.time() + 5
     while not calls and time.time() < end:
         time.sleep(0.01)

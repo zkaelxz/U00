@@ -16,7 +16,7 @@ from api.server import create_app
 def fakes(monkeypatch, isolated_db):
     calls = {"scheduler": 0, "page_server": 0}
     from services import page_server
-    from sources import chapter_check
+    from services import chapter_check_service
 
     def sched():
         calls["scheduler"] += 1
@@ -26,7 +26,7 @@ def fakes(monkeypatch, isolated_db):
         calls["page_server"] += 1
         started["on"] = True
         return True
-    monkeypatch.setattr(chapter_check, "ensure_scheduler_started", sched)
+    monkeypatch.setattr(chapter_check_service, "ensure_scheduler_started", sched)
     monkeypatch.setattr(page_server, "ensure_server_started", serve)
     monkeypatch.setattr(page_server, "server_running", lambda: started["on"])
     monkeypatch.setattr(background, "_started", None)
@@ -80,11 +80,11 @@ def test_page_server_only_when_enabled_and_idempotent(fakes):
 
 
 def test_failure_does_not_stop_startup(fakes, monkeypatch):
-    from sources import chapter_check
+    from services import chapter_check_service
 
     def boom():
         raise RuntimeError("C:\\Users\\me\\secret sk-ant-xxxxxxxxxxxxxxxxxxxxxxxx")
-    monkeypatch.setattr(chapter_check, "ensure_scheduler_started", boom)
+    monkeypatch.setattr(chapter_check_service, "ensure_scheduler_started", boom)
     with TestClient(create_app(ApiSettings(background_services=True))) as c:
         assert c.get("/api/health").status_code == 200
     assert background._started == {"chapter_scheduler": False, "page_server": False}

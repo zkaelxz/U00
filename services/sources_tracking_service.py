@@ -3,7 +3,7 @@ services/sources_tracking_service.py -- tracked-series upkeep for the API
 (Discover/Sources/Live spec S-7): "Check now" and which drama a tracked
 series auto-imports into.
 
-`start_check_now` runs `sources.chapter_check.run_check_cycle` as the same
+`start_check_now` runs `chapter_check_service.run_check_cycle` as the same
 background job the scheduler uses (`sources_chapter_check`), so a manual
 check and a scheduled one can never run side by side in this process, and
 the cycle's own claim (`store.claim_check_cycle`) keeps a second process
@@ -37,9 +37,10 @@ from services.sources_registry_service import (require_link_editable, require_so
 from services import sources_search_service as search
 from services.sources_search_service import clean_series_id
 from services.sources_extension_service import require_not_extension_only
-from sources import chapter_check, chapter_order, registry, store
+from services import chapter_check_service
+from sources import chapter_order, registry, store
 
-CHECK_JOB_ID = chapter_check.CHECK_JOB_ID
+CHECK_JOB_ID = chapter_check_service.CHECK_JOB_ID
 COMIC_MEDIA_TYPES = ("manhua", "manga", "manhwa")
 NOVEL_MEDIA_TYPES = ("novel",)
 
@@ -51,7 +52,7 @@ def start_check_now(local: bool = True) -> dict:
     status = background_jobs.get_status(CHECK_JOB_ID)
     if status and status.get("status") in ("running", "queued"):
         raise ConflictError("A check is already running.", details={"job_id": CHECK_JOB_ID})
-    if not chapter_check.start_check_now(allow_browser=local):
+    if not chapter_check_service.start_check_now(allow_browser=local):
         raise ConflictError("A check is already running.", details={"job_id": CHECK_JOB_ID})
     return {"job_id": CHECK_JOB_ID}
 
@@ -201,7 +202,7 @@ def move_tracked(source: str, series_id: str, new_source: str, new_series_id: st
     refused = store.move_tracked_series(source, clean_series_id(series_id), new_source,
                                         clean_series_id(new_series_id), plan["title"],
                                         plan["url"], plan["matched"], plan["stored_drama_id"],
-                                        chapter_check.CYCLE_LEASE_SECONDS,
+                                        chapter_check_service.CYCLE_LEASE_SECONDS,
                                         keep_link=plan["drama_id"] is not None)
     if refused == "busy":
         raise ConflictError("A check is running. Try again when it has finished.")

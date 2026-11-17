@@ -18,7 +18,7 @@ import process_guard
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import shutdown_service
-from sources import chapter_check
+from services import chapter_check_service
 
 TOKEN = "x" * 43
 PATH = "/api/system/shutdown"
@@ -36,7 +36,7 @@ def _fresh(monkeypatch):
     shutdown_flag = threading.Event()
     monkeypatch.setattr(page_fetch_browser, "_SHUTDOWN", shutdown_flag)
     monkeypatch.setattr(page_fetch_profile, "_SHUTDOWN", shutdown_flag)
-    monkeypatch.setattr(chapter_check, "_scheduler_stop", threading.Event())
+    monkeypatch.setattr(chapter_check_service, "_scheduler_stop", threading.Event())
     monkeypatch.setattr(page_server, "_server", None)
     monkeypatch.setattr(page_server, "_server_started", False)
 
@@ -171,7 +171,7 @@ class TestCleanShutdown:
         monkeypatch.setattr(background_jobs, "cancel_queued", lambda j: None)
         monkeypatch.setattr(jobs_service, "cancel_job",
                             lambda j, principal=None: order.append(("cancel", j)))
-        monkeypatch.setattr(chapter_check, "stop_scheduler", lambda: order.append("scheduler"))
+        monkeypatch.setattr(chapter_check_service, "stop_scheduler", lambda: order.append("scheduler"))
         monkeypatch.setattr(page_fetch_browser, "request_shutdown", lambda: order.append("browsers"))
         monkeypatch.setattr(page_server, "stop_server", lambda: order.append("page_server"))
         monkeypatch.setattr(shutdown_service, "wait_for_jobs",
@@ -214,7 +214,7 @@ class TestCleanShutdown:
 
         def boom():
             raise RuntimeError("scheduler")
-        monkeypatch.setattr(chapter_check, "stop_scheduler", boom)
+        monkeypatch.setattr(chapter_check_service, "stop_scheduler", boom)
         monkeypatch.setattr(page_server, "stop_server", boom)
         shutdown_service.clean_shutdown()
         assert "browsers" in order and ("cancel", "a") in order
@@ -273,15 +273,15 @@ class TestStoppableServices:
             t = real_thread(*a, **k)
             threads.append(t)
             return t
-        monkeypatch.setattr(chapter_check, "_scheduler_started", False)
-        monkeypatch.setattr(chapter_check.threading, "Thread", record)
-        monkeypatch.setattr(chapter_check.store, "list_tracked_series", lambda: polls.append(1) or [])
-        chapter_check.ensure_scheduler_started(poll_seconds=0.01)
+        monkeypatch.setattr(chapter_check_service, "_scheduler_started", False)
+        monkeypatch.setattr(chapter_check_service.threading, "Thread", record)
+        monkeypatch.setattr(chapter_check_service.store, "list_tracked_series", lambda: polls.append(1) or [])
+        chapter_check_service.ensure_scheduler_started(poll_seconds=0.01)
         for _ in range(200):
             if polls:
                 break
             threading.Event().wait(0.01)
-        chapter_check.stop_scheduler()
+        chapter_check_service.stop_scheduler()
         threads[0].join(2)
         assert polls and not threads[0].is_alive()
 

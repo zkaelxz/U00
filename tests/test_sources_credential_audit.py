@@ -22,7 +22,8 @@ from pathlib import Path
 import pytest
 
 from lib import url_guard
-from sources import chapter_check, detect, health, http, ladder, registry, store
+from sources import detect, health, http, ladder, registry, store
+from services import chapter_check_service
 from sources.base import SourceAdapter
 from sources.cache import RawCache
 from sources.http_transport import Response
@@ -283,7 +284,7 @@ def test_credentials_never_land_in_store_cache_attempts_or_logs(world, monkeypat
             self.client.get(f"{BASE}/forbidden/list")
 
     store.track_series("credtest", "s1", "Series", f"{BASE}/series/s1")
-    summary = chapter_check.run_check_cycle(adapter_factory=lambda n: Adapter(client=client))
+    summary = chapter_check_service.run_check_cycle(adapter_factory=lambda n: Adapter(client=client))
     assert summary["errors"] and store.list_tracked_series()[0]["last_check_error"]
 
     # ... and none of them was kept anywhere
