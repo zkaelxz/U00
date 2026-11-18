@@ -2,7 +2,7 @@
 from pydantic import BaseModel, Field
 
 __all__ = ["MisheardApplyBody", "MisheardApplyResult", "MisheardLine", "MisheardList",
-           "MisheardSuggestion"]
+           "MisheardRememberBody", "MisheardRememberResult", "MisheardSuggestion"]
 
 
 class MisheardLine(BaseModel):
@@ -10,6 +10,8 @@ class MisheardLine(BaseModel):
     line_id: int | None = None
     # The line's text when the check read it: "Use it" sends it back as expected_zh.
     zh: str
+    start: float
+    end: float
 
 
 class MisheardSuggestion(BaseModel):
@@ -20,6 +22,8 @@ class MisheardSuggestion(BaseModel):
     suggested_count: int
     # Lines that hold the heard spelling now: what "Use everywhere" would change.
     line_count: int
+    # The series glossary term this suggestion matches, when one can take a remembered spelling.
+    term_id: int | None = None
     lines: list[MisheardLine]
 
 
@@ -43,3 +47,13 @@ class MisheardApplyBody(BaseModel):
 class MisheardApplyResult(BaseModel):
     applied: int
     skipped: int
+
+
+class MisheardRememberBody(BaseModel):
+    heard: str = Field(min_length=1, max_length=40)
+    term_id: int = Field(ge=1)
+
+
+class MisheardRememberResult(BaseModel):
+    lines_changed: int
+    aliases_added: int

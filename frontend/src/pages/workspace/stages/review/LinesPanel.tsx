@@ -443,7 +443,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           </p>
         )}
         {suspectOpen && suspects.count > 0 && (
-          <SourceSuspectPanel dramaId={dramaId} items={suspects.items} misheard={suspects.misheard} onGoTo={(n) => void goToNumber(n)} onChanged={onChanged} onClose={() => setSuspectOpen(false)} />
+          <SourceSuspectPanel dramaId={dramaId} items={suspects.items} misheard={suspects.misheard} onGoTo={(n) => void goToNumber(n)} onListen={mediaKind ? (l) => player.current?.playLine(l) : undefined} onChanged={onChanged} onClose={() => setSuspectOpen(false)} />
         )}
         {setSpeaker.node}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}

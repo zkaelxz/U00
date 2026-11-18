@@ -100,10 +100,15 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
       await page.route('**/api/source-suspect/dramas/3', (route) => route.fulfill({ json: { count: 0, items: [] } }))
       await page.route('**/api/misheard/dramas/3', (route) => route.fulfill({ json: {
         available: true, reason: '', lines_scanned: 3, truncated: false, suggestions: [{
-          heard: '亞羅赫', suggested: '亞洛赫', source: 'glossary', heard_count: 2, suggested_count: 12, line_count: 2,
-          lines: [{ idx: 0, line_id: 1, zh: '亞羅赫來了' }, { idx: 1, line_id: 2, zh: '亞羅赫說話' }],
+          heard: '亞羅赫', suggested: '亞洛赫', source: 'glossary', heard_count: 2, suggested_count: 12, line_count: 2, term_id: 9,
+          lines: [{ idx: 0, line_id: 1, zh: '亞羅赫來了', start: 2, end: 4 }, { idx: 1, line_id: 2, zh: '亞羅赫說話', start: 4, end: 6 }],
         }],
       } }))
+      const remembers: string[] = []
+      await page.route('**/api/misheard/dramas/3/remember', (route) => {
+        remembers.push(route.request().postData() ?? '')
+        return route.fulfill({ json: { lines_changed: 2, aliases_added: 1 } })
+      })
       await page.route('**/api/misheard/dramas/3/apply', (route) => {
         applies.push(route.request().postData() ?? '')
         return route.fulfill({ json: { applied: 1, skipped: 0 } })
@@ -118,8 +123,11 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
       await group.getByRole('button', { name: 'Use here' }).first().click()
       await expect.poll(() => applies.length).toBe(1)
-      await group.getByRole('button', { name: /Use everywhere/ }).click()
+      await group.getByRole('button', { name: /^Use everywhere \(/ }).click()
       await expect.poll(() => applies.length).toBe(2)
+      await group.getByRole('button', { name: 'Use everywhere and remember this spelling' }).click()
+      await expect.poll(() => remembers.length).toBe(1)
+      expect(JSON.parse(remembers[0])).toEqual({ heard: '亞羅赫', term_id: 9 })
       expect(applies.map((a) => JSON.parse(a))).toEqual([
         { heard: '亞羅赫', suggested: '亞洛赫', line_id: 1, expected_zh: '亞羅赫來了' },
         { heard: '亞羅赫', suggested: '亞洛赫' },
