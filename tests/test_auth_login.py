@@ -25,6 +25,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
+import env_reader
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings, check_bind_safety, load_settings, normalize_public_url
@@ -841,10 +842,9 @@ class TestSettings:
         assert "baihe.example.com" not in bad.public_url_error
 
     def test_env_file_read_only_at_real_startup(self, tmp_path, monkeypatch):
-        from services import settings_service
         env = tmp_path / ".env"
         env.write_text(f'BAIHE_GOOGLE_CLIENT_SECRET="{SECRET}"\nBAIHE_PUBLIC_URL=https://a.example\n')
-        monkeypatch.setattr(settings_service, "default_env_path", lambda: str(env))
+        monkeypatch.setattr(env_reader, "default_env_path", lambda: str(env))
         monkeypatch.delenv("BAIHE_GOOGLE_CLIENT_SECRET", raising=False)
         assert load_settings().google_client_secret == SECRET
         assert load_settings({}).google_client_secret == ""

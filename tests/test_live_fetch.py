@@ -234,6 +234,15 @@ def test_a_live_playlist_starts_at_the_edge_and_tracks_new_segments_once(serve):
     assert pump.error is None
 
 
+def test_live_only_ends_at_once_on_a_finished_playlist(serve):
+    """A reconnect that finds a recording where the broadcast was plays none of it."""
+    names = ["r0.ts", "r1.ts"]
+    s = serve({"/rec.m3u8": (200, _M3U8, _segments(names)), **_seg_routes(names)})
+    pump, sink = _run(f"{s.base}/rec.m3u8", live_only=True)
+    assert bytes(sink.data) == b"" and pump.error is None
+    assert "/r0.ts" not in s.hits
+
+
 def test_pumps_sharing_an_align_start_on_the_same_media_sequence(serve):
     """Video and audio playlists of one broadcast: whichever pump joins first
     picks the start (its newest three), the other follows it, not its own edge."""

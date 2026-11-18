@@ -6,6 +6,7 @@ import sqlite3
 
 import pytest
 
+import env_reader
 from lib import sqlite_check
 from sources import store
 
@@ -75,8 +76,7 @@ class TestStartupWarning:
     def _serve(self, monkeypatch):
         import uvicorn
         from api import __main__ as main_mod
-        from services import settings_service
-        monkeypatch.setattr(settings_service, "read_env_file", lambda *a, **k: {})
+        monkeypatch.setattr(env_reader, "read_env_file", lambda *a, **k: {})
         for k in ("BAIHE_API_HOUSEHOLD_PORT", "BAIHE_API_PORT", "BAIHE_API_HOST",
                   "BAIHE_API_AUTH", "BAIHE_PUBLIC_URL"):
             monkeypatch.delenv(k, raising=False)
