@@ -324,3 +324,23 @@ def test_novel_batch_budget_follows_each_models_cap():
 def test_a_titled_heading_may_end_in_a_question_mark_or_ellipsis(text, is_heading):
     import novel_text
     assert novel_text.is_heading_text(text) is is_heading
+
+
+def test_headings_printed_twice_in_a_row_still_start_chapters():
+    import novel_text
+    from engine_backends.novel_batches import chapter_start_idxs
+
+    def heading(n):
+        return f'第{n}章 第{"一二三"[n - 1]}章 "若是我早些……我們也許…………'
+
+    lines = []
+    for n in (1, 2, 3):
+        lines += [heading(n), heading(n), f"正文{n}。" * 3, f"又一段{n}。"]
+    ranges = novel_text.chapter_line_ranges(lines)
+    assert [first for first, _last in ranges] == [0, 4, 8]
+
+    class _L:
+        def __init__(self, idx, zh):
+            self.idx, self.zh, self.en = idx, zh, ""
+
+    assert chapter_start_idxs([_L(i, t) for i, t in enumerate(lines)]) == {0, 4, 8}
