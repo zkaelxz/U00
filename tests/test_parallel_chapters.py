@@ -1,0 +1,180 @@
+"""Chapter-parallel novel translation: order inside a chapter, usage and cap, eligibility."""
+import threading
+import time
+from types import SimpleNamespace
+
+import pytest
+
+from engine_backends import translate_pipeline as tp
+from engine_backends.fallback import FallbackEngine
+
+CHAPTERS, PER_CHAPTER = 4, 6
+
+
+class _Line:
+    def __init__(self, idx, zh):
+        self.idx, self.id, self.zh, self.en = idx, idx + 100, zh, ""
+        self.speaker, self.flag, self.flag_note, self.orig = None, None, "", None
+        self.start = self.end = 0.0
+
+
+class _Engine:
+    name = "claude"
+    supports_reference = True
+
+    def __init__(self):
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+        # Shared by the copies each lane makes, so the peak counts calls across lanes.
+        self.lock = threading.Lock()
+        self.stats = {"active": 0, "peak": 0}
+        self.calls = []
+
+    def translate_batch(self, zh_lines, context):
+        with self.lock:
+            self.stats["active"] += 1
+            self.stats["peak"] = max(self.stats["peak"], self.stats["active"])
+        time.sleep(0.03)
+        self.calls.append(list(zh_lines))
+        self.last_usage = {"input_tokens": 10, "output_tokens": 5}
+        with self.lock:
+            self.stats["active"] -= 1
+        return [f"EN {z}" for z in zh_lines]
+
+
+def _novel():
+    lines = []
+    for c in range(CHAPTERS):
+        for i in range(PER_CHAPTER):
+            lines.append(_Line(len(lines), f"第{c}章" if i == 0 else f"c{c}l{i}"))
+    return lines
+
+
+@pytest.fixture
+def novel(monkeypatch):
+    monkeypatch.setattr(tp, "novel_paragraph_ends", lambda meta, lines: {ln.idx for ln in lines})
+    monkeypatch.setattr(tp, "chapter_start_idxs",
+                        lambda lines: {ln.idx for ln in lines if ln.zh.startswith("第")})
+    monkeypatch.setattr(tp, "estimate_cost_for_engine", lambda *a, **k: 1.0)
+    monkeypatch.setattr(tp, "novel_batch_chars", lambda engine: None)
+
+
+def _run(engine, parallel, **kw):
+    lines = _novel()
+    saved = []
+    usage = []
+    _, errors = tp.translate_lines_with_engine(
+        lines, engine, drama_meta={"id": 1}, batch_size=3, parallel_chapters=parallel,
+        save_cb=lambda ls: saved.append(sum(1 for ln in ls if ln.en)),
+        usage_cb=lambda *u: usage.append(u), **kw)
+    return lines, errors, usage, saved
+
+
+def test_chapters_run_side_by_side_and_every_line_is_translated(novel):
+    engine = _Engine()
+    lines, errors, usage, _ = _run(engine, 3)
+    assert errors == []
+    assert all(ln.en == f"EN {ln.zh}" for ln in lines)
+    assert 1 < engine.stats["peak"] <= 3
+    assert len(usage) == len(engine.calls)
+
+
+def test_batches_inside_a_chapter_stay_in_order(novel):
+    seen = {}
+    lock = threading.Lock()
+    engine = _Engine()
+    original = engine.translate_batch
+
+    def record(zh_lines, context):
+        out = original(zh_lines, context)
+        with lock:
+            seen.setdefault(zh_lines[0][:2], []).append(zh_lines[0])
+        return out
+
+    engine.translate_batch = record
+    _run(engine, 2)
+    for chapter, firsts in seen.items():
+        assert firsts == sorted(firsts, key=lambda z: (z[0] != "第", z))
+
+
+def test_one_chapter_at_a_time_is_the_old_path(novel):
+    engine = _Engine()
+    _run(engine, 1)
+    assert engine.stats["peak"] == 1
+
+
+def test_cost_cap_ends_the_run_and_overshoots_by_at_most_the_lanes(novel):
+    engine = _Engine()
+    lines, _errors, usage, _ = _run(engine, 2, cost_cap_usd=3.0)
+    assert 3 <= len(usage) <= 3 + 1
+    assert any(not ln.en for ln in lines)
+
+
+def test_cancel_stops_every_lane(novel):
+    engine = _Engine()
+    lines, _e, usage, _ = _run(engine, 3, cancel_check_cb=lambda: True)
+    assert usage == []
+
+
+def test_a_lane_failure_is_recorded_with_its_batch_index(novel):
+    engine = _Engine()
+    original = engine.translate_batch
+
+    def boom(zh_lines, context):
+        if zh_lines[0] == "c1l3":
+            raise ValueError("bad reply")
+        return original(zh_lines, context)
+
+    engine.translate_batch = boom
+    lines, errors, _u, _s = _run(engine, 2)
+    assert [e["batch_index"] for e in errors] == sorted(e["batch_index"] for e in errors)
+    assert errors and "c1l3" not in [ln.en for ln in lines]
+
+
+@pytest.mark.parametrize("engine,ok", [
+    (SimpleNamespace(name="claude"), True),
+    (SimpleNamespace(name="gemini", free_tier=False), True),
+    (SimpleNamespace(name="gemini", free_tier=True), False),
+    (SimpleNamespace(name="ollama"), False),
+])
+def test_only_paid_cloud_engines_run_in_parallel(engine, ok):
+    assert tp.can_run_in_parallel(engine) is ok
+
+
+def test_a_fallback_chain_is_not_parallel():
+    assert tp.can_run_in_parallel(FallbackEngine.__new__(FallbackEngine)) is False
+
+
+def test_a_lane_saves_only_its_own_batch(novel):
+    engine = _Engine()
+    saved = []
+    lines = _novel()
+    tp.translate_lines_with_engine(
+        lines, engine, drama_meta={"id": 1}, batch_size=3, parallel_chapters=2,
+        save_cb=lambda ls: saved.append(len(ls)))
+    assert saved and max(saved) <= 3
+
+
+def test_many_chapters_do_not_nest_the_stop_check(novel, monkeypatch):
+    chapters = 1200
+    monkeypatch.setattr(tp, "chapter_start_idxs", lambda ls: {ln.idx for ln in ls if ln.zh.startswith("第")})
+    lines = [_Line(i, f"第{i}章") for i in range(chapters)]
+    engine = _Engine()
+    engine.translate_batch = lambda zh, ctx: [f"EN {z}" for z in zh]
+    _, errors = tp.translate_lines_with_engine(
+        lines, engine, drama_meta={"id": 1}, batch_size=1, parallel_chapters=2,
+        stop_before_batch=lambda: False)
+    assert errors == [] and all(ln.en for ln in lines)
+
+
+def test_lane_threads_get_the_job_thread_scope(novel):
+    entered = []
+
+    class Scope:
+        def __enter__(self):
+            entered.append(1)
+
+        def __exit__(self, *exc):
+            return False
+
+    _run(_Engine(), 2, lane_thread_scope=Scope)
+    assert len(entered) == 2

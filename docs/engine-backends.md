@@ -221,6 +221,13 @@ stop_before_batch: checked only between batches, never during a request:
 a batch already sent is finished and kept (cancel_check_cb is the one that
 abandons a request in flight).
 
+parallel_chapters: 2 or 3 translates that many novel chapters at once (setting
+`novel_parallel_chapters`, Developer Mode, default 1), read through
+`settings_service.parallel_chapters()`. Only Claude, GPT, DeepSeek and a paid Gemini key qualify
+(`can_run_in_parallel`); each lane gets its own engine copy, batches inside a chapter stay in
+order, and the cost cap is checked before each batch, so it can be passed by up to one batch per
+extra lane.
+
 reasoning: "less" (the saved choice `claude_reasoning` / `openai_reasoning`, read through
 `settings_service.reasoning_override(engine_name)`) sends `thinking: {"type": "between_tools"}` to
 claude-sonnet-5-5 (it refuses "disabled") and `reasoning_effort: "low"` to gpt-6-luna
