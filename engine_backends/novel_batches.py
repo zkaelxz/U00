@@ -45,15 +45,23 @@ def plan_paragraph_batches(lines, max_size: int, ends, tail_fraction: float = 0.
 
 
 def chapter_start_idxs(lines) -> set:
-    """idx of the lines that open a chapter: a heading of its own, except one straight after
-    another heading (a title printed twice is one chapter start, not a one-line chapter)."""
-    from novel_text import is_chapter_heading
-    starts, previous_was_heading = set(), False
+    """idx of the lines that open a chapter. Headings in a row count as one start, chosen as
+    novel_text.chapter_starts chooses it: the first of a pair (a title printed twice, or a volume
+    heading over a chapter heading), the last of a longer run (a contents page)."""
+    from novel_text import _HEADING_RUN, is_chapter_heading
+    starts, run = set(), []
+
+    def close_run():
+        if run:
+            starts.add((run[0] if len(run) <= _HEADING_RUN else run[-1]).idx)
+            run.clear()
+
     for ln in lines:
-        heading = is_chapter_heading(ln)
-        if heading and not previous_was_heading:
-            starts.add(ln.idx)
-        previous_was_heading = heading
+        if is_chapter_heading(ln):
+            run.append(ln)
+        else:
+            close_run()
+    close_run()
     return starts
 
 

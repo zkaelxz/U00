@@ -316,7 +316,10 @@ def test_novel_batch_budget_follows_each_models_cap():
 @pytest.mark.parametrize("text,is_heading", [
     ("第1章 第一章 被人咬死是什麽感覺？…", True),
     ('第2章 第二章 "若是我早些……我們也許…………', True),
-    ("제3화 안녕!", True),
+    ("제3화 봤어? 진짜 재밌었어!", False),
+    ("제1장 어디까지 읽었어?", False),
+    ("第3章 我写完了，你看了吗？", False),
+    ("第3章 写完了吗? 快点!", False),
     ("第一回合他就输了！", False),
     ("第3章 他说：好。好！", False),
     ("第5章 已经结束了。", False),
@@ -344,3 +347,21 @@ def test_headings_printed_twice_in_a_row_still_start_chapters():
             self.idx, self.zh, self.en = idx, zh, ""
 
     assert chapter_start_idxs([_L(i, t) for i, t in enumerate(lines)]) == {0, 4, 8}
+
+
+@pytest.mark.parametrize("lines", [
+    ["第一卷 风起", "第1章 你是谁？", "第1章 你是谁？", "正文。", "第2章 他来了！", "正文二。"],
+    ["目录", "第1章 甲", "第2章 乙", "第3章 丙", "第1章 甲", "正文。", "第2章 乙", "正文二。"],
+])
+def test_lane_chapter_starts_agree_with_the_translate_ranges(lines):
+    import novel_text
+    from engine_backends.novel_batches import chapter_start_idxs
+
+    class _L:
+        def __init__(self, idx, zh):
+            self.idx, self.zh, self.en = idx, zh, ""
+
+    starts = chapter_start_idxs([_L(i, t) for i, t in enumerate(lines)])
+    ranges = [first for first, _last in novel_text.chapter_line_ranges(lines)]
+    # chapter_line_ranges also lists front matter before the first heading as chapter 1.
+    assert starts <= set(ranges) and starts >= set(ranges) - {0}

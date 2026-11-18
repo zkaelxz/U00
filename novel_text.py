@@ -35,15 +35,18 @@ _SENTENCE_END = tuple("。！？!?…」』”\"")
 # A numbered marker followed by a space and a title ("第2章 第二章 被人咬死是什麽感覺？…"): web novels
 # end such a title with "？", "！" or a trailing "…" when the title is cut short.
 _TITLED_HEADING_RE = re.compile(
-    r"^\s*(第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[章回节節話话]|제\s*[0-9０-９]+\s*[장화])\s+\S")
-_TITLE_ENDS_OK = tuple("！？!?…")
+    r"^\s*第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[章回节節話话]\s+\S")
+_TITLE_ENDS_OK = tuple("！？…")
+# Clause marks and ASCII sentence marks mean a spoken or written sentence that merely starts
+# with a chapter number; Korean titles are left out because Korean prose ends sentences with "?" and "!".
+_NOT_IN_A_TITLE = re.compile(r"[，,、。.!?;；]")
 
 
 def _ends_like_a_title(text: str) -> bool:
-    """A titled chapter heading may end in ？ ！ or …, unless it holds a full stop, which
-    makes it a sentence that merely starts with a chapter number."""
+    """A Chinese chapter heading with a title may end in a full-width ？ ！ or …, when the title
+    holds no clause or ASCII sentence mark."""
     return (bool(_TITLED_HEADING_RE.match(text)) and text.endswith(_TITLE_ENDS_OK)
-            and "。" not in text)
+            and not _NOT_IN_A_TITLE.search(text))
 
 
 def is_heading_text(text: str) -> bool:
