@@ -28355,6 +28355,11 @@ export interface components {
              * @default auto
              */
             translate_reply_guard: string;
+            /**
+             * Novel Parallel Chapters
+             * @default 1
+             */
+            novel_parallel_chapters: number;
             /** Whisper Model Path */
             whisper_model_path: string;
             /**
@@ -28598,6 +28603,8 @@ export interface components {
             translate_alignment_check?: boolean | null;
             /** Translate Reply Guard */
             translate_reply_guard?: string | null;
+            /** Novel Parallel Chapters */
+            novel_parallel_chapters?: number | null;
             /** Unload Ollama Before Transcribe */
             unload_ollama_before_transcribe?: boolean | null;
             /** Use Gpu */

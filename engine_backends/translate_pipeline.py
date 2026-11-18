@@ -1,6 +1,10 @@
 """The per-run translate loop."""
 
+import collections
+import contextvars
+import copy
 import inspect
+import threading
 from typing import Any
 import types
 import weakref
@@ -244,7 +248,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
                                  stop_before_batch=None, temperature: float | None = None,
                                  reasoning: str | None = None, sentence_groups_cb=None,
-                                 replace_flags: frozenset = frozenset()):
+                                 replace_flags: frozenset = frozenset(), parallel_chapters: int = 1):
     """Translates `lines` in place and returns (lines, errors); see _TranslateRun
     for what each argument does."""
     # The signature stays the one place the arguments are listed: the public
@@ -297,7 +301,9 @@ class _TranslateRun:
                               else bool(a.check_replies))
         batches = self._plan(target_lines)
         self.n_batches = len(batches)
-        if self._run_batches(batches):
+        chapters = self._chapter_groups(batches)
+        finished = self._run_chapter_lanes(chapters) if chapters else self._run_batches(batches)
+        if finished:
             self._recheck_pronouns()
         return self.lines, self.errors
 
@@ -331,6 +337,7 @@ class _TranslateRun:
         size = self.size
         novel_ends = novel_paragraph_ends(a.drama_meta, self.lines)
         chapter_starts = chapter_start_idxs(self.lines) if novel_ends else ()
+        self.chapter_starts = chapter_starts
         batches = (plan_paragraph_batches(target_lines, size, novel_ends,
                                           max_chars=None if a.batch_size else novel_batch_chars(self.engine),
                                           chapter_starts=chapter_starts) if novel_ends
@@ -362,6 +369,87 @@ class _TranslateRun:
             if self.stop_run or self._cap_stops_run():
                 return False
         return True
+
+    def _chapter_groups(self, batches):
+        """Batches grouped by chapter when this run may translate chapters side by side, else
+        None. Batches inside a chapter stay in order (each one's context is the previous
+        batch's English); only the first batch of a chapter loses its previous chapter's
+        English while that chapter is still being translated."""
+        if self.args.parallel_chapters < 2 or not self.chapter_starts or not can_run_in_parallel(self.engine):
+            return None
+        groups = []
+        for batch in batches:
+            if not groups or batch[0].idx in self.chapter_starts:
+                groups.append([])
+            groups[-1].append(batch)
+        return groups if len(groups) > 1 else None
+
+    def _run_chapter_lanes(self, groups) -> bool:
+        """Runs each chapter's batches in order on up to `parallel_chapters` threads, each
+        with its own copy of the engine (an engine keeps per-call usage state). False when
+        the run stopped before every chapter had its turn. The cost cap is checked before
+        each batch, so with N lanes it can be overshot by up to N-1 batches already in flight."""
+        a = self.args
+        # One lock covers every shared callback: the save and notes callbacks keep
+        # unlocked lists, and progress and usage logging are not written for threads.
+        self.lock = threading.RLock()
+        for name in ("save_cb", "notes_cb", "usage_cb"):
+            callback = getattr(a, name)
+            if callback:
+                setattr(a, name, self._locked(callback))
+        self.stopped = False
+        self.batches_done = 0
+        self.chapters_total = len(groups)
+        offsets, offset = [], 0
+        for group in groups:
+            offsets.append(offset)
+            offset += len(group)
+        work = collections.deque(enumerate(groups))
+        lanes = [_LaneRun(self, _clone_engine(self.engine))
+                 for _ in range(min(a.parallel_chapters, len(groups)))]
+        failures = []
+
+        def worker(lane):
+            try:
+                while True:
+                    with self.lock:
+                        if self.stopped or not work:
+                            return
+                        if (a.cancel_check_cb and a.cancel_check_cb()) or self._cap_reached():
+                            self.stopped = True
+                            if a.cap_cb and self._cap_reached():
+                                a.cap_cb(self.spent)
+                            return
+                        number, group = work.popleft()
+                    if not lane.run_chapter(number, group, offsets[number]):
+                        self.stopped = True
+                        return
+            except BaseException as e:
+                failures.append(e)
+                self.stopped = True
+
+        threads = []
+        for lane in lanes:
+            # A copy per thread: the cancel check and the rate-limit budget live in context variables.
+            context = contextvars.copy_context()
+            thread = threading.Thread(target=context.run, args=(worker, lane), daemon=True)
+            threads.append(thread)
+            thread.start()
+        for thread in threads:
+            thread.join()
+        for lane in lanes:
+            self.errors.extend(lane.errors)
+            self.translated.extend(lane.translated)
+        self.errors.sort(key=lambda e: e["batch_index"])
+        if failures:
+            raise failures[0]
+        return not self.stopped and not work
+
+    def _locked(self, callback):
+        def call(*args, **kwargs):
+            with self.lock:
+                return callback(*args, **kwargs)
+        return call
 
     def _report(self, frac, message):
         # Bisected retries replay a batch's passes; the bar must not go back.
@@ -762,6 +850,79 @@ class _TranslateRun:
                 raise
             self.errors.append({"batch_index": self.n_batches - 1, "lines": [],
                                 "error": redact_secrets(str(e))})
+
+
+# Engines whose requests are independent and billed per call. A local model shares one GPU, a
+# fallback chain keeps one active-engine state, and a free-tier Gemini key paces itself per
+# instance, so none of those run in parallel.
+PARALLEL_ENGINE_NAMES = ("claude", "deepseek", "openai", "gemini")
+
+
+def can_run_in_parallel(engine) -> bool:
+    return (not isinstance(engine, FallbackEngine)
+            and getattr(engine, "name", "") in PARALLEL_ENGINE_NAMES
+            and not getattr(engine, "free_tier", False))
+
+
+def _clone_engine(engine):
+    clone = copy.copy(engine)
+    if isinstance(getattr(engine, "last_usage", None), dict):
+        clone.last_usage = dict.fromkeys(engine.last_usage, 0)
+    return clone
+
+
+class _LaneRun(_TranslateRun):
+    """One thread's share of a chapter-parallel run: translates whole chapters, batch by
+    batch, on its own engine copy. The run's spend, progress and callbacks stay with the parent."""
+
+    def __init__(self, parent, engine):
+        super().__init__(parent.args)
+        self.parent = parent
+        self.engine = engine
+        self.bi_offset = 0
+        self.chapter_label = ""
+
+    @property
+    def spent(self):
+        return self.parent.spent
+
+    @spent.setter
+    def spent(self, _value):
+        # The base constructor assigns 0.0; the parent owns the total so every lane's
+        # cap check sees what all lanes have spent.
+        pass
+
+    def run_chapter(self, number, batches, bi_offset) -> bool:
+        parent = self.parent
+        for name in ("context", "size", "guard_enabled", "groups", "split_by_length"):
+            setattr(self, name, getattr(parent, name))
+        self.context = dict(parent.context)
+        self.n_batches = len(batches)
+        self.bi_offset = bi_offset
+        self.chapter_label = f"Chapter {number + 1} of {parent.chapters_total}, "
+        stop = self.args.stop_before_batch
+        self.args = types.SimpleNamespace(**vars(parent.args))
+        self.args.stop_before_batch = lambda: parent.stopped or bool(stop and stop())
+        return self._run_batches(batches)
+
+    def _record_usage(self, inp, out, cache_read=0, cache_write=0):
+        with self.parent.lock:
+            self.parent._record_usage(inp, out, cache_read, cache_write)
+
+    def _report(self, frac, message):
+        parent = self.parent
+        with parent.lock:
+            parent._report(parent.batches_done / parent.n_batches,
+                           f"{self.chapter_label}{message[:1].lower()}{message[1:]}")
+
+    def _finish_batch(self, batch):
+        with self.parent.lock:
+            self.parent.batches_done += 1
+        super()._finish_batch(batch)
+
+    def _add_error(self, lines, error):
+        super()._add_error(lines, error)
+        self.errors[-1]["batch_index"] += self.bi_offset
 
 
 def translate_lines_with_engine(*args, **kwargs):

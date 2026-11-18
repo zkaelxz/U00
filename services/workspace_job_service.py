@@ -157,7 +157,8 @@ def _month_cap_check(engine_choice, engine):
 def _saved_translate_options(engine_choice) -> dict:
     """The saved Settings choices a translate run passes to the pipeline."""
     return {"check_replies": settings_service.reply_guard_override(),
-            "reasoning": settings_service.reasoning_override(engine_choice)}
+            "reasoning": settings_service.reasoning_override(engine_choice),
+            "parallel_chapters": settings_service.parallel_chapters()}
 
 
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
