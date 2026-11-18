@@ -162,6 +162,8 @@ def test_a_lane_failure_is_recorded_with_its_batch_index(novel):
     (SimpleNamespace(name="claude"), True),
     (SimpleNamespace(name="gemini", free_tier=False), True),
     (SimpleNamespace(name="gemini", free_tier=True), False),
+    (SimpleNamespace(name="ollama", model="translategemma:27b"), False),
+    (SimpleNamespace(name="ollama", model="gemma4:31b-cloud"), True),
     (SimpleNamespace(name="ollama"), False),
 ])
 def test_only_paid_cloud_engines_run_in_parallel(engine, ok):
