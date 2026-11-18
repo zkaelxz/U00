@@ -6617,6 +6617,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/misheard/dramas/{drama_id}/keep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Keep a heard spelling: this suggestion is not offered again for the title */
+        post: operations["post_keep_misheard_api_misheard_dramas__drama_id__keep_post"];
+        /** Forget the kept spellings so their suggestions are offered again */
+        delete: operations["delete_kept_misheard_api_misheard_dramas__drama_id__keep_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/models/check": {
         parameters: {
             query?: never;
@@ -22954,6 +22972,23 @@ export interface components {
             /** Skipped */
             skipped: number;
         };
+        /** MisheardKeepBody */
+        MisheardKeepBody: {
+            /** Heard */
+            heard: string;
+            /** Suggested */
+            suggested: string;
+        };
+        /** MisheardKeepResult */
+        MisheardKeepResult: {
+            /** Kept */
+            kept: number;
+        };
+        /** MisheardKeptCleared */
+        MisheardKeptCleared: {
+            /** Cleared */
+            cleared: number;
+        };
         /** MisheardLine */
         MisheardLine: {
             /** Idx */
@@ -22967,6 +23002,8 @@ export interface components {
         MisheardList: {
             /** Available */
             available: boolean;
+            /** Kept Count */
+            kept_count: number;
             /** Lines Scanned */
             lines_scanned: number;
             /** Reason */
@@ -51879,6 +51916,90 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_keep_misheard_api_misheard_dramas__drama_id__keep_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MisheardKeepBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MisheardKeepResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_kept_misheard_api_misheard_dramas__drama_id__keep_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MisheardKeptCleared"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

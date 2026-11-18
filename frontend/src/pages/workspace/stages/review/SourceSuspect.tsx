@@ -12,7 +12,7 @@ import type { SourceSuspectItem } from '../../../../types/sourceSuspect'
 interface PanelProps {
   dramaId: number
   items: SourceSuspectItem[]
-  misheard: MisheardSuggestion[]
+  misheard: { items: MisheardSuggestion[]; kept: number }
   onGoTo: (n: number) => void
   onChanged: () => void
   onClose: () => void
@@ -60,7 +60,7 @@ export function SourceSuspectPanel({ dramaId, items, misheard, onGoTo, onChanged
         <p className="muted">Fix the transcription before translating; a bad source line gives an odd translation.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {misheard.length > 0 && <MisheardGroup dramaId={dramaId} items={misheard} onGoTo={onGoTo} onChanged={onChanged} />}
+      {misheard.items.length > 0 && <MisheardGroup dramaId={dramaId} items={misheard.items} kept={misheard.kept} onGoTo={onGoTo} onChanged={onChanged} />}
       <ul>
         {items.map((it) => (
           <li key={it.line_id} data-testid="suspect-item">

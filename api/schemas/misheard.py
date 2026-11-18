@@ -1,8 +1,8 @@
 """api/schemas/misheard.py -- Review's "May be mis-heard" suggestions and applying one."""
 from pydantic import BaseModel, Field
 
-__all__ = ["MisheardApplyBody", "MisheardApplyResult", "MisheardLine", "MisheardList",
-           "MisheardSuggestion"]
+__all__ = ["MisheardApplyBody", "MisheardApplyResult", "MisheardKeepBody", "MisheardKeepResult",
+           "MisheardKeptCleared", "MisheardLine", "MisheardList", "MisheardSuggestion"]
 
 
 class MisheardLine(BaseModel):
@@ -28,6 +28,8 @@ class MisheardList(BaseModel):
     reason: str
     lines_scanned: int
     truncated: bool
+    # Suggestions the person answered Keep as heard, left out of the list.
+    kept_count: int
     suggestions: list[MisheardSuggestion]
 
 
@@ -43,3 +45,16 @@ class MisheardApplyBody(BaseModel):
 class MisheardApplyResult(BaseModel):
     applied: int
     skipped: int
+
+
+class MisheardKeepBody(BaseModel):
+    heard: str = Field(min_length=1, max_length=40)
+    suggested: str = Field(min_length=1, max_length=40)
+
+
+class MisheardKeepResult(BaseModel):
+    kept: int
+
+
+class MisheardKeptCleared(BaseModel):
+    cleared: int

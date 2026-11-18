@@ -91,7 +91,7 @@ test('no chip when no line is flagged', async ({ page }) => {
 // Use everywhere posts the spelling alone. Checked in every theme and at phone width.
 for (const theme of ['light', 'dark', 'sepia', 'oled']) {
   for (const [name, size] of [['desktop', { width: 1280, height: 900 }], ['phone', { width: 375, height: 800 }]] as const) {
-    test(`${name}, ${theme}: May be mis-heard offers Use here and Use everywhere`, async ({ page }) => {
+    test(`${name}, ${theme}: May be mis-heard offers Use here, Use everywhere and Keep as heard`, async ({ page }) => {
       await page.addInitScript((t) => localStorage.setItem('baihe.theme', t), theme)
       await page.setViewportSize(size)
       const applies: string[] = []
@@ -108,6 +108,11 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
         applies.push(route.request().postData() ?? '')
         return route.fulfill({ json: { applied: 1, skipped: 0 } })
       })
+      const keeps: string[] = []
+      await page.route('**/api/misheard/dramas/3/keep', (route) => {
+        keeps.push(route.request().postData() ?? '')
+        return route.fulfill({ json: { kept: 1 } })
+      })
       await page.reload()
       await expect(page.locator('.review-line:not(.review-skeleton)')).not.toHaveCount(0)
       const chip = page.locator('.review-suspect-chip')
@@ -120,6 +125,9 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
       await expect.poll(() => applies.length).toBe(1)
       await group.getByRole('button', { name: /Use everywhere/ }).click()
       await expect.poll(() => applies.length).toBe(2)
+      await group.getByRole('button', { name: 'Keep as heard' }).click()
+      await expect.poll(() => keeps.length).toBe(1)
+      expect(JSON.parse(keeps[0])).toEqual({ heard: '亞羅赫', suggested: '亞洛赫' })
       expect(applies.map((a) => JSON.parse(a))).toEqual([
         { heard: '亞羅赫', suggested: '亞洛赫', line_id: 1, expected_zh: '亞羅赫來了' },
         { heard: '亞羅赫', suggested: '亞洛赫' },

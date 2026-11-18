@@ -30,4 +30,13 @@ describe('the May be mis-heard group', () => {
     expect(one).not.toContain('Use everywhere (')
     expect(one).toContain('on 1 line;')
   })
+
+  it('offers Keep as heard on each suggestion and a way back only when something is kept', () => {
+    expect(render([suggestion()]).match(/>Keep as heard<\/button>/g)).toHaveLength(1)
+    expect(render([suggestion()])).not.toContain('kept word')
+    const html = renderToStaticMarkup(
+      <MisheardGroup dramaId={1} items={[suggestion()]} kept={2} onGoTo={() => {}} onChanged={() => {}} />,
+    ).replace(/<!-- -->/g, '')
+    expect(html).toContain('Show 2 kept words again')
+  })
 })

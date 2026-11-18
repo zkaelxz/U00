@@ -147,3 +147,33 @@ class TestApply:
         ln.zh = " 亞羅赫來了 "
         db.save_lines(did, [ln], fields=("zh",))
         assert misheard_service.apply(did, "亞羅赫", "亞洛赫", ids[0], "亞羅赫來了")["applied"] == 1
+
+
+class TestKeepAsHeard:
+    def test_a_kept_suggestion_is_not_offered_again_until_shown_again(self, isolated_db):
+        pytest.importorskip("jieba")
+        did, _ = _title_with_slips(isolated_db)
+        misheard_service.keep_as_heard(did, "亞羅赫", "亞洛赫")
+        out = misheard_service.find_for_title(did)
+        assert out["suggestions"] == [] and out["kept_count"] == 1
+        assert misheard_service.show_kept_again(did) == {"cleared": 1}
+        assert len(misheard_service.find_for_title(did)["suggestions"]) == 1
+
+    def test_keeping_twice_stores_one_row_and_is_per_title(self, isolated_db):
+        did, _ = _title_with_slips(isolated_db)
+        other = db.create_drama(title_en="U", source_language="zh")
+        misheard_service.keep_as_heard(did, "亞羅赫", "亞洛赫")
+        misheard_service.keep_as_heard(did, "亞羅赫", "亞洛赫")
+        assert db.list_misheard_keeps(did) == [("亞羅赫", "亞洛赫")]
+        assert db.list_misheard_keeps(other) == []
+
+    def test_keep_refuses_empty_or_identical_spellings(self, isolated_db):
+        did, _ = _title_with_slips(isolated_db)
+        with pytest.raises(InvalidInputError):
+            misheard_service.keep_as_heard(did, "甲乙", "甲乙")
+
+    def test_deleting_the_title_removes_its_keeps(self, isolated_db):
+        did, _ = _title_with_slips(isolated_db)
+        misheard_service.keep_as_heard(did, "亞羅赫", "亞洛赫")
+        db.delete_drama(did)
+        assert db.list_misheard_keeps(did) == []
