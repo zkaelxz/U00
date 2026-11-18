@@ -52,7 +52,7 @@ _MAX_MEMBER_BYTES = lrs.MAX_RESTORE_MEMBER_BYTES
 CHILD_TABLES = ("lines", "pages", "characters", "translation_notes", "line_emotions",
                  "consistency_issues", "vocab_lookups", "line_history", "translation_versions",
                  "bug_reports", "wiki_entries", "edit_samples", "source_edits", "voice_suggestion_dismissals",
-                 "progress", "personal_notes", "reading_history", "metadata_field_provenance")
+                 "misheard_keeps", "progress", "personal_notes", "reading_history", "metadata_field_provenance")
 _SKIPPED_TABLES = {
     "usage_log": "ON DELETE SET NULL: the spending rows survive a delete, so restoring them "
                  "would count the cost twice",
