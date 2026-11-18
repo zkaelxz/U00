@@ -55,7 +55,7 @@ export function queueItem(id: number, p: Partial<Item> = {}): Item {
 export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record<string, unknown> = {}): Promise<QueueMock> {
   const mock: QueueMock = {
     state: {
-      version: 1, state: 'idle', stop_on_failure: false, schedule: null, notice: null, max_items: 200,
+      version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, notice: null, max_items: 200,
       can_control: true, monthly_cap_usd: 5, items, ...extra,
     },
     calls: [],
@@ -133,7 +133,8 @@ export async function mockQueueApi(page: Page, items: Item[] = [], extra: Record
     } else if (path.endsWith('/schedule')) {
       s.schedule = body.time ? { time: body.time, start_at: Date.now() / 1000 + 3600, missed: false } : null
     } else if (path.endsWith('/policy')) {
-      s.stop_on_failure = !!body.stop_on_failure
+      if (body.stop_on_failure !== undefined) s.stop_on_failure = !!body.stop_on_failure
+      if (body.overlap_online_translate !== undefined) s.overlap_online_translate = !!body.overlap_online_translate
     }
     await route.fulfill({ json: s })
   })
