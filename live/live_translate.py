@@ -367,6 +367,48 @@ def split_long_caption_lines(segments: list) -> list:
     return out
 
 
+# A line this short that only finishes the sentence before it ("당부했습니다.")
+# joins that line. Sent on its own, the translator often gave it the whole
+# sentence, or the next line's, and every line after it read one line off.
+TRAILING_FRAGMENT_SECONDS = 2.0
+# Only a pause shorter than this keeps the two as one sentence.
+FRAGMENT_JOIN_GAP_SECONDS = 1.0
+
+
+def join_trailing_fragments(segments: list) -> list:
+    """Joins each short line that ends a sentence onto the line before it when
+    that line has no sentence end, the pause between them is short and the
+    joined line still fits a caption (8 s / 40 CJK characters). Unpunctuated
+    speech is left as Whisper cut it: nothing there says where a sentence ends."""
+    import segment_splitting
+    out = []
+    for seg in segments:
+        prev = out[-1] if out else None
+        text = (seg.get("text") or "").strip()
+        if (prev is not None and text
+                and segment_splitting._SENTENCE_END_RE.search(text[-3:])
+                and seg["end"] - seg["start"] <= TRAILING_FRAGMENT_SECONDS
+                and seg["start"] - prev["end"] <= FRAGMENT_JOIN_GAP_SECONDS
+                and not segment_splitting._SENTENCE_END_RE.search(prev["text"].rstrip()[-3:])
+                and seg["end"] - prev["start"] <= segment_splitting.SPLIT_MAX_SECONDS):
+            joined = _join_text(prev["text"], text)
+            if len(segment_splitting._CJK_RE.findall(joined)) <= segment_splitting.SPLIT_MAX_CJK_CHARS:
+                out[-1] = {**{k: v for k, v in prev.items() if k != "words"},
+                           "text": joined, "end": max(prev["end"], seg["end"])}
+                continue
+        out.append(seg)
+    return out
+
+
+def _join_text(a: str, b: str) -> str:
+    a = a.rstrip()
+    # Japanese and Chinese run words together; Korean and Latin text use spaces.
+    if a and b and _script(a[-1]) in ("kanji", "hiragana", "katakana") \
+            and _script(b[0]) in ("kanji", "hiragana", "katakana"):
+        return a + b
+    return f"{a} {b}"
+
+
 def _script(ch: str) -> str:
     code = ord(ch)
     if 0x3040 <= code <= 0x309F:
@@ -508,7 +550,7 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
         on_transcribed(time.monotonic() - started)
     checkpoint()
     segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text, overlap_covered_seconds)
-    segments = split_long_caption_lines(drop_stock_phrases(segments))
+    segments = join_trailing_fragments(split_long_caption_lines(drop_stock_phrases(segments)))
     offset = chunk_index * segment_seconds - overlap_seconds + audio_shift
     cues = live_cue_feed.pending_cues(segments, offset, first_id)
     if translate:

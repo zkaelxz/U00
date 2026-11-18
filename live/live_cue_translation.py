@@ -38,6 +38,19 @@ def build_live_context(source_language: str, recent, line_ids,
     return context
 
 
+def _same(a, b) -> bool:
+    return isinstance(a, str) and isinstance(b, str) and \
+        re.sub(r"\W+", "", a).casefold() == re.sub(r"\W+", "", b).casefold() != ""
+
+
+def _shifted(pos: int, texts: list, replies: list) -> bool:
+    """Whether the reply for `pos` is the same as its next line's, for different
+    source text: the model put the next line's English under this id (seen on
+    Korean sentence fragments), so the cue is asked again on its own."""
+    return pos + 1 < len(replies) and texts[pos] != texts[pos + 1] \
+        and _same(replies[pos], replies[pos + 1])
+
+
 class CueTranslator:
     def __init__(self, engine, source_language: str, reply_without_thinking: bool = True,
                  term_hints=None, spend_guard=None):
@@ -94,11 +107,10 @@ class CueTranslator:
         self._after(usable=usable)
         if not usable:
             return {}
-        by_id = dict(zip(ids, replies))
         found = {}
-        for pos, (line_id, text) in enumerate(zip(ids, texts)):
-            translated = by_id[line_id]
-            if isinstance(translated, str) and translated.strip():
+        for pos, (text, translated) in enumerate(zip(texts, replies)):
+            if isinstance(translated, str) and translated.strip() \
+                    and not _shifted(pos, texts, replies):
                 found[pos] = translated
                 self._remember(text, translated)
         return found
