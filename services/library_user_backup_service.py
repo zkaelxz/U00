@@ -65,6 +65,7 @@ USER_BACKUP_TABLES = {
     "metadata_field_provenance": ("drama", ""),
     "capture_notes": ("drama", ""),
     "voice_suggestion_dismissals": ("series_character", ""),
+    "misheard_keeps": ("drama", ""),
     "bubbles": ("page", ""),
     "glossary_terms": ("series", ""), "series_characters": ("series", ""),
     "translation_memory": ("series", ""), "glossary_dismissals": ("series", ""),
