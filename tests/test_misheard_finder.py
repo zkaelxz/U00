@@ -159,6 +159,13 @@ class TestKeepAsHeard:
         assert misheard_service.show_kept_again(did) == {"cleared": 1}
         assert len(misheard_service.find_for_title(did)["suggestions"]) == 1
 
+    def test_the_kept_count_ignores_words_since_edited_away(self, isolated_db):
+        pytest.importorskip("jieba")
+        did, ids = _title_with_slips(isolated_db)
+        misheard_service.keep_as_heard(did, "亞羅赫", "亞洛赫")
+        misheard_service.apply(did, "亞羅赫", "亞洛赫")
+        assert misheard_service.find_for_title(did)["kept_count"] == 0
+
     def test_keeping_twice_stores_one_row_and_is_per_title(self, isolated_db):
         did, _ = _title_with_slips(isolated_db)
         other = db.create_drama(title_en="U", source_language="zh")

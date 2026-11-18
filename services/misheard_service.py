@@ -134,9 +134,13 @@ def find_for_title(drama_id: int) -> dict:
             for ln in everything)
         item["term_id"] = (_glossary_term_id(series_terms, item["suggested"])
                            if item["source"] == "glossary" else None)
-    return {"available": True, "reason": "", "lines_scanned": len(lines), "kept_count": len(kept),
-            **result}
+    return {"available": True, "reason": "", "lines_scanned": len(lines),
+            "kept_count": _kept_still_present(kept, everything), **result}
 
+
+def _kept_still_present(kept: set, lines) -> int:
+    """Kept pairs whose heard spelling is still in some line: one edited away offers nothing to show."""
+    return sum(any(heard in (ln.zh or "") for ln in lines) for heard, _ in kept)
 
 
 def keep_as_heard(drama_id: int, heard: str, suggested: str) -> dict:
