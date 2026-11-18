@@ -22419,6 +22419,11 @@ export interface components {
             /** Progress */
             progress: number;
             /**
+             * Reconnect Attempt
+             * @default 0
+             */
+            reconnect_attempt: number;
+            /**
              * Segment Seconds
              * @default 0
              */
