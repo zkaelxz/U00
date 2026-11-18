@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 import background_jobs
 from jobs import job_launch, job_runner, job_settings, job_table
+import env_reader
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -42,7 +43,7 @@ def env(tmp_path, monkeypatch, isolated_db):
     earlier test in this worker can't queue an event into this test; the
     tests that exercise the hook ask for `job_hook` as well."""
     path = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: str(path))
     for names in list(ns.ENV_VARS.values()) + [(ns.ALLOW_LOCAL_NTFY_ENV,), (ns.DISABLED_ENV,),
                                                (settings_service.API_PORT_ENV,), (settings_service.HOUSEHOLD_PORT_ENV,)]:
         for n in names:
@@ -824,7 +825,7 @@ def test_set_and_clear_round_trip(env):
     r = c.post("/api/settings/notifications/discord", json={"value": DISCORD, "confirm": True})
     assert r.status_code == 200 and r.json() == {"channel": "discord", "configured": True}
     _no_secret(r.text)
-    assert settings_service.resolve_env_names(ns.ENV_VARS["discord"]) == DISCORD
+    assert env_reader.resolve_env_names(ns.ENV_VARS["discord"]) == DISCORD
     r = c.post("/api/settings/notifications/ntfy", json={"value": NTFY, "confirm": True})
     assert r.json() == {"channel": "ntfy", "configured": True}
     st = c.get("/api/settings/notifications").json()

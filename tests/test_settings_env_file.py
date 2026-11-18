@@ -17,6 +17,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import env_reader
 from services import settings_service
 
 
@@ -64,7 +65,7 @@ class TestLoadsFromEnvFile:
         env_path.write_bytes((bom + "BAIHE_HF_TOKEN=hf_abc123\r\n# note 注释\r\n").encode(encoding))
         assert settings_service.resolve_key("hf_token", str(env_path)) == "hf_abc123"
         settings_service.write_env_var("BAIHE_GROQ_KEY", "gsk_x", env_path=str(env_path))
-        assert settings_service.read_env_file(str(env_path)) == {
+        assert env_reader.read_env_file(str(env_path)) == {
             "BAIHE_HF_TOKEN": "hf_abc123", "BAIHE_GROQ_KEY": "gsk_x"}
         assert "# note 注释" in env_path.read_text(encoding="utf-8")
 

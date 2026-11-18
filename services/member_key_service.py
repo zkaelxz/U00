@@ -31,6 +31,7 @@ import threading
 import time
 from typing import Optional
 
+import env_reader
 import member_keys
 from services import auth_service, settings_service
 from lib.errors import InvalidInputError, NotFoundError
@@ -69,7 +70,7 @@ def _secret_on_disk(candidate: str) -> str:
         out.append(f"{SECRET_ENV}={candidate}\n")
         return out
 
-    settings_service._rewrite_env(settings_service.default_env_path(), transform)
+    settings_service._rewrite_env(env_reader.default_env_path(), transform)
     return found[0] if found else candidate
 
 
@@ -81,7 +82,7 @@ def _cipher(create: bool):
         from cryptography.fernet import Fernet
     except ImportError:
         return None, _NEEDS_CRYPTOGRAPHY
-    secret = settings_service.resolve_env_names((SECRET_ENV,))
+    secret = env_reader.resolve_env_names((SECRET_ENV,))
     if not secret and create:
         with _SECRET_LOCK:
             secret = _secret_on_disk(Fernet.generate_key().decode("ascii"))

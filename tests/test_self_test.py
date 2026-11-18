@@ -54,7 +54,7 @@ def test_report_never_contains_key_values_paths_or_urls(monkeypatch, tmp_path, c
     monkeypatch.setenv("BAIHE_CLAUDE_KEY", FAKE_KEY)
     monkeypatch.setenv("BAIHE_DEEPSEEK_KEY", PLAIN_SECRET)
     monkeypatch.setenv("BAIHE_OLLAMA_URL", "http://localhost:11434/secret-path")
-    monkeypatch.setattr("services.settings_service.read_env_file", lambda env_path=None: {})
+    monkeypatch.setattr("env_reader.read_env_file", lambda env_path=None: {})
     leak = f"failed at C:\\Users\\owner\\models\\x.bin via https://host.example/a?token={FAKE_KEY} key {FAKE_KEY}"
 
     def leaky():

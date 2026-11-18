@@ -50,6 +50,7 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
     from services import diagnostics_gpu_torch_service as torch_svc
     from services import diagnostics_installs_service as installs
     from services import extension_service as ext
+    import env_reader
     from services import settings_service
     from lib.errors import ConflictError
 
@@ -118,11 +119,11 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
     setattr_(ext, "set_enabled", lambda enabled, start_now=True: {
         "enabled": bool(enabled), "running": False, "restart_needed": False})
     setattr_(ext, "reveal_token", lambda confirm=False: {"token": E2E_STUB_TOKEN})
-    # Keys: every server-side read goes through settings_service (the .env
-    # parse and resolve_key, looked up as a module attribute everywhere), and
+    # Keys: every server-side read goes through env_reader's .env parse and
+    # settings_service.resolve_key, looked up as module attributes everywhere, and
     # core/scanlate/huggingface_hub also read HF_TOKEN-style variables from
     # the process environment directly -- so blank all three.
-    setattr_(settings_service, "read_env_file", lambda env_path=None: {})
+    setattr_(env_reader, "read_env_file", lambda env_path=None: {})
     setattr_(settings_service, "resolve_key", lambda settings_key, env_path=None: None)
     environ = os.environ if environ is None else environ
     for key, names in settings_service.ENV_NAMES.items():
