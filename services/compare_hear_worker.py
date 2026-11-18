@@ -11,6 +11,7 @@ from line_alignment import join_segment_texts
 from jobs import process_worker
 import audio_extract
 import whisper_transcribe
+import whisper_hallucination
 import whisper_models
 import ollama_unload
 from engine_backends.shared import redact_secrets
@@ -42,7 +43,11 @@ def hear(slice_path: str, cfg: dict, language, on_fallback) -> str:
         if backend == "qwen3_asr" and segments:
             segments = asr_backend.get_backend(backend).transcribe(
                 slice_path, language, segments, use_gpu=use_gpu)
-    return join_segment_texts(s.get("text") or "" for s in segments or [])
+    # The main run drops these after splitting; a re-heard line would otherwise offer a made-up
+    # credit phrase as the other engine's reading.
+    segments = whisper_hallucination.drop_blocked_phrases(
+        segments or [], cfg.get("blocked_phrases", ()))
+    return join_segment_texts(s.get("text") or "" for s in segments)
 
 
 class _LineSink:
