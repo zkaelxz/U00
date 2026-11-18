@@ -995,6 +995,28 @@ class TestHeldLinesMidSession:
         assert [c["start"] for c in cues] == sorted(c["start"] for c in cues)
         assert all(c["translated"] == f"EN:{c['text']}" for c in cues)
 
+    def test_a_translator_still_on_the_first_chunk_skips_no_line(self, monkeypatch, tmp_path):
+        real = _fake_transcribe_by_decoding_audio
+
+        def forgets_the_padding(path, **kw):
+            segs = real(path, **kw)
+            return [s for s in segs if s["start"] >= 2.0] if "padded" in os.path.basename(path) else segs
+        monkeypatch.setitem(globals(), "_fake_transcribe_by_decoding_audio", forgets_the_padding)
+        real_next = live_pipeline.TranslationWorker._next
+
+        def busy_until_stop(worker):
+            # A slow translator: it takes no chunk until Stop, so chunk 0 is
+            # still waiting when chunk 1 queues its lines.
+            with worker._cond:
+                worker._cond.wait_for(lambda: worker._closing or worker._abandoned)
+            return real_next(worker)
+        monkeypatch.setattr(live_pipeline.TranslationWorker, "_next", busy_until_stop)
+        cues, _, _ = TestOverlapDedupAgainstRealAudio()._run(
+            monkeypatch, tmp_path, "test_held_lost_slow", TestOverlapDedupAgainstRealAudio.CHUNKS)
+        # One chunk behind is within the backlog: the first-heard line does not
+        # take a place of its own and push chunk 0 out untranslated.
+        assert [c["translated"] for c in cues] == [f"EN:{c['text']}" for c in cues]
+
 
 class TestHoldBackOverlap:
     TAIL = {"seconds": 3.0, "chunk_seconds": 10.0}
