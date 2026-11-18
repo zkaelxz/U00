@@ -13,6 +13,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
+import env_reader
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -190,9 +191,9 @@ OWN_KEY = "0123456789abcdef0123456789abcdef.AbCdEfGhIjKlMnOpQrStUvWx"
 @pytest.fixture
 def key_env(isolated_db, tmp_path, monkeypatch):
     pytest.importorskip("cryptography")
-    from services import member_key_service, settings_service
+    from services import member_key_service
     path = str(tmp_path / ".env")
-    monkeypatch.setattr(settings_service, "default_env_path", lambda: path)
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: path)
     monkeypatch.delenv(member_key_service.SECRET_ENV, raising=False)
     return member_key_service
 

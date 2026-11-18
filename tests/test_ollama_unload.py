@@ -9,8 +9,9 @@ import types
 import pytest
 import requests
 
+import env_reader
 import ollama_unload
-from lib import http
+from lib import http, settings_schema
 from services import settings_service
 from lib.errors import InvalidInputError
 
@@ -48,14 +49,23 @@ class FakeOllama:
                                      iter_content=lambda size: iter([b"{}"]))
 
 
+def _set_ollama_url(monkeypatch, url):
+    monkeypatch.setattr(env_reader, "resolve_env_names",
+                        lambda names, *a, **k: url if names == ("BAIHE_OLLAMA_URL",) else None)
+
+
+def test_the_unload_reads_the_ollama_url_settings_service_reads():
+    # ollama_unload can't call settings_service.ollama_url(), so it names the variable itself.
+    assert settings_service.ENV_NAMES["ollama_url"] == (settings_schema.BY_KEY["ollama_url"].store_key,)
+
+
 @pytest.fixture(autouse=True)
 def fresh_thread_state(monkeypatch):
     # Each test starts as a new job thread would: no earlier check or notice.
     ollama_unload._state.__dict__.clear()
     monkeypatch.setattr(ollama_unload, "POLL_INTERVAL_SECONDS", 0.01)
     monkeypatch.setattr(ollama_unload, "UNLOAD_WAIT_SECONDS", 0.3)
-    monkeypatch.setattr(settings_service, "resolve_key",
-                        lambda name, *a, **k: LOCAL if name == "ollama_url" else None)
+    _set_ollama_url(monkeypatch, LOCAL)
     yield
     ollama_unload._state.__dict__.clear()
 
@@ -90,8 +100,7 @@ def test_the_gpu_guard_unloads_every_model_even_with_the_setting_off(isolated_db
 
 
 def test_the_gpu_guard_never_reaches_a_remote_ollama(isolated_db, monkeypatch):
-    monkeypatch.setattr(settings_service, "resolve_key",
-                        lambda name, *a, **k: "http://192.168.1.5:11434" if name == "ollama_url" else None)
+    _set_ollama_url(monkeypatch, "http://192.168.1.5:11434")
     fake = _install(monkeypatch, FakeOllama(loaded=["m"]))
     assert ollama_unload.unload_loaded_models() == 0
     assert fake.gets == [] and fake.posts == []
@@ -124,7 +133,7 @@ def test_ollama_down_slow_or_odd_never_fails_the_job(isolated_db, monkeypatch, f
                                  "http://localhost.evil.com:11434", "ftp://localhost:11434", "garbage"])
 def test_a_non_loopback_ollama_gets_no_request_and_no_notice(isolated_db, monkeypatch, url):
     fake = _install(monkeypatch, FakeOllama(loaded=["gemma4:26b"]))
-    monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: url)
+    _set_ollama_url(monkeypatch, url)
     ollama_unload.prepare_gpu_for_transcription(True)
     assert fake.gets == [] and fake.posts == []
     assert ollama_unload.take_notice_result() == {}
@@ -133,7 +142,7 @@ def test_a_non_loopback_ollama_gets_no_request_and_no_notice(isolated_db, monkey
 @pytest.mark.parametrize("url", ["http://localhost:11434", "http://[::1]:11434", "http://127.0.0.1:9999/"])
 def test_loopback_forms_are_accepted(isolated_db, monkeypatch, url):
     fake = _install(monkeypatch, FakeOllama())
-    monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: url)
+    _set_ollama_url(monkeypatch, url)
     ollama_unload.prepare_gpu_for_transcription(True)
     assert len(fake.gets) == 1
 

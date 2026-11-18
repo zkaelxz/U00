@@ -6,6 +6,7 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
+import env_reader
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
@@ -155,10 +156,9 @@ def test_one_bad_field_writes_none_of_them(isolated_db, env_file):
 
 
 def test_sign_in_route_needs_key_writes_and_confirm(isolated_db, tmp_path, monkeypatch):
-    from services import settings_service
     path = tmp_path / ".env"
     path.write_text("")
-    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: str(path))
     body = {"public_url": "baihe.example.com", "google_client_id": GOOD_ID,
             "google_client_secret": GOOD_SECRET, "confirm": True}
     off = loopback_client(create_app(_settings()))

@@ -15,10 +15,10 @@ import threading
 import time
 from typing import Optional
 
+import env_reader
 from jobs import job_settings
 import memory_headroom
 import ollama_unload
-import portable
 import stored_settings
 from lib import settings_schema
 from lib.errors import InvalidInputError
@@ -47,60 +47,13 @@ ENV_NAMES = {
 _ENGINE_KEY_NAMES = tuple(k for k in ENV_NAMES if k != "monthly_cap_usd")
 
 
-def default_env_path() -> str:
-    # The project folder for a source checkout; the per-user data folder
-    # for an installed copy, so keys never sit in the program files an
-    # update replaces (portable.data_dir()).
-    return os.path.join(portable.data_dir(), ".env")
-
-
-def _env_file_encoding(env_path: str) -> str:
-    """utf-16 for a .env with a UTF-16 byte-order mark (Notepad's "Unicode",
-    PowerShell 5's `>` and Out-File), else utf-8-sig. Read as UTF-8, every
-    key in such a file is missed and a save mixes two encodings."""
-    try:
-        with open(env_path, "rb") as fh:
-            head = fh.read(4)
-    except OSError:
-        return "utf-8-sig"
-    # FF FE 00 00 is UTF-32-LE (PowerShell -Encoding UTF32): decoded as UTF-16 it
-    # would be saved back with a NUL after every character, so it stays on the
-    # byte-preserving UTF-8 path.
-    utf16 = head[:2] in (b"\xff\xfe", b"\xfe\xff") and head != b"\xff\xfe\x00\x00"
-    return "utf-16" if utf16 else "utf-8-sig"
-
-
-def read_env_file(env_path: str | None = None) -> dict:
-    """Parses the project's .env file: utf-8-sig (BOM-safe, since Notepad-saved
-    .env files often carry one) or UTF-16 (_env_file_encoding), skips comments/blank lines, strips
-    surrounding quotes. Returns {} if the file is missing or malformed --
-    a broken .env should never crash a caller.
-    """
-    env = {}
-    if env_path is None:
-        env_path = default_env_path()
-    if os.path.exists(env_path):
-        try:
-            # A stray non-UTF-8 byte (a GBK comment) must not discard the keys after it.
-            with open(env_path, encoding=_env_file_encoding(env_path), errors="replace") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line or line.startswith("#") or "=" not in line:
-                        continue
-                    k, v = line.split("=", 1)
-                    env[k.strip()] = v.strip().strip('"').strip("'")
-        except Exception:
-            pass
-    return env
-
-
 def resolve_key(settings_key: str, env_path: str | None = None) -> Optional[str]:
     """Server-side only: resolves settings_key's value from .env, then
     real environment variables, in ENV_NAMES' priority order. Never expose
     the return value over an API response -- callers that report status
     over HTTP must use key_status()/get_settings_overview() instead.
     """
-    return resolve_env_names(ENV_NAMES.get(settings_key, ()), env_path)
+    return env_reader.resolve_env_names(ENV_NAMES.get(settings_key, ()), env_path)
 
 
 def ollama_url() -> str:
@@ -126,18 +79,6 @@ def ollama_endpoint_is_loopback() -> bool:
         return False
 
 
-def resolve_env_names(names, env_path: str | None = None) -> Optional[str]:
-    """Server-side only: the first non-empty value among `names`, from .env
-    then real environment variables. Shared with notification_service's
-    webhook/topic secrets, which are not engine keys."""
-    env = read_env_file(env_path)
-    for name in names:
-        val = env.get(name) or os.environ.get(name)
-        if val:
-            return val
-    return None
-
-
 # Default API port (api.api_config.DEFAULT_PORT) and the extension bridge's
 # 8756 (page_server.DEFAULT_PORT). Services may not import api/, so the
 # numbers are repeated here.
@@ -152,7 +93,7 @@ def baihe_own_ports() -> set:
     configured BAIHE_API_PORT and BAIHE_API_HOUSEHOLD_PORT. Both the real
     environment and .env are read, so a port set in either is protected."""
     ports: set[int] = set(_BAIHE_FIXED_PORTS)
-    env = read_env_file()
+    env = env_reader.read_env_file()
     for name in (API_PORT_ENV, HOUSEHOLD_PORT_ENV):
         for raw in (os.environ.get(name), env.get(name)):
             try:
@@ -667,7 +608,7 @@ def set_endpoint_url(name: str, value: str, env_path: str | None = None) -> dict
     if name == "ollama_url" and isinstance(value, str) and value.strip():
         value = settings_schema.normalize_ollama_url(value)
     value = validate_endpoint_url(value)
-    env_path = env_path or default_env_path()
+    env_path = env_path or env_reader.default_env_path()
     write_env_var(ENV_NAMES[name][0], value, env_path)
     _forget_engine_test(name)
     return {"name": name, "url": endpoint_values(env_path)[name],
@@ -678,7 +619,7 @@ def clear_endpoint_url(name: str, env_path: str | None = None) -> dict:
     """Removes the endpoint from .env. One set in the real environment
     stays in effect; the result reports what now applies."""
     _validate_endpoint_name(name)
-    env_path = env_path or default_env_path()
+    env_path = env_path or env_reader.default_env_path()
     remove_env_vars(ENV_NAMES[name], env_path)
     _forget_engine_test(name)
     return {"name": name, "url": endpoint_values(env_path)[name],
@@ -733,7 +674,7 @@ def _rewrite_env_locked(env_path: str, transform):
     if os.path.exists(env_path):
         # surrogateescape round-trips bytes we cannot decode, so saving a key never rewrites them.
         # A UTF-16 file is decoded as such and saved as UTF-8 like every other.
-        encoding = _env_file_encoding(env_path)
+        encoding = env_reader.file_encoding(env_path)
         with open(env_path, encoding=encoding,
                   errors="surrogateescape" if encoding == "utf-8-sig" else "replace") as fh:
             lines = fh.readlines()
@@ -772,7 +713,7 @@ def set_engine_key(engine: str, value: str, env_path: str | None = None) -> dict
     Returns {engine, configured} only -- never the value."""
     _validate_engine(engine)
     value = _validate_key_value(value)
-    env_path = env_path or default_env_path()
+    env_path = env_path or env_reader.default_env_path()
     write_env_var(ENV_NAMES[engine][0], value, env_path)
     _forget_engine_test(engine)
     return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
@@ -782,7 +723,7 @@ def write_env_var(var_name: str, value: str, env_path: str | None = None):
     """Sets `var_name=value` in .env in place (appends when absent),
     keeping every other line. `value` must already be validated (no
     whitespace, quotes or control characters)."""
-    env_path = env_path or default_env_path()
+    env_path = env_path or env_reader.default_env_path()
 
     def transform(lines):
         new_line = f"{var_name}={value}\n"
@@ -805,7 +746,7 @@ def write_env_var(var_name: str, value: str, env_path: str | None = None):
 
 def remove_env_vars(names, env_path: str | None = None):
     """Removes every line setting one of `names` from .env (if it exists)."""
-    env_path = env_path or default_env_path()
+    env_path = env_path or env_reader.default_env_path()
     names = set(names)
     if os.path.exists(env_path):
         _rewrite_env(env_path, lambda lines: [l for l in lines if _line_var(l) not in names])
@@ -816,7 +757,7 @@ def clear_engine_key(engine: str, env_path: str | None = None) -> dict:
     it). A key that also comes from a real environment variable stays
     configured -- `configured` reports the truth."""
     _validate_engine(engine)
-    env_path = env_path or default_env_path()
+    env_path = env_path or env_reader.default_env_path()
     remove_env_vars(ENV_NAMES[engine], env_path)
     _forget_engine_test(engine)
     return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}

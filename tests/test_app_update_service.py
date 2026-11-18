@@ -17,6 +17,7 @@ import pytest
 
 pytest.importorskip("cryptography")
 
+import env_reader
 import db  # noqa: E402
 from installer import app_swap  # noqa: E402
 from lib import release_signature as rs  # noqa: E402
@@ -93,8 +94,7 @@ def env(isolated_db, monkeypatch, tmp_path, keys):
     monkeypatch.setattr(aus, "_verified", None)
     monkeypatch.setattr(shutdown_service, "_token", "t" * shutdown_service.MIN_TOKEN_LENGTH)
     monkeypatch.delenv(us.REPO_ENV, raising=False)
-    from services import settings_service
-    monkeypatch.setattr(settings_service, "resolve_env_names", lambda names, env_path=None: None)
+    monkeypatch.setattr(env_reader, "resolve_env_names", lambda names, env_path=None: None)
     started = []
     monkeypatch.setattr(aus.subprocess, "Popen", lambda cmd, **kw: started.append((cmd, kw)))
     return {"root": root, "http": http, "started": started, "seed": keys[0], "tmp": tmp_path}

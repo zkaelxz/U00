@@ -14,6 +14,7 @@ import types
 import pytest
 import requests
 
+import env_reader
 import db
 from lib import capped_body
 from services import update_service as us
@@ -130,8 +131,7 @@ def http(isolated_db, monkeypatch, tmp_path):
     # Not the committed key file: these tests must not change when the owner adds a key.
     monkeypatch.setattr(us, "PUBLIC_KEY_PATH", str(tmp_path / "release_public_key.txt"))
     monkeypatch.delenv(us.REPO_ENV, raising=False)
-    from services import settings_service
-    monkeypatch.setattr(settings_service, "resolve_env_names", lambda names, env_path=None: None)
+    monkeypatch.setattr(env_reader, "resolve_env_names", lambda names, env_path=None: None)
     # A backup from today, so the install tests reach what they test; the
     # backup check before Setup has its own tests.
     from services import app_update_service
@@ -411,8 +411,7 @@ def test_network_error_message_has_no_url(http):
 
 
 def test_invalid_repo_setting_refused(http, monkeypatch):
-    from services import settings_service
-    monkeypatch.setattr(settings_service, "resolve_env_names",
+    monkeypatch.setattr(env_reader, "resolve_env_names",
                         lambda names, env_path=None: "evil.example.com/../x")
     with pytest.raises(UnsupportedOperationError):
         us.check()
@@ -420,8 +419,7 @@ def test_invalid_repo_setting_refused(http, monkeypatch):
 
 
 def test_repo_setting_changes_the_api_url(http, monkeypatch):
-    from services import settings_service
-    monkeypatch.setattr(settings_service, "resolve_env_names",
+    monkeypatch.setattr(env_reader, "resolve_env_names",
                         lambda names, env_path=None: "someone/baihe-installers")
     http.add("https://api.github.com/repos/someone/baihe-installers/releases?per_page=10",
              body=_release())
@@ -908,12 +906,11 @@ def test_slow_download_hits_the_deadline_and_can_be_retried(http, monkeypatch):
 
 
 def test_custom_source_flag(http, monkeypatch):
-    from services import settings_service
     assert us.status()["custom_source"] is False
-    monkeypatch.setattr(settings_service, "resolve_env_names",
+    monkeypatch.setattr(env_reader, "resolve_env_names",
                         lambda names, env_path=None: "someone/baihe-installers")
     assert us.status()["custom_source"] is True
-    monkeypatch.setattr(settings_service, "resolve_env_names",
+    monkeypatch.setattr(env_reader, "resolve_env_names",
                         lambda names, env_path=None: "not a repo")
     assert us.status()["custom_source"] is True
 
