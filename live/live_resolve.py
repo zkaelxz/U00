@@ -16,6 +16,13 @@ class LiveCaptureError(RuntimeError):
     yt-dlp/subprocess traceback."""
 
 
+class StreamEnded(LiveCaptureError):
+    """resolve_stream_url(live_only=True) found the page no longer live."""
+
+
+# yt-dlp's live_status values for a page whose broadcast is over.
+_ENDED_LIVE_STATUSES = ("was_live", "post_live", "not_live")
+
 # Attempted in order until one returns a usable format. "No video formats
 # found" on a confirmed-live, confirmed-up-to-date-yt-dlp stream is a real,
 # widely-reported YouTube-side issue, not a bug specific to this app: since
@@ -51,7 +58,7 @@ def _reason(exc) -> str:
 
 
 def resolve_stream_url(url: str, cookies_browser: str | None = None, cookies_file: str | None = None,
-                       proxy: str | None = None, ladder=None) -> str:
+                       proxy: str | None = None, ladder=None, live_only: bool = False) -> str:
     """
     Resolves a page URL (YouTube live, or anything yt-dlp supports) to a
     direct, ffmpeg-playable media URL WITHOUT downloading anything -- the
@@ -62,6 +69,8 @@ def resolve_stream_url(url: str, cookies_browser: str | None = None, cookies_fil
     video_download.cookie_options()) for a stream page that needs it.
     proxy: when given, every request yt-dlp makes (redirects included) goes
     through this proxy URL (yt-dlp's `proxy` option).
+    live_only: raise StreamEnded when the page is no longer live, rather than
+    hand back the recording that replaces a broadcast once it ends.
     """
     try:
         import yt_dlp
@@ -122,6 +131,8 @@ def resolve_stream_url(url: str, cookies_browser: str | None = None, cookies_fil
             "changes as both sides keep adjusting."
         ) from last_exc
 
+    if live_only and info.get("live_status") in _ENDED_LIVE_STATUSES:
+        raise StreamEnded("The stream is no longer live.")
     stream_url = info.get("url")
     if not stream_url:
         raise LiveCaptureError(

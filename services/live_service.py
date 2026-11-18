@@ -80,7 +80,7 @@ MAX_NOTES = 6
 # live_pipeline.LagStats figures, the only numbers a session status carries
 # from the job: whatever else a caller passes is dropped.
 STAT_FIELDS = {"lag_seconds": float, "processing_seconds": float, "translations_skipped": int,
-               "translate_queue": int, "chunks_measured": int}
+               "translate_queue": int, "chunks_measured": int, "reconnect_attempt": int}
 FFMPEG_MISSING = "Live capture needs ffmpeg, which isn't installed or isn't on PATH on this PC."
 YTDLP_MISSING = "Live capture needs yt-dlp, which isn't installed on this PC."
 FINISHING_NOTE = ("Stopping: the audio already captured is being captioned. "

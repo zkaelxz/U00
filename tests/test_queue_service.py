@@ -739,3 +739,81 @@ def test_a_failed_job_read_before_its_record_lands_keeps_no_path(isolated_db, mo
     finished, status, reason = q._job_outcome("translate_1")
     assert finished and status == q.FAILED
     assert "someone/private" not in reason and "10.0.0.5" not in reason
+
+
+def _paid_ready(cap, monkeypatch):
+    real = settings_service.get
+    monkeypatch.setattr(settings_service, "get",
+                        lambda k, *a, **kw: "claude" if k == "episode_summary_engine" else real(k, *a, **kw))
+    monkeypatch.setattr(translate_run_service.translate_service, "resolve_api_key", lambda name: "k")
+    cap(5.0)
+
+
+def _overlap_queue(translate_engine, on):
+    a = _drama("A", engine=translate_engine, lines=(("你好", ""),))
+    b = _drama("B")
+    q.add_item(None, a, "translate", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    q.set_policy(None, overlap_online_translate=on)
+    q.start(None)
+    return a, b
+
+
+def test_transcription_starts_beside_an_online_translation_when_switched_on(jobs, cap, monkeypatch):
+    _paid_ready(cap, monkeypatch)
+    a, b = _overlap_queue("claude", True)
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"translate_{a}", f"transcribe_{b}"]
+    assert [i["status"] for i in _items()] == ["running", "running"]
+    jobs.finish(f"translate_{a}")
+    jobs.finish(f"transcribe_{b}")
+    q.tick()
+    assert [i["status"] for i in _items()] == ["done", "done"]
+
+
+def test_overlap_is_off_by_default(jobs, cap, monkeypatch):
+    _paid_ready(cap, monkeypatch)
+    a, _b = _overlap_queue("claude", False)
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"translate_{a}"]
+
+
+def test_a_translation_on_this_pcs_gpu_never_overlaps(jobs):
+    a, _b = _overlap_queue("ollama", True)
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"translate_{a}"]
+
+
+def test_the_same_title_never_overlaps_itself(jobs, cap, monkeypatch):
+    _paid_ready(cap, monkeypatch)
+    a = _drama("A", engine="claude")
+    q.add_item(None, a, "translate", True, at_pc=True)
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.set_policy(None, overlap_online_translate=True)
+    q.start(None)
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"translate_{a}"]
+
+
+def test_a_policy_call_changes_only_what_it_sends(jobs):
+    q.set_policy(None, stop_on_failure=True)
+    q.set_policy(None, overlap_online_translate=True)
+    state = q.get_queue(None)
+    assert state["stop_on_failure"] and state["overlap_online_translate"]
+    q.set_policy(None, stop_on_failure=False)
+    assert q.get_queue(None)["overlap_online_translate"] is True
+
+
+@pytest.mark.parametrize("key, value", [("episode_summary_engine", "ollama"), ("translate_alignment_check", True)])
+def test_a_local_summary_or_alignment_check_blocks_the_overlap(jobs, cap, monkeypatch, key, value):
+    _paid_ready(cap, monkeypatch)
+    patched = settings_service.get
+    monkeypatch.setattr(settings_service, "get", lambda k, *a, **kw: value if k == key else patched(k, *a, **kw))
+    a, _b = _overlap_queue("claude", True)
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"translate_{a}"]

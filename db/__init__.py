@@ -498,7 +498,7 @@ from db.dramas import (  # noqa: E402,F401
 
 from db.lines import (  # noqa: E402,F401
     line_value, update_line_fields_if, update_lines_fields_if_many, save_lines,
-    FULL_SYNC, UndeclaredLineWrite, check_line_fields, job_line_fields,
+    FULL_SYNC, UndeclaredLineWrite, adopt_job_scope, check_line_fields, current_job_scope, job_line_fields,
     line_ids_with_refs, load_lines, load_line_page, load_line_objects, load_line_ids, line_ids_exist,
     LineText, load_line_texts, settle_copied_marks, list_marked_lines)
 

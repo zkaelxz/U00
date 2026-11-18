@@ -461,13 +461,15 @@ def test_lag_figures_reach_the_status_as_numbers_only(live, monkeypatch):
     def fake_run(job_id, url, out_dir, *a, report_stats=None, **k):
         dirs.append(out_dir)
         report_stats({"lag_seconds": 27.5, "processing_seconds": 7.25, "translations_skipped": 3,
-                      "translate_queue": 1, "chunks_measured": 4, "path": out_dir})
+                      "translate_queue": 1, "chunks_measured": 4, "reconnect_attempt": 2,
+                      "path": out_dir})
     monkeypatch.setattr(live_translate, "run_live_job", fake_run)
     sid = _start(segment_seconds=12)
     assert _terminal(sid)
     s = live_service.get_session(sid)
     assert (s["lag_seconds"], s["processing_seconds"], s["translations_skipped"],
-            s["translate_queue"], s["chunks_measured"], s["segment_seconds"]) == (27.5, 7.25, 3, 1, 4, 12)
+            s["translate_queue"], s["chunks_measured"], s["segment_seconds"],
+            s["reconnect_attempt"]) == (27.5, 7.25, 3, 1, 4, 12, 2)
     assert "path" not in s and dirs and dirs[0] not in repr(s)
 
 
@@ -477,7 +479,7 @@ def test_a_new_session_starts_with_zero_figures(live, monkeypatch):
     assert _terminal(sid)
     s = live_service.get_session(sid)
     assert (s["lag_seconds"], s["processing_seconds"], s["translations_skipped"],
-            s["chunks_measured"]) == (0.0, 0.0, 0, 0)
+            s["chunks_measured"], s["reconnect_attempt"]) == (0.0, 0.0, 0, 0, 0)
 
 
 # --- get / list ----------------------------------------------------------------

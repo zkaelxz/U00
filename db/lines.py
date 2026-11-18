@@ -63,6 +63,22 @@ def job_line_fields(job_id, declared):
         _job_scope.value = previous
 
 
+def current_job_scope():
+    """This thread's line-write declaration, for a helper thread of the same job to adopt."""
+    return getattr(_job_scope, "value", None)
+
+
+@contextlib.contextmanager
+def adopt_job_scope(scope):
+    """Applies a declaration taken from current_job_scope() on another thread."""
+    previous = getattr(_job_scope, "value", None)
+    _job_scope.value = scope
+    try:
+        yield
+    finally:
+        _job_scope.value = previous
+
+
 def _refuse_undeclared(columns):
     """columns: the line columns a write sets, or None for a full sync."""
     scope = getattr(_job_scope, "value", None)

@@ -933,3 +933,9 @@ button.review-speaker:hover, button.review-speaker[aria-expanded='true'] { backg
   .stage-review { grid-template-columns: minmax(0, 1fr) 20rem; column-gap: var(--space-4); }
   .stage-review:has(> .review-watch-slot > .review-watch) { grid-template-columns: minmax(0, 1fr) 22rem; }
 }
+.review-misheard { display: grid; gap: var(--space-2); min-width: 0; }
+.review-misheard p { margin: 0; }
+.review-misheard ul { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-2); }
+.review-misheard li { display: grid; gap: var(--space-1); min-width: 0; overflow-wrap: anywhere; }
+.review-misheard li > button { justify-self: start; }
+.review-misheard-line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }

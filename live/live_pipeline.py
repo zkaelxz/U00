@@ -118,9 +118,10 @@ class CueBoard:
 
 
 class Stage:
-    """The one status line both threads report to. Whisper's step wins while it
-    runs (Stop's text names the chunk it interrupts); otherwise the chunk being
-    translated; otherwise the capture wait."""
+    """The one status line both threads report to. A stream outage wins while
+    it lasts (the owner needs to know captions have paused); then Whisper's step
+    while it runs (Stop's text names the chunk it interrupts); otherwise the
+    chunk being translated; otherwise the capture wait."""
 
     def __init__(self, report, note, whisper_size: str, device: str, limit: float, engine,
                  segment_seconds: int):
@@ -136,6 +137,7 @@ class Stage:
         self._whisper = None
         self._translating = None
         self._next = 0
+        self._outage = None
         # audio/took: seconds of audio Whisper was handed for the current / last chunk.
         self.audio, self._took, self._last_audio = 0.0, None, 0.0
         self._slow_noted = False
@@ -175,8 +177,16 @@ class Stage:
             self._next = next_idx
             self._refresh()
 
+    def outage(self, text: str | None) -> None:
+        """Shows `text` (fixed wording, no URL) until outage(None)."""
+        with self._lock:
+            self._outage = text
+            self._refresh()
+
     def _refresh(self) -> None:
-        if self._whisper is not None:
+        if self._outage is not None:
+            self._enter(("outage", self._outage), self._report)
+        elif self._whisper is not None:
             self._enter(("transcribing", self._whisper), self._transcribing)
         elif self._translating is not None:
             self._enter(("translating", self._translating), self._translating_line)
@@ -230,13 +240,16 @@ class LagStats:
         self._measured = 0
         self.skipped = 0
         self.queue = 0
+        # Which reconnect try is under way; 0 while the stream is connected.
+        self.reconnect_attempt = 0
 
     def figures(self) -> dict:
         with self._lock:
             return {"lag_seconds": round(self._lag, 1) if self._lag is not None else 0.0,
                     "processing_seconds": round(statistics.median(self._totals), 1) if self._totals else 0.0,
                     "translations_skipped": int(self.skipped), "translate_queue": int(self.queue),
-                    "chunks_measured": int(self._measured)}
+                    "chunks_measured": int(self._measured),
+                    "reconnect_attempt": int(self.reconnect_attempt)}
 
     def chunk_done(self, audio_seconds: float, total: float) -> None:
         with self._lock:

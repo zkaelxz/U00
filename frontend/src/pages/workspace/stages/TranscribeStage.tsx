@@ -61,6 +61,7 @@ import { startAsNovel } from './novelSetup'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { SpeakerDetectionNotice } from './SpeakerDetectionNotice'
 import { CaptionSpeakers } from './CaptionSpeakers'
+import { MisheardNote } from './MisheardNote'
 import { SpeechCoverage } from './SpeechCoverage'
 import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
 import { withoutUntouchedBackend } from './transcribeBackendField'
@@ -749,6 +750,7 @@ export default function TranscribeStage({
           }}
         />
         <SpeechCoverage hasAudio={!!media?.has_audio} busy={busy} />
+        <MisheardNote busy={busy} />
         <CaptionSpeakers hasVideo={!!media?.has_source_video} hasLines={!!drama?.line_count} busy={busy} />
         {showRawNovel && <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />}
       </MediaTabPanel>
