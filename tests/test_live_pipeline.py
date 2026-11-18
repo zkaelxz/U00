@@ -340,18 +340,16 @@ class TestStopsLeaveNothingBehind:
         assert [c["translation"] for c in _result("live_end")] == ["done", "done"]
         assert _translator_threads() == []
 
-    def test_an_error_drops_the_waiting_chunks(self, job, monkeypatch):
+    def test_an_error_before_any_chunk_drops_the_waiting_chunks(self, job, monkeypatch):
+        # Once a chunk is captioned, a break reconnects instead (TestStreamBreaks).
         stream, start = job
-        hold = {0: threading.Event()}
-        seen, whisper_started = _whisper_by_chunk(monkeypatch, cues_per_chunk=1, block=hold)
+        seen, _ = _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
         stream.add(3)
-        assert start("live_err", Gate())
-        assert whisper_started(0).wait(PROMPT)
         start.proc.error = "The stream stopped sending data."
-        hold[0].set()
+        assert start("live_err", Gate())
         assert _ended("live_err")
         assert background_jobs.get_status("live_err")["status"] == "error"
-        assert seen == [0]
+        assert seen == []
         assert _translator_threads() == []
 
     def test_a_finish_request_wakes_an_idle_loop_at_once(self, job, monkeypatch):
@@ -389,7 +387,7 @@ class TestLagFigures:
         assert _wait(third)
         last = third()[-1]
         assert set(last) == {"lag_seconds", "processing_seconds", "translations_skipped",
-                             "translate_queue", "chunks_measured"}
+                             "translate_queue", "chunks_measured", "reconnect_attempt"}
         assert all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in last.values())
         # The lag of the newest chunk is at least its own audio (10 s).
         assert last["lag_seconds"] >= 10.0
@@ -509,3 +507,199 @@ class TestCueBoardOrder:
                    {"id": 3, "start": 21.0, "end": 22.0, "text": "d"}])
         assert [(c["start"], c["end"]) for c in published[-1]] == [
             (10.0, 12.0), (19.0, 20.0), (19.0, 20.5), (21.0, 22.0)]
+
+
+class TestStreamBreaks:
+    """A break once the session has captioned a chunk reconnects: the page link
+    is resolved again, a new capture carries on the chunk numbering, and the
+    captions and translator stay. Delays are shrunk; the stream is a fake."""
+
+    @pytest.fixture
+    def breaks(self, job, monkeypatch):
+        stream, start = job
+        monkeypatch.setattr(lt, "RECONNECT_DELAYS", (0.01,))
+        resolves, captures = [], []
+
+        def resolve(url, **kw):
+            resolves.append(kw)
+            outcome = breaks.resolve_outcomes.pop(0) if breaks.resolve_outcomes else "http://stream2"
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        def capture(url, out_dir, seconds, **kw):
+            captures.append((url, kw))
+            start.proc = FakeProc()
+            return start.proc
+        monkeypatch.setattr(lt, "resolve_stream_url", resolve)
+        monkeypatch.setattr(lt, "start_segment_capture", capture)
+
+        class Breaks:
+            pass
+        breaks = Breaks()
+        breaks.stream, breaks.start = stream, start
+        breaks.resolves, breaks.captures, breaks.resolve_outcomes = resolves, captures, []
+        return breaks
+
+    def test_a_break_reconnects_and_keeps_the_captions_and_numbering(self, breaks, monkeypatch):
+        b = breaks
+        seen, _ = _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        engine = Gate()
+        b.stream.add(2)
+        assert b.start("live_break", engine)
+        assert _wait(lambda: [c["text"] for c in _result("live_break")] == ["c0l0"])
+        b.start.proc.error = "The stream stopped sending audio."
+        # The broken capture's last (partial) chunk is captioned, then a new capture starts.
+        assert _wait(lambda: len(b.captures) == 2)
+        assert [c["text"] for c in _result("live_break")] == ["c0l0", "c1l0"]
+        url, kw = b.captures[1]
+        assert url == "http://stream2" and kw["start_number"] == 2 and kw["live_only"] is True
+        assert b.resolves[-1]["live_only"] is True
+        assert any(s.get("reconnect_attempt") == 1 for s in b.start.stats)
+        assert "reconnecting" in background_jobs.get_status("live_break")["message"].lower() \
+            or "stream found again" in background_jobs.get_status("live_break")["message"].lower()
+        assert any(n.startswith("Stream broke off: The stream stopped sending audio.")
+                   for n in b.start.notes)
+        b.stream.add(2)   # chunk_00002 and its successor from the new capture
+        assert _wait(lambda: [c["text"] for c in _result("live_break")] == ["c0l0", "c1l0", "c2l0"])
+        assert _wait(lambda: any(n.startswith("Reconnected after") for n in b.start.notes))
+        assert _wait(lambda: b.start.stats[-1]["reconnect_attempt"] == 0)
+        assert seen == [0, 1, 2]
+        # One translator for the whole session: the new chunk is sent with the earlier lines.
+        assert _wait(lambda: [c["translation"] for c in _result("live_break")] == ["done"] * 3)
+        assert background_jobs.get_status("live_break")["status"] == "running"
+
+    def test_a_break_moves_later_lines_by_the_time_it_lasted(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        clock = {"lost": 0.0}
+        monkeypatch.setattr(lt, "_timeline_clock", lambda: time.monotonic() + clock["lost"])
+        b.stream.add(2)
+        assert b.start("live_gap", Gate())
+        assert _wait(lambda: len(_result("live_gap")) == 1)
+        clock["lost"] = 100   # about 10 s of audio heard in 100 s: 90 s were lost to the break
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: len(b.captures) == 2)
+        b.stream.add(2)
+        assert _wait(lambda: len(_result("live_gap")) == 3)
+        starts = [round(c["start"], 1) for c in _result("live_gap")]
+        # Chunk 1 is the broken capture's partial last chunk; chunk 2 follows the gap.
+        assert starts[0] == 0.1 and starts[1] == 10.1
+        assert starts[2] == pytest.approx(100.1, abs=0.5)
+
+    def test_a_permanent_failure_ends_at_once(self, breaks, monkeypatch):
+        from live import live_fetch
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(2)
+        assert b.start("live_perm", Gate())
+        assert _wait(lambda: len(_result("live_perm")) == 1)
+        b.start.proc.error = live_fetch.UNSUPPORTED
+        assert _ended("live_perm")
+        assert background_jobs.get_status("live_perm")["status"] == "error"
+        assert len(b.captures) == 1
+
+    def test_a_stream_that_is_no_longer_live_finishes_with_its_captions(self, breaks, monkeypatch):
+        from live.live_resolve import StreamEnded
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.resolve_outcomes[:] = ["http://stream", StreamEnded("The stream is no longer live.")]
+        b.stream.add(2)
+        assert b.start("live_over", Gate())
+        assert _wait(lambda: len(_result("live_over")) == 1)
+        b.start.proc.code = 1
+        assert _ended("live_over")
+        assert background_jobs.get_status("live_over")["status"] == "done"
+        assert [c["translation"] for c in _result("live_over")] == ["done", "done"]
+        assert "Capture stopped: the stream is no longer live." in b.start.notes
+        assert len(b.captures) == 1
+
+    def test_gives_up_after_the_reconnect_window(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        monkeypatch.setattr(lt, "RECONNECT_DELAYS", (0.01, 0.05))
+        monkeypatch.setattr(lt, "RECONNECT_GIVE_UP_SECONDS", 0.3)
+        b.resolve_outcomes[:] = ["http://stream"] + [lt.LiveCaptureError("offline")] * 100
+        b.stream.add(2)
+        assert b.start("live_gone", Gate())
+        assert _wait(lambda: len(_result("live_gone")) == 1)
+        b.start.proc.error = "The stream could not be reached."
+        assert _ended("live_gone")
+        assert background_jobs.get_status("live_gone")["status"] == "done"
+        assert len(b.resolves) > 2 and len(b.captures) == 1
+        assert any("could not be reconnected" in n for n in b.start.notes)
+        assert [c["translation"] for c in _result("live_gone")] == ["done", "done"]
+
+    def test_stop_during_the_reconnect_wait_finishes_promptly(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        monkeypatch.setattr(lt, "RECONNECT_DELAYS", (60,))
+        b.stream.add(2)
+        assert b.start("live_wait", Gate())
+        assert _wait(lambda: len(_result("live_wait")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: "Reconnecting in 60 s" in background_jobs.get_status("live_wait")["message"])
+        began = time.monotonic()
+        assert live_pipeline.request_finish("live_wait")
+        assert _ended("live_wait", PROMPT)
+        assert time.monotonic() - began < PROMPT
+        assert background_jobs.get_status("live_wait")["status"] == "done"
+        assert _wait(lambda: b.start.stats[-1]["reconnect_attempt"] == 0)
+
+    def test_a_recording_where_the_broadcast_was_ends_the_session(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(2)
+        assert b.start("live_rec", Gate())
+        assert _wait(lambda: len(_result("live_rec")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: len(b.captures) == 2)
+        # The pump found a finished playlist; ffmpeg exits non-zero on the empty input.
+        b.start.proc.ended_live = True
+        b.start.proc.code = 183
+        assert _ended("live_rec")
+        assert background_jobs.get_status("live_rec")["status"] == "done"
+        assert "Capture stopped: the stream is no longer live." in b.start.notes
+        assert len(b.captures) == 2 and b.start.stats[-1]["reconnect_attempt"] == 0
+
+    def test_stop_before_the_first_new_chunk_clears_the_reconnect_status(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(2)
+        assert b.start("live_early", Gate())
+        assert _wait(lambda: len(_result("live_early")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: "Stream found again" in background_jobs.get_status("live_early")["message"])
+        assert live_pipeline.request_finish("live_early")
+        assert _ended("live_early")
+        assert b.start.stats[-1]["reconnect_attempt"] == 0
+
+    def test_a_refused_address_on_reconnect_ends_with_an_error(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+
+        def check(url):
+            if url != "http://stream":
+                raise ValueError("not public")
+        b.resolve_outcomes[:] = ["http://stream", "http://10.0.0.1/x"]
+        b.stream.add(2)
+        assert b.start("live_refused", Gate(), stream_url_check=check)
+        assert _wait(lambda: len(_result("live_refused")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _ended("live_refused")
+        assert background_jobs.get_status("live_refused")["status"] == "error"
+        assert len(b.captures) == 1
+
+    def test_a_tiny_last_chunk_before_the_break_does_not_push_later_lines_on(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(1)
+        b.stream.add(1, seconds=0.2)   # what ffmpeg wrote of chunk 1 before the break
+        assert b.start("live_tiny", Gate())
+        assert _wait(lambda: len(_result("live_tiny")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: len(b.captures) == 2)
+        b.stream.add(2)
+        assert _wait(lambda: len(_result("live_tiny")) == 2)
+        # Chunk 2 follows the 10.2 s actually heard, not two full 10 s slots.
+        assert _result("live_tiny")[1]["start"] == pytest.approx(10.3, abs=0.6)

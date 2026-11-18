@@ -199,6 +199,32 @@ class TestResolveStreamUrl:
         with pytest.raises(lt.LiveCaptureError, match="direct stream URL"):
             lt.resolve_stream_url("https://example.com/live")
 
+    @pytest.mark.parametrize("live_status", ["was_live", "post_live", "not_live"])
+    def test_live_only_refuses_a_page_that_is_no_longer_live(self, monkeypatch, live_status):
+        import types
+        from live.live_resolve import StreamEnded
+        fake_module = types.ModuleType("yt_dlp")
+
+        class FakeYDL:
+            def __init__(self, opts):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def extract_info(self, url, download=False):
+                return {"url": "https://cdn.example/recording.m3u8", "live_status": live_status}
+
+        fake_module.YoutubeDL = FakeYDL
+        monkeypatch.setitem(sys.modules, "yt_dlp", fake_module)
+        # Without live_only (a first start) a recording is fine to caption.
+        assert lt.resolve_stream_url("https://example.com/live") == "https://cdn.example/recording.m3u8"
+        with pytest.raises(StreamEnded):
+            lt.resolve_stream_url("https://example.com/live", live_only=True)
+
     def _install_fake_yt_dlp_with_attempt_log(self, monkeypatch, extract_info_fn, opts_log=None):
         import types
         fake_module = types.ModuleType("yt_dlp")
@@ -1101,6 +1127,40 @@ class TestOverlapTailTextWindow:
     def test_overlap_is_capped_at_half_a_chunk(self, monkeypatch, tmp_path):
         calls = self._run(monkeypatch, tmp_path, [], overlap_seconds=10)  # 4s chunks
         assert calls[1]["overlap_seconds"] == 2.0
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
+def test_a_restarted_capture_carries_on_the_chunk_numbering(tmp_path, monkeypatch):
+    """start_number reaches ffmpeg's segment muxer, so the chunks of a capture
+    restarted after a break continue the session's numbering."""
+    tone = tmp_path / "tone.wav"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "sine=frequency=440:duration=3", str(tone)], check=True, timeout=60)
+
+    class _Pump:
+        error = None
+
+        def __init__(self, url, sink, **kw):
+            self.sink, self.kw = sink, kw
+
+        def start(self):
+            self.sink.write(tone.read_bytes())
+            self.sink.close()
+            return self
+
+        def halt(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+    monkeypatch.setattr(lt.live_fetch, "StreamPump", _Pump)
+    out_dir = str(tmp_path / "chunks")
+    capture = lt.start_segment_capture("http://x.example/", out_dir, 1, start_number=7,
+                                       live_only=True)
+    assert capture.proc.wait(30) == 0
+    assert capture.pump.kw["live_only"] is True
+    assert sorted(os.listdir(out_dir))[0] == "chunk_00007.wav"
+    assert [i for i, _ in lt.list_remaining_chunks(out_dir, 6)][:3] == [7, 8, 9]
 
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")

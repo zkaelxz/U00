@@ -434,6 +434,8 @@ class LiveSessionStatus(BaseModel):
     translations_skipped: int = 0   # lines shown untranslated to keep up
     translate_queue: int = 0
     chunks_measured: int = 0
+    # Which try at reconnecting a broken stream is under way; 0 while connected.
+    reconnect_attempt: int = 0
     # Whether this session records a delayed copy, and once its playlists have segments to play.
     delayed_player: bool = False
     player_ready: bool = False

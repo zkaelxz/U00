@@ -35,10 +35,12 @@ Known limitations, stated plainly rather than glossed over:
     translated line for something said at t=0 doesn't appear until
     roughly t=20-40, after transcription+translation finish). This is
     not, and cannot be, real-time in the broadcast sense.
-  - The resolved stream URL (from yt-dlp) can expire after a few hours
-    on some platforms. If capture silently stops producing new chunks
-    on a long-running stream, stop and restart the job to re-resolve a
-    fresh URL.
+  - A break in the stream (a network drop, the resolved URL expiring,
+    a stall) reconnects by itself once the session has captioned a chunk:
+    the page link is resolved again and capture resumes at the live edge,
+    with the captions, the translator's context and the timeline kept. The
+    speech during the break is not heard, and the delayed player is not
+    restarted. See _LiveRun._reconnect.
   - Chunk boundaries: ffmpeg still cuts hard, non-overlapping chunks,
     but each chunk is transcribed with the last few seconds of the
     PREVIOUS chunk's actual audio prepended (overlap_seconds, see
@@ -83,7 +85,7 @@ from live.live_caption import CHUNK_CONTEXT_CARRY_CHARS as _CONTEXT_CARRY_CHARS 
 from live.live_audio import read_wav_tail, write_padded_chunk  # noqa: F401 -- re-exported for callers and tests
 from live.live_caption import ChunkCaptioner
 from live.live_cue_translation import CueTranslator, build_live_context
-from live.live_resolve import LiveCaptureError, resolve_stream_url
+from live.live_resolve import LiveCaptureError, StreamEnded, resolve_stream_url
 from live.live_tokens import LEADING_NON_WORD_RE, TOKEN_RE, tokens
 
 
@@ -111,9 +113,14 @@ class SegmentCapture:
         """The fetcher's fixed failure message, or None."""
         return self.pump.error
 
+    @property
+    def ended_live(self):
+        return self.pump.ended_live
+
 
 def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 20,
-                           sample_rate: int = 16000, proxy: str | None = None) -> SegmentCapture:
+                           sample_rate: int = 16000, proxy: str | None = None,
+                           start_number: int = 0, live_only: bool = False) -> SegmentCapture:
     """
     Starts ffmpeg writing numbered mono WAV chunks (chunk_00000.wav,
     chunk_00001.wav, ...), each `segment_seconds` long, from its stdin,
@@ -128,6 +135,10 @@ def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 
     run sharing the directory) is removed first, so ffmpeg's new chunk
     numbering never mixes with old audio that run_live_job would then
     process as this run's (clear_stale_chunks).
+
+    start_number: the first chunk's number, so a capture restarted after a
+    stream break carries on the session's numbering. live_only: see
+    live_fetch.StreamPump.
     """
     os.makedirs(out_dir, exist_ok=True)
     clear_stale_chunks(out_dir)
@@ -135,7 +146,7 @@ def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 
     cmd = ["ffmpeg", "-y", "-protocol_whitelist", "pipe", "-format_whitelist",
            FFMPEG_FORMAT_WHITELIST, "-i", "pipe:0", "-vn", "-ac", "1", "-ar", str(sample_rate),
            "-f", "segment", "-segment_time", str(segment_seconds), "-reset_timestamps", "1",
-           pattern]
+           "-segment_start_number", str(int(start_number)), pattern]
     # Its own process group/session, so background_jobs.kill_tree (the cancel
     # path) takes down anything ffmpeg started along with it.
     group: dict[str, Any]
@@ -144,7 +155,7 @@ def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL, **group)
     try:
-        pump = live_fetch.StreamPump(source_url, proc.stdin, proxy=proxy).start()
+        pump = live_fetch.StreamPump(source_url, proc.stdin, proxy=proxy, live_only=live_only).start()
     except BaseException:
         proc.kill()
         proc.wait()
@@ -351,6 +362,18 @@ _WARM_UP_TEXT = {"zh": "好的", "ja": "はい", "ko": "네"}
 # chunk stays a small fraction of a 15-30s chunk.
 DEFAULT_OVERLAP_SECONDS = 3
 
+# Waits before each reconnect try after a stream break: quick first, since most
+# breaks are a blip, then no faster than every 30 s for a stream that went away.
+RECONNECT_DELAYS = (2, 5, 10, 20, 30)
+# How long after a break Live keeps trying; a streamer restarting their
+# broadcast software is usually back within this.
+RECONNECT_GIVE_UP_SECONDS = 300
+FFMPEG_BROKE = ("ffmpeg could not read the stream (an unsupported format, or the "
+                "stream broke off).")
+RESOLVE_FAILED = "The stream could not be found again."
+# The clock a break's length on the stream timeline is measured with; a test seam.
+_timeline_clock = time.monotonic
+
 # Chunks left waiting when the loop looks (the one being cut plus one more is
 # the normal pipeline); beyond this the oldest are dropped, not queued, so
 # captions stay near the live edge when Whisper runs slower than the stream.
@@ -523,6 +546,12 @@ class _LiveRun(ChunkCaptioner):
         self.proc: SegmentCapture | None = None
         self.player: live_player.PlayerRecorders | None = None
         self.capture_stopped = False
+        self.capture_started = None
+        # A break is only reconnected once this session has captioned a chunk:
+        # a capture that never worked is a bad link or format, not a break.
+        self.captured_any = False
+        # {"since", "attempt", "reason"} from a stream break until a chunk arrives again.
+        self.outage = None
 
     def should_stop(self):
         return (background_jobs.is_cancel_requested(self.job_id)
@@ -652,11 +681,14 @@ class _LiveRun(ChunkCaptioner):
                     raise RuntimeError("source_url is set before capture starts")
                 self.proc = start_segment_capture(
                     self.source_url, self.out_dir, self.segment_seconds, proxy=self.proxy)
+                self.capture_started = _timeline_clock()
                 self.player = live_player.start_if_possible(
                     self.delayed_player, self.url, self.source_url, self.out_dir, self.note,
                     self.should_stop, self.stream_url_check, self.proxy,
                     self.cookies_browser, self.cookies_file)
                 finishing = self._capture_loop(control, worker)
+                if self.outage is not None:
+                    self._end_outage()
                 if finishing and not self.should_stop():
                     self._caption_remaining(worker)
         finally:
@@ -668,23 +700,29 @@ class _LiveRun(ChunkCaptioner):
     def _capture_loop(self, control, worker):
         """Captions one waiting chunk per pass. True when it ended by finish,
         time limit or stream end, False on cancel."""
-        proc = self.proc
-        if proc is None:
+        if self.proc is None:
             raise RuntimeError("capture is started before the loop runs")
         while not self.should_stop():
+            proc = self.proc
             if control.finish.is_set():
                 return True
             if self.time_up():
                 self._ended("Stopped: time limit reached.")
                 return True
             self.player = live_player.watch(self.player, self.note)
-            if proc.error:
-                raise LiveCaptureError(proc.error)
-            if proc.poll() is not None:
-                if proc.poll() != 0:
-                    raise LiveCaptureError(
-                        "ffmpeg could not read the stream (an unsupported format, or the "
-                        "stream broke off).")
+            code = proc.poll()
+            if getattr(proc, "ended_live", False):
+                self._ended("Capture stopped: the stream is no longer live.")
+                return True
+            broke = proc.error or (FFMPEG_BROKE if code not in (None, 0) else None)
+            if broke:
+                if not self.captured_any or broke in live_fetch.PERMANENT:
+                    raise LiveCaptureError(broke)
+                outcome = self._reconnect(broke, control, worker)
+                if outcome == "resumed":
+                    continue
+                return outcome == "finish"
+            if code is not None:
                 self._ended("Capture stopped (stream likely ended).")
                 return True
 
@@ -697,15 +735,140 @@ class _LiveRun(ChunkCaptioner):
                 self.state["context"] = ""
             # One chunk per pass, so the backlog is looked at again after each.
             if waiting:
+                self._resumed()
                 try:
                     self.caption(*waiting[0], worker)
                 except background_jobs.JobCancelled:
                     # The while loop's own check ends the job.
                     pass
+                self.captured_any = True
                 continue
             self.stage.waiting(self.state["last"] + 1)
             control.idle(self.poll_interval)
         return False
+
+    def _reconnect(self, reason, control, worker):
+        """After a stream break: captions what the broken capture wrote, then
+        resolves the page link again (the stream URL may have expired) and
+        starts a new capture, with waits of RECONNECT_DELAYS between tries.
+        Returns "resumed" (a new capture runs; the outage ends with its first
+        chunk), "finish" (Stop, the time limit, the stream no longer live or
+        RECONNECT_GIVE_UP_SECONDS passed: end as a stream that ended) or
+        "cancel". The board, the translator and its context stay as they are."""
+        if self.outage is None:
+            self.outage = {"since": time.monotonic(), "attempt": 0}
+        self._drain_broken(worker)
+        self.outage["reason"] = reason
+        while True:
+            self.outage["attempt"] += 1
+            attempt = self.outage["attempt"]
+            delay = RECONNECT_DELAYS[min(attempt, len(RECONNECT_DELAYS)) - 1]
+            if time.monotonic() + delay - self.outage["since"] > RECONNECT_GIVE_UP_SECONDS:
+                self._end_outage()
+                self._ended(f"Stopped: the stream broke off and could not be reconnected "
+                            f"within {RECONNECT_GIVE_UP_SECONDS // 60} minutes.")
+                return "finish"
+            self.stats.reconnect_attempt = attempt
+            self.stats.send()
+            if attempt == 1:
+                self.note(f"Stream broke off: {self.outage['reason']} Reconnecting; "
+                          "the captions so far are kept.", "reconnect")
+            self.stage.outage(f"Stream broke off: {self.outage['reason']} Reconnecting "
+                              f"in {delay} s (try {attempt})...")
+            waited = self._outage_wait(delay, control)
+            if waited != "resumed":
+                self._end_outage()
+                return waited
+            self.stage.outage(f"Stream broke off: {self.outage['reason']} Reconnecting now "
+                              f"(try {attempt})...")
+            try:
+                url = _run_abortable(
+                    lambda: resolve_stream_url(self.url, cookies_browser=self.cookies_browser,
+                                               cookies_file=self.cookies_file, proxy=self.proxy,
+                                               live_only=True),
+                    self.should_stop)
+            except background_jobs.JobCancelled:
+                self._end_outage()
+                return "cancel"
+            except StreamEnded:
+                self._end_outage()
+                self._ended("Capture stopped: the stream is no longer live.")
+                return "finish"
+            except Exception as exc:
+                live_whisper.log_failure(f"reconnect try {attempt}: resolve failed", exc)
+                self.outage["reason"] = RESOLVE_FAILED
+                continue
+            # Outside the retry: a refused address ends the job as it does at Start.
+            if self.stream_url_check is not None:
+                self.stream_url_check(url)
+            try:
+                proc = start_segment_capture(url, self.out_dir, self.segment_seconds,
+                                             proxy=self.proxy, start_number=self.state["last"] + 1,
+                                             live_only=True)
+            except Exception as exc:
+                live_whisper.log_failure(f"reconnect try {attempt}: capture failed", exc)
+                self.outage["reason"] = live_fetch.UNREACHABLE
+                continue
+            self.source_url, self.proc, self.capture_stopped = url, proc, False
+            self._skip_outage_on_timeline()
+            self.stage.outage(f"Stream found again (try {attempt}): waiting for its first "
+                              "chunk...")
+            return "resumed"
+
+    def _outage_wait(self, seconds, control):
+        """"resumed" once `seconds` pass; "finish" or "cancel" if the session ends first."""
+        until = time.monotonic() + seconds
+        while time.monotonic() < until:
+            if self.should_stop():
+                return "cancel"
+            if control.finish.is_set():
+                return "finish"
+            if self.time_up():
+                self._ended("Stopped: time limit reached.")
+                return "finish"
+            control.idle(min(live_pipeline.IDLE_WAIT_SECONDS, max(0.0, until - time.monotonic())))
+        return "resumed"
+
+    def _drain_broken(self, worker):
+        """Captions the chunks the broken capture left, its last partial one
+        included. What follows the break is not the same speech, so nothing is
+        held back for it and no overlap or Whisper prompt carries across."""
+        if not self.capture_stopped:
+            stop_capture(self.proc)
+            self.capture_stopped = True
+        for idx, path in list_remaining_chunks(self.out_dir, self.state["last"]):
+            if self.should_stop():
+                break
+            try:
+                self.caption(idx, path, worker, final=True)
+            except background_jobs.JobCancelled:
+                break
+        if not self.should_stop():
+            self.release_held(worker)
+        self.state["prev_tail"] = None
+        self.state["context"] = ""
+
+    def _skip_outage_on_timeline(self):
+        """Moves the chunks after the break by the stream time it lasted (the
+        new capture joins at the live edge), so the timeline stays the stream's."""
+        heard = (self.state["last"] + 1) * self.segment_seconds + self.state["jump"]
+        elapsed = _timeline_clock() - (self.capture_started or _timeline_clock())
+        self.state["jump"] += max(0.0, elapsed - heard)
+
+    def _resumed(self):
+        """The first chunk after a break: the outage is over."""
+        if self.outage is None:
+            return
+        took = time.monotonic() - self.outage["since"]
+        self._end_outage()
+        self.note(f"Reconnected after {took:.0f} s; speech during the break was not captured.",
+                  "reconnect")
+
+    def _end_outage(self):
+        self.outage = None
+        self.stage.outage(None)
+        self.stats.reconnect_attempt = 0
+        self.stats.send()
 
     def _ended(self, why):
         """Names why capture ended. Also kept as a note: the final status is
@@ -716,8 +879,9 @@ class _LiveRun(ChunkCaptioner):
     def _caption_remaining(self, worker):
         # ffmpeg writes out the segment it is in, so the speech up to
         # the stop is captioned too, not dropped with the backlog.
-        stop_capture(self.proc)
-        self.capture_stopped = True
+        if not self.capture_stopped:
+            stop_capture(self.proc)
+            self.capture_stopped = True
         for idx, path in list_remaining_chunks(self.out_dir, self.state["last"]):
             if self.should_stop():
                 break
@@ -829,9 +993,11 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     interrupts it within a poll, and a chunk it cannot finish in max(30 s,
     6 x chunk) is skipped, as are chunks that arrive while it is running.
 
-    A fetch failure, or ffmpeg ending with an error, ends the job with
-    a LiveCaptureError carrying a fixed message (no URL); a stream that
-    simply ends finishes it normally.
+    A fetch failure, or ffmpeg ending with an error, before any chunk was
+    captioned (or one live_fetch.PERMANENT names) ends the job with a
+    LiveCaptureError carrying a fixed message (no URL). After that a break
+    reconnects (_LiveRun._reconnect) and, if the stream does not come back,
+    ends like a stream that simply ends: a normal finish.
     """
     _LiveRun(job_id, url, out_dir, segment_seconds, source_language, whisper_size, engine,
              use_gpu, poll_interval, cookies_browser, cookies_file, overlap_seconds,
