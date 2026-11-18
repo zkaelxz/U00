@@ -97,13 +97,16 @@ def _one_per_stretch(found: List[dict]) -> List[dict]:
 
 def find_misheard(lines: Iterable[SourceLine], trusted: Iterable[Tuple[str, str]], cut: Cutter,
                   canon: Canon = lambda w: w,
-                  is_dictionary_word: Callable[[str], bool] = lambda w: False) -> dict:
+                  is_dictionary_word: Callable[[str], bool] = lambda w: False,
+                  skip: Iterable[Tuple[str, str]] = ()) -> dict:
     """Suggestions for words that sound like a trusted word spelled differently.
 
     `trusted` is (word, source) with source one of SOURCE_RANK's glossary / name / title.
     `canon` folds Traditional to Simplified so a pair of forms counts as one word.
     `is_dictionary_word` says a word is ordinary Chinese: such a word is never offered as a
     slip of a merely frequent word (地板 for 地上), only of a glossary, name or title word.
+    `skip` is (heard, suggested) pairs a person answered Keep as heard: dropped before the cap,
+    so they never use up a slot.
     Returns {"suggestions": [...], "truncated": bool}; each suggestion carries the heard
     spelling, the suggested one, where the suggestion came from, both counts and the lines."""
     lines = list(lines)
@@ -154,6 +157,8 @@ def find_misheard(lines: Iterable[SourceLine], trusted: Iterable[Tuple[str, str]
                           "_rank": rank})
         if truncated:
             break
+    skipped = set(skip)
+    found = [f for f in found if (f["heard"], f["suggested"]) not in skipped]
     found.sort(key=lambda s: (s["_rank"], s["heard"]))
     found = _one_per_stretch(found)
     for item in found:

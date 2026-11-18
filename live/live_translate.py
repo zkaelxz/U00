@@ -343,15 +343,79 @@ def drop_stock_phrases(segments: list) -> list:
     return [seg for seg in segments if not invented(seg.get("text") or "")]
 
 
+# A forced cut never leaves a piece shorter than this many CJK characters: a
+# few letters flashed on screen read worse than a line a little over the limit.
+MIN_FORCED_PIECE_CHARS = 8
+# How far either side of an even cut a forced cut may move to land between two
+# kinds of script (kanji, hiragana, katakana, Hangul, Latin), which in unpunctuated
+# Japanese is far more often a word boundary than a cut mid-run.
+FORCED_CUT_REACH = 4
+
+
 def split_long_caption_lines(segments: list) -> list:
     """Cuts a line longer than a caption can hold (segment_splitting's 8 s / 40
     CJK characters) at its sentence ends, then commas, spaces beside CJK text and
     word pauses. whisper-ja (ja-1.5b) often writes 10-20 s of speech as one
     segment, which sat on screen as a wall of text. Without the re-split rules an
-    English "Mr. Smith" can be cut after "Mr."; a line with none of these cuts
-    stays whole."""
+    English "Mr. Smith" can be cut after "Mr."; a CJK line with none of these cuts
+    is then cut by length (force_cut_cjk): a Live caption is read once and not
+    saved, so an imperfect cut beats a wall of text."""
     import segment_splitting
-    return segment_splitting.split_long_segments(segments)
+    out = []
+    for seg in segment_splitting.split_long_segments(segments):
+        out.extend(force_cut_cjk(seg))
+    return out
+
+
+def _script(ch: str) -> str:
+    code = ord(ch)
+    if 0x3040 <= code <= 0x309F:
+        return "hiragana"
+    if 0x30A0 <= code <= 0x30FF:
+        return "katakana"
+    if 0x3400 <= code <= 0x9FFF:
+        return "kanji"
+    if 0xAC00 <= code <= 0xD7AF:
+        return "hangul"
+    return "other"
+
+
+def force_cut_cjk(seg: dict) -> list:
+    """`seg` in even pieces of at most 8 s / 40 CJK characters, with times shared
+    by character count, each cut moved to the nearest change of script within
+    FORCED_CUT_REACH. Returned whole when it fits, holds no CJK text, or the pieces
+    would fall under MIN_FORCED_PIECE_CHARS."""
+    import math
+    import segment_splitting
+    text = seg.get("text") or ""
+    dur = seg["end"] - seg["start"]
+    cjk = len(segment_splitting._CJK_RE.findall(text))
+    pieces = max(math.ceil(dur / segment_splitting.SPLIT_MAX_SECONDS),
+                 math.ceil(cjk / segment_splitting.SPLIT_MAX_CJK_CHARS))
+    while pieces > 1 and len(text) / pieces < MIN_FORCED_PIECE_CHARS:
+        pieces -= 1
+    if pieces < 2 or not cjk or dur <= 0:
+        return [seg]
+    cuts, last = [], 0
+    for k in range(1, pieces):
+        even = round(len(text) * k / pieces)
+        lo, hi = max(last + MIN_FORCED_PIECE_CHARS // 2, even - FORCED_CUT_REACH), \
+            min(len(text) - 1, even + FORCED_CUT_REACH)
+        turns = [i for i in range(lo, hi + 1) if _script(text[i - 1]) != _script(text[i])]
+        at = min(turns, key=lambda i: abs(i - even)) if turns else even
+        if at <= last:
+            continue
+        cuts.append(at)
+        last = at
+    bounds = [0, *cuts, len(text)]
+    bare = {k: v for k, v in seg.items() if k != "words"}
+    out = []
+    for a, b in zip(bounds, bounds[1:]):
+        piece = text[a:b].strip()
+        if piece:
+            out.append({**bare, "text": piece, "start": seg["start"] + dur * a / len(text),
+                        "end": seg["start"] + dur * b / len(text)})
+    return out or [seg]
 
 
 # One short everyday word per source language for the translator warm-up.
