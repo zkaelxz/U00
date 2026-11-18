@@ -13,6 +13,7 @@ pytest.importorskip("cryptography")
 
 from fastapi.testclient import TestClient
 
+import env_reader
 import db
 import member_keys
 from engine_backends import shared
@@ -35,7 +36,7 @@ REMOTE = "https://baihe.example.com"
 def env(isolated_db, tmp_path, monkeypatch):
     """A private .env, so the server secret never lands in the checkout's."""
     path = str(tmp_path / ".env")
-    monkeypatch.setattr(settings_service, "default_env_path", lambda: path)
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: path)
     monkeypatch.delenv(member_key_service.SECRET_ENV, raising=False)
     return path
 
@@ -107,18 +108,18 @@ def test_a_secret_already_on_disk_is_never_replaced(env, monkeypatch):
     first = Fernet.generate_key().decode()
     with open(env, "w") as f:
         f.write(f"OTHER=1\n{member_key_service.SECRET_ENV}={first}\n")
-    monkeypatch.setattr(settings_service, "resolve_env_names", lambda names, env_path=None: None)
+    monkeypatch.setattr(env_reader, "resolve_env_names", lambda names, env_path=None: None)
     u = auth_service.add_user("kid@example.com")
     member_key_service.save(u["id"], KEY)
     text = open(env).read()
     assert text.count(member_key_service.SECRET_ENV) == 1 and first in text and "OTHER=1" in text
     monkeypatch.undo()
-    monkeypatch.setattr(settings_service, "default_env_path", lambda: env)
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: env)
     assert member_key_service.cloud_key_for_user(u["id"]) == KEY
 
 
 def test_an_unreadable_env_file_refuses_the_save_instead_of_making_a_new_secret(env, monkeypatch):
-    monkeypatch.setattr(settings_service, "resolve_env_names", lambda names, env_path=None: None)
+    monkeypatch.setattr(env_reader, "resolve_env_names", lambda names, env_path=None: None)
 
     def broken(path, transform):
         raise OSError("read failed")

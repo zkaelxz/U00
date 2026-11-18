@@ -12,6 +12,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
+import env_reader
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
@@ -765,8 +766,8 @@ def test_remote_key_removal_on_a_member_promoted_meanwhile_is_refused(isolated_d
                                                                       monkeypatch):
     pytest.importorskip("cryptography")
     import member_keys
-    from services import member_key_service, settings_service
-    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(tmp_path / ".env"))
+    from services import member_key_service
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: str(tmp_path / ".env"))
     monkeypatch.delenv(member_key_service.SECRET_ENV, raising=False)
     c = _remote(_app())
     _a, s = _admin()

@@ -211,14 +211,14 @@ def _xml_env_from(text):
 
 class TestEnvFile:
     def test_matches_the_apps_own_parser(self, tmp_path):
-        from services.settings_service import read_env_file
+        from env_reader import read_env_file
         path = tmp_path / ".env"
         path.write_bytes("\ufeff# comment\n\nA=1\nB = 'two'\nC=\"th=ree\"\nnot a pair\n".encode("utf-8"))
         assert service_config.read_env_file(path) == read_env_file(str(path)) == {
             "A": "1", "B": "two", "C": "th=ree"}
 
     def test_a_utf16_file_matches_the_apps_own_parser(self, tmp_path):
-        from services.settings_service import read_env_file
+        from env_reader import read_env_file
         path = tmp_path / ".env"
         path.write_bytes("BAIHE_API_HOUSEHOLD_PORT=8601\r\n".encode("utf-16"))
         assert service_config.read_env_file(path) == read_env_file(str(path)) == {

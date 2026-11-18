@@ -13,6 +13,7 @@ requests = pytest.importorskip("requests")
 
 from fastapi.testclient import TestClient
 
+import env_reader
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import settings_service
@@ -68,7 +69,7 @@ class FakeSearx:
 
 @pytest.fixture
 def fake(isolated_db, monkeypatch, tmp_path):
-    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(tmp_path / ".env"))
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: str(tmp_path / ".env"))
     monkeypatch.setattr(ws.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", ("192.168.1.30", port))])
     FakeSearx.calls, FakeSearx.reply = [], Resp(200, {"results": [_hit(1), _hit(2)]})

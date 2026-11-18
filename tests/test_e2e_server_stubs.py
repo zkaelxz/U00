@@ -13,6 +13,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
+import env_reader
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import diagnostics_packages_service as packages_svc
@@ -92,7 +93,7 @@ def test_no_key_is_ever_resolved(stubbed, tmp_path, monkeypatch):
     for key in ss.KEY_WRITE_ENGINES:
         assert ss.resolve_key(key) is None
         assert ss.resolve_key(key, str(env_file)) is None
-    assert ss.read_env_file(str(env_file)) == {}
+    assert env_reader.read_env_file(str(env_file)) == {}
     assert not any(ss.key_status().values())
     client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
     items = client.get("/api/translate/engines").json()["items"]

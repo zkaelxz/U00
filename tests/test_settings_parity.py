@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_launch, process_worker
 from engine_backends import engine_registry
+import env_reader
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -33,7 +34,7 @@ SECRET = "sk-secret-value-123"
 @pytest.fixture
 def env_file(tmp_path, monkeypatch):
     path = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: str(path))
     for names in settings_service.ENV_NAMES.values():
         for n in names:
             monkeypatch.delenv(n, raising=False)
@@ -642,7 +643,7 @@ def test_live_route_uses_cookies_only_at_the_pc(isolated_db, env_file, monkeypat
 
 def test_baihe_own_ports_includes_configured_ports(monkeypatch, tmp_path):
     from services import settings_service as ss
-    monkeypatch.setattr(ss, "default_env_path", lambda: str(tmp_path / ".env"))
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: str(tmp_path / ".env"))
     for name in (ss.API_PORT_ENV, ss.HOUSEHOLD_PORT_ENV):
         monkeypatch.delenv(name, raising=False)
     assert ss.baihe_own_ports() == {8600, 8756}
