@@ -252,3 +252,15 @@ def test_a_chapter_saved_with_its_title_doubled_is_still_found_on_a_second_captu
     again = _save(token, title, text=DOUBLED)
     assert again.payload["saved"] is False and again.payload["already_saved"] is True
     assert len(chapter_manifest.load(title)["chapters"]) == 1
+
+
+def test_a_retry_of_a_block_written_with_its_title_doubled_does_not_append_again(
+        title, monkeypatch):
+    import types
+    import novel_text
+    ch = types.SimpleNamespace(title="第三章 夜雨", series_id="s1", chapter_id="c3", url="")
+    with monkeypatch.context() as before:
+        before.setattr(novel_text, "drop_repeated_heading", lambda text: text)
+        assert pipeline._append_chapter_text("novel.example", ch, title, DOUBLED) == ""
+    assert pipeline._append_chapter_text("novel.example", ch, title, DOUBLED) == ""
+    assert _raw(title).count("雨下了一整夜") == 60
