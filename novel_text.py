@@ -395,6 +395,22 @@ def drop_site_chrome(text: str) -> str:
     return "\n".join(line for line in (text or "").split("\n") if not is_site_chrome_line(line))
 
 
+def drop_repeated_heading(text: str) -> str:
+    """`text` without a chapter heading printed twice in a row. Some sites repeat
+    the title under itself; left in, each copy is a chapter start of its own, so
+    EPUB export and narration get an empty chapter or a second marker."""
+    kept: list[str] = []
+    last = ""
+    for line in (text or "").split("\n"):
+        key = " ".join(line.split())
+        if key:
+            if key == last and is_heading_text(key):
+                continue
+            last = key
+        kept.append(line)
+    return "\n".join(kept)
+
+
 # ---------------------------------------------------------------------------
 # Chapter OCR output
 # ---------------------------------------------------------------------------
