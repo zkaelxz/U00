@@ -25,6 +25,7 @@ from starlette.requests import Request
 
 import background_jobs
 from jobs import job_launch
+import env_reader
 import db
 from core import Line
 from api import auth as api_auth
@@ -360,8 +361,8 @@ class TestNoAdminPermissionsOnHousehold:
         nor remove a key an admin saved as a member before promotion."""
         pytest.importorskip("cryptography")
         import member_keys
-        from services import member_key_service, settings_service
-        monkeypatch.setattr(settings_service, "default_env_path", lambda: str(tmp_path / ".env"))
+        from services import member_key_service
+        monkeypatch.setattr(env_reader, "default_env_path", lambda: str(tmp_path / ".env"))
         monkeypatch.delenv(member_key_service.SECRET_ENV, raising=False)
         s = _admin_session()
         owner = auth_service.find_user_by_email("owner@example.com")
@@ -396,8 +397,8 @@ class TestNoAdminPermissionsOnHousehold:
     def test_member_ollama_key_removed_from_away(self, isolated_db, tmp_path, monkeypatch):
         pytest.importorskip("cryptography")
         import member_keys
-        from services import member_key_service, settings_service
-        monkeypatch.setattr(settings_service, "default_env_path", lambda: str(tmp_path / ".env"))
+        from services import member_key_service
+        monkeypatch.setattr(env_reader, "default_env_path", lambda: str(tmp_path / ".env"))
         monkeypatch.delenv(member_key_service.SECRET_ENV, raising=False)
         s = _admin_session()
         admin_id = auth_service.find_user_by_email("owner@example.com")["id"]
@@ -1304,11 +1305,10 @@ class TestRunServers:
         import uvicorn
         from api import __main__ as main_mod
         from services import shutdown_service
-        from services import settings_service
         for k in ("BAIHE_API_HOUSEHOLD_PORT", "BAIHE_API_PORT", "BAIHE_API_HOST",
                   "BAIHE_API_AUTH", "BAIHE_API_ENV", *SIGN_IN_ENV):
             monkeypatch.delenv(k, raising=False)
-        monkeypatch.setattr(settings_service, "read_env_file", lambda *a, **k: {})
+        monkeypatch.setattr(env_reader, "read_env_file", lambda *a, **k: {})
         for k, v in env.items():
             monkeypatch.setenv(k, v)
         monkeypatch.setattr(process_guard, "contain_children", lambda: True)
@@ -1352,8 +1352,7 @@ class TestRunServers:
                                                     auth, expected):
         import uvicorn
         from api import __main__ as main_mod
-        from services import settings_service
-        monkeypatch.setattr(settings_service, "read_env_file", lambda *a, **k: {})
+        monkeypatch.setattr(env_reader, "read_env_file", lambda *a, **k: {})
         for k in ("BAIHE_API_HOUSEHOLD_PORT", "BAIHE_API_PORT", "BAIHE_API_HOST", *SIGN_IN_ENV):
             monkeypatch.delenv(k, raising=False)
         monkeypatch.setenv("BAIHE_API_ENV", "development")

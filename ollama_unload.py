@@ -118,8 +118,11 @@ def set_enabled(enabled: bool):
 def _local_base_url():
     """The configured Ollama base URL, or None unless it is this machine:
     unload requests must never go to a remote Ollama host."""
-    from services import settings_service
-    base = settings_service.ollama_url()
+    import env_reader
+    # settings_service.ollama_url() reads the same variable; this module sits
+    # below services/ and cannot call it.
+    raw = env_reader.resolve_env_names((settings_schema.BY_KEY["ollama_url"].store_key,))
+    base = settings_schema.normalize_ollama_url(raw)
     try:
         parts = urlsplit(base)
         host = parts.hostname

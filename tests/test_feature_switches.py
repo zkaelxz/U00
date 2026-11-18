@@ -7,6 +7,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
+import env_reader
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
 from lib import features
@@ -43,8 +44,7 @@ def test_load_settings_reads_the_environment():
 
 
 def test_load_settings_reads_env_file_ahead_of_environment(monkeypatch):
-    from services import settings_service
-    monkeypatch.setattr(settings_service, "read_env_file", lambda *a: {features.ENV_VAR: "jellyfin"})
+    monkeypatch.setattr(env_reader, "read_env_file", lambda *a: {features.ENV_VAR: "jellyfin"})
     monkeypatch.delenv(features.ENV_VAR, raising=False)
     assert load_settings().features_off == {"jellyfin"}
 
@@ -131,7 +131,6 @@ def test_unknown_names_are_reported_at_start(isolated_db, caplog):
 
 
 def test_blank_env_file_line_overrides_the_environment(monkeypatch):
-    from services import settings_service
-    monkeypatch.setattr(settings_service, "read_env_file", lambda *a: {features.ENV_VAR: ""})
+    monkeypatch.setattr(env_reader, "read_env_file", lambda *a: {features.ENV_VAR: ""})
     monkeypatch.setenv(features.ENV_VAR, "jellyfin")
     assert load_settings().features_off == frozenset()

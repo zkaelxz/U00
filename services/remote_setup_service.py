@@ -19,6 +19,7 @@ import sys
 from urllib.parse import urlsplit
 
 import db
+import env_reader
 from lib import proc as proc_run
 from lib.errors import InvalidInputError
 from services import remote_health_service, settings_service
@@ -230,7 +231,7 @@ def get_setup_status(settings, env_path=None) -> dict:
              _turn_on_step(settings, listener), _firewall_step(settings), *_manual_steps(),
              _outside_step(settings)]
     pending = next((s["id"] for s in steps if s["state"] != "done"), None)
-    fields, restart = _fields_and_restart(settings, settings_service.read_env_file(env_path))
+    fields, restart = _fields_and_restart(settings, env_reader.read_env_file(env_path))
     return {"steps": steps, "next": pending, "fields": fields, "restart_needed": restart}
 
 

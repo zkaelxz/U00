@@ -1,6 +1,7 @@
 """Resource alerts (services/resource_monitor_service.py): the rule engine, the stored rules and the readers, with nvidia-smi and the clock faked."""
 import pytest
 
+import env_reader
 from services import resource_monitor_service as rms
 
 MIN = 60.0
@@ -183,10 +184,9 @@ def test_cpu_percent_comes_from_the_change_between_samples(monkeypatch):
 @pytest.fixture
 def notify_env(tmp_path, monkeypatch, isolated_db):
     from services import notification_service as ns
-    from services import settings_service
     path = tmp_path / ".env"
     path.write_text("")
-    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: str(path))
     for name in (ns.DISABLED_ENV, *ns.ENV_VARS["discord"], *ns.ENV_VARS["ntfy"]):
         monkeypatch.delenv(name, raising=False)
 
