@@ -56,6 +56,9 @@ class ChunkCaptioner:
                 self._release(held, path, worker, final)
             unheard = held if reheard else None
             if final and window.audio_seconds - window.pad_seconds < live_pipeline.MIN_FINAL_SECONDS:
+                # Nothing to hear, but a capture restarted after a break places
+                # its chunks after this one's real end, not after a full slot.
+                self.state["jump"] += window.chunk_seconds - self.segment_seconds
                 return
             if window.trimmed_seconds:
                 self.note(f"Chunk {idx} held {window.audio_seconds + window.trimmed_seconds:.0f} s "

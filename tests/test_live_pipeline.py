@@ -645,3 +645,61 @@ class TestStreamBreaks:
         assert time.monotonic() - began < PROMPT
         assert background_jobs.get_status("live_wait")["status"] == "done"
         assert _wait(lambda: b.start.stats[-1]["reconnect_attempt"] == 0)
+
+    def test_a_recording_where_the_broadcast_was_ends_the_session(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(2)
+        assert b.start("live_rec", Gate())
+        assert _wait(lambda: len(_result("live_rec")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: len(b.captures) == 2)
+        # The pump found a finished playlist; ffmpeg exits non-zero on the empty input.
+        b.start.proc.ended_live = True
+        b.start.proc.code = 183
+        assert _ended("live_rec")
+        assert background_jobs.get_status("live_rec")["status"] == "done"
+        assert "Capture stopped: the stream is no longer live." in b.start.notes
+        assert len(b.captures) == 2 and b.start.stats[-1]["reconnect_attempt"] == 0
+
+    def test_stop_before_the_first_new_chunk_clears_the_reconnect_status(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(2)
+        assert b.start("live_early", Gate())
+        assert _wait(lambda: len(_result("live_early")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: "Stream found again" in background_jobs.get_status("live_early")["message"])
+        assert live_pipeline.request_finish("live_early")
+        assert _ended("live_early")
+        assert b.start.stats[-1]["reconnect_attempt"] == 0
+
+    def test_a_refused_address_on_reconnect_ends_with_an_error(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+
+        def check(url):
+            if url != "http://stream":
+                raise ValueError("not public")
+        b.resolve_outcomes[:] = ["http://stream", "http://10.0.0.1/x"]
+        b.stream.add(2)
+        assert b.start("live_refused", Gate(), stream_url_check=check)
+        assert _wait(lambda: len(_result("live_refused")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _ended("live_refused")
+        assert background_jobs.get_status("live_refused")["status"] == "error"
+        assert len(b.captures) == 1
+
+    def test_a_tiny_last_chunk_before_the_break_does_not_push_later_lines_on(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(1)
+        b.stream.add(1, seconds=0.2)   # what ffmpeg wrote of chunk 1 before the break
+        assert b.start("live_tiny", Gate())
+        assert _wait(lambda: len(_result("live_tiny")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: len(b.captures) == 2)
+        b.stream.add(2)
+        assert _wait(lambda: len(_result("live_tiny")) == 2)
+        # Chunk 2 follows the 10.2 s actually heard, not two full 10 s slots.
+        assert _result("live_tiny")[1]["start"] == pytest.approx(10.3, abs=0.6)

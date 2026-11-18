@@ -284,6 +284,9 @@ class StreamPump:
         self.url = url
         self._align = align
         self._live_only = live_only
+        # True once live_only found a finished playlist: the broadcast is over,
+        # whatever ffmpeg makes of the empty input it then gets.
+        self.ended_live = False
         self.error = None
         self._sink = sink
         self._stall_timeout = STALL_TIMEOUT if stall_timeout is None else stall_timeout
@@ -558,6 +561,7 @@ class StreamPump:
             if playlist["variants"]:
                 raise StreamFetchError(UNSUPPORTED)
         if self._live_only and playlist["endlist"]:
+            self.ended_live = True
             return
         next_seq, init_uri, keys = None, None, {}
         last_new = time.monotonic()

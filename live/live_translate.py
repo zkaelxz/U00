@@ -113,6 +113,10 @@ class SegmentCapture:
         """The fetcher's fixed failure message, or None."""
         return self.pump.error
 
+    @property
+    def ended_live(self):
+        return self.pump.ended_live
+
 
 def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 20,
                            sample_rate: int = 16000, proxy: str | None = None,
@@ -683,6 +687,8 @@ class _LiveRun(ChunkCaptioner):
                     self.should_stop, self.stream_url_check, self.proxy,
                     self.cookies_browser, self.cookies_file)
                 finishing = self._capture_loop(control, worker)
+                if self.outage is not None:
+                    self._end_outage()
                 if finishing and not self.should_stop():
                     self._caption_remaining(worker)
         finally:
@@ -704,7 +710,11 @@ class _LiveRun(ChunkCaptioner):
                 self._ended("Stopped: time limit reached.")
                 return True
             self.player = live_player.watch(self.player, self.note)
-            broke = proc.error or (FFMPEG_BROKE if proc.poll() not in (None, 0) else None)
+            code = proc.poll()
+            if getattr(proc, "ended_live", False):
+                self._ended("Capture stopped: the stream is no longer live.")
+                return True
+            broke = proc.error or (FFMPEG_BROKE if code not in (None, 0) else None)
             if broke:
                 if not self.captured_any or broke in live_fetch.PERMANENT:
                     raise LiveCaptureError(broke)
@@ -712,7 +722,7 @@ class _LiveRun(ChunkCaptioner):
                 if outcome == "resumed":
                     continue
                 return outcome == "finish"
-            if proc.poll() is not None:
+            if code is not None:
                 self._ended("Capture stopped (stream likely ended).")
                 return True
 
@@ -745,9 +755,9 @@ class _LiveRun(ChunkCaptioner):
         chunk), "finish" (Stop, the time limit, the stream no longer live or
         RECONNECT_GIVE_UP_SECONDS passed: end as a stream that ended) or
         "cancel". The board, the translator and its context stay as they are."""
-        self._drain_broken(worker)
         if self.outage is None:
             self.outage = {"since": time.monotonic(), "attempt": 0}
+        self._drain_broken(worker)
         self.outage["reason"] = reason
         while True:
             self.outage["attempt"] += 1
@@ -777,8 +787,6 @@ class _LiveRun(ChunkCaptioner):
                                                cookies_file=self.cookies_file, proxy=self.proxy,
                                                live_only=True),
                     self.should_stop)
-                if self.stream_url_check is not None:
-                    self.stream_url_check(url)
             except background_jobs.JobCancelled:
                 self._end_outage()
                 return "cancel"
@@ -790,6 +798,9 @@ class _LiveRun(ChunkCaptioner):
                 live_whisper.log_failure(f"reconnect try {attempt}: resolve failed", exc)
                 self.outage["reason"] = RESOLVE_FAILED
                 continue
+            # Outside the retry: a refused address ends the job as it does at Start.
+            if self.stream_url_check is not None:
+                self.stream_url_check(url)
             try:
                 proc = start_segment_capture(url, self.out_dir, self.segment_seconds,
                                              proxy=self.proxy, start_number=self.state["last"] + 1,
