@@ -375,10 +375,19 @@ def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, res
     background_jobs' trailing result_queue lands in the right slot."""
     from jobs import process_worker
     process_worker.start_own_process_group()
+
+    def report(frac):
+        # Clips are about 95% of the work; the join and export after them get the rest, so
+        # a long book does not sit at "done" while it is still gluing.
+        scaled = frac * 0.95
+        process_worker.report_progress(
+            result_queue, scaled,
+            "Joining the clips into one track..." if frac >= 1.0 else f"Speaking clips ({scaled:.0%})...")
+
     try:
         out_path, errors = build_narration_track(
-            lines, drama_dir, character_clone_map,
+            lines, drama_dir, character_clone_map, progress_cb=report,
             narrate_original=narrate_original, source_language=source_language)
         result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors}))
     except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, str(exc)))
+        result_queue.put(process_worker.error_item(exc))
