@@ -7514,7 +7514,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Whether a failed item stops the queue */
+        /** Whether a failed item stops the queue, and whether a transcription may run beside an online translation */
         post: operations["set_policy_api_queue_policy_post"];
         delete?: never;
         options?: never;
@@ -24565,8 +24565,10 @@ export interface components {
         };
         /** QueuePolicy */
         QueuePolicy: {
+            /** Overlap Online Translate */
+            overlap_online_translate?: boolean | null;
             /** Stop On Failure */
-            stop_on_failure: boolean;
+            stop_on_failure?: boolean | null;
         };
         /** QueueSchedule */
         QueueSchedule: {
@@ -24641,6 +24643,8 @@ export interface components {
             monthly_cap_usd: number;
             /** Notice */
             notice: string | null;
+            /** Overlap Online Translate */
+            overlap_online_translate: boolean;
             schedule: components["schemas"]["QueueSchedule"] | null;
             /**
              * State
