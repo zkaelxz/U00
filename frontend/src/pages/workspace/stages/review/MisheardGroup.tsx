@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { applyMisheard, keepMisheard, showKeptMisheard } from '../../../../api/misheard'
+import { applyMisheard, keepMisheard, rememberMisheard, showKeptMisheard } from '../../../../api/misheard'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
@@ -11,6 +11,8 @@ interface GroupProps {
   items: MisheardSuggestion[]
   kept?: number
   onGoTo: (n: number) => void
+  // Plays the line's audio; absent when the title has no audio or video loaded.
+  onListen?: (line: { id: number; idx: number; start: number; end: number }) => void
   onChanged: () => void
 }
 
@@ -28,7 +30,7 @@ function marked(text: string, heard: string) {
 }
 
 // Nothing here changes a line until a button is pressed; each press is one History step.
-export function MisheardGroup({ dramaId, items, kept = 0, onGoTo, onChanged }: GroupProps) {
+export function MisheardGroup({ dramaId, items, kept = 0, onGoTo, onListen, onChanged }: GroupProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
@@ -57,7 +59,7 @@ export function MisheardGroup({ dramaId, items, kept = 0, onGoTo, onChanged }: G
       <strong>May be mis-heard</strong>
       <p className="muted">
         These sound like a word the title already uses, spelled another way. Check by ear before using one;
-        Use here and Use everywhere change the source text only, and a translated line is then flagged Source changed. Keep as heard hides a suggestion for this title.
+        Use here and Use everywhere change the source text only (Use everywhere leaves a longer word alone), and a translated line is then flagged Source changed. Keep as heard hides a suggestion for this title.
       </p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {items.length === 0 && <p className="muted">No suggestions left.</p>}
@@ -80,6 +82,12 @@ export function MisheardGroup({ dramaId, items, kept = 0, onGoTo, onChanged }: G
                           onClick={() => void apply(s, { line_id: l.line_id as number, zh: l.zh })}>
                     Use here
                   </button>
+                  {onListen && (
+                    <button type="button" className={buttonClass('ghost', 'sm')}
+                            onClick={() => onListen({ id: l.line_id as number, idx: l.idx, start: l.start, end: l.end })}>
+                      Listen
+                    </button>
+                  )}
                 </span>
               ),
             )}
@@ -87,6 +95,13 @@ export function MisheardGroup({ dramaId, items, kept = 0, onGoTo, onChanged }: G
                     onClick={() => void run(() => keepMisheard(dramaId, { heard: s.heard, suggested: s.suggested }))}>
               Keep as heard
             </button>
+            {s.term_id != null && (
+              <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy}
+                      title="Uses the glossary spelling on every line and saves the heard one as an alias of the glossary term, so later transcriptions in the series fix it themselves. Remove the alias in the glossary to undo that part."
+                      onClick={() => void run(() => rememberMisheard(dramaId, { heard: s.heard, suggested: s.suggested, term_id: s.term_id as number }))}>
+                Use everywhere and remember this spelling
+              </button>
+            )}
             {s.line_count > 1 && (
               <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy} onClick={() => void apply(s)}>
                 Use everywhere ({s.line_count} lines)

@@ -6635,6 +6635,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/misheard/dramas/{drama_id}/remember": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Use a glossary term's spelling everywhere and remember the heard one as its alias */
+        post: operations["post_remember_misheard_api_misheard_dramas__drama_id__remember_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/models/check": {
         parameters: {
             query?: never;
@@ -22996,10 +23013,14 @@ export interface components {
         };
         /** MisheardLine */
         MisheardLine: {
+            /** End */
+            end: number;
             /** Idx */
             idx: number;
             /** Line Id */
             line_id: number | null;
+            /** Start */
+            start: number;
             /** Zh */
             zh: string;
         };
@@ -23018,6 +23039,24 @@ export interface components {
             /** Truncated */
             truncated: boolean;
         };
+        /** MisheardRememberBody */
+        MisheardRememberBody: {
+            /** Heard */
+            heard: string;
+            /** Suggested */
+            suggested: string;
+            /** Term Id */
+            term_id: number;
+        };
+        /** MisheardRememberResult */
+        MisheardRememberResult: {
+            /** Aliases Added */
+            aliases_added: number;
+            /** Applied */
+            applied: number;
+            /** Skipped */
+            skipped: number;
+        };
         /** MisheardSuggestion */
         MisheardSuggestion: {
             /** Heard */
@@ -23034,6 +23073,8 @@ export interface components {
             suggested: string;
             /** Suggested Count */
             suggested_count: number;
+            /** Term Id */
+            term_id: number | null;
         };
         /** ModelCandidate */
         ModelCandidate: {
@@ -52030,6 +52071,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_remember_misheard_api_misheard_dramas__drama_id__remember_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MisheardRememberBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MisheardRememberResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

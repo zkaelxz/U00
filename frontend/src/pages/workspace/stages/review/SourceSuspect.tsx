@@ -14,6 +14,7 @@ interface PanelProps {
   items: SourceSuspectItem[]
   misheard: { items: MisheardSuggestion[]; kept: number }
   onGoTo: (n: number) => void
+  onListen?: (line: { id: number; idx: number; start: number; end: number }) => void
   onChanged: () => void
   onClose: () => void
 }
@@ -21,7 +22,7 @@ interface PanelProps {
 // Each flagged line with why, and a "Merge with next" that is the ordinary
 // merge (adjacent lines, refused if the list changed meanwhile). The check
 // runs again afterwards because the merged line keeps the flag.
-export function SourceSuspectPanel({ dramaId, items, misheard, onGoTo, onChanged, onClose }: PanelProps) {
+export function SourceSuspectPanel({ dramaId, items, misheard, onGoTo, onListen, onChanged, onClose }: PanelProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   // The list sits above the lines while its chip rides in the sticky toolbar, so pressed far down the
@@ -60,7 +61,9 @@ export function SourceSuspectPanel({ dramaId, items, misheard, onGoTo, onChanged
         <p className="muted">Fix the transcription before translating; a bad source line gives an odd translation.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {(misheard.items.length > 0 || misheard.kept > 0) && <MisheardGroup dramaId={dramaId} items={misheard.items} kept={misheard.kept} onGoTo={onGoTo} onChanged={onChanged} />}
+      {(misheard.items.length > 0 || misheard.kept > 0) && (
+        <MisheardGroup dramaId={dramaId} items={misheard.items} kept={misheard.kept} onGoTo={onGoTo} onListen={onListen} onChanged={onChanged} />
+      )}
       <ul>
         {items.map((it) => (
           <li key={it.line_id} data-testid="suspect-item">

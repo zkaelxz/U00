@@ -437,6 +437,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/misheard/dramas/{drama_id}/apply` | lines.edit |
 | `DELETE /api/misheard/dramas/{drama_id}/keep` | lines.edit |
 | `POST /api/misheard/dramas/{drama_id}/keep` | lines.edit |
+| `POST /api/misheard/dramas/{drama_id}/remember` | lines.edit |
 | `POST /api/models/check` | local_only() |
 | `POST /api/models/overrides` | local_only() |
 | `POST /api/models/overrides/clear` | local_only() |
