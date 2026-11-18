@@ -52,6 +52,7 @@ class QueueState(BaseModel):
     version: int
     state: Literal["idle", "running", "paused"]
     stop_on_failure: bool
+    overlap_online_translate: bool
     schedule: Optional[QueueSchedule] = None
     notice: Optional[str] = None
     max_items: int
@@ -98,7 +99,9 @@ class QueueScheduleSet(BaseModel):
 
 
 class QueuePolicy(BaseModel):
-    stop_on_failure: bool
+    # Only what is sent changes.
+    stop_on_failure: Optional[bool] = None
+    overlap_online_translate: Optional[bool] = None
 
 
 class QueueSettingOption(BaseModel):
