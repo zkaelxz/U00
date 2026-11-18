@@ -894,6 +894,15 @@ class TestProcessJobProgressTuples:
         assert job_runner._apply_progress_item("nope", ("progress", "x")) is True
         assert job_runner._apply_progress_item("nope", ("ok", {})) is False
 
+    def test_first_progress_logs_worker_start_up_once(self, monkeypatch):
+        import applog
+        lines = []
+        monkeypatch.setattr(applog, "get_logger", lambda: type("L", (), {"info": staticmethod(lines.append)})())
+        stage = {"t0": time.monotonic() - 5}
+        job_runner._apply_progress_item("jid", ("progress", 0.1, "a"), stage)
+        job_runner._apply_progress_item("jid", ("progress", 0.2, "b"), stage)
+        assert len(lines) == 1 and "jid" in lines[0] and "first progress after 5." in lines[0]
+
 
 class _WorkerExited(BaseException):
     pass
