@@ -18,7 +18,7 @@ from . import stream_recipe
 from .novel_batches import chapter_start_idxs, novel_paragraph_ends, plan_paragraph_batches
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
-from .local import scrub_error_text
+from .local import is_ollama_cloud_model, scrub_error_text
 from .pricing import estimate_cost_for_engine
 from .run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
 from .prompts import (MALE_PRONOUN_WORD, is_male_speaker_label, known_male_names,
@@ -910,22 +910,25 @@ class _TranslateRun:
                                 "error": redact_secrets(str(e))})
 
 
-# Engines whose requests are independent and billed per call. A local model shares one GPU, a
-# fallback chain keeps one active-engine state, and a free-tier Gemini key paces itself per
-# instance, so none of those run in parallel.
+# Engines whose requests are independent and billed per call. A model on this PC shares one GPU,
+# a fallback chain keeps one active-engine state, and a free-tier Gemini key paces itself per
+# instance, so none of those run in parallel. An Ollama "-cloud" model runs on Ollama's servers.
 PARALLEL_ENGINE_NAMES = ("claude", "deepseek", "openai", "gemini")
 
 
 def can_run_in_parallel(engine) -> bool:
-    return (not isinstance(engine, FallbackEngine)
-            and getattr(engine, "name", "") in PARALLEL_ENGINE_NAMES
-            and not getattr(engine, "free_tier", False))
+    if isinstance(engine, FallbackEngine) or getattr(engine, "free_tier", False):
+        return False
+    name = getattr(engine, "name", "")
+    return name in PARALLEL_ENGINE_NAMES or (name == "ollama" and is_ollama_cloud_model(getattr(engine, "model", "")))
 
 
 def _clone_engine(engine):
     clone = copy.copy(engine)
     if isinstance(getattr(engine, "last_usage", None), dict):
         clone.last_usage = dict.fromkeys(engine.last_usage, 0)
+    if isinstance(getattr(engine, "last_rejected", None), dict):
+        clone.last_rejected = {}  # per lane: the lines of the batch it just sent
     return clone
 
 
