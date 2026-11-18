@@ -1146,7 +1146,7 @@ class TestInitDbSchema:
     def test_a_real_0_1_0_library_upgrades_to_the_fresh_schema(self, isolated_db):
         # Made by v0.1.0's own init_db plus a series, title, two lines, a glossary term and a
         # usage row (dumped as SQL). Unlike _make_old_shape it holds what an old release really
-        # created, including tables and indexes later releases rebuilt, renamed or dropped.
+        # created, not today's schema with columns taken away.
         fresh = _schema_shape(isolated_db.DB_PATH)
         for suffix in ("", "-wal", "-shm"):
             with contextlib.suppress(FileNotFoundError):
