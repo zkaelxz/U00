@@ -44,40 +44,86 @@ def _finish(cue: dict, translated: str) -> None:
     cue["translation"] = FAILED if translated.startswith(FAILED_PREFIX) else DONE
 
 
+# What the earlier lines of one sentence show: its translation is on its last line.
+CONTINUED = "…"
+# At most this many lines are sent as one sentence: a run-on transcript with a
+# stray full stop must not pile a whole chunk onto its last line.
+MAX_SENTENCE_LINES = 3
+
+
+def sentence_groups(cues: list) -> list:
+    """[[position, ...], ...]: each run of lines that ends a sentence, so a
+    sentence Whisper split over lines is translated whole. Korean and Japanese
+    put the verb last, and a translator handed the first half of a sentence on
+    its own gave it the whole sentence's English or nothing. Lines with no
+    sentence end after them in reach stay one to a group."""
+    import segment_splitting
+    groups, run = [], []
+    for pos, cue in enumerate(cues):
+        run.append(pos)
+        if segment_splitting._SENTENCE_END_RE.search(cue["text"].rstrip()[-3:]):
+            groups.append(run)
+            run = []
+        elif len(run) == MAX_SENTENCE_LINES:
+            groups.extend([p] for p in run)
+            run = []
+    groups.extend([p] for p in run)
+    return groups
+
+
+def _joined(cues: list, group: list) -> str:
+    from live.live_translate import _join_text
+    text = cues[group[0]]["text"]
+    for pos in group[1:]:
+        text = _join_text(text, cues[pos]["text"])
+    return text
+
+
 def translate_cues(cues: list, translator, checkpoint, on_stage=None, on_cues=None,
                    lock=None) -> None:
-    """Translates the chunk's cues in one id-keyed request, then one request per
-    cue only for those the reply left out or that failed, calling on_cues(cues)
-    after each change so the transcript is already visible while the rest wait.
-    A cancel leaves the unfinished cues marked cancelled, published, and is
-    re-raised. lock: held while cues change and are published, for a reader on
-    another thread."""
+    """Translates the chunk's sentences (sentence_groups) in one id-keyed request,
+    then one request per sentence only for those the reply left out or that
+    failed, calling on_cues(cues) after each change so the transcript is already
+    visible while the rest wait. A sentence's translation goes on its last line
+    and the lines before it show CONTINUED. A cancel leaves the unfinished cues
+    marked cancelled, published, and is re-raised. lock: held while cues change
+    and are published, for a reader on another thread."""
     guard = lock if lock is not None else contextlib.nullcontext()
+    groups = sentence_groups(cues)
+    texts = [_joined(cues, g) for g in groups]
 
     def publish():
         if on_cues:
             on_cues(cues)
+
+    def finish(group, translated):
+        _finish(cues[group[-1]], translated)
+        for pos in group[:-1]:
+            if cues[group[-1]]["translation"] == DONE:
+                cues[pos]["translated"], cues[pos]["translation"] = CONTINUED, DONE
+            else:
+                _finish(cues[pos], cues[group[-1]]["translated"])
     with guard:
         publish()
     try:
-        if len(cues) > 1:
+        if len(groups) > 1:
             if on_stage:
                 on_stage("translating")
-            found = translator.translate_chunk([c["text"] for c in cues])
+            found = translator.translate_chunk(texts)
             if found:
                 with guard:
-                    for pos, translated in found.items():
-                        _finish(cues[pos], translated)
+                    for unit, translated in found.items():
+                        finish(groups[unit], translated)
                     publish()
-        for cue in cues:
-            if cue["translation"] != PENDING:
+        for unit, group in enumerate(groups):
+            if cues[group[-1]]["translation"] != PENDING:
                 continue
             checkpoint()
             if on_stage:
                 on_stage("translating")
-            translated = translator.translate(cue["text"])
+            translated = translator.translate(texts[unit])
             with guard:
-                _finish(cue, translated)
+                finish(group, translated)
                 publish()
     except background_jobs.JobCancelled:
         with guard:
