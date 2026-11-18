@@ -60,6 +60,7 @@ export function MisheardGroup({ dramaId, items, kept = 0, onGoTo, onChanged }: G
         Use here and Use everywhere change the source text only, and a translated line is then flagged Source changed. Keep as heard hides a suggestion for this title.
       </p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {items.length === 0 && <p className="muted">No suggestions left.</p>}
       <ul>
         {items.map((s) => (
           <li key={`${s.heard}>${s.suggested}`} data-testid="misheard-item">

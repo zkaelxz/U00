@@ -74,16 +74,15 @@ def find_for_title(drama_id: int) -> dict:
         canon = segment.opencc_t2s().convert
     except ImportError:
         canon = lambda w: w  # noqa: E731
+    kept = set(db.list_misheard_keeps(drama_id))
     result = find_misheard(lines, _trusted(drama, cut), cut, canon,
-                           lambda w: _in_dictionary(canon(w)))
+                           lambda w: _in_dictionary(canon(w)), skip=kept)
     text_of = {i: text for i, _lid, text in lines}
     for item in result["suggestions"]:
         for spot in item["lines"]:
             spot["zh"] = text_of[spot["idx"]]
         # Counted over every line, not just the scanned ones: it is what Use everywhere changes.
         item["line_count"] = sum(item["heard"] in (ln.zh or "") and not ln.sfx for ln in everything)
-    kept = set(db.list_misheard_keeps(drama_id))
-    result["suggestions"] = [s for s in result["suggestions"] if (s["heard"], s["suggested"]) not in kept]
     return {"available": True, "reason": "", "lines_scanned": len(lines), "kept_count": len(kept),
             **result}
 

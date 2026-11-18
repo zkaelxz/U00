@@ -60,7 +60,7 @@ export function SourceSuspectPanel({ dramaId, items, misheard, onGoTo, onChanged
         <p className="muted">Fix the transcription before translating; a bad source line gives an odd translation.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {misheard.items.length > 0 && <MisheardGroup dramaId={dramaId} items={misheard.items} kept={misheard.kept} onGoTo={onGoTo} onChanged={onChanged} />}
+      {(misheard.items.length > 0 || misheard.kept > 0) && <MisheardGroup dramaId={dramaId} items={misheard.items} kept={misheard.kept} onGoTo={onGoTo} onChanged={onChanged} />}
       <ul>
         {items.map((it) => (
           <li key={it.line_id} data-testid="suspect-item">

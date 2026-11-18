@@ -177,3 +177,10 @@ class TestKeepAsHeard:
         misheard_service.keep_as_heard(did, "亞羅赫", "亞洛赫")
         db.delete_drama(did)
         assert db.list_misheard_keeps(did) == []
+
+
+def test_kept_pairs_are_dropped_before_the_cap():
+    lines = _lines("亞羅赫來了"[:4], "亞洛赫說"[:4])
+    trusted = [("亞洛", "glossary")]
+    assert mf.find_misheard(lines, trusted, cut)["suggestions"][0]["heard"] == "亞羅"
+    assert mf.find_misheard(lines, trusted, cut, skip={("亞羅", "亞洛")})["suggestions"] == []

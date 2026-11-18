@@ -11,6 +11,10 @@ export interface SourceSuspects {
   count: number
 }
 
+// A title whose suggestions were all kept still counts one, so the chip stays and "Show kept words
+// again" can be reached.
+const tally = (lines: number, m: SourceSuspects['misheard']) => lines + m.items.length + (m.items.length === 0 && m.kept > 0 ? 1 : 0)
+
 const NONE: SourceSuspects = { items: [], misheard: { items: [], kept: 0 }, count: 0 }
 
 // The lines flagged "Source text looks off" and the words that may be mis-heard, refetched
@@ -22,12 +26,12 @@ export function useSourceSuspects(dramaId: number, reloads: number): SourceSuspe
     let live = true
     // Separate reads: the slower whole-title scan must not hold back the source-suspect chip.
     listSourceSuspects(dramaId).then(
-      (r) => live && setFound((f) => ({ ...f, items: r.items, count: r.items.length + f.misheard.items.length })),
-      () => live && setFound((f) => ({ ...f, items: [], count: f.misheard.items.length })),
+      (r) => live && setFound((f) => ({ ...f, items: r.items, count: tally(r.items.length, f.misheard) })),
+      () => live && setFound((f) => ({ ...f, items: [], count: tally(0, f.misheard) })),
     )
     listMisheard(dramaId).then(
-      (r) => live && setFound((f) => ({ ...f, misheard: { items: r.suggestions, kept: r.kept_count }, count: f.items.length + r.suggestions.length })),
-      () => live && setFound((f) => ({ ...f, misheard: { items: [], kept: 0 }, count: f.items.length })),
+      (r) => live && setFound((f) => ({ ...f, misheard: { items: r.suggestions, kept: r.kept_count }, count: tally(f.items.length, { items: r.suggestions, kept: r.kept_count }) })),
+      () => live && setFound((f) => ({ ...f, misheard: { items: [], kept: 0 }, count: tally(f.items.length, { items: [], kept: 0 }) })),
     )
     return () => {
       live = false
