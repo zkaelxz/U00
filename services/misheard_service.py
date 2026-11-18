@@ -2,7 +2,7 @@
 services/misheard_service.py -- read a Chinese title's source lines and list the words that
 may have been mis-heard (misheard_finder has the rules).
 
-Finding is read-only; only `apply`, on a person's click, changes lines. The trusted words are the title's glossary terms and
+Finding is read-only; `apply`, on a person's click, is the only write. The trusted words are the title's glossary terms and
 aliases, the series' character names, and the title and summary text. Offline and free.
 Title visibility is checked by the route's `{drama_id}` path guard (api/auth.py). No FastAPI
 import.
@@ -65,7 +65,8 @@ def find_for_title(drama_id: int) -> dict:
     def cut(text: str) -> List[str]:
         return segment.segment_words(text, "zh", script)
 
-    lines = [(ln.idx, ln.id, ln.zh.strip()) for ln in db.load_line_objects(drama_id)
+    everything = db.load_line_objects(drama_id)
+    lines = [(ln.idx, ln.id, ln.zh.strip()) for ln in everything
              if (ln.zh or "").strip() and not ln.sfx][:SCAN_MAX_LINES]
     try:
         # Without OpenCC a Traditional/Simplified pair would look like two words, so the
@@ -79,7 +80,8 @@ def find_for_title(drama_id: int) -> dict:
     for item in result["suggestions"]:
         for spot in item["lines"]:
             spot["zh"] = text_of[spot["idx"]]
-        item["line_count"] = sum(item["heard"] in text for _i, _lid, text in lines)
+        # Counted over every line, not just the scanned ones: it is what Use everywhere changes.
+        item["line_count"] = sum(item["heard"] in (ln.zh or "") and not ln.sfx for ln in everything)
     return {"available": True, "reason": "", "lines_scanned": len(lines), **result}
 
 
@@ -101,7 +103,8 @@ def apply(drama_id: int, heard: str, suggested: str, line_id: int | None = None,
     if line_id is not None:
         if not targets:
             raise ConflictError("That line changed since you loaded it.")
-        if targets[0].zh != expected_zh:
+        # The list shows the stripped text, so that is what comes back.
+        if targets[0].zh.strip() != expected_zh.strip():
             raise ConflictError("That line changed since you loaded it.")
     if not targets:
         return {"applied": 0, "skipped": 0}

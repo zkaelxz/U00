@@ -20,12 +20,15 @@ export function useSourceSuspects(dramaId: number, reloads: number): SourceSuspe
   const [found, setFound] = useState<SourceSuspects>(NONE)
   useEffect(() => {
     let live = true
-    Promise.all([
-      listSourceSuspects(dramaId).then((r) => r.items, () => []),
-      listMisheard(dramaId).then((r) => r.suggestions, () => []),
-    ]).then(([items, misheard]) => {
-      if (live) setFound({ items, misheard, count: items.length + misheard.length })
-    })
+    // Separate reads: the slower whole-title scan must not hold back the source-suspect chip.
+    listSourceSuspects(dramaId).then(
+      (r) => live && setFound((f) => ({ ...f, items: r.items, count: r.items.length + f.misheard.length })),
+      () => live && setFound((f) => ({ ...f, items: [], count: f.misheard.length })),
+    )
+    listMisheard(dramaId).then(
+      (r) => live && setFound((f) => ({ ...f, misheard: r.suggestions, count: f.items.length + r.suggestions.length })),
+      () => live && setFound((f) => ({ ...f, misheard: [], count: f.items.length })),
+    )
     return () => {
       live = false
     }

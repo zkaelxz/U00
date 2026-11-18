@@ -140,3 +140,10 @@ class TestApply:
         misheard_service.apply(did, "亞羅赫", "亞洛赫", ids[0], "亞羅赫來了")
         [row] = db.list_source_edits(did)
         assert (row["path"], row["before_zh"], row["after_zh"]) == ("person", "亞羅赫來了", "亞洛赫來了")
+
+    def test_use_it_accepts_the_stripped_text_the_list_shows(self, isolated_db):
+        did, ids = _title_with_slips(isolated_db)
+        ln = db.load_line_objects(did)[0]
+        ln.zh = " 亞羅赫來了 "
+        db.save_lines(did, [ln], fields=("zh",))
+        assert misheard_service.apply(did, "亞羅赫", "亞洛赫", ids[0], "亞羅赫來了")["applied"] == 1

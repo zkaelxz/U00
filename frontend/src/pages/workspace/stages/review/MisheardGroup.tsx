@@ -43,6 +43,7 @@ export function MisheardGroup({ dramaId, items, onGoTo, onChanged }: GroupProps)
       onChanged()
     } catch (e) {
       setError(e)
+      onChanged() // a refused line is stale: reload so the list shows what is there now
     } finally {
       setBusy(false)
     }
