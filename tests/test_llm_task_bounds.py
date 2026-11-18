@@ -266,3 +266,25 @@ def test_worker_thread_carries_the_jobs_timing_id(no_abandoned, monkeypatch):
     finally:
         job_timing.set_current_job(None)
     assert seen[0][0].startswith("llm-task-") and seen[0][1] == "job-t"
+
+
+def test_a_second_abandoned_request_does_not_hide_the_first():
+    first, second = threading.Event(), threading.Event()
+    workers = []
+    for gate in (first, second):
+        worker = threading.Thread(target=gate.wait, daemon=True)
+        worker.start()
+        worker.earlier_abandoned = llm_tasks._abandoned.get("lanes")
+        llm_tasks._abandoned["lanes"] = worker
+        workers.append(worker)
+    try:
+        second.set()
+        workers[1].join(2)
+        assert llm_tasks.abandoned_request_alive("lanes")
+        first.set()
+        workers[0].join(2)
+        assert not llm_tasks.abandoned_request_alive("lanes")
+    finally:
+        first.set()
+        second.set()
+        llm_tasks._abandoned.pop("lanes", None)
