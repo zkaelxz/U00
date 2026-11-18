@@ -311,3 +311,16 @@ def test_novel_batch_budget_follows_each_models_cap():
     assert novel_batch_chars("deepseek") == 6_000
     assert novel_batch_chars("ollama", "translategemma:12b") == 4_000
     assert novel_batch_chars("someengine", "new-model") == 8_000
+
+
+@pytest.mark.parametrize("text,is_heading", [
+    ("第1章 第一章 被人咬死是什麽感覺？…", True),
+    ('第2章 第二章 "若是我早些……我們也許…………', True),
+    ("제3화 안녕!", True),
+    ("第一回合他就输了！", False),
+    ("第3章 他说：好。好！", False),
+    ("第5章 已经结束了。", False),
+])
+def test_a_titled_heading_may_end_in_a_question_mark_or_ellipsis(text, is_heading):
+    import novel_text
+    assert novel_text.is_heading_text(text) is is_heading

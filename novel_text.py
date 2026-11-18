@@ -32,9 +32,25 @@ _CHAPTER_HEADING_MAX_CHARS = 60
 _SENTENCE_END = tuple("。！？!?…」』”\"")
 
 
+# A numbered marker followed by a space and a title ("第2章 第二章 被人咬死是什麽感覺？…"): web novels
+# end such a title with "？", "！" or a trailing "…" when the title is cut short.
+_TITLED_HEADING_RE = re.compile(
+    r"^\s*(第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[章回节節話话]|제\s*[0-9０-９]+\s*[장화])\s+\S")
+_TITLE_ENDS_OK = tuple("！？!?…")
+
+
+def _ends_like_a_title(text: str) -> bool:
+    """A titled chapter heading may end in ？ ！ or …, unless it holds a full stop, which
+    makes it a sentence that merely starts with a chapter number."""
+    return (bool(_TITLED_HEADING_RE.match(text)) and text.endswith(_TITLE_ENDS_OK)
+            and "。" not in text)
+
+
 def is_heading_text(text: str) -> bool:
     text = (text or "").strip()
-    if not text or len(text) > _CHAPTER_HEADING_MAX_CHARS or text.endswith(_SENTENCE_END):
+    if not text or len(text) > _CHAPTER_HEADING_MAX_CHARS:
+        return False
+    if text.endswith(_SENTENCE_END) and not _ends_like_a_title(text):
         return False
     match = _CHAPTER_HEADING_RE.match(text)
     # Korean prose ends its sentences with "."; an English "Chapter 3." stays a heading.
