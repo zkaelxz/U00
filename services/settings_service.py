@@ -436,7 +436,7 @@ def parallel_chapters() -> int:
     if not _developer_mode_on():
         return 1
     try:
-        return max(1, min(3, int(get("novel_parallel_chapters"))))
+        return max(1, min(3, int(str(get("novel_parallel_chapters")))))
     except (TypeError, ValueError):
         return 1
 
