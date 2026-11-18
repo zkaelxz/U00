@@ -146,3 +146,38 @@ def test_a_blank_reply_is_shown_as_failed_not_as_done(monkeypatch, tmp_path):
     cues = lt.process_chunk(str(chunk), 0, 20, "zh", "small", Blank())
     assert cues[0]["translation"] == "failed"
     assert cues[0]["translated"] == live_cue_feed.EMPTY_REPLY_NOTE
+
+
+def test_a_reply_copied_from_the_next_line_is_asked_again_on_its_own():
+    """TranslateGemma 27B on Korean news put the next line's English under a short
+    fragment's id (Yonhap, 32 s and 34 s): that cue is retried by itself."""
+    from live.live_cue_translation import CueTranslator
+    calls = []
+
+    class Engine:
+        def translate_batch(self, lines, context):
+            calls.append(list(lines))
+            if len(lines) == 1:
+                return ["I'm Lee Jae-kyung."]
+            return ["Reporting from Seoul.", "AI cheating fears grow.", "AI cheating fears grow."]
+
+    cues = live_cue_feed.pending_cues(
+        [{"start": 0, "end": 1, "text": "서울에서"}, {"start": 1, "end": 2, "text": "이재경입니다."},
+         {"start": 3, "end": 5, "text": "A.I. 부정행위 논란이 커지면서"}], 0, 0)
+    live_cue_feed.translate_cues(cues, CueTranslator(Engine(), "ko"), lambda: None)
+    assert [c["translated"] for c in cues] == [
+        "Reporting from Seoul.", "I'm Lee Jae-kyung.", "AI cheating fears grow."]
+    assert calls[1:] == [["이재경입니다."]]
+
+
+def test_two_lines_that_really_say_the_same_keep_the_same_translation():
+    from live.live_cue_translation import CueTranslator
+
+    class Engine:
+        def translate_batch(self, lines, context):
+            return ["Thank you."] * len(lines)
+
+    cues = live_cue_feed.pending_cues(
+        [{"start": 0, "end": 1, "text": "고맙습니다."}, {"start": 1, "end": 2, "text": "고맙습니다."}], 0, 0)
+    live_cue_feed.translate_cues(cues, CueTranslator(Engine(), "ko"), lambda: None)
+    assert [c["translated"] for c in cues] == ["Thank you.", "Thank you."]

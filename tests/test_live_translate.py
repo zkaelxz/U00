@@ -1080,6 +1080,36 @@ class TestLongLinesInLive:
         # The cut near the katakana moves to where the script changes.
         assert cues[2]["text"].startswith("ラーメン")
 
+    def test_a_short_line_finishing_the_sentence_joins_the_line_before(self):
+        # Yonhap: sent alone, "발송될 예정입니다。" got a later line's English.
+        segs = [{"start": 20.5, "end": 24.6, "text": "수험생이 휴대전화를 제출하지 않았을 경우를 대비해 수신 거부가"},
+                {"start": 24.6, "end": 27.8, "text": "가능한 긴급 재난문자 대신 위급 재난문자도"},
+                {"start": 27.8, "end": 28.9, "text": "발송될 예정입니다."},
+                {"start": 29.5, "end": 31.9, "text": "지금까지 서울에서"},
+                {"start": 31.9, "end": 32.8, "text": "이재경입니다."},
+                {"start": 34.5, "end": 35.0, "text": "네."}]
+        out = lt.join_trailing_fragments(segs)
+        assert [(c["start"], c["end"], c["text"]) for c in out] == [
+            (20.5, 24.6, "수험생이 휴대전화를 제출하지 않았을 경우를 대비해 수신 거부가"),
+            (24.6, 28.9, "가능한 긴급 재난문자 대신 위급 재난문자도 발송될 예정입니다."),
+            (29.5, 32.8, "지금까지 서울에서 이재경입니다."),
+            # After a sentence end and a 1.7 s pause: its own line.
+            (34.5, 35.0, "네.")]
+
+    def test_a_fragment_is_not_joined_past_a_caption_or_after_a_sentence_end(self):
+        long = {"start": 0.0, "end": 7.5, "text": "あ" * 30}
+        tail = {"start": 7.5, "end": 9.0, "text": "いいです。"}
+        assert lt.join_trailing_fragments([long, tail]) == [long, tail]   # 9 s together
+        done = {"start": 0.0, "end": 2.0, "text": "そうです。"}
+        nxt = {"start": 2.0, "end": 3.0, "text": "はい。"}
+        assert lt.join_trailing_fragments([done, nxt]) == [done, nxt]
+        jp = lt.join_trailing_fragments([{"start": 0, "end": 2, "text": "今日は"},
+                                         {"start": 2, "end": 3, "text": "晴れです。"}])
+        assert [c["text"] for c in jp] == ["今日は晴れです。"]
+        # With no sentence end on the fragment, nothing says it finishes the line.
+        bare = [{"start": 0, "end": 2, "text": "그건"}, {"start": 2, "end": 3, "text": "있습니까"}]
+        assert lt.join_trailing_fragments(bare) == bare
+
     def test_a_long_line_without_cjk_text_is_left_to_the_splitter(self):
         seg = {"start": 0, "end": 12, "text": "x" * 120}
         assert lt.force_cut_cjk(seg) == [seg]
