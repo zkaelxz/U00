@@ -104,7 +104,7 @@ def apply(drama_id: int, heard: str, suggested: str, line_id: int | None = None,
         if not targets:
             raise ConflictError("That line changed since you loaded it.")
         # The list shows the stripped text, so that is what comes back.
-        if targets[0].zh.strip() != expected_zh.strip():
+        if targets[0].zh.strip() != (expected_zh or "").strip():
             raise ConflictError("That line changed since you loaded it.")
     if not targets:
         return {"applied": 0, "skipped": 0}
