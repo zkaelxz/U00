@@ -28241,6 +28241,11 @@ export interface components {
             max_upload_mb: number;
             /** Monthly Cap Usd */
             monthly_cap_usd: number | null;
+            /**
+             * Novel Parallel Chapters
+             * @default 1
+             */
+            novel_parallel_chapters: number;
             /** Ocr Backend */
             ocr_backend: string;
             /** Ocr Prefer Paddle Vl Manga */
@@ -28620,6 +28625,8 @@ export interface components {
             monthly_cap_usd?: number | null;
             /** Notify On Completion */
             notify_on_completion?: boolean | null;
+            /** Novel Parallel Chapters */
+            novel_parallel_chapters?: number | null;
             /** Ocr Backend */
             ocr_backend?: string | null;
             /** Ocr Prefer Paddle Vl Manga */
