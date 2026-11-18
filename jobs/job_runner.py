@@ -541,12 +541,22 @@ def _apply_progress_item(job_id, item, stage=None) -> bool:
         if stage is not None and stage.get("ticker") is not None:
             stage.pop("ticker").stop()
         if kind == "progress":
+            if stage is not None and "t0" in stage:
+                _log_first_progress(job_id, stage)
             update_progress(job_id, float(frac), message)
         elif message and stage is not None:
             stage["ticker"] = stage_ticker(job_id, message, frac=float(frac)).start()
     except Exception:
         pass   # malformed progress must never kill the watcher
     return True
+
+
+def _log_first_progress(job_id, stage):
+    """One INFO line per worker start: seconds from process start to its first progress item, which
+    is when its model has loaded. Lets us see whether reloading per job costs enough to merge jobs."""
+    seconds = time.monotonic() - stage.pop("t0")
+    import applog
+    applog.get_logger().info(f"job {job_id}: worker reported first progress after {seconds:.1f} s")
 
 
 CANCELLED_MESSAGE = "Cancelled."
@@ -597,7 +607,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
     import applog
     logger = applog.get_logger()
     _timing = _timing_start(job_id, thread_job=False)
-    stage = {}
+    # Start-up cost: every process job reloads its model, and this is the only place that can see it.
+    stage = {"t0": time.monotonic()}
     reaped = False
     crash = None
     try:
