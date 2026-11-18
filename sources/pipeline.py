@@ -203,16 +203,19 @@ def _as_written(text: str) -> bytes:
     return text.replace("\n", os.linesep).encode("utf-8")
 
 
-def chapter_body(text: str) -> str:
+def chapter_body(text: str, *, keep_repeated_heading: bool = False) -> str:
     """A fetched chapter's text as it is saved: through the same loader an
-    uploaded .txt goes through, without the site's navigation and address lines."""
+    uploaded .txt goes through, without the site's navigation and address lines
+    and without a title printed twice in a row. keep_repeated_heading gives the
+    text as it was saved before that, so a chapter saved then is still found."""
     import novel_text
     loaded = novel_text.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
-    return novel_text.drop_site_chrome(loaded)
+    loaded = novel_text.drop_site_chrome(loaded)
+    return loaded if keep_repeated_heading else novel_text.drop_repeated_heading(loaded)
 
 
-def _novel_block(text: str, heading: str) -> str:
-    loaded = chapter_body(text)
+def _novel_block(text: str, heading: str, *, keep_repeated_heading: bool = False) -> str:
+    loaded = chapter_body(text, keep_repeated_heading=keep_repeated_heading)
     # Some sites repeat the chapter title as the first line of the page text; a second
     # copy would show as two headings and add characters the importer never counted.
     first = loaded.lstrip().split("\n", 1)[0]
@@ -268,7 +271,11 @@ def append_novel_chapter_once(drama_id: int, text: str, heading: str, url: str =
     it appended. Under the drama's page lock, like a chapter import's own
     append, so the check and the write see the same file."""
     with _page_lock(drama_id):
-        if _block_already_saved(drama_id, heading, _as_written(_novel_block(text, heading))):
+        # The older form too: a chapter saved before repeated titles were dropped
+        # must not be appended again when the same page is captured once more.
+        if any(_block_already_saved(drama_id, heading, _as_written(
+                _novel_block(text, heading, keep_repeated_heading=old)))
+               for old in (False, True)):
             return False
         save_novel_text(drama_id, text, append=True, heading=heading, url=url, source=source)
         return True
