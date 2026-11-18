@@ -39,10 +39,15 @@ CHUNK_BYTES = 65_536
 # The fetcher is at most this many chunks ahead of ffmpeg (backpressure
 # instead of buffering a stream that ffmpeg can't keep up with).
 QUEUE_CHUNKS = 32
-MAX_PLAYLIST_BYTES = 1_000_000
-# A live window holds a few dozen entries; this bounds the work one
+# A YouTube live with an hour of rewind lists 3,600 one-second segments in
+# about 5 MB, and is refused below this; both caps still bound the work one
 # hostile playlist can cause on every refresh.
-MAX_PLAYLIST_ENTRIES = 2000
+MAX_PLAYLIST_BYTES = 16_000_000
+MAX_PLAYLIST_ENTRIES = 50_000
+# A large live playlist is reloaded no faster than this many bytes a second:
+# re-fetching a 5 MB playlist every second would cost 40 Mbit/s, and a long
+# window keeps the segments a slower reload picks up.
+PLAYLIST_BYTES_PER_SECOND = 1_000_000
 MAX_SEGMENT_BYTES = 64_000_000
 MAX_REDIRECTS = 5
 # Where a live playlist starts playing from, as ffmpeg's HLS demuxer does.
@@ -98,7 +103,7 @@ def _iv(value):
 
 
 def parse_playlist(text: str, base_url: str) -> dict:
-    """{variants, audio, segments, target, endlist} of an m3u8 playlist.
+    """{variants, audio, segments, target, endlist, size} of an m3u8 playlist.
     A segment is {seq, uri, key, init}; key is None or {uri, iv} (iv None
     means "the media sequence number"), init is None or {uri, key}."""
     lines = [ln.strip() for ln in text.lstrip("\ufeff \t\r\n").splitlines()]
@@ -157,7 +162,7 @@ def parse_playlist(text: str, base_url: str) -> dict:
             segments.append({"seq": first_seq + len(segments), "uri": urljoin(base_url, line),
                              "key": key, "init": init})
     return {"variants": variants, "audio": audio, "segments": segments,
-            "target": min(max(target, 1.0), 30.0), "endlist": endlist}
+            "target": min(max(target, 1.0), 30.0), "endlist": endlist, "size": len(text)}
 
 
 def pick_rendition(master: dict) -> str:
@@ -587,7 +592,8 @@ class StreamPump:
                 raise StreamFetchError(STALLED)
             # RFC 8216 6.3.4: reload after a target duration, or half of
             # one when the last reload brought nothing new.
-            if self._stop.wait(playlist["target"] if new else playlist["target"] / 2):
+            wait = playlist["target"] if new else playlist["target"] / 2
+            if self._stop.wait(max(wait, playlist["size"] / PLAYLIST_BYTES_PER_SECOND)):
                 raise _Stopped
             try:
                 playlist, url = self._playlist(url)
