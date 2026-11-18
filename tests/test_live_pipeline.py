@@ -48,6 +48,19 @@ def _wav(path, seconds=10):
         w.writeframes(b"\x00\x00" * int(RATE * seconds))
 
 
+def _killed_wav(path, seconds):
+    """A WAV as ffmpeg leaves one it was killed while writing: the placeholder
+    sizes (0xFFFFFFFF) are still in its header."""
+    _wav(path, seconds)
+    with open(path, "r+b") as fh:
+        data = bytearray(fh.read())
+        data[4:8] = b"\xff\xff\xff\xff"
+        at = data.index(b"data") + 4
+        data[at:at + 4] = b"\xff\xff\xff\xff"
+        fh.seek(0)
+        fh.write(data)
+
+
 class FakeProc:
     def __init__(self):
         self.error = None
@@ -84,7 +97,7 @@ def job(isolated_db, monkeypatch, tmp_path):
     monkeypatch.setattr(live_whisper, "warm_up", lambda size, gpu, cb=None: None)
     monkeypatch.setattr(live_whisper, "POLL_SECONDS", 0.005)
     monkeypatch.setattr(live_whisper, "ABANDON_GRACE_SECONDS", 0.05)
-    published, stats, notes = [], [], []
+    published, stats, notes, keys = [], [], [], []
     real_set_result = background_jobs.set_result
 
     def record(job_id, result, **kw):
@@ -98,10 +111,11 @@ def job(isolated_db, monkeypatch, tmp_path):
         kw.setdefault("poll_interval", 0.02)
         return job_launch.start_job(
             job_id, lt.run_live_job, job_id, "http://example.com/live", out_dir, 10, "zh",
-            "small", engine, report_note=lambda text, key=None: notes.append(text),
+            "small", engine, report_note=lambda text, key=None: notes.append(text) or keys.append(key),
             report_stats=lambda numbers: stats.append(dict(numbers)), **kw)
 
     start.proc, start.stops, start.published, start.stats, start.notes = proc, stops, published, stats, notes
+    start.keys = keys
     yield Stream(out_dir), start
     for jid in list(job_table._jobs):
         lt.bump_generation(jid)
@@ -703,3 +717,36 @@ class TestStreamBreaks:
         assert _wait(lambda: len(_result("live_tiny")) == 2)
         # Chunk 2 follows the 10.2 s actually heard, not two full 10 s slots.
         assert _result("live_tiny")[1]["start"] == pytest.approx(10.3, abs=0.6)
+
+    def test_a_chunk_ffmpeg_was_killed_writing_counts_only_the_audio_it_holds(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(1)
+        # Its header still claims 4 GiB of samples (37 h at 16 kHz mono).
+        _killed_wav(os.path.join(b.stream.out_dir, "chunk_00001.wav"), 6)
+        b.stream.count = 2
+        assert b.start("live_killed", Gate())
+        assert _wait(lambda: len(_result("live_killed")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: len(b.captures) == 2)
+        b.stream.add(2)
+        assert _wait(lambda: len(_result("live_killed")) == 3)
+        starts = [round(c["start"], 1) for c in _result("live_killed")]
+        assert starts[:2] == [0.1, 10.1]
+        # Chunk 2 follows the 16 s really heard.
+        assert starts[2] == pytest.approx(16.1, abs=0.6)
+        assert not any("to catch up" in n for n in b.start.notes)
+
+    def test_each_break_keeps_its_own_reconnected_note(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(2)
+        assert b.start("live_twice", Gate())
+        assert _wait(lambda: len(_result("live_twice")) == 1)
+        for n in (1, 2):
+            b.start.proc.error = "The stream stopped sending audio."
+            assert _wait(lambda: len(b.captures) == n + 1)
+            b.stream.add(2)
+            assert _wait(lambda: sum(t.startswith("Reconnected after") for t in b.start.notes) == n)
+        reconnected = [k for t, k in zip(b.start.notes, b.start.keys) if t.startswith("Reconnected after")]
+        assert len(set(reconnected)) == 2

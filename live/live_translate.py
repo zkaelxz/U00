@@ -552,6 +552,7 @@ class _LiveRun(ChunkCaptioner):
         self.captured_any = False
         # {"since", "attempt", "reason"} from a stream break until a chunk arrives again.
         self.outage = None
+        self.breaks = 0
 
     def should_stop(self):
         return (background_jobs.is_cancel_requested(self.job_id)
@@ -756,6 +757,7 @@ class _LiveRun(ChunkCaptioner):
         RECONNECT_GIVE_UP_SECONDS passed: end as a stream that ended) or
         "cancel". The board, the translator and its context stay as they are."""
         if self.outage is None:
+            self.breaks += 1
             self.outage = {"since": time.monotonic(), "attempt": 0}
         self._drain_broken(worker)
         self.outage["reason"] = reason
@@ -772,7 +774,7 @@ class _LiveRun(ChunkCaptioner):
             self.stats.send()
             if attempt == 1:
                 self.note(f"Stream broke off: {self.outage['reason']} Reconnecting; "
-                          "the captions so far are kept.", "reconnect")
+                          "the captions so far are kept.", self._break_key())
             self.stage.outage(f"Stream broke off: {self.outage['reason']} Reconnecting "
                               f"in {delay} s (try {attempt})...")
             waited = self._outage_wait(delay, control)
@@ -862,7 +864,12 @@ class _LiveRun(ChunkCaptioner):
         took = time.monotonic() - self.outage["since"]
         self._end_outage()
         self.note(f"Reconnected after {took:.0f} s; speech during the break was not captured.",
-                  "reconnect")
+                  self._break_key())
+
+    def _break_key(self):
+        """Each break's note replaces only its own "broke off" line, so every
+        break stays listed once it is over."""
+        return f"reconnect-{self.breaks}"
 
     def _end_outage(self):
         self.outage = None
