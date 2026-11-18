@@ -1143,6 +1143,40 @@ class TestInitDbSchema:
         isolated_db.init_db()
         assert _exact_snapshot(isolated_db.DB_PATH) == upgraded_exact
 
+    def test_a_real_0_1_0_library_upgrades_to_the_fresh_schema(self, isolated_db):
+        # Made by v0.1.0's own init_db plus a series, title, two lines, a glossary term and a
+        # usage row (dumped as SQL). Unlike _make_old_shape it holds what an old release really
+        # created, including tables and indexes later releases rebuilt, renamed or dropped.
+        fresh = _schema_shape(isolated_db.DB_PATH)
+        for suffix in ("", "-wal", "-shm"):
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(isolated_db.DB_PATH + suffix)
+        dump = os.path.join(os.path.dirname(__file__), "fixtures", "old_libraries",
+                            "library_v0.1.0.sql")
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:
+            with open(dump, encoding="utf-8") as f:
+                conn.executescript(f.read())
+        finally:
+            conn.close()
+
+        isolated_db.init_db()
+
+        assert _schema_shape(isolated_db.DB_PATH) == fresh
+        drama = isolated_db.get_drama(1)
+        assert (drama["title_en"], drama["title_zh"], drama["series_id"]) == ("Old title", "旧剧", 1)
+        rows = isolated_db.load_lines(1)
+        assert [(r["id"], r["zh"], r["en"], r["speaker"], r["flag"], bool(r["reviewed"]))
+                for r in rows] == [(1, "你好", "Hello", "A", None, True),
+                                   (2, "再见", "Goodbye", None, "check", False)]
+        with contextlib.closing(isolated_db.get_conn()) as c:
+            assert [tuple(r) for r in c.execute(
+                "SELECT term_original, term_translation FROM glossary_terms WHERE series_id = 1")
+            ] == [("旧剧", "Old Drama")]
+            assert [tuple(r) for r in c.execute(
+                "SELECT engine, input_tokens, output_tokens FROM usage_log WHERE drama_id = 1")
+            ] == [("claude", 10, 5)]
+
     def test_a_new_database_has_no_bug_reports_table(self, isolated_db):
         with contextlib.closing(isolated_db.get_conn()) as conn:
             assert conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'bug_reports'").fetchone() is None
