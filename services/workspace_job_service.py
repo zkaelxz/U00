@@ -170,11 +170,13 @@ def _month_cap_left(engine_choice, engine):
     return left
 
 
-def _saved_translate_options(engine_choice) -> dict:
+def _saved_translate_options(engine_choice, engine, job_id) -> dict:
     """The saved Settings choices a translate run passes to the pipeline."""
     return {"check_replies": settings_service.reply_guard_override(),
             "reasoning": settings_service.reasoning_override(engine_choice),
-            "parallel_chapters": settings_service.parallel_chapters()}
+            "parallel_chapters": settings_service.parallel_chapters(),
+            "lane_thread_scope": _lane_thread_scope(job_id),
+            "month_cap_left_cb": _month_cap_left(engine_choice, engine)}
 
 
 def _lane_thread_scope(job_id):
@@ -261,9 +263,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         ollama_num_ctx_override=ollama_num_ctx_override,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
         **timing_settings_service.translate_limits(),
-        **_saved_translate_options(engine_choice),
-        lane_thread_scope=_lane_thread_scope(job_id),
-        month_cap_left_cb=_month_cap_left(engine_choice, engine),
+        **_saved_translate_options(engine_choice, engine, job_id),
         thinking=thinking, replace_flags=replace_flags, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes, sentence_groups_cb=(sentence_parts := []).extend,
