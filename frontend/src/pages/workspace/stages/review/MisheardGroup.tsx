@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { applyMisheard } from '../../../../api/misheard'
+import { applyMisheard, rememberMisheard } from '../../../../api/misheard'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
@@ -10,6 +10,8 @@ interface GroupProps {
   dramaId: number
   items: MisheardSuggestion[]
   onGoTo: (n: number) => void
+  // Plays the line's audio; absent when the title has no audio or video loaded.
+  onListen?: (line: { id: number; idx: number; start: number; end: number }) => void
   onChanged: () => void
 }
 
@@ -27,18 +29,14 @@ function marked(text: string, heard: string) {
 }
 
 // Nothing here changes a line until a button is pressed; each press is one History step.
-export function MisheardGroup({ dramaId, items, onGoTo, onChanged }: GroupProps) {
+export function MisheardGroup({ dramaId, items, onGoTo, onListen, onChanged }: GroupProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
-  const apply = async (s: MisheardSuggestion, line?: { line_id: number; zh: string }) => {
+  const run = async (call: () => Promise<unknown>) => {
     setBusy(true)
     try {
-      await applyMisheard(dramaId, {
-        heard: s.heard,
-        suggested: s.suggested,
-        ...(line ? { line_id: line.line_id, expected_zh: line.zh } : {}),
-      })
+      await call()
       setError(null)
       onChanged()
     } catch (e) {
@@ -48,13 +46,19 @@ export function MisheardGroup({ dramaId, items, onGoTo, onChanged }: GroupProps)
       setBusy(false)
     }
   }
+  const apply = (s: MisheardSuggestion, line?: { line_id: number; zh: string }) =>
+    run(() => applyMisheard(dramaId, {
+      heard: s.heard,
+      suggested: s.suggested,
+      ...(line ? { line_id: line.line_id, expected_zh: line.zh } : {}),
+    }))
 
   return (
     <div className="review-misheard" role="group" aria-label="May be mis-heard">
       <strong>May be mis-heard</strong>
       <p className="muted">
         These sound like a word the title already uses, spelled another way. Check by ear before using one;
-        Use here and Use everywhere change the source text only, and a translated line is then flagged Source changed.
+        Use here and Use everywhere change the source text only (Use everywhere leaves a longer word alone), and a translated line is then flagged Source changed.
       </p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <ul>
@@ -76,8 +80,21 @@ export function MisheardGroup({ dramaId, items, onGoTo, onChanged }: GroupProps)
                           onClick={() => void apply(s, { line_id: l.line_id as number, zh: l.zh })}>
                     Use here
                   </button>
+                  {onListen && (
+                    <button type="button" className={buttonClass('ghost', 'sm')}
+                            onClick={() => onListen({ id: l.line_id as number, idx: l.idx, start: l.start, end: l.end })}>
+                      Listen
+                    </button>
+                  )}
                 </span>
               ),
+            )}
+            {s.term_id != null && (
+              <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy}
+                      title="Uses the glossary spelling on every line and saves the heard one as an alias of the glossary term, so later transcriptions in the series fix it themselves. Remove the alias in the glossary to undo that part."
+                      onClick={() => void run(() => rememberMisheard(dramaId, { heard: s.heard, suggested: s.suggested, term_id: s.term_id as number }))}>
+                Use everywhere and remember this spelling
+              </button>
             )}
             {s.line_count > 1 && (
               <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy} onClick={() => void apply(s)}>
