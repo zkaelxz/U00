@@ -1060,10 +1060,29 @@ class TestLongLinesInLive:
         assert cues[0]["start"] == 0.0 and cues[-1]["end"] == 16.0
         assert all(a["end"] <= b["start"] for a, b in zip(cues, cues[1:]))
 
-    def test_short_lines_and_lines_with_no_cut_stay_whole(self):
+    def test_short_lines_stay_whole(self):
         segs = [{"start": 0, "end": 3, "text": "はい。そうです。"},
-                {"start": 3, "end": 15, "text": "あ" * 30}]
+                # Over 8 s, but halves of 6 letters would only flash on screen.
+                {"start": 3, "end": 11.2, "text": "みんな元気で何よりですね。"}]
         assert lt.split_long_caption_lines(segs) == segs
+
+    def test_an_unpunctuated_line_is_cut_by_length_between_scripts(self):
+        # The V100 replay's longest line: 12.2 s and 87 letters, no punctuation or spaces.
+        text = ("はぐちゃんがいないあいださびしかったけどいろいろいそがしくてあっというまだったよ"
+                "きょうははぐちゃんふっききねんでおいしいラーメンでもたべてこようかなえっはぐちゃんのぶんうふふ")
+        cues = lt.split_long_caption_lines([{"start": 467.0, "end": 479.2, "text": text, "speaker": "A"}])
+        assert "".join(c["text"] for c in cues) == text
+        assert len(cues) == 3
+        assert all(c["end"] - c["start"] <= 8 and len(c["text"]) <= 40 for c in cues)
+        assert cues[0]["start"] == 467.0 and cues[-1]["end"] == pytest.approx(479.2)
+        assert all(a["end"] == b["start"] for a, b in zip(cues, cues[1:]))
+        assert all(c["speaker"] == "A" for c in cues)
+        # The cut near the katakana moves to where the script changes.
+        assert cues[2]["text"].startswith("ラーメン")
+
+    def test_a_long_line_without_cjk_text_is_left_to_the_splitter(self):
+        seg = {"start": 0, "end": 12, "text": "x" * 120}
+        assert lt.force_cut_cjk(seg) == [seg]
 
 
 class TestOverlapTailTextWindow:
