@@ -45,6 +45,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import db
+import env_reader
 from core import ISO_639_2
 from lib import http
 from lib.safe_paths import contained as _inside, is_device_name
@@ -103,7 +104,7 @@ def _stored() -> dict:
 
 def _api_key() -> Optional[str]:
     """Server-side only."""
-    return settings_service.resolve_env_names(KEY_ENV)
+    return env_reader.resolve_env_names(KEY_ENV)
 
 
 def get_config() -> dict:

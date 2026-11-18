@@ -49,6 +49,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
+import env_reader
 from lib.errors import ConflictError, InvalidInputError, RateLimitedError
 
 WARN_DAYS = 14
@@ -186,8 +187,7 @@ def check_certificate(host, port) -> dict:
 # --- DDNS --------------------------------------------------------------------
 
 def _ip_check_url(env_path=None):
-    from services import settings_service
-    return settings_service.resolve_env_names((IP_CHECK_ENV,), env_path)
+    return env_reader.resolve_env_names((IP_CHECK_ENV,), env_path)
 
 
 def _current_public_ip(url):

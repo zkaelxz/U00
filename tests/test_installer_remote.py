@@ -759,8 +759,9 @@ class TestPortsMatchTheApp:
         assert page_server.DEFAULT_PORT in service_config.RESERVED_PORTS
 
     def test_the_household_port_may_not_be_one_of_baihes_own(self, monkeypatch, tmp_path):
+        import env_reader
         from services import settings_service as ss
-        monkeypatch.setattr(ss, "default_env_path", lambda: str(tmp_path / ".env"))
+        monkeypatch.setattr(env_reader, "default_env_path", lambda: str(tmp_path / ".env"))
         for name in (ss.API_PORT_ENV, ss.HOUSEHOLD_PORT_ENV):
             monkeypatch.delenv(name, raising=False)
         for port in ss.baihe_own_ports():

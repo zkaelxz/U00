@@ -41,7 +41,7 @@ def test_the_route_returns_the_list_without_a_value(client, tmp_path, monkeypatc
     env = tmp_path / ".env"
     env.write_text(f"BAIHE_MEMBER_KEY_SECRET={SECRET}\n")
     monkeypatch.delenv("BAIHE_MEMBER_KEY_SECRET", raising=False)
-    monkeypatch.setattr("services.settings_service.default_env_path", lambda: str(env))
+    monkeypatch.setattr("env_reader.default_env_path", lambda: str(env))
     resp = client.get("/api/settings/keys-file")
     assert resp.status_code == 200
     assert _row(resp.json()["settings"], "BAIHE_MEMBER_KEY_SECRET")["set"] is True

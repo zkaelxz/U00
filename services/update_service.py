@@ -60,6 +60,7 @@ import requests
 
 import background_jobs
 import db
+import env_reader
 import portable
 import process_guard
 from lib import capped_body, desktop_session, release_signature
@@ -190,8 +191,7 @@ def current_version():
 # --- settings -----------------------------------------------------------------
 
 def releases_repo() -> str:
-    from services import settings_service
-    repo = (settings_service.resolve_env_names((REPO_ENV,)) or DEFAULT_REPO).strip()
+    repo = (env_reader.resolve_env_names((REPO_ENV,)) or DEFAULT_REPO).strip()
     if not _REPO_RE.match(repo) or ".." in repo:
         raise UnsupportedOperationError(f"{REPO_ENV} must look like owner/repository.")
     return repo
