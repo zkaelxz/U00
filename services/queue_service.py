@@ -905,7 +905,13 @@ def _may_overlap(running: list, candidate: dict) -> bool:
         return False
     engine = _translate_engine(drama)
     model = (other.get("settings") or {}).get("model") or _queued_model_and_batch(drama, engine)[0]
-    return not engine_local.ollama_touches_local_gpu(engine, model)
+    if engine_local.ollama_touches_local_gpu(engine, model):
+        return False
+    # The run's own episode summary and source-match check use the local Ollama after the batches,
+    # and a run on an online engine does not take a GPU slot, so only this check keeps them apart.
+    if settings_service.get("translate_alignment_check"):
+        return False
+    return str(settings_service.get("episode_summary_engine")) != "ollama" or engine == "ollama"
 
 
 def _start_next(now: float, deferred=frozenset()) -> None:

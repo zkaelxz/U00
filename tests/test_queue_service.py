@@ -742,6 +742,9 @@ def test_a_failed_job_read_before_its_record_lands_keeps_no_path(isolated_db, mo
 
 
 def _paid_ready(cap, monkeypatch):
+    real = settings_service.get
+    monkeypatch.setattr(settings_service, "get",
+                        lambda k, *a, **kw: "claude" if k == "episode_summary_engine" else real(k, *a, **kw))
     monkeypatch.setattr(translate_run_service.translate_service, "resolve_api_key", lambda name: "k")
     cap(5.0)
 
@@ -803,3 +806,14 @@ def test_a_policy_call_changes_only_what_it_sends(jobs):
     assert state["stop_on_failure"] and state["overlap_online_translate"]
     q.set_policy(None, stop_on_failure=False)
     assert q.get_queue(None)["overlap_online_translate"] is True
+
+
+@pytest.mark.parametrize("key, value", [("episode_summary_engine", "ollama"), ("translate_alignment_check", True)])
+def test_a_local_summary_or_alignment_check_blocks_the_overlap(jobs, cap, monkeypatch, key, value):
+    _paid_ready(cap, monkeypatch)
+    patched = settings_service.get
+    monkeypatch.setattr(settings_service, "get", lambda k, *a, **kw: value if k == key else patched(k, *a, **kw))
+    a, _b = _overlap_queue("claude", True)
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"translate_{a}"]
