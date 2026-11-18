@@ -11,5 +11,5 @@ export const applyMisheard = (
   f?: Fetch,
 ) => postJson<MisheardApplyResult>(`${base(id)}/apply`, body, f)
 
-export const rememberMisheard = (id: number, body: { heard: string; term_id: number }, f?: Fetch) =>
+export const rememberMisheard = (id: number, body: { heard: string; suggested: string; term_id: number }, f?: Fetch) =>
   postJson<MisheardRememberResult>(`${base(id)}/remember`, body, f)

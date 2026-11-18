@@ -42,7 +42,6 @@ export function MisheardGroup({ dramaId, items, onGoTo, onListen, onChanged }: G
     } catch (e) {
       setError(e)
       onChanged() // a refused line is stale: reload so the list shows what is there now
-      onChanged() // a refused line is stale: reload so the list shows what is there now
     } finally {
       setBusy(false)
     }
@@ -92,8 +91,8 @@ export function MisheardGroup({ dramaId, items, onGoTo, onListen, onChanged }: G
             )}
             {s.term_id != null && (
               <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy}
-                      title="Uses the glossary spelling on every line and saves the heard one as its alias, so later transcriptions in the series fix it themselves"
-                      onClick={() => void run(() => rememberMisheard(dramaId, { heard: s.heard, term_id: s.term_id as number }))}>
+                      title="Uses the glossary spelling on every line and saves the heard one as an alias of the glossary term, so later transcriptions in the series fix it themselves. Remove the alias in the glossary to undo that part."
+                      onClick={() => void run(() => rememberMisheard(dramaId, { heard: s.heard, suggested: s.suggested, term_id: s.term_id as number }))}>
                 Use everywhere and remember this spelling
               </button>
             )}

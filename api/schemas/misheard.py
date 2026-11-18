@@ -51,9 +51,11 @@ class MisheardApplyResult(BaseModel):
 
 class MisheardRememberBody(BaseModel):
     heard: str = Field(min_length=1, max_length=40)
+    suggested: str = Field(min_length=1, max_length=40)
     term_id: int = Field(ge=1)
 
 
 class MisheardRememberResult(BaseModel):
-    lines_changed: int
+    applied: int
+    skipped: int
     aliases_added: int

@@ -23006,6 +23006,8 @@ export interface components {
         MisheardRememberBody: {
             /** Heard */
             heard: string;
+            /** Suggested */
+            suggested: string;
             /** Term Id */
             term_id: number;
         };
@@ -23013,8 +23015,10 @@ export interface components {
         MisheardRememberResult: {
             /** Aliases Added */
             aliases_added: number;
-            /** Lines Changed */
-            lines_changed: number;
+            /** Applied */
+            applied: number;
+            /** Skipped */
+            skipped: number;
         };
         /** MisheardSuggestion */
         MisheardSuggestion: {

@@ -16,6 +16,7 @@ import segment
 import source_change
 from lib.errors import ConflictError, InvalidInputError
 from misheard_finder import find_misheard
+from services.glossary_common import MAX_TERM_LEN
 from services import edit_log_service, glossary_service, name_fix_service, ownership_service, translate_service
 
 log = logging.getLogger(__name__)
@@ -89,10 +90,10 @@ def _replace(text: str, heard: str, suggested: str, tools) -> str:
     return "".join(out)
 
 
-def _glossary_term_id(drama_id: int, suggested: str):
+def _glossary_term_id(terms: list, suggested: str):
     """The series glossary term whose text (or alias) is `suggested`; only a series term can
     take a remembered spelling."""
-    for term in glossary_service.list_glossary_terms(drama_id):
+    for term in terms:
         if suggested == term["term_original"] or suggested in term["aliases"]:
             return term["id"]
     return None
@@ -120,15 +121,17 @@ def find_for_title(drama_id: int) -> dict:
     result = find_misheard(lines, _trusted(drama, cut), cut, canon,
                            lambda w: _in_dictionary(canon(w)))
     by_idx = {ln.idx: ln for ln in everything}
+    series_terms = glossary_service.list_glossary_terms(drama_id)
     for item in result["suggestions"]:
         for spot in item["lines"]:
             ln = by_idx[spot["idx"]]
             spot.update(zh=ln.zh.strip(), start=ln.start, end=ln.end)
         # Counted over every line, not just the scanned ones: it is what Use everywhere changes.
         item["line_count"] = sum(
-            not ln.sfx and _replace(ln.zh or "", item["heard"], item["suggested"], tools) != (ln.zh or "")
+            not ln.sfx and item["heard"] in (ln.zh or "")
+            and _replace(ln.zh, item["heard"], item["suggested"], tools) != ln.zh
             for ln in everything)
-        item["term_id"] = (_glossary_term_id(drama_id, item["suggested"])
+        item["term_id"] = (_glossary_term_id(series_terms, item["suggested"])
                            if item["source"] == "glossary" else None)
     return {"available": True, "reason": "", "lines_scanned": len(lines), **result}
 
@@ -179,15 +182,24 @@ def apply(drama_id: int, heard: str, suggested: str, line_id: int | None = None,
     return {"applied": len(done), "skipped": len(missed)}
 
 
-def remember_spelling(drama_id: int, heard: str, term_id: int) -> dict:
-    """Use the glossary term's spelling on every line AND save the heard spelling as an alias
-    of the term, so later transcriptions in the series fix it by themselves (the glossary's
-    own confirm-a-spelling path). One History snapshot is taken first."""
+def remember_spelling(drama_id: int, heard: str, suggested: str, term_id: int) -> dict:
+    """Use the glossary term's spelling on every line (as `apply` does, leaving longer words
+    alone) AND save the heard spelling as an alias of the term, so later transcriptions in the
+    series fix it by themselves. The term must be the one the suggestion named; nothing is
+    written when it is not."""
     ownership_service.require_drama(drama_id)
-    heard = heard.strip()
-    if not heard:
-        raise InvalidInputError("Give the heard spelling.")
-    db.save_line_history_snapshot(drama_id, db.load_line_objects(drama_id),
-                                  "before remembering a mis-heard spelling")
-    result = name_fix_service.apply_fixes(drama_id, [{"term_id": term_id, "spelling": heard}])
-    return {"lines_changed": result["lines_changed"], "aliases_added": result["aliases_added"]}
+    heard, suggested = heard.strip(), suggested.strip()
+    terms = {t["id"]: t for t in glossary_service.list_glossary_terms(drama_id)}
+    term = terms.get(term_id)
+    if term is None or suggested not in (term["term_original"], *term["aliases"]):
+        raise InvalidInputError("That glossary term is not the one suggested.")
+    if not (name_fix_service.MIN_SPELLING_LEN <= len(heard) <= MAX_TERM_LEN) or heard == suggested:
+        raise InvalidInputError("A spelling must be 2 to %d characters." % MAX_TERM_LEN)
+    if any(heard == t["term_original"] for t in terms.values()):
+        raise InvalidInputError("That spelling is another glossary term.")
+    result = apply(drama_id, heard, term["term_original"])
+    added = 0
+    if heard not in term["aliases"]:
+        glossary_service.upsert_glossary_term(drama_id, {"id": term_id, "aliases": term["aliases"] + [heard]})
+        added = 1
+    return {**result, "aliases_added": added}

@@ -107,7 +107,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
       const remembers: string[] = []
       await page.route('**/api/misheard/dramas/3/remember', (route) => {
         remembers.push(route.request().postData() ?? '')
-        return route.fulfill({ json: { lines_changed: 2, aliases_added: 1 } })
+        return route.fulfill({ json: { lines_changed: 2, aliases_added: 1, applied: 2, skipped: 0 } })
       })
       await page.route('**/api/misheard/dramas/3/apply', (route) => {
         applies.push(route.request().postData() ?? '')
@@ -127,7 +127,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
       await expect.poll(() => applies.length).toBe(2)
       await group.getByRole('button', { name: 'Use everywhere and remember this spelling' }).click()
       await expect.poll(() => remembers.length).toBe(1)
-      expect(JSON.parse(remembers[0])).toEqual({ heard: '亞羅赫', term_id: 9 })
+      expect(JSON.parse(remembers[0])).toEqual({ heard: '亞羅赫', suggested: '亞洛赫', term_id: 9 })
       expect(applies.map((a) => JSON.parse(a))).toEqual([
         { heard: '亞羅赫', suggested: '亞洛赫', line_id: 1, expected_zh: '亞羅赫來了' },
         { heard: '亞羅赫', suggested: '亞洛赫' },

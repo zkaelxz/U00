@@ -33,4 +33,4 @@ def post_apply_misheard(body: MisheardApplyBody, drama_id: int = Path(ge=1)):
              summary="Use a glossary term's spelling everywhere and remember the heard one as its alias",
              responses=error_responses(404, 422))
 def post_remember_misheard(body: MisheardRememberBody, drama_id: int = Path(ge=1)):
-    return misheard_service.remember_spelling(drama_id, body.heard, body.term_id)
+    return misheard_service.remember_spelling(drama_id, body.heard, body.suggested, body.term_id)
