@@ -147,3 +147,33 @@ class TestApply:
         ln.zh = " 達羅赫來了 "
         db.save_lines(did, [ln], fields=("zh",))
         assert misheard_service.apply(did, "達羅赫", "達洛赫", ids[0], "達羅赫來了")["applied"] == 1
+
+
+class TestSafeEverywhere:
+    def test_replace_skips_the_heard_spelling_inside_a_longer_ordinary_word(self, monkeypatch):
+        monkeypatch.setattr(misheard_service, "_in_dictionary", lambda w: w == "達羅斯")
+        cut = lambda t: ["達羅斯", "達羅", "來了"]  # noqa: E731
+        out = misheard_service._replace("達羅斯達羅來了", "達羅", "達洛", (cut, lambda w: w))
+        assert out == "達羅斯達洛來了"
+
+    def test_replace_without_the_word_cutter_changes_every_occurrence(self):
+        assert misheard_service._replace("達羅達羅", "達羅", "達洛", None) == "達洛達洛"
+
+    def test_remember_rewrites_lines_with_one_snapshot_and_saves_the_alias(self, isolated_db):
+        did, ids = _title_with_slips(isolated_db)
+        sid = db.get_drama(did)["series_id"]
+        [term] = db.list_glossary_terms(sid)
+        out = misheard_service.remember_spelling(did, "達羅赫", "達洛赫", term["id"])
+        assert out == {"applied": 2, "skipped": 0, "aliases_added": 1}
+        assert [ln.zh for ln in db.load_line_objects(did)][:2] == ["達洛赫來了", "達洛赫說話"]
+        assert db.list_glossary_terms(sid)[0]["aliases"] == "達羅赫"
+        assert db.list_line_history(did)[0]["label"] == "before mis-heard word fix"
+
+    def test_remember_refuses_a_term_that_is_not_the_suggestion_and_writes_nothing(self, isolated_db):
+        did, ids = _title_with_slips(isolated_db)
+        sid = db.get_drama(did)["series_id"]
+        db.upsert_glossary_term(sid, "別人", "Other", aliases="")
+        other = [t for t in db.list_glossary_terms(sid) if t["term_original"] == "別人"][0]
+        with pytest.raises(InvalidInputError):
+            misheard_service.remember_spelling(did, "達羅赫", "達洛赫", other["id"])
+        assert db.load_line_objects(did)[0].zh == "達羅赫來了" and db.list_line_history(did) == []
