@@ -390,4 +390,4 @@ def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, res
             narrate_original=narrate_original, source_language=source_language)
         result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors}))
     except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, str(exc)))
+        result_queue.put(process_worker.error_item(exc))

@@ -431,7 +431,9 @@ class TestNarrationSubprocessWorker:
         result_queue = queue.Queue()
         dub_narration.build_narration_subprocess_worker(lines, str(tmp_path), ALL, result_queue)
 
-        assert _final_item(result_queue) == ("error", "RuntimeError", "boom")
+        kind, name, message, trace = _final_item(result_queue)
+        assert (kind, name, message) == ("error", "RuntimeError", "boom")
+        assert "RuntimeError" in trace
 
 
 # ---------------------------------------------------------------------------
@@ -665,7 +667,7 @@ class TestHeadroomRefusalStopsTheRun:
         speak_with(monkeypatch, self._refuse)
         q = queue.Queue()
         dub_narration.build_narration_subprocess_worker(self._lines(), str(tmp_path), ALL, q)
-        kind, name, message = _final_item(q)
+        kind, name, message, _trace = _final_item(q)
         assert (kind, name) == ("error", "HeadroomError")
         assert "Keep free graphics memory" in message
 
