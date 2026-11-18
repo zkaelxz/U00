@@ -394,7 +394,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           onPrevGap={() => jumpToGap(prevGap)}
           gapIndex={gapIndex}
           onGoGap={(n) => focusGap(sortedGaps[n - 1])}
-          suspectCount={suspects.length}
+          suspectCount={suspects.count}
           suspectOpen={suspectOpen}
           onToggleSuspect={() => setSuspectOpen((o) => !o)}
           onFilter={(f) => void changeFilter(f)}
@@ -442,8 +442,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             {searching && found ? `${found.length} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated · {data.unreviewed_count ?? 0} unreviewed
           </p>
         )}
-        {suspectOpen && suspects.length > 0 && (
-          <SourceSuspectPanel dramaId={dramaId} items={suspects} onGoTo={(n) => void goToNumber(n)} onChanged={onChanged} onClose={() => setSuspectOpen(false)} />
+        {suspectOpen && suspects.count > 0 && (
+          <SourceSuspectPanel dramaId={dramaId} items={suspects.items} misheard={suspects.misheard} onGoTo={(n) => void goToNumber(n)} onChanged={onChanged} onClose={() => setSuspectOpen(false)} />
         )}
         {setSpeaker.node}
         {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
