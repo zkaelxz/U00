@@ -2,6 +2,7 @@
 
 import collections
 import contextvars
+import contextlib
 import copy
 import inspect
 import threading
@@ -248,7 +249,8 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
                                  stop_before_batch=None, temperature: float | None = None,
                                  reasoning: str | None = None, sentence_groups_cb=None,
-                                 replace_flags: frozenset = frozenset(), parallel_chapters: int = 1):
+                                 replace_flags: frozenset = frozenset(), parallel_chapters: int = 1,
+                                 lane_thread_scope=None):
     """Translates `lines` in place and returns (lines, errors); see _TranslateRun
     for what each argument does."""
     # The signature stays the one place the arguments are listed: the public
@@ -409,21 +411,27 @@ class _TranslateRun:
                  for _ in range(min(a.parallel_chapters, len(groups)))]
         failures = []
 
+        def next_chapter():
+            with self.lock:
+                if self.stopped or not work:
+                    return None
+                if (a.cancel_check_cb and a.cancel_check_cb()) or self._cap_reached():
+                    self.stopped = True
+                    if a.cap_cb and self._cap_reached():
+                        a.cap_cb(self.spent)
+                    return None
+                return work.popleft()
+
         def worker(lane):
             try:
-                while True:
-                    with self.lock:
-                        if self.stopped or not work:
-                            return
-                        if (a.cancel_check_cb and a.cancel_check_cb()) or self._cap_reached():
+                # A job's thread-locals (its line-write declaration, its timing id) are not
+                # inherited by a new thread, so the caller says how to apply them again.
+                with (a.lane_thread_scope() if a.lane_thread_scope else contextlib.nullcontext()):
+                    while (item := next_chapter()) is not None:
+                        number, group = item
+                        if not lane.run_chapter(number, group, offsets[number]):
                             self.stopped = True
-                            if a.cap_cb and self._cap_reached():
-                                a.cap_cb(self.spent)
                             return
-                        number, group = work.popleft()
-                    if not lane.run_chapter(number, group, offsets[number]):
-                        self.stopped = True
-                        return
             except BaseException as e:
                 failures.append(e)
                 self.stopped = True
@@ -881,6 +889,15 @@ class _LaneRun(_TranslateRun):
         self.engine = engine
         self.bi_offset = 0
         self.chapter_label = ""
+        self.batch_lines = []
+        # A lane saves only its own batch: a whole-title save would read lines another lane
+        # is writing at that moment and record them as already saved.
+        self.args = types.SimpleNamespace(**vars(parent.args))
+        if parent.args.save_cb:
+            self.args.save_cb = lambda _lines: parent.args.save_cb(self.batch_lines)
+        self.args.progress_cb = None
+        stop = parent.args.stop_before_batch
+        self.args.stop_before_batch = lambda: parent.stopped or bool(stop and stop())
 
     @property
     def spent(self):
@@ -900,10 +917,17 @@ class _LaneRun(_TranslateRun):
         self.n_batches = len(batches)
         self.bi_offset = bi_offset
         self.chapter_label = f"Chapter {number + 1} of {parent.chapters_total}, "
-        stop = self.args.stop_before_batch
-        self.args = types.SimpleNamespace(**vars(parent.args))
-        self.args.stop_before_batch = lambda: parent.stopped or bool(stop and stop())
-        return self._run_batches(batches)
+        first_error = len(self.errors)
+        try:
+            return self._run_batches(batches)
+        finally:
+            # Several places record errors with the chapter-local batch number.
+            for error in self.errors[first_error:]:
+                error["batch_index"] += bi_offset
+
+    def _set_batch_context(self, batch):
+        self.batch_lines = batch
+        super()._set_batch_context(batch)
 
     def _record_usage(self, inp, out, cache_read=0, cache_write=0):
         with self.parent.lock:
@@ -920,9 +944,6 @@ class _LaneRun(_TranslateRun):
             self.parent.batches_done += 1
         super()._finish_batch(batch)
 
-    def _add_error(self, lines, error):
-        super()._add_error(lines, error)
-        self.errors[-1]["batch_index"] += self.bi_offset
 
 
 def translate_lines_with_engine(*args, **kwargs):

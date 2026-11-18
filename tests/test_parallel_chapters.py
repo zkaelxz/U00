@@ -142,3 +142,39 @@ def test_only_paid_cloud_engines_run_in_parallel(engine, ok):
 
 def test_a_fallback_chain_is_not_parallel():
     assert tp.can_run_in_parallel(FallbackEngine.__new__(FallbackEngine)) is False
+
+
+def test_a_lane_saves_only_its_own_batch(novel):
+    engine = _Engine()
+    saved = []
+    lines = _novel()
+    tp.translate_lines_with_engine(
+        lines, engine, drama_meta={"id": 1}, batch_size=3, parallel_chapters=2,
+        save_cb=lambda ls: saved.append(len(ls)))
+    assert saved and max(saved) <= 3
+
+
+def test_many_chapters_do_not_nest_the_stop_check(novel, monkeypatch):
+    chapters = 1200
+    monkeypatch.setattr(tp, "chapter_start_idxs", lambda ls: {ln.idx for ln in ls if ln.zh.startswith("第")})
+    lines = [_Line(i, f"第{i}章") for i in range(chapters)]
+    engine = _Engine()
+    engine.translate_batch = lambda zh, ctx: [f"EN {z}" for z in zh]
+    _, errors = tp.translate_lines_with_engine(
+        lines, engine, drama_meta={"id": 1}, batch_size=1, parallel_chapters=2,
+        stop_before_batch=lambda: False)
+    assert errors == [] and all(ln.en for ln in lines)
+
+
+def test_lane_threads_get_the_job_thread_scope(novel):
+    entered = []
+
+    class Scope:
+        def __enter__(self):
+            entered.append(1)
+
+        def __exit__(self, *exc):
+            return False
+
+    _run(_Engine(), 2, lane_thread_scope=Scope)
+    assert len(entered) == 2
