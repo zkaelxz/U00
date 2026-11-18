@@ -179,8 +179,16 @@ def _deadline_for(scope: _BoundedScope, engine) -> float:
 def abandoned_request_alive(job_id: str) -> bool:
     """True while a request this job gave up on (Cancel, or its deadline) is still running at the provider."""
     with _abandoned_lock:
-        old = _abandoned.get(job_id)
-        return old is not None and old.is_alive()
+        return _abandoned_alive_locked(job_id)
+
+
+def _abandoned_alive_locked(job_id) -> bool:
+    worker = _abandoned.get(job_id)
+    while worker is not None:
+        if worker.is_alive():
+            return True
+        worker = getattr(worker, "earlier_abandoned", None)
+    return False
 
 
 PREVIOUS_REQUEST_MESSAGE = "The previous AI request is still finishing. Wait a minute and try again."
@@ -246,8 +254,7 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float | None =
             slots[:] = [w for w in slots if w.is_alive()]
             busy = len(slots) >= _MAX_ABANDONED_JOBLESS
         else:
-            old = _abandoned.get(scope.job_id)
-            busy = old is not None and old.is_alive()
+            busy = _abandoned_alive_locked(scope.job_id)
             if not busy:
                 _abandoned.pop(scope.job_id, None)
         if busy:
@@ -271,6 +278,9 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float | None =
             if worker.is_alive():
                 if scope.job_id is not None:
                     with _abandoned_lock:
+                        # Lanes of one chapter-parallel run share the job id; a second
+                        # abandoned request is chained to the first so it cannot hide it.
+                        setattr(worker, "earlier_abandoned", _abandoned.get(scope.job_id))
                         _abandoned[scope.job_id] = worker
             elif "value" in box:
                 # Returned between the check and abandon.set(); the worker may
