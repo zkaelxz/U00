@@ -7,6 +7,7 @@ from unittest import mock
 import pytest
 
 import background_jobs
+import novel_text
 import db
 from services import sources_extraction_service as extraction
 from services import sources_import_service as imp
@@ -367,3 +368,13 @@ def test_lane_chapter_starts_agree_with_the_translate_ranges(lines):
     ranges = [first for first, _last in novel_text.chapter_line_ranges(lines)]
     # chapter_line_ranges also lists front matter before the first heading as chapter 1.
     assert starts <= set(ranges) and starts >= set(ranges) - {0}
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("第3章 开始\n第3章  开始\n正文。", "第3章 开始\n正文。"),
+    ("第3章 开始\n\n第3章 开始\n\n正文。", "第3章 开始\n\n\n正文。"),
+    ("第3章 开始\n正文。\n第3章 开始\n", "第3章 开始\n正文。\n第3章 开始\n"),
+    ("他笑了。\n他笑了。", "他笑了。\n他笑了。"),
+])
+def test_only_a_heading_printed_twice_in_a_row_is_dropped(text, expected):
+    assert novel_text.drop_repeated_heading(text) == expected

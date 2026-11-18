@@ -231,3 +231,36 @@ def test_the_popup_button_names_the_title_and_the_result_says_what_happened():
     assert out["comic"] == "Pick a novel title to save text"
     assert "new chapter" in out["saved"] and "selected text" in out["saved"]
     assert "nothing was added" in out["repeat"]
+
+
+DOUBLED = "第三章 夜雨\n第三章  夜雨\n\n" + "雨下了一整夜。" * 60
+
+
+def test_a_title_printed_twice_in_a_row_is_saved_once(token, title):
+    assert _save(token, title, text=DOUBLED).payload["saved"] is True
+    assert _raw(title).count("夜雨") == 1
+    assert _raw(title).count("雨下了一整夜") == 60
+
+
+def test_a_chapter_saved_with_its_title_doubled_is_still_found_on_a_second_capture(
+        token, title, monkeypatch):
+    import novel_text
+    with monkeypatch.context() as before:
+        before.setattr(novel_text, "drop_repeated_heading", lambda text: text)
+        assert _save(token, title, text=DOUBLED).payload["saved"] is True
+    assert _raw(title).count("夜雨") == 2
+    again = _save(token, title, text=DOUBLED)
+    assert again.payload["saved"] is False and again.payload["already_saved"] is True
+    assert len(chapter_manifest.load(title)["chapters"]) == 1
+
+
+def test_a_retry_of_a_block_written_with_its_title_doubled_does_not_append_again(
+        title, monkeypatch):
+    import types
+    import novel_text
+    ch = types.SimpleNamespace(title="第三章 夜雨", series_id="s1", chapter_id="c3", url="")
+    with monkeypatch.context() as before:
+        before.setattr(novel_text, "drop_repeated_heading", lambda text: text)
+        assert pipeline._append_chapter_text("novel.example", ch, title, DOUBLED) == ""
+    assert pipeline._append_chapter_text("novel.example", ch, title, DOUBLED) == ""
+    assert _raw(title).count("雨下了一整夜") == 60
