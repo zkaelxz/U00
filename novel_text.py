@@ -42,9 +42,17 @@ _TITLE_ENDS_OK = tuple("！？…")
 _NOT_IN_A_TITLE = re.compile(r"[，,、。.!?;；]")
 
 
+# The marker written twice, in digits and in numerals ("第3章 第三章 ..."): no sentence starts
+# like that, so whatever follows is a title, even a quoted line with commas and a long ellipsis.
+_DOUBLED_MARKER_RE = re.compile(
+    r"^\s*第\s*[0-9０-９]+\s*[章回节節話话]\s+第\s*[零〇一二三四五六七八九十百千两兩]+\s*[章回节節話话]")
+
+
 def _ends_like_a_title(text: str) -> bool:
     """A Chinese chapter heading with a title may end in a full-width ？ ！ or …, when the title
-    holds no clause or ASCII sentence mark."""
+    holds no clause or ASCII sentence mark, or when the marker is written twice."""
+    if _DOUBLED_MARKER_RE.match(text):
+        return True
     return (bool(_TITLED_HEADING_RE.match(text)) and text.endswith(_TITLE_ENDS_OK)
             and not _NOT_IN_A_TITLE.search(text))
 

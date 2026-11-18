@@ -316,6 +316,8 @@ def test_novel_batch_budget_follows_each_models_cap():
 @pytest.mark.parametrize("text,is_heading", [
     ("第1章 第一章 被人咬死是什麽感覺？…", True),
     ('第2章 第二章 "若是我早些……我們也許…………', True),
+    ('第3章 第三章 "我對寧王仰慕已久，非卿不可……', True),
+    ("第4章 第四章 他说：我不去，你呢？", True),
     ("제3화 봤어? 진짜 재밌었어!", False),
     ("제1장 어디까지 읽었어?", False),
     ("第3章 我写完了，你看了吗？", False),
