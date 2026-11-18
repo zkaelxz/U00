@@ -4,12 +4,15 @@ import { listAllLines, mergeLines } from '../../../../api/restructure'
 import { checkSourceText } from '../../../../api/sourceSuspect'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { buttonClass } from '../../../../components/uiClasses'
+import { MisheardGroup } from './MisheardGroup'
 import { lineNumber } from '../../../../lineNumber'
+import type { MisheardSuggestion } from '../../../../types/misheard'
 import type { SourceSuspectItem } from '../../../../types/sourceSuspect'
 
 interface PanelProps {
   dramaId: number
   items: SourceSuspectItem[]
+  misheard: MisheardSuggestion[]
   onGoTo: (n: number) => void
   onChanged: () => void
   onClose: () => void
@@ -18,7 +21,7 @@ interface PanelProps {
 // Each flagged line with why, and a "Merge with next" that is the ordinary
 // merge (adjacent lines, refused if the list changed meanwhile). The check
 // runs again afterwards because the merged line keeps the flag.
-export function SourceSuspectPanel({ dramaId, items, onGoTo, onChanged, onClose }: PanelProps) {
+export function SourceSuspectPanel({ dramaId, items, misheard, onGoTo, onChanged, onClose }: PanelProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   // The list sits above the lines while its chip rides in the sticky toolbar, so pressed far down the
@@ -48,13 +51,16 @@ export function SourceSuspectPanel({ dramaId, items, onGoTo, onChanged, onClose 
   )
 
   return (
-    <section ref={panelRef} className="review-suspect" aria-label="Source text looks off">
+    <section ref={panelRef} className="review-suspect" aria-label="Check source text">
       <div className="review-suspect-head">
-        <strong>Source text looks off</strong>
+        <strong>{items.length > 0 ? 'Source text looks off' : 'Check source text'}</strong>
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>Close</button>
       </div>
-      <p className="muted">Fix the transcription before translating; a bad source line gives an odd translation.</p>
+      {items.length > 0 && (
+        <p className="muted">Fix the transcription before translating; a bad source line gives an odd translation.</p>
+      )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {misheard.length > 0 && <MisheardGroup dramaId={dramaId} items={misheard} onGoTo={onGoTo} onChanged={onChanged} />}
       <ul>
         {items.map((it) => (
           <li key={it.line_id} data-testid="suspect-item">

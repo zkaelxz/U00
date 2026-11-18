@@ -6583,6 +6583,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/misheard/dramas/{drama_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Words that may have been mis-heard: they sound like a trusted word spelled differently */
+        get: operations["get_misheard_api_misheard_dramas__drama_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/misheard/dramas/{drama_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace a heard spelling with the suggested one on one line or on every line */
+        post: operations["post_apply_misheard_api_misheard_dramas__drama_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/models/check": {
         parameters: {
             query?: never;
@@ -22906,6 +22940,63 @@ export interface components {
             local: boolean;
             /** @description The PC window's Owner/Guest state; null unless this request is the PC window with sign-in off (the only place profiles apply). */
             pc_profile: components["schemas"]["PcProfileStatus"] | null;
+        };
+        /** MisheardApplyBody */
+        MisheardApplyBody: {
+            /** Expected Zh */
+            expected_zh?: string | null;
+            /** Heard */
+            heard: string;
+            /** Line Id */
+            line_id?: number | null;
+            /** Suggested */
+            suggested: string;
+        };
+        /** MisheardApplyResult */
+        MisheardApplyResult: {
+            /** Applied */
+            applied: number;
+            /** Skipped */
+            skipped: number;
+        };
+        /** MisheardLine */
+        MisheardLine: {
+            /** Idx */
+            idx: number;
+            /** Line Id */
+            line_id: number | null;
+            /** Zh */
+            zh: string;
+        };
+        /** MisheardList */
+        MisheardList: {
+            /** Available */
+            available: boolean;
+            /** Lines Scanned */
+            lines_scanned: number;
+            /** Reason */
+            reason: string;
+            /** Suggestions */
+            suggestions: components["schemas"]["MisheardSuggestion"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** MisheardSuggestion */
+        MisheardSuggestion: {
+            /** Heard */
+            heard: string;
+            /** Heard Count */
+            heard_count: number;
+            /** Line Count */
+            line_count: number;
+            /** Lines */
+            lines: components["schemas"]["MisheardLine"][];
+            /** Source */
+            source: string;
+            /** Suggested */
+            suggested: string;
+            /** Suggested Count */
+            suggested_count: number;
         };
         /** ModelCandidate */
         ModelCandidate: {
@@ -51714,6 +51805,99 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResearchBudget"];
+                };
+            };
+        };
+    };
+    get_misheard_api_misheard_dramas__drama_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MisheardList"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_apply_misheard_api_misheard_dramas__drama_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MisheardApplyBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MisheardApplyResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
