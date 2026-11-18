@@ -7,6 +7,7 @@ import pytest
 
 from engine_backends import translate_pipeline as tp
 from engine_backends.fallback import FallbackEngine
+from engine_backends.run_limits import TranslateRunStopped
 
 CHAPTERS, PER_CHAPTER = 4, 6
 
@@ -205,3 +206,70 @@ def test_lane_threads_get_the_job_thread_scope(novel):
 
     _run(_Engine(), 2, lane_thread_scope=Scope)
     assert len(entered) == 2
+
+
+def test_a_capped_run_still_runs_side_by_side_after_the_first_batch(novel):
+    engine = _Engine()
+    _run(engine, 3, cost_cap_usd=100.0)
+    assert engine.stats["peak"] > 1
+
+
+def test_a_stop_in_one_lane_sends_nothing_more_from_the_others(novel):
+    engine = _Engine()
+    original = engine.translate_batch
+    calls = []
+
+    def fail_once(zh_lines, context):
+        calls.append(1)
+        if len(calls) == 1:
+            raise TranslateRunStopped("quota")
+        return original(zh_lines, context)
+
+    engine.translate_batch = fail_once
+    _run(engine, 3, cost_cap_usd=100.0)
+    assert len(calls) <= 3  # only the batches already in flight when it failed
+
+
+def test_a_batch_that_raises_gives_its_slot_back(novel):
+    engine = _Engine()
+    original = engine.translate_batch
+    state = {"n": 0}
+
+    def flaky(zh_lines, context):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise ValueError("bad reply")
+        return original(zh_lines, context)
+
+    engine.translate_batch = flaky
+    lines, _errors, _u, _s = _run(engine, 2, cost_cap_usd=100.0)
+    assert all(ln.en for ln in lines)
+
+
+def test_cancel_while_waiting_for_room_ends_the_run(novel):
+    cancelled = {"on": False}
+    engine = _Engine()
+    original = engine.translate_batch
+
+    def slow(zh_lines, context):
+        cancelled["on"] = True
+        return original(zh_lines, context)
+
+    engine.translate_batch = slow
+    lines, _e, _u, _s = _run(engine, 3, cost_cap_usd=100.0, cancel_check_cb=lambda: cancelled["on"])
+    assert any(not ln.en for ln in lines)
+
+
+def test_month_cap_left_reads_the_cap_and_the_spend(monkeypatch):
+    from services import settings_service, translate_run_service, workspace_job_service as wjs
+    monkeypatch.setattr(translate_run_service, "engine_cap_applies", lambda *a, **k: True)
+    monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 4.0)
+    engine = SimpleNamespace(model="m")
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 10.0)
+    assert wjs._month_cap_left("claude", engine)() == 6.0
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 3.0)
+    assert wjs._month_cap_left("claude", engine)() == 0.0
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 0)
+    assert wjs._month_cap_left("claude", engine)() is None
+    monkeypatch.setattr(translate_run_service, "engine_cap_applies", lambda *a, **k: False)
+    assert wjs._month_cap_left("claude", engine) is None

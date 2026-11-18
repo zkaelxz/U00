@@ -389,8 +389,8 @@ class _TranslateRun:
     def _run_chapter_lanes(self, groups) -> bool:
         """Runs each chapter's batches in order on up to `parallel_chapters` threads, each
         with its own copy of the engine (an engine keeps per-call usage state). False when
-        the run stopped before every chapter had its turn. The cost cap is checked before
-        each batch, so with N lanes it can be overshot by up to N-1 batches already in flight."""
+        the run stopped before every chapter had its turn. Under a cost cap a batch waits for room
+        beside those in flight (_reserve_batch)."""
         a = self.args
         # One lock covers every shared callback: the save and notes callbacks keep
         # unlocked lists, and progress and usage logging are not written for threads.
@@ -493,8 +493,12 @@ class _TranslateRun:
                     return True
                 self.room.wait(0.5)
 
-    def _release_batch(self, cost):
+    def _release_batch(self, cost, stop=False):
         with self.room:
+            # Set before waking the others, or a waiting lane sends one more request after this
+            # lane's batch ended the run (a timeout, a quota stop).
+            if stop:
+                self.stopped = True
             self.in_flight -= 1
             self.max_batch_cost = max(self.max_batch_cost, cost)
             self.room.notify_all()
@@ -946,6 +950,7 @@ class _LaneRun(_TranslateRun):
         self.args.stop_before_batch = lambda: parent.stopped or bool(stop and stop())
         self.batch_cost = 0.0
         self.reserved = False
+        self.skipped = False
 
     @property
     def spent(self):
@@ -986,13 +991,15 @@ class _LaneRun(_TranslateRun):
             # The run is over for this lane (cap reached, or cancelled while waiting for room).
             self.hard_failures.clear()
             self.batch_succeeded = False
+            self.skipped = True
             return
+        self.skipped = False
         self.batch_cost = 0.0
         try:
             super()._translate_batch(batch)
         finally:
             self.reserved = False
-            self.parent._release_batch(self.batch_cost)
+            self.parent._release_batch(self.batch_cost, stop=self.stop_run)
 
     def _record_usage(self, inp, out, cache_read=0, cache_write=0):
         with self.parent.lock:
@@ -1007,6 +1014,8 @@ class _LaneRun(_TranslateRun):
                            f"{self.chapter_label}{message[:1].lower()}{message[1:]}")
 
     def _finish_batch(self, batch):
+        if self.skipped:
+            return  # never sent: not counted or reported as done
         with self.parent.lock:
             self.parent.batches_done += 1
         super()._finish_batch(batch)
