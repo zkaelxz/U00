@@ -225,8 +225,10 @@ parallel_chapters: 2 or 3 translates that many novel chapters at once (setting
 `novel_parallel_chapters`, Developer Mode, default 1), read through
 `settings_service.parallel_chapters()`. Only Claude, GPT, DeepSeek and a paid Gemini key qualify
 (`can_run_in_parallel`); each lane gets its own engine copy, batches inside a chapter stay in
-order, and the cost cap is checked before each batch, so it can be passed by up to one batch per
-extra lane.
+order. Under a job or monthly cap a batch starts only while the ones in flight (each costed as the
+dearest batch so far) leave room, and the first batch goes alone, so the cap is passed by at most one
+batch as in a one-chapter run (`_reserve_batch`; the monthly room comes from `month_cap_left_cb`).
+Each lane has its own rate-limit wait budget.
 
 reasoning: "less" (the saved choice `claude_reasoning` / `openai_reasoning`, read through
 `settings_service.reasoning_override(engine_name)`) sends `thinking: {"type": "between_tools"}` to

@@ -250,7 +250,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  stop_before_batch=None, temperature: float | None = None,
                                  reasoning: str | None = None, sentence_groups_cb=None,
                                  replace_flags: frozenset = frozenset(), parallel_chapters: int = 1,
-                                 lane_thread_scope=None):
+                                 lane_thread_scope=None, month_cap_left_cb=None):
     """Translates `lines` in place and returns (lines, errors); see _TranslateRun
     for what each argument does."""
     # The signature stays the one place the arguments are listed: the public
@@ -400,6 +400,9 @@ class _TranslateRun:
             if callback:
                 setattr(a, name, self._locked(callback))
         self.stopped = False
+        self.in_flight = 0
+        self.max_batch_cost = 0.0
+        self.room = threading.Condition(self.lock)
         self.batches_done = 0
         self.chapters_total = len(groups)
         offsets, offset = [], 0
@@ -426,6 +429,9 @@ class _TranslateRun:
             try:
                 # A job's thread-locals (its line-write declaration, its timing id) are not
                 # inherited by a new thread, so the caller says how to apply them again.
+                # Each lane waits out rate limits on its own 10-minute budget: one shared
+                # budget would drain N times faster in wall time than a one-chapter run.
+                _rate_limit_budget_var.set(RateLimitWaitBudget())
                 with (a.lane_thread_scope() if a.lane_thread_scope else contextlib.nullcontext()):
                     while (item := next_chapter()) is not None:
                         number, group = item
@@ -452,6 +458,46 @@ class _TranslateRun:
         if failures:
             raise failures[0]
         return not self.stopped and not work
+
+    def _cap_headroom(self):
+        """Dollars left under the tightest cap, or None when nothing caps the run."""
+        a = self.args
+        left = []
+        if a.cost_cap_usd is not None:
+            left.append(a.cost_cap_usd - self.spent)
+        if a.month_cap_left_cb:
+            month = a.month_cap_left_cb()
+            if month is not None:
+                left.append(month)
+        return min(left) if left else None
+
+    def _reserve_batch(self) -> bool:
+        """Takes a slot to send one batch; False when the run should stop instead. Under a
+        cap a batch starts only while the batches already in flight, each costing as much as
+        the dearest one so far, leave room: so the cap is passed by at most the one batch
+        a one-chapter run could also pass it by. With no batch measured yet that means one
+        at a time."""
+        a = self.args
+        with self.room:
+            while True:
+                if self.stopped or (a.cancel_check_cb and a.cancel_check_cb()):
+                    return False
+                if self._cap_reached():
+                    if a.cap_cb:
+                        a.cap_cb(self.spent)
+                    return False
+                headroom = self._cap_headroom()
+                if (headroom is None or self.in_flight == 0
+                        or (self.max_batch_cost > 0 and headroom - self.in_flight * self.max_batch_cost > 0)):
+                    self.in_flight += 1
+                    return True
+                self.room.wait(0.5)
+
+    def _release_batch(self, cost):
+        with self.room:
+            self.in_flight -= 1
+            self.max_batch_cost = max(self.max_batch_cost, cost)
+            self.room.notify_all()
 
     def _locked(self, callback):
         def call(*args, **kwargs):
@@ -898,6 +944,8 @@ class _LaneRun(_TranslateRun):
         self.args.progress_cb = None
         stop = parent.args.stop_before_batch
         self.args.stop_before_batch = lambda: parent.stopped or bool(stop and stop())
+        self.batch_cost = 0.0
+        self.reserved = False
 
     @property
     def spent(self):
@@ -927,11 +975,30 @@ class _LaneRun(_TranslateRun):
 
     def _set_batch_context(self, batch):
         self.batch_lines = batch
+        # Taken here, once per batch: stop_before_batch is also asked in the middle of a batch.
+        self.reserved = self.parent._reserve_batch()
+        if not self.reserved:
+            self.stop_run = True
         super()._set_batch_context(batch)
+
+    def _translate_batch(self, batch):
+        if not self.reserved:
+            # The run is over for this lane (cap reached, or cancelled while waiting for room).
+            self.hard_failures.clear()
+            self.batch_succeeded = False
+            return
+        self.batch_cost = 0.0
+        try:
+            super()._translate_batch(batch)
+        finally:
+            self.reserved = False
+            self.parent._release_batch(self.batch_cost)
 
     def _record_usage(self, inp, out, cache_read=0, cache_write=0):
         with self.parent.lock:
+            before = self.parent.spent
             self.parent._record_usage(inp, out, cache_read, cache_write)
+            self.batch_cost += self.parent.spent - before
 
     def _report(self, frac, message):
         parent = self.parent

@@ -102,11 +102,38 @@ def test_one_chapter_at_a_time_is_the_old_path(novel):
     assert engine.stats["peak"] == 1
 
 
-def test_cost_cap_ends_the_run_and_overshoots_by_at_most_the_lanes(novel):
+def test_cost_cap_is_passed_by_no_more_than_a_one_chapter_run_would(novel):
     engine = _Engine()
-    lines, _errors, usage, _ = _run(engine, 2, cost_cap_usd=3.0)
-    assert 3 <= len(usage) <= 3 + 1
+    lines, _errors, usage, _ = _run(engine, 3, cost_cap_usd=3.0)
+    assert len(usage) == 3
     assert any(not ln.en for ln in lines)
+
+
+def test_monthly_room_holds_back_batches_beside_those_in_flight(novel):
+    engine = _Engine()
+    usage_log = []
+    lines = _novel()
+    tp.translate_lines_with_engine(
+        lines, engine, drama_meta={"id": 1}, batch_size=3, parallel_chapters=3,
+        usage_cb=lambda *u: usage_log.append(u),
+        month_cap_spent_cb=lambda: len(usage_log) >= 3,
+        month_cap_left_cb=lambda: 3.0 - len(usage_log))
+    assert len(usage_log) == 3
+
+
+def test_each_lane_has_its_own_rate_limit_budget(novel):
+    from engine_backends.run_limits import _rate_limit_budget_var
+    budgets = []
+    engine = _Engine()
+    original = engine.translate_batch
+
+    def record(zh_lines, context):
+        budgets.append(id(_rate_limit_budget_var.get()))
+        return original(zh_lines, context)
+
+    engine.translate_batch = record
+    _run(engine, 3)
+    assert len(set(budgets)) == 3
 
 
 def test_cancel_stops_every_lane(novel):

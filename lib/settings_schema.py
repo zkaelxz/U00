@@ -187,7 +187,7 @@ SETTINGS = (
          tab="translation", section="Translation style"),
     _pref("novel_parallel_chapters", "int", 1, min=1, max=3, clamp=True,
           label="Novel chapters translated at once",
-          help="A novel translated on Claude, GPT, DeepSeek or a paid Gemini key works through 2 or 3 chapters at the same time instead of one after another. Batches inside a chapter still run in order, so only the first batch of a chapter misses the English of the chapter before it. Several requests run at once, so a provider's rate limit can slow a run and a spending cap can be passed by up to one batch per extra chapter. A model on this PC and the Gemini free tier always translate one chapter at a time. 1 keeps the one-after-another run.",
+          help="A novel translated on Claude, GPT, DeepSeek or a paid Gemini key works through 2 or 3 chapters at the same time instead of one after another. Batches inside a chapter still run in order, so only the first batch of a chapter misses the English of the chapter before it. Several requests run at once, so a provider's rate limit can slow a run. A spending cap still holds to within one batch: under a cap, batches wait for room beside the ones already sent, so a capped run is less parallel. A model on this PC and the Gemini free tier always translate one chapter at a time. 1 keeps the one-after-another run.",
           tab="translation", section="Translation style", scope="developer", dev_only=True),
     _pref("claude_reasoning", "choice", "default", choices="reasoning_modes",
           label="Claude Sonnet 5.5 reasoning",
