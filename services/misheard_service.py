@@ -26,7 +26,7 @@ SCAN_MAX_LINES = 5000   # same budget as the other whole-title scans
 
 def _unavailable(reason: str) -> dict:
     return {"available": False, "reason": reason, "lines_scanned": 0, "suggestions": [],
-            "truncated": False}
+            "truncated": False, "kept_count": 0}
 
 
 def _trusted(drama: dict, cut) -> List[Tuple[str, str]]:
@@ -118,8 +118,9 @@ def find_for_title(drama_id: int) -> dict:
     everything = db.load_line_objects(drama_id)
     lines = [(ln.idx, ln.id, ln.zh.strip()) for ln in everything
              if (ln.zh or "").strip() and not ln.sfx][:SCAN_MAX_LINES]
+    kept = set(db.list_misheard_keeps(drama_id))
     result = find_misheard(lines, _trusted(drama, cut), cut, canon,
-                           lambda w: _in_dictionary(canon(w)))
+                           lambda w: _in_dictionary(canon(w)), skip=kept)
     by_idx = {ln.idx: ln for ln in everything}
     series_terms = glossary_service.list_glossary_terms(drama_id)
     for item in result["suggestions"]:
@@ -133,7 +134,24 @@ def find_for_title(drama_id: int) -> dict:
             for ln in everything)
         item["term_id"] = (_glossary_term_id(series_terms, item["suggested"])
                            if item["source"] == "glossary" else None)
-    return {"available": True, "reason": "", "lines_scanned": len(lines), **result}
+    return {"available": True, "reason": "", "lines_scanned": len(lines), "kept_count": len(kept),
+            **result}
+
+
+
+def keep_as_heard(drama_id: int, heard: str, suggested: str) -> dict:
+    """Remember that this heard spelling is right for this title, so it is not offered again."""
+    ownership_service.require_drama(drama_id)
+    heard, suggested = heard.strip(), suggested.strip()
+    if not heard or not suggested or heard == suggested:
+        raise InvalidInputError("Give the heard spelling and a different suggested one.")
+    db.add_misheard_keep(drama_id, heard, suggested)
+    return {"kept": len(db.list_misheard_keeps(drama_id))}
+
+
+def show_kept_again(drama_id: int) -> dict:
+    ownership_service.require_drama(drama_id)
+    return {"cleared": db.clear_misheard_keeps(drama_id)}
 
 
 def apply(drama_id: int, heard: str, suggested: str, line_id: int | None = None,
