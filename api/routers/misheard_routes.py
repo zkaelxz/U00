@@ -5,7 +5,8 @@ list them, and apply one (to a line or to every line that holds the heard spelli
 
 from fastapi import APIRouter, Path
 from api.auth import require_permission
-from api.schemas import MisheardApplyBody, MisheardApplyResult, MisheardList, error_responses
+from api.schemas import (MisheardApplyBody, MisheardApplyResult, MisheardList, MisheardRememberBody,
+                         MisheardRememberResult, error_responses)
 from services import misheard_service
 
 router = APIRouter(prefix="/api/misheard", tags=["misheard"])
@@ -25,3 +26,11 @@ def get_misheard(drama_id: int = Path(ge=1)):
              responses=error_responses(404, 409))
 def post_apply_misheard(body: MisheardApplyBody, drama_id: int = Path(ge=1)):
     return misheard_service.apply(drama_id, body.heard, body.suggested, body.line_id, body.expected_zh)
+
+
+@router.post("/dramas/{drama_id}/remember", dependencies=[require_permission("lines.edit")],
+             response_model=MisheardRememberResult,
+             summary="Use a glossary term's spelling everywhere and remember the heard one as its alias",
+             responses=error_responses(404, 422))
+def post_remember_misheard(body: MisheardRememberBody, drama_id: int = Path(ge=1)):
+    return misheard_service.remember_spelling(drama_id, body.heard, body.suggested, body.term_id)
