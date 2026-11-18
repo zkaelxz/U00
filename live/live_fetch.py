@@ -64,6 +64,9 @@ UNSUPPORTED = "The stream uses an HLS feature live capture doesn't support (byte
 NEEDS_CRYPTOGRAPHY = ("The stream is encrypted (AES-128); decrypting it needs the cryptography "
                       "package: pip install cryptography")
 FAILED = "Fetching the stream failed."
+# Failures a fresh connection would meet again: Live ends on these at once
+# rather than reconnecting.
+PERMANENT = frozenset({NOT_HTTP, TOO_LARGE, UNSUPPORTED, NEEDS_CRYPTOGRAPHY})
 
 
 class StreamFetchError(Exception):
@@ -268,16 +271,19 @@ class StreamPump:
     stdin) on another, through a queue of at most QUEUE_CHUNKS chunks.
     `proxy`: every request goes through it (http and https alike); None
     connects directly. Environment proxy settings are ignored, so no
-    `no_proxy` entry can route a request around `proxy`.
+    `no_proxy` entry can route a request around `proxy`. live_only: an
+    HLS playlist that is already complete (a recording, not a broadcast)
+    ends the stream at once instead of being played from its start.
 
     The writer closes `sink` when the stream ends, fails or is stopped,
     so ffmpeg sees end of input. `error` is the first failure (a fixed
     message), None after a clean end or a halt()."""
 
     def __init__(self, url: str, sink, proxy: str | None = None, stall_timeout: float | None = None,
-                 align: SequenceAlign | None = None):
+                 align: SequenceAlign | None = None, live_only: bool = False):
         self.url = url
         self._align = align
+        self._live_only = live_only
         self.error = None
         self._sink = sink
         self._stall_timeout = STALL_TIMEOUT if stall_timeout is None else stall_timeout
@@ -551,6 +557,8 @@ class StreamPump:
             playlist, url = self._playlist(pick_rendition(playlist))
             if playlist["variants"]:
                 raise StreamFetchError(UNSUPPORTED)
+        if self._live_only and playlist["endlist"]:
+            return
         next_seq, init_uri, keys = None, None, {}
         last_new = time.monotonic()
         while True:

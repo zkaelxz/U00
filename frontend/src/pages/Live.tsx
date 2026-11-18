@@ -22,7 +22,7 @@ import { api, hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP,
   advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, languageWhisperDefault, glossaryChoices, glossaryIds, glossaryValue,
-  isActive, lagLine, pickEngine, resolveModel, startLive, statusLine, type LiveForm, type LiveOptions,
+  isActive, lagLine, pickEngine, resolveModel, startLive, statusLine, statusTone, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
@@ -472,7 +472,7 @@ export default function LivePage() {
           )}
           <div className="live-feed">
             {/* Only the status line is announced: the lines below change every chunk. */}
-            <p className={status === 'error' ? 'error' : session.status?.stop_reason ? 'warn' : 'muted'} data-testid="live-status" role="status">
+            <p className={session.status ? statusTone(session.status) : 'muted'} data-testid="live-status" role="status">
               {session.status ? statusLine(session.status, total) : 'Connecting…'}
             </p>
             {lag && <p className="muted" data-testid="live-lag">{lag}</p>}
