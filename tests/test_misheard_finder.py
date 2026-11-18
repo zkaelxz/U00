@@ -6,6 +6,7 @@ import pytest
 import db
 import misheard_finder as mf
 from core import Line
+from lib.errors import ConflictError, InvalidInputError
 from services import misheard_service
 
 pytest.importorskip("pypinyin")
@@ -90,3 +91,59 @@ def test_a_dictionary_word_is_not_a_slip_of_a_merely_frequent_word():
 def test_a_dictionary_word_can_still_be_a_slip_of_a_glossary_word():
     out = mf.find_misheard(_lines("達羅"), [("達洛", "glossary")], cut, is_dictionary_word=lambda w: True)
     assert out["suggestions"][0]["suggested"] == "達洛"
+
+
+def _title_with_slips(isolated_db):
+    sid = db.get_or_create_series("S")
+    did = db.create_drama(title_en="T", series_id=sid, source_language="zh")
+    db.upsert_glossary_term(sid, "達洛赫", "Yasoch", aliases="")
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="達羅赫來了", en="Yasoch came"),
+                        Line(idx=1, start=1, end=2, zh="達羅赫說話", en=""),
+                        Line(idx=2, start=2, end=3, zh="沒有", en="")])
+    return did, [ln.id for ln in db.load_line_objects(did)]
+
+
+class TestApply:
+    def test_the_list_counts_the_lines_that_hold_the_heard_spelling(self, isolated_db):
+        pytest.importorskip("jieba")
+        did, _ = _title_with_slips(isolated_db)
+        [s] = misheard_service.find_for_title(did)["suggestions"]
+        assert (s["heard"], s["line_count"]) == ("達羅赫", 2)
+
+    def test_use_it_changes_one_line_flags_its_translation_and_snapshots(self, isolated_db):
+        did, ids = _title_with_slips(isolated_db)
+        out = misheard_service.apply(did, "達羅赫", "達洛赫", ids[0], "達羅赫來了")
+        assert out == {"applied": 1, "skipped": 0}
+        lines = {ln.id: ln for ln in db.load_line_objects(did)}
+        assert lines[ids[0]].zh == "達洛赫來了" and lines[ids[0]].flag == "source_changed"
+        assert lines[ids[1]].zh == "達羅赫說話"
+        assert db.list_line_history(did)[0]["label"] == "before mis-heard word fix"
+
+    def test_use_everywhere_changes_every_line_holding_it(self, isolated_db):
+        did, ids = _title_with_slips(isolated_db)
+        assert misheard_service.apply(did, "達羅赫", "達洛赫")["applied"] == 2
+        assert [ln.zh for ln in db.load_line_objects(did)] == ["達洛赫來了", "達洛赫說話", "沒有"]
+
+    def test_a_line_edited_since_is_refused(self, isolated_db):
+        did, ids = _title_with_slips(isolated_db)
+        with pytest.raises(ConflictError):
+            misheard_service.apply(did, "達羅赫", "達洛赫", ids[0], "達羅赫去了")
+        assert db.load_line_objects(did)[0].zh == "達羅赫來了"
+
+    def test_one_line_needs_the_text_the_person_saw(self, isolated_db):
+        did, ids = _title_with_slips(isolated_db)
+        with pytest.raises(InvalidInputError):
+            misheard_service.apply(did, "達羅赫", "達洛赫", ids[0])
+
+    def test_the_change_is_logged_as_a_person_correction(self, isolated_db):
+        did, ids = _title_with_slips(isolated_db)
+        misheard_service.apply(did, "達羅赫", "達洛赫", ids[0], "達羅赫來了")
+        [row] = db.list_source_edits(did)
+        assert (row["path"], row["before_zh"], row["after_zh"]) == ("person", "達羅赫來了", "達洛赫來了")
+
+    def test_use_it_accepts_the_stripped_text_the_list_shows(self, isolated_db):
+        did, ids = _title_with_slips(isolated_db)
+        ln = db.load_line_objects(did)[0]
+        ln.zh = " 達羅赫來了 "
+        db.save_lines(did, [ln], fields=("zh",))
+        assert misheard_service.apply(did, "達羅赫", "達洛赫", ids[0], "達羅赫來了")["applied"] == 1
