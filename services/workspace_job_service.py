@@ -11,6 +11,7 @@ in `workspace_audio_job_service`, the LLM review jobs in
 `workspace_review_job_service`.
 """
 
+import contextlib
 import time
 
 import adaptive_style
@@ -157,7 +158,21 @@ def _month_cap_check(engine_choice, engine):
 def _saved_translate_options(engine_choice) -> dict:
     """The saved Settings choices a translate run passes to the pipeline."""
     return {"check_replies": settings_service.reply_guard_override(),
-            "reasoning": settings_service.reasoning_override(engine_choice)}
+            "reasoning": settings_service.reasoning_override(engine_choice),
+            "parallel_chapters": settings_service.parallel_chapters()}
+
+
+def _lane_thread_scope(job_id):
+    """How a helper thread of this job takes over the job's thread-locals: its declared line
+    writes and the job id that spend is added to in the job's timing."""
+    line_scope = db.current_job_scope()
+
+    @contextlib.contextmanager
+    def apply():
+        with db.adopt_job_scope(line_scope):
+            job_timing.set_current_job(job_id)
+            yield
+    return apply
 
 
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
@@ -232,6 +247,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
         **timing_settings_service.translate_limits(),
         **_saved_translate_options(engine_choice),
+        lane_thread_scope=_lane_thread_scope(job_id),
         thinking=thinking, replace_flags=replace_flags, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes, sentence_groups_cb=(sentence_parts := []).extend,

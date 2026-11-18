@@ -430,6 +430,17 @@ def reasoning_override(engine_name):
     return "less" if key and get(key) == "less" else None
 
 
+def parallel_chapters() -> int:
+    """How many novel chapters one run may translate at once. A Developer Mode row reads as
+    its default (1) while Developer Mode is off, like the Timing rows."""
+    if not _developer_mode_on():
+        return 1
+    try:
+        return max(1, min(3, int(str(get("novel_parallel_chapters")))))
+    except (TypeError, ValueError):
+        return 1
+
+
 def reply_guard_override():
     """The translate reply guard as the pipeline's `check_replies` argument:
     None leaves the choice to the engine and model (auto), else forced on or off.
