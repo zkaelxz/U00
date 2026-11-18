@@ -223,7 +223,7 @@ abandons a request in flight).
 
 parallel_chapters: 2 or 3 translates that many novel chapters at once (setting
 `novel_parallel_chapters`, Developer Mode, default 1), read through
-`settings_service.parallel_chapters()`. Only Claude, GPT, DeepSeek and a paid Gemini key qualify
+`settings_service.parallel_chapters()`. Only Claude, GPT, DeepSeek, a paid Gemini key and an Ollama `-cloud` model qualify
 (`can_run_in_parallel`); each lane gets its own engine copy, batches inside a chapter stay in
 order. Under a job or monthly cap a batch starts only while the ones in flight (each costed as the
 dearest batch so far) leave room, and the first batch goes alone, so the cap is passed by about one
