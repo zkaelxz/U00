@@ -45,9 +45,24 @@ def plan_paragraph_batches(lines, max_size: int, ends, tail_fraction: float = 0.
 
 
 def chapter_start_idxs(lines) -> set:
-    """idx of the lines that are a chapter heading of their own."""
-    from novel_text import is_chapter_heading
-    return {ln.idx for ln in lines if is_chapter_heading(ln)}
+    """idx of the lines that open a chapter. Headings in a row count as one start, chosen as
+    novel_text.chapter_starts chooses it: the first of a pair (a title printed twice, or a volume
+    heading over a chapter heading), the last of a longer run (a contents page)."""
+    from novel_text import _HEADING_RUN, is_chapter_heading
+    starts, run = set(), []
+
+    def close_run():
+        if run:
+            starts.add((run[0] if len(run) <= _HEADING_RUN else run[-1]).idx)
+            run.clear()
+
+    for ln in lines:
+        if is_chapter_heading(ln):
+            run.append(ln)
+        else:
+            close_run()
+    close_run()
+    return starts
 
 
 def novel_paragraph_ends(drama_meta, lines):
