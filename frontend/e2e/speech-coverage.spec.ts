@@ -52,3 +52,17 @@ test('without permission to read lines: a plain note, no error banner', async ({
   await expect(panel.getByText('Seeing line text needs permission to read lines. Ask the PC owner.')).toBeVisible()
   await expect(panel.getByRole('alert')).toHaveCount(0)
 })
+
+test('Transcribe says how many words may be mis-heard and links to Review', async ({ page }) => {
+  await page.route('**/api/misheard/dramas/1', (route) => route.fulfill({ json: {
+    available: true, reason: '', lines_scanned: 9, truncated: false, kept_count: 0, suggestions: [
+      { heard: '達羅赫', suggested: '達洛赫', source: 'glossary', heard_count: 1, suggested_count: 5, line_count: 1, lines: [] },
+      { heard: '甲乙', suggested: '甲丙', source: 'name', heard_count: 1, suggested_count: 4, line_count: 1, lines: [] },
+    ],
+  } }))
+  await page.goto('/#/drama/1/source')
+  await selectMediaTab(page, 'tools')
+  const note = page.getByTestId('misheard-note')
+  await expect(note).toContainText('2 words may be mis-heard.')
+  await expect(note.getByRole('link', { name: 'Check them in Review' })).toHaveAttribute('href', /#\/drama\/1\/review/)
+})
