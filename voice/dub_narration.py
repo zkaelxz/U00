@@ -159,7 +159,7 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
 
     Clips are generated first, one at a time -- any that already exist from
     a prior run are reused, not regenerated -- then assembled in order.
-    character_clone_map is as for build_dub_track; a speaker with no entry
+    character_clone_map is as for clone_map_from_characters; a speaker with no entry
     (NO_VOICE_ERROR) is treated like any other failed unit.
 
     Returns (path_to_wav, errors) -- a line whose unit failed is skipped
@@ -185,8 +185,8 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
             unit["clone"],
             lang=(source_language if narrate_original else None)))
         span = f"{first:04d}" if first == last else f"{first:04d}-{last:04d}"
-        # Signature in the name for the same reason as build_dub_track's
-        # clips: an edited unit gets a fresh clip, an unchanged one is reused.
+        # Signature in the name: an edited unit gets a fresh clip, an unchanged
+        # one is reused.
         unit["clip_path"] = os.path.join(clips_dir, f"line_{span}_{signature}.wav")
 
     finished = 0

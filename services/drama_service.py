@@ -6,9 +6,10 @@ Create/update return the same drama detail dict
 `library_service.get_library_drama` does, so a client sees one shape.
 
 Whitelist rationale: `db.create_drama(**fields)` and `db.update_drama(id,
-**fields)` interpolate their kwarg KEYS straight into SQL with no
-whitelist, so this module never passes a client-supplied key through --
-only the explicit sets below reach the db layer, and anything else raises
+**fields)` interpolate their kwarg KEYS into SQL. The db layer rejects a key
+that is not a real `dramas` column, but this module is the policy layer: it
+never passes a client-supplied key through -- only the explicit sets below
+reach the db layer, and anything else raises
 InvalidInputError naming the field (never echoing its value). Not
 accepted on update: `status`, `content_mode`, `source_language` (owned by
 source_service), any *_filename, `translation_engine`, and
