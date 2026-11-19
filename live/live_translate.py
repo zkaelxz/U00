@@ -343,6 +343,30 @@ def drop_stock_phrases(segments: list) -> list:
     return [seg for seg in segments if not invented(seg.get("text") or "")]
 
 
+# A line Whisper writes again right after itself is dropped only from this many
+# letters: a short "はい" said twice is real speech, a whole sentence twice is not.
+MIN_REPEATED_LINE_CHARS = 8
+# Letters a repeat may carry in front of the line before it: Whisper can hang
+# the first word of a line on the end of the one before ("…です手" / "拍子を…").
+REPEAT_LEADING_SLACK = 2
+
+
+def drop_repeated_lines(segments: list) -> list:
+    """Drops a line that repeats the one just before it. ja-1.5b on TBS news
+    wrote a sentence a second time straight after itself, squeezed into 0.5-1.3 s,
+    and both copies were shown and translated."""
+    kept = []
+    for seg in segments:
+        text = re.sub(r"\W+", "", seg.get("text") or "")
+        prev = re.sub(r"\W+", "", kept[-1].get("text") or "") if kept else ""
+        if len(prev) >= MIN_REPEATED_LINE_CHARS and text.endswith(prev) \
+                and len(text) - len(prev) <= REPEAT_LEADING_SLACK:
+            kept[-1] = {**kept[-1], "end": max(kept[-1]["end"], seg["end"])}
+            continue
+        kept.append(seg)
+    return kept
+
+
 # A forced cut never leaves a piece shorter than this many CJK characters: a
 # few letters flashed on screen read worse than a line a little over the limit.
 MIN_FORCED_PIECE_CHARS = 8
@@ -550,7 +574,7 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
         on_transcribed(time.monotonic() - started)
     checkpoint()
     segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text, overlap_covered_seconds)
-    segments = join_trailing_fragments(split_long_caption_lines(drop_stock_phrases(segments)))
+    segments = join_trailing_fragments(split_long_caption_lines(drop_repeated_lines(drop_stock_phrases(segments))))
     offset = chunk_index * segment_seconds - overlap_seconds + audio_shift
     cues = live_cue_feed.pending_cues(segments, offset, first_id)
     if translate:
