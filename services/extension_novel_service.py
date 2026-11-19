@@ -4,7 +4,7 @@ a title": a web-novel page's text (or the person's selection) appended to a
 novel title's raw-novel file as a new chapter, the same append the Saved raw
 chapters panel lists (`sources.pipeline.save_novel_text`).
 
-The answer goes back through `page_server.py` to a script on a third-party
+The answer goes back through `services/page_server.py` to a script on a third-party
 page, so it carries booleans and ids only: never the text, the page URL or a
 filesystem path, and every message is a fixed sentence run through
 `engine_backends.shared.redact_secrets`.

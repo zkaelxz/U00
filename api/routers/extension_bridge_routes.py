@@ -3,7 +3,7 @@ api/routers/extension_bridge_routes.py -- the browser extension's routes for
 a household member's own computer, behind a per-device token
 (`Authorization: Bearer baihe_dt_...`, never a session or cookie).
 
-The same work as the PC-only bridge in `page_server.py` (that module's
+The same work as the PC-only bridge in `services/page_server.py` (that module's
 functions are called, so there is one pipeline), with the caller's rights:
 a title is sent into only when the member can edit it, the title list shows
 only what they can see, the monthly spending cap applies, and nothing is

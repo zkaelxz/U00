@@ -17,7 +17,7 @@ less invasive than what this app already does, and it also covers the
 sites with no adapter at all, which is most of them.
 
 **What this module is not.** It is not a second translation pipeline.
-Everything here funnels into the existing, tested `scanlate.py` chain
+Everything here funnels into the existing, tested `scanlate/scanlate.py` chain
 (`detect_and_ocr_page` -> `translate_page_bubbles`) and the existing
 `sources.pipeline.add_page_images` import path, which is the same one
 Scanlate's own manual upload uses. This module is an *input surface*, and
