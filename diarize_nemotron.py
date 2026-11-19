@@ -115,9 +115,11 @@ def diarize(audio_path: str, use_gpu: bool = False, on_progress=None) -> tuple[l
     local_only = model_offline.active()
     say(0.02, "Loading Nemotron speaker model...")
     processor = AutoProcessor.from_pretrained(MODEL_ID, local_files_only=local_only)
+    # No device_map: it needs accelerate, which no requirements file installs, and
+    # without it the load fails and the run quietly falls back to pyannote.
     model = AutoModelForAudioFrameClassification.from_pretrained(
-        MODEL_ID, local_files_only=local_only,
-        device_map="cuda" if use_gpu and torch.cuda.is_available() else "cpu")
+        MODEL_ID, local_files_only=local_only)
+    model = model.to("cuda" if use_gpu and torch.cuda.is_available() else "cpu")
     say(0.1, "Detecting speakers (Nemotron)...")
     import audio_extract
     # An upload keeps its own container (source.m4a), which soundfile, librosa's reader,
