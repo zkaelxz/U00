@@ -228,3 +228,42 @@ def test_a_failed_sentence_shows_the_failure_on_each_of_its_lines():
          {"start": 1, "end": 2, "text": "있습니다."}], 0, 0)
     live_cue_feed.translate_cues(cues, CueTranslator(Engine(), "ko"), lambda: None)
     assert [c["translation"] for c in cues] == ["failed", "failed"]
+
+
+class TestSourceScriptKeptInTheReply:
+    """TranslateGemma 12B on a Japanese stream: a line naming
+    "プリキューキューティコマ" came back with no English, both in its chunk and
+    asked alone, because the reply guard drops a reply with Japanese left in it."""
+
+    LINE = "さてお休み前に言ってたFGOのイベントでプリキューキューティコマが実装"
+
+    def _translate(self, monkeypatch, content):
+        from engine_backends import local
+        from live.live_cue_translation import CueTranslator
+        import memory_headroom
+        monkeypatch.setattr(memory_headroom, "check_ollama", lambda *a, **k: None)
+        bodies = []
+
+        def chat(base_url, payload):
+            bodies.append(payload)
+            return {"message": {"content": '{"1": "%s"}' % content}}
+        monkeypatch.setattr(local, "_ollama_chat", chat)
+        translated = CueTranslator(local.OllamaEngine(model="translategemma:12b"), "ja").translate(self.LINE)
+        return translated, bodies
+
+    def test_a_name_left_in_japanese_still_gives_a_caption(self, monkeypatch):
+        reply = "At the FGO event I mentioned before the break, Puri Kyu キューティコマ was added."
+        translated, bodies = self._translate(monkeypatch, reply)
+        assert translated == reply
+        assert len(bodies) >= 2   # the guarded request(s), then one without the guard
+
+    def test_the_line_copied_back_is_still_a_failure_with_its_reason(self, monkeypatch):
+        translated, _ = self._translate(monkeypatch, self.LINE)
+        assert translated == "[translation failed: the model's reply was unusable (source text left in it)]"
+
+    def test_another_unusable_reply_names_its_reason_without_another_request(self, monkeypatch):
+        refusal = "I'm sorry, but I can't translate this."
+        translated, bodies = self._translate(monkeypatch, refusal)
+        assert translated == "[translation failed: the model's reply was unusable (a refusal)]"
+        _, with_name = self._translate(monkeypatch, "Puri Kyu キューティコマ was added.")
+        assert len(bodies) == len(with_name) - 1
