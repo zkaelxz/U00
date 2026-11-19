@@ -5,6 +5,7 @@ A reader site stamps its name or address on every page. OCR reads it like any
 other lettering, so without this it is translated and typeset onto the art.
 """
 
+import difflib
 import re
 from collections.abc import Sequence
 
@@ -36,6 +37,25 @@ _PROMO = re.compile(r"가장\s*빠른\s*웹[툰튼]|구글\s*검색|(?:가장|�
 # line, since these are ordinary syllables inside a sentence.
 _STAMP_LINE = re.compile(r"^(?:뉴토끼?|미[리\d]{1,3}보[기\d]?)$")
 
+# OCR reads the one 뉴토끼 stamp many ways ("뉴로끼", "구을검식뉴토끼", "기빠문 미리보기"),
+# so a whole line close enough to one of its parts counts. Each form is compared only with
+# lines of nearly its own length and at least three characters, which keeps real short
+# words ("토끼", rabbit) out.
+_STAMP_FORMS = ("구글검색뉴토끼", "구글검색", "뉴토끼", "빠른웹툰미리보기", "가장빠른웹툰미리보기", "웹툰미리보기")
+_STAMP_SIMILARITY = 0.66
+_STAMP_MIN_CHARS = 3
+_STAMP_LENGTH_SLACK = 2
+
+
+def _resembles_stamp(line: str) -> bool:
+    text = _normal(line)
+    if len(text) < _STAMP_MIN_CHARS:
+        return False
+    return any(abs(len(form) - len(text)) <= _STAMP_LENGTH_SLACK
+               and difflib.SequenceMatcher(None, text, form).ratio() >= _STAMP_SIMILARITY
+               for form in _STAMP_FORMS)
+
+
 # A repeat counts as one stamp only while it stays in the same spot. The
 # stamp is a fixed overlay, whereas a line of dialogue that happens to repeat
 # (a name, a sigh) moves with its balloon.
@@ -63,7 +83,7 @@ def looks_like_site_mark(text: str) -> bool:
 
 
 def _is_stamp_line(line: str) -> bool:
-    return looks_like_site_mark(line) or bool(_STAMP_LINE.match(_normal(line)))
+    return looks_like_site_mark(line) or bool(_STAMP_LINE.match(_normal(line))) or _resembles_stamp(line)
 
 
 def _without_mark_lines(text: str) -> str:
@@ -101,9 +121,10 @@ def flag_site_marks(regions: list, earlier_pages: Sequence[list] = (), width: in
     for region in regions:
         if region.get("skip") or not (region.get("source_text") or "").strip():
             continue
-        mark = looks_like_site_mark(region["source_text"])
+        mark = looks_like_site_mark(region["source_text"]) or _resembles_stamp(region["source_text"])
         lines = region["source_text"].splitlines()
-        if not mark and len(lines) > 1 and any(_STAMP_LINE.match(_normal(ln)) for ln in lines):
+        if not mark and len(lines) > 1 and any(
+                _STAMP_LINE.match(_normal(ln)) or _resembles_stamp(ln) for ln in lines):
             # A cut-short name only counts beside other lines: alone it could be a word.
             mark = True
         if mark:
