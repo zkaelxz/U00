@@ -1063,6 +1063,36 @@ class TestStockPhrasesInLive:
             "みんな元気で何よりですね", "ペースパちゃんありがとう", "チャンネル登録よろしくお願いします"]
 
 
+class TestRepeatedLinesInLive:
+    """ja-1.5b on TBS news wrote a sentence twice in a row in one chunk (183.8 s
+    and 205.2 s), and Live showed and translated both."""
+
+    def test_a_sentence_written_again_straight_after_itself_is_shown_once(self, monkeypatch, tmp_path):
+        import whisper_transcribe
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda path, **kw: [
+            {"start": 0.0, "end": 4.6, "text": "ミョン大統領です手"},
+            {"start": 6.1, "end": 11.0, "text": "拍子をしながらレッドカーペットを進み笑顔で車に乗り込みました"},
+            {"start": 11.0, "end": 11.5, "text": "手拍子をしながらレッドカーペットを進み笑顔で車に乗り込みました"},
+            {"start": 12.0, "end": 17.2, "text": "若者の出迎えもなく歓迎行事は縮小された形です"},
+            {"start": 17.2, "end": 18.5, "text": "若者の出迎えもなく歓迎行事は縮小された形です"}])
+        chunk = tmp_path / "chunk_00000.wav"
+        chunk.write_bytes(b"x")
+
+        class Echo:
+            def translate_batch(self, lines, context):
+                return [f"EN:{t}" for t in lines]
+        cues = lt.process_chunk(str(chunk), 0, 20, "ja", "ja-1.5b", Echo())
+        assert [c["text"] for c in cues] == [
+            "ミョン大統領です手", "拍子をしながらレッドカーペットを進み笑顔で車に乗り込みました",
+            "若者の出迎えもなく歓迎行事は縮小された形です"]
+        assert [c["end"] for c in cues][1:] == [11.5, 18.5]
+
+    def test_a_short_word_said_twice_stays(self):
+        segs = [{"start": 0, "end": 1, "text": "はい。"}, {"start": 1, "end": 2, "text": "はい。"},
+                {"start": 2, "end": 3, "text": "そうですね"}, {"start": 3, "end": 4, "text": "本当にそうですね"}]
+        assert lt.drop_repeated_lines(segs) == segs
+
+
 class TestLongLinesInLive:
     """whisper-ja wrote 10-20 s of speech as one segment, a wall of text on screen."""
 
