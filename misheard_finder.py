@@ -23,6 +23,9 @@ FREQUENT_MIN_COUNT = 3    # a word heard this often is trusted: ASR rarely errs 
 # Real test titles: two-character names matched on a different sound, and words of the title or
 # heard often matched to ordinary words, gave nearly all the noise and none of the real slips.
 EVERYDAY_SOURCE_MIN_LEN = 4  # title / frequent words shorter than this are ordinary speech
+# Exclamations and sentence particles: a window that starts or ends on one (哎唷洛赫啊 gives
+# 唷洛赫) is a real name next to an interjection, not a name heard wrongly.
+INTERJECTION_CHARS = frozenset("哎唷唉啊呀喔哦噢嗯欸哇咦哈嘿")
 MAX_SUGGESTIONS = 30      # more than a person reads in one sitting; the best come first
 MAX_LINES_SHOWN = 5       # enough to find the word in the episode
 MAX_COMPARISONS = 200_000  # one title's share; a long title stops early and says so
@@ -134,7 +137,7 @@ def find_misheard(lines: Iterable[SourceLine], trusted: Iterable[Tuple[str, str]
     for heard, spots, allow_frequent in candidates:
         if heard in pool or len(spots) > RARE_MAX_COUNT:
             continue
-        if heard in inside_known:
+        if heard in inside_known or heard[0] in INTERJECTION_CHARS or heard[-1] in INTERJECTION_CHARS:
             continue
         heard_sound = ph.phonetic_key(heard, "zh")
         best = None

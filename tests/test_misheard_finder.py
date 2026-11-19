@@ -75,6 +75,12 @@ class TestFinder:
         out = mf.find_misheard(lines, [("好吃", "title")], lambda t: [t])
         assert out["suggestions"] == []
 
+    def test_a_name_next_to_an_exclamation_is_not_a_slip(self):
+        # 哎唷洛赫啊 is 哎唷 + the name 洛赫, so the window 唷洛赫 must not be offered as 達洛赫.
+        lines = _lines("唷洛赫", "卡洛赫")
+        out = mf.find_misheard(lines, [("達洛赫", "glossary")], lambda t: [t])
+        assert [s["heard"] for s in out["suggestions"]] == ["卡洛赫"]
+
     def test_a_spelling_inside_a_longer_known_one_is_left_alone(self):
         # 子女 sounds like 直女, but it is part of the known alias 子女鶴, so it is that name.
         lines = _lines("子女")
