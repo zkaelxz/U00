@@ -180,7 +180,7 @@ def speak_in_venv(engine: str, requests: list, workdir: str):
 def clone_map_from_characters(characters, drama_dir: str,
                               default_engine: str = DEFAULT_CLONE_ENGINE,
                               speaker_labels=()) -> dict:
-    """{speaker_label: clone entry} for build_dub_track/build_narration_track,
+    """{speaker_label: clone entry} for build_narration_track,
     from db.list_characters() rows -- used by the Workspace tab to route every speaker.
     Per character, first match wins (the engine is the character's
     clone_engine, else default_engine, the run's choice):

@@ -2,7 +2,7 @@
 services/extension_service.py -- the browser-extension bridge's on/off
 switch, token and translation settings, behind Settings > Browser extension.
 
-The bridge is `page_server.py`: a loopback-only HTTP endpoint on a fixed
+The bridge is `services/page_server.py`: a loopback-only HTTP endpoint on a fixed
 port that needs its own shared token on every request. It runs on its own
 thread with no API request to read settings from, so this module is how
 saved state reaches it: its on/off state is the Sources setting
