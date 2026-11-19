@@ -275,3 +275,26 @@ def test_month_cap_left_reads_the_cap_and_the_spend(monkeypatch):
     assert wjs._month_cap_left("claude", engine)() is None
     monkeypatch.setattr(translate_run_service, "engine_cap_applies", lambda *a, **k: False)
     assert wjs._month_cap_left("claude", engine) is None
+
+
+def _short_chapters():
+    lines = []
+    for c in range(4):
+        for i in range(10):
+            lines.append(_Line(len(lines), f"第{c}章" if i == 0 else f"c{c}l{i}"))
+    return lines
+
+
+def _chapters_per_call(parallel):
+    engine = _Engine()
+    tp.translate_lines_with_engine(_short_chapters(), engine, drama_meta={"id": 1}, batch_size=25,
+                                   parallel_chapters=parallel)
+    return [len({z[:2] for z in call if not z.startswith("第")}) for call in engine.calls]
+
+
+def test_chapters_shorter_than_a_batch_still_get_a_batch_each_side_by_side(novel):
+    assert max(_chapters_per_call(3)) == 1
+
+
+def test_one_chapter_at_a_time_keeps_its_batch_plan(novel):
+    assert max(_chapters_per_call(1)) > 1
