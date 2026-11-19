@@ -8,7 +8,8 @@ from . import medium_prompts
 
 def plan_paragraph_batches(lines, max_size: int, ends, tail_fraction: float = 0.5,
                            max_chars: int | None = None,
-                           chapter_starts: Collection[int] = frozenset()) -> list:
+                           chapter_starts: Collection[int] = frozenset(),
+                           one_chapter_per_batch: bool = False) -> list:
     """Like plan_batches for a novel: a batch ends at a chapter or paragraph end
     instead of mid-paragraph. `ends` is the set of line idx that end a paragraph;
     `chapter_starts` the idx of lines that open a chapter. A batch holds at most
@@ -18,7 +19,8 @@ def plan_paragraph_batches(lines, max_size: int, ends, tail_fraction: float = 0.
     end; with neither it is cut at the limit, so a paragraph longer than a batch
     is still split rather than sent whole. A chapter start is preferred so the
     parts of one chapter stay in the same requests and a request does not run into
-    the next chapter."""
+    the next chapter. `one_chapter_per_batch` makes every chapter start cut, so no
+    batch holds two chapters, whatever their length."""
     batches = []
     start, n = 0, len(lines)
     while start < n:
@@ -30,7 +32,11 @@ def plan_paragraph_batches(lines, max_size: int, ends, tail_fraction: float = 0.
                 if total > max_chars and i > start:
                     end = i
                     break
-        if end < n:
+        inside = (next((c for c in range(start + 1, end) if lines[c].idx in chapter_starts), None)
+                  if one_chapter_per_batch else None)
+        if inside is not None:
+            end = inside
+        elif end < n:
             earliest = max(start + 1, end - int((end - start) * tail_fraction))
             cut = next((c for c in range(end, earliest - 1, -1)
                         if lines[c].idx in chapter_starts), None)
