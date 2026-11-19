@@ -99,6 +99,12 @@ def leftover_source_script(reply: str, allowed_runs=()) -> bool:
     return bool(_CJK.search(text))
 
 
+def source_script_share(reply: str) -> float:
+    """The part of the reply's non-space characters in CJK script."""
+    letters = len(re.sub(r"\s+", "", reply))
+    return sum(map(len, _CJK_RUN.findall(reply))) / letters if letters else 0.0
+
+
 def _parses_as_json(text: str) -> bool:
     # A line may open with a stage direction ("[Sighs] Fine."); only a JSON
     # array written as the line is a malformed reply.
@@ -107,6 +113,10 @@ def _parses_as_json(text: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+# unusable_reply's reason for source script in the reply; Live asks again without the guard on it.
+LEFTOVER_SOURCE = "source text left in it"
 
 
 def unusable_reply(source: str, reply: str, allowed_runs=()):
@@ -124,7 +134,7 @@ def unusable_reply(source: str, reply: str, allowed_runs=()):
     if _TASK_REFUSAL.match(text.replace("’", "'")):
         return "a refusal"
     if leftover_source_script(text, allowed_runs):
-        return "source text left in it"
+        return LEFTOVER_SOURCE
     if _english_words(text) > ABSURD_LONG_FACTOR * _expected_words(source) + ABSURD_SLACK_WORDS:
         return "far too long for the line"
     return None
