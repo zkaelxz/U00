@@ -126,11 +126,10 @@ def nemotron_ready() -> bool:
         os.path.join(folder, "processor_config.json"))
 
 
-def _speaker_model_ready(expected_speakers=None, min_speakers=None, max_speakers=None):
+def _speaker_model_ready():
     # Imported here: diarization_service pulls in the transcription stack.
     from services import diarization_service
-    pyannote = diarization_service.needs_pyannote(expected_speakers, min_speakers, max_speakers)
-    return diarization_ready if pyannote else nemotron_ready
+    return diarization_ready if diarization_service.needs_pyannote() else nemotron_ready
 
 
 def omnivoice_ready() -> bool:
@@ -249,8 +248,8 @@ def for_aligner() -> list:
     return [aligner_ready]
 
 
-def for_diarization(expected_speakers=None, min_speakers=None, max_speakers=None) -> list:
-    return [_speaker_model_ready(expected_speakers, min_speakers, max_speakers)]
+def for_diarization() -> list:
+    return [_speaker_model_ready()]
 
 
 def for_sensevoice() -> list:

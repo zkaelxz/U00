@@ -360,8 +360,7 @@ def _resolve_run(drama_id, drama, *, source_language, chinese_script, transcript
         drama, source_language, chinese_script, whisper_size, beam_size, min_silence_ms,
         vad_threshold, preset, hallucination_silence_sec, min_pause_sec, separation_backend,
         use_gpu, asr_backend_choice, alignment_method, transcript_mode,
-        bool(hf_token) or (run_diarize and not diarization_service.needs_pyannote(
-            expected_speakers, min_speakers, max_speakers)),
+        bool(hf_token) or (run_diarize and not diarization_service.needs_pyannote()),
         min_speakers, max_speakers, timing=timing_settings_service.changed(timing))
     return SimpleNamespace(
         source_language=source_language, chinese_script=chinese_script,
@@ -708,7 +707,7 @@ def _chain_diarization(job_id, drama_id, hf_token, diarize_audio_path, expected_
                        min_speakers, max_speakers, diarize_requested) -> tuple:
     """(started, skipped_reason) for the speaker detection that follows a
     saved transcription."""
-    pyannote = diarization_service.needs_pyannote(expected_speakers, min_speakers, max_speakers)
+    pyannote = diarization_service.needs_pyannote()
     if diarize_requested and not hf_token and pyannote:
         return False, "no Hugging Face token"
     if diarize_requested and not diarize_audio_path:
