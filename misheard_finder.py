@@ -119,7 +119,9 @@ def find_misheard(lines: Iterable[SourceLine], trusted: Iterable[Tuple[str, str]
     for key, (source, display) in pool.items():
         by_length[len(key)].append((key, display, source, ph.phonetic_key(key, "zh")))
     # A spelling inside a longer glossary or name spelling (an alias) is that name, already known.
-    known = [k for k, (src, _) in pool.items() if src in ("glossary", "name")]
+    inside_known = {k[i:j] for k, (src, _) in pool.items() if src in ("glossary", "name")
+                    for i in range(len(k)) for j in range(i + MIN_WORD_LEN, len(k) + 1)
+                    if j - i < len(k)}
     windows = _character_windows(lines, pool, surface, canon)
     # Windows only answer to person-typed words: matching them to merely frequent words
     # would flag every stretch of ordinary speech.
@@ -132,7 +134,7 @@ def find_misheard(lines: Iterable[SourceLine], trusted: Iterable[Tuple[str, str]
     for heard, spots, allow_frequent in candidates:
         if heard in pool or len(spots) > RARE_MAX_COUNT:
             continue
-        if any(heard in k and heard != k for k in known):
+        if heard in inside_known:
             continue
         heard_sound = ph.phonetic_key(heard, "zh")
         best = None

@@ -76,9 +76,10 @@ class TestFinder:
         assert out["suggestions"] == []
 
     def test_a_spelling_inside_a_longer_known_one_is_left_alone(self):
-        # 姚若 is part of the alias 姚若鶴 of the name, so it is not a new slip of 雅若.
-        out = mf.find_misheard(_lines("姚若"), [("雅若", "glossary"), ("姚若鶴", "glossary")],
-                               lambda t: [t])
+        # 子女 sounds like 直女, but it is part of the known alias 子女鶴, so it is that name.
+        lines = _lines("子女")
+        assert mf.find_misheard(lines, [("直女", "glossary")], lambda t: [t])["suggestions"]
+        out = mf.find_misheard(lines, [("直女", "glossary"), ("子女鶴", "glossary")], lambda t: [t])
         assert out["suggestions"] == []
 
 
