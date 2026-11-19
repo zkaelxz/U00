@@ -17,6 +17,10 @@ def cut(text):
     return [text[i:i + 2] for i in range(0, len(text), 2)]
 
 
+def cut4(text):
+    return [text[i:i + 4] for i in range(0, len(text), 4)]
+
+
 def _lines(*texts):
     return [(i, 100 + i, t) for i, t in enumerate(texts)]
 
@@ -29,10 +33,10 @@ class TestFinder:
         assert found["亞羅"]["source"] == "glossary" and found["亞羅"]["lines"][0]["line_id"] == 100
 
     def test_a_word_heard_often_is_trusted_and_a_rare_twin_points_to_it(self):
-        lines = _lines("書院", "書院", "書院", "數院")
-        out = mf.find_misheard(lines, [], cut)
+        lines = _lines("書院學生", "書院學生", "書院學生", "數院學生")
+        out = mf.find_misheard(lines, [], cut4)
         assert [(s["heard"], s["suggested"], s["source"]) for s in out["suggestions"]] == [
-            ("數院", "書院", "frequent")]
+            ("數院學生", "書院學生", "frequent")]
         assert out["suggestions"][0]["suggested_count"] == 3
 
     def test_traditional_and_simplified_are_one_word(self):
@@ -46,14 +50,37 @@ class TestFinder:
         assert out["suggestions"] == []
 
     def test_glossary_outranks_a_frequent_word(self):
-        lines = _lines("書院", "書院", "書院", "數院")
-        out = mf.find_misheard(lines, [("輸院", "glossary")], cut)
-        assert out["suggestions"][0]["suggested"] == "輸院"
+        lines = _lines("書院學生", "書院學生", "書院學生", "數院學生")
+        out = mf.find_misheard(lines, [("輸院學生", "glossary")], cut4)
+        assert out["suggestions"][0]["suggested"] == "輸院學生"
 
     def test_capped_and_reports_more_existed(self, monkeypatch):
         monkeypatch.setattr(mf, "MAX_SUGGESTIONS", 1)
-        out = mf.find_misheard(_lines("書院", "書院", "書院", "數院", "疏院"), [], cut)
+        out = mf.find_misheard(
+            _lines("書院學生", "書院學生", "書院學生", "數院學生", "疏院學生"), [], cut4)
         assert len(out["suggestions"]) == 1 and out["truncated"]
+
+    def test_two_characters_must_sound_the_same(self):
+        # 子女 / 直女 sound alike in speech; 下不 / 下播 are only near, so another word.
+        out = mf.find_misheard(_lines("子女", "下不"), [("直女", "glossary"), ("下播", "glossary")], cut)
+        assert [(s["heard"], s["suggested"]) for s in out["suggestions"]] == [("子女", "直女")]
+
+    def test_three_characters_may_change_only_one(self):
+        out = mf.find_misheard(_lines("要如何"), [("雅如赫", "glossary")], lambda t: [t])
+        assert out["suggestions"] == []
+
+    def test_everyday_title_and_frequent_words_are_not_slips(self):
+        # Short title and frequent words are ordinary speech, never offered.
+        lines = _lines("然後他", "然後他", "然後他", "然後它", "要吃", "要吃")
+        out = mf.find_misheard(lines, [("好吃", "title")], lambda t: [t])
+        assert out["suggestions"] == []
+
+    def test_a_spelling_inside_a_longer_known_one_is_left_alone(self):
+        # 子女 sounds like 直女, but it is part of the known alias 子女鶴, so it is that name.
+        lines = _lines("子女")
+        assert mf.find_misheard(lines, [("直女", "glossary")], lambda t: [t])["suggestions"]
+        out = mf.find_misheard(lines, [("直女", "glossary"), ("子女鶴", "glossary")], lambda t: [t])
+        assert out["suggestions"] == []
 
 
 @pytest.mark.skipif(importlib.util.find_spec("jieba") is None, reason="jieba not installed")
@@ -82,9 +109,9 @@ def test_service_reports_missing_jieba(isolated_db, monkeypatch):
 
 
 def test_a_dictionary_word_is_not_a_slip_of_a_merely_frequent_word():
-    lines = _lines("書院", "書院", "書院", "數院")
-    kept = mf.find_misheard(lines, [], cut)
-    dropped = mf.find_misheard(lines, [], cut, is_dictionary_word=lambda w: w == "數院")
+    lines = _lines("書院學生", "書院學生", "書院學生", "數院學生")
+    kept = mf.find_misheard(lines, [], cut4)
+    dropped = mf.find_misheard(lines, [], cut4, is_dictionary_word=lambda w: w == "數院學生")
     assert kept["suggestions"] and dropped["suggestions"] == []
 
 
@@ -202,6 +229,19 @@ class TestSafeEverywhere:
 
     def test_replace_without_the_word_cutter_changes_every_occurrence(self):
         assert misheard_service._replace("亞羅亞羅", "亞羅", "亞洛", None) == "亞洛亞洛"
+
+    def test_replace_leaves_a_longer_typed_spelling_alone(self):
+        out = misheard_service._replace("楊若鶴說楊若", "楊若", "雅若", None, ["楊若鶴"])
+        assert out == "楊若鶴說雅若"
+
+    def test_remember_does_not_save_a_fragment_of_a_longer_alias(self, isolated_db):
+        did, ids = _title_with_slips(isolated_db)
+        sid = db.get_drama(did)["series_id"]
+        [term] = db.list_glossary_terms(sid)
+        db.upsert_glossary_term(sid, term["term_original"], "Yaloch", aliases="亞洛哈")
+        out = misheard_service.remember_spelling(did, "洛哈", "亞洛赫", term["id"])
+        assert out["aliases_added"] == 0
+        assert db.list_glossary_terms(sid)[0]["aliases"] == "亞洛哈"
 
     def test_remember_rewrites_lines_with_one_snapshot_and_saves_the_alias(self, isolated_db):
         did, ids = _title_with_slips(isolated_db)
