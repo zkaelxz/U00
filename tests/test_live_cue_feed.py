@@ -162,8 +162,8 @@ def test_a_reply_copied_from_the_next_line_is_asked_again_on_its_own():
             return ["Reporting from Seoul.", "AI cheating fears grow.", "AI cheating fears grow."]
 
     cues = live_cue_feed.pending_cues(
-        [{"start": 0, "end": 1, "text": "서울에서"}, {"start": 1, "end": 2, "text": "이재경입니다."},
-         {"start": 3, "end": 5, "text": "A.I. 부정행위 논란이 커지면서"}], 0, 0)
+        [{"start": 0, "end": 1, "text": "서울에서 전했습니다."}, {"start": 1, "end": 2, "text": "이재경입니다."},
+         {"start": 3, "end": 5, "text": "A.I. 부정행위 논란이 커집니다."}], 0, 0)
     live_cue_feed.translate_cues(cues, CueTranslator(Engine(), "ko"), lambda: None)
     assert [c["translated"] for c in cues] == [
         "Reporting from Seoul.", "I'm Lee Jae-kyung.", "AI cheating fears grow."]
@@ -181,3 +181,50 @@ def test_two_lines_that_really_say_the_same_keep_the_same_translation():
         [{"start": 0, "end": 1, "text": "고맙습니다."}, {"start": 1, "end": 2, "text": "고맙습니다."}], 0, 0)
     live_cue_feed.translate_cues(cues, CueTranslator(Engine(), "ko"), lambda: None)
     assert [c["translated"] for c in cues] == ["Thank you.", "Thank you."]
+
+
+def test_a_sentence_split_over_lines_is_translated_whole_on_its_last_line():
+    """Yonhap 165 s / 171 s: the first half of a verb-final sentence, sent on its
+    own, got the whole sentence's English and its own content was lost."""
+    from live.live_cue_translation import CueTranslator
+    sent = []
+
+    class Engine:
+        def translate_batch(self, lines, context):
+            sent.append(list(lines))
+            return [f"en:{t}" for t in lines]
+
+    cues = live_cue_feed.pending_cues(
+        [{"start": 0, "end": 4, "text": "젤렌스키 대통령은 무기가 러시아에 공급되고"},
+         {"start": 4, "end": 8, "text": "있다면서 북한이 성능을 개선한다고 주장했습니다."},
+         {"start": 9, "end": 10, "text": "다음 소식입니다."},
+         {"start": 11, "end": 12, "text": "그리고"}], 0, 0)
+    live_cue_feed.translate_cues(cues, CueTranslator(Engine(), "ko"), lambda: None)
+    assert sent == [["젤렌스키 대통령은 무기가 러시아에 공급되고 있다면서 북한이 성능을 개선한다고 주장했습니다.",
+                     "다음 소식입니다.", "그리고"]]
+    assert [(c["translated"], c["translation"]) for c in cues] == [
+        (live_cue_feed.CONTINUED, "done"),
+        ("en:젤렌스키 대통령은 무기가 러시아에 공급되고 있다면서 북한이 성능을 개선한다고 주장했습니다.", "done"),
+        ("en:다음 소식입니다.", "done"), ("en:그리고", "done")]
+
+
+def test_unpunctuated_speech_is_not_grouped_and_a_run_is_capped():
+    plain = [{"text": t} for t in ("그건", "있습니까", "네")]
+    assert live_cue_feed.sentence_groups(plain) == [[0], [1], [2]]
+    run = [{"text": t} for t in ("a", "b", "c", "d.")]
+    # Past MAX_SENTENCE_LINES the lines go one by one rather than onto one line.
+    assert live_cue_feed.sentence_groups(run) == [[0], [1], [2], [3]]
+
+
+def test_a_failed_sentence_shows_the_failure_on_each_of_its_lines():
+    from live.live_cue_translation import CueTranslator
+
+    class Engine:
+        def translate_batch(self, lines, context):
+            raise RuntimeError("down")
+
+    cues = live_cue_feed.pending_cues(
+        [{"start": 0, "end": 1, "text": "특검의 수사가 뻗어나가고"},
+         {"start": 1, "end": 2, "text": "있습니다."}], 0, 0)
+    live_cue_feed.translate_cues(cues, CueTranslator(Engine(), "ko"), lambda: None)
+    assert [c["translation"] for c in cues] == ["failed", "failed"]
