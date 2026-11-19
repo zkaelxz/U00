@@ -301,7 +301,7 @@ SETTINGS = (
           help="Nemotron-3 is NVIDIA's newer model and mixed up fewer lines than pyannote on the titles we scored; "
                "it needs the transformers and librosa packages and downloads about 380 MB the first time. "
                "Pyannote (community-1) is the older choice: pick it to go back. "
-               "A typed speaker count always uses pyannote, and a failed Nemotron run falls back to pyannote.",
+               "Nemotron ignores a typed speaker count; pyannote runs only when Nemotron isn't available on this PC.",
           tab="system", section="Advanced"),
     _pref("ocr_prefer_paddle_vl_manga", "bool", False, label="Japanese: prefer PaddleOCR-VL",
           help="Changes only what Auto picks for Japanese. Leave off unless it reads your pages better than manga_ocr.",

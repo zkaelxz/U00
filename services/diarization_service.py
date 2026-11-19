@@ -80,11 +80,10 @@ NO_TOKEN_NOTICE = diarize.NO_TOKEN_NOTICE
 NO_PYANNOTE_NOTICE = diarize.NO_PYANNOTE_NOTICE
 
 
-def needs_pyannote(expected_speakers=None, min_speakers=None, max_speakers=None) -> bool:
-    """Whether this run has to use pyannote (and so its token): Nemotron is a public
-    model, but it can't take a speaker count, so a typed count or range means pyannote."""
-    return (settings_service.get("speaker_model") != "nemotron"
-            or bool(expected_speakers or min_speakers or max_speakers))
+def needs_pyannote() -> bool:
+    """Whether runs use pyannote (and so its token): only when it is the chosen model.
+    Nemotron is public and runs even with a typed speaker count, which it ignores."""
+    return settings_service.get("speaker_model") != "nemotron"
 
 
 def speaker_detection_problem():
@@ -189,6 +188,11 @@ def apply_diarization_result(drama_id: int, result: dict,
         return True
     if not turns:
         return False
+    import diarize_nemotron
+    if result.get("model") == diarize_nemotron.MODEL_LABEL:
+        # Nemotron ignored any typed count; saving it would pre-fill the next run
+        # with a count that was never used.
+        expected_speakers = min_speakers = max_speakers = None
     diarize.save_turns(db.drama_dir(drama_id), turns, num_speakers=expected_speakers or None,
                        model=result.get("model"), embeddings=result.get("embeddings", {}),
                        min_speakers=min_speakers or None, max_speakers=max_speakers or None,
@@ -379,7 +383,7 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
         raise InvalidInputError(str(exc)) from exc
 
     hf_token = settings_service.resolve_key("hf_token")
-    if not hf_token and needs_pyannote(expected_speakers, min_speakers, max_speakers):
+    if not hf_token and needs_pyannote():
         raise MissingKeyError("Hugging Face", kind="token")
 
     audio_path = _drama_audio_path(drama_id, drama)
