@@ -13,6 +13,13 @@ PYANNOTE_REPO = "pyannote/speaker-diarization-community-1"
 MIN_PRINT_TURN_SECONDS = 1.0
 MAX_PRINT_SPEECH_SECONDS = 600.0
 PRINT_PIECE_SECONDS = 30.0
+
+
+class NemotronUnavailable(RuntimeError):
+    """Nemotron can't run on this PC (a package or the model is missing): the
+    only case where speaker detection may use pyannote instead."""
+
+
 MISSING_PACKAGES_NOTICE = ("Nemotron speaker detection needs the transformers and librosa packages, "
                            "which aren't installed.")
 
@@ -101,8 +108,9 @@ def _pyannote_embedder(use_gpu: bool):
 
 
 def diarize(audio_path: str, use_gpu: bool = False, on_progress=None) -> tuple[list[dict], dict]:
-    """(turns, voice prints) for the whole file. Raises RuntimeError with a plain sentence
-    when a needed package is missing, so the caller can fall back to pyannote. The prints
+    """(turns, voice prints) for the whole file. Raises NemotronUnavailable with a plain
+    sentence when a needed package or the model is missing, so the caller can fall back
+    to pyannote; any other failure is raised as it is. The prints
     are {} when they can't be made (pyannote or its embedding model isn't on this PC, or
     the step fails): the turns alone are still a good result."""
     say = on_progress or (lambda frac, message: None)
@@ -111,14 +119,18 @@ def diarize(audio_path: str, use_gpu: bool = False, on_progress=None) -> tuple[l
         import torch
         from transformers import AutoModelForAudioFrameClassification, AutoProcessor
     except ImportError as exc:
-        raise RuntimeError(MISSING_PACKAGES_NOTICE) from exc
+        raise NemotronUnavailable(MISSING_PACKAGES_NOTICE) from exc
     local_only = model_offline.active()
     say(0.02, "Loading Nemotron speaker model...")
-    processor = AutoProcessor.from_pretrained(MODEL_ID, local_files_only=local_only)
-    # No device_map: it needs accelerate, which no requirements file installs, and
-    # without it the load fails and the run quietly falls back to pyannote.
-    model = AutoModelForAudioFrameClassification.from_pretrained(
-        MODEL_ID, local_files_only=local_only)
+    try:
+        processor = AutoProcessor.from_pretrained(MODEL_ID, local_files_only=local_only)
+        # No device_map: it needs accelerate, which no requirements file installs, and
+        # without it the load fails and the run quietly falls back to pyannote.
+        model = AutoModelForAudioFrameClassification.from_pretrained(
+            MODEL_ID, local_files_only=local_only)
+    except OSError as exc:
+        # transformers raises OSError when the model is neither on disk nor downloadable.
+        raise NemotronUnavailable(f"The Nemotron model couldn't be loaded ({exc})") from exc
     model = model.to("cuda" if use_gpu and torch.cuda.is_available() else "cpu")
     say(0.1, "Detecting speakers (Nemotron)...")
     import audio_extract

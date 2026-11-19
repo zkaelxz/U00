@@ -872,6 +872,20 @@ class TestNemotronBackend:
         assert prints == {}
         assert loads == [decoded]
 
+    def test_a_model_that_cant_be_loaded_counts_as_no_nemotron(self, monkeypatch):
+        import types
+        import diarize_nemotron
+
+        def no_model(*a, **k):
+            raise OSError("not on disk and offline")
+        monkeypatch.setitem(sys.modules, "transformers", types.SimpleNamespace(
+            AutoProcessor=types.SimpleNamespace(from_pretrained=no_model),
+            AutoModelForAudioFrameClassification=types.SimpleNamespace(from_pretrained=no_model)))
+        monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace())
+        monkeypatch.setitem(sys.modules, "librosa", types.SimpleNamespace())
+        with pytest.raises(diarize_nemotron.NemotronUnavailable, match="couldn't be loaded"):
+            diarize_nemotron.diarize("/fake/audio.wav")
+
     def test_nemotron_turns_are_used_when_chosen(self, monkeypatch):
         turns = [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_03"}]
         outcome, calls = self._run(monkeypatch, {"backend": "nemotron"}, nemotron=turns)
@@ -881,13 +895,35 @@ class TestNemotronBackend:
         assert outcome[1]["model"] == "nemotron-3-diarization"
         assert outcome[1]["embeddings"] == {"SPEAKER_03": [0.5, 0.25]}
 
-    @pytest.mark.parametrize("failure", [RuntimeError("no librosa"), []])
-    def test_failure_or_empty_result_falls_back_to_pyannote(self, monkeypatch, failure):
-        outcome, calls = self._run(monkeypatch, {"backend": "nemotron"}, nemotron=failure)
+    def test_a_missing_nemotron_falls_back_to_pyannote(self, monkeypatch):
+        import diarize_nemotron
+        outcome, calls = self._run(monkeypatch, {"backend": "nemotron"},
+                                   nemotron=diarize_nemotron.NemotronUnavailable("no librosa"))
         assert calls == ["/fake/audio.wav"]
         assert outcome[0] == "ok"
         assert outcome[1]["model"] == "pyannote-fake"
-        assert outcome[1]["backend_fallback_reason"]
+        assert outcome[1]["backend_fallback_reason"] == "no librosa"
+
+    def test_another_nemotron_failure_fails_the_run_instead_of_using_pyannote(self, monkeypatch):
+        outcome, _ = self._run(monkeypatch, {"backend": "nemotron"}, nemotron=RuntimeError("CUDA out of memory"))
+        assert outcome[0] != "ok"
+        assert "pyannote" not in repr(outcome)
+
+    def test_no_speech_stays_a_nemotron_result(self, monkeypatch):
+        outcome, _ = self._run(monkeypatch, {"backend": "nemotron"}, nemotron=[])
+        assert outcome[0] == "ok"
+        assert outcome[1]["model"] == "nemotron-3-diarization" and outcome[1]["segments"] == []
+
+    @pytest.mark.parametrize("options,num", [({"backend": "nemotron"}, 2),
+                                             ({"backend": "nemotron", "min_speakers": 2}, None),
+                                             ({"backend": "nemotron", "max_speakers": 3}, None)])
+    def test_a_typed_count_still_runs_nemotron_and_says_it_was_ignored(self, monkeypatch, options, num):
+        turns = [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_03"}]
+        outcome, calls = self._run(monkeypatch, options, num_speakers=num, nemotron=turns)
+        assert calls == ["/fake/audio.wav"]
+        assert outcome[1]["model"] == "nemotron-3-diarization"
+        assert outcome[1]["speaker_count_hint"] == (
+            "Nemotron doesn't use a typed speaker count, so it was ignored; Nemotron found 1 speaker.")
 
     def test_without_a_token_nemotron_still_runs(self, monkeypatch):
         turns = [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_03"}]
@@ -895,18 +931,16 @@ class TestNemotronBackend:
         assert outcome[1]["model"] == "nemotron-3-diarization"
 
     def test_without_a_token_a_failed_nemotron_says_pyannote_was_skipped(self, monkeypatch):
+        import diarize_nemotron
         outcome, _ = self._run(monkeypatch, {"backend": "nemotron"},
-                               nemotron=RuntimeError("no librosa"), hf_token=None)
+                               nemotron=diarize_nemotron.NemotronUnavailable("no librosa"), hf_token=None)
         assert outcome[0] == "ok" and outcome[1]["failed_reason"] == "dependency_missing"
         assert outcome[1]["detail"] == (
-            "Nemotron speaker detection didn't run (RuntimeError: no librosa), and pyannote "
+            "Nemotron speaker detection didn't run (no librosa), and pyannote "
             "was skipped because no Hugging Face token is configured.")
 
-    @pytest.mark.parametrize("options,num", [({"backend": "nemotron"}, 2),
-                                             ({"backend": "nemotron", "min_speakers": 2}, None),
-                                             ({"backend": "nemotron", "max_speakers": 3}, None),
-                                             ({}, None), ({"backend": "pyannote"}, None)])
-    def test_pyannote_is_used_for_hints_and_by_default(self, monkeypatch, options, num):
+    @pytest.mark.parametrize("options,num", [({}, None), ({"backend": "pyannote"}, 2)])
+    def test_pyannote_is_used_when_chosen_and_by_default(self, monkeypatch, options, num):
         outcome, calls = self._run(monkeypatch, options, num_speakers=num, nemotron=[])
         assert calls == []
         assert outcome[1]["model"] == "pyannote-fake"

@@ -321,10 +321,8 @@ def run_app_transcription(clip: dict, opts) -> dict:
 
 
 def run_diarization(clip: dict, opts) -> dict:
+    # As in the app: Nemotron ignores a clip's num_speakers rather than switching to pyannote.
     backend = clip.get("backend") or settings_service.get("speaker_model")
-    if clip.get("num_speakers"):
-        # As in the app: Nemotron takes no speaker count, so a clip with one runs pyannote.
-        backend = "pyannote"
     token = "" if backend == "nemotron" else settings_service.resolve_key("hf_token")
     if token is None or (backend != "nemotron" and not token):
         raise RuntimeError("No Hugging Face token is set up, so speaker detection can't load.")
