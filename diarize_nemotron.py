@@ -124,12 +124,13 @@ def diarize(audio_path: str, use_gpu: bool = False, on_progress=None) -> tuple[l
     say(0.02, "Loading Nemotron speaker model...")
     try:
         processor = AutoProcessor.from_pretrained(MODEL_ID, local_files_only=local_only)
-        # No device_map: it needs accelerate, which no requirements file installs, and
-        # without it the load fails and the run quietly falls back to pyannote.
+        # No device_map: it needs accelerate, which no requirements file installs.
         model = AutoModelForAudioFrameClassification.from_pretrained(
             MODEL_ID, local_files_only=local_only)
-    except OSError as exc:
-        # transformers raises OSError when the model is neither on disk nor downloadable.
+    except (OSError, ValueError, KeyError) as exc:
+        # OSError: the model is missing, unreadable or can't be downloaded. ValueError or
+        # KeyError: this transformers is too old to know the model. Either way Nemotron
+        # can't run on this PC.
         raise NemotronUnavailable(f"The Nemotron model couldn't be loaded ({exc})") from exc
     model = model.to("cuda" if use_gpu and torch.cuda.is_available() else "cpu")
     say(0.1, "Detecting speakers (Nemotron)...")

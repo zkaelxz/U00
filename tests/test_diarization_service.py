@@ -246,6 +246,15 @@ class TestApplyDiarizationResult:
         assert saved is not None
         assert diarize.load_last_speaker_count(ddir) == 2
 
+    def test_a_count_nemotron_ignored_is_not_saved_for_next_time(self, isolated_db):
+        did, ddir = _drama_with_audio(isolated_db)
+        self._lines(isolated_db, did)
+        turns = [{"start": 0.0, "end": 6.0, "speaker": "SPEAKER_00"}]
+        diarization_service.apply_diarization_result(
+            did, {"segments": turns, "model": "nemotron-3-diarization", "embeddings": {}}, expected_speakers=3)
+        assert diarize.load_turns(ddir) is not None
+        assert diarize.load_last_speaker_count(ddir) is None
+
     def test_a_speaker_edited_while_applying_is_not_overwritten(self, isolated_db, monkeypatch):
         did, _ = _drama_with_audio(isolated_db)
         self._lines(isolated_db, did)

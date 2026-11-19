@@ -188,6 +188,11 @@ def apply_diarization_result(drama_id: int, result: dict,
         return True
     if not turns:
         return False
+    import diarize_nemotron
+    if result.get("model") == diarize_nemotron.MODEL_LABEL:
+        # Nemotron ignored any typed count; saving it would pre-fill the next run
+        # with a count that was never used.
+        expected_speakers = min_speakers = max_speakers = None
     diarize.save_turns(db.drama_dir(drama_id), turns, num_speakers=expected_speakers or None,
                        model=result.get("model"), embeddings=result.get("embeddings", {}),
                        min_speakers=min_speakers or None, max_speakers=max_speakers or None,

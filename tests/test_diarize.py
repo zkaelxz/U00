@@ -905,9 +905,29 @@ class TestNemotronBackend:
         assert outcome[1]["backend_fallback_reason"] == "no librosa"
 
     def test_another_nemotron_failure_fails_the_run_instead_of_using_pyannote(self, monkeypatch):
-        outcome, _ = self._run(monkeypatch, {"backend": "nemotron"}, nemotron=RuntimeError("CUDA out of memory"))
-        assert outcome[0] != "ok"
-        assert "pyannote" not in repr(outcome)
+        outcome, _ = self._run(monkeypatch, {"backend": "nemotron"}, nemotron=RuntimeError("bad audio frame"))
+        assert outcome[0] == "error" and outcome[1] == "RuntimeError"
+
+    def test_out_of_gpu_memory_reruns_nemotron_on_the_cpu(self, monkeypatch):
+        import diarize_nemotron
+        turns = [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"}]
+        devices = []
+
+        def fake(audio_path, use_gpu=False, on_progress=None):
+            devices.append(use_gpu)
+            if use_gpu:
+                raise RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB")
+            return turns, {}
+
+        monkeypatch.setattr(diarize_nemotron, "diarize", fake)
+        monkeypatch.setattr(diarize, "diarize", lambda *a, **k: pytest.fail("pyannote was used"))
+        result_queue = queue.Queue()
+        diarize.diarize_subprocess_worker("/fake/audio.wav", None, None,
+                                          {"backend": "nemotron", "use_gpu": True}, result_queue)
+        outcome = _final(result_queue)
+        assert devices == [True, False]
+        assert outcome[1]["model"] == "nemotron-3-diarization" and outcome[1]["device"] == "cpu"
+        assert outcome[1]["fell_back_to_cpu"] is True and outcome[1]["fallback_kind"] == "oom"
 
     def test_no_speech_stays_a_nemotron_result(self, monkeypatch):
         outcome, _ = self._run(monkeypatch, {"backend": "nemotron"}, nemotron=[])
