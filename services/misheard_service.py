@@ -29,7 +29,8 @@ def _unavailable(reason: str) -> dict:
             "truncated": False, "kept_count": 0}
 
 
-def _trusted(drama: dict, cut) -> List[Tuple[str, str]]:
+def _typed_spellings(drama: dict) -> List[Tuple[str, str]]:
+    """Glossary terms, their aliases and character names: what a person typed for this title."""
     out: List[Tuple[str, str]] = []
     for term in db.list_run_glossary_terms(drama):
         out.append((term["term_original"], "glossary"))
@@ -38,6 +39,11 @@ def _trusted(drama: dict, cut) -> List[Tuple[str, str]]:
     for ch in (db.list_series_characters(series_id) if series_id else []):
         out.append((ch["character_name"], "name"))
         out.extend((a.strip(), "name") for a in (ch.get("aliases") or "").split("|"))
+    return out
+
+
+def _trusted(drama: dict, cut) -> List[Tuple[str, str]]:
+    out = _typed_spellings(drama)
     for text in (drama.get("title_zh"), drama.get("summary")):
         out.extend((w, "title") for w in cut(text or ""))
     return out
@@ -66,10 +72,17 @@ def _text_tools(drama: dict):
     return cut, canon
 
 
-def _replace(text: str, heard: str, suggested: str, tools) -> str:
-    """Replace `heard` everywhere in `text` except inside a longer ordinary word: 達羅 must not
-    change inside 達羅斯. Without the word cutter every occurrence changes."""
+def _replace(text: str, heard: str, suggested: str, tools, known=()) -> str:
+    """Replace `heard` everywhere in `text` except inside a longer ordinary word (達羅 must not
+    change inside 達羅斯) or a longer spelling the person typed, such as an alias (楊若 inside
+    the alias 楊若鶴). Without the word cutter only the typed spellings protect."""
     protected: List[Tuple[int, int]] = []
+    for word in known:
+        if len(word) > len(heard) and heard in word:
+            at = text.find(word)
+            while at >= 0:
+                protected.append((at, at + len(word)))
+                at = text.find(word, at + 1)
     if tools is not None:
         cut, canon = tools
         pos = 0
@@ -123,6 +136,7 @@ def find_for_title(drama_id: int) -> dict:
                            lambda w: _in_dictionary(canon(w)), skip=kept)
     by_idx = {ln.idx: ln for ln in everything}
     series_terms = glossary_service.list_glossary_terms(drama_id)
+    known = [w for w, _ in _typed_spellings(drama) if w]
     for item in result["suggestions"]:
         for spot in item["lines"]:
             ln = by_idx[spot["idx"]]
@@ -130,7 +144,7 @@ def find_for_title(drama_id: int) -> dict:
         # Counted over every line, not just the scanned ones: it is what Use everywhere changes.
         item["line_count"] = sum(
             not ln.sfx and item["heard"] in (ln.zh or "")
-            and _replace(ln.zh, item["heard"], item["suggested"], tools) != ln.zh
+            and _replace(ln.zh, item["heard"], item["suggested"], tools, known) != ln.zh
             for ln in everything)
         item["term_id"] = (_glossary_term_id(series_terms, item["suggested"])
                            if item["source"] == "glossary" else None)
@@ -170,6 +184,7 @@ def apply(drama_id: int, heard: str, suggested: str, line_id: int | None = None,
         raise InvalidInputError("Give the heard spelling and a different suggested one.")
     # One line the person chose is replaced as asked; "everywhere" leaves longer words alone.
     tools = _text_tools(drama) if line_id is None else None
+    known = [w for w, _ in _typed_spellings(drama) if w] if line_id is None else []
     if line_id is not None and expected_zh is None:
         raise InvalidInputError("expected_zh is needed with line_id.")
     lines = db.load_line_objects(drama_id)
@@ -185,7 +200,7 @@ def apply(drama_id: int, heard: str, suggested: str, line_id: int | None = None,
         return {"applied": 0, "skipped": 0}
     writes, new_zh, changing = [], {}, []
     for ln in targets:
-        new = _replace(ln.zh, heard, suggested, tools)
+        new = _replace(ln.zh, heard, suggested, tools, known)
         if new == ln.zh:
             continue
         changing.append(ln)
@@ -221,7 +236,10 @@ def remember_spelling(drama_id: int, heard: str, suggested: str, term_id: int) -
         raise InvalidInputError("That spelling is another glossary term.")
     result = apply(drama_id, heard, term["term_original"])
     added = 0
-    if heard not in term["aliases"]:
+    # A fragment of a longer spelling already saved would match inside it, so the longer one stays.
+    covered = any(len(w) > len(heard) and heard in w for t in terms.values()
+                  for w in (t["term_original"], *t["aliases"]))
+    if heard not in term["aliases"] and not covered:
         glossary_service.upsert_glossary_term(drama_id, {"id": term_id, "aliases": term["aliases"] + [heard]})
         added = 1
     return {**result, "aliases_added": added}
