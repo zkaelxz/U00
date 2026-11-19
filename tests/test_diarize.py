@@ -832,10 +832,19 @@ class TestNemotronBackend:
             def __call__(self, **inputs):
                 return types.SimpleNamespace(logits=Logits(logit))
 
+            def to(self, device):
+                return self
+
+        def load_model(*a, **k):
+            # transformers refuses device_map unless accelerate is installed, which
+            # the app's requirements don't include.
+            if "device_map" in k:
+                raise ValueError("Using a `device_map` requires `accelerate`")
+            return Model()
+
         fake_transformers = types.SimpleNamespace(
             AutoProcessor=types.SimpleNamespace(from_pretrained=lambda *a, **k: Processor()),
-            AutoModelForAudioFrameClassification=types.SimpleNamespace(
-                from_pretrained=lambda *a, **k: Model()))
+            AutoModelForAudioFrameClassification=types.SimpleNamespace(from_pretrained=load_model))
         fake_torch = types.SimpleNamespace(
             inference_mode=contextlib.nullcontext,
             cuda=types.SimpleNamespace(is_available=lambda: False, empty_cache=lambda: None))
