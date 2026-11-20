@@ -140,7 +140,8 @@ def join_segments(pieces):
 # A WAV's sizes are 32-bit, so its data tops out just under 4 GB: about 24 h of the
 # engines' 24 kHz mono 16-bit audio. pydub writes FLAC through a temporary WAV.
 WAV_MAX_DATA_BYTES = 0xFFFFFFFF - 36
-_PCM_FORMATS = {1: "u8", 2: "s16le", 3: "s24le", 4: "s32le"}
+# pydub keeps 8-bit audio signed in memory (it adds the WAV bias back only when writing a WAV).
+_PCM_FORMATS = {1: "s8", 2: "s16le", 3: "s24le", 4: "s32le"}
 _PIPE_CHUNK_BYTES = 8 * 1024 * 1024
 
 
@@ -157,19 +158,26 @@ def _export_flac(track, path: str) -> None:
     with tempfile.TemporaryFile() as err:
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
         try:
-            view = memoryview(data)
-            for i in range(0, len(view), _PIPE_CHUNK_BYTES):
-                proc.stdin.write(view[i:i + _PIPE_CHUNK_BYTES])
-            proc.stdin.close()
+            view, cut_short = memoryview(data), False
+            try:
+                for i in range(0, len(view), _PIPE_CHUNK_BYTES):
+                    proc.stdin.write(view[i:i + _PIPE_CHUNK_BYTES])
+                proc.stdin.close()
+            except OSError:
+                # ffmpeg stopped reading (a full disk, say): its own message says why.
+                cut_short = True
             proc.wait(timeout=M4B_ENCODE_TIMEOUT_SECONDS)
         except BaseException:
+            with contextlib.suppress(OSError):
+                proc.stdin.close()
             proc.kill()
             proc.wait()
             raise
-        if proc.returncode:
+        if proc.returncode or cut_short:
             err.seek(0)
-            raise RuntimeError("ffmpeg could not write the narration track: "
-                               + err.read()[-500:].decode("utf-8", "replace").strip())
+            # ffmpeg names the output path; job errors never carry filesystem paths.
+            said = err.read()[-500:].decode("utf-8", "replace").replace(path, os.path.basename(path))
+            raise RuntimeError(f"ffmpeg could not write the narration track: {said.strip()}")
 
 
 def build_narration_track(lines, drama_dir: str, character_clone_map: dict, progress_cb=None,
