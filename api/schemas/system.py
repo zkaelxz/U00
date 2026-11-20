@@ -325,7 +325,7 @@ class SettingsPreferences(TimingPreferences):
     stream_plain_prompt: bool = True
     ollama_cloud_default: bool = False
     translate_reply_guard: str = "auto"
-    novel_parallel_chapters: int = 1
+    novel_parallel_chapters: int = 3
     claude_reasoning: str = "default"
     openai_reasoning: str = "less"
     translate_alignment_check: bool = False

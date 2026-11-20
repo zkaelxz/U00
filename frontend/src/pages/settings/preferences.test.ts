@@ -25,7 +25,7 @@ const saved: SettingsPreferences = {
   stream_plain_prompt: true,
   ollama_cloud_default: false,
   translate_reply_guard: 'auto',
-  novel_parallel_chapters: 1,
+  novel_parallel_chapters: 3,
   claude_reasoning: 'default',
   openai_reasoning: 'default',
   translate_alignment_check: false,
