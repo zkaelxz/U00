@@ -45,6 +45,7 @@ __all__ = [
     "LibraryPresetsResponse",
     "LibraryVoice",
     "LibraryVoiceBankResponse",
+    "LibraryVoiceDetails",
     "LibraryRename",
     "MediaAnalysis",
     "MediaSubtitleTrack",
@@ -384,11 +385,22 @@ class LibraryVoice(BaseModel):
     clone_engine: Optional[str] = None
     source_drama: Optional[str] = None
     source_speaker: Optional[str] = None
+    notes: Optional[str] = None
+    ref_text: Optional[str] = None
+    created_at: Optional[str] = None
     clip_available: bool
 
 
 class LibraryVoiceBankResponse(BaseModel):
     items: List[LibraryVoice]
+
+
+class LibraryVoiceDetails(BaseModel):
+    """Edit a voice bank entry's notes, transcript and language."""
+    model_config = ConfigDict(extra="forbid")
+    notes: str = Field("", max_length=1000)
+    ref_text: str = Field("", max_length=5000)
+    language: Optional[str] = Field(None, max_length=10)
 
 
 class LibraryRename(BaseModel):

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from './client'
-import { addVoiceBankEntry, createDrama, deleteDrama, getStats, openDramaFolder, searchLines } from './library'
+import { addVoiceBankEntry, editVoiceBankDetails, replaceVoiceBankClip, createDrama, deleteDrama, getStats, openDramaFolder, searchLines } from './library'
 
 function reply(status: number, body: unknown) {
   const mock = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status }))
@@ -9,6 +9,17 @@ function reply(status: number, body: unknown) {
 }
 
 describe('library api', () => {
+  it('edits voice details as json and replaces a clip as a form', async () => {
+    const a = reply(200, { id: 3, name: 'V', clip_available: true })
+    await editVoiceBankDetails(3, { notes: 'n', ref_text: 't', language: 'ja' }, a.f)
+    expect(a.mock.mock.calls[0][0]).toBe('/api/library/voice-bank/3/details')
+    expect(JSON.parse(a.mock.mock.calls[0][1].body)).toEqual({ notes: 'n', ref_text: 't', language: 'ja' })
+    const b = reply(200, { id: 3, name: 'V', clip_available: true })
+    await replaceVoiceBankClip(3, new File(['x'], 'n.wav'), b.f)
+    expect(b.mock.mock.calls[0][0]).toBe('/api/library/voice-bank/3/clip')
+    expect(b.mock.mock.calls[0][1].body).toBeInstanceOf(FormData)
+  })
+
   it('uploads a voice as a form and leaves blank optional fields out', async () => {
     const { mock, f } = reply(200, { id: 1, name: 'Narrator', clip_available: true })
     await addVoiceBankEntry({ name: 'Narrator', file: new File(['x'], 'v.wav'), ref_text: ' ', language: 'ja' }, f)

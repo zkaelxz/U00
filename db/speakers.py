@@ -824,6 +824,38 @@ def rename_voice_bank_entry(entry_id: int, new_name: str):
         conn.commit()
 
 
+def update_voice_bank_details(entry_id: int, notes: str, ref_text: str, language: str | None):
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE voice_bank SET notes = ?, ref_text = ?, language = ? WHERE id = ?",
+                     (notes, ref_text, language, entry_id))
+        conn.commit()
+
+
+def replace_voice_bank_clip(entry_id: int, clip_source_path: str):
+    """Swaps the entry's clip for a copy of clip_source_path; the old file is
+    removed only after the row points at the new one, so a failure keeps the
+    old voice. Titles that already applied the entry keep their own copy."""
+    import shutil
+    import uuid
+    entry = db.get_voice_bank_entry(entry_id)
+    if entry is None:
+        return
+    os.makedirs(db.VOICE_BANK_DIR, exist_ok=True)
+    new_name = f"{uuid.uuid4().hex}{os.path.splitext(clip_source_path)[1]}"
+    new_path = os.path.join(db.VOICE_BANK_DIR, new_name)
+    shutil.copyfile(clip_source_path, new_path)
+    try:
+        with contextlib.closing(db.get_conn()) as conn:
+            conn.execute("UPDATE voice_bank SET clip_filename = ? WHERE id = ?", (new_name, entry_id))
+            conn.commit()
+    except Exception:
+        os.remove(new_path)
+        raise
+    old = db.voice_bank_clip_path(entry["clip_filename"])
+    if old:
+        os.remove(old)
+
+
 def delete_voice_bank_entry(entry_id: int):
     entry = db.get_voice_bank_entry(entry_id)
     with contextlib.closing(db.get_conn()) as conn:

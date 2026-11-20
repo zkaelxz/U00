@@ -539,6 +539,8 @@ from db.speakers import (  # noqa: F401
     apply_voice_bank_entry,
     rename_voice_bank_entry,
     set_series_character_voice,
+    update_voice_bank_details,
+    replace_voice_bank_clip,
     get_series_character_voice,
     delete_voice_bank_entry,
 )

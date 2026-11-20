@@ -11,6 +11,7 @@ every tag picked must be present. No HTTP types:
 it takes plain values and returns plain dicts, so any caller can use it.
 """
 
+from core import SOURCE_LANGUAGES
 import os
 import sqlite3
 
@@ -272,7 +273,8 @@ def rename_preset(preset_id: int, name: str) -> dict:
     return next(p for p in list_presets() if p["id"] == preset_id)
 
 
-_VOICE_FIELDS = ("id", "name", "language", "clone_engine", "source_drama", "source_speaker")
+_VOICE_FIELDS = ("id", "name", "language", "clone_engine", "source_drama", "source_speaker",
+                 "notes", "ref_text", "created_at")
 
 
 def list_voice_bank() -> list:
@@ -289,4 +291,18 @@ def rename_voice_bank_entry(entry_id: int, name: str) -> dict:
     if db.get_voice_bank_entry(entry_id) is None:
         raise NotFoundError(f"No voice bank entry with id {entry_id}.")
     db.rename_voice_bank_entry(entry_id, name)
+    return next(e for e in list_voice_bank() if e["id"] == entry_id)
+
+
+def update_voice_bank_details(entry_id: int, notes: str, ref_text: str, language) -> dict:
+    """Edits what an entry says about its clip: notes, what the clip says
+    (the transcript the clone matches against), and its language."""
+    entry_id = lib_ids.check_id_of("voice bank entry", entry_id)
+    if db.get_voice_bank_entry(entry_id) is None:
+        raise NotFoundError(f"No voice bank entry with id {entry_id}.")
+    if len(notes) > 1000 or len(ref_text) > 5000:
+        raise InvalidInputError("Notes are up to 1000 characters and the transcript up to 5000.")
+    if language and language not in SOURCE_LANGUAGES:
+        raise InvalidInputError(f"Language must be one of {', '.join(SOURCE_LANGUAGES)}.")
+    db.update_voice_bank_details(entry_id, notes.strip(), ref_text.strip(), language or None)
     return next(e for e in list_voice_bank() if e["id"] == entry_id)

@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 
 import {
   clearReadingHistory, getCosts, getHistory, getPresets, getSeries, getStats, getVoiceBank, renamePreset,
-  addVoiceBankEntry, renameVoiceBankEntry,
+  addVoiceBankEntry, editVoiceBankDetails, renameVoiceBankEntry, replaceVoiceBankClip,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
 import { pcOnlyFetch } from '../api/pcOnly'
@@ -27,6 +27,7 @@ import { SaveFolderCard } from './manga/SaveFolder'
 import { usePcOnly, usePcPendingNote, type PcMode } from '../hooks/usePcOnly'
 import { engineLabel, languageLabel } from '../labels'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
+import type { LibraryVoice } from '../types/library'
 import { DataFolderPanel } from './diskUsage/DiskUsageSection'
 import { useDiskUsage } from './diskUsage/useDiskUsage'
 import { exportableCount } from './libraryAdmin/libraryAdmin'
@@ -298,6 +299,104 @@ function ClearHistory({ pc, onCleared }: { pc: PcMode; onCleared: () => void }) 
   )
 }
 
+// The open voice's details: what its clip says, notes and language, and a new clip.
+function VoiceDetails({ voice, onChanged, onClose }: { voice: LibraryVoice; onChanged: () => void; onClose: () => void }) {
+  const [refText, setRefText] = useState(voice.ref_text ?? '')
+  const [notes, setNotes] = useState(voice.notes ?? '')
+  const [language, setLanguage] = useState(voice.language ?? 'zh')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const [saved, setSaved] = useState<string | null>(null)
+  const run = (job: Promise<unknown>, done: string) => {
+    setPending(true)
+    setError(null)
+    setSaved(null)
+    job.then(() => { setPending(false); setSaved(done); onChanged() }, (e: unknown) => { setPending(false); setError(e) })
+  }
+  return (
+    <div className="rename-form" role="group" aria-label={`Details of ${voice.name}`}>
+      <Field label="What the clip says">
+        <input value={refText} maxLength={5000} onChange={(e) => setRefText(e.target.value)} />
+      </Field>
+      <Field label="Notes">
+        <input value={notes} maxLength={1000} onChange={(e) => setNotes(e.target.value)} />
+      </Field>
+      <Field label="Language">
+        <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+          {['zh', 'ja', 'ko'].map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
+        </select>
+      </Field>
+      <div className="actions">
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={pending}
+          onClick={() => run(editVoiceBankDetails(voice.id, { notes, ref_text: refText, language }), 'Saved.')}>Save details</button>
+        <button type="button" className={buttonClass('ghost', 'sm')} disabled={pending} onClick={onClose}>Close</button>
+        {saved && <span className="muted" role="status">{saved}</span>}
+      </div>
+      <Field label="Replace the clip (PC only; titles that already used this voice keep their copy)">
+        <input type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg" disabled={pending}
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) run(replaceVoiceBankClip(voice.id, f, pcOnlyFetch()), 'Clip replaced.')
+          }} />
+      </Field>
+      <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
+    </div>
+  )
+}
+
+// Voice bank list with search, a language filter and per-voice details.
+function VoiceBankList({ pc, voices, onChanged }: { pc: PcMode; voices: LibraryVoice[]; onChanged: () => void }) {
+  const [query, setQuery] = useState('')
+  const [lang, setLang] = useState('')
+  const [openId, setOpenId] = useState<number | null>(null)
+  const canEdit = useHolds('admin.library')
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return voices.filter((v) => (!lang || v.language === lang)
+      && (!q || [v.name, v.notes, v.ref_text, v.source_drama, v.source_speaker].some((t) => (t ?? '').toLowerCase().includes(q))))
+  }, [voices, query, lang])
+  const open = voices.find((v) => v.id === openId)
+  return (
+    <>
+      {voices.length > 3 && (
+        <div className="actions">
+          <Field label="Search voices">
+            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} />
+          </Field>
+          <Field label="Language">
+            <select value={lang} onChange={(e) => setLang(e.target.value)}>
+              <option value="">All</option>
+              {['zh', 'ja', 'ko'].map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
+            </select>
+          </Field>
+        </div>
+      )}
+      <DeletableList
+        pc={pc}
+        help="Characters that used it keep their own copy."
+        items={shown.map((v) => ({
+          id: v.id, name: v.name,
+          meta: [v.language ? languageLabel(v.language) : null, v.notes || null].filter(Boolean).join(' · ') || null,
+        }))}
+        remove={deleteVoiceBankEntry}
+        rename={renameVoiceBankEntry}
+        onDeleted={onChanged}
+        extra={(id, name) => (
+          <>
+            {voices.find((v) => v.id === id)?.clip_available && <ClipPlayButton src={voiceBankAudioUrl(id)} name={name} />}
+            {canEdit && (
+              <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Details of ${name}`}
+                onClick={() => setOpenId(openId === id ? null : id)}>Details</button>
+            )}
+          </>
+        )}
+      />
+      {voices.length > 0 && shown.length === 0 && <p className="muted">No voice matches.</p>}
+      {open && <VoiceDetails key={open.id} voice={open} onChanged={onChanged} onClose={() => setOpenId(null)} />}
+    </>
+  )
+}
+
 // Series, costs, reading history, profiles, voice bank and backups: the Library's
 // rarely used controls, each folded so people open them on purpose.
 export default function LibraryToolsPage() {
@@ -413,16 +512,7 @@ export default function LibraryToolsPage() {
         </ToolSection>
         <ToolSection card="voice-bank" ready={organizeReady} first={firstOf(organizeShown) === 2} count={voices.data?.items.length} error={voices.error}>
           <AddVoiceForm pc={pc} onAdded={onChanged} />
-          <DeletableList
-            pc={pc}
-            help="Characters that used it keep their own copy."
-            items={voices.data?.items.map((v) => ({ id: v.id, name: v.name, meta: v.language ? languageLabel(v.language) : null }))}
-            remove={deleteVoiceBankEntry}
-            rename={renameVoiceBankEntry}
-            onDeleted={onChanged}
-            extra={(id, name) => voices.data?.items.find((v) => v.id === id)?.clip_available
-              ? <ClipPlayButton src={voiceBankAudioUrl(id)} name={name} /> : null}
-          />
+          <VoiceBankList pc={pc} voices={voices.data?.items ?? []} onChanged={onChanged} />
         </ToolSection>
         <ToolSection card="saved-manga" ready={organizeReady} first={firstOf(organizeShown) === 3} count={saved.data?.length} summary="Chapters saved as CBZ files" error={saved.error}>
           {saved.data && <SavedSeriesRows items={saved.data} />}

@@ -848,3 +848,44 @@ class TestSeriesRemembersBankVoice:
         second = _drama(series_id=sid, source_language="zh")
         r = client.post(f"{BASE}/{second}/series-link", json={"speaker_label": "A", "series_character_id": mei})
         assert r.status_code == 200 and r.json()["has_ref_audio"] is False
+
+
+class TestEditBankEntry:
+    def _entry(self, client):
+        r = client.post("/api/library/voice-bank", data={"name": "V", "ref_text": "old"},
+                        files={"file": ("v.wav", b"RIFFdata", "audio/wav")}, headers=LOCAL_HDR)
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def test_list_shows_notes_and_transcript_and_details_edit(self, client, isolated_db, tools):
+        eid = self._entry(client)
+        r = client.post(f"/api/library/voice-bank/{eid}/details",
+                        json={"notes": " calm ", "ref_text": " new text ", "language": "ko"})
+        assert r.status_code == 200, r.text
+        item = next(i for i in client.get("/api/library/voice-bank").json()["items"] if i["id"] == eid)
+        assert item["notes"] == "calm" and item["ref_text"] == "new text" and item["language"] == "ko"
+        assert "clip_filename" not in item
+        assert client.post(f"/api/library/voice-bank/{eid}/details", json={"language": "xx"}).status_code == 422
+        assert client.post("/api/library/voice-bank/999/details", json={}).status_code == 404
+
+    def test_replace_clip_keeps_entry_and_removes_old_file(self, client, isolated_db, tools):
+        eid = self._entry(client)
+        old = db.get_voice_bank_entry(eid)["clip_filename"]
+        r = client.post(f"/api/library/voice-bank/{eid}/clip",
+                        files={"file": ("n.mp3", b"ID3new", "audio/mpeg")}, headers=LOCAL_HDR)
+        assert r.status_code == 200, r.text
+        row = db.get_voice_bank_entry(eid)
+        assert row["clip_filename"] != old and row["clip_filename"].endswith(".mp3")
+        assert os.listdir(db.VOICE_BANK_DIR) == [row["clip_filename"]]
+        assert row["name"] == "V" and row["ref_text"] == "old"
+
+    def test_replace_clip_rejects_bad_input_and_keeps_old_voice(self, client, isolated_db, tools):
+        eid = self._entry(client)
+        old = db.get_voice_bank_entry(eid)["clip_filename"]
+        tools["duration"] = 0.2
+        r = client.post(f"/api/library/voice-bank/{eid}/clip",
+                        files={"file": ("n.wav", b"RIFFx", "audio/wav")}, headers=LOCAL_HDR)
+        assert r.status_code == 422
+        assert db.get_voice_bank_entry(eid)["clip_filename"] == old
+        assert client.post("/api/library/voice-bank/999/clip",
+                           files={"file": ("n.wav", b"RIFFx", "audio/wav")}, headers=LOCAL_HDR).status_code == 404

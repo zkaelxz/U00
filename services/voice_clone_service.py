@@ -793,6 +793,23 @@ def upload_to_voice_bank(name, client_filename, fileobj, ref_text: str = "",
     raise NotFoundError("The voice bank entry could not be read back.")  # pragma: no cover
 
 
+def replace_voice_bank_clip(entry_id: int, client_filename, fileobj) -> dict:
+    """Swaps a bank entry's clip for an uploaded one, checked like any
+    reference clip. The entry keeps its name, notes and transcript (edit the
+    transcript if the new clip says something else)."""
+    if db.get_voice_bank_entry(entry_id) is None:
+        raise NotFoundError(f"No voice bank entry with id {entry_id}.")
+    ext = _clip_extension(client_filename)
+    fd, tmp = tempfile.mkstemp(prefix=".clip_", suffix=ext)
+    try:
+        _receive_clip(fd, fileobj, tmp)
+        db.replace_voice_bank_clip(entry_id, tmp)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    return next(e for e in library_service.list_voice_bank() if e["id"] == entry_id)
+
+
 # --- C03: series character link -------------------------------------------------
 
 def link_series_character(drama_id: int, speaker_label, series_character_id) -> dict:
