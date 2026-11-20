@@ -312,3 +312,14 @@ class TestUpgradeFromTheDubStage:
         assert config["track_available"] is False
         assert jobs_service.get_job(f"dub_{did}")["status"] == "done"
         assert isolated_db.get_app_setting("voice.dub.pacing") == {"max_speedup": 1.3}
+
+
+class TestPydubCheck:
+    def test_missing_pydub_is_named_with_the_fix_and_blocks_every_engine(self, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ffmpeg")
+        import importlib.util
+        real = importlib.util.find_spec
+        monkeypatch.setattr(importlib.util, "find_spec", lambda n, *a: None if n == "pydub" else real(n, *a))
+        monkeypatch.setattr(listen_service, "_pydub_problem", listen_service._pydub_problem.real)
+        reason = listen_service._missing_engine_dependency("omnivoice")
+        assert "Narration track" in reason and "Diagnostics" in reason and "No module" not in reason

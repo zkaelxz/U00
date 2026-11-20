@@ -528,7 +528,7 @@ def _log_auto_clips_problem(drama_id: int, exc: BaseException):
     import applog
     from engine_backends.shared import redact_secrets
     applog.get_logger().warning(
-        f"automatic speaker clips for title {drama_id} did not run: {redact_secrets(str(exc))}")
+        f"voice setup for title {drama_id} hit a problem: {redact_secrets(str(exc))}")
 
 
 def _auto_clips_job(job_id, drama_id, labels):
