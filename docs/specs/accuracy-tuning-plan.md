@@ -85,7 +85,7 @@ The owner wants better transcription and translation accuracy, and evidence for 
 | Repeat guard | off; on for loop-prone audio | off, on | Measured only before the 2026-10-07 anti-loop change |
 | Vocal separation | off, unless the music is heavy and the speech clean | off, on | Added 8 CER at 0 dB noise |
 | Qwen context pad | 2.0 s | 1, 2, 3 s | Chinese CER went from 4.85 to 3.78 |
-| Translation batch size | 30 (60 for large models) | 15, 30, 60 | Unmeasured |
+| Translation batch size | 30 (60 for Gemini Pro) | 15, 30, 60 | Unmeasured |
 | Context lines before / after | 10 / 6 | 3/1, 6/3, 10/6, 20/10 | Unmeasured; the defaults disagree |
 | Reflect pass | on for final passes | off, on | Unmeasured |
 | Translation-memory examples in the prompt | off | off, on | New (step T4) |
