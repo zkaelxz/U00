@@ -1575,9 +1575,9 @@ def test_a_setting_the_file_holds_badly_is_left_as_it_is(local_client):
 
 
 def _usage(c, did, created, cost, **extra):
-    _ins(c, "usage_log", drama_id=did, engine="claude", model="claude-sonnet-5-5",
-         operation="translate", input_tokens=100, output_tokens=50, estimated_cost_usd=cost,
-         created_at=created, cache_read_tokens=10, **extra)
+    row = {"engine": "claude", "model": "claude-sonnet-5-5", "operation": "translate",
+           "input_tokens": 100, "output_tokens": 50, "cache_read_tokens": 10, **extra}
+    _ins(c, "usage_log", drama_id=did, estimated_cost_usd=cost, created_at=created, **row)
 
 
 def test_imported_titles_bring_their_spend_with_them(local_client):
@@ -1605,7 +1605,7 @@ def test_imported_titles_bring_their_spend_with_them(local_client):
 def test_reimporting_into_the_same_library_does_not_count_spend_twice(local_client):
     a, b, g = _world()
     with _conn() as c:
-        _usage(c, g, "2026-10-01T01:00:00.000001", 0.25)
+        _usage(c, g, "2026-10-01T01:00:00.000001", 0.25, model="")
         c.commit()
     data = _manual_zip()
     db.delete_drama(g)   # its usage row survives with no drama
@@ -1622,6 +1622,7 @@ def test_unusable_usage_rows_in_the_file_are_left_out(local_client):
         _usage(c, a, "not a date", 5.0)
         _usage(c, a, "2026-10-01T01:00:00", -3.0)
         _usage(c, a, "2026-10-01T02:00:00+02:00", 0.5, user_id=7)
+        _usage(c, a, "2099-01-01T00:00:00", 9.0)   # would hold the monthly cap until 2099
     data = _db_bytes(hostile)
     r = _post_import(local_client, data, [a])
     assert r.status_code == 200, r.text
@@ -1630,3 +1631,18 @@ def test_unusable_usage_rows_in_the_file_are_left_out(local_client):
         rows = c.execute("SELECT created_at, estimated_cost_usd, user_id FROM usage_log "
                          "WHERE drama_id = ?", (new_a,)).fetchall()
     assert rows == [("2026-10-01T00:00:00", 0.5, None)]
+
+
+def test_two_real_calls_with_the_same_stamp_are_both_imported(local_client):
+    a, b, g = _world()
+
+    def twins(c):
+        c.execute("DELETE FROM usage_log")
+        for _ in range(2):
+            _usage(c, a, "2026-10-01T01:00:00", 0.04, input_tokens=0, output_tokens=0)
+        _usage(c, a, "2026-10-01T03:00:00", 0.1, input_tokens=1e20)   # stored as REAL; too big for an INTEGER
+    r = _post_import(local_client, _db_bytes(twins), [a])
+    assert r.status_code == 200, r.text
+    assert r.json()["counts"]["usage_log"] == 3
+    with _conn() as c:
+        assert c.execute("SELECT MAX(input_tokens) FROM usage_log").fetchone()[0] == 2 ** 63 - 1

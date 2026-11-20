@@ -45,6 +45,7 @@ import sqlite3
 import time
 import zipfile
 
+from lib import clock
 from lib import ids as lib_ids
 import db
 import storage
@@ -565,6 +566,10 @@ def _import_voice_bank(dst, zip_path, bank, written: list) -> int:
 # the titles move from another PC) is missing from the Library's spend total.
 _USAGE_TEXT = {"engine": 100, "model": 200, "operation": 100}
 _USAGE_NUMBERS = ("input_tokens", "output_tokens", "cache_read_tokens")
+_MAX_SQLITE_INT = 2 ** 63 - 1
+# A row stamped after now would count toward every month's spend until its
+# date (the monthly cap has no upper bound, and Reset can't clear it).
+_USAGE_CLOCK_SKEW = datetime.timedelta(minutes=10)
 
 
 def _usage_key(row) -> tuple:
@@ -574,49 +579,54 @@ def _usage_key(row) -> tuple:
 
 def _clean_usage_row(row: dict):
     """The row as this library stores it, or None when it can't be a usage
-    row (no time stamp, or a cost that isn't a finite non-negative number)."""
+    row (no usable or a future time stamp, or a cost that isn't a finite
+    non-negative number). Text stays as written (only cut to length) so the
+    row still matches its original when deduplicating."""
     try:
         created = datetime.datetime.fromisoformat(str(row.get("created_at") or ""))
-        cost = float(row.get("estimated_cost_usd") or 0)
-        numbers = {k: max(0, int(row.get(k) or 0)) for k in _USAGE_NUMBERS}
+        costs = [float(row.get("estimated_cost_usd") or 0)]
+        before = row.get("estimated_cost_usd_before_recost")
+        if before is not None:
+            costs.append(float(before))
+        numbers = {k: min(_MAX_SQLITE_INT, max(0, int(row.get(k) or 0))) for k in _USAGE_NUMBERS}
     except (TypeError, ValueError, OverflowError):
         return None
-    if not math.isfinite(cost) or cost < 0:
+    if not all(math.isfinite(c) and c >= 0 for c in costs):
         return None
     if created.tzinfo is not None:
         created = created.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-    clean = {k: _text(row.get(k), n) or None for k, n in _USAGE_TEXT.items()}
-    return {**clean, **numbers, "estimated_cost_usd": cost, "created_at": created.isoformat()}
+    if created > clock.utcnow() + _USAGE_CLOCK_SKEW:
+        return None
+    text = {k: row[k][:n] if isinstance(row.get(k), str) else None for k, n in _USAGE_TEXT.items()}
+    return {**text, **numbers, "estimated_cost_usd": costs[0],
+            "estimated_cost_usd_before_recost": costs[1] if len(costs) > 1 else None,
+            "created_at": created.isoformat()}
 
 
 def _import_usage(src, dst, old_id: int, live_id: int) -> int:
     """Copies the drama's usage rows onto its new id. The file's account ids
     mean nothing here, so the rows are the PC owner's (user_id NULL). A row
     this library already has (importing a backup of this same library, whose
-    rows outlive a deleted title) is skipped so its cost isn't counted twice."""
+    rows outlive a deleted title) is skipped so its cost isn't counted twice;
+    rows of the file are never matched with each other, since two real calls
+    can share a time stamp."""
     rows = [r for r in map(_clean_usage_row, drs.table_rows(src, "usage_log", "drama_id = ?",
                                                              (old_id,))) if r]
     if not rows:
         return 0
     stamps = [r["created_at"] for r in rows]
-    have = {_usage_key(dict(zip(("created_at", "engine", "model", "operation", "input_tokens",
-                                 "output_tokens"), r)))
-            for r in dst.execute(
-                "SELECT created_at, engine, model, operation, input_tokens, output_tokens "
-                "FROM usage_log WHERE created_at BETWEEN ? AND ?", (min(stamps), max(stamps)))}
-    added = 0
-    for r in rows:
-        if _usage_key(r) in have:
-            continue
-        have.add(_usage_key(r))
-        dst.execute("INSERT INTO usage_log (drama_id, engine, model, operation, input_tokens, "
-                    "output_tokens, estimated_cost_usd, created_at, cache_read_tokens, user_id) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
-                    (live_id, r["engine"], r["model"], r["operation"], r["input_tokens"],
-                     r["output_tokens"], r["estimated_cost_usd"], r["created_at"],
-                     r["cache_read_tokens"]))
-        added += 1
-    return added
+    have = {tuple(r) for r in dst.execute(
+        "SELECT created_at, engine, model, operation, input_tokens, output_tokens "
+        "FROM usage_log WHERE created_at BETWEEN ? AND ?", (min(stamps), max(stamps)))}
+    fresh = [r for r in rows if _usage_key(r) not in have]
+    dst.executemany(
+        "INSERT INTO usage_log (drama_id, engine, model, operation, input_tokens, output_tokens, "
+        "estimated_cost_usd, estimated_cost_usd_before_recost, created_at, cache_read_tokens, "
+        "user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+        [(live_id, r["engine"], r["model"], r["operation"], r["input_tokens"],
+          r["output_tokens"], r["estimated_cost_usd"], r["estimated_cost_usd_before_recost"],
+          r["created_at"], r["cache_read_tokens"]) for r in fresh])
+    return len(fresh)
 
 
 def _import_owner(principal):
