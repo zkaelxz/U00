@@ -370,6 +370,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/library/series` | library.read |
 | `GET /api/library/stats` | library.read |
 | `GET /api/library/voice-bank` | library.read |
+| `POST /api/library/voice-bank` | admin.library |
 | `GET /api/library/voice-bank/{entry_id}/audio` | media.stream |
 | `HEAD /api/library/voice-bank/{entry_id}/audio` | media.stream |
 | `POST /api/library/voice-bank/{entry_id}/delete` | local_only() |
