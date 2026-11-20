@@ -400,13 +400,13 @@ class TestCostCap:
     def _lines(self, n=6):
         return [Line(idx=i, start=i, end=i + 1, zh=f"l{i}") for i in range(n)]
 
-    def test_stops_after_the_batch_that_reaches_the_cap_and_keeps_finished_lines(self):
+    def test_stops_before_the_batch_that_would_pass_the_cap_and_keeps_finished_lines(self):
         lines, engine, seen = self._lines(), _PricedEngine(), []
         _, errors = translate_pipeline.translate_lines_with_engine(
             lines, engine, {}, batch_size=2, cost_cap_usd=3.0, cap_cb=seen.append)
-        assert engine.calls == 2
-        assert [ln.en for ln in lines] == ["EN:l0", "EN:l1", "EN:l2", "EN:l3", "", ""]
-        assert seen == [pytest.approx(4.0)]
+        assert engine.calls == 1
+        assert [ln.en for ln in lines] == ["EN:l0", "EN:l1", "", "", "", ""]
+        assert seen == [pytest.approx(2.0)]
         assert errors == []
 
     def test_no_cap_runs_everything(self):
