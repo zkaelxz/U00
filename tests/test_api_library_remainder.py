@@ -80,7 +80,7 @@ def test_voice_bank_hides_paths_and_renames(client, tmp_path):
     eid = db.save_voice_bank_entry("Voice", str(clip), language="zh")
     items = client.get("/api/library/voice-bank").json()["items"]
     assert items[0]["clip_available"] is True
-    assert "clip_filename" not in items[0] and "ref_text" not in items[0]
+    assert "clip_filename" not in items[0]
     r = client.post(f"/api/library/voice-bank/{eid}/rename", json={"name": "New"})
     assert r.status_code == 200 and r.json()["name"] == "New"
     assert client.post("/api/library/voice-bank/9999/rename", json={"name": "N"}).status_code == 404

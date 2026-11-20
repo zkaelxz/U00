@@ -306,7 +306,7 @@ class TestReflectStageSubmitFailure:
             i: f"draft-{i}" for i in ids}
 
     def test_an_expressive_request_missing_from_the_results_keeps_its_drafts(self, isolated_db):
-        _engine, did, ids, job, _ = self._to_stage(isolated_db, "expressive", n=61)
+        _engine, did, ids, job, _ = self._to_stage(isolated_db, "expressive", n=31)
         by_key = {}
         for r in isolated_db.list_bulk_job_lines(job["id"]):
             by_key.setdefault(r["request_key"], []).append(r["line_id"])

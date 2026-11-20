@@ -849,6 +849,27 @@ class TestSpokenLanguage:
         bulk_poll.run_scheduled_job(jid, Engine(), monthly_cap_usd=1.0)
         assert len(calls) == 1
 
+    def test_offpeak_run_does_not_send_a_batch_priced_past_the_monthly_cap(self, isolated_db):
+        did = _mixed_drama(isolated_db)
+        jid = bulk_translate.schedule_offpeak_translation(
+            did, isolated_db.load_line_objects(did), "deepseek", "m", {"batch_size": 1})
+        calls = []
+
+        class Engine:
+            name = "claude"
+            model = "claude-sonnet-5"  # 1M input tokens a batch is $2.00 on this model
+
+            def __init__(self):
+                self.last_usage = {}
+
+            def translate_batch(self, zh_lines, context):
+                calls.append(zh_lines)
+                self.last_usage = {"input_tokens": 1_000_000, "output_tokens": 0}
+                return [f"EN:{z}" for z in zh_lines]
+
+        bulk_poll.run_scheduled_job(jid, Engine(), monthly_cap_usd=3.0)
+        assert len(calls) == 1
+
     def test_offpeak_run_keeps_english_typed_while_it_runs(self, isolated_db):
         did = _mixed_drama(isolated_db)
         jid = bulk_translate.schedule_offpeak_translation(did, isolated_db.load_line_objects(did),

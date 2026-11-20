@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from './client'
-import { createDrama, deleteDrama, getStats, openDramaFolder, searchLines } from './library'
+import { addVoiceBankEntry, createDrama, deleteDrama, getStats, openDramaFolder, searchLines } from './library'
 
 function reply(status: number, body: unknown) {
   const mock = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status }))
@@ -9,6 +9,18 @@ function reply(status: number, body: unknown) {
 }
 
 describe('library api', () => {
+  it('uploads a voice as a form and leaves blank optional fields out', async () => {
+    const { mock, f } = reply(200, { id: 1, name: 'Narrator', clip_available: true })
+    await addVoiceBankEntry({ name: 'Narrator', file: new File(['x'], 'v.wav'), ref_text: ' ', language: 'ja' }, f)
+    const [url, init] = mock.mock.calls[0]
+    expect(url).toBe('/api/library/voice-bank')
+    const form = init.body as FormData
+    expect(form.get('name')).toBe('Narrator')
+    expect(form.get('language')).toBe('ja')
+    expect(form.has('ref_text')).toBe(false)
+    expect((form.get('file') as File).name).toBe('v.wav')
+  })
+
   it('encodes the search query', async () => {
     const { mock, f } = reply(200, { count: 0, items: [] })
     await searchLines('a b&c', f)

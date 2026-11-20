@@ -76,7 +76,7 @@ def test_bulk_uses_novel_defaults_custom_notes_and_summary_engine(isolated_db, m
     args, kwargs = seen["args"], seen["kwargs"]
     style_guidelines, context_window = args[10], args[13]
     assert context_window == 30
-    assert kwargs["context_window_ahead"] == 15 and kwargs["batch_size"] == 60
+    assert kwargs["context_window_ahead"] == 15 and kwargs["batch_size"] == 30
     assert "LEARNED-STYLE" in style_guidelines and "EMOTION-GUIDE" in style_guidelines
     assert kwargs["summary_engine"] is summary and kwargs["summary_engine_choice"] == "ollama"
     assert seen["summary_base_url"] == "http://gpu-box:11434"
@@ -129,8 +129,8 @@ def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkey
 def test_bulk_cap_engines_match_translate_run(isolated_db, monkeypatch, engine):
     seen, _ = _capture_bulk_start(isolated_db, monkeypatch, engine, "audio_drama")
     assert seen["kwargs"]["cost_cap_usd"] == pytest.approx(5.0)
-    # Sonnet-class Claude batches 60 lines a request; DeepSeek keeps 30.
-    assert seen["args"][13] == 10 and seen["kwargs"]["batch_size"] == {"claude": 60, "deepseek": 30}[engine]
+    # Claude lost lines at 60 per request, so both engines keep 30.
+    assert seen["args"][13] == 10 and seen["kwargs"]["batch_size"] == 30
 
 
 # A local tag: the Library batch never picks up a remembered cloud tag.

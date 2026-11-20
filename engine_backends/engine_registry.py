@@ -247,11 +247,10 @@ PLAIN_STREAM_BATCH_SIZE = 10
 # (engine, model-name fragments) pairs whose models hold up at the larger batch.
 # A fragment matches anywhere in the lowercased model name; an engine or model
 # not listed gets DEFAULT_BATCH_SIZE, so a new or unknown model starts safe.
-# Extend this table after testing a model at batch 60 (every id returned once).
+# Extend this table after testing a model at batch 60 (every id returned once, run several times).
 _STRONG_BATCH_MODELS = (
-    # Sonnet-class and above kept every id at batch 60 in the 180-line
-    # Japanese->English proxy test. Haiku is small, so it is left out.
-    ("claude", ("sonnet", "opus", "fable")),
+    # Claude is not listed: at 60 lines Sonnet 5.5 lost lines on 3 of 5 repeat runs of one
+    # stream and on the novel test, and none in 6 runs at 30, at the same or lower cost.
     # Pro tier only: Flash and Flash-Lite are the cheap tiers, "pro" never
     # appears in their names.
     ("gemini", ("pro",)),

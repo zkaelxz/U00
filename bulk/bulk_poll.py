@@ -209,7 +209,9 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = Non
         # An unattended run is the one nobody can stop, so the logged month
         # spend (other runs included) is re-read before each batch.
         month_cap_spent_cb=((lambda: db.get_month_spend() >= monthly_cap_usd)
-                            if monthly_cap_usd else None))
+                            if monthly_cap_usd else None),
+        month_cap_left_cb=((lambda: max(0.0, monthly_cap_usd - db.get_month_spend()))
+                           if monthly_cap_usd else None))
     finish_translation_run(did, lines, engine, job["engine"], args.get("style_preset", ""), terms,
                            errors, cancelled=bool(cancel_check_cb and cancel_check_cb()) or gate.closed, enforce_ids={ln.id for ln in lines})
     return {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),

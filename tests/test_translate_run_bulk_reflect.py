@@ -322,8 +322,8 @@ def test_bulk_submission_gets_the_engines_default_batch_size(isolated_db, monkey
     monkeypatch.setattr(svc.bulk_translate, "submit_bulk_translation",
                         lambda *a, **kw: sent.update(kw) or 1)
     engine = type("E", (), {"model": "m"})()
-    for model, expected in (("claude-sonnet-5-5", 60), ("claude-haiku-4-5-20251001", 30)):
-        batch = engine_registry.default_batch_size("claude", model)
+    for engine_name, model, expected in (("gemini", "gemini-pro-latest", 60), ("claude", "claude-sonnet-5-5", 30)):
+        batch = engine_registry.default_batch_size(engine_name, model)
         bulk_submit_service.bulk_submitter(did, db.get_drama(did), engine, "claude", False, None, [], "", "",
                             "en-US", "audio_drama", 6, 2, batch, False, None, None, None)()
         assert sent["batch_size"] == expected

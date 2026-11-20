@@ -13,16 +13,16 @@ instead of on the event loop.
 
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Path, Query, Request
+from fastapi import APIRouter, File, Form, Path, Query, Request, UploadFile
 
 from engine_backends import shared
-from api.auth import require_permission
+from api.auth import local_only, require_permission
 from api.schemas import (
     CaptureNoteList, DramaDetail, DramaListResponse, DramaSummary, LibraryCostResponse,
     LibraryContinueResponse, LibraryDashboard, LibraryFilterOptions, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
     LibraryRecentResponse, LibraryRename, LibrarySearchResponse, LibrarySeriesResponse,
     LibraryVoice, LibraryVoiceBankResponse, error_responses)
-from services import library_service, novel_files_service
+from services import library_service, novel_files_service, voice_clone_service
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 
@@ -169,6 +169,17 @@ def rename_preset(body: LibraryRename, preset_id: int = Path(ge=1, le=2**31 - 1)
             summary="Voice bank entries (no file paths)")
 def get_voice_bank():
     return {"items": library_service.list_voice_bank()}
+
+
+@router.post("/voice-bank", dependencies=[local_only()], response_model=LibraryVoice,
+             responses=error_responses(409, 422, 503),
+             summary="Add a voice to the bank from an uploaded clip")
+def add_voice(file: UploadFile = File(...), name: str = Form(..., min_length=1, max_length=100),
+              ref_text: str = Form("", max_length=5000), clone_engine: Optional[str] = Form(None, max_length=50),
+              language: Optional[str] = Form(None, max_length=10), notes: str = Form("", max_length=1000)):
+    return voice_clone_service.upload_to_voice_bank(
+        name, file.filename, file.file, ref_text=ref_text, clone_engine=clone_engine,
+        language=language, notes=notes)
 
 
 @router.post("/voice-bank/{entry_id}/rename", dependencies=[require_permission("admin.library")], response_model=LibraryVoice,

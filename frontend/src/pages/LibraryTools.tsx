@@ -3,9 +3,10 @@ import type { FormEvent, ReactNode } from 'react'
 
 import {
   clearReadingHistory, getCosts, getHistory, getPresets, getSeries, getStats, getVoiceBank, renamePreset,
-  renameVoiceBankEntry,
+  addVoiceBankEntry, renameVoiceBankEntry,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
+import { pcOnlyFetch } from '../api/pcOnly'
 import { voiceBankAudioUrl } from '../api/voiceBankAudio'
 import { Badge } from '../components/Badge'
 import { ClipPlayButton } from '../components/ClipPlayButton'
@@ -125,6 +126,84 @@ function RenameForm({ current, onSave, onCancel }: {
         <button type="button" className={buttonClass('ghost', 'sm')} disabled={pending} onClick={onCancel}>Cancel</button>
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
+    </form>
+  )
+}
+
+// Adds a voice to the bank from a clip on this computer, with no title involved.
+const BANK_ENGINES: [string, string][] = [
+  ['omnivoice', 'OmniVoice'], ['qwen3_tts', 'Qwen3-TTS'], ['chatterbox', 'Chatterbox'],
+]
+
+function AddVoiceForm({ pc, onAdded }: { pc: PcMode; onAdded: () => void }) {
+  // Uploads are PC only, like a speaker's reference clip.
+  const canAdd = pc !== 'remote'
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [file, setFile] = useState<File | null>(null)
+  const [refText, setRefText] = useState('')
+  const [engine, setEngine] = useState('omnivoice')
+  const [language, setLanguage] = useState('zh')
+  const [notes, setNotes] = useState('')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const [done, setDone] = useState<string | null>(null)
+  if (!canAdd) return null
+  if (!open) {
+    return (
+      <div className="actions">
+        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => { setOpen(true); setDone(null) }}>Add voice…</button>
+        {done && <span className="muted" role="status">{done}</span>}
+      </div>
+    )
+  }
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    if (!file || !name.trim()) return
+    setPending(true)
+    setError(null)
+    addVoiceBankEntry({ name: name.trim(), file, ref_text: refText, clone_engine: engine, language, notes }, pcOnlyFetch()).then(
+      (v) => {
+        setPending(false)
+        setOpen(false)
+        setName(''); setFile(null); setRefText(''); setNotes('')
+        setDone(`Added "${v.name}".`)
+        onAdded()
+      },
+      (err: unknown) => { setPending(false); setError(err) },
+    )
+  }
+  return (
+    <form className="rename-form" onSubmit={submit}>
+      <Field label="Voice name">
+        <input value={name} maxLength={100} onChange={(e) => setName(e.target.value)} autoFocus />
+      </Field>
+      <Field label="Clip (wav, mp3, m4a, flac or ogg, 1 to 30 seconds of one voice)">
+        <input type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+      </Field>
+      <Field label="What the clip says (helps the voice match; optional)">
+        <input value={refText} maxLength={5000} onChange={(e) => setRefText(e.target.value)} />
+      </Field>
+      <Field label="Voice engine">
+        <select value={engine} onChange={(e) => setEngine(e.target.value)}>
+          {BANK_ENGINES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </select>
+      </Field>
+      <Field label="Language">
+        <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+          {['zh', 'ja', 'ko'].map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
+        </select>
+      </Field>
+      <Field label="Notes (optional)">
+        <input value={notes} maxLength={1000} onChange={(e) => setNotes(e.target.value)} />
+      </Field>
+      <div className="actions">
+        <button type="submit" className={buttonClass('secondary', 'sm')} disabled={pending || !file || !name.trim()}>
+          {pending ? 'Adding…' : 'Add to voice bank'}
+        </button>
+        <button type="button" className={buttonClass('ghost', 'sm')} disabled={pending} onClick={() => setOpen(false)}>Cancel</button>
+      </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
     </form>
   )
@@ -333,6 +412,7 @@ export default function LibraryToolsPage() {
           />
         </ToolSection>
         <ToolSection card="voice-bank" ready={organizeReady} first={firstOf(organizeShown) === 2} count={voices.data?.items.length} error={voices.error}>
+          <AddVoiceForm pc={pc} onAdded={onChanged} />
           <DeletableList
             pc={pc}
             help="Characters that used it keep their own copy."
