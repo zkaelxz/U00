@@ -159,7 +159,6 @@ def _create_series_tables(conn):
             aliases TEXT,             -- pipe-separated nicknames/alternate spellings
             notes TEXT,               -- speaking style, relationships, anything worth remembering
             created_at TEXT,
-            voice_bank_id INTEGER,    -- the bank voice last applied to this character; new titles start from it
             FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE,
             UNIQUE(series_id, character_name)
         );
