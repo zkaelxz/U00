@@ -722,3 +722,40 @@ class TestAuthOn:
         r = local.post(f"{BASE}/{did}/reference-clip",
                        files={"file": ("a.wav", b"RIFF", "audio/wav")}, data={"speaker_label": "A"})
         assert r.status_code == 403
+
+
+class TestUploadToBank:
+    URL = "/api/library/voice-bank"
+
+    def _post(self, client, name="Narrator", filename="v.wav", body=b"RIFFdata", **extra):
+        return client.post(self.URL, data={"name": name, **extra},
+                           files={"file": (filename, body, "audio/wav")}, headers=LOCAL_HDR)
+
+    def test_upload_adds_usable_entry_without_a_title(self, client, isolated_db, tools):
+        r = self._post(client, name=" Narrator ", ref_text=" hi ", language="ja",
+                       clone_engine="qwen3_tts", notes="warm")
+        assert r.status_code == 200, r.text
+        e = r.json()
+        assert e["name"] == "Narrator" and e["language"] == "ja" and e["clone_engine"] == "qwen3_tts"
+        assert e["clip_available"] is True and "clip_filename" not in e
+        stored = db.get_voice_bank_entry(e["id"])
+        assert stored["ref_text"] == "hi" and stored["notes"] == "warm"
+        assert stored["source_drama"] is None
+        # Applying it to a speaker works like any bank entry.
+        did = _drama()
+        applied = client.post(f"{BASE}/{did}/voice-bank/apply",
+                              json={"speaker_label": "A", "voice_bank_id": e["id"]})
+        assert applied.status_code == 200 and applied.json()["has_ref_audio"] is True
+        assert os.listdir(db.VOICE_BANK_DIR) == [stored["clip_filename"]]
+
+    @pytest.mark.parametrize("extra,name", [
+        ({}, "x.exe"), ({"clone_engine": "nope"}, "v.wav"), ({"language": "xx"}, "v.wav")])
+    def test_bad_input_422_and_nothing_stored(self, client, isolated_db, tools, extra, name):
+        assert self._post(client, filename=name, **extra).status_code == 422
+        assert db.list_voice_bank_entries() == []
+
+    def test_too_short_clip_422_leaves_bank_folder_empty(self, client, isolated_db, tools):
+        tools["duration"] = 0.2
+        assert self._post(client).status_code == 422
+        assert db.list_voice_bank_entries() == []
+        assert not os.path.isdir(db.VOICE_BANK_DIR) or os.listdir(db.VOICE_BANK_DIR) == []
