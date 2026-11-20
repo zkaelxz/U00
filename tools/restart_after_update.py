@@ -60,21 +60,37 @@ def port_free(port: int, seconds: float) -> bool:
     return False
 
 
+def _write_log(path: str, text: str) -> None:
+    try:
+        with open(path, "w", encoding="utf-8") as log:
+            log.write(text + "\n")
+    except OSError:
+        pass
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
     parser.add_argument("--pid", type=int, required=True)
     parser.add_argument("--port", type=int, default=0)
     args = parser.parse_args(argv)
+    log_path = os.path.join(args.root, LOG_NAME)
     start_bat = os.path.join(args.root, "start.bat")
     if not os.path.isfile(start_bat):
+        _write_log(log_path, "start.bat is missing from the Baihe folder; nothing was restarted.")
         return 2
     # Without a stopped server there is nothing to restart; start.bat would
-    # only report "already running".
+    # only report "already running". The log is rewritten either way, so a
+    # leftover from an earlier restart is never read as this one's outcome.
     if not process_gone(args.pid, EXIT_WAIT_SECONDS):
+        _write_log(log_path, f"The old server (process {args.pid}) was still running after "
+                             f"{EXIT_WAIT_SECONDS} s; nothing was restarted. Close it and run start.bat.")
         return 3
-    if args.port:
-        port_free(args.port, PORT_WAIT_SECONDS)
+    port_note = b""
+    if args.port and not port_free(args.port, PORT_WAIT_SECONDS):
+        # start.bat will find whatever holds the port and stop there; say so first.
+        port_note = (f"Port {args.port} was still in use {PORT_WAIT_SECONDS} s after the old server "
+                     "exited.\r\n").encode()
     flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
     # The console opens minimized and start.bat opens no app window of its own.
     startup = None
@@ -84,7 +100,9 @@ def main(argv=None) -> int:
     # exit (BAIHE_NOPAUSE) instead of waiting there while the browser shows
     # "reconnecting"; what it printed goes to a file the failure message names.
     env = dict(os.environ, BAIHE_NO_APP_WINDOW="1", BAIHE_NOPAUSE="1")
-    with open(os.path.join(args.root, LOG_NAME), "wb") as log:
+    with open(log_path, "wb") as log:
+        log.write(port_note)
+        log.flush()
         subprocess.Popen(["cmd.exe", "/c", start_bat], cwd=args.root, creationflags=flags,
                          startupinfo=startup, env=env, close_fds=True,
                          stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
