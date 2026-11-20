@@ -23,12 +23,12 @@ def test_config_audio_and_novel(local_client):
     a = local_client.get(f"{BASE}/{_seed()}/config")
     assert a.status_code == 200
     body = a.json()
-    assert body["defaults"] == {"context_window": 10, "context_window_ahead": 6, "batch_size": 60}
+    assert body["defaults"] == {"context_window": 10, "context_window_ahead": 6, "batch_size": 30}
     assert body["line_count"] == 2 and body["untranslated_count"] == 1
     assert body["engines"] and body["workflow_tiers"] and body["style_presets"]
     assert isinstance(body["cap_applies_by_engine"]["claude"], bool)
     n = local_client.get(f"{BASE}/{_seed(content_mode='novel_narration')}/config").json()
-    assert n["defaults"] == {"context_window": 30, "context_window_ahead": 15, "batch_size": 60}
+    assert n["defaults"] == {"context_window": 30, "context_window_ahead": 15, "batch_size": 30}
     assert n["default_style_preset"] == "novel"
 
 
