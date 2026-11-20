@@ -60,6 +60,13 @@ export function addVoiceBankEntry(v: NewVoice, f?: Fetch) {
   }
   return postMultipart<LibraryVoice>('/api/library/voice-bank', form, f)
 }
+export const editVoiceBankDetails = (id: number, d: { notes: string; ref_text: string; language: string }, f?: Fetch) =>
+  postJson<LibraryVoice>(`/api/library/voice-bank/${id}/details`, d, f)
+export function replaceVoiceBankClip(id: number, file: File, f?: Fetch) {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  return postMultipart<LibraryVoice>(`/api/library/voice-bank/${id}/clip`, form, f)
+}
 export const renameVoiceBankEntry = (id: number, name: string, f?: Fetch) =>
   postJson<LibraryVoice>(`/api/library/voice-bank/${id}/rename`, { name }, f)
 export const searchLines =(q: string, f?: Fetch) =>

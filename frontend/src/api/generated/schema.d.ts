@@ -5611,6 +5611,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/voice-bank/{entry_id}/clip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace a voice bank entry's clip */
+        post: operations["replace_voice_clip_api_library_voice_bank__entry_id__clip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/voice-bank/{entry_id}/delete": {
         parameters: {
             query?: never;
@@ -5622,6 +5639,23 @@ export interface paths {
         put?: never;
         /** Delete a voice bank entry and its clip (confirm=true) */
         post: operations["delete_voice_bank_entry_api_library_voice_bank__entry_id__delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/voice-bank/{entry_id}/details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Edit a voice bank entry's notes, transcript and language */
+        post: operations["edit_voice_details_api_library_voice_bank__entry_id__details_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -15753,6 +15787,11 @@ export interface components {
             /** File */
             file: string;
         };
+        /** Body_replace_voice_clip_api_library_voice_bank__entry_id__clip_post */
+        Body_replace_voice_clip_api_library_voice_bank__entry_id__clip_post: {
+            /** File */
+            file: string;
+        };
         /** BrowserInstallJob */
         BrowserInstallJob: {
             /** Error */
@@ -21542,12 +21581,18 @@ export interface components {
             clip_available: boolean;
             /** Clone Engine */
             clone_engine: string | null;
+            /** Created At */
+            created_at: string | null;
             /** Id */
             id: number;
             /** Language */
             language: string | null;
             /** Name */
             name: string;
+            /** Notes */
+            notes: string | null;
+            /** Ref Text */
+            ref_text: string | null;
             /** Source Drama */
             source_drama: string | null;
             /** Source Speaker */
@@ -21557,6 +21602,24 @@ export interface components {
         LibraryVoiceBankResponse: {
             /** Items */
             items: components["schemas"]["LibraryVoice"][];
+        };
+        /**
+         * LibraryVoiceDetails
+         * @description Edit a voice bank entry's notes, transcript and language.
+         */
+        LibraryVoiceDetails: {
+            /** Language */
+            language?: string | null;
+            /**
+             * Notes
+             * @default
+             */
+            notes?: string;
+            /**
+             * Ref Text
+             * @default
+             */
+            ref_text?: string;
         };
         /** LineAlternative */
         LineAlternative: {
@@ -48669,6 +48732,59 @@ export interface operations {
             };
         };
     };
+    replace_voice_clip_api_library_voice_bank__entry_id__clip_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_replace_voice_clip_api_library_voice_bank__entry_id__clip_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryVoice"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     delete_voice_bank_entry_api_library_voice_bank__entry_id__delete_post: {
         parameters: {
             query?: never;
@@ -48691,6 +48807,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VoiceBankDeleteResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    edit_voice_details_api_library_voice_bank__entry_id__details_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryVoiceDetails"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryVoice"];
                 };
             };
             /** @description Not Found */
