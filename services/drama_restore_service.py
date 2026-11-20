@@ -348,6 +348,8 @@ def _merge_into_series(src, dst, series_id, live_id, counts) -> dict:
                     and len(live_rows) >= word_replacement_service.MAX_REPLACEMENTS):
                 continue  # the editor refuses more, as for a new series
             child["series_id"] = live_id
+            if table == "series_characters":
+                child["voice_bank_id"] = None  # bank ids are per library; this id may name another voice here
             new = _insert(dst, table, child, live_cols)
             live_rows[child.get(key)] = {**child, "id": new}
             if table == "series_characters":
@@ -372,6 +374,8 @@ def _insert_series(src, dst, series_id, row, counts) -> tuple:
                 break  # the editor refuses more, so a crafted file can't push a series past it
             old = child.pop("id", None)
             child["series_id"] = live_id
+            if table == "series_characters":
+                child["voice_bank_id"] = None  # bank ids are per library; this id may name another voice here
             new = _insert(dst, table, child, live_cols)
             if table == "series_characters":
                 char_map[old] = new

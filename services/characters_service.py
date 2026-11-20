@@ -315,6 +315,7 @@ def apply_series_voice(drama_id: int, speaker_label: str) -> bool:
     voice, gives the speaker that voice, unless it already has a clip of its own.
     Never raises: a missing entry, clip or unsupported language just leaves the speaker
     as it was. Returns whether a voice was applied."""
+    from services import voice_clone_service  # it imports this module
     try:
         drama = get_drama(drama_id)
         row = next((c for c in list_characters_with_series_names(drama_id)
@@ -328,9 +329,12 @@ def apply_series_voice(drama_id: int, speaker_label: str) -> bool:
         engine = entry.get("clone_engine") or ""
         if engine and not dub.clone_engine_supports_language(engine, _source_language(drama)):
             return False
+        if voice_clone_service._clip_reading_job_active(drama_id):
+            return False  # a dub or narration is reading the clips right now
         _db_apply_voice_bank_entry(entry_id, drama_dir(drama_id), drama_id, speaker_label)
         return True
-    except Exception:
+    except Exception as exc:
+        voice_clone_service._log_auto_clips_problem(drama_id, exc)
         return False
 
 

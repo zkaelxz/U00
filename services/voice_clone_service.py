@@ -77,6 +77,9 @@ REFS_DIR = "voice_refs"
 CANDIDATES_DIR = "candidates"
 MANIFEST_NAME = "manifest.json"
 JOB_PREFIX = "voiceref_"
+# Not a drama job prefix: the automatic run must neither lock speaker edits for its whole
+# length nor block (or be blocked by) a Find clips press on one speaker.
+AUTO_JOB_PREFIX = "voiceclips_"
 # Jobs that read speakers' reference clips by absolute path while they run
 # (listen_service.start_listen builds the clone map up front). A clip must not
 # be deleted under them. Not drama_service.job_running_for_drama: that also
@@ -512,12 +515,20 @@ def start_auto_clips(drama_id: int) -> bool:
         labels = sorted(label for label in characters_service.known_speakers(drama_id) if not have.get(label))
         if not labels:
             return False
-        job_id = f"{JOB_PREFIX}{drama_id}"
+        job_id = f"{AUTO_JOB_PREFIX}{drama_id}"
         return bool(job_launch.start_job(
             job_id, _auto_clips_job, job_id, drama_id, labels,
             description=f"Speaker sample clips (title #{drama_id})", line_fields=()))
-    except Exception:
+    except Exception as exc:
+        _log_auto_clips_problem(drama_id, exc)
         return False
+
+
+def _log_auto_clips_problem(drama_id: int, exc: BaseException):
+    import applog
+    from engine_backends.shared import redact_secrets
+    applog.get_logger().warning(
+        f"automatic speaker clips for title {drama_id} did not run: {redact_secrets(str(exc))}")
 
 
 def _auto_clips_job(job_id, drama_id, labels):
@@ -527,13 +538,13 @@ def _auto_clips_job(job_id, drama_id, labels):
             raise background_jobs.JobCancelled(job_id)
         background_jobs.update_progress(job_id, n / len(labels), f"Cutting clips for speaker {n + 1} of {len(labels)}...")
         try:
-            _extract_one(job_id, drama_id, label, DEFAULT_CANDIDATES, report=False)
-            done += 1
+            if _extract_one(job_id, drama_id, label, DEFAULT_CANDIDATES, report=False):
+                done += 1
         except background_jobs.JobCancelled:
             raise
-        except Exception:
-            # One speaker with too little clean speech must not stop the others.
-            continue
+        except Exception as exc:
+            # One speaker's failure must not stop the others, but it is logged.
+            _log_auto_clips_problem(drama_id, exc)
     background_jobs.set_result(job_id, {"speakers_done": done})
     background_jobs.update_progress(job_id, 1.0, f"Sample clips ready for {done} speaker(s).")
 
@@ -581,6 +592,11 @@ def _extract_one(job_id, drama_id, speaker_label, max_candidates, report=True) -
             if os.path.exists(path):
                 os.remove(path)
         raise
+    with clip_lock(drama_id):  # the automatic run and Find clips can both write the manifest
+        return _publish_candidates(drama_id, speaker_label, made, skip)
+
+
+def _publish_candidates(drama_id, speaker_label, made, skip) -> int:
     manifest = _load_manifest(drama_id)
     # Replaces the clips shown for this speaker now, wherever the manifest
     # filed them (a swap leaves this speaker's clips under the other label),

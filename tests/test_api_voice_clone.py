@@ -771,7 +771,7 @@ class TestAutoClips:
         before = {s["speaker_label"]: [c["id"] for c in s["candidates"]]
                   for s in client.get(f"{BASE}/{did}/reference-clips/candidates").json()["speakers"]}
         assert vcs.start_auto_clips(did) is True
-        wait_for_job(f"{vcs.JOB_PREFIX}{did}", timeout=120)
+        wait_for_job(f"{vcs.AUTO_JOB_PREFIX}{did}", timeout=120)
         after = {s["speaker_label"]: [c["id"] for c in s["candidates"]]
                  for s in client.get(f"{BASE}/{did}/reference-clips/candidates").json()["speakers"]}
         assert after["B"] == before["B"] and after["A"]
@@ -889,3 +889,16 @@ class TestEditBankEntry:
         assert db.get_voice_bank_entry(eid)["clip_filename"] == old
         assert client.post("/api/library/voice-bank/999/clip",
                            files={"file": ("n.wav", b"RIFFx", "audio/wav")}, headers=LOCAL_HDR).status_code == 404
+
+
+def test_auto_clips_do_not_lock_speaker_edits_or_block_find_clips(client, isolated_db, tools):
+    from services import drama_service
+    did = _drama(speakers=("A", "B"), durations=[6.0, 6.0])
+    assert vcs.start_auto_clips(did) is True
+    assert not drama_service.job_running_for_drama(did)   # speaker edits stay allowed meanwhile
+    r = client.post(f"{BASE}/{did}/reference-clips/extract", json={"speaker_label": "A"})
+    assert r.status_code == 200, r.text   # not "already running"
+    wait_for_job(r.json()["job_id"], timeout=120)
+    wait_for_job(f"{vcs.AUTO_JOB_PREFIX}{did}", timeout=120)
+    sp = client.get(f"{BASE}/{did}/reference-clips/candidates").json()["speakers"]
+    assert {s["speaker_label"] for s in sp if s["candidates"]} == {"A", "B"}

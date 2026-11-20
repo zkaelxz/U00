@@ -527,11 +527,12 @@ def _import_voice_bank(dst, zip_path, bank, written: list) -> int:
         return 0
     import uuid
     os.makedirs(db.VOICE_BANK_DIR, exist_ok=True)
-    live = {}
-    for name, clip in dst.execute("SELECT name, clip_filename FROM voice_bank"):
+    # By clip alone, not name and clip: an entry renamed since the last import must not return as a copy.
+    live = set()
+    for (clip,) in dst.execute("SELECT clip_filename FROM voice_bank"):
         path = db.voice_bank_clip_path(clip)
         if path is not None:
-            live.setdefault(name, set()).add(_file_sha256(path))
+            live.add(_file_sha256(path))
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     added = 0
     with zipfile.ZipFile(zip_path) as zf:
@@ -547,11 +548,11 @@ def _import_voice_bank(dst, zip_path, bank, written: list) -> int:
                 for chunk in iter(lambda: src.read(1024 * 1024), b""):
                     digest.update(chunk)
                     out.write(chunk)
-            if digest.hexdigest() in live.get(entry["name"], ()):
+            if digest.hexdigest() in live:
                 os.remove(dest)
                 written.remove(dest)
                 continue
-            live.setdefault(entry["name"], set()).add(digest.hexdigest())
+            live.add(digest.hexdigest())
             dst.execute("INSERT INTO voice_bank (name, clip_filename, ref_text, clone_engine, "
                         "voice_design, language, notes, source_drama, source_speaker, created_at) "
                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
