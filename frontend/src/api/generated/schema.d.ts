@@ -28293,7 +28293,7 @@ export interface components {
             monthly_cap_usd: number | null;
             /**
              * Novel Parallel Chapters
-             * @default 1
+             * @default 3
              */
             novel_parallel_chapters: number;
             /** Ocr Backend */
