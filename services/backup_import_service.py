@@ -14,10 +14,12 @@ The row copy is drama_restore_service.copy_drama (the one-drama restore).
 
 Written: dramas, lines, characters and the other per-drama tables, plus the
 series, glossary, series characters and translation memory of the dramas'
-series, and (when the file has them) each drama's media folder. Not written:
+series, the dramas' usage (spend) rows, and (when the file has them) each
+drama's media folder. Not written:
 per-profile reading progress and personal notes (profile ids mean something
-else here), usage/bulk-job/research-cache tables (see
-drama_restore_service._SKIPPED_TABLES), `notion_page_id` (old backups may carry it; dropped on import), and
+else here), bulk-job/research-cache tables (see
+drama_restore_service._SKIPPED_TABLES), a usage row this library already
+has, `notion_page_id` (old backups may carry it; dropped on import), and
 anything outside the chosen dramas. Responses hold ids, titles and counts,
 never paths.
 
@@ -37,11 +39,13 @@ import datetime
 import hashlib
 import json
 import logging
+import math
 import os
 import sqlite3
 import time
 import zipfile
 
+from lib import clock
 from lib import ids as lib_ids
 import db
 import storage
@@ -76,7 +80,7 @@ _FOLDER_EXISTS = ("A folder for an imported title is already in the library's dr
 _READ_TIME_LIMIT_S = 30
 _IMPORT_TIME_LIMIT_S = 300
 # Every table the import reads from the file; each must be an ordinary table.
-_READ_TABLES = (("dramas", "lines", "series", "bubbles", "app_settings", "voice_bank")
+_READ_TABLES = (("dramas", "lines", "series", "bubbles", "app_settings", "voice_bank", "usage_log")
                 + drs.CHILD_TABLES + drs.SERIES_CHILDREN)
 # The dramas/lines/characters columns the import treats specially; every
 # other column is copied as is. The coverage test in
@@ -373,6 +377,7 @@ def _check_row_limits(src, ids: list):
     if drs.has_table(src, "pages"):
         wheres.append(("bubbles", f"page_id IN (SELECT id FROM pages WHERE drama_id IN ({marks}))"))
     wheres += [(table, f"series_id {in_series}") for table in drs.SERIES_CHILDREN]
+    wheres.append(("usage_log", f"drama_id IN ({marks})"))
     for table, where in wheres:
         if not drs.has_table(src, table):
             continue
@@ -557,6 +562,73 @@ def _import_voice_bank(dst, zip_path, bank, written: list) -> int:
     return added
 
 
+# Without the spending rows, an imported title's cost (often all of it, when
+# the titles move from another PC) is missing from the Library's spend total.
+_USAGE_TEXT = {"engine": 100, "model": 200, "operation": 100}
+_USAGE_NUMBERS = ("input_tokens", "output_tokens", "cache_read_tokens")
+_MAX_SQLITE_INT = 2 ** 63 - 1
+# A row stamped after now would count toward every month's spend until its
+# date (the monthly cap has no upper bound, and Reset can't clear it).
+_USAGE_CLOCK_SKEW = datetime.timedelta(minutes=10)
+
+
+def _usage_key(row) -> tuple:
+    return (row["created_at"], row["engine"], row["model"], row["operation"],
+            row["input_tokens"], row["output_tokens"])
+
+
+def _clean_usage_row(row: dict):
+    """The row as this library stores it, or None when it can't be a usage
+    row (no usable or a future time stamp, or a cost that isn't a finite
+    non-negative number). Text stays as written (only cut to length) so the
+    row still matches its original when deduplicating."""
+    try:
+        created = datetime.datetime.fromisoformat(str(row.get("created_at") or ""))
+        costs = [float(row.get("estimated_cost_usd") or 0)]
+        before = row.get("estimated_cost_usd_before_recost")
+        if before is not None:
+            costs.append(float(before))
+        numbers = {k: min(_MAX_SQLITE_INT, max(0, int(row.get(k) or 0))) for k in _USAGE_NUMBERS}
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not all(math.isfinite(c) and c >= 0 for c in costs):
+        return None
+    if created.tzinfo is not None:
+        created = created.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    if created > clock.utcnow() + _USAGE_CLOCK_SKEW:
+        return None
+    text = {k: row[k][:n] if isinstance(row.get(k), str) else None for k, n in _USAGE_TEXT.items()}
+    return {**text, **numbers, "estimated_cost_usd": costs[0],
+            "estimated_cost_usd_before_recost": costs[1] if len(costs) > 1 else None,
+            "created_at": created.isoformat()}
+
+
+def _import_usage(src, dst, old_id: int, live_id: int) -> int:
+    """Copies the drama's usage rows onto its new id. The file's account ids
+    mean nothing here, so the rows are the PC owner's (user_id NULL). A row
+    this library already has (importing a backup of this same library, whose
+    rows outlive a deleted title) is skipped so its cost isn't counted twice;
+    rows of the file are never matched with each other, since two real calls
+    can share a time stamp."""
+    rows = [r for r in map(_clean_usage_row, drs.table_rows(src, "usage_log", "drama_id = ?",
+                                                             (old_id,))) if r]
+    if not rows:
+        return 0
+    stamps = [r["created_at"] for r in rows]
+    have = {tuple(r) for r in dst.execute(
+        "SELECT created_at, engine, model, operation, input_tokens, output_tokens "
+        "FROM usage_log WHERE created_at BETWEEN ? AND ?", (min(stamps), max(stamps)))}
+    fresh = [r for r in rows if _usage_key(r) not in have]
+    dst.executemany(
+        "INSERT INTO usage_log (drama_id, engine, model, operation, input_tokens, output_tokens, "
+        "estimated_cost_usd, estimated_cost_usd_before_recost, created_at, cache_read_tokens, "
+        "user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+        [(live_id, r["engine"], r["model"], r["operation"], r["input_tokens"],
+          r["output_tokens"], r["estimated_cost_usd"], r["estimated_cost_usd_before_recost"],
+          r["created_at"], r["cache_read_tokens"]) for r in fresh])
+    return len(fresh)
+
+
 def _import_owner(principal):
     """The owner an imported title gets: the importer, or the PC owner (None)
     when that account isn't in this library."""
@@ -597,6 +669,7 @@ def _import_from(snap_db, ids, stagings, staging, principal, join=None, bank=(No
                 titles.add(str(shown).strip().casefold())
                 if staged is not None:
                     folders[live_id] = staged
+                counts = {**counts, "usage_log": _import_usage(src, dst, old_id, live_id)}
                 for key, n in counts.items():
                     totals[key] = totals.get(key, 0) + n
                 imported.append({"source_id": old_id, "drama_id": live_id, "title": str(shown),
