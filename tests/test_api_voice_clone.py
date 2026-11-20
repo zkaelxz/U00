@@ -759,3 +759,41 @@ class TestUploadToBank:
         assert self._post(client).status_code == 422
         assert db.list_voice_bank_entries() == []
         assert not os.path.isdir(db.VOICE_BANK_DIR) or os.listdir(db.VOICE_BANK_DIR) == []
+
+
+class TestAutoClips:
+    def test_cuts_clips_for_every_speaker_without_any_and_keeps_existing(self, client, isolated_db, tools):
+        did = _drama(speakers=("A", "B", "B"), durations=[6.0, 6.0, 7.0])
+        # B already has clips from its own Find clips run: they must survive.
+        job = wait_for_job(client.post(f"{BASE}/{did}/reference-clips/extract",
+                                       json={"speaker_label": "B"}).json()["job_id"], timeout=120)
+        assert job["status"] == "done"
+        before = {s["speaker_label"]: [c["id"] for c in s["candidates"]]
+                  for s in client.get(f"{BASE}/{did}/reference-clips/candidates").json()["speakers"]}
+        assert vcs.start_auto_clips(did) is True
+        wait_for_job(f"{vcs.JOB_PREFIX}{did}", timeout=120)
+        after = {s["speaker_label"]: [c["id"] for c in s["candidates"]]
+                 for s in client.get(f"{BASE}/{did}/reference-clips/candidates").json()["speakers"]}
+        assert after["B"] == before["B"] and after["A"]
+        assert vcs.start_auto_clips(did) is False   # nothing left to cut
+
+    def test_no_audio_or_no_ffmpeg_starts_nothing_and_never_raises(self, client, isolated_db, tools, monkeypatch):
+        assert vcs.start_auto_clips(_drama(audio=False)) is False
+        did = _drama()
+        monkeypatch.setattr(vcs.shutil, "which", lambda name: None)
+        assert vcs.start_auto_clips(did) is False
+        assert vcs.start_auto_clips(99999) is False
+
+    def test_speaker_detection_finishing_starts_it(self, isolated_db, tools, monkeypatch):
+        from services import diarization_service
+        did = _drama()
+        calls = []
+        monkeypatch.setattr(diarization_service, "apply_diarization_result", lambda *a, **k: True)
+        monkeypatch.setattr(diarization_service, "_record_run_speed", lambda *a, **k: None)
+        monkeypatch.setattr(vcs, "start_auto_clips", lambda d: calls.append(d))
+        diarization_service.make_apply_on_done(did)(f"diarize_{did}", {"segments": [{"start": 0, "end": 1}]})
+        assert calls == [did]
+        calls.clear()
+        monkeypatch.setattr(diarization_service, "apply_diarization_result", lambda *a, **k: False)
+        diarization_service.make_apply_on_done(did)(f"diarize_{did}", {"segments": []})
+        assert calls == []

@@ -491,6 +491,54 @@ def start_extract_candidates(drama_id: int, speaker_label, max_candidates: int =
 
 
 def _extract_job(job_id, drama_id, speaker_label, max_candidates):
+    count = _extract_one(job_id, drama_id, speaker_label, max_candidates)
+    background_jobs.set_result(job_id, {"candidate_count": count})
+    background_jobs.update_progress(job_id, 1.0, f"{count} candidate clip(s) ready.")
+
+
+def start_auto_clips(drama_id: int) -> bool:
+    """Right after speaker detection: cuts the Find-clips samples for every
+    speaker that has none yet, so the Sample column is filled when the title
+    opens. A speaker whose clips the user already made is left alone. Never
+    raises (detection has finished and must not fail over a convenience);
+    returns whether a job started."""
+    try:
+        drama = db.get_drama(drama_id)
+        if drama is None or not _safe_file(_drama_path(drama_id), drama.get("audio_filename") or ""):
+            return False
+        if shutil.which("ffmpeg") is None:
+            return False
+        have = _candidates_by_owner(_load_manifest(drama_id), _line_speakers(db.load_lines(drama_id)))
+        labels = sorted(label for label in characters_service.known_speakers(drama_id) if not have.get(label))
+        if not labels:
+            return False
+        job_id = f"{JOB_PREFIX}{drama_id}"
+        return bool(job_launch.start_job(
+            job_id, _auto_clips_job, job_id, drama_id, labels,
+            description=f"Speaker sample clips (title #{drama_id})", line_fields=()))
+    except Exception:
+        return False
+
+
+def _auto_clips_job(job_id, drama_id, labels):
+    done = 0
+    for n, label in enumerate(labels):
+        if background_jobs.is_cancel_requested(job_id):
+            raise background_jobs.JobCancelled(job_id)
+        background_jobs.update_progress(job_id, n / len(labels), f"Cutting clips for speaker {n + 1} of {len(labels)}...")
+        try:
+            _extract_one(job_id, drama_id, label, DEFAULT_CANDIDATES, report=False)
+            done += 1
+        except background_jobs.JobCancelled:
+            raise
+        except Exception:
+            # One speaker with too little clean speech must not stop the others.
+            continue
+    background_jobs.set_result(job_id, {"speakers_done": done})
+    background_jobs.update_progress(job_id, 1.0, f"Sample clips ready for {done} speaker(s).")
+
+
+def _extract_one(job_id, drama_id, speaker_label, max_candidates, report=True) -> int:
     drama = db.get_drama(drama_id)
     if drama is None:
         raise RuntimeError("The title no longer exists.")
@@ -507,8 +555,9 @@ def _extract_job(job_id, drama_id, speaker_label, max_candidates):
         for n, (start, end) in enumerate(chosen):
             if background_jobs.is_cancel_requested(job_id):
                 raise background_jobs.JobCancelled(job_id)
-            background_jobs.update_progress(job_id, n / max(len(chosen), 1),
-                                            f"Cutting clip {n + 1} of {len(chosen)}...")
+            if report:
+                background_jobs.update_progress(job_id, n / max(len(chosen), 1),
+                                                f"Cutting clip {n + 1} of {len(chosen)}...")
             token = uuid.uuid4().hex
             out = os.path.join(cdir, f"{token}.wav")
             cmd = ["ffmpeg", "-y", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}",
@@ -546,8 +595,7 @@ def _extract_job(job_id, drama_id, speaker_label, max_candidates):
                 for label in sorted(set(skips) | set(owned))}
     manifest[speaker_label] = {"candidates": made, "skip": skip}
     _save_manifest(drama_id, manifest)
-    background_jobs.set_result(job_id, {"candidate_count": len(made)})
-    background_jobs.update_progress(job_id, 1.0, f"{len(made)} candidate clip(s) ready.")
+    return len(made)
 
 
 def list_candidates(drama_id: int) -> dict:

@@ -301,6 +301,8 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
         _record_run_speed(drama_id, result)
         if applied is False:
             return {"failed_reason": "empty"}
+        from services import voice_clone_service
+        voice_clone_service.start_auto_clips(drama_id)
         hint = (result or {}).get("speaker_count_hint")
         extras = {"speaker_count_hint": hint} if hint else {}
         backend_reason = (result or {}).get("backend_fallback_reason")
