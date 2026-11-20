@@ -140,7 +140,14 @@ def _flag_for_review(drama_id: int, lines, landed: set, embed_texts) -> None:
     if embed_texts is not None:
         from engine_backends import alignment_check
         try:
-            alignment_check.flag_mismatches([ln for ln in lines if ln.id in landed], embed_texts)
+            unchecked = []
+            alignment_check.flag_mismatches([ln for ln in lines if ln.id in landed], embed_texts,
+                                            unchecked=unchecked)
+            if unchecked:
+                # Quietly skipping them would read as "checked and fine".
+                logging.getLogger(__name__).warning(
+                    "source-match check could not score %d of this run's lines (embedding "
+                    "failed for them); they were left unchecked", len(unchecked))
         except Exception:
             # An optional extra check must not fail a finished translation.
             logging.getLogger(__name__).exception("source-match check failed")

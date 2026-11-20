@@ -111,3 +111,85 @@ def test_finish_run_survives_a_broken_check(isolated_db):
 
     rows = _finish(isolated_db, boom)
     assert all(r["flag"] is None for r in rows.values())
+
+
+def test_a_text_the_server_cannot_embed_is_left_unchecked_not_fatal():
+    ok, bad = _line("明天见面", "0.1,0.9"), _line("我不会原谅你", "0.9,0.1")
+    unchecked = []
+
+    def embed(texts):
+        return [None if t == "我不会原谅你" else SRC[t] if t in SRC else [0.1, 0.9] for t in texts]
+
+    assert alignment_check.flag_mismatches([ok, bad], embed, unchecked=unchecked) == 0
+    assert unchecked == [bad] and bad.flag is None
+
+
+def _nan_server(monkeypatch, limit=60):
+    """Ollama 0.24 with bge-m3: HTTP 500 for any request holding a text of `limit` characters or more."""
+    sent = []
+
+    def post(url, **kw):
+        texts = kw["json"]["input"]
+        sent.append(list(texts))
+        if any(len(t) >= limit for t in texts):
+            return http.Response(500, {}, b'{"error":"json: unsupported value: NaN"}', url)
+        return http.Response(200, {}, json.dumps({"embeddings": [[float(len(t)), 1.0] for t in texts]}).encode(), url)
+
+    monkeypatch.setattr(alignment_check.http, "post", post)
+    return sent
+
+
+def test_a_long_text_is_embedded_in_pieces_and_averaged(monkeypatch):
+    sent = _nan_server(monkeypatch)
+    long_text = "这是一个很长的句子，" * 10  # 100 characters
+    out = alignment_check.embed("http://o:1", ["短句", long_text])
+    assert len(out) == 2 and out[0] == [2.0, 1.0]
+    assert out[1] is not None and out[1][1] == 1.0
+    assert all(len(t) < 60 for batch in sent[-1:] for t in batch)
+
+
+def test_a_text_that_fails_even_in_pieces_gives_none_in_its_place(monkeypatch):
+    _nan_server(monkeypatch, limit=1)
+    assert alignment_check.embed("http://o:1", ["短句", "又一句话"]) == [None, None]
+
+
+def test_pieces_cut_at_break_marks_and_stay_short():
+    text = "一二三四五，" * 20
+    pieces = alignment_check._pieces(text)
+    assert all(len(p) <= alignment_check.PIECE_CHARS for p in pieces)
+    assert "".join(pieces).replace("，", "") == text.replace("，", "")
+
+
+def _shifted(own):
+    """Three lines whose middle English carries the vector `own`; each source is a unit axis."""
+    zh = {"前一句话": [1.0, 0.0, 0.0], "中间一句话": [0.0, 1.0, 0.0], "后一句话": [0.0, 0.0, 1.0]}
+    lines = [_line("前一句话", "1.0,0.0,0.0"), _line("中间一句话", own), _line("后一句话", "0.0,0.0,1.0")]
+
+    def embed(texts):
+        return [zh[t] if t in zh else [float(v) for v in t.split(",")] for t in texts]
+
+    return lines, embed
+
+
+def test_english_nearer_the_next_lines_source_is_flagged_even_above_the_bar():
+    # Scores 0.6 against its own source, above the bar, but 0.8 against the next line's.
+    lines, embed = _shifted("0.0,0.6,0.8")
+    assert alignment_check.flag_mismatches(lines, embed) == 1
+    assert lines[1].flag == alignment_check.ALIGNMENT_FLAG and "next line" in lines[1].flag_note
+    assert lines[0].flag is None and lines[2].flag is None
+
+
+def test_english_clearly_nearest_its_own_source_is_not_flagged_for_a_neighbour():
+    lines, embed = _shifted("0.0,0.9,0.5")
+    assert alignment_check.flag_mismatches(lines, embed) == 0 and lines[1].flag is None
+
+
+def test_the_neighbour_test_can_be_turned_off():
+    lines, embed = _shifted("0.0,0.6,0.8")
+    assert alignment_check.flag_mismatches(lines, embed, neighbour_margin=None) == 0
+
+
+def test_a_line_between_which_and_its_neighbour_sits_a_skipped_line_is_not_compared():
+    lines, embed = _shifted("0.0,0.6,0.8")
+    skipped = _line("嗯", "x")  # too short to check, so it is not in the checked list
+    assert alignment_check.flag_mismatches([lines[0], lines[1], skipped, lines[2]], embed) == 0
