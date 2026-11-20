@@ -298,3 +298,16 @@ def test_chapters_shorter_than_a_batch_still_get_a_batch_each_side_by_side(novel
 
 def test_one_chapter_at_a_time_keeps_its_batch_plan(novel):
     assert max(_chapters_per_call(1)) > 1
+
+
+def test_three_chapters_at_once_is_the_default_without_developer_mode(isolated_db):
+    from services import settings_service
+    assert settings_service.parallel_chapters() == 3
+
+
+def test_a_saved_choice_is_kept_and_clamped(isolated_db):
+    from services import settings_service
+    settings_service.set_settings({"novel_parallel_chapters": 1})
+    assert settings_service.parallel_chapters() == 1
+    settings_service.set_settings({"novel_parallel_chapters": 9})
+    assert settings_service.parallel_chapters() == 3
