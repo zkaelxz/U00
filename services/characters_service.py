@@ -518,6 +518,7 @@ def remember_series_character(drama_id: int, speaker_label: str) -> dict:
     if linked is None:
         raise ConflictError("This speaker was linked or renamed meanwhile; reload and try again.")
     sc_id, created = linked
+    apply_series_voice(drama_id, speaker_label)
     series_entry = next(sc for sc in list_series_characters(series_id) if sc["id"] == sc_id)
     return {"character": get_one(drama_id, speaker_label), "series_character": series_entry,
             "created": created}
