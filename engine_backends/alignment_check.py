@@ -134,8 +134,28 @@ def _closer_neighbour(i: int, pos, todo, vectors, score: float, margin: float):
     return best
 
 
+# With a judge to confirm each doubt, the neighbour test can afford to be looser: most of
+# what it catches extra is then cleared by the judge instead of flagged.
+CANDIDATE_MARGIN = 0.03
+JUDGED_NOTES = {
+    "shifted": FLAG_NOTE_PREFIX + "a check found this English translates a neighbouring line, not its own",
+    "wrong": FLAG_NOTE_PREFIX + "a check found this English does not say what its source line says",
+}
+
+
+def _judge_item(i: int, ln, todo, pos) -> dict:
+    """The line and the directly adjacent lines on either side, for a judge's prompt."""
+    item = {"id": i, "zh": ln.zh, "en": ln.en}
+    for step, key in ((-1, "prev"), (1, "next")):
+        j = i + step
+        if 0 <= j < len(todo) and pos[id(todo[j])] - pos[id(ln)] == step:
+            item[key] = (todo[j].zh, todo[j].en)
+    return item
+
+
 def flag_mismatches(lines, embed_texts, min_similarity: float = MIN_SIMILARITY,
-                    unchecked=None, neighbour_margin: float | None = NEIGHBOUR_MARGIN) -> int:
+                    unchecked=None, neighbour_margin: float | None = NEIGHBOUR_MARGIN,
+                    judge=None) -> int:
     """Flags lines whose English is far from their source, or nearer a neighbouring line's
     source than its own (None for `neighbour_margin` turns that second test off); returns how
     many it flagged.
@@ -143,7 +163,12 @@ def flag_mismatches(lines, embed_texts, min_similarity: float = MIN_SIMILARITY,
     embed_texts(list of str) returns one vector per text (None for a text it could not
     embed), or None when embedding is unavailable, which leaves every line as it was. A line
     that already carries another flag keeps it; one only this check flagged earlier is
-    cleared once it passes. A line with no vector is left alone and added to `unchecked`."""
+    cleared once it passes. A line with no vector is left alone and added to `unchecked`.
+
+    judge, if given, takes the doubtful lines (found with the looser CANDIDATE_MARGIN) as
+    {id, zh, en, prev, next} items and returns {id: "ok" | "shifted" | "wrong"}; only a
+    "shifted" or "wrong" line is flagged. A line it gives no verdict for is decided by the
+    embedding scores alone, as without a judge."""
     lines = list(lines)
     todo = [ln for ln in lines
             if (ln.en or "").strip() and len((ln.zh or "").strip()) >= MIN_SOURCE_CHARS]
@@ -153,7 +178,7 @@ def flag_mismatches(lines, embed_texts, min_similarity: float = MIN_SIMILARITY,
     if vectors is None or len(vectors) != 2 * len(todo):
         return 0
     pos = {id(ln): k for k, ln in enumerate(lines)}
-    flagged = 0
+    strict, doubtful, borderline = {}, [], {}
     for i, ln in enumerate(todo):
         if vectors[i] is None or vectors[len(todo) + i] is None:
             if unchecked is not None:
@@ -161,9 +186,25 @@ def flag_mismatches(lines, embed_texts, min_similarity: float = MIN_SIMILARITY,
             continue
         score = cosine(vectors[i], vectors[len(todo) + i])
         note = flag_note(score) if score < min_similarity else None
-        if note is None and neighbour_margin is not None:
+        near = None
+        if neighbour_margin is not None:
             near = _closer_neighbour(i, pos, todo, vectors, score, neighbour_margin)
-            note = shift_note(near[0], score, near[1]) if near else None
+            note = note or (shift_note(near[0], score, near[1]) if near else None)
+        strict[i] = note
+        borderline[i] = score >= min_similarity
+        if judge is not None and (score < min_similarity or (
+                neighbour_margin is not None
+                and _closer_neighbour(i, pos, todo, vectors, score, CANDIDATE_MARGIN))):
+            doubtful.append(i)
+    verdicts = (judge([_judge_item(i, todo[i], todo, pos) for i in doubtful])
+                if judge is not None and doubtful else {})
+    flagged = 0
+    for i, note in strict.items():
+        ln = todo[i]
+        if i in verdicts and (verdicts[i] != "ok" or borderline.get(i)):
+            # "ok" only overrules a borderline neighbour doubt: a score under the bar stays
+            # flagged, since a model that says "ok" to everything must not empty the check.
+            note = JUDGED_NOTES.get(verdicts[i])
         if note:
             if not ln.flag or ln.flag == ALIGNMENT_FLAG:
                 ln.flag, ln.flag_note = ALIGNMENT_FLAG, note
