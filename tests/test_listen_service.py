@@ -322,4 +322,4 @@ class TestPydubCheck:
         monkeypatch.setattr(importlib.util, "find_spec", lambda n, *a: None if n == "pydub" else real(n, *a))
         monkeypatch.setattr(listen_service, "_pydub_problem", listen_service._pydub_problem.real)
         reason = listen_service._missing_engine_dependency("omnivoice")
-        assert "Narration track" in reason and "Diagnostics" in reason and "No module" not in reason
+        assert "pydub" in reason and "Diagnostics" in reason and "No module" not in reason
