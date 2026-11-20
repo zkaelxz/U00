@@ -103,10 +103,51 @@ def main(argv=None) -> int:
     with open(log_path, "wb") as log:
         log.write(port_note)
         log.flush()
-        subprocess.Popen(["cmd.exe", "/c", start_bat], cwd=args.root, creationflags=flags,
-                         startupinfo=startup, env=env, close_fds=True,
-                         stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+        proc = subprocess.Popen(["cmd.exe", "/c", start_bat], cwd=args.root, creationflags=flags,
+                                startupinfo=startup, env=env, close_fds=True,
+                                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+    if args.port:
+        _note_whether_it_stayed_up(proc, args.port, log_path)
     return 0
+
+
+START_BAT_WAIT_SECONDS = 600
+STAY_UP_SECONDS = 60
+
+
+def _answers(port: int) -> bool:
+    with socket.socket() as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _note_whether_it_stayed_up(proc, port: int, log_path: str) -> None:
+    """Once start.bat has reported the server up, watch the port for a minute and add one
+    line to the log. A server that came up and then died left only start.bat's "answering"
+    line before, which read as a good restart (seen once on a test copy, 2026-11-19)."""
+    try:
+        code = proc.wait(timeout=START_BAT_WAIT_SECONDS)
+    except (subprocess.TimeoutExpired, OSError):
+        return
+    if code != 0 or not _answers(port):
+        return
+    started = time.monotonic()
+    while time.monotonic() - started < STAY_UP_SECONDS:
+        time.sleep(1)
+        if not _answers(port):
+            gone = round(time.monotonic() - started)
+            _append_log(log_path, f"The restarted server stopped answering on port {port} about {gone} s "
+                                  "after it came up. Run start.bat to start it again.")
+            return
+    _append_log(log_path, f"The restarted server was still answering on port {port} {STAY_UP_SECONDS} s later.")
+
+
+def _append_log(path: str, text: str) -> None:
+    try:
+        with open(path, "a", encoding="utf-8") as log:
+            log.write(text + "\n")
+    except OSError:
+        pass
 
 
 if __name__ == "__main__":

@@ -311,6 +311,7 @@ class TestRestartHelper:
         (tmp_path / "start.bat").write_text("")
         monkeypatch.setattr(r, "process_gone", lambda pid, seconds: True)
         monkeypatch.setattr(r, "port_free", lambda port, seconds: False)
+        monkeypatch.setattr(r, "_note_whether_it_stayed_up", lambda *a: None)
         monkeypatch.setattr(r.subprocess, "Popen", lambda cmd, **k: k["stdout"].write(b"start.bat output"))
         assert r.main(["--root", str(tmp_path), "--pid", "1", "--port", "8640"]) == 0
         text = (tmp_path / r.LOG_NAME).read_text(encoding="utf-8")
@@ -322,10 +323,11 @@ class TestRestartHelper:
         order = []
         monkeypatch.setattr(r, "process_gone", lambda pid, seconds: order.append("exit") or True)
         monkeypatch.setattr(r, "port_free", lambda port, seconds: order.append("port") or True)
+        monkeypatch.setattr(r, "_note_whether_it_stayed_up", lambda *a: order.append("watch"))
         seen = {}
         monkeypatch.setattr(r.subprocess, "Popen", lambda cmd, **k: (order.append(cmd[-1]), seen.update(k)))
         assert r.main(["--root", str(tmp_path), "--pid", "1", "--port", "8600"]) == 0
-        assert order == ["exit", "port", str(tmp_path / "start.bat")]
+        assert order == ["exit", "port", str(tmp_path / "start.bat"), "watch"]
         assert seen["env"]["BAIHE_NO_APP_WINDOW"] == "1"
 
     def test_a_failing_start_bat_exits_and_leaves_its_output_in_a_file(self, tmp_path, monkeypatch):
@@ -339,6 +341,29 @@ class TestRestartHelper:
         assert seen["stdout"].name == str(tmp_path / su.HELPER_LOG)
         assert su.HELPER_LOG == r.LOG_NAME
 
+    def _watch(self, monkeypatch, tmp_path, answers, code=0):
+        from tools import restart_after_update as r
+        log = tmp_path / r.LOG_NAME
+        log.write_text("start.bat output\n", encoding="utf-8")
+        seq = iter(answers)
+        monkeypatch.setattr(r, "_answers", lambda port: next(seq, answers[-1]))
+        monkeypatch.setattr(r.time, "sleep", lambda s: None)
+        clock = iter(range(0, 10_000))
+        monkeypatch.setattr(r.time, "monotonic", lambda: next(clock))
+        proc = type("P", (), {"wait": lambda self, timeout: code})()
+        r._note_whether_it_stayed_up(proc, 8640, str(log))
+        return log.read_text(encoding="utf-8")
+
+    def test_a_restarted_server_that_dies_soon_after_is_written_to_the_log(self, tmp_path, monkeypatch):
+        text = self._watch(monkeypatch, tmp_path, [True, True, True, False])
+        assert text.startswith("start.bat output") and "stopped answering on port 8640" in text
+
+    def test_a_restarted_server_that_stays_up_is_noted(self, tmp_path, monkeypatch):
+        text = self._watch(monkeypatch, tmp_path, [True])
+        assert "still answering on port 8640 60 s later" in text
+
+    def test_a_failed_start_bat_gets_no_extra_line(self, tmp_path, monkeypatch):
+        assert self._watch(monkeypatch, tmp_path, [False], code=1) == "start.bat output\n"
     def test_the_copy_started_after_an_update_prints_no_second_banner(self):
         text = open(os.path.join(os.path.dirname(__file__), "..", "start.bat"), encoding="utf-8").read()
         assert text.count("echo   Baihe Studio") == 1
