@@ -813,4 +813,5 @@ def link_series_character(drama_id: int, speaker_label, series_character_id) -> 
         raise NotFoundError("No such character in this title's series.")
     db.upsert_character(drama_id, speaker_label, character_name=match["character_name"],
                         series_character_id=match["id"])
+    characters_service.apply_series_voice(drama_id, speaker_label)
     return characters_service.get_one(drama_id, speaker_label)

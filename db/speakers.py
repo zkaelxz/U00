@@ -801,6 +801,23 @@ def apply_voice_bank_entry(entry_id: int, drama_dir: str, drama_id: int, speaker
     return dest_filename
 
 
+def set_series_character_voice(series_character_id: int, entry_id: int | None):
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE series_characters SET voice_bank_id = ? WHERE id = ?",
+                     (entry_id, series_character_id))
+        conn.commit()
+
+
+def get_series_character_voice(series_character_id: int) -> int | None:
+    """The bank entry id remembered for this character, or None when unset
+    or when that entry no longer exists."""
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute(
+            "SELECT b.id FROM series_characters sc JOIN voice_bank b ON b.id = sc.voice_bank_id "
+            "WHERE sc.id = ?", (series_character_id,)).fetchone()
+    return row[0] if row else None
+
+
 def rename_voice_bank_entry(entry_id: int, new_name: str):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("UPDATE voice_bank SET name = ? WHERE id = ?", (new_name, entry_id))
@@ -811,6 +828,8 @@ def delete_voice_bank_entry(entry_id: int):
     entry = db.get_voice_bank_entry(entry_id)
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("DELETE FROM voice_bank WHERE id = ?", (entry_id,))
+        conn.execute("UPDATE series_characters SET voice_bank_id = NULL WHERE voice_bank_id = ?",
+                     (entry_id,))
         conn.commit()
     clip_path = db.voice_bank_clip_path(entry["clip_filename"]) if entry else None
     if clip_path:

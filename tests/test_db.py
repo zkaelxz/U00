@@ -958,7 +958,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "characters": ("ref_audio_filename", "ref_text", "elevenlabs_voice_id", "clone_engine",
                    "voice_design", "offline_voice", "series_character_id", "pronouns"),
     "glossary_terms": ("category", "policy", "enforce_exact", "aliases", "banned_translations"),
-    "series_characters": ("gender", "voice_fingerprint", "voice_fingerprint_samples"),
+    "series_characters": ("gender", "voice_fingerprint", "voice_fingerprint_samples", "voice_bank_id"),
     "usage_log": ("cache_read_tokens", "estimated_cost_usd_before_recost", "user_id"),
     "bubbles": ("font_category", "kind", "kind_confidence", "confidence", "language",
                 "orientation", "panel_id", "include_sfx", "text_color"),

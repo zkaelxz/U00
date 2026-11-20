@@ -797,3 +797,54 @@ class TestAutoClips:
         monkeypatch.setattr(diarization_service, "apply_diarization_result", lambda *a, **k: False)
         diarization_service.make_apply_on_done(did)(f"diarize_{did}", {"segments": []})
         assert calls == []
+
+
+class TestSeriesRemembersBankVoice:
+    def _setup(self, client, tools):
+        sid = db.get_or_create_series("S")
+        db.upsert_series_character(sid, "Mei")
+        mei = db.list_series_characters(sid)[0]["id"]
+        first = _drama(series_id=sid, source_language="zh")
+        _upload(client, first)
+        entry = client.post(f"{BASE}/{first}/voice-bank/save",
+                            json={"speaker_label": "A", "name": "Mei voice"}).json()["id"]
+        return sid, mei, first, entry
+
+    def test_apply_remembers_and_a_new_title_link_uses_it(self, client, isolated_db, tools):
+        sid, mei, first, entry = self._setup(client, tools)
+        client.post(f"{BASE}/{first}/series-link", json={"speaker_label": "B", "series_character_id": mei})
+        assert db.get_series_character_voice(mei) is None   # linking alone remembers nothing
+        r = client.post(f"{BASE}/{first}/voice-bank/apply", json={"speaker_label": "B", "voice_bank_id": entry})
+        assert r.status_code == 200
+        assert db.get_series_character_voice(mei) == entry
+        second = _drama(series_id=sid, source_language="zh")
+        r = client.post(f"{BASE}/{second}/series-link", json={"speaker_label": "A", "series_character_id": mei})
+        assert r.status_code == 200 and r.json()["has_ref_audio"] is True
+        assert _char(second, "A")["ref_audio_filename"].startswith(f"voicebank_{entry}_")
+
+    def test_own_clip_is_not_replaced(self, client, isolated_db, tools):
+        sid, mei, first, entry = self._setup(client, tools)
+        db.set_series_character_voice(mei, entry)
+        second = _drama(series_id=sid, source_language="zh")
+        _upload(client, second, label="A")
+        own = _char(second, "A")["ref_audio_filename"]
+        client.post(f"{BASE}/{second}/series-link", json={"speaker_label": "A", "series_character_id": mei})
+        assert _char(second, "A")["ref_audio_filename"] == own
+
+    def test_deleted_entry_is_forgotten_and_link_still_works(self, client, isolated_db, tools):
+        sid, mei, first, entry = self._setup(client, tools)
+        db.set_series_character_voice(mei, entry)
+        db.delete_voice_bank_entry(entry)
+        assert db.get_series_character_voice(mei) is None
+        second = _drama(series_id=sid, source_language="zh")
+        r = client.post(f"{BASE}/{second}/series-link", json={"speaker_label": "A", "series_character_id": mei})
+        assert r.status_code == 200 and r.json()["has_ref_audio"] is False
+
+    def test_unsupported_language_leaves_speaker_alone(self, client, isolated_db, tools, monkeypatch):
+        from services import characters_service
+        sid, mei, first, entry = self._setup(client, tools)
+        db.set_series_character_voice(mei, entry)
+        monkeypatch.setattr(characters_service.dub, "clone_engine_supports_language", lambda e, l: False)
+        second = _drama(series_id=sid, source_language="zh")
+        r = client.post(f"{BASE}/{second}/series-link", json={"speaker_label": "A", "series_character_id": mei})
+        assert r.status_code == 200 and r.json()["has_ref_audio"] is False

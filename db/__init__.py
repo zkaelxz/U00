@@ -538,6 +538,8 @@ from db.speakers import (  # noqa: F401
     voice_bank_clip_path,
     apply_voice_bank_entry,
     rename_voice_bank_entry,
+    set_series_character_voice,
+    get_series_character_voice,
     delete_voice_bank_entry,
 )
 

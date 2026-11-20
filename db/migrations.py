@@ -311,6 +311,10 @@ def _migrate_series_and_character_columns(conn):
     # after the group's first ALTER must still add the rest on the next start.
     if "voice_fingerprint_samples" not in sc_cols:
         db._safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint_samples INTEGER DEFAULT 0")
+    if "voice_bank_id" not in sc_cols:
+        # Not a foreign key: a deleted bank entry clears it in delete_voice_bank_entry, and a
+        # restored library may hold an id whose entry is gone, which readers treat as unset.
+        db._safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_bank_id INTEGER")
 
 
 def _migrate_scanlate_columns(conn):
