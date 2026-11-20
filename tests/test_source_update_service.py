@@ -302,7 +302,19 @@ class TestRestartHelper:
         started = []
         monkeypatch.setattr(r.subprocess, "Popen", lambda *a, **k: started.append(a))
         monkeypatch.setattr(r, "process_gone", lambda pid, seconds: False)
+        (tmp_path / r.LOG_NAME).write_text("/api/health is answering -- restarted by an update")
         assert r.main(["--root", str(tmp_path), "--pid", "1"]) == 3 and not started
+        assert "was still running" in (tmp_path / r.LOG_NAME).read_text(encoding="utf-8")
+
+    def test_a_port_still_in_use_is_noted_before_start_bats_output(self, tmp_path, monkeypatch):
+        from tools import restart_after_update as r
+        (tmp_path / "start.bat").write_text("")
+        monkeypatch.setattr(r, "process_gone", lambda pid, seconds: True)
+        monkeypatch.setattr(r, "port_free", lambda port, seconds: False)
+        monkeypatch.setattr(r.subprocess, "Popen", lambda cmd, **k: k["stdout"].write(b"start.bat output"))
+        assert r.main(["--root", str(tmp_path), "--pid", "1", "--port", "8640"]) == 0
+        text = (tmp_path / r.LOG_NAME).read_text(encoding="utf-8")
+        assert text.startswith("Port 8640 was still in use") and text.endswith("start.bat output")
 
     def test_runs_start_bat_after_the_exit_and_free_port(self, tmp_path, monkeypatch):
         from tools import restart_after_update as r
