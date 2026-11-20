@@ -157,7 +157,8 @@ def _month_cap_check(engine_choice, engine):
 
 def _month_cap_left(engine_choice, engine):
     """Dollars left under the monthly cap as it is now, or None when no cap applies; the
-    run uses it to price the next batch against what is left, and a parallel run to decide whether it fits beside those in flight."""
+    run uses it to price the next batch against what is left, and a
+    parallel run to decide whether it fits beside those in flight."""
     from services import translate_run_service
     if not translate_run_service.engine_cap_applies(
             engine_choice, bool(getattr(engine, "free_tier", False)),
