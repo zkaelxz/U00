@@ -46,6 +46,7 @@ class FakeAudio:
     """Just enough of pydub.AudioSegment for build_narration_track: a clip's
     length comes from clip_lengths (default 1000ms)."""
     clip_lengths = {}
+    raw_data = b""
 
     def __init__(self, ms=0):
         self.ms = ms
