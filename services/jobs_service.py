@@ -577,7 +577,7 @@ def _with_live_progress(record: dict) -> dict:
     if record.get("status") == "running" and live.get("status") not in (None, "running", "queued"):
         # The job finished between the caller's read of its row and this read of
         # the live state; the row's message is still the one written at start.
-        record = db.get_job_record(record.get("job_id")) or record
+        record = db.get_job_record(str(record.get("job_id") or "")) or record
     out = dict(record)
     if record.get("status") == "running" and live.get("status") == "running":
         out["can_force_stop"] = job_force_stop.can_force_stop(live)
