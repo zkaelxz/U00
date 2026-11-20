@@ -323,7 +323,9 @@ def apply_series_voice(drama_id: int, speaker_label: str) -> bool:
         if not drama or not row or not row.get("series_character_id") or row.get("ref_audio_filename"):
             return False
         entry_id = db.get_series_character_voice(row["series_character_id"])
-        entry = get_voice_bank_entry(entry_id) if entry_id else None
+        if entry_id is None:
+            return False
+        entry = get_voice_bank_entry(entry_id)
         if entry is None or db.voice_bank_clip_path(entry.get("clip_filename") or "") is None:
             return False
         engine = entry.get("clone_engine") or ""
