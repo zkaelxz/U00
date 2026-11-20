@@ -372,10 +372,7 @@ def reasoning_override(engine_name):
 
 
 def parallel_chapters() -> int:
-    """How many novel chapters one run may translate at once. A Developer Mode row reads as
-    its default (1) while Developer Mode is off, like the Timing rows."""
-    if not _developer_mode_on():
-        return 1
+    """How many novel chapters one run may translate at once."""
     try:
         return max(1, min(3, int(str(get("novel_parallel_chapters")))))
     except (TypeError, ValueError):
