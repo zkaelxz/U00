@@ -51,7 +51,7 @@ function TestVoice({ dramaId, speaker, engine, language, disabled }: {
       {' '}
       <button type="button" disabled={disabled || busy || !engine} onClick={test}>Test voice</button>
       {busy && <span role="status"> {job?.message || 'Speaking a sample...'}</span>}
-      {failed && <span role="status"> {job.message || job.error || 'The sample could not be made.'}</span>}
+      {failed && <span role="status"> {job.error || job.message || 'The sample could not be made.'}</span>}
       <ErrorBanner error={error ?? pollError} onDismiss={() => setError(null)} />
       {done && jobSucceeded(job) && <audio controls autoPlay src={listenTestVoiceUrl(dramaId, runKey)} aria-label={`Sample of ${speaker}'s voice`} />}
     </>
@@ -168,7 +168,7 @@ function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfi
   const engine = chooseEngine(cfg.tts_engines, cfg.default_engine, pickedEngine)
   const narrationLanguage = cfg.narration_language_options.includes(pickedLanguage) ? pickedLanguage : cfg.narration_language
   const blocker = listenBlocker(cfg, engine)
-  const failedText = done && job && jobFailed(job) ? job.message : null
+  const failedText = done && job && jobFailed(job) ? (job.error || job.message) : null
   const start = () =>
     listenApi.run(dramaId, { tts_engine: engine, narration_language: narrationLanguage }).then((r) => {
       setError(null)

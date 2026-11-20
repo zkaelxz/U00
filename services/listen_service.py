@@ -158,7 +158,7 @@ def _pydub_problem():
     run fails later with a raw "No module named" error."""
     if importlib.util.find_spec("pydub") is None:
         return ('Joining the narration needs the pydub package. '
-                'Install "Narration track" in Diagnostics > Packages.')
+                'Install the pydub package in Diagnostics > Packages.')
     return None
 
 
