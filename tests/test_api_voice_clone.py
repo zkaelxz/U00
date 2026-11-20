@@ -759,3 +759,146 @@ class TestUploadToBank:
         assert self._post(client).status_code == 422
         assert db.list_voice_bank_entries() == []
         assert not os.path.isdir(db.VOICE_BANK_DIR) or os.listdir(db.VOICE_BANK_DIR) == []
+
+
+class TestAutoClips:
+    def test_cuts_clips_for_every_speaker_without_any_and_keeps_existing(self, client, isolated_db, tools):
+        did = _drama(speakers=("A", "B", "B"), durations=[6.0, 6.0, 7.0])
+        # B already has clips from its own Find clips run: they must survive.
+        job = wait_for_job(client.post(f"{BASE}/{did}/reference-clips/extract",
+                                       json={"speaker_label": "B"}).json()["job_id"], timeout=120)
+        assert job["status"] == "done"
+        before = {s["speaker_label"]: [c["id"] for c in s["candidates"]]
+                  for s in client.get(f"{BASE}/{did}/reference-clips/candidates").json()["speakers"]}
+        assert vcs.start_auto_clips(did) is True
+        wait_for_job(f"{vcs.AUTO_JOB_PREFIX}{did}", timeout=120)
+        after = {s["speaker_label"]: [c["id"] for c in s["candidates"]]
+                 for s in client.get(f"{BASE}/{did}/reference-clips/candidates").json()["speakers"]}
+        assert after["B"] == before["B"] and after["A"]
+        assert vcs.start_auto_clips(did) is False   # nothing left to cut
+
+    def test_no_audio_or_no_ffmpeg_starts_nothing_and_never_raises(self, client, isolated_db, tools, monkeypatch):
+        assert vcs.start_auto_clips(_drama(audio=False)) is False
+        did = _drama()
+        monkeypatch.setattr(vcs.shutil, "which", lambda name: None)
+        assert vcs.start_auto_clips(did) is False
+        assert vcs.start_auto_clips(99999) is False
+
+    def test_speaker_detection_finishing_starts_it(self, isolated_db, tools, monkeypatch):
+        from services import diarization_service
+        did = _drama()
+        calls = []
+        monkeypatch.setattr(diarization_service, "apply_diarization_result", lambda *a, **k: True)
+        monkeypatch.setattr(diarization_service, "_record_run_speed", lambda *a, **k: None)
+        monkeypatch.setattr(vcs, "start_auto_clips", lambda d: calls.append(d))
+        diarization_service.make_apply_on_done(did)(f"diarize_{did}", {"segments": [{"start": 0, "end": 1}]})
+        assert calls == [did]
+        calls.clear()
+        monkeypatch.setattr(diarization_service, "apply_diarization_result", lambda *a, **k: False)
+        diarization_service.make_apply_on_done(did)(f"diarize_{did}", {"segments": []})
+        assert calls == []
+
+
+class TestSeriesRemembersBankVoice:
+    def _setup(self, client, tools):
+        sid = db.get_or_create_series("S")
+        db.upsert_series_character(sid, "Mei")
+        mei = db.list_series_characters(sid)[0]["id"]
+        first = _drama(series_id=sid, source_language="zh")
+        _upload(client, first)
+        entry = client.post(f"{BASE}/{first}/voice-bank/save",
+                            json={"speaker_label": "A", "name": "Mei voice"}).json()["id"]
+        return sid, mei, first, entry
+
+    def test_apply_remembers_and_a_new_title_link_uses_it(self, client, isolated_db, tools):
+        sid, mei, first, entry = self._setup(client, tools)
+        client.post(f"{BASE}/{first}/series-link", json={"speaker_label": "B", "series_character_id": mei})
+        assert db.get_series_character_voice(mei) is None   # linking alone remembers nothing
+        r = client.post(f"{BASE}/{first}/voice-bank/apply", json={"speaker_label": "B", "voice_bank_id": entry})
+        assert r.status_code == 200
+        assert db.get_series_character_voice(mei) == entry
+        second = _drama(series_id=sid, source_language="zh")
+        r = client.post(f"{BASE}/{second}/series-link", json={"speaker_label": "A", "series_character_id": mei})
+        assert r.status_code == 200 and r.json()["has_ref_audio"] is True
+        assert _char(second, "A")["ref_audio_filename"].startswith(f"voicebank_{entry}_")
+
+    def test_own_clip_is_not_replaced(self, client, isolated_db, tools):
+        sid, mei, first, entry = self._setup(client, tools)
+        db.set_series_character_voice(mei, entry)
+        second = _drama(series_id=sid, source_language="zh")
+        _upload(client, second, label="A")
+        own = _char(second, "A")["ref_audio_filename"]
+        client.post(f"{BASE}/{second}/series-link", json={"speaker_label": "A", "series_character_id": mei})
+        assert _char(second, "A")["ref_audio_filename"] == own
+
+    def test_deleted_entry_is_forgotten_and_link_still_works(self, client, isolated_db, tools):
+        sid, mei, first, entry = self._setup(client, tools)
+        db.set_series_character_voice(mei, entry)
+        db.delete_voice_bank_entry(entry)
+        assert db.get_series_character_voice(mei) is None
+        second = _drama(series_id=sid, source_language="zh")
+        r = client.post(f"{BASE}/{second}/series-link", json={"speaker_label": "A", "series_character_id": mei})
+        assert r.status_code == 200 and r.json()["has_ref_audio"] is False
+
+    def test_unsupported_language_leaves_speaker_alone(self, client, isolated_db, tools, monkeypatch):
+        from services import characters_service
+        sid, mei, first, entry = self._setup(client, tools)
+        db.set_series_character_voice(mei, entry)
+        monkeypatch.setattr(characters_service.dub, "clone_engine_supports_language", lambda e, l: False)
+        second = _drama(series_id=sid, source_language="zh")
+        r = client.post(f"{BASE}/{second}/series-link", json={"speaker_label": "A", "series_character_id": mei})
+        assert r.status_code == 200 and r.json()["has_ref_audio"] is False
+
+
+class TestEditBankEntry:
+    def _entry(self, client):
+        r = client.post("/api/library/voice-bank", data={"name": "V", "ref_text": "old"},
+                        files={"file": ("v.wav", b"RIFFdata", "audio/wav")}, headers=LOCAL_HDR)
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def test_list_shows_notes_and_transcript_and_details_edit(self, client, isolated_db, tools):
+        eid = self._entry(client)
+        r = client.post(f"/api/library/voice-bank/{eid}/details",
+                        json={"notes": " calm ", "ref_text": " new text ", "language": "ko"})
+        assert r.status_code == 200, r.text
+        item = next(i for i in client.get("/api/library/voice-bank").json()["items"] if i["id"] == eid)
+        assert item["notes"] == "calm" and item["ref_text"] == "new text" and item["language"] == "ko"
+        assert "clip_filename" not in item
+        assert client.post(f"/api/library/voice-bank/{eid}/details", json={"language": "xx"}).status_code == 422
+        assert client.post("/api/library/voice-bank/999/details", json={}).status_code == 404
+
+    def test_replace_clip_keeps_entry_and_removes_old_file(self, client, isolated_db, tools):
+        eid = self._entry(client)
+        old = db.get_voice_bank_entry(eid)["clip_filename"]
+        r = client.post(f"/api/library/voice-bank/{eid}/clip",
+                        files={"file": ("n.mp3", b"ID3new", "audio/mpeg")}, headers=LOCAL_HDR)
+        assert r.status_code == 200, r.text
+        row = db.get_voice_bank_entry(eid)
+        assert row["clip_filename"] != old and row["clip_filename"].endswith(".mp3")
+        assert os.listdir(db.VOICE_BANK_DIR) == [row["clip_filename"]]
+        assert row["name"] == "V" and row["ref_text"] == "old"
+
+    def test_replace_clip_rejects_bad_input_and_keeps_old_voice(self, client, isolated_db, tools):
+        eid = self._entry(client)
+        old = db.get_voice_bank_entry(eid)["clip_filename"]
+        tools["duration"] = 0.2
+        r = client.post(f"/api/library/voice-bank/{eid}/clip",
+                        files={"file": ("n.wav", b"RIFFx", "audio/wav")}, headers=LOCAL_HDR)
+        assert r.status_code == 422
+        assert db.get_voice_bank_entry(eid)["clip_filename"] == old
+        assert client.post("/api/library/voice-bank/999/clip",
+                           files={"file": ("n.wav", b"RIFFx", "audio/wav")}, headers=LOCAL_HDR).status_code == 404
+
+
+def test_auto_clips_do_not_lock_speaker_edits_or_block_find_clips(client, isolated_db, tools):
+    from services import drama_service
+    did = _drama(speakers=("A", "B"), durations=[6.0, 6.0])
+    assert vcs.start_auto_clips(did) is True
+    assert not drama_service.job_running_for_drama(did)   # speaker edits stay allowed meanwhile
+    r = client.post(f"{BASE}/{did}/reference-clips/extract", json={"speaker_label": "A"})
+    assert r.status_code == 200, r.text   # not "already running"
+    wait_for_job(r.json()["job_id"], timeout=120)
+    wait_for_job(f"{vcs.AUTO_JOB_PREFIX}{did}", timeout=120)
+    sp = client.get(f"{BASE}/{did}/reference-clips/candidates").json()["speakers"]
+    assert {s["speaker_label"] for s in sp if s["candidates"]} == {"A", "B"}

@@ -21,7 +21,7 @@ from services.source_service import drama_audio_path as _drama_audio_path
 import diagnostics
 import diarize
 import whisper_models
-from services import (drama_service, ownership_service, run_settings_service, settings_service,
+from services import (characters_service, drama_service, ownership_service, run_settings_service, settings_service,
                       transcribe_pipeline)
 from lib.errors import (ConflictError, InvalidInputError, MissingKeyError,
                                       UnsupportedOperationError)
@@ -156,6 +156,7 @@ def _link_main_voice(drama_id: int, lines, main_character) -> None:
     for label in {ln.speaker for ln in lines if ln.speaker} - named:
         db.upsert_character(drama_id, label, character_name=main_character["character_name"],
                             series_character_id=main_character["id"])
+        characters_service.apply_series_voice(drama_id, label)
 
 
 def apply_diarization_result(drama_id: int, result: dict,
@@ -301,6 +302,8 @@ def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
         _record_run_speed(drama_id, result)
         if applied is False:
             return {"failed_reason": "empty"}
+        from services import voice_clone_service
+        voice_clone_service.start_auto_clips(drama_id)
         hint = (result or {}).get("speaker_count_hint")
         extras = {"speaker_count_hint": hint} if hint else {}
         backend_reason = (result or {}).get("backend_fallback_reason")

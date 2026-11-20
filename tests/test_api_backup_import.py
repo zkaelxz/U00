@@ -191,6 +191,19 @@ def test_import_selected_as_new_dramas_series_and_children(local_client):
     assert not [n for n in os.listdir(db.DRAMAS_DIR) if n.startswith(".restoring")]
 
 
+def test_an_imported_series_character_does_not_keep_the_files_bank_voice(local_client):
+    # A bank id from another library may name a different voice here.
+    a, b, g = _world()
+    with _conn() as c:
+        c.execute("UPDATE series_characters SET voice_bank_id = 3 WHERE character_name = 'Lin'")
+        c.commit()
+    r = _post_import(local_client, _manual_zip(), [a, b])
+    assert r.status_code == 200, r.text
+    with _conn() as c:
+        rows = c.execute("SELECT id, voice_bank_id FROM series_characters").fetchall()
+    assert len(rows) == 2 and sorted((v for _, v in rows), key=lambda x: (x is not None, x or 0)) == [None, 3]
+
+
 def test_duplicate_title_gets_restored_suffix_and_never_overwrites(local_client):
     a, b, g = _world()
     data = _manual_zip()
@@ -1491,6 +1504,17 @@ def test_voice_bank_comes_in_when_asked_and_a_same_entry_is_skipped(local_client
     assert hero["notes"] == "calm"
     with open(db.voice_bank_clip_path(hero["clip_filename"]), "rb") as fh:
         assert fh.read() == b"hero"
+
+
+def test_a_renamed_entry_is_not_imported_again(local_client, tmp_path):
+    a, b, g = _world()
+    narrator = db.save_voice_bank_entry("Narrator", _bank_clip(tmp_path, "n.wav", b"narrator"))
+    data = _manual_zip()
+    db.rename_voice_bank_entry(narrator, "Old narrator")
+    r = _post_import(local_client, data, [g], voice_bank="true")
+    assert r.status_code == 200, r.text
+    assert r.json()["voice_bank_imported"] == 0
+    assert [e["name"] for e in db.list_voice_bank_entries()] == ["Old narrator"]
 
 
 def test_a_database_only_file_offers_no_voice_bank(local_client, tmp_path):
