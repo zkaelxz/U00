@@ -7,6 +7,8 @@ voice and clip helpers, never the other way round.
 import contextlib
 import os
 import re
+import subprocess
+import tempfile
 import video_export
 from lib.atomic_write import replace_file
 from novel_text import (  # noqa: F401 (re-exported)
@@ -135,6 +137,41 @@ def join_segments(pieces):
     return pieces[0]
 
 
+# A WAV's sizes are 32-bit, so its data tops out just under 4 GB: about 24 h of the
+# engines' 24 kHz mono 16-bit audio. pydub writes FLAC through a temporary WAV.
+WAV_MAX_DATA_BYTES = 0xFFFFFFFF - 36
+_PCM_FORMATS = {1: "u8", 2: "s16le", 3: "s24le", 4: "s32le"}
+_PIPE_CHUNK_BYTES = 8 * 1024 * 1024
+
+
+def _export_flac(track, path: str) -> None:
+    """Writes `track` as FLAC. A track too long for a WAV goes to ffmpeg as raw samples on
+    its stdin instead, so a long book's narration is not lost at the very last step."""
+    data = track.raw_data
+    if len(data) <= WAV_MAX_DATA_BYTES:
+        track.export(path, format="flac")
+        return
+    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", _PCM_FORMATS[track.sample_width],
+           "-ar", str(track.frame_rate), "-ac", str(track.channels), "-i", "pipe:0",
+           "-c:a", "flac", "-f", "flac", path]
+    with tempfile.TemporaryFile() as err:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
+        try:
+            view = memoryview(data)
+            for i in range(0, len(view), _PIPE_CHUNK_BYTES):
+                proc.stdin.write(view[i:i + _PIPE_CHUNK_BYTES])
+            proc.stdin.close()
+            proc.wait(timeout=M4B_ENCODE_TIMEOUT_SECONDS)
+        except BaseException:
+            proc.kill()
+            proc.wait()
+            raise
+        if proc.returncode:
+            err.seek(0)
+            raise RuntimeError("ffmpeg could not write the narration track: "
+                               + err.read()[-500:].decode("utf-8", "replace").strip())
+
+
 def build_narration_track(lines, drama_dir: str, character_clone_map: dict, progress_cb=None,
                            gap_ms: int = 350,
                            narrate_original: bool = False, source_language: str = "zh"):
@@ -241,7 +278,7 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
     # truncated track that the Reader would serve as complete.
     part_path = out_path + ".part"
     try:
-        track.export(part_path, format="flac")
+        _export_flac(track, part_path)
         # Retries while the Reader is still streaming the old track on Windows.
         replace_file(part_path, out_path)
     finally:
@@ -336,7 +373,6 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
     chapter titles come from the source text, matching the narration
     audio's own language. cancel_job_id: a thread job whose cancel request
     kills the ffmpeg run (background_jobs.run_cancellable)."""
-    import subprocess
     track_name = find_narration_track(drama_dir)
     if not track_name:
         raise FileNotFoundError("No narration track yet -- generate the narration first.")
