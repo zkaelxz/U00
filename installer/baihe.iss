@@ -577,6 +577,79 @@ begin
   Result := ServiceInstalled() or FileExists(AdminDir() + '\helper\python\python.exe');
 end;
 
+// A path escaped as service.py's json.dumps writes it (ASCII only), so
+// Setup can compare it with config.json's text: Pascal Script has no JSON
+// reader. Paths never hold the control characters json gives short escapes.
+function JsonEscaped(const S: String): String;
+var
+  I, C: Integer;
+begin
+  Result := '';
+  for I := 1 to Length(S) do
+  begin
+    C := Ord(S[I]);
+    if S[I] = '\' then
+      Result := Result + '\\'
+    else if S[I] = '"' then
+      Result := Result + '\"'
+    else if (C < 32) or (C > 126) then
+      Result := Result + '\u' + Lowercase(Format('%.4x', [C]))
+    else
+      Result := Result + S[I];
+  end;
+end;
+
+// The install_root service.py recorded in the admin folder's config.json
+// (which users can read), still escaped; '' when there's none to read.
+function ServiceConfigRoot(): String;
+var
+  Raw: AnsiString;
+  Json: String;
+  Start, I: Integer;
+begin
+  Result := '';
+  if not LoadStringFromFile(AdminDir() + '\helper\config.json', Raw) then
+    Exit;
+  Json := Raw;
+  I := Pos('"install_root"', Json);
+  if I = 0 then
+    Exit;
+  I := I + Length('"install_root"');
+  while (I <= Length(Json)) and ((Json[I] = ' ') or (Json[I] = ':') or (Json[I] = #9)) do
+    I := I + 1;
+  if (I > Length(Json)) or (Json[I] <> '"') then
+    Exit;
+  I := I + 1;
+  Start := I;
+  while (I <= Length(Json)) and (Json[I] <> '"') do
+  begin
+    if Json[I] = '\' then
+      I := I + 1;
+    I := I + 1;
+  end;
+  if I > Length(Json) then
+    Exit;
+  Result := Copy(Json, Start, I - Start);
+end;
+
+// True when the service was set up by another Baihe Studio install on this
+// PC: another Windows account's, or this account's in another folder. The
+// admin folder and the service are machine-wide, so without this a second
+// account's Setup would stop (or, unticked, remove) the owner's service and
+// ask that account for an administrator password first. Stopping or
+// removing it is the owning install's job; service.py refuses to take it
+// over too. With no readable config.json (a damaged or older admin folder),
+// the service is treated as this install's, as before.
+function ServiceBelongsToOtherInstall(): Boolean;
+var
+  Root: String;
+begin
+  Root := ServiceConfigRoot();
+  Result := (Root <> '') and (CompareText(Root, JsonEscaped(ExpandConstant('{app}'))) <> 0);
+  if Result then
+    Log('The background service belongs to another Baihe Studio install on this PC; left alone.');
+end;
+
 // The one place Setup elevates. When Setup already has administrator rights
 // the program runs directly, otherwise through the Windows permission prompt
 // (only the service step is elevated; the install itself stays per-user).
@@ -713,6 +786,8 @@ var
   StopArgs, Locked: String;
 begin
   Result := '';
+  if ServiceBelongsToOtherInstall() then
+    Exit;
   // --for-update unlocks the admin-owned install folder, which only a locked
   // install has (an older helper doesn't know the option).
   Locked := AdminDir() + '\install-folder-locked.txt';
@@ -887,7 +962,7 @@ begin
     WizardForm.StatusLabel.Caption := 'Setting up Baihe Studio''s background service...';
     ServiceFailed := not RunStagedServiceInstall(ApiPortArg());
   end
-  else if ServiceOrAdminDirPresent() then
+  else if ServiceOrAdminDirPresent() and not ServiceBelongsToOtherInstall() then
     ServiceFailed := not RunServiceHelper(AdminDir(), UninstallServiceArgs());
   if ServiceFailed then
     SuppressibleMsgBox('Baihe Studio is installed, but its background service couldn''t be set up ' +
@@ -1085,7 +1160,7 @@ end;
 function RemoveService(): Boolean;
 begin
   Result := True;
-  if not ServiceOrAdminDirPresent() then
+  if not ServiceOrAdminDirPresent() or ServiceBelongsToOtherInstall() then
     Exit;
   Result := RunServiceHelper(AdminDir(), UninstallServiceArgs());
   if not Result then
