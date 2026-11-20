@@ -5586,7 +5586,8 @@ export interface paths {
         /** Voice bank entries (no file paths) */
         get: operations["get_voice_bank_api_library_voice_bank_get"];
         put?: never;
-        post?: never;
+        /** Add a voice to the bank from an uploaded clip */
+        post: operations["add_voice_api_library_voice_bank_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -15631,6 +15632,27 @@ export interface components {
              * @description True: translated, flag cleared.
              */
             retried: boolean;
+        };
+        /** Body_add_voice_api_library_voice_bank_post */
+        Body_add_voice_api_library_voice_bank_post: {
+            /** Clone Engine */
+            clone_engine?: string | null;
+            /** File */
+            file: string;
+            /** Language */
+            language?: string | null;
+            /** Name */
+            name: string;
+            /**
+             * Notes
+             * @default
+             */
+            notes?: string;
+            /**
+             * Ref Text
+             * @default
+             */
+            ref_text?: string;
         };
         /** Body_post_attach_epub_api_novel_dramas__drama_id__attach_epub_post */
         Body_post_attach_epub_api_novel_dramas__drama_id__attach_epub_post: {
@@ -48535,6 +48557,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LibraryVoiceBankResponse"];
+                };
+            };
+        };
+    };
+    add_voice_api_library_voice_bank_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_add_voice_api_library_voice_bank_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryVoice"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

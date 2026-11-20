@@ -66,8 +66,9 @@ import db
 from jobs import job_store
 from voice import dub
 import video_export
+from core import SOURCE_LANGUAGES
 from lib.atomic_write import atomic_write
-from services import characters_service
+from services import characters_service, library_service
 from services.media_upload_service import AUDIO_EXTENSIONS
 from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
@@ -238,6 +239,29 @@ def _probe_duration(path: str) -> float:
         raise InvalidInputError(_NOT_AUDIO) from None
 
 
+def _receive_clip(fd: int, fileobj, tmp: str):
+    """Streams an upload into the open temp file `fd`, then checks its size
+    cap, that it isn't empty, and its audio length. The caller removes `tmp`
+    on any error."""
+    size = 0
+    with os.fdopen(fd, "wb") as out:
+        while True:
+            chunk = fileobj.read(_CHUNK)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MAX_CLIP_BYTES:
+                raise InvalidInputError(
+                    f"The clip is too large (max {MAX_CLIP_BYTES // (1024 * 1024)} MB).")
+            out.write(chunk)
+    if size == 0:
+        raise InvalidInputError("The uploaded clip is empty.")
+    duration = _probe_duration(tmp)
+    if not (MIN_CLIP_SECONDS <= duration <= MAX_CLIP_SECONDS):
+        raise InvalidInputError(
+            f"A reference clip must be {MIN_CLIP_SECONDS:g} to {MAX_CLIP_SECONDS:g} seconds long.")
+
+
 def upload_reference_clip(drama_id: int, speaker_label, client_filename, fileobj,
                           ref_text=None) -> dict:
     """Stores an uploaded clip as this speaker's clone reference, replacing
@@ -260,23 +284,7 @@ def upload_reference_clip(drama_id: int, speaker_label, client_filename, fileobj
     os.makedirs(refs, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".clip_", suffix=ext, dir=refs)
     try:
-        size = 0
-        with os.fdopen(fd, "wb") as out:
-            while True:
-                chunk = fileobj.read(_CHUNK)
-                if not chunk:
-                    break
-                size += len(chunk)
-                if size > MAX_CLIP_BYTES:
-                    raise InvalidInputError(
-                        f"The clip is too large (max {MAX_CLIP_BYTES // (1024 * 1024)} MB).")
-                out.write(chunk)
-        if size == 0:
-            raise InvalidInputError("The uploaded clip is empty.")
-        duration = _probe_duration(tmp)
-        if not (MIN_CLIP_SECONDS <= duration <= MAX_CLIP_SECONDS):
-            raise InvalidInputError(
-                f"A reference clip must be {MIN_CLIP_SECONDS:g} to {MAX_CLIP_SECONDS:g} seconds long.")
+        _receive_clip(fd, fileobj, tmp)
         _require_no_clip_reading_job(drama_id)  # again: the probe can take a while
         rel = f"{REFS_DIR}/clone_ref_{uuid.uuid4().hex}{ext}"
         with clip_lock(drama_id):
@@ -699,6 +707,39 @@ def save_to_voice_bank(drama_id: int, speaker_label, name, notes: str = "") -> d
         source_drama=drama.get("title_en") or drama.get("title_zh") or f"title #{drama_id}",
         source_speaker=display or speaker_label)
     for e in characters_service.list_voice_bank():
+        if e["id"] == entry_id:
+            return e
+    raise NotFoundError("The voice bank entry could not be read back.")  # pragma: no cover
+
+
+def upload_to_voice_bank(name, client_filename, fileobj, ref_text: str = "",
+                         clone_engine=None, language=None, notes: str = "") -> dict:
+    """Adds a voice to the library bank straight from an uploaded clip, with
+    no title or speaker involved (so a voice can be kept for a novel that has
+    no audio). The clip is checked like a speaker's reference clip."""
+    if not isinstance(name, str) or not name.strip():
+        raise InvalidInputError("Type a name for this voice first.")
+    characters_service.check_len("name", name, 100)
+    characters_service.check_len("notes", notes or "", MAX_NOTES_LEN)
+    characters_service.check_len("ref_text", ref_text or "", characters_service.MAX_REF_TEXT_LEN)
+    if clone_engine and clone_engine not in dub.CLONE_ENGINES:
+        raise InvalidInputError("Pick one of the listed voice engines.")
+    if language and language not in SOURCE_LANGUAGES:
+        raise InvalidInputError(f"Language must be one of {', '.join(SOURCE_LANGUAGES)}.")
+    ext = _clip_extension(client_filename)
+    os.makedirs(db.VOICE_BANK_DIR, exist_ok=True)
+    # The probe needs a real file; a temp copy keeps a rejected upload out of the bank folder.
+    fd, tmp = tempfile.mkstemp(prefix=".clip_", suffix=ext)
+    try:
+        _receive_clip(fd, fileobj, tmp)
+        entry_id = db.save_voice_bank_entry(
+            name.strip(), tmp, ref_text=(ref_text or "").strip(),
+            clone_engine=_bank_engine(clone_engine), language=language or "zh",
+            notes=(notes or "").strip())
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    for e in library_service.list_voice_bank():
         if e["id"] == entry_id:
             return e
     raise NotFoundError("The voice bank entry could not be read back.")  # pragma: no cover

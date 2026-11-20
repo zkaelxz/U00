@@ -18,7 +18,7 @@ import type {
   LibraryVoiceBankResponse,
   ReadingHistoryClearResult,
 } from '../types/library'
-import { deleteJson, getJson, postJson, type Fetch } from './client'
+import { deleteJson, getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 export const getStats = (f?: Fetch) => getJson<LibraryDashboard>('/api/library/stats', f)
@@ -42,6 +42,24 @@ export const getVoiceBank = (f?: Fetch) =>
 // Parity L18/L19: rename only (a duplicate preset name is a 409).
 export const renamePreset = (id: number, name: string, f?: Fetch) =>
   postJson<LibraryPreset>(`/api/library/presets/${id}/rename`, { name }, f)
+export interface NewVoice {
+  name: string
+  file: File
+  ref_text?: string
+  clone_engine?: string
+  language?: string
+  notes?: string
+}
+export function addVoiceBankEntry(v: NewVoice, f?: Fetch) {
+  const form = new FormData()
+  form.append('name', v.name)
+  form.append('file', v.file, v.file.name)
+  for (const k of ['ref_text', 'clone_engine', 'language', 'notes'] as const) {
+    const val = v[k]?.trim()
+    if (val) form.append(k, val)
+  }
+  return postMultipart<LibraryVoice>('/api/library/voice-bank', form, f)
+}
 export const renameVoiceBankEntry = (id: number, name: string, f?: Fetch) =>
   postJson<LibraryVoice>(`/api/library/voice-bank/${id}/rename`, { name }, f)
 export const searchLines =(q: string, f?: Fetch) =>
