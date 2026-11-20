@@ -153,12 +153,21 @@ def engine_install_problem(engine: str):
     return _engine_install_problem(engine)
 
 
+def _pydub_problem():
+    """The narration track is joined with pydub, an opt-in package: without this check the
+    run fails later with a raw "No module named" error."""
+    if importlib.util.find_spec("pydub") is None:
+        return ('Joining the narration needs the pydub package. '
+                'Install the pydub package in Diagnostics > Packages.')
+    return None
+
+
 def _missing_engine_dependency(tts_engine: str):
     """Fixed-text reason the requested engine (or ffmpeg) can't run here, or
     None. Never names a path."""
     if shutil.which("ffmpeg") is None:
         return "ffmpeg is not installed or not on PATH, which dubbing requires."
-    return _engine_install_problem(tts_engine)
+    return _pydub_problem() or _engine_install_problem(tts_engine)
 
 
 def _engine_unavailable_reason(engine: str, narrate_original: bool, source_language: str):

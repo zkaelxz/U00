@@ -822,6 +822,17 @@ class TestSeriesRemembersBankVoice:
         assert r.status_code == 200 and r.json()["has_ref_audio"] is True
         assert _char(second, "A")["ref_audio_filename"].startswith(f"voicebank_{entry}_")
 
+    def test_remember_series_character_also_brings_the_voice(self, client, isolated_db, tools):
+        sid, mei, first, entry = self._setup(client, tools)
+        db.set_series_character_voice(mei, entry)
+        second = _drama(series_id=sid, source_language="zh")
+        db.upsert_character(second, "A", character_name="Mei")
+        r = client.post(f"/api/characters/dramas/{second}/remember-series-character",
+                        json={"speaker_label": "A"})
+        assert r.status_code == 200, r.text
+        assert r.json()["series_character"]["id"] == mei
+        assert r.json()["character"]["has_ref_audio"] is True
+
     def test_own_clip_is_not_replaced(self, client, isolated_db, tools):
         sid, mei, first, entry = self._setup(client, tools)
         db.set_series_character_voice(mei, entry)

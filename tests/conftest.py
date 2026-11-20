@@ -706,3 +706,20 @@ def whisper_present(monkeypatch):
     real = diagnostics.check_dependency
     monkeypatch.setattr(diagnostics, "check_dependency",
                         lambda name, *a, **k: True if name == "faster_whisper" else real(name, *a, **k))
+
+
+@pytest.fixture(autouse=True)
+def _pydub_present():
+    """Listen refuses to start without the opt-in pydub package; the Listen tests
+    fake it. The real check stays on `_pydub_problem.real` for its own test."""
+    from services import listen_service
+    saved = listen_service._pydub_problem
+
+    def stub():
+        return None
+    stub.real = saved
+    listen_service._pydub_problem = stub
+    try:
+        yield
+    finally:
+        listen_service._pydub_problem = saved

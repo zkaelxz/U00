@@ -310,29 +310,39 @@ def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int
     return get_one(drama_id, speaker_label)
 
 
+def _series_voice_skipped(drama_id: int, reason: str) -> bool:
+    """False, after logging why a remembered series voice was not applied; without
+    it a speaker that arrives with no voice can't be told from one with nothing to apply."""
+    import applog
+    applog.get_logger().info(f"series voice not applied on title {drama_id}: {reason}")
+    return False
+
+
 def apply_series_voice(drama_id: int, speaker_label: str) -> bool:
     """When a speaker is (newly) linked to a series character that remembers a bank
     voice, gives the speaker that voice, unless it already has a clip of its own.
     Never raises: a missing entry, clip or unsupported language just leaves the speaker
-    as it was. Returns whether a voice was applied."""
+    as it was, and the reason goes to the app log. Returns whether a voice was applied."""
     from services import voice_clone_service  # it imports this module
     try:
         drama = get_drama(drama_id)
         row = next((c for c in list_characters_with_series_names(drama_id)
                     if c["speaker_label"] == speaker_label), None)
-        if not drama or not row or not row.get("series_character_id") or row.get("ref_audio_filename"):
+        if not drama or not row or not row.get("series_character_id"):
             return False
+        if row.get("ref_audio_filename"):
+            return False  # its own clip stays
         entry_id = db.get_series_character_voice(row["series_character_id"])
         if entry_id is None:
-            return False
+            return False  # nothing remembered
         entry = get_voice_bank_entry(entry_id)
         if entry is None or db.voice_bank_clip_path(entry.get("clip_filename") or "") is None:
-            return False
+            return _series_voice_skipped(drama_id, f"bank entry {entry_id} or its clip is missing")
         engine = entry.get("clone_engine") or ""
         if engine and not dub.clone_engine_supports_language(engine, _source_language(drama)):
-            return False
+            return _series_voice_skipped(drama_id, f"{engine} can't speak the title's language")
         if voice_clone_service._clip_reading_job_active(drama_id):
-            return False  # a dub or narration is reading the clips right now
+            return _series_voice_skipped(drama_id, "a dub or narration is reading the clips")
         _db_apply_voice_bank_entry(entry_id, drama_dir(drama_id), drama_id, speaker_label)
         return True
     except Exception as exc:
@@ -508,6 +518,7 @@ def remember_series_character(drama_id: int, speaker_label: str) -> dict:
     if linked is None:
         raise ConflictError("This speaker was linked or renamed meanwhile; reload and try again.")
     sc_id, created = linked
+    apply_series_voice(drama_id, speaker_label)
     series_entry = next(sc for sc in list_series_characters(series_id) if sc["id"] == sc_id)
     return {"character": get_one(drama_id, speaker_label), "series_character": series_entry,
             "created": created}
