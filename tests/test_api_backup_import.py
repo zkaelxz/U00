@@ -1572,3 +1572,77 @@ def test_a_setting_the_file_holds_badly_is_left_as_it_is(local_client):
     assert r.status_code == 200, r.text
     assert settings_service.get("default_locale") == "en-AU"
     assert settings_service.get("monthly_cap_usd") == 12.5
+
+
+def _usage(c, did, created, cost, **extra):
+    row = {"engine": "claude", "model": "claude-sonnet-5-5", "operation": "translate",
+           "input_tokens": 100, "output_tokens": 50, "cache_read_tokens": 10, **extra}
+    _ins(c, "usage_log", drama_id=did, estimated_cost_usd=cost, created_at=created, **row)
+
+
+def test_imported_titles_bring_their_spend_with_them(local_client):
+    a, b, g = _world()
+    with _conn() as c:
+        _usage(c, a, "2026-10-01T01:00:00.000001", 0.25)
+        _usage(c, a, "2026-10-02T01:00:00.000001", 0.5)
+        _usage(c, b, "2026-10-03T01:00:00.000001", 1.0)
+        c.commit()
+    data = _manual_zip()
+    with _conn() as c:   # a different library: the file's rows are not here
+        c.execute("DELETE FROM usage_log")
+        c.commit()
+    r = _post_import(local_client, data, [a])
+    assert r.status_code == 200, r.text
+    new_a = r.json()["imported"][0]["drama_id"]
+    assert r.json()["counts"]["usage_log"] == 2
+    with _conn() as c:
+        rows = c.execute("SELECT drama_id, estimated_cost_usd, cache_read_tokens, user_id "
+                         "FROM usage_log ORDER BY created_at").fetchall()
+    assert rows == [(new_a, 0.25, 10, None), (new_a, 0.5, 10, None)]
+    assert db.get_usage_summary()["estimated_cost_usd"] == pytest.approx(0.75)
+
+
+def test_reimporting_into_the_same_library_does_not_count_spend_twice(local_client):
+    a, b, g = _world()
+    with _conn() as c:
+        _usage(c, g, "2026-10-01T01:00:00.000001", 0.25, model="")
+        c.commit()
+    data = _manual_zip()
+    db.delete_drama(g)   # its usage row survives with no drama
+    r = _post_import(local_client, data, [g])
+    assert r.status_code == 200, r.text
+    assert r.json()["counts"]["usage_log"] == 0
+    assert db.get_usage_summary()["estimated_cost_usd"] == pytest.approx(0.25)
+
+
+def test_unusable_usage_rows_in_the_file_are_left_out(local_client):
+    a, b, g = _world()
+
+    def hostile(c):
+        _usage(c, a, "not a date", 5.0)
+        _usage(c, a, "2026-10-01T01:00:00", -3.0)
+        _usage(c, a, "2026-10-01T02:00:00+02:00", 0.5, user_id=7)
+        _usage(c, a, "2099-01-01T00:00:00", 9.0)   # would hold the monthly cap until 2099
+    data = _db_bytes(hostile)
+    r = _post_import(local_client, data, [a])
+    assert r.status_code == 200, r.text
+    new_a = r.json()["imported"][0]["drama_id"]
+    with _conn() as c:
+        rows = c.execute("SELECT created_at, estimated_cost_usd, user_id FROM usage_log "
+                         "WHERE drama_id = ?", (new_a,)).fetchall()
+    assert rows == [("2026-10-01T00:00:00", 0.5, None)]
+
+
+def test_two_real_calls_with_the_same_stamp_are_both_imported(local_client):
+    a, b, g = _world()
+
+    def twins(c):
+        c.execute("DELETE FROM usage_log")
+        for _ in range(2):
+            _usage(c, a, "2026-10-01T01:00:00", 0.04, input_tokens=0, output_tokens=0)
+        _usage(c, a, "2026-10-01T03:00:00", 0.1, input_tokens=1e20)   # stored as REAL; too big for an INTEGER
+    r = _post_import(local_client, _db_bytes(twins), [a])
+    assert r.status_code == 200, r.text
+    assert r.json()["counts"]["usage_log"] == 3
+    with _conn() as c:
+        assert c.execute("SELECT MAX(input_tokens) FROM usage_log").fetchone()[0] == 2 ** 63 - 1

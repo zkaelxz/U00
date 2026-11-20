@@ -157,7 +157,7 @@ def _month_cap_check(engine_choice, engine):
 
 def _month_cap_left(engine_choice, engine):
     """Dollars left under the monthly cap as it is now, or None when no cap applies; the
-    parallel-chapter run uses it to decide whether another batch fits beside those in flight."""
+    run uses it to price the next batch against what is left, and a parallel run to decide whether it fits beside those in flight."""
     from services import translate_run_service
     if not translate_run_service.engine_cap_applies(
             engine_choice, bool(getattr(engine, "free_tier", False)),
@@ -304,7 +304,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                 drama_id, summary_engine_choice or "", cancelled)
         background_jobs.set_result(job_id, _run_result(errors, cap_reached.get("spent"),
                                                        summary_skip_reason, recheck, kept_edits,
-                                                       engine, lines, en_before))
+                                                       engine, lines, en_before, _retranslated_ids(
+                                                           force_retranslate and not cancelled, cap_reached, lines, target_ids)))
     if cancelled:
         # The engine stops between batches and returns normally, keeping the
         # lines already translated; returning here would end the job done at
@@ -373,9 +374,20 @@ def _with_episode_context(job_id, drama_id, lines, engine, engine_choice, drama_
     return meta
 
 
+def _retranslated_ids(forced_and_not_cancelled: bool, cap_reached, lines, target_ids) -> set:
+    """Lines a finished force re-translate went over, whether or not the model's English
+    came out the same as before. A stopped run can't say which lines it reached."""
+    if not forced_and_not_cancelled or cap_reached.get("spent") is not None:
+        return set()
+    return {ln.id for ln in lines if target_ids is None or ln.id in target_ids}
+
+
 def _run_result(errors, cap_spent, summary_skip_reason, recheck, kept_edits, engine, lines,
-                en_before) -> dict:
-    written = sum(1 for ln in lines if ln.en and ln.en != en_before.get(ln.id))
+                en_before, retranslated_ids=()) -> dict:
+    failed = {i for e in errors if isinstance(e, dict) for i in (e.get("line_ids") or [])}
+    written = sum(1 for ln in lines if ln.en and (ln.en != en_before.get(ln.id)
+                                                  or (ln.id in retranslated_ids
+                                                      and ln.id not in failed)))
     return {"errors": errors, "cap_reached": cap_spent, "translated_count": written,
             **({"summary_skipped": summary_skip_reason} if summary_skip_reason else {}),
             **({"flags_needing_recheck": sorted(recheck)} if recheck else {}),

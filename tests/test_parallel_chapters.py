@@ -103,10 +103,11 @@ def test_one_chapter_at_a_time_is_the_old_path(novel):
     assert engine.stats["peak"] == 1
 
 
-def test_cost_cap_is_passed_by_no_more_than_a_one_chapter_run_would(novel):
+def test_a_capped_parallel_run_stops_before_a_batch_that_would_pass_the_cap(novel):
     engine = _Engine()
     lines, _errors, usage, _ = _run(engine, 3, cost_cap_usd=3.0)
-    assert len(usage) == 3
+    # A batch is two calls at 1.0 each; a second batch would be priced past the cap.
+    assert len(usage) == 2
     assert any(not ln.en for ln in lines)
 
 
@@ -119,7 +120,7 @@ def test_monthly_room_holds_back_batches_beside_those_in_flight(novel):
         usage_cb=lambda *u: usage_log.append(u),
         month_cap_spent_cb=lambda: len(usage_log) >= 3,
         month_cap_left_cb=lambda: 3.0 - len(usage_log))
-    assert len(usage_log) == 3
+    assert len(usage_log) == 2
 
 
 def test_each_lane_has_its_own_rate_limit_budget(novel):
@@ -311,3 +312,20 @@ def test_a_saved_choice_is_kept_and_clamped(isolated_db):
     assert settings_service.parallel_chapters() == 1
     settings_service.set_settings({"novel_parallel_chapters": 9})
     assert settings_service.parallel_chapters() == 3
+
+
+@pytest.mark.parametrize("parallel", [1, 3])
+def test_a_batch_priced_over_what_is_left_is_not_sent(novel, parallel):
+    # Each call costs 1.0 and a batch is one or more calls: the run stops before the spend
+    # passes the cap, not after.
+    engine = _Engine()
+    lines, _errors, usage, _ = _run(engine, parallel, cost_cap_usd=4.5)
+    assert 1 <= len(usage) <= 4
+    assert any(not ln.en for ln in lines)
+
+
+def test_the_first_batch_is_sent_even_when_it_alone_passes_the_cap(novel):
+    # Nothing is measured before it, so it cannot be priced.
+    engine = _Engine()
+    _lines, _errors, usage, _ = _run(engine, 1, cost_cap_usd=0.5)
+    assert len(usage) == 1
