@@ -633,8 +633,80 @@ class TestBootService:
     def test_uninstall_can_be_run_again_over_a_half_removed_service(self, iss):
         present = _func(iss, "ServiceOrAdminDirPresent")
         assert "ServiceInstalled()" in present and "\\helper\\python\\python.exe" in present
-        assert "if not ServiceOrAdminDirPresent() then" in _func(iss, "RemoveService")
+        assert "if not ServiceOrAdminDirPresent() or ServiceBelongsToOtherInstall() then" in _func(iss, "RemoveService")
         assert "ServiceOrAdminDirPresent()" in _func(iss, "ConfigureService")
+
+    def test_a_service_another_install_owns_is_never_stopped_or_removed(self, iss):
+        # A second Windows account installing per-user on a PC whose owner
+        # runs the service: no administrator prompt, and the owner's service
+        # keeps running whether the box is ticked or not.
+        stop = _func(iss, "StopBackgroundService")
+        assert re.search(r"Result := '';\s+if ServiceBelongsToOtherInstall\(\) then\s+Exit;", stop)
+        assert stop.index("ServiceBelongsToOtherInstall()") < stop.index("RunServiceHelper(")
+        assert re.search(r"else if ServiceOrAdminDirPresent\(\) and not ServiceBelongsToOtherInstall\(\) then\s+"
+                         r"ServiceFailed := not RunServiceHelper\(AdminDir\(\), UninstallServiceArgs\(\)\);",
+                         _func(iss, "ConfigureService"))
+        remove = _func(iss, "RemoveService")
+        assert remove.index("ServiceBelongsToOtherInstall()") < remove.index("RunServiceHelper(")
+        owner = _func(iss, "ServiceBelongsToOtherInstall")
+        assert "(Root <> '') and (CompareText(Root, JsonEscaped(ExpandConstant('{app}'))) <> 0)" in owner
+        assert "AdminDir() + '\\helper\\config.json'" in _func(iss, "ServiceConfigRoot")
+
+    def test_setup_reads_the_owner_from_config_json_as_service_py_writes_it(self, iss):
+        """JsonEscaped and ServiceConfigRoot in baihe.iss, step for step,
+        against the json.dumps service.py writes config.json with."""
+        import json
+        service_py = _read(os.path.join(ROOT, "installer", "service.py"))
+        # Setup compares escaped text; non-ASCII written raw would never match.
+        assert "ensure_ascii" not in service_py
+        assert '"install_root": str(lay.root)' in service_py
+
+        def escaped(path):
+            # Pascal strings are UTF-16, so a character outside the BMP is two units.
+            raw = path.encode("utf-16-le")
+            out = ""
+            for i in range(0, len(raw), 2):
+                c = raw[i] | raw[i + 1] << 8
+                ch = chr(c)
+                if ch == "\\":
+                    out += "\\\\"
+                elif ch == '"':
+                    out += '\\"'
+                elif c < 32 or c > 126:
+                    out += "\\u" + format(c, "04X").lower()
+                else:
+                    out += ch
+            return out
+
+        def config_root(text):
+            key = '"install_root"'
+            i = text.find(key)
+            if i < 0:
+                return ""
+            i += len(key)
+            while i < len(text) and text[i] in " :\t":
+                i += 1
+            if i >= len(text) or text[i] != '"':
+                return ""
+            i += 1
+            start = i
+            while i < len(text) and text[i] != '"':
+                if text[i] == "\\":
+                    i += 1
+                i += 1
+            return text[start:i] if i < len(text) else ""
+
+        owner = "C:\\Users\\Sample\\AppData\\Local\\Programs\\Baihe Studio"
+        for root in (owner, "C:\\", "D:\\\u674e\u660e\\Baihe", "E:\\Jo\u2019s \U0001f338 apps\\Baihe",
+                     "C:\\Program Files (x86)\\Baihe~1"):
+            text = json.dumps({"install_root": root, "data_dir": "C:\\d", "api_port": 8600}, indent=2) + "\n"
+            assert config_root(text) == escaped(root), root
+        other = "C:\\Users\\Other\\AppData\\Local\\Programs\\Baihe Studio"
+        text = json.dumps({"install_root": owner, "data_dir": "C:\\d"}, indent=2)
+        assert config_root(text).lower() != escaped(other).lower()
+        assert config_root(text).lower() == escaped(owner.upper()).lower()
+        assert config_root("{}") == "" and config_root('{"install_root": 5}') == ""
+        assert config_root('{"install_root": "C:\\\\x') == ""
 
     def test_service_menu_runs_the_admin_folders_copy(self, iss):
         menus = [e for e in _entries(iss, "Icons") if "service_menu.ps1" in e]
