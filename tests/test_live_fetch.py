@@ -234,6 +234,15 @@ def test_a_live_playlist_starts_at_the_edge_and_tracks_new_segments_once(serve):
     assert pump.error is None
 
 
+def test_live_only_ends_at_once_on_a_finished_playlist(serve):
+    """A reconnect that finds a recording where the broadcast was plays none of it."""
+    names = ["r0.ts", "r1.ts"]
+    s = serve({"/rec.m3u8": (200, _M3U8, _segments(names)), **_seg_routes(names)})
+    pump, sink = _run(f"{s.base}/rec.m3u8", live_only=True)
+    assert bytes(sink.data) == b"" and pump.error is None
+    assert "/r0.ts" not in s.hits
+
+
 def test_pumps_sharing_an_align_start_on_the_same_media_sequence(serve):
     """Video and audio playlists of one broadcast: whichever pump joins first
     picks the start (its newest three), the other follows it, not its own edge."""
@@ -639,3 +648,33 @@ def test_the_deadline_timer_is_cancelled_once_a_request_is_done(serve, monkeypat
     for timer in deadlines():
         timer.join(1)
         assert not timer.is_alive()
+
+
+def test_an_hour_long_live_window_of_one_second_segments_is_accepted():
+    """YouTube's DVR playlist (YTN): 3,600 one-second segments in about 5 MB."""
+    lines = ["#EXTM3U", "#EXT-X-TARGETDURATION:1", "#EXT-X-MEDIA-SEQUENCE:100"]
+    for i in range(3600):
+        lines += ["#EXTINF:1.0,", "https://cdn.example/videoplayback/" + "x" * 1350 + f"/sq/{100 + i}"]
+    text = "\n".join(lines) + "\n"
+    assert 4_500_000 < len(text) < live_fetch.MAX_PLAYLIST_BYTES
+    p = live_fetch.parse_playlist(text, "https://cdn.example/p.m3u8")
+    assert len(p["segments"]) == 3600 and p["segments"][-1]["seq"] == 3699 and not p["endlist"]
+    assert p["size"] == len(text)
+
+
+def test_a_large_live_playlist_is_reloaded_at_a_bounded_rate(serve, monkeypatch):
+    monkeypatch.setattr(live_fetch, "PLAYLIST_BYTES_PER_SECOND", 200_000)
+    loads = []
+    padding = "#EXT-X-PADDING:" + "p" * 300_000 + "\n"
+
+    def playlist():
+        loads.append(time.monotonic())
+        n = len(loads)
+        body = _segments([f"y{i}.ts" for i in range(n, n + 3)], seq=n, end=n >= 3)
+        return 200, _M3U8, body.replace(b"#EXTINF", padding.encode() + b"#EXTINF", 1)
+
+    s = serve({"/big.m3u8": playlist, **_seg_routes([f"y{i}.ts" for i in range(10)])})
+    _run(f"{s.base}/big.m3u8", timeout=20)
+    gaps = [b - a for a, b in zip(loads, loads[1:])]
+    # The playlist's own 1 s target would reload every 0.5-1 s; 300 KB at 200 KB/s is 1.5 s.
+    assert len(loads) == 3 and all(g >= 1.4 for g in gaps)

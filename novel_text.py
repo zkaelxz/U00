@@ -32,9 +32,36 @@ _CHAPTER_HEADING_MAX_CHARS = 60
 _SENTENCE_END = tuple("。！？!?…」』”\"")
 
 
+# A numbered marker followed by a space and a title ("第2章 第二章 被人咬死是什麽感覺？…"): web novels
+# end such a title with "？", "！" or a trailing "…" when the title is cut short.
+_TITLED_HEADING_RE = re.compile(
+    r"^\s*第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[章回节節話话]\s+\S")
+_TITLE_ENDS_OK = tuple("！？…")
+# Clause marks and ASCII sentence marks mean a spoken or written sentence that merely starts
+# with a chapter number; Korean titles are left out because Korean prose ends sentences with "?" and "!".
+_NOT_IN_A_TITLE = re.compile(r"[，,、。.!?;；]")
+
+
+# The marker written twice, in digits and in numerals ("第3章 第三章 ..."): no sentence starts
+# like that, so whatever follows is a title, even a quoted line with commas and a long ellipsis.
+_DOUBLED_MARKER_RE = re.compile(
+    r"^\s*第\s*[0-9０-９]+\s*[章回节節話话]\s+第\s*[零〇一二三四五六七八九十百千两兩]+\s*[章回节節話话]")
+
+
+def _ends_like_a_title(text: str) -> bool:
+    """A Chinese chapter heading with a title may end in a full-width ？ ！ or …, when the title
+    holds no clause or ASCII sentence mark, or when the marker is written twice."""
+    if _DOUBLED_MARKER_RE.match(text):
+        return True
+    return (bool(_TITLED_HEADING_RE.match(text)) and text.endswith(_TITLE_ENDS_OK)
+            and not _NOT_IN_A_TITLE.search(text))
+
+
 def is_heading_text(text: str) -> bool:
     text = (text or "").strip()
-    if not text or len(text) > _CHAPTER_HEADING_MAX_CHARS or text.endswith(_SENTENCE_END):
+    if not text or len(text) > _CHAPTER_HEADING_MAX_CHARS:
+        return False
+    if text.endswith(_SENTENCE_END) and not _ends_like_a_title(text):
         return False
     match = _CHAPTER_HEADING_RE.match(text)
     # Korean prose ends its sentences with "."; an English "Chapter 3." stays a heading.
@@ -366,6 +393,22 @@ def is_site_chrome_line(line: str) -> bool:
 
 def drop_site_chrome(text: str) -> str:
     return "\n".join(line for line in (text or "").split("\n") if not is_site_chrome_line(line))
+
+
+def drop_repeated_heading(text: str) -> str:
+    """`text` without a chapter heading printed twice in a row. Some sites repeat
+    the title under itself; left in, each copy is a chapter start of its own, so
+    EPUB export and narration get an empty chapter or a second marker."""
+    kept: list[str] = []
+    last = ""
+    for line in (text or "").split("\n"):
+        key = " ".join(line.split())
+        if key:
+            if key == last and is_heading_text(key):
+                continue
+            last = key
+        kept.append(line)
+    return "\n".join(kept)
 
 
 # ---------------------------------------------------------------------------

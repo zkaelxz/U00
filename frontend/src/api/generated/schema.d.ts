@@ -6583,6 +6583,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/misheard/dramas/{drama_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Words that may have been mis-heard: they sound like a trusted word spelled differently */
+        get: operations["get_misheard_api_misheard_dramas__drama_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/misheard/dramas/{drama_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Replace a heard spelling with the suggested one on one line or on every line */
+        post: operations["post_apply_misheard_api_misheard_dramas__drama_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/misheard/dramas/{drama_id}/keep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Keep a heard spelling: this suggestion is not offered again for the title */
+        post: operations["post_keep_misheard_api_misheard_dramas__drama_id__keep_post"];
+        /** Forget the kept spellings so their suggestions are offered again */
+        delete: operations["delete_kept_misheard_api_misheard_dramas__drama_id__keep_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/misheard/dramas/{drama_id}/remember": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Use a glossary term's spelling everywhere and remember the heard one as its alias */
+        post: operations["post_remember_misheard_api_misheard_dramas__drama_id__remember_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/models/check": {
         parameters: {
             query?: never;
@@ -7480,7 +7549,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Whether a failed item stops the queue */
+        /** Whether a failed item stops the queue, and whether a transcription may run beside an online translation */
         post: operations["set_policy_api_queue_policy_post"];
         delete?: never;
         options?: never;
@@ -22385,6 +22454,11 @@ export interface components {
             /** Progress */
             progress: number;
             /**
+             * Reconnect Attempt
+             * @default 0
+             */
+            reconnect_attempt: number;
+            /**
              * Segment Seconds
              * @default 0
              */
@@ -22901,6 +22975,106 @@ export interface components {
             local: boolean;
             /** @description The PC window's Owner/Guest state; null unless this request is the PC window with sign-in off (the only place profiles apply). */
             pc_profile: components["schemas"]["PcProfileStatus"] | null;
+        };
+        /** MisheardApplyBody */
+        MisheardApplyBody: {
+            /** Expected Zh */
+            expected_zh?: string | null;
+            /** Heard */
+            heard: string;
+            /** Line Id */
+            line_id?: number | null;
+            /** Suggested */
+            suggested: string;
+        };
+        /** MisheardApplyResult */
+        MisheardApplyResult: {
+            /** Applied */
+            applied: number;
+            /** Skipped */
+            skipped: number;
+        };
+        /** MisheardKeepBody */
+        MisheardKeepBody: {
+            /** Heard */
+            heard: string;
+            /** Suggested */
+            suggested: string;
+        };
+        /** MisheardKeepResult */
+        MisheardKeepResult: {
+            /** Kept */
+            kept: number;
+        };
+        /** MisheardKeptCleared */
+        MisheardKeptCleared: {
+            /** Cleared */
+            cleared: number;
+        };
+        /** MisheardLine */
+        MisheardLine: {
+            /** End */
+            end: number;
+            /** Idx */
+            idx: number;
+            /** Line Id */
+            line_id: number | null;
+            /** Start */
+            start: number;
+            /** Zh */
+            zh: string;
+        };
+        /** MisheardList */
+        MisheardList: {
+            /** Available */
+            available: boolean;
+            /** Kept Count */
+            kept_count: number;
+            /** Lines Scanned */
+            lines_scanned: number;
+            /** Reason */
+            reason: string;
+            /** Suggestions */
+            suggestions: components["schemas"]["MisheardSuggestion"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** MisheardRememberBody */
+        MisheardRememberBody: {
+            /** Heard */
+            heard: string;
+            /** Suggested */
+            suggested: string;
+            /** Term Id */
+            term_id: number;
+        };
+        /** MisheardRememberResult */
+        MisheardRememberResult: {
+            /** Aliases Added */
+            aliases_added: number;
+            /** Applied */
+            applied: number;
+            /** Skipped */
+            skipped: number;
+        };
+        /** MisheardSuggestion */
+        MisheardSuggestion: {
+            /** Heard */
+            heard: string;
+            /** Heard Count */
+            heard_count: number;
+            /** Line Count */
+            line_count: number;
+            /** Lines */
+            lines: components["schemas"]["MisheardLine"][];
+            /** Source */
+            source: string;
+            /** Suggested */
+            suggested: string;
+            /** Suggested Count */
+            suggested_count: number;
+            /** Term Id */
+            term_id: number | null;
         };
         /** ModelCandidate */
         ModelCandidate: {
@@ -24474,8 +24648,10 @@ export interface components {
         };
         /** QueuePolicy */
         QueuePolicy: {
+            /** Overlap Online Translate */
+            overlap_online_translate?: boolean | null;
             /** Stop On Failure */
-            stop_on_failure: boolean;
+            stop_on_failure?: boolean | null;
         };
         /** QueueSchedule */
         QueueSchedule: {
@@ -24550,6 +24726,8 @@ export interface components {
             monthly_cap_usd: number;
             /** Notice */
             notice: string | null;
+            /** Overlap Online Translate */
+            overlap_online_translate: boolean;
             schedule: components["schemas"]["QueueSchedule"] | null;
             /**
              * State
@@ -28113,6 +28291,11 @@ export interface components {
             max_upload_mb: number;
             /** Monthly Cap Usd */
             monthly_cap_usd: number | null;
+            /**
+             * Novel Parallel Chapters
+             * @default 3
+             */
+            novel_parallel_chapters: number;
             /** Ocr Backend */
             ocr_backend: string;
             /** Ocr Prefer Paddle Vl Manga */
@@ -28492,6 +28675,8 @@ export interface components {
             monthly_cap_usd?: number | null;
             /** Notify On Completion */
             notify_on_completion?: boolean | null;
+            /** Novel Parallel Chapters */
+            novel_parallel_chapters?: number | null;
             /** Ocr Backend */
             ocr_backend?: string | null;
             /** Ocr Prefer Paddle Vl Manga */
@@ -51709,6 +51894,227 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResearchBudget"];
+                };
+            };
+        };
+    };
+    get_misheard_api_misheard_dramas__drama_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MisheardList"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_apply_misheard_api_misheard_dramas__drama_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MisheardApplyBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MisheardApplyResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_keep_misheard_api_misheard_dramas__drama_id__keep_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MisheardKeepBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MisheardKeepResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_kept_misheard_api_misheard_dramas__drama_id__keep_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MisheardKeptCleared"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_remember_misheard_api_misheard_dramas__drama_id__remember_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MisheardRememberBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MisheardRememberResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

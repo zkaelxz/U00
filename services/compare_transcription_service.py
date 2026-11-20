@@ -18,6 +18,7 @@ from typing import TypeGuard
 import asr_backend
 import background_jobs
 from jobs import job_launch
+import whisper_hallucination
 import whisper_models
 import db
 import sensitivity_preset as presets
@@ -366,6 +367,7 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str | None = Non
          "hallucination_silence_sec": transcribe_options_service.stored_hallucination_silence_sec(drama),
          "fast_mode": bool(drama.get("whisper_fast_mode")),
          "repeat_guard": bool(drama.get("whisper_repeat_guard")),
+         "blocked_phrases": whisper_hallucination.parse_blocked_phrases(settings_service.get("blocked_phrases")),
          # Judged under the hearing the title's own lines got: a Difficult audio
          # title's lines were heard with the speech detector off.
          "difficult_kwargs": difficult_audio_service.rehear_kwargs(drama),

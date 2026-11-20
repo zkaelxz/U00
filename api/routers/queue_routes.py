@@ -113,9 +113,9 @@ def set_schedule(body: QueueScheduleSet, request: Request):
 
 
 @router.post("/policy", dependencies=[require_permission("jobs.start")], response_model=QueueState,
-             summary="Whether a failed item stops the queue", responses=_ERRORS)
+             summary="Whether a failed item stops the queue, and whether a transcription may run beside an online translation", responses=_ERRORS)
 def set_policy(body: QueuePolicy, request: Request):
-    return queue_service.set_policy(request.state.principal, body.stop_on_failure)
+    return queue_service.set_policy(request.state.principal, body.stop_on_failure, body.overlap_online_translate)
 
 
 @router.get("/title-flow/{drama_id}", dependencies=[require_permission("jobs.start")], response_model=TitleFlowRun,

@@ -10,7 +10,7 @@ series), so nothing the person typed is overwritten; a new one gets the names,
 the cleaned link and a series of the same name, which is where merging or moving
 titles continues in the app.
 
-The answer goes back through `page_server.py`, so it carries ids, booleans and
+The answer goes back through `services/page_server.py`, so it carries ids, booleans and
 the stored display name only, never the page address or a filesystem path.
 """
 

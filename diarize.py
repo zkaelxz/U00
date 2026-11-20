@@ -425,29 +425,48 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int | None = None, ret
 
 
 def _try_nemotron(audio_path, num_speakers, options, result_queue, run_info):
-    """The worker result for a Nemotron run, or None to use pyannote. A typed
-    speaker count or range always means pyannote (Nemotron can't take one), and
-    any Nemotron failure falls back to pyannote with the reason in run_info so
-    a run never ends worse than the default would have."""
+    """The worker result for a Nemotron run, or None to use pyannote. Kae's rule:
+    pyannote runs only when Nemotron isn't available on this PC (a package or the
+    model is missing), with the reason in run_info. A typed speaker count or range
+    doesn't switch to pyannote: Nemotron can't take one, so the result says it was
+    not used. Any other Nemotron failure fails the run."""
     if options.get("backend") != "nemotron":
-        return None
-    if num_speakers or options.get("min_speakers") or options.get("max_speakers"):
         return None
     from engine_backends.shared import redact_secrets
     from jobs import process_worker
+    import diarize_nemotron
+    use_gpu = bool(options.get("use_gpu"))
+    progress = lambda frac, message: process_worker.report_progress(result_queue, frac, message)
+    cpu_fallback, oom_reason = {}, None
     try:
-        import diarize_nemotron
-        turns, prints = diarize_nemotron.diarize(
-            audio_path, use_gpu=bool(options.get("use_gpu")),
-            on_progress=lambda frac, message: process_worker.report_progress(result_queue, frac, message))
+        turns, prints = diarize_nemotron.diarize(audio_path, use_gpu=use_gpu, on_progress=progress)
+    except diarize_nemotron.NemotronUnavailable as exc:
+        run_info["backend_fallback_reason"] = redact_secrets(str(exc))[:200]
+        return None
     except Exception as exc:
-        run_info["backend_fallback_reason"] = redact_secrets(f"{type(exc).__name__}: {exc}")[:200]
-        return None
-    if not turns:
-        run_info["backend_fallback_reason"] = "Nemotron found no speech"
-        return None
+        if not (use_gpu and is_cuda_oom(exc)):
+            raise
+        oom_reason = redact_secrets(f"{type(exc).__name__}: {exc}")[:200]
+    if oom_reason is not None:
+        # Retried outside the except block so the failed run's traceback no longer
+        # pins the GPU model in memory. Nemotron reads the whole file in one pass,
+        # so a long file can outgrow a small card where the CPU still copes.
+        import applog
+        _free_gpu_memory()
+        applog.get_logger().error(f"diarization: {OOM_FALLBACK_MESSAGE} ({oom_reason})")
+        progress(0.08, OOM_FALLBACK_MESSAGE)
+        turns, prints = diarize_nemotron.diarize(audio_path, use_gpu=False, on_progress=progress)
+        use_gpu = False
+        cpu_fallback = {"fell_back_to_cpu": True, "fallback_kind": "oom", "fallback_reason": oom_reason}
+    hint = None
+    if num_speakers or options.get("min_speakers") or options.get("max_speakers"):
+        found = len({t["speaker"] for t in turns})
+        hint = (f"Nemotron doesn't use a typed speaker count, so it was ignored; "
+                f"Nemotron found {found} speaker{'' if found == 1 else 's'}.")
+    # No turns is passed on as they are: applying them reports "no speech" and
+    # leaves the lines' speakers alone.
     return {"segments": turns, "model": diarize_nemotron.MODEL_LABEL, "embeddings": prints,
-            "device": "cuda" if options.get("use_gpu") else "cpu"}
+            "device": "cuda" if use_gpu else "cpu", "speaker_count_hint": hint, **cpu_fallback}
 
 
 def _read_waveform(audio_path: str):
@@ -488,9 +507,9 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
         started = time.monotonic()
         nemotron = _try_nemotron(audio_path, num_speakers, options, result_queue, run_info)
         if nemotron is not None:
-            result_queue.put(("ok", {**nemotron, "seconds": time.monotonic() - started,
-                                     "fell_back_to_cpu": False, "fallback_reason": None,
-                                     "fallback_kind": None, "speaker_count_hint": None}))
+            result_queue.put(("ok", {"fell_back_to_cpu": False, "fallback_reason": None,
+                                     "fallback_kind": None, **nemotron,
+                                     "seconds": time.monotonic() - started}))
             return
         if not hf_token:
             # Only a Nemotron run starts without a token; its fallback can't run.

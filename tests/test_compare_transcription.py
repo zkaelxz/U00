@@ -152,6 +152,15 @@ class TestLineLanguage:
         _run(did)
         assert all(t["fast_mode"] is False and t["difficult_audio"] is True for t in _env["transcribe"])
 
+    def test_a_blocked_phrase_is_not_offered_as_what_the_other_engine_heard(self, _env, monkeypatch):
+        did, _ = _drama(2)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda path, *a, **kw: [
+            {"start": 0.0, "end": 1.0, "text": "订阅我们的频道"},
+            {"start": 1.0, "end": 2.0, "text": "你好"}])
+        _run(did)
+        proposals = svc.get_compare_result(did)["proposals"]
+        assert [p["candidate_zh"] for p in proposals] == ["你好", "你好"]
+
     def test_single_language_title_is_unchanged(self, _env):
         did, _ = _drama(3)
         _run(did)

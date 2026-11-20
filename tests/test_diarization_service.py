@@ -129,13 +129,16 @@ class TestStartDiarizationRun:
         assert calls[0][1] is None and calls[0][3]["backend"] == "nemotron"
         assert diarization_service.speaker_detection_problem() is None
 
-    def test_a_speaker_count_still_needs_the_token_with_nemotron(self, isolated_db, monkeypatch):
-        """Nemotron can't take a count, so a typed one runs pyannote, which needs the token."""
+    def test_a_speaker_count_needs_no_token_with_nemotron(self, isolated_db, monkeypatch):
+        """A typed count no longer switches to pyannote, so Nemotron starts without the token."""
         settings_service.set_settings({"speaker_model": "nemotron"})
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: None)
+        started = []
+        monkeypatch.setattr(diarization_service.job_launch, "start_process_job",
+                            lambda job_id, *a, **k: started.append(job_id) or True)
         did, _ = _drama_with_audio(isolated_db)
-        with pytest.raises(DependencyUnavailableError):
-            diarization_service.start_diarization_run(did, expected_speakers=2)
+        diarization_service.start_diarization_run(did, expected_speakers=2)
+        assert started == [f"diarize_{did}"]
 
     def test_missing_audio_raises_unsupported_operation(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
@@ -242,6 +245,15 @@ class TestApplyDiarizationResult:
         saved = diarize.load_turns(ddir)
         assert saved is not None
         assert diarize.load_last_speaker_count(ddir) == 2
+
+    def test_a_count_nemotron_ignored_is_not_saved_for_next_time(self, isolated_db):
+        did, ddir = _drama_with_audio(isolated_db)
+        self._lines(isolated_db, did)
+        turns = [{"start": 0.0, "end": 6.0, "speaker": "SPEAKER_00"}]
+        diarization_service.apply_diarization_result(
+            did, {"segments": turns, "model": "nemotron-3-diarization", "embeddings": {}}, expected_speakers=3)
+        assert diarize.load_turns(ddir) is not None
+        assert diarize.load_last_speaker_count(ddir) is None
 
     def test_a_speaker_edited_while_applying_is_not_overwritten(self, isolated_db, monkeypatch):
         did, _ = _drama_with_audio(isolated_db)

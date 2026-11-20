@@ -374,6 +374,14 @@ class TestCloneEngineOriginalLanguages:
             assert dub.engine_refusal(engine)
 
 
+def _final_item(result_queue):
+    """The worker's last queue item, past the ("progress", ...) items ahead of it."""
+    items = []
+    while not result_queue.empty():
+        items.append(result_queue.get_nowait())
+    return items[-1]
+
+
 class TestNarrationSubprocessWorker:
     """build_narration_subprocess_worker() is the entry point
     job_launch.start_process_job() runs in its own OS process, so a real
@@ -392,11 +400,27 @@ class TestNarrationSubprocessWorker:
         result_queue = queue.Queue()
         dub_narration.build_narration_subprocess_worker(
             lines, str(tmp_path), ALL, result_queue)
-        outcome = result_queue.get_nowait()
+        outcome = _final_item(result_queue)
 
         # only build_narration_track rewrites .start/.end onto the lines
         assert lines[0].end == 2.0
         assert outcome[0] == "ok"
+
+    def test_reports_progress_for_each_clip_before_the_result(self, monkeypatch, tmp_path):
+        # A long book stayed at 0% and showed "may be stalled" until it jumped to done.
+        _install_fake_pydub(monkeypatch)
+        speak_with(monkeypatch, lambda text, out_path, **kwargs: open(out_path, "w").close())
+        lines = [Line(idx=i, start=0, end=0, zh="x", en=f"Sentence {i}.", speaker="AB"[i % 2]) for i in range(3)]
+        result_queue = queue.Queue()
+        dub_narration.build_narration_subprocess_worker(lines, str(tmp_path), ALL, result_queue)
+        items = []
+        while not result_queue.empty():
+            items.append(result_queue.get_nowait())
+        progress = [i for i in items if i[0] == "progress"]
+        assert items[-1][0] == "ok"
+        assert len(progress) >= 2
+        fractions = [i[1] for i in progress]
+        assert fractions == sorted(fractions) and 0 < fractions[0] and fractions[-1] < 1.0
 
     def test_reports_an_exception_instead_of_raising(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
@@ -407,7 +431,9 @@ class TestNarrationSubprocessWorker:
         result_queue = queue.Queue()
         dub_narration.build_narration_subprocess_worker(lines, str(tmp_path), ALL, result_queue)
 
-        assert result_queue.get_nowait() == ("error", "RuntimeError", "boom")
+        kind, name, message, trace = _final_item(result_queue)
+        assert (kind, name, message) == ("error", "RuntimeError", "boom")
+        assert "RuntimeError" in trace
 
 
 # ---------------------------------------------------------------------------
@@ -641,7 +667,7 @@ class TestHeadroomRefusalStopsTheRun:
         speak_with(monkeypatch, self._refuse)
         q = queue.Queue()
         dub_narration.build_narration_subprocess_worker(self._lines(), str(tmp_path), ALL, q)
-        kind, name, message = q.get_nowait()
+        kind, name, message, _trace = _final_item(q)
         assert (kind, name) == ("error", "HeadroomError")
         assert "Keep free graphics memory" in message
 

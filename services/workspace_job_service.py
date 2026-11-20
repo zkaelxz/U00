@@ -11,6 +11,7 @@ in `workspace_audio_job_service`, the LLM review jobs in
 `workspace_review_job_service`.
 """
 
+import contextlib
 import time
 
 import adaptive_style
@@ -154,10 +155,41 @@ def _month_cap_check(engine_choice, engine):
     return spent
 
 
-def _saved_translate_options(engine_choice) -> dict:
+def _month_cap_left(engine_choice, engine):
+    """Dollars left under the monthly cap as it is now, or None when no cap applies; the
+    parallel-chapter run uses it to decide whether another batch fits beside those in flight."""
+    from services import translate_run_service
+    if not translate_run_service.engine_cap_applies(
+            engine_choice, bool(getattr(engine, "free_tier", False)),
+            getattr(engine, "model", None)):
+        return None
+
+    def left():
+        monthly = settings_service.get_monthly_cap_usd()
+        return max(0.0, monthly - db.get_month_spend()) if monthly else None
+    return left
+
+
+def _saved_translate_options(engine_choice, engine, job_id) -> dict:
     """The saved Settings choices a translate run passes to the pipeline."""
     return {"check_replies": settings_service.reply_guard_override(),
-            "reasoning": settings_service.reasoning_override(engine_choice)}
+            "reasoning": settings_service.reasoning_override(engine_choice),
+            "parallel_chapters": settings_service.parallel_chapters(),
+            "lane_thread_scope": _lane_thread_scope(job_id),
+            "month_cap_left_cb": _month_cap_left(engine_choice, engine)}
+
+
+def _lane_thread_scope(job_id):
+    """How a helper thread of this job takes over the job's thread-locals: its declared line
+    writes and the job id that spend is added to in the job's timing."""
+    line_scope = db.current_job_scope()
+
+    @contextlib.contextmanager
+    def apply():
+        with db.adopt_job_scope(line_scope):
+            job_timing.set_current_job(job_id)
+            yield
+    return apply
 
 
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
@@ -231,7 +263,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         ollama_num_ctx_override=ollama_num_ctx_override,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
         **timing_settings_service.translate_limits(),
-        **_saved_translate_options(engine_choice),
+        **_saved_translate_options(engine_choice, engine, job_id),
         thinking=thinking, replace_flags=replace_flags, cost_cap_usd=cost_cap_usd, month_cap_spent_cb=_month_cap_check(engine_choice, engine),
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=_notes, sentence_groups_cb=(sentence_parts := []).extend,

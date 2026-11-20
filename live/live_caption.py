@@ -56,6 +56,9 @@ class ChunkCaptioner:
                 self._release(held, path, worker, final)
             unheard = held if reheard else None
             if final and window.audio_seconds - window.pad_seconds < live_pipeline.MIN_FINAL_SECONDS:
+                # Nothing to hear, but a capture restarted after a break places
+                # its chunks after this one's real end, not after a full slot.
+                self.state["jump"] += window.chunk_seconds - self.segment_seconds
                 return
             if window.trimmed_seconds:
                 self.note(f"Chunk {idx} held {window.audio_seconds + window.trimmed_seconds:.0f} s "
@@ -78,13 +81,15 @@ class ChunkCaptioner:
             if lost:
                 # The second hearing left them out (Whisper skipped them, or the
                 # overlap match trimmed them): the first hearing is all there is.
-                self._release({**held, "cues": lost}, path, worker, final)
+                # Translated with this chunk's lines: queued apart, they took a
+                # backlog place and a translator one chunk behind skipped a chunk.
+                self._show(lost)
                 for cue in new_cues:
                     cue["id"] += len(lost)
             new_cues, self.state["held"] = hold_back_overlap(
                 new_cues, tail, idx, self.segment_seconds, shift, final)
             self.board.add(new_cues)
-            self._hand_to_translator(idx, window, new_cues, timing, worker, final)
+            self._hand_to_translator(idx, window, lost + new_cues, timing, worker, final)
             if new_cues:
                 # Carries this chunk's own tail into the NEXT chunk's
                 # transcription -- see process_chunk's docstring.
@@ -117,13 +122,16 @@ class ChunkCaptioner:
         the chunk that heard them. They are not timed as a chunk of their own: a
         batch with no audio would read as captions 0 s behind."""
         cues = held["cues"]
+        self._show(cues)
+        worker.submit(held["index"], cues, self.runner.timing(path, 0.0), 0.0, keep_all=final,
+                      measured=False)
+
+    def _show(self, cues):
         with self.board.lock:
             # A cue's id is its place on the board (live_cue_feed).
             for pos, cue in enumerate(cues):
                 cue["id"] = len(self.board.cues) + pos
             self.board.add(cues)
-        worker.submit(held["index"], cues, self.runner.timing(path, 0.0), 0.0, keep_all=final,
-                      measured=False)
 
     def release_held(self, worker):
         """At the end of a session: lines still held back have no next chunk to wait for."""

@@ -329,6 +329,7 @@ def init_db():
         _create_bulk_job_tables(conn)
         _create_reading_tables(conn)
         _create_review_tables(conn)
+        _create_misheard_table(conn)
         _create_library_tool_tables(conn)
         _create_job_tables(conn)
         _create_metadata_research_tables(conn)
@@ -367,7 +368,7 @@ def init_db():
 
 from db.schema import (  # noqa: E402,F401
     _create_bulk_job_tables, _create_core_indexes, _create_library_tables,
-    _create_library_tool_tables, _create_line_annotation_tables,
+    _create_library_tool_tables, _create_line_annotation_tables, _create_misheard_table,
     _create_metadata_research_tables, _create_reading_tables, _create_review_tables,
     ensure_legacy_bug_reports,
     _create_series_tables, _create_shared_glossary_tables, _create_title_glossary_table,
@@ -498,7 +499,7 @@ from db.dramas import (  # noqa: E402,F401
 
 from db.lines import (  # noqa: E402,F401
     line_value, update_line_fields_if, update_lines_fields_if_many, save_lines,
-    FULL_SYNC, UndeclaredLineWrite, check_line_fields, job_line_fields,
+    FULL_SYNC, UndeclaredLineWrite, adopt_job_scope, check_line_fields, current_job_scope, job_line_fields,
     line_ids_with_refs, load_lines, load_line_page, load_line_objects, load_line_ids, line_ids_exist,
     LineText, load_line_texts, settle_copied_marks, list_marked_lines)
 
@@ -586,6 +587,8 @@ from db.glossary import (  # noqa: E402,F401
     upsert_glossary_term, count_glossary_terms_by_series, list_glossary_terms, list_glossary_dismissals,
     list_dismissed_glossary_terms, add_glossary_dismissals, remove_glossary_dismissals,
     delete_glossary_term, list_word_replacements, save_word_replacement, delete_word_replacement)
+
+from db.misheard import add_misheard_keep, clear_misheard_keeps, list_misheard_keeps  # noqa: E402,F401
 
 from db.title_glossary import (  # noqa: E402,F401
     get_title_glossary_series, link_existing_private_series, link_title_glossary,

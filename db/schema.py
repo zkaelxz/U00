@@ -605,6 +605,23 @@ def _create_review_tables(conn):
     """)
 
 
+def _create_misheard_table(conn):
+    conn.executescript("""
+
+        -- A mis-heard word suggestion ("maybe X, heard as Y") the person answered "Keep as
+        -- heard" for this title: never offered again until they show the kept words again.
+        CREATE TABLE IF NOT EXISTS misheard_keeps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            drama_id INTEGER NOT NULL,
+            heard TEXT NOT NULL,
+            suggested TEXT NOT NULL,
+            created_at TEXT,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
+            UNIQUE(drama_id, heard, suggested)
+        );
+    """)
+
+
 def _create_library_tool_tables(conn):
     conn.executescript("""
 

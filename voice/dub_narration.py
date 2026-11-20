@@ -159,7 +159,7 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
 
     Clips are generated first, one at a time -- any that already exist from
     a prior run are reused, not regenerated -- then assembled in order.
-    character_clone_map is as for build_dub_track; a speaker with no entry
+    character_clone_map is as for clone_map_from_characters; a speaker with no entry
     (NO_VOICE_ERROR) is treated like any other failed unit.
 
     Returns (path_to_wav, errors) -- a line whose unit failed is skipped
@@ -185,8 +185,8 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
             unit["clone"],
             lang=(source_language if narrate_original else None)))
         span = f"{first:04d}" if first == last else f"{first:04d}-{last:04d}"
-        # Signature in the name for the same reason as build_dub_track's
-        # clips: an edited unit gets a fresh clip, an unchanged one is reused.
+        # Signature in the name: an edited unit gets a fresh clip, an unchanged
+        # one is reused.
         unit["clip_path"] = os.path.join(clips_dir, f"line_{span}_{signature}.wav")
 
     finished = 0
@@ -375,10 +375,19 @@ def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, res
     background_jobs' trailing result_queue lands in the right slot."""
     from jobs import process_worker
     process_worker.start_own_process_group()
+
+    def report(frac):
+        # Clips are about 95% of the work; the join and export after them get the rest, so
+        # a long book does not sit at "done" while it is still gluing.
+        scaled = frac * 0.95
+        process_worker.report_progress(
+            result_queue, scaled,
+            "Joining the clips into one track..." if frac >= 1.0 else f"Speaking clips ({scaled:.0%})...")
+
     try:
         out_path, errors = build_narration_track(
-            lines, drama_dir, character_clone_map,
+            lines, drama_dir, character_clone_map, progress_cb=report,
             narrate_original=narrate_original, source_language=source_language)
         result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors}))
     except Exception as exc:
-        result_queue.put(("error", type(exc).__name__, str(exc)))
+        result_queue.put(process_worker.error_item(exc))

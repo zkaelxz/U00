@@ -7,6 +7,7 @@ from unittest import mock
 import pytest
 
 import background_jobs
+import novel_text
 import db
 from services import sources_extraction_service as extraction
 from services import sources_import_service as imp
@@ -311,3 +312,69 @@ def test_novel_batch_budget_follows_each_models_cap():
     assert novel_batch_chars("deepseek") == 6_000
     assert novel_batch_chars("ollama", "translategemma:12b") == 4_000
     assert novel_batch_chars("someengine", "new-model") == 8_000
+
+
+@pytest.mark.parametrize("text,is_heading", [
+    ("第1章 第一章 被人咬死是什麽感覺？…", True),
+    ('第2章 第二章 "若是我早些……我們也許…………', True),
+    ('第3章 第三章 "我對寧王仰慕已久，非卿不可……', True),
+    ("第4章 第四章 他说：我不去，你呢？", True),
+    ("제3화 봤어? 진짜 재밌었어!", False),
+    ("제1장 어디까지 읽었어?", False),
+    ("第3章 我写完了，你看了吗？", False),
+    ("第3章 写完了吗? 快点!", False),
+    ("第一回合他就输了！", False),
+    ("第3章 他说：好。好！", False),
+    ("第5章 已经结束了。", False),
+])
+def test_a_titled_heading_may_end_in_a_question_mark_or_ellipsis(text, is_heading):
+    import novel_text
+    assert novel_text.is_heading_text(text) is is_heading
+
+
+def test_headings_printed_twice_in_a_row_still_start_chapters():
+    import novel_text
+    from engine_backends.novel_batches import chapter_start_idxs
+
+    def heading(n):
+        return f'第{n}章 第{"一二三"[n - 1]}章 "若是我早些……我們也許…………'
+
+    lines = []
+    for n in (1, 2, 3):
+        lines += [heading(n), heading(n), f"正文{n}。" * 3, f"又一段{n}。"]
+    ranges = novel_text.chapter_line_ranges(lines)
+    assert [first for first, _last in ranges] == [0, 4, 8]
+
+    class _L:
+        def __init__(self, idx, zh):
+            self.idx, self.zh, self.en = idx, zh, ""
+
+    assert chapter_start_idxs([_L(i, t) for i, t in enumerate(lines)]) == {0, 4, 8}
+
+
+@pytest.mark.parametrize("lines", [
+    ["第一卷 风起", "第1章 你是谁？", "第1章 你是谁？", "正文。", "第2章 他来了！", "正文二。"],
+    ["目录", "第1章 甲", "第2章 乙", "第3章 丙", "第1章 甲", "正文。", "第2章 乙", "正文二。"],
+])
+def test_lane_chapter_starts_agree_with_the_translate_ranges(lines):
+    import novel_text
+    from engine_backends.novel_batches import chapter_start_idxs
+
+    class _L:
+        def __init__(self, idx, zh):
+            self.idx, self.zh, self.en = idx, zh, ""
+
+    starts = chapter_start_idxs([_L(i, t) for i, t in enumerate(lines)])
+    ranges = [first for first, _last in novel_text.chapter_line_ranges(lines)]
+    # chapter_line_ranges also lists front matter before the first heading as chapter 1.
+    assert starts <= set(ranges) and starts >= set(ranges) - {0}
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("第3章 开始\n第3章  开始\n正文。", "第3章 开始\n正文。"),
+    ("第3章 开始\n\n第3章 开始\n\n正文。", "第3章 开始\n\n\n正文。"),
+    ("第3章 开始\n正文。\n第3章 开始\n", "第3章 开始\n正文。\n第3章 开始\n"),
+    ("他笑了。\n他笑了。", "他笑了。\n他笑了。"),
+])
+def test_only_a_heading_printed_twice_in_a_row_is_dropped(text, expected):
+    assert novel_text.drop_repeated_heading(text) == expected

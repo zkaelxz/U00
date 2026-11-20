@@ -387,11 +387,11 @@ def test_a_nemotron_run_checks_nemotron_with_or_without_a_token(isolated_db, mon
 
 
 @pytest.mark.parametrize("model, query, populate, other", [
-    ("pyannote", "", _pyannote, _nemotron), ("nemotron", "?expected_speakers=2", _pyannote, _nemotron),
+    ("pyannote", "", _pyannote, _nemotron), ("nemotron", "?expected_speakers=2", _nemotron, _pyannote),
     ("nemotron", "", _nemotron, _pyannote)])
 def test_detect_speakers_away_from_the_pc_checks_the_model_that_will_run(
         isolated_db, caches, monkeypatch, model, query, populate, other):
-    """A typed count runs pyannote whatever the setting, so that's the model to have."""
+    """The setting alone picks the model: a typed count still runs Nemotron."""
     from services import settings_service
     settings_service.set_settings({"speaker_model": model})
     started = _stub(monkeypatch, "diarization_service", "start_diarization_run")

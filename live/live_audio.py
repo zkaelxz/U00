@@ -1,9 +1,22 @@
 """WAV handling for Live chunks: the overlap tail carried into the next chunk, and
 the cap that keeps one Whisper call from being handed more audio than a chunk is
 meant to hold."""
+import contextlib
 import os
 import wave
 from typing import NamedTuple, Optional
+
+
+@contextlib.contextmanager
+def _open_wav(path: str):
+    """(reader, frames the file really holds). A chunk ffmpeg was killed while
+    writing keeps its placeholder header (a data size of 4 GiB, read as 37 h of
+    audio), so the header's count is capped by the bytes after it."""
+    with open(path, "rb") as fh, wave.open(fh, "rb") as w:
+        # wave.open leaves the file at the start of the sample data.
+        frame_bytes = w.getsampwidth() * w.getnchannels()
+        held = (os.path.getsize(path) - fh.tell()) // frame_bytes if frame_bytes else 0
+        yield w, max(0, min(w.getnframes(), held))
 
 
 def read_wav_tail(path: str, seconds: float):
@@ -17,9 +30,8 @@ def read_wav_tail(path: str, seconds: float):
     failing the job.
     """
     try:
-        with wave.open(path, "rb") as w:
-            nchannels, sampwidth, framerate, nframes = (
-                w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes())
+        with _open_wav(path) as (w, nframes):
+            nchannels, sampwidth, framerate = w.getnchannels(), w.getsampwidth(), w.getframerate()
             tail_frames = min(nframes, int(round(seconds * framerate)))
             w.setpos(nframes - tail_frames)
             frames = w.readframes(tail_frames)
@@ -43,9 +55,9 @@ def write_padded_chunk(tail: dict, chunk_path: str, out_path: str) -> float:
     if not tail or not tail["frames"]:
         return 0.0
     try:
-        with wave.open(chunk_path, "rb") as w:
+        with _open_wav(chunk_path) as (w, nframes):
             params = (w.getnchannels(), w.getsampwidth(), w.getframerate())
-            frames = w.readframes(w.getnframes())
+            frames = w.readframes(nframes)
     except (OSError, EOFError, wave.Error):
         return 0.0
     if params != tail["params"]:
@@ -69,9 +81,8 @@ def write_newest(path: str, out_path: str, seconds: float):
     seconds were left out of the front. 0.0 (and nothing written) when the
     file is not longer than that or can't be read as a WAV."""
     try:
-        with wave.open(path, "rb") as w:
+        with _open_wav(path) as (w, nframes):
             params = (w.getnchannels(), w.getsampwidth(), w.getframerate())
-            nframes = w.getnframes()
             keep = int(round(seconds * params[2]))
             if keep <= 0 or nframes <= keep:
                 return 0.0
@@ -107,8 +118,8 @@ class ChunkWindow(NamedTuple):
 def wav_seconds(path: str) -> Optional[float]:
     """Length of a WAV file in seconds, or None when it can't be read as one."""
     try:
-        with wave.open(path, "rb") as w:
-            return w.getnframes() / w.getframerate()
+        with _open_wav(path) as (w, nframes):
+            return nframes / w.getframerate()
     except (OSError, EOFError, wave.Error, ZeroDivisionError):
         return None
 

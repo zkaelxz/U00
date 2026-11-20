@@ -354,6 +354,12 @@ export function statusLine(
   }
 }
 
+/** How the status line reads: an error, a warning (the session stopped itself, or the stream broke off and is being reconnected), or plain. */
+export function statusTone(s: Partial<Pick<LiveSessionStatus, 'status' | 'stop_reason' | 'reconnect_attempt'>>): 'error' | 'warn' | 'muted' {
+  if (s.status === 'error') return 'error'
+  return s.stop_reason || (s.status === 'running' && (s.reconnect_attempt ?? 0) > 0) ? 'warn' : 'muted'
+}
+
 /** The caption lag and the lines left untranslated, or null before a chunk is measured. */
 export function lagLine(s: Partial<Pick<LiveSessionStatus, 'lag_seconds' | 'translations_skipped' | 'chunks_measured'>>): string | null {
   if (!s.chunks_measured) return null

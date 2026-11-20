@@ -74,6 +74,7 @@ export interface SettingsPreferences extends TimingPreferences {
   scanlate_match_text_color: boolean // letter comic balloons in the original lettering's colour
   scanlate_rect_layout: boolean // set balloon text in one rectangle instead of following the outline
   translate_reply_guard: string // auto | on | off
+  novel_parallel_chapters: number // 1..3 novel chapters translated at once
   claude_reasoning: string // default | less
   openai_reasoning: string // default | less
   translate_alignment_check: boolean // flag lines whose English doesn't match the source (bge-m3 via Ollama)

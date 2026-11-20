@@ -79,6 +79,7 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
 """
 
 import os
+import env_reader
 from lib import features
 from dataclasses import dataclass, field, replace
 from urllib.parse import urlsplit
@@ -232,8 +233,7 @@ def _features_raw(env, from_env_file: bool) -> str:
     """A line in `.env` wins even when blank, so `BAIHE_FEATURES_OFF=` there turns
     everything back on over a value left in the process environment."""
     if from_env_file:
-        from services.settings_service import read_env_file
-        file_env = read_env_file()
+        file_env = env_reader.read_env_file()
         if features.ENV_VAR in file_env:
             return file_env[features.ENV_VAR]
     return env.get(features.ENV_VAR) or ""
@@ -242,12 +242,11 @@ def _features_raw(env, from_env_file: bool) -> str:
 def _sign_in_values(env, from_env_file: bool) -> dict:
     """The three sign-in settings. At real startup (`environ` not given) the
     project's `.env` is read too -- the same file and parser the engine keys
-    use (`settings_service.read_env_file`), with `.env` taking priority over
+    use (`env_reader.read_env_file`), with `.env` taking priority over
     the process environment, like `settings_service.resolve_key`."""
     file_env = {}
     if from_env_file:
-        from services.settings_service import read_env_file
-        file_env = read_env_file()
+        file_env = env_reader.read_env_file()
     return {name: (file_env.get(name) or env.get(name) or "").strip()
             for name in SIGN_IN_ENV_NAMES}
 

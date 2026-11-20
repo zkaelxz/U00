@@ -7,6 +7,7 @@ import re
 from collections import deque
 
 import background_jobs
+from engine_backends.translation_guard import LEFTOVER_SOURCE, source_script_share, unusable_reply
 
 # Enough to resolve a pronoun or a running topic; more only slows a local model.
 RECENT_CUES = 4
@@ -38,6 +39,28 @@ def build_live_context(source_language: str, recent, line_ids,
     return context
 
 
+# A reply that keeps a name in the source script stays under this; one that
+# copied the line back, or most of it, does not.
+MAX_KEPT_SOURCE_SHARE = 0.5
+
+
+def _filled(reply) -> bool:
+    return isinstance(reply, str) and bool(reply.strip())
+
+
+def _same(a, b) -> bool:
+    return isinstance(a, str) and isinstance(b, str) and \
+        re.sub(r"\W+", "", a).casefold() == re.sub(r"\W+", "", b).casefold() != ""
+
+
+def _shifted(pos: int, texts: list, replies: list) -> bool:
+    """Whether the reply for `pos` is the same as its next line's, for different
+    source text: the model put the next line's English under this id (seen on
+    Korean sentence fragments), so the cue is asked again on its own."""
+    return pos + 1 < len(replies) and texts[pos] != texts[pos + 1] \
+        and _same(replies[pos], replies[pos + 1])
+
+
 class CueTranslator:
     def __init__(self, engine, source_language: str, reply_without_thinking: bool = True,
                  term_hints=None, spend_guard=None):
@@ -60,17 +83,47 @@ class CueTranslator:
         self._count += 1
         context = build_live_context(self.source_language, self._recent, self._count,
                                      self.reply_without_thinking, self._hints([text]))
+        try:
+            translated = self._ask_one(text, context)
+            reason = self._rejected(context)
+            if not _filled(translated) and reason == LEFTOVER_SOURCE:
+                # A name the model kept in the source script: a caption with it
+                # beats none, so the line is asked once more without the reply
+                # guard and checked here. Mostly source script is no translation.
+                translated = self._ask_one(text, {**context, "check_replies": False})
+                if not _filled(translated) \
+                        or unusable_reply(text, translated) not in (None, LEFTOVER_SOURCE) \
+                        or source_script_share(translated) >= MAX_KEPT_SOURCE_SHARE:
+                    return f"[translation failed: the model's reply was unusable ({reason})]"
+            elif not _filled(translated) and reason:
+                return f"[translation failed: the model's reply was unusable ({reason})]"
+        except TranslationCancelled:
+            raise background_jobs.JobCancelled("live translate") from None
+        except background_jobs.JobCancelled:
+            raise
+        except Exception as exc:
+            return f"[translation failed: {redact_secrets(str(exc))}]"
+        self._remember(text, translated)
+        return translated
+
+    def _ask_one(self, text: str, context: dict) -> str:
+        """The engine's reply for one line; the spend guard sees the request."""
+        from engine_backends.shared import TranslationCancelled
         self._before()
         try:
             translated = self.engine.translate_batch([text], context)[0]
         except TranslationCancelled:
-            raise background_jobs.JobCancelled("live translate") from None
+            raise
         except Exception as exc:
             self._after(exc)
-            return f"[translation failed: {redact_secrets(str(exc))}]"
+            raise
         self._after()
-        self._remember(text, translated)
         return translated
+
+    def _rejected(self, context: dict):
+        """Why the reply guard dropped the reply for this request's line, if it did."""
+        rejected = getattr(self.engine, "last_rejected", None)
+        return rejected.get(context["line_ids"][0]) if isinstance(rejected, dict) else None
 
     def translate_chunk(self, texts: list) -> dict:
         """{position: translation} for the cues one request carried. The engine
@@ -94,11 +147,10 @@ class CueTranslator:
         self._after(usable=usable)
         if not usable:
             return {}
-        by_id = dict(zip(ids, replies))
         found = {}
-        for pos, (line_id, text) in enumerate(zip(ids, texts)):
-            translated = by_id[line_id]
-            if isinstance(translated, str) and translated.strip():
+        for pos, (text, translated) in enumerate(zip(texts, replies)):
+            if isinstance(translated, str) and translated.strip() \
+                    and not _shifted(pos, texts, replies):
                 found[pos] = translated
                 self._remember(text, translated)
         return found

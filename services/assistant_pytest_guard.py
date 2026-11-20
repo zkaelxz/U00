@@ -2,7 +2,7 @@
 services/assistant_pytest_guard.py -- a pytest plugin loaded (`-p`) only
 by the maintenance assistant's run_tests tool. Before any test
 module is imported it points the db package at a throwaway library and
-settings_service at an empty .env, so a test that forgot `isolated_db`
+env_reader at an empty .env, so a test that forgot `isolated_db`
 can't write the user's real library or read a real key. Refuses to load
 outside that run.
 """
@@ -20,7 +20,7 @@ _scratch = None
 
 def pytest_configure(config):
     import db
-    from services import settings_service
+    import env_reader
 
     global _scratch
     _scratch = scratch = tempfile.mkdtemp(prefix="baihe_assistant_tests_")
@@ -29,7 +29,7 @@ def pytest_configure(config):
     db.configure_library_dir(library)
     empty_env = os.path.join(scratch, ".env")
     open(empty_env, "w").close()
-    settings_service.default_env_path = lambda: empty_env
+    env_reader.default_env_path = lambda: empty_env
 
 
 def pytest_unconfigure(config):

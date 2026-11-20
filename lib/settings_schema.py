@@ -185,6 +185,10 @@ SETTINGS = (
          label="Check translations for merged or shifted lines",
          help="After each batch, lines that look merged into a neighbour, shifted, duplicated or still in the source script are asked again once. Extra requests are billed like any other. Claude models rarely need this and weaker engines do, so Auto checks every engine except Claude and Gemini Pro. On always checks; Off never does.",
          tab="translation", section="Translation style"),
+    _pref("novel_parallel_chapters", "int", 3, min=1, max=3, clamp=True,
+          label="Novel chapters translated at once",
+          help="A novel translated on Claude, GPT, DeepSeek or a paid Gemini key works through up to 3 chapters at the same time instead of one after another: about twice as fast on the same text, at about the same cost and quality in tests. Batches inside a chapter still run in order, so only the first batch of a chapter misses the English of the chapter before it. Several requests run at once, so a provider's rate limit can slow a run. Under a spending cap batches wait for room beside the ones already sent, so a capped run is less parallel and stays close to the cap (a batch dearer than any before it can still pass it by a little). An Ollama hosted model (a name ending in -cloud) also counts. A model on this PC and the Gemini free tier always translate one chapter at a time. 1 keeps the one-after-another run.",
+          tab="translation", section="Translation style"),
     _pref("claude_reasoning", "choice", "default", choices="reasoning_modes",
           label="Claude Sonnet 5.5 reasoning",
           help="Default lets Sonnet 5.5 think before it answers, which reads slang best. Less turns that off: on a 90-line stream chunk it was about twice as fast and 40% cheaper but slightly worse on slang and nicknames. Applies to Translate runs on Sonnet 5.5 only; other Claude models are unchanged.",
@@ -297,7 +301,7 @@ SETTINGS = (
           help="Nemotron-3 is NVIDIA's newer model and mixed up fewer lines than pyannote on the titles we scored; "
                "it needs the transformers and librosa packages and downloads about 380 MB the first time. "
                "Pyannote (community-1) is the older choice: pick it to go back. "
-               "A typed speaker count always uses pyannote, and a failed Nemotron run falls back to pyannote.",
+               "Nemotron ignores a typed speaker count; pyannote runs only when Nemotron isn't available on this PC.",
           tab="system", section="Advanced"),
     _pref("ocr_prefer_paddle_vl_manga", "bool", False, label="Japanese: prefer PaddleOCR-VL",
           help="Changes only what Auto picks for Japanese. Leave off unless it reads your pages better than manga_ocr.",

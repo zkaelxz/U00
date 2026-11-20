@@ -199,6 +199,32 @@ class TestResolveStreamUrl:
         with pytest.raises(lt.LiveCaptureError, match="direct stream URL"):
             lt.resolve_stream_url("https://example.com/live")
 
+    @pytest.mark.parametrize("live_status", ["was_live", "post_live", "not_live"])
+    def test_live_only_refuses_a_page_that_is_no_longer_live(self, monkeypatch, live_status):
+        import types
+        from live.live_resolve import StreamEnded
+        fake_module = types.ModuleType("yt_dlp")
+
+        class FakeYDL:
+            def __init__(self, opts):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def extract_info(self, url, download=False):
+                return {"url": "https://cdn.example/recording.m3u8", "live_status": live_status}
+
+        fake_module.YoutubeDL = FakeYDL
+        monkeypatch.setitem(sys.modules, "yt_dlp", fake_module)
+        # Without live_only (a first start) a recording is fine to caption.
+        assert lt.resolve_stream_url("https://example.com/live") == "https://cdn.example/recording.m3u8"
+        with pytest.raises(StreamEnded):
+            lt.resolve_stream_url("https://example.com/live", live_only=True)
+
     def _install_fake_yt_dlp_with_attempt_log(self, monkeypatch, extract_info_fn, opts_log=None):
         import types
         fake_module = types.ModuleType("yt_dlp")
@@ -969,6 +995,28 @@ class TestHeldLinesMidSession:
         assert [c["start"] for c in cues] == sorted(c["start"] for c in cues)
         assert all(c["translated"] == f"EN:{c['text']}" for c in cues)
 
+    def test_a_translator_still_on_the_first_chunk_skips_no_line(self, monkeypatch, tmp_path):
+        real = _fake_transcribe_by_decoding_audio
+
+        def forgets_the_padding(path, **kw):
+            segs = real(path, **kw)
+            return [s for s in segs if s["start"] >= 2.0] if "padded" in os.path.basename(path) else segs
+        monkeypatch.setitem(globals(), "_fake_transcribe_by_decoding_audio", forgets_the_padding)
+        real_next = live_pipeline.TranslationWorker._next
+
+        def busy_until_stop(worker):
+            # A slow translator: it takes no chunk until Stop, so chunk 0 is
+            # still waiting when chunk 1 queues its lines.
+            with worker._cond:
+                worker._cond.wait_for(lambda: worker._closing or worker._abandoned)
+            return real_next(worker)
+        monkeypatch.setattr(live_pipeline.TranslationWorker, "_next", busy_until_stop)
+        cues, _, _ = TestOverlapDedupAgainstRealAudio()._run(
+            monkeypatch, tmp_path, "test_held_lost_slow", TestOverlapDedupAgainstRealAudio.CHUNKS)
+        # One chunk behind is within the backlog: the first-heard line does not
+        # take a place of its own and push chunk 0 out untranslated.
+        assert [c["translated"] for c in cues] == [f"EN:{c['text']}" for c in cues]
+
 
 class TestHoldBackOverlap:
     TAIL = {"seconds": 3.0, "chunk_seconds": 10.0}
@@ -1015,6 +1063,36 @@ class TestStockPhrasesInLive:
             "みんな元気で何よりですね", "ペースパちゃんありがとう", "チャンネル登録よろしくお願いします"]
 
 
+class TestRepeatedLinesInLive:
+    """ja-1.5b on TBS news wrote a sentence twice in a row in one chunk (183.8 s
+    and 205.2 s), and Live showed and translated both."""
+
+    def test_a_sentence_written_again_straight_after_itself_is_shown_once(self, monkeypatch, tmp_path):
+        import whisper_transcribe
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda path, **kw: [
+            {"start": 0.0, "end": 4.6, "text": "ミョン大統領です手"},
+            {"start": 6.1, "end": 11.0, "text": "拍子をしながらレッドカーペットを進み笑顔で車に乗り込みました"},
+            {"start": 11.0, "end": 11.5, "text": "手拍子をしながらレッドカーペットを進み笑顔で車に乗り込みました"},
+            {"start": 12.0, "end": 17.2, "text": "若者の出迎えもなく歓迎行事は縮小された形です"},
+            {"start": 17.2, "end": 18.5, "text": "若者の出迎えもなく歓迎行事は縮小された形です"}])
+        chunk = tmp_path / "chunk_00000.wav"
+        chunk.write_bytes(b"x")
+
+        class Echo:
+            def translate_batch(self, lines, context):
+                return [f"EN:{t}" for t in lines]
+        cues = lt.process_chunk(str(chunk), 0, 20, "ja", "ja-1.5b", Echo())
+        assert [c["text"] for c in cues] == [
+            "ミョン大統領です手", "拍子をしながらレッドカーペットを進み笑顔で車に乗り込みました",
+            "若者の出迎えもなく歓迎行事は縮小された形です"]
+        assert [c["end"] for c in cues][1:] == [11.5, 18.5]
+
+    def test_a_short_word_said_twice_stays(self):
+        segs = [{"start": 0, "end": 1, "text": "はい。"}, {"start": 1, "end": 2, "text": "はい。"},
+                {"start": 2, "end": 3, "text": "そうですね"}, {"start": 3, "end": 4, "text": "本当にそうですね"}]
+        assert lt.drop_repeated_lines(segs) == segs
+
+
 class TestLongLinesInLive:
     """whisper-ja wrote 10-20 s of speech as one segment, a wall of text on screen."""
 
@@ -1034,10 +1112,59 @@ class TestLongLinesInLive:
         assert cues[0]["start"] == 0.0 and cues[-1]["end"] == 16.0
         assert all(a["end"] <= b["start"] for a, b in zip(cues, cues[1:]))
 
-    def test_short_lines_and_lines_with_no_cut_stay_whole(self):
+    def test_short_lines_stay_whole(self):
         segs = [{"start": 0, "end": 3, "text": "はい。そうです。"},
-                {"start": 3, "end": 15, "text": "あ" * 30}]
+                # Over 8 s, but halves of 6 letters would only flash on screen.
+                {"start": 3, "end": 11.2, "text": "みんな元気で何よりですね。"}]
         assert lt.split_long_caption_lines(segs) == segs
+
+    def test_an_unpunctuated_line_is_cut_by_length_between_scripts(self):
+        # The V100 replay's longest line: 12.2 s and 87 letters, no punctuation or spaces.
+        text = ("はぐちゃんがいないあいださびしかったけどいろいろいそがしくてあっというまだったよ"
+                "きょうははぐちゃんふっききねんでおいしいラーメンでもたべてこようかなえっはぐちゃんのぶんうふふ")
+        cues = lt.split_long_caption_lines([{"start": 467.0, "end": 479.2, "text": text, "speaker": "A"}])
+        assert "".join(c["text"] for c in cues) == text
+        assert len(cues) == 3
+        assert all(c["end"] - c["start"] <= 8 and len(c["text"]) <= 40 for c in cues)
+        assert cues[0]["start"] == 467.0 and cues[-1]["end"] == pytest.approx(479.2)
+        assert all(a["end"] == b["start"] for a, b in zip(cues, cues[1:]))
+        assert all(c["speaker"] == "A" for c in cues)
+        # The cut near the katakana moves to where the script changes.
+        assert cues[2]["text"].startswith("ラーメン")
+
+    def test_a_short_line_finishing_the_sentence_joins_the_line_before(self):
+        # Yonhap: sent alone, "발송될 예정입니다。" got a later line's English.
+        segs = [{"start": 20.5, "end": 24.6, "text": "수험생이 휴대전화를 제출하지 않았을 경우를 대비해 수신 거부가"},
+                {"start": 24.6, "end": 27.8, "text": "가능한 긴급 재난문자 대신 위급 재난문자도"},
+                {"start": 27.8, "end": 28.9, "text": "발송될 예정입니다."},
+                {"start": 29.5, "end": 31.9, "text": "지금까지 서울에서"},
+                {"start": 31.9, "end": 32.8, "text": "이재경입니다."},
+                {"start": 34.5, "end": 35.0, "text": "네."}]
+        out = lt.join_trailing_fragments(segs)
+        assert [(c["start"], c["end"], c["text"]) for c in out] == [
+            (20.5, 24.6, "수험생이 휴대전화를 제출하지 않았을 경우를 대비해 수신 거부가"),
+            (24.6, 28.9, "가능한 긴급 재난문자 대신 위급 재난문자도 발송될 예정입니다."),
+            (29.5, 32.8, "지금까지 서울에서 이재경입니다."),
+            # After a sentence end and a 1.7 s pause: its own line.
+            (34.5, 35.0, "네.")]
+
+    def test_a_fragment_is_not_joined_past_a_caption_or_after_a_sentence_end(self):
+        long = {"start": 0.0, "end": 7.5, "text": "あ" * 30}
+        tail = {"start": 7.5, "end": 9.0, "text": "いいです。"}
+        assert lt.join_trailing_fragments([long, tail]) == [long, tail]   # 9 s together
+        done = {"start": 0.0, "end": 2.0, "text": "そうです。"}
+        nxt = {"start": 2.0, "end": 3.0, "text": "はい。"}
+        assert lt.join_trailing_fragments([done, nxt]) == [done, nxt]
+        jp = lt.join_trailing_fragments([{"start": 0, "end": 2, "text": "今日は"},
+                                         {"start": 2, "end": 3, "text": "晴れです。"}])
+        assert [c["text"] for c in jp] == ["今日は晴れです。"]
+        # With no sentence end on the fragment, nothing says it finishes the line.
+        bare = [{"start": 0, "end": 2, "text": "그건"}, {"start": 2, "end": 3, "text": "있습니까"}]
+        assert lt.join_trailing_fragments(bare) == bare
+
+    def test_a_long_line_without_cjk_text_is_left_to_the_splitter(self):
+        seg = {"start": 0, "end": 12, "text": "x" * 120}
+        assert lt.force_cut_cjk(seg) == [seg]
 
 
 class TestOverlapTailTextWindow:
@@ -1101,6 +1228,40 @@ class TestOverlapTailTextWindow:
     def test_overlap_is_capped_at_half_a_chunk(self, monkeypatch, tmp_path):
         calls = self._run(monkeypatch, tmp_path, [], overlap_seconds=10)  # 4s chunks
         assert calls[1]["overlap_seconds"] == 2.0
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
+def test_a_restarted_capture_carries_on_the_chunk_numbering(tmp_path, monkeypatch):
+    """start_number reaches ffmpeg's segment muxer, so the chunks of a capture
+    restarted after a break continue the session's numbering."""
+    tone = tmp_path / "tone.wav"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "sine=frequency=440:duration=3", str(tone)], check=True, timeout=60)
+
+    class _Pump:
+        error = None
+
+        def __init__(self, url, sink, **kw):
+            self.sink, self.kw = sink, kw
+
+        def start(self):
+            self.sink.write(tone.read_bytes())
+            self.sink.close()
+            return self
+
+        def halt(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+    monkeypatch.setattr(lt.live_fetch, "StreamPump", _Pump)
+    out_dir = str(tmp_path / "chunks")
+    capture = lt.start_segment_capture("http://x.example/", out_dir, 1, start_number=7,
+                                       live_only=True)
+    assert capture.proc.wait(30) == 0
+    assert capture.pump.kw["live_only"] is True
+    assert sorted(os.listdir(out_dir))[0] == "chunk_00007.wav"
+    assert [i for i, _ in lt.list_remaining_chunks(out_dir, 6)][:3] == [7, 8, 9]
 
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")

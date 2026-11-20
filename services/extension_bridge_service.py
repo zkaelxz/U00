@@ -1,6 +1,6 @@
 """
 services/extension_bridge_service.py -- what the extension's requests do once they are
-accepted, shared by the PC-only bridge (page_server.py, the shared loopback
+accepted, shared by the PC-only bridge (services/page_server.py, the shared loopback
 token, the local owner) and the device-token routes
 (api/routers/extension_bridge_routes.py, one household member).
 

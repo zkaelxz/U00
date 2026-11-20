@@ -42,6 +42,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "dictionary.py",
     "emotion.py",
     "en_cleanup.py",
+    "env_reader.py",
     "epub_io.py",
     "expected_files.py",
     "install_plan.py",

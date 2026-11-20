@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_launch, process_worker
 from engine_backends import engine_registry
+import env_reader
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
@@ -33,7 +34,7 @@ SECRET = "sk-secret-value-123"
 @pytest.fixture
 def env_file(tmp_path, monkeypatch):
     path = tmp_path / ".env"
-    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: str(path))
     for names in settings_service.ENV_NAMES.values():
         for n in names:
             monkeypatch.delenv(n, raising=False)
@@ -55,7 +56,7 @@ def test_preference_defaults(isolated_db, env_file):
     assert set(timing_settings_service.KEYS) <= set(prefs)
     assert {k: v for k, v in prefs.items() if k not in timing_settings_service.KEYS} == {
         "default_engine": "claude", "default_locale": "en-US", "default_style_note": "",
-        "scene_aware_batches": True, "blocked_phrases": whisper_hallucination.BLOCKED_PHRASES_DEFAULT, "scanlate_chapter_brief": True, "scanlate_page_image": True, "scanlate_sfx_gloss": False, "scanlate_match_text_color": True, "scanlate_rect_layout": False, "episode_brief": True, "stream_plain_prompt": True, "ollama_cloud_default": False, "translate_reply_guard": "auto", "claude_reasoning": "default", "openai_reasoning": "less", "translate_alignment_check": False, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
+        "scene_aware_batches": True, "blocked_phrases": whisper_hallucination.BLOCKED_PHRASES_DEFAULT, "scanlate_chapter_brief": True, "scanlate_page_image": True, "scanlate_sfx_gloss": False, "scanlate_match_text_color": True, "scanlate_rect_layout": False, "episode_brief": True, "stream_plain_prompt": True, "ollama_cloud_default": False, "translate_reply_guard": "auto", "novel_parallel_chapters": 3, "claude_reasoning": "default", "openai_reasoning": "less", "translate_alignment_check": False, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
         "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "keep_free_vram_gb": 0.0,
         "keep_free_ram_gb": 0.0, "gpu_guard": True, "second_hearing": False, "gpu_guard_temp_c": 85, "gpu_guard_stop_minutes": 2,
         "whisper_model_path": "", "ocr_backend": "auto", "speaker_model": "nemotron",
@@ -642,7 +643,7 @@ def test_live_route_uses_cookies_only_at_the_pc(isolated_db, env_file, monkeypat
 
 def test_baihe_own_ports_includes_configured_ports(monkeypatch, tmp_path):
     from services import settings_service as ss
-    monkeypatch.setattr(ss, "default_env_path", lambda: str(tmp_path / ".env"))
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: str(tmp_path / ".env"))
     for name in (ss.API_PORT_ENV, ss.HOUSEHOLD_PORT_ENV):
         monkeypatch.delenv(name, raising=False)
     assert ss.baihe_own_ports() == {8600, 8756}

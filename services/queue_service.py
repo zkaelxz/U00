@@ -31,6 +31,7 @@ from typing import Optional
 import db
 from engine_backends import shared as engine_shared
 from engine_backends import engine_registry
+from engine_backends import local as engine_local
 from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
@@ -102,7 +103,7 @@ def _clock() -> float:
 
 def _empty() -> dict:
     return {"version": QUEUE_VERSION, "instance": _INSTANCE, "state": IDLE,
-            "stop_on_failure": False, "schedule": None, "notice": None, "next_id": 1,
+            "stop_on_failure": False, "overlap_online_translate": False, "schedule": None, "notice": None, "next_id": 1,
             "items": []}
 
 
@@ -169,6 +170,7 @@ def _load(now: float | None = None, settle: bool = False) -> dict:
     doc = _empty()
     doc["state"] = raw.get("state") if raw.get("state") in (IDLE, ACTIVE, PAUSED) else IDLE
     doc["stop_on_failure"] = bool(raw.get("stop_on_failure"))
+    doc["overlap_online_translate"] = bool(raw.get("overlap_online_translate"))
     sched = raw.get("schedule")
     if isinstance(sched, dict) and isinstance(sched.get("start_at"), (int, float)) \
             and _HHMM.match(str(sched.get("time") or "")):
@@ -318,6 +320,7 @@ def get_queue(principal) -> dict:
         "version": QUEUE_VERSION,
         "state": doc["state"],
         "stop_on_failure": doc["stop_on_failure"],
+        "overlap_online_translate": doc["overlap_online_translate"],
         "schedule": dict(doc["schedule"]) if doc["schedule"] else None,
         "notice": doc["notice"],
         "max_items": MAX_ITEMS,
@@ -646,11 +649,15 @@ def set_schedule(principal, hhmm: Optional[str], now: float | None = None) -> di
     return get_queue(principal)
 
 
-def set_policy(principal, stop_on_failure: bool) -> dict:
+def set_policy(principal, stop_on_failure: Optional[bool] = None,
+               overlap_online_translate: Optional[bool] = None) -> dict:
     _require_controls(principal)
     with _lock:
         doc = _load()
-        doc["stop_on_failure"] = bool(stop_on_failure)
+        if stop_on_failure is not None:
+            doc["stop_on_failure"] = bool(stop_on_failure)
+        if overlap_online_translate is not None:
+            doc["overlap_online_translate"] = bool(overlap_online_translate)
         _save(doc)
     return get_queue(principal)
 
@@ -844,24 +851,23 @@ def tick(now: float | None = None) -> None:
             doc["state"] = ACTIVE
             doc["notice"] = None
             changed = True
-        running = next((i for i in doc["items"] if i["status"] == RUNNING), None)
-        if running is not None and running["job_id"] is None:
+        for claimed in [i for i in doc["items"] if i["status"] == RUNNING and i["job_id"] is None]:
             # Only this thread starts items, and a start finishes before the
             # next tick, so this claim's outcome was never written.
-            _finish(running, INTERRUPTED, "Interrupted: its start could not be recorded. "
+            _finish(claimed, INTERRUPTED, "Interrupted: its start could not be recorded. "
                     "Check the jobs list, then press Retry if needed.", now)
-            running, changed = None, True
-        running_job = running["job_id"] if running else None
+            changed = True
+        running = [(i["id"], i["job_id"]) for i in doc["items"] if i["status"] == RUNNING]
         if changed:
             _save(doc)
-    if running is not None and running_job is not None:
-        finished, status, reason = _job_outcome(running_job)
+    for item_id, job_id in running:
+        finished, status, reason = _job_outcome(job_id)
         if not finished:
-            return
+            continue
         stopped_for = None
         with _lock:
             doc = _load()
-            item = next((i for i in doc["items"] if i["id"] == running["id"]), None)
+            item = next((i for i in doc["items"] if i["id"] == item_id), None)
             if item is not None and item["status"] == RUNNING:
                 _finish(item, status, reason, now)
                 # A button's start failing is that title's business, not a reason to stop everyone's queue.
@@ -885,6 +891,29 @@ def _announce_stop(item: dict) -> None:
                                         target={"page": "jobs"})
 
 
+def _may_overlap(running: list, candidate: dict) -> bool:
+    """Whether `candidate` may start beside the running items. Only a transcription (the PC's GPU
+    and CPU) beside one translation on an engine that never touches this PC's GPU, so the two
+    don't compete for the same hardware, and never two runs of one title."""
+    if len(running) != 1 or candidate["step"] != "transcribe":
+        return False
+    other = running[0]
+    if other["step"] != "translate" or other["drama_id"] == candidate["drama_id"] or other["job_id"] is None:
+        return False
+    drama = db.get_drama(other["drama_id"])
+    if drama is None:
+        return False
+    engine = _translate_engine(drama)
+    model = (other.get("settings") or {}).get("model") or _queued_model_and_batch(drama, engine)[0]
+    if engine_local.ollama_touches_local_gpu(engine, model):
+        return False
+    # The run's own episode summary and source-match check use the local Ollama after the batches,
+    # and a run on an online engine does not take a GPU slot, so only this check keeps them apart.
+    if settings_service.get("translate_alignment_check"):
+        return False
+    return str(settings_service.get("episode_summary_engine")) != "ollama" or engine == "ollama"
+
+
 def _start_next(now: float, deferred=frozenset()) -> None:
     """Starts the first waiting item not in `deferred`. An item whose adder
     is at their running cap (jobs/user_caps.py) goes back to waiting with a
@@ -895,17 +924,18 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         return     # a restore or cleanup holds the library: wait rather than skip everything
     with _lock:
         doc = _load(now)
-        if any(i["status"] == RUNNING for i in doc["items"]):
-            return
+        running = [i for i in doc["items"] if i["status"] == RUNNING]
         waiting = [i for i in doc["items"] if i["status"] == WAITING and i["id"] not in deferred]
         # A start pressed on a page goes ahead of the items waiting for the queue's Start.
         item = next((i for i in waiting if i["now"]), None)
         if item is None and doc["state"] == ACTIVE:
             item = next(iter(waiting), None)
         if item is None:
-            if not deferred and doc["state"] == ACTIVE and not waiting:
+            if not running and not deferred and doc["state"] == ACTIVE and not waiting:
                 doc["state"] = IDLE
                 _save(doc)
+            return
+        if running and not (doc["overlap_online_translate"] and _may_overlap(running, item)):
             return
         item.update(status=RUNNING, started_at=now, reason="", job_id=None)
         claimed = dict(item)

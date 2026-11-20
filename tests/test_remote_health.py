@@ -15,12 +15,12 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
+import env_reader
 from api import background
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import notification_service as ns
 from services import remote_health_service as rhs
-from services import settings_service
 from tests.api_helpers import loopback_client
 
 PUBLIC_URL = "https://baihe.example.com"
@@ -43,7 +43,7 @@ def _no_own_addresses(monkeypatch):
 def env(tmp_path, monkeypatch, isolated_db):
     path = tmp_path / ".env"
     path.write_text("")
-    monkeypatch.setattr(settings_service, "default_env_path", lambda: str(path))
+    monkeypatch.setattr(env_reader, "default_env_path", lambda: str(path))
     for name in (rhs.IP_CHECK_ENV, ns.DISABLED_ENV, *ns.ENV_VARS["discord"], *ns.ENV_VARS["ntfy"]):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(rhs, "_now", lambda: NOW)

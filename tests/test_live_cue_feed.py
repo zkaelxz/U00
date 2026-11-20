@@ -146,3 +146,124 @@ def test_a_blank_reply_is_shown_as_failed_not_as_done(monkeypatch, tmp_path):
     cues = lt.process_chunk(str(chunk), 0, 20, "zh", "small", Blank())
     assert cues[0]["translation"] == "failed"
     assert cues[0]["translated"] == live_cue_feed.EMPTY_REPLY_NOTE
+
+
+def test_a_reply_copied_from_the_next_line_is_asked_again_on_its_own():
+    """TranslateGemma 27B on Korean news put the next line's English under a short
+    fragment's id (Yonhap, 32 s and 34 s): that cue is retried by itself."""
+    from live.live_cue_translation import CueTranslator
+    calls = []
+
+    class Engine:
+        def translate_batch(self, lines, context):
+            calls.append(list(lines))
+            if len(lines) == 1:
+                return ["I'm Lee Jae-kyung."]
+            return ["Reporting from Seoul.", "AI cheating fears grow.", "AI cheating fears grow."]
+
+    cues = live_cue_feed.pending_cues(
+        [{"start": 0, "end": 1, "text": "서울에서 전했습니다."}, {"start": 1, "end": 2, "text": "이재경입니다."},
+         {"start": 3, "end": 5, "text": "A.I. 부정행위 논란이 커집니다."}], 0, 0)
+    live_cue_feed.translate_cues(cues, CueTranslator(Engine(), "ko"), lambda: None)
+    assert [c["translated"] for c in cues] == [
+        "Reporting from Seoul.", "I'm Lee Jae-kyung.", "AI cheating fears grow."]
+    assert calls[1:] == [["이재경입니다."]]
+
+
+def test_two_lines_that_really_say_the_same_keep_the_same_translation():
+    from live.live_cue_translation import CueTranslator
+
+    class Engine:
+        def translate_batch(self, lines, context):
+            return ["Thank you."] * len(lines)
+
+    cues = live_cue_feed.pending_cues(
+        [{"start": 0, "end": 1, "text": "고맙습니다."}, {"start": 1, "end": 2, "text": "고맙습니다."}], 0, 0)
+    live_cue_feed.translate_cues(cues, CueTranslator(Engine(), "ko"), lambda: None)
+    assert [c["translated"] for c in cues] == ["Thank you.", "Thank you."]
+
+
+def test_a_sentence_split_over_lines_is_translated_whole_on_its_last_line():
+    """Yonhap 165 s / 171 s: the first half of a verb-final sentence, sent on its
+    own, got the whole sentence's English and its own content was lost."""
+    from live.live_cue_translation import CueTranslator
+    sent = []
+
+    class Engine:
+        def translate_batch(self, lines, context):
+            sent.append(list(lines))
+            return [f"en:{t}" for t in lines]
+
+    cues = live_cue_feed.pending_cues(
+        [{"start": 0, "end": 4, "text": "젤렌스키 대통령은 무기가 러시아에 공급되고"},
+         {"start": 4, "end": 8, "text": "있다면서 북한이 성능을 개선한다고 주장했습니다."},
+         {"start": 9, "end": 10, "text": "다음 소식입니다."},
+         {"start": 11, "end": 12, "text": "그리고"}], 0, 0)
+    live_cue_feed.translate_cues(cues, CueTranslator(Engine(), "ko"), lambda: None)
+    assert sent == [["젤렌스키 대통령은 무기가 러시아에 공급되고 있다면서 북한이 성능을 개선한다고 주장했습니다.",
+                     "다음 소식입니다.", "그리고"]]
+    assert [(c["translated"], c["translation"]) for c in cues] == [
+        (live_cue_feed.CONTINUED, "done"),
+        ("en:젤렌스키 대통령은 무기가 러시아에 공급되고 있다면서 북한이 성능을 개선한다고 주장했습니다.", "done"),
+        ("en:다음 소식입니다.", "done"), ("en:그리고", "done")]
+
+
+def test_unpunctuated_speech_is_not_grouped_and_a_run_is_capped():
+    plain = [{"text": t} for t in ("그건", "있습니까", "네")]
+    assert live_cue_feed.sentence_groups(plain) == [[0], [1], [2]]
+    run = [{"text": t} for t in ("a", "b", "c", "d.")]
+    # Past MAX_SENTENCE_LINES the lines go one by one rather than onto one line.
+    assert live_cue_feed.sentence_groups(run) == [[0], [1], [2], [3]]
+
+
+def test_a_failed_sentence_shows_the_failure_on_each_of_its_lines():
+    from live.live_cue_translation import CueTranslator
+
+    class Engine:
+        def translate_batch(self, lines, context):
+            raise RuntimeError("down")
+
+    cues = live_cue_feed.pending_cues(
+        [{"start": 0, "end": 1, "text": "특검의 수사가 뻗어나가고"},
+         {"start": 1, "end": 2, "text": "있습니다."}], 0, 0)
+    live_cue_feed.translate_cues(cues, CueTranslator(Engine(), "ko"), lambda: None)
+    assert [c["translation"] for c in cues] == ["failed", "failed"]
+
+
+class TestSourceScriptKeptInTheReply:
+    """TranslateGemma 12B on a Japanese stream: a line naming
+    "プリキューキューティコマ" came back with no English, both in its chunk and
+    asked alone, because the reply guard drops a reply with Japanese left in it."""
+
+    LINE = "さてお休み前に言ってたFGOのイベントでプリキューキューティコマが実装"
+
+    def _translate(self, monkeypatch, content):
+        from engine_backends import local
+        from live.live_cue_translation import CueTranslator
+        import memory_headroom
+        monkeypatch.setattr(memory_headroom, "check_ollama", lambda *a, **k: None)
+        bodies = []
+
+        def chat(base_url, payload):
+            bodies.append(payload)
+            return {"message": {"content": '{"1": "%s"}' % content}}
+        monkeypatch.setattr(local, "_ollama_chat", chat)
+        translated = CueTranslator(local.OllamaEngine(model="translategemma:12b"), "ja").translate(self.LINE)
+        return translated, bodies
+
+    def test_a_name_left_in_japanese_still_gives_a_caption(self, monkeypatch):
+        reply = "At the FGO event I mentioned before the break, Puri Kyu キューティコマ was added."
+        translated, bodies = self._translate(monkeypatch, reply)
+        assert translated == reply
+        assert len(bodies) >= 2   # the guarded request(s), then one without the guard
+
+    def test_the_line_copied_back_is_still_a_failure_with_its_reason(self, monkeypatch):
+        translated, _ = self._translate(monkeypatch, self.LINE)
+        assert translated == "[translation failed: the model's reply was unusable (source text left in it)]"
+
+    def test_another_unusable_reply_names_its_reason_without_another_request(self, monkeypatch):
+        refusal = "I'm sorry, but I can't translate this."
+        translated, bodies = self._translate(monkeypatch, refusal)
+        assert translated == "[translation failed: the model's reply was unusable (a refusal)]"
+        _, with_name = self._translate(monkeypatch, "Puri Kyu キューティコマ was added.")
+        assert len(bodies) == len(with_name) - 1

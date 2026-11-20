@@ -86,3 +86,60 @@ test('no chip when no line is flagged', async ({ page }) => {
   await expect(page.locator('.review-line:not(.review-skeleton)')).not.toHaveCount(0)
   await expect(page.locator('.review-suspect-chip')).toHaveCount(0)
 })
+
+// The mis-heard group sits in the same list; Use here posts one line with the text the person saw,
+// Use everywhere posts the spelling alone. Checked in every theme and at phone width.
+for (const theme of ['light', 'dark', 'sepia', 'oled']) {
+  for (const [name, size] of [['desktop', { width: 1280, height: 900 }], ['phone', { width: 375, height: 800 }]] as const) {
+    test(`${name}, ${theme}: May be mis-heard offers Use here, Use everywhere and Keep as heard`, async ({ page }) => {
+      await page.addInitScript((t) => localStorage.setItem('baihe.theme', t), theme)
+      await page.setViewportSize(size)
+      const applies: string[] = []
+      await open(page, [])
+      await page.unroute('**/api/source-suspect/dramas/3')
+      await page.route('**/api/source-suspect/dramas/3', (route) => route.fulfill({ json: { count: 0, items: [] } }))
+      await page.route('**/api/misheard/dramas/3', (route) => route.fulfill({ json: {
+        available: true, reason: '', lines_scanned: 3, truncated: false, suggestions: [{
+          heard: '亞羅赫', suggested: '亞洛赫', source: 'glossary', heard_count: 2, suggested_count: 12, line_count: 2, term_id: 9,
+          lines: [{ idx: 0, line_id: 1, zh: '亞羅赫來了', start: 2, end: 4 }, { idx: 1, line_id: 2, zh: '亞羅赫說話', start: 4, end: 6 }],
+        }],
+      } }))
+      const remembers: string[] = []
+      await page.route('**/api/misheard/dramas/3/remember', (route) => {
+        remembers.push(route.request().postData() ?? '')
+        return route.fulfill({ json: { lines_changed: 2, aliases_added: 1, applied: 2, skipped: 0 } })
+      })
+      await page.route('**/api/misheard/dramas/3/apply', (route) => {
+        applies.push(route.request().postData() ?? '')
+        return route.fulfill({ json: { applied: 1, skipped: 0 } })
+      })
+      const keeps: string[] = []
+      await page.route('**/api/misheard/dramas/3/keep', (route) => {
+        keeps.push(route.request().postData() ?? '')
+        return route.fulfill({ json: { kept: 1 } })
+      })
+      await page.reload()
+      await expect(page.locator('.review-line:not(.review-skeleton)')).not.toHaveCount(0)
+      const chip = page.locator('.review-suspect-chip')
+      await expect(chip).toContainText('1')
+      await chip.click()
+      const group = page.getByRole('group', { name: 'May be mis-heard' })
+      await expect(group).toContainText('Maybe 亞洛赫?')
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      await group.getByRole('button', { name: 'Use here' }).first().click()
+      await expect.poll(() => applies.length).toBe(1)
+      await group.getByRole('button', { name: /^Use everywhere \(/ }).click()
+      await expect.poll(() => applies.length).toBe(2)
+      await group.getByRole('button', { name: 'Keep as heard' }).click()
+      await expect.poll(() => keeps.length).toBe(1)
+      expect(JSON.parse(keeps[0])).toEqual({ heard: '亞羅赫', suggested: '亞洛赫' })
+      await group.getByRole('button', { name: 'Use everywhere and remember this spelling' }).click()
+      await expect.poll(() => remembers.length).toBe(1)
+      expect(JSON.parse(remembers[0])).toEqual({ heard: '亞羅赫', suggested: '亞洛赫', term_id: 9 })
+      expect(applies.map((a) => JSON.parse(a))).toEqual([
+        { heard: '亞羅赫', suggested: '亞洛赫', line_id: 1, expected_zh: '亞羅赫來了' },
+        { heard: '亞羅赫', suggested: '亞洛赫' },
+      ])
+    })
+  }
+}

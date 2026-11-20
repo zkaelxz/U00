@@ -104,6 +104,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
+import env_reader
 from engine_backends.redaction import redact_secrets
 from lib import url_guard
 from lib.errors import InvalidInputError, RateLimitedError
@@ -175,11 +176,11 @@ def _check_channel(channel):
 
 def _channel_url(channel):
     """Server-side only: the stored URL for `channel`, or None."""
-    return _settings().resolve_env_names(ENV_VARS[channel])
+    return env_reader.resolve_env_names(ENV_VARS[channel])
 
 
 def allow_local_ntfy() -> bool:
-    return (_settings().resolve_env_names((ALLOW_LOCAL_NTFY_ENV,)) or "").strip() == "1"
+    return (env_reader.resolve_env_names((ALLOW_LOCAL_NTFY_ENV,)) or "").strip() == "1"
 
 
 def configured_channels():
@@ -335,8 +336,7 @@ def set_channel(channel, value, env_path=None) -> dict:
     value = validate_url(channel, value)
     s = _settings()
     s.write_env_var(ENV_VARS[channel][0], value, env_path)
-    return {"channel": channel, "configured": bool(s.resolve_env_names(ENV_VARS[channel],
-                                                                       env_path))}
+    return {"channel": channel, "configured": bool(env_reader.resolve_env_names(ENV_VARS[channel], env_path))}
 
 
 def clear_channel(channel, env_path=None) -> dict:
@@ -345,8 +345,7 @@ def clear_channel(channel, env_path=None) -> dict:
     _check_channel(channel)
     s = _settings()
     s.remove_env_vars(ENV_VARS[channel], env_path)
-    return {"channel": channel, "configured": bool(s.resolve_env_names(ENV_VARS[channel],
-                                                                       env_path))}
+    return {"channel": channel, "configured": bool(env_reader.resolve_env_names(ENV_VARS[channel], env_path))}
 
 
 # --- message content -------------------------------------------------------
@@ -894,7 +893,7 @@ def _title_link(description):
         return None
     try:
         from services import remote_health_service
-        public = _settings().resolve_env_names((PUBLIC_URL_ENV,))
+        public = env_reader.resolve_env_names((PUBLIC_URL_ENV,))
         if remote_health_service.public_target(public) is None:
             return None
         return f"https://{urlsplit(public).netloc}/#/drama/{int(m.group(1))}"

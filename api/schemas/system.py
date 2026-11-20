@@ -325,6 +325,7 @@ class SettingsPreferences(TimingPreferences):
     stream_plain_prompt: bool = True
     ollama_cloud_default: bool = False
     translate_reply_guard: str = "auto"
+    novel_parallel_chapters: int = 3
     claude_reasoning: str = "default"
     openai_reasoning: str = "less"
     translate_alignment_check: bool = False
@@ -440,6 +441,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     stream_plain_prompt: Optional[StrictBool] = None
     ollama_cloud_default: Optional[StrictBool] = None
     translate_reply_guard: Optional[StrictStr] = Field(None, max_length=40)
+    novel_parallel_chapters: Optional[StrictInt] = None  # clamped to 1..3
     claude_reasoning: Optional[StrictStr] = Field(None, max_length=40)
     openai_reasoning: Optional[StrictStr] = Field(None, max_length=40)
     translate_alignment_check: Optional[StrictBool] = None

@@ -1,5 +1,5 @@
 """
-services/live_service.py -- Live capture sessions (polling only).
+services/live_service.py -- Live capture sessions.
 
 A session is one background job (`live_<uuid>`) running
 live_translate.run_live_job in its own folder under the library temp
@@ -80,7 +80,7 @@ MAX_NOTES = 6
 # live_pipeline.LagStats figures, the only numbers a session status carries
 # from the job: whatever else a caller passes is dropped.
 STAT_FIELDS = {"lag_seconds": float, "processing_seconds": float, "translations_skipped": int,
-               "translate_queue": int, "chunks_measured": int}
+               "translate_queue": int, "chunks_measured": int, "reconnect_attempt": int}
 FFMPEG_MISSING = "Live capture needs ffmpeg, which isn't installed or isn't on PATH on this PC."
 YTDLP_MISSING = "Live capture needs yt-dlp, which isn't installed on this PC."
 FINISHING_NOTE = ("Stopping: the audio already captured is being captioned. "

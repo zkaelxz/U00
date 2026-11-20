@@ -203,16 +203,19 @@ def _as_written(text: str) -> bytes:
     return text.replace("\n", os.linesep).encode("utf-8")
 
 
-def chapter_body(text: str) -> str:
+def chapter_body(text: str, *, keep_repeated_heading: bool = False) -> str:
     """A fetched chapter's text as it is saved: through the same loader an
-    uploaded .txt goes through, without the site's navigation and address lines."""
+    uploaded .txt goes through, without the site's navigation and address lines
+    and without a title printed twice in a row. keep_repeated_heading gives the
+    text as it was saved before that, so a chapter saved then is still found."""
     import novel_text
     loaded = novel_text.load_novel_text_for_context(text.encode("utf-8"), "imported.txt")
-    return novel_text.drop_site_chrome(loaded)
+    loaded = novel_text.drop_site_chrome(loaded)
+    return loaded if keep_repeated_heading else novel_text.drop_repeated_heading(loaded)
 
 
-def _novel_block(text: str, heading: str) -> str:
-    loaded = chapter_body(text)
+def _novel_block(text: str, heading: str, *, keep_repeated_heading: bool = False) -> str:
+    loaded = chapter_body(text, keep_repeated_heading=keep_repeated_heading)
     # Some sites repeat the chapter title as the first line of the page text; a second
     # copy would show as two headings and add characters the importer never counted.
     first = loaded.lstrip().split("\n", 1)[0]
@@ -268,7 +271,11 @@ def append_novel_chapter_once(drama_id: int, text: str, heading: str, url: str =
     it appended. Under the drama's page lock, like a chapter import's own
     append, so the check and the write see the same file."""
     with _page_lock(drama_id):
-        if _block_already_saved(drama_id, heading, _as_written(_novel_block(text, heading))):
+        # The older form too: a chapter saved before repeated titles were dropped
+        # must not be appended again when the same page is captured once more.
+        if any(_block_already_saved(drama_id, heading, _as_written(
+                _novel_block(text, heading, keep_repeated_heading=old)))
+               for old in (False, True)):
             return False
         save_novel_text(drama_id, text, append=True, heading=heading, url=url, source=source)
         return True
@@ -375,8 +382,11 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
     path = os.path.join(db.drama_dir(drama_id), RAW_NOVEL_FILENAME)
     key = (source, ch.series_id, drama_id, ch.chapter_id)
 
+    def payload_of(offset, block):
+        return (_as_written("\n\n") if offset >= 0 else b"") + _as_written(block)
+
     def payload(offset):
-        return (_as_written("\n\n") if offset >= 0 else b"") + _as_written(loaded)
+        return payload_of(offset, loaded)
 
     with _page_lock(drama_id):
         try:
@@ -389,12 +399,19 @@ def _append_chapter_text(source: str, ch, drama_id: int, text: str) -> str:
             offset = size
             if earlier is not None and size >= max(earlier, 0):
                 want = payload(earlier)
+                # An attempt that wrote its block before repeated titles were dropped
+                # left a longer one.
+                older = _novel_block(text, ch.title, keep_repeated_heading=True)
+                older_want = payload_of(earlier, older)
                 with open(path, "rb") as f:
                     f.seek(max(earlier, 0))
-                    tail = f.read(len(want) + 1)
+                    tail = f.read(max(len(want), len(older_want)) + 1)
                 if tail[:len(want)] == want:
                     _note_block(drama_id, earlier, loaded, ch.title, source, ch.url)
                     return ""   # the interrupted attempt wrote all of it
+                if older != loaded and tail[:len(older_want)] == older_want:
+                    _note_block(drama_id, earlier, older, ch.title, source, ch.url)
+                    return ""
                 if len(tail) < len(want) and want.startswith(tail):
                     os.truncate(path, max(earlier, 0))
                     offset = earlier

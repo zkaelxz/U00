@@ -39,10 +39,15 @@ CHUNK_BYTES = 65_536
 # The fetcher is at most this many chunks ahead of ffmpeg (backpressure
 # instead of buffering a stream that ffmpeg can't keep up with).
 QUEUE_CHUNKS = 32
-MAX_PLAYLIST_BYTES = 1_000_000
-# A live window holds a few dozen entries; this bounds the work one
+# A YouTube live with an hour of rewind lists 3,600 one-second segments in
+# about 5 MB, and is refused below this; both caps still bound the work one
 # hostile playlist can cause on every refresh.
-MAX_PLAYLIST_ENTRIES = 2000
+MAX_PLAYLIST_BYTES = 16_000_000
+MAX_PLAYLIST_ENTRIES = 50_000
+# A large live playlist is reloaded no faster than this many bytes a second:
+# re-fetching a 5 MB playlist every second would cost 40 Mbit/s, and a long
+# window keeps the segments a slower reload picks up.
+PLAYLIST_BYTES_PER_SECOND = 1_000_000
 MAX_SEGMENT_BYTES = 64_000_000
 MAX_REDIRECTS = 5
 # Where a live playlist starts playing from, as ffmpeg's HLS demuxer does.
@@ -64,6 +69,9 @@ UNSUPPORTED = "The stream uses an HLS feature live capture doesn't support (byte
 NEEDS_CRYPTOGRAPHY = ("The stream is encrypted (AES-128); decrypting it needs the cryptography "
                       "package: pip install cryptography")
 FAILED = "Fetching the stream failed."
+# Failures a fresh connection would meet again: Live ends on these at once
+# rather than reconnecting.
+PERMANENT = frozenset({NOT_HTTP, TOO_LARGE, UNSUPPORTED, NEEDS_CRYPTOGRAPHY})
 
 
 class StreamFetchError(Exception):
@@ -95,7 +103,7 @@ def _iv(value):
 
 
 def parse_playlist(text: str, base_url: str) -> dict:
-    """{variants, audio, segments, target, endlist} of an m3u8 playlist.
+    """{variants, audio, segments, target, endlist, size} of an m3u8 playlist.
     A segment is {seq, uri, key, init}; key is None or {uri, iv} (iv None
     means "the media sequence number"), init is None or {uri, key}."""
     lines = [ln.strip() for ln in text.lstrip("\ufeff \t\r\n").splitlines()]
@@ -154,7 +162,7 @@ def parse_playlist(text: str, base_url: str) -> dict:
             segments.append({"seq": first_seq + len(segments), "uri": urljoin(base_url, line),
                              "key": key, "init": init})
     return {"variants": variants, "audio": audio, "segments": segments,
-            "target": min(max(target, 1.0), 30.0), "endlist": endlist}
+            "target": min(max(target, 1.0), 30.0), "endlist": endlist, "size": len(text)}
 
 
 def pick_rendition(master: dict) -> str:
@@ -268,16 +276,22 @@ class StreamPump:
     stdin) on another, through a queue of at most QUEUE_CHUNKS chunks.
     `proxy`: every request goes through it (http and https alike); None
     connects directly. Environment proxy settings are ignored, so no
-    `no_proxy` entry can route a request around `proxy`.
+    `no_proxy` entry can route a request around `proxy`. live_only: an
+    HLS playlist that is already complete (a recording, not a broadcast)
+    ends the stream at once instead of being played from its start.
 
     The writer closes `sink` when the stream ends, fails or is stopped,
     so ffmpeg sees end of input. `error` is the first failure (a fixed
     message), None after a clean end or a halt()."""
 
     def __init__(self, url: str, sink, proxy: str | None = None, stall_timeout: float | None = None,
-                 align: SequenceAlign | None = None):
+                 align: SequenceAlign | None = None, live_only: bool = False):
         self.url = url
         self._align = align
+        self._live_only = live_only
+        # True once live_only found a finished playlist: the broadcast is over,
+        # whatever ffmpeg makes of the empty input it then gets.
+        self.ended_live = False
         self.error = None
         self._sink = sink
         self._stall_timeout = STALL_TIMEOUT if stall_timeout is None else stall_timeout
@@ -551,6 +565,9 @@ class StreamPump:
             playlist, url = self._playlist(pick_rendition(playlist))
             if playlist["variants"]:
                 raise StreamFetchError(UNSUPPORTED)
+        if self._live_only and playlist["endlist"]:
+            self.ended_live = True
+            return
         next_seq, init_uri, keys = None, None, {}
         last_new = time.monotonic()
         while True:
@@ -575,7 +592,8 @@ class StreamPump:
                 raise StreamFetchError(STALLED)
             # RFC 8216 6.3.4: reload after a target duration, or half of
             # one when the last reload brought nothing new.
-            if self._stop.wait(playlist["target"] if new else playlist["target"] / 2):
+            wait = playlist["target"] if new else playlist["target"] / 2
+            if self._stop.wait(max(wait, playlist["size"] / PLAYLIST_BYTES_PER_SECOND)):
                 raise _Stopped
             try:
                 playlist, url = self._playlist(url)

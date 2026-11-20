@@ -28,8 +28,9 @@ export const pauseQueue = (f?: Fetch) => postJson<QueueState>('/api/queue/pause'
 // time "HH:MM" on the PC's clock, or null to clear the schedule (a missed one too).
 export const setQueueSchedule = (time: string | null, f?: Fetch) =>
   postJson<QueueState>('/api/queue/schedule', { time }, f)
-export const setQueuePolicy = (stopOnFailure: boolean, f?: Fetch) =>
-  postJson<QueueState>('/api/queue/policy', { stop_on_failure: stopOnFailure }, f)
+// Only the field given changes.
+export const setQueuePolicy = (policy: { stop_on_failure?: boolean; overlap_online_translate?: boolean }, f?: Fetch) =>
+  postJson<QueueState>('/api/queue/policy', policy, f)
 
 // A title's one-button run (transcribe, then find names), carried on by the PC with the page closed.
 export const getTitleFlow = (dramaId: number, f?: Fetch) => getJson<TitleFlowRun>(`/api/queue/title-flow/${dramaId}`, f)

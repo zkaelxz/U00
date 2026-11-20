@@ -278,7 +278,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
         {p.suspectCount > 0 && (
           <button type="button" className="review-chip review-suspect-chip" aria-expanded={p.suspectOpen}
                   title="Transcription may be wrong" onClick={p.onToggleSuspect}>
-            {p.isPhone ? `Source ${p.suspectCount}` : `Source looks off ${p.suspectCount}`}
+            {p.isPhone ? `Source ${p.suspectCount}` : `Check source ${p.suspectCount}`}
           </button>
         )}
         {p.isPhone && !showSearch && (

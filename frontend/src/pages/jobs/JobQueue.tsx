@@ -279,7 +279,10 @@ export function JobQueue({ titles }: Props) {
           </div>
           <div className="setting-list">
             <Field label="Stop the queue when an item fails">
-              <Toggle checked={queue.stop_on_failure} disabled={busy} onChange={(on) => void act(() => setQueuePolicy(on))} />
+              <Toggle checked={queue.stop_on_failure} disabled={busy} onChange={(on) => void act(() => setQueuePolicy({ stop_on_failure: on }))} />
+            </Field>
+            <Field label="Run a transcription beside an online translation">
+              <Toggle checked={queue.overlap_online_translate} disabled={busy} onChange={(on) => void act(() => setQueuePolicy({ overlap_online_translate: on }))} />
             </Field>
           </div>
         </div>
