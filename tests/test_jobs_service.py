@@ -330,6 +330,18 @@ class TestGetJob:
         with pytest.raises(NotFoundError):
             jobs_service.get_job("nope")
 
+    def test_a_job_that_finishes_mid_read_does_not_show_its_start_message(self, isolated_db,
+                                                                         monkeypatch):
+        import background_jobs
+        db.save_job_record("fin_race", status="running", message="Starting...")
+        stale = db.get_job_record("fin_race")
+        db.save_job_record("fin_race", status="done", message="Finished")
+        monkeypatch.setattr(background_jobs, "get_status",
+                            lambda job_id: {"status": "done", "progress": 1.0})
+        out = jobs_service._with_live_progress(stale)
+        assert out["status"] == "done"
+        assert out["message"] == "Finished"
+
 
 class TestDeleteJobs:
     def test_deletes_finished_job_memory_and_row(self, isolated_db):

@@ -273,6 +273,8 @@ class _TranslateRun:
         self.streak = FailureStreak()
         self.hard_failures = []
         self.spent = 0.0
+        # Dearest finished batch and its size: a batch costs at least that much, more only if it is longer.
+        self._dearest = (0.0, 1)
         self.last_frac = 0.0
         self.bi = 0
         self.batch_label = ""
@@ -367,14 +369,40 @@ class _TranslateRun:
         for self.bi, batch in enumerate(batches):
             if (a.cancel_check_cb and a.cancel_check_cb()) or (a.stop_before_batch and a.stop_before_batch()):
                 return False
+            if self._would_pass_cap(batch):
+                if a.cap_cb:
+                    a.cap_cb(self.spent)
+                return False
             self.batch_label = f"Batch {self.bi + 1} of {self.n_batches}"
             self._report(self.bi / self.n_batches, self.batch_label)
+            spent_before = self.spent
             self._set_batch_context(batch)
             self._translate_batch(batch)
             self._finish_batch(batch)
+            self._note_batch_cost(batch, self.spent - spent_before)
             if self.stop_run or self._cap_stops_run():
                 return False
         return True
+
+    def _batch_chars(self, batch) -> int:
+        return max(1, sum(len(ln.zh or "") for ln in batch))
+
+    def _note_batch_cost(self, batch, cost):
+        """Remembers the dearest batch so far per source character, so a later batch can be
+        priced before it is sent."""
+        chars = self._batch_chars(batch)
+        if cost > self._dearest[0]:
+            self._dearest = (cost, chars)
+
+    def _batch_estimate(self, batch) -> float:
+        cost, chars = self._dearest
+        return cost * max(1.0, self._batch_chars(batch) / chars)
+
+    def _would_pass_cap(self, batch) -> bool:
+        """True when this batch, priced like the dearest one so far, would not fit under the
+        tightest cap. The first batch is never priced (nothing is measured yet), so it is sent."""
+        headroom = self._cap_headroom()
+        return headroom is not None and self._batch_estimate(batch) > headroom
 
     def _chapter_groups(self, batches):
         """Batches grouped by chapter when this run may translate chapters side by side, else
@@ -475,12 +503,11 @@ class _TranslateRun:
                 left.append(month)
         return min(left) if left else None
 
-    def _reserve_batch(self) -> bool:
+    def _reserve_batch(self, batch) -> bool:
         """Takes a slot to send one batch; False when the run should stop instead. Under a
-        cap a batch starts only while the batches already in flight, each costing as much as
-        the dearest one so far, leave room: so the cap is passed by at most the one batch
-        a one-chapter run could also pass it by. With no batch measured yet that means one
-        at a time."""
+        cap a batch starts only while it and the batches already in flight, each priced like
+        the dearest one so far, fit under what is left, so the cap is not passed unless a batch
+        costs more than any before it. With no batch measured yet that means one at a time."""
         a = self.args
         with self.room:
             while True:
@@ -491,14 +518,22 @@ class _TranslateRun:
                         a.cap_cb(self.spent)
                     return False
                 headroom = self._cap_headroom()
-                if (headroom is None or self.in_flight == 0
-                        or (self.max_batch_cost > 0 and headroom - self.in_flight * self.max_batch_cost > 0)):
+                estimate = self._batch_estimate(batch)
+                if headroom is None or (self.in_flight == 0 and estimate <= headroom):
+                    self.in_flight += 1
+                    return True
+                if self.in_flight == 0:
+                    if a.cap_cb:
+                        a.cap_cb(self.spent)
+                    return False
+                if self.max_batch_cost > 0 and headroom - self.in_flight * self.max_batch_cost >= estimate:
                     self.in_flight += 1
                     return True
                 self.room.wait(0.5)
 
-    def _release_batch(self, cost, stop=False):
+    def _release_batch(self, cost, batch, stop=False):
         with self.room:
+            self._note_batch_cost(batch, cost)
             # Set before waking the others, or a waiting lane sends one more request after this
             # lane's batch ended the run (a timeout, a quota stop).
             if stop:
@@ -985,10 +1020,16 @@ class _LaneRun(_TranslateRun):
             for error in self.errors[first_error:]:
                 error["batch_index"] += bi_offset
 
+    def _would_pass_cap(self, batch) -> bool:
+        return False  # the parent prices the batch when the lane asks it for a slot
+
+    def _note_batch_cost(self, batch, cost):
+        pass  # spend is the run's, so the parent notes each batch as its slot is released
+
     def _set_batch_context(self, batch):
         self.batch_lines = batch
         # Taken here, once per batch: stop_before_batch is also asked in the middle of a batch.
-        self.reserved = self.parent._reserve_batch()
+        self.reserved = self.parent._reserve_batch(batch)
         if not self.reserved:
             self.stop_run = True
         super()._set_batch_context(batch)
@@ -1006,7 +1047,7 @@ class _LaneRun(_TranslateRun):
             super()._translate_batch(batch)
         finally:
             self.reserved = False
-            self.parent._release_batch(self.batch_cost, stop=self.stop_run)
+            self.parent._release_batch(self.batch_cost, batch, stop=self.stop_run)
 
     def _record_usage(self, inp, out, cache_read=0, cache_write=0):
         with self.parent.lock:

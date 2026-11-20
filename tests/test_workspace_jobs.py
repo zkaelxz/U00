@@ -811,6 +811,26 @@ def test_translate_job_sends_a_standalone_dramas_per_drama_pronouns(isolated_db,
     _clear(job_id)
 
 
+def test_a_force_retranslate_counts_lines_whose_english_came_out_the_same(isolated_db, monkeypatch):
+    job_id = "test_translate_counts_retranslated"
+    _clear(job_id)
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                               "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello"),
+             Line(idx=1, start=1, end=2, zh="再见", en="Bye")]
+    isolated_db.save_lines(did, lines)
+    lines = isolated_db.load_line_objects(did)
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine",
+                        lambda lines, engine, **kw: (lines, []))
+
+    run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, True, "en-US",
+                      None, "", "claude", "audio_drama")
+
+    assert job_table._jobs[job_id]["result"]["translated_count"] == 2
+    _clear(job_id)
+
+
 def test_translate_job_result_counts_the_lines_it_wrote_so_a_dead_run_reads_failed(isolated_db, monkeypatch):
     from services import jobs_service
     job_id = "test_translate_counts_written"
@@ -930,7 +950,7 @@ class TestSpendingCapJob:
                                           "error": None, "cancel_requested": False, "result": None}
         did = isolated_db.create_drama(title_en="Test")
         # 45 lines -> batches of 20, 20, 5 at $2.00 each; a $3 cap stops after
-        # the second batch (the one that crosses it).
+        # the first batch, because the second would be priced past the cap.
         isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(45)])
         lines = isolated_db.load_line_objects(did)
 
@@ -938,11 +958,11 @@ class TestSpendingCapJob:
                           "en-US", None, "", "claude", "audio_drama", cost_cap_usd=3.0)
 
         result = background_jobs.get_status(job_id)["result"]
-        assert result["cap_reached"] == pytest.approx(4.0)
+        assert result["cap_reached"] == pytest.approx(2.0)
         saved = isolated_db.load_lines(did)
-        assert all(r["en"] == f"EN:句{i}" for i, r in enumerate(saved[:40]))
-        assert all(not r["en"] for r in saved[40:])
-        assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(4.0)
+        assert all(r["en"] == f"EN:句{i}" for i, r in enumerate(saved[:20]))
+        assert all(not r["en"] for r in saved[20:])
+        assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(2.0)
         _clear(job_id)
 
     def test_job_stops_when_the_logged_month_spend_crosses_the_monthly_cap(
@@ -962,7 +982,7 @@ class TestSpendingCapJob:
                           {"id": did}, "", None, False, "en-US", None, "", "claude", "audio_drama")
 
         saved = isolated_db.load_lines(did)
-        assert all(r["en"] for r in saved[:40]) and all(not r["en"] for r in saved[40:])
+        assert all(r["en"] for r in saved[:20]) and all(not r["en"] for r in saved[20:])
         _clear(job_id)
 
     def test_a_free_engine_ignores_the_monthly_cap(self, isolated_db, monkeypatch):
