@@ -719,7 +719,7 @@ def upload_to_voice_bank(name, client_filename, fileobj, ref_text: str = "",
     no audio). The clip is checked like a speaker's reference clip."""
     if not isinstance(name, str) or not name.strip():
         raise InvalidInputError("Type a name for this voice first.")
-    characters_service.check_len("name", name, MAX_BANK_NAME_LEN)
+    characters_service.check_len("name", name, 100)
     characters_service.check_len("notes", notes or "", MAX_NOTES_LEN)
     characters_service.check_len("ref_text", ref_text or "", characters_service.MAX_REF_TEXT_LEN)
     if clone_engine and clone_engine not in dub.CLONE_ENGINES:

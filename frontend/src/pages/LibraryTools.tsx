@@ -6,6 +6,7 @@ import {
   addVoiceBankEntry, renameVoiceBankEntry,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
+import { pcOnlyFetch } from '../api/pcOnly'
 import { voiceBankAudioUrl } from '../api/voiceBankAudio'
 import { Badge } from '../components/Badge'
 import { ClipPlayButton } from '../components/ClipPlayButton'
@@ -135,8 +136,9 @@ const BANK_ENGINES: [string, string][] = [
   ['omnivoice', 'OmniVoice'], ['qwen3_tts', 'Qwen3-TTS'], ['chatterbox', 'Chatterbox'],
 ]
 
-function AddVoiceForm({ onAdded }: { onAdded: () => void }) {
-  const canAdd = useHolds('admin.library')
+function AddVoiceForm({ pc, onAdded }: { pc: PcMode; onAdded: () => void }) {
+  // Uploads are PC only, like a speaker's reference clip.
+  const canAdd = pc !== 'remote'
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -161,7 +163,7 @@ function AddVoiceForm({ onAdded }: { onAdded: () => void }) {
     if (!file || !name.trim()) return
     setPending(true)
     setError(null)
-    addVoiceBankEntry({ name: name.trim(), file, ref_text: refText, clone_engine: engine, language, notes }).then(
+    addVoiceBankEntry({ name: name.trim(), file, ref_text: refText, clone_engine: engine, language, notes }, pcOnlyFetch()).then(
       (v) => {
         setPending(false)
         setOpen(false)
@@ -410,7 +412,7 @@ export default function LibraryToolsPage() {
           />
         </ToolSection>
         <ToolSection card="voice-bank" ready={organizeReady} first={firstOf(organizeShown) === 2} count={voices.data?.items.length} error={voices.error}>
-          <AddVoiceForm onAdded={onChanged} />
+          <AddVoiceForm pc={pc} onAdded={onChanged} />
           <DeletableList
             pc={pc}
             help="Characters that used it keep their own copy."
