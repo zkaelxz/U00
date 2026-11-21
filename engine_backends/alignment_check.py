@@ -192,9 +192,10 @@ def flag_mismatches(lines, embed_texts, min_similarity: float = MIN_SIMILARITY,
             note = note or (shift_note(near[0], score, near[1]) if near else None)
         strict[i] = note
         borderline[i] = score >= min_similarity
-        if judge is not None and (score < min_similarity or (
-                neighbour_margin is not None
-                and _closer_neighbour(i, pos, todo, vectors, score, CANDIDATE_MARGIN))):
+        # A line under the bar stays flagged whatever the judge says, so asking would only
+        # pay for a different note.
+        if (judge is not None and score >= min_similarity and neighbour_margin is not None
+                and _closer_neighbour(i, pos, todo, vectors, score, CANDIDATE_MARGIN)):
             doubtful.append(i)
     verdicts = (judge([_judge_item(i, todo[i], todo, pos) for i in doubtful])
                 if judge is not None and doubtful else {})
