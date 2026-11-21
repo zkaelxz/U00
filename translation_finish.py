@@ -130,10 +130,10 @@ def _store_episode_summary(drama_id: int, summary_engine, summary_engine_choice,
         db.update_drama(drama_id, episode_summary=summary)
 
 
-def _flag_for_review(drama_id: int, lines, landed: set, embed_texts) -> None:
+def _flag_for_review(drama_id: int, lines, landed: set, embed_texts, judge=None) -> None:
     """Review flags computed from the run's English: reading speed on every line,
     and the optional source-match check (embed_texts, None skips it) only on the
-    lines this run's English landed on."""
+    lines this run's English landed on. `judge` confirms the lines that check doubts."""
     import reading_speed_dismissal as dismissals
     started = time.monotonic()
     dismissals.flag_dense_lines(drama_id, lines)
@@ -142,7 +142,7 @@ def _flag_for_review(drama_id: int, lines, landed: set, embed_texts) -> None:
         try:
             unchecked = []
             alignment_check.flag_mismatches([ln for ln in lines if ln.id in landed], embed_texts,
-                                            unchecked=unchecked)
+                                            unchecked=unchecked, judge=judge)
             if unchecked:
                 # Quietly skipping them would read as "checked and fine".
                 logging.getLogger(__name__).warning(
@@ -195,7 +195,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                            line_scoped: bool = False,
                            summary_monthly_cap_usd: float | None = None,
                            flags_needing_recheck: set | None = None, *, enforce_ids, embed_texts=None,
-                           sentence_parts=(), stage_cb=None) -> bool:
+                           sentence_parts=(), stage_cb=None, judge=None) -> bool:
     """What happens after translate_pipeline.translate_lines_with_engine
     returns, shared by the translate jobs so they can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves
@@ -281,7 +281,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # translate_lines_with_engine may already have set a content_blocked flag
     # on some lines, and that has to reach the database too, or it
     # only ever exists on this run's in-memory copies.
-    _flag_for_review(drama_id, lines, landed, embed_texts)
+    _flag_for_review(drama_id, lines, landed, embed_texts, judge)
     # Compare-and-set on the analysed text too: an edit saved after the
     # read above must not get a flag computed from this run's English.
     stale = db.save_lines(drama_id, [ln for ln in lines if ln.id in landed],
