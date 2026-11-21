@@ -46,6 +46,7 @@ class FakeAudioSegment:
 
     # No samples: level_clip leaves a fake clip alone.
     channels, frame_rate, sample_width = 1, 16000, 2
+    raw_data = b""
 
     def get_array_of_samples(self):
         return []
@@ -251,6 +252,91 @@ class TestBuildNarrationTrack:
 
         assert len(errors) == 1
         assert lines[0].end == pytest.approx(0.35)
+
+
+class _Track:
+    raw_data = b"\x01\x02\x03\x04\x05\x06"
+    sample_width, frame_rate, channels = 2, 24000, 1
+
+    def __init__(self):
+        self.exported = []
+
+    def export(self, path, format="wav"):
+        self.exported.append((path, format))
+
+
+class _FakeFfmpeg:
+    def __init__(self, returncode=0, stderr=b"", stop_after=None):
+        self.returncode, self.stderr_text, self.stop_after = returncode, stderr, stop_after
+        self.cmd, self.fed = None, bytearray()
+
+    def __call__(self, cmd, stdin=None, stdout=None, stderr=None):
+        self.cmd = cmd
+        stderr.write(self.stderr_text)
+        outer = self
+
+        class _Stdin:
+            def write(self, chunk):
+                if outer.stop_after is not None and len(outer.fed) >= outer.stop_after:
+                    raise BrokenPipeError(32, "Broken pipe")
+                outer.fed.extend(chunk)
+
+            def close(self):
+                pass
+
+        proc = types.SimpleNamespace(stdin=_Stdin(), returncode=None, kill=lambda: None)
+        proc.wait = lambda timeout=None: setattr(proc, "returncode", outer.returncode)
+        return proc
+
+
+class TestLongNarrationTrack:
+    """A WAV holds under 4 GB, about 24 h of narration: pydub's FLAC export goes through
+    one, so a longer book used to fail at the join, after every clip was spoken."""
+
+    def test_a_track_that_fits_a_wav_uses_the_normal_export(self, monkeypatch, tmp_path):
+        track = _Track()
+        monkeypatch.setattr(dub_narration.subprocess, "Popen", lambda *a, **k: pytest.fail("no ffmpeg pipe"))
+        dub_narration._export_flac(track, str(tmp_path / "t.flac"))
+        assert track.exported == [(str(tmp_path / "t.flac"), "flac")]
+
+    def test_a_longer_track_is_piped_to_ffmpeg_as_raw_samples(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(dub_narration, "WAV_MAX_DATA_BYTES", 4)
+        monkeypatch.setattr(dub_narration, "_PIPE_CHUNK_BYTES", 4)
+        track, ffmpeg = _Track(), _FakeFfmpeg()
+        monkeypatch.setattr(dub_narration.subprocess, "Popen", ffmpeg)
+        dub_narration._export_flac(track, str(tmp_path / "t.flac"))
+        assert not track.exported and bytes(ffmpeg.fed) == track.raw_data
+        cmd = ffmpeg.cmd
+        assert cmd[cmd.index("-f") + 1] == "s16le" and cmd[cmd.index("-ar") + 1] == "24000"
+        assert cmd[cmd.index("-ac") + 1] == "1" and cmd[-1] == str(tmp_path / "t.flac")
+
+    def test_an_ffmpeg_failure_says_what_ffmpeg_said(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(dub_narration, "WAV_MAX_DATA_BYTES", 4)
+        monkeypatch.setattr(dub_narration.subprocess, "Popen", _FakeFfmpeg(1, b"disk full"))
+        with pytest.raises(RuntimeError, match="disk full"):
+            dub_narration._export_flac(_Track(), str(tmp_path / "t.flac"))
+
+    def test_ffmpeg_quitting_mid_stream_reports_ffmpegs_reason_without_the_path(self, monkeypatch, tmp_path):
+        out = str(tmp_path / "t.flac.part")
+        monkeypatch.setattr(dub_narration, "WAV_MAX_DATA_BYTES", 4)
+        monkeypatch.setattr(dub_narration, "_PIPE_CHUNK_BYTES", 2)
+        said = f"{out}: No space left on device".encode()
+        monkeypatch.setattr(dub_narration.subprocess, "Popen", _FakeFfmpeg(1, said, stop_after=2))
+        with pytest.raises(RuntimeError) as caught:
+            dub_narration._export_flac(_Track(), out)
+        assert "t.flac.part: No space left on device" in str(caught.value)
+        assert str(tmp_path) not in str(caught.value)
+
+    def test_a_cut_short_stream_is_an_error_even_if_ffmpeg_exits_0(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(dub_narration, "WAV_MAX_DATA_BYTES", 4)
+        monkeypatch.setattr(dub_narration, "_PIPE_CHUNK_BYTES", 2)
+        monkeypatch.setattr(dub_narration.subprocess, "Popen", _FakeFfmpeg(0, b"", stop_after=2))
+        with pytest.raises(RuntimeError, match="could not write"):
+            dub_narration._export_flac(_Track(), str(tmp_path / "t.flac"))
+
+    def test_the_limit_is_the_largest_wav_data_size(self):
+        # RIFF stores 36 + the data size in 32 bits.
+        assert dub_narration.WAV_MAX_DATA_BYTES + 36 == 2 ** 32 - 1
 
 
 class TestNarrateOriginalLanguage:

@@ -52,12 +52,16 @@ def process_gone(pid: int, seconds: float) -> bool:
 def port_free(port: int, seconds: float) -> bool:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
-        with socket.socket() as s:
-            s.settimeout(0.5)
-            if s.connect_ex(("127.0.0.1", port)) != 0:
-                return True
+        if not _answers(port):
+            return True
         time.sleep(0.5)
     return False
+
+
+def _answers(port: int) -> bool:
+    with socket.socket() as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", port)) == 0
 
 
 def _write_log(path: str, text: str) -> None:
@@ -103,10 +107,64 @@ def main(argv=None) -> int:
     with open(log_path, "wb") as log:
         log.write(port_note)
         log.flush()
-        subprocess.Popen(["cmd.exe", "/c", start_bat], cwd=args.root, creationflags=flags,
-                         startupinfo=startup, env=env, close_fds=True,
-                         stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+        proc = subprocess.Popen(["cmd.exe", "/c", start_bat], cwd=args.root, creationflags=flags,
+                                startupinfo=startup, env=env, close_fds=True,
+                                stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+    # A port another process still held means start.bat found that one, not a restarted server.
+    if args.port and not port_note:
+        _note_whether_it_stayed_up(proc, args.port, log_path)
     return 0
+
+
+START_BAT_WAIT_SECONDS = 600
+STAY_UP_SECONDS = 60
+# One slow connect on a busy PC is not a dead server.
+MISSES_TO_CALL_IT_DOWN = 2
+_now, _sleep = time.monotonic, time.sleep
+
+
+def _note_whether_it_stayed_up(proc, port: int, log_path: str) -> None:
+    """Once start.bat has reported the server up, watch the port for a minute and add one
+    line to the log. A server that came up and then died left only start.bat's "answering"
+    line, which read as a good restart (seen once on a test copy, 2026-11-19)."""
+    try:
+        code = proc.wait(timeout=START_BAT_WAIT_SECONDS)
+    except subprocess.TimeoutExpired:
+        _append_log(log_path, f"start.bat was still running after {START_BAT_WAIT_SECONDS} s; "
+                              "whether the server stayed up was not checked.")
+        return
+    except OSError:
+        return
+    if code != 0:
+        return
+    # A later restart rewrites the log; this run's verdict must not land in that one.
+    size = _log_size(log_path)
+    started, misses = _now(), 0
+    while _now() - started < STAY_UP_SECONDS:
+        misses = 0 if _answers(port) else misses + 1
+        if misses >= MISSES_TO_CALL_IT_DOWN:
+            if _log_size(log_path) == size:
+                _append_log(log_path, f"The restarted server stopped answering on port {port} about "
+                                      f"{round(_now() - started)} s after it came up. Run start.bat to start it again.")
+            return
+        _sleep(1)
+    if _log_size(log_path) == size:
+        _append_log(log_path, f"The restarted server was still answering on port {port} {STAY_UP_SECONDS} s later.")
+
+
+def _log_size(path: str):
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return None
+
+
+def _append_log(path: str, text: str) -> None:
+    try:
+        with open(path, "a", encoding="utf-8") as log:
+            log.write(text + "\n")
+    except OSError:
+        pass
 
 
 if __name__ == "__main__":
