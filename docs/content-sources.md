@@ -426,7 +426,7 @@ fetch, through the normal access ladder, answering:
 
 | | |
 |---|---|
-| Permitted? | `ladder.check_terms`, including that site's own `sources/site_terms` entry |
+| Permitted? | Information only: the site's recorded `sources/site_terms` findings are shown as notes and never change the answer (terms enforcement is off in `ladder.check_terms`) |
 | Reachable? | which tier got there — plain HTTP or a browser render |
 | Readable? | the real deterministic extractor, judged by the same `validate_novel` checks an import uses, so the preflight can never promise something the importer would then refuse |
 | Prose or chrome? | the duplicate-paragraph, short-fragment and link-text rates behind that score |
@@ -521,7 +521,7 @@ registered adapter first and only then falls back to the yt-dlp pattern.
 Nothing in the app needs a proxy: source requests go direct by default. If a
 site refuses your IP or region (or throttles it), set the optional source
 proxy (`http_proxy_url` in the Sources settings, HTTP or HTTPS only, empty by
-default, applied to every source adapter's requests; steps that open the page
+default, applied to every source adapter's requests; Windows or environment proxy settings (`HTTPS_PROXY`, `REQUESTS_CA_BUNDLE`, `.netrc`) are ignored by Sources, so behind a corporate proxy set it here; steps that open the page
 in a browser connect directly and do not use it). The API shows only
 whether one is set, never the value, and it can only be changed from the PC.
 Check the site's terms before routing around a block.
