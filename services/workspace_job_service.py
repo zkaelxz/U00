@@ -22,7 +22,7 @@ from engine_backends import translate_pipeline, fallback, pricing, engine_regist
 from engine_backends import gemini as engine_gemini
 from engine_backends import shared as engine_shared
 from engine_backends import local as engine_local
-from engine_backends import medium_prompts, stream_recipe
+from engine_backends import alignment_judge, medium_prompts, stream_recipe
 from engine_backends.llm_feature_prompts import glossary_term_forms
 import translation_guide as tguide
 import translation_memory
@@ -290,7 +290,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             line_scoped=target_ids is not None,
             enforce_ids=(set(target_ids) if own_lines_only and target_ids is not None
                          else {ln.id for ln in lines if getattr(ln, "id", None) is not None}),
-            flags_needing_recheck=recheck, embed_texts=settings_service.alignment_embedder(), sentence_parts=sentence_parts, stage_cb=lambda stage: job_timing.mark_stage(job_id, stage)):
+            flags_needing_recheck=recheck, **_alignment_args(drama_id, engine, engine_choice, job_id, cap_reached), sentence_parts=sentence_parts, stage_cb=lambda stage: job_timing.mark_stage(job_id, stage)):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})
@@ -414,6 +414,23 @@ def _speaker_names(drama_id) -> dict:
     return tguide.build_speaker_labels(
         db.list_characters_with_series_names(drama_id),
         db.list_series_characters(series_id) if series_id else [])
+
+
+def _alignment_args(drama_id, engine, engine_choice, job_id, cap_reached) -> dict:
+    """The source-match check's embedder and its judge (the run's own engine confirms the
+    lines the embeddings doubt, billed like the translation), both left out while the
+    setting is off."""
+    embed = settings_service.alignment_embedder()
+    if embed is None:
+        return {}
+    # The judge's calls sit outside the translation's cost scope, so a stop or a reached
+    # cap has to end them here or they would keep spending after the user said stop.
+    def stopped():
+        return background_jobs.is_cancel_requested(job_id) or cap_reached.get("spent") is not None
+
+    return {"embed_texts": embed,
+            "judge": alignment_judge.judge_for(
+                engine, _usage_logger(drama_id, engine, engine_choice), should_stop=stopped)}
 
 
 def _usage_logger(drama_id, engine, engine_choice):

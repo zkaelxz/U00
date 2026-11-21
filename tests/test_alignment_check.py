@@ -193,3 +193,57 @@ def test_a_line_between_which_and_its_neighbour_sits_a_skipped_line_is_not_compa
     lines, embed = _shifted("0.0,0.6,0.8")
     skipped = _line("嗯", "x")  # too short to check, so it is not in the checked list
     assert alignment_check.flag_mismatches([lines[0], lines[1], skipped, lines[2]], embed) == 0
+
+
+# --- the judge: a model confirms the lines the embeddings doubt ---
+
+def _judged(own, verdicts):
+    lines, embed = _shifted(own)
+    asked = []
+
+    def judge(items):
+        asked.append(items)
+        return {it["id"]: verdicts.get(it["id"]) for it in items if it["id"] in verdicts}
+
+    return lines, embed, judge, asked
+
+
+def test_a_judge_clears_a_doubt_it_finds_ok():
+    # 0.03 closer to the next line is a doubt at the looser margin but not a flag at the strict one.
+    lines, embed, judge, asked = _judged("0.0,0.9,0.95", {1: "ok"})
+    assert alignment_check.flag_mismatches(lines, embed, judge=judge) == 0
+    assert [it["id"] for it in asked[0]] == [1]
+    assert lines[1].flag is None
+
+
+def test_a_judge_confirms_a_shift_and_the_note_says_a_check_found_it():
+    lines, embed, judge, _ = _judged("0.0,0.6,0.8", {1: "shifted"})
+    assert alignment_check.flag_mismatches(lines, embed, judge=judge) == 1
+    assert "a check found" in lines[1].flag_note and "neighbouring line" in lines[1].flag_note
+
+
+def test_a_judge_that_overrules_a_strict_flag_leaves_the_line_unflagged():
+    lines, embed, judge, _ = _judged("0.0,0.6,0.8", {1: "ok"})
+    assert alignment_check.flag_mismatches(lines, embed, judge=judge) == 0
+
+
+def test_a_line_the_judge_gives_no_verdict_for_falls_back_to_the_embedding_scores():
+    lines, embed, judge, _ = _judged("0.0,0.6,0.8", {})
+    assert alignment_check.flag_mismatches(lines, embed, judge=judge) == 1
+    lines, embed, judge, _ = _judged("0.0,0.9,0.95", {})
+    assert alignment_check.flag_mismatches(lines, embed, judge=judge) == 0
+
+
+def test_the_judge_sees_the_neighbours_and_is_not_asked_about_clear_lines():
+    lines, embed, judge, asked = _judged("0.0,0.9,0.1", {})
+    assert alignment_check.flag_mismatches(lines, embed, judge=judge) == 0
+    assert asked == []
+    lines, embed, judge, asked = _judged("0.0,0.6,0.8", {1: "ok"})
+    alignment_check.flag_mismatches(lines, embed, judge=judge)
+    [item] = asked[0]
+    assert item["prev"] == ("前一句话", "1.0,0.0,0.0") and item["next"] == ("后一句话", "0.0,0.0,1.0")
+
+
+def test_a_judge_saying_ok_cannot_clear_a_line_scoring_under_the_bar():
+    lines, embed, judge, _ = _judged("0.6,0.1,0.0", {1: "ok"})
+    assert alignment_check.flag_mismatches(lines, embed, judge=judge) == 1
