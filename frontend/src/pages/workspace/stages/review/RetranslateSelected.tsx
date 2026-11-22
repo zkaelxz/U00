@@ -90,7 +90,7 @@ export function RetranslateSelected({ dramaId, jobRunning, onChanged }: { dramaI
         <LineAiPicker picker={picker} disabled={busy} />
         <p data-testid="retranslate-selected-count">
           {selectedIds.length} line{selectedIds.length === 1 ? '' : 's'} ticked
-          {estimate?.estimated_usd != null && ` · estimate ${formatUsd(estimate.estimated_usd)}`}
+          {estimate?.estimated_usd != null && ` · estimate ${formatUsd(estimate.estimated_usd + (estimate.alignment_check_usd ?? 0))}`}
         </p>
         <div className="review-actions">
           {confirming && !busy ? (

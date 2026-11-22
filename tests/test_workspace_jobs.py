@@ -852,6 +852,41 @@ def test_translate_job_result_counts_the_lines_it_wrote_so_a_dead_run_reads_fail
     _clear(job_id)
 
 
+def test_a_cancel_during_the_source_match_check_ends_cancelled_with_the_translation_saved(isolated_db, monkeypatch):
+    from services import settings_service, workspace_job_service
+    job_id = "test_translate_cancel_in_check"
+    _clear(job_id)
+    job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                               "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好世界"), Line(idx=1, start=1, end=2, zh="再见了朋友")])
+    lines = isolated_db.load_line_objects(did)
+
+    def translate(lines, engine, save_cb=None, **kw):
+        for ln in lines:
+            ln.en = "Hello"
+        save_cb(lines)
+        return lines, []
+
+    def embedder(should_stop=None, on_progress=None):
+        def embed(texts):
+            on_progress(0, len(texts))
+            job_table._jobs[job_id]["cancel_requested"] = True  # pressed while the check runs
+            assert should_stop()
+            return None
+        return embed
+
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", translate)
+    monkeypatch.setattr(settings_service, "alignment_embedder", embedder)
+    with pytest.raises(background_jobs.JobCancelled):
+        run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
+                          None, "", "claude", "audio_drama")
+    assert job_table._jobs[job_id]["stop_message"] == workspace_job_service.CHECK_STOPPED_MESSAGE
+    assert [ln.en for ln in isolated_db.load_line_objects(did)] == ["Hello", "Hello"]
+    assert isolated_db.list_translation_versions(did)  # the finished translation keeps its version
+    _clear(job_id)
+
+
 class TestFreeEngineVersionLabelling:
     """Step 1d item 5: a translation version made with a free engine (or
     a free-tier Gemini key) is marked [testing: <engine>] in its label,

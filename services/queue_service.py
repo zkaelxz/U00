@@ -916,26 +916,9 @@ def _local_ollama_after_batches(engine: str) -> bool:
     batches, and a run on an online engine does not take a GPU slot, so only this keeps them
     apart from a transcription. The source-match check counts only while its model is there:
     without it the check does nothing."""
-    if settings_service.get("translate_alignment_check") and _source_match_model_present():
+    if settings_service.get("translate_alignment_check") and settings_service.source_match_model_present():
         return True
     return str(settings_service.get("episode_summary_engine")) == "ollama" and engine != "ollama"
-
-
-_MODEL_CHECK_SECONDS = 30
-_model_check = {"at": -1e9, "url": "", "present": False}
-
-
-def _source_match_model_present() -> bool:
-    """Cached for a short while: this runs under the queue's lock on every tick and on every
-    poll of the queue, and each uncached answer is a request to Ollama."""
-    from engine_backends import alignment_check, ollama_server
-    url = settings_service.ollama_url()
-    now = time.monotonic()
-    if _model_check["url"] != url or now - _model_check["at"] > _MODEL_CHECK_SECONDS:
-        present = (ollama_server.check_ollama_reachable(url)
-                   and ollama_server.model_pulled(url, alignment_check.EMBED_MODEL))
-        _model_check.update(at=now, url=url, present=present)
-    return _model_check["present"]
 
 
 def _overlap_note(doc: dict) -> Optional[str]:
@@ -943,7 +926,7 @@ def _overlap_note(doc: dict) -> Optional[str]:
     is on, or None. Said on the Jobs page because the switch alone looks like it should work."""
     if not doc["overlap_online_translate"]:
         return None
-    if settings_service.get("translate_alignment_check") and _source_match_model_present():
+    if settings_service.get("translate_alignment_check") and settings_service.source_match_model_present():
         return ("A transcription still waits for an online translation to finish while the Source match "
                 "check is on: the check uses this PC's Ollama after the translation. Turn it off in "
                 "Settings to run them side by side.")

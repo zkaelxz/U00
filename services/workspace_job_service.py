@@ -279,6 +279,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     job_timing.mark_stage(job_id, "Finish (glossary checks, version)")
     recheck = set()
     cancelled = background_jobs.is_cancel_requested(job_id)
+    check = {}
     # Shared with the other translate paths: glossary enforcement,
     # density flags, the version, persisted errors, and a "translated"
     # status only once nothing is left untranslated.
@@ -290,7 +291,9 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             line_scoped=target_ids is not None,
             enforce_ids=(set(target_ids) if own_lines_only and target_ids is not None
                          else {ln.id for ln in lines if getattr(ln, "id", None) is not None}),
-            flags_needing_recheck=recheck, **_alignment_args(drama_id, engine, engine_choice, job_id, cap_reached), sentence_parts=sentence_parts, stage_cb=lambda stage: job_timing.mark_stage(job_id, stage)):
+            flags_needing_recheck=recheck, **_alignment_args(drama_id, engine, engine_choice, job_id, cap_reached, check),
+            sentence_parts=sentence_parts, stage_cb=lambda stage: job_timing.mark_stage(job_id, stage),
+            cancel_check=lambda: bool(check.get("cancelled"))):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})
@@ -302,15 +305,26 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         if summary_engine is not None and not summary_skip_reason:
             from services import episode_summary_service
             summary_skip_reason = episode_summary_service.missing_after_run_reason(
-                drama_id, summary_engine_choice or "", cancelled)
+                drama_id, summary_engine_choice or "", cancelled or bool(check.get("cancelled")))
         background_jobs.set_result(job_id, _run_result(errors, cap_reached.get("spent"),
                                                        summary_skip_reason, recheck, kept_edits,
                                                        engine, lines, en_before, _retranslated_ids(
                                                            force_retranslate and not cancelled, cap_reached, lines, target_ids)))
+    _end_if_cancelled(job_id, cancelled, check)
+
+
+def _end_if_cancelled(job_id, cancelled: bool, check: dict) -> None:
+    """Raises JobCancelled for a run stopped during its batches (`cancelled`) or
+    during the source-match check after them (check["cancelled"])."""
     if cancelled:
         # The engine stops between batches and returns normally, keeping the
         # lines already translated; returning here would end the job done at
         # 100% ("Finished."), so it ends cancelled with its real progress.
+        raise background_jobs.JobCancelled(job_id)
+    if check.get("cancelled"):
+        # Every batch landed and the version is saved, so only the check is lost; the
+        # plain "Cancelled" would read as if the translation was thrown away.
+        background_jobs.set_stop_message(job_id, CHECK_STOPPED_MESSAGE)
         raise background_jobs.JobCancelled(job_id)
 
 
@@ -416,11 +430,29 @@ def _speaker_names(drama_id) -> dict:
         db.list_series_characters(series_id) if series_id else [])
 
 
-def _alignment_args(drama_id, engine, engine_choice, job_id, cap_reached) -> dict:
+CHECK_STOPPED_MESSAGE = ("Cancelled. The translation was saved; the Source match check "
+                         "did not finish.")
+
+
+def _alignment_args(drama_id, engine, engine_choice, job_id, cap_reached, check) -> dict:
     """The source-match check's embedder and its judge (the run's own engine confirms the
     lines the embeddings doubt, billed like the translation), both left out while the
-    setting is off."""
-    embed = settings_service.alignment_embedder(lambda: background_jobs.is_cancel_requested(job_id))
+    setting is off. A cancel that stops either sets check["cancelled"]."""
+    def cancel_seen():
+        if background_jobs.is_cancel_requested(job_id):
+            check["cancelled"] = True
+        return bool(check.get("cancelled"))
+
+    def progress(which):
+        def report(done, total):
+            # The embedder is sent every line's source, then every line's English.
+            lines_done, lines = (done // 2, total // 2) if which == "embed" else (done, total)
+            background_jobs.update_progress(
+                job_id, 1.0, f"Checking source match: {lines_done} of {lines} lines"
+                + (" (engine check)" if which == "judge" else ""))
+        return report
+
+    embed = settings_service.alignment_embedder(cancel_seen, on_progress=progress("embed"))
     if embed is None:
         return {}
     # The judge's calls sit outside the translation's cost scope, so a stop or a reached
@@ -428,12 +460,13 @@ def _alignment_args(drama_id, engine, engine_choice, job_id, cap_reached) -> dic
     month_cap_hit = _month_cap_check(engine_choice, engine)
 
     def stopped():
-        return (background_jobs.is_cancel_requested(job_id) or cap_reached.get("spent") is not None
+        return (cancel_seen() or cap_reached.get("spent") is not None
                 or bool(month_cap_hit and month_cap_hit()))
 
     return {"embed_texts": embed,
             "judge": alignment_judge.judge_for(
-                engine, _usage_logger(drama_id, engine, engine_choice), should_stop=stopped)}
+                engine, _usage_logger(drama_id, engine, engine_choice), should_stop=stopped,
+                on_progress=progress("judge"))}
 
 
 def _usage_logger(drama_id, engine, engine_choice):

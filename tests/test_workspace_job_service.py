@@ -407,14 +407,42 @@ def test_bulk_title_cancelled_on_its_own_is_not_counted_translated(isolated_db):
 
 def test_the_alignment_judge_stops_once_the_monthly_cap_is_reached(monkeypatch):
     asked = {}
-    monkeypatch.setattr(wjs.settings_service, "alignment_embedder", lambda should_stop=None: (lambda texts: None))
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder",
+                        lambda should_stop=None, on_progress=None: (lambda texts: None))
     monkeypatch.setattr(wjs.alignment_judge, "judge_for",
-                        lambda engine, usage_cb=None, should_stop=None: asked.setdefault("stop", should_stop))
+                        lambda engine, usage_cb=None, should_stop=None, on_progress=None:
+                        asked.setdefault("stop", should_stop))
     monkeypatch.setattr(wjs, "_usage_logger", lambda *a: None)
     month_cap = {"hit": False}
     monkeypatch.setattr(wjs, "_month_cap_check", lambda choice, engine: lambda: month_cap["hit"])
     monkeypatch.setattr(wjs.background_jobs, "is_cancel_requested", lambda job_id: False)
-    wjs._alignment_args(1, object(), "claude", "job1", {})
+    check = {}
+    wjs._alignment_args(1, object(), "claude", "job1", {}, check)
     assert asked["stop"]() is False
     month_cap["hit"] = True
     assert asked["stop"]() is True
+    assert "cancelled" not in check  # a cap stop is not the user's cancel
+
+
+def test_the_source_match_check_reports_its_progress_and_notes_a_cancel(monkeypatch):
+    got, messages = {}, []
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder",
+                        lambda should_stop=None, on_progress=None:
+                        got.update(embed_stop=should_stop, embed_progress=on_progress) or (lambda texts: None))
+    monkeypatch.setattr(wjs.alignment_judge, "judge_for",
+                        lambda engine, usage_cb=None, should_stop=None, on_progress=None:
+                        got.update(judge_progress=on_progress))
+    monkeypatch.setattr(wjs, "_usage_logger", lambda *a: None)
+    monkeypatch.setattr(wjs, "_month_cap_check", lambda choice, engine: None)
+    monkeypatch.setattr(wjs.background_jobs, "update_progress", lambda job_id, frac, msg: messages.append(msg))
+    cancel = {"on": False}
+    monkeypatch.setattr(wjs.background_jobs, "is_cancel_requested", lambda job_id: cancel["on"])
+    check = {}
+    wjs._alignment_args(1, object(), "claude", "job1", {}, check)
+    got["embed_progress"](32, 80)  # 40 lines: their sources, then their English
+    got["judge_progress"](15, 21)
+    assert messages == ["Checking source match: 16 of 40 lines",
+                        "Checking source match: 15 of 21 lines (engine check)"]
+    assert got["embed_stop"]() is False and "cancelled" not in check
+    cancel["on"] = True
+    assert got["embed_stop"]() is True and check["cancelled"] is True
