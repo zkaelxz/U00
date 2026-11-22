@@ -3,9 +3,10 @@
 
 # --- alternative translation engines ---
 openai>=3.50.0            # DeepSeek (OpenAI-compatible API)
-transformers>=5.15        # Qwen3-ASR and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
+transformers>=5.18        # Nemotron speaker detection (5.18 is the first with its model type), Qwen3-ASR
+                         # and Qwen3-ForcedAligner (the Qwen/*-hf checkpoints run on
                          # transformers' own classes; 5.13/5.14 lack `prompt=` and the
-                         # language prefill, so 5.15 is the floor), Scanlate's ML
+                         # language prefill, so Qwen3 needs 5.15), Scanlate's ML
                          # bubble detector and PaddleOCR-VL-For-Manga.
                          # On Python 3.13/3.14, verify torch installs a CUDA build before relying
                          # on GPU inference:
@@ -26,7 +27,7 @@ onnxruntime>=1.31.1
 # --- speaker diarization ---
 pyannote.audio>=4.0.7
 librosa>=0.10            # Nemotron speaker detection (diarize_nemotron.py) loads the audio with it;
-                         # Nemotron also needs transformers 5.18 or newer (the floor at the top is Qwen3's).
+                         # Nemotron also needs transformers 5.18 or newer (the floor at the top).
 soundfile>=0.14.0         # diarize.py reads the normalized audio.wav through
                          # this (libsndfile-based) rather than torchcodec or
                          # torchaudio -- lighter, no compiled-per-FFmpeg-

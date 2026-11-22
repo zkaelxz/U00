@@ -1090,6 +1090,7 @@ class TestNemotronPackages:
     def test_a_transformers_too_old_for_the_model_is_listed(self, monkeypatch):
         nemotron = self._pc(monkeypatch, {"transformers", "librosa", "torch"}, "5.17.0")
         assert nemotron.missing_packages() == ["transformers"]
+        assert "Update transformers" in nemotron.packages_problem()
 
     def test_a_clean_pc_is_told_to_install_the_speaker_pack(self, monkeypatch):
         nemotron = self._pc(monkeypatch, set(), None)

@@ -43,6 +43,8 @@ def bare_pc(monkeypatch):
     monkeypatch.setattr(svc, "_tesseract_program_found", lambda: False)
     monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: False)
     monkeypatch.setattr(qwen3_native, "transformers_problem", lambda feature="x": "needs transformers")
+    import diarize_nemotron
+    monkeypatch.setattr(diarize_nemotron, "missing_packages", _REAL_NEMOTRON_MISSING)
 
 
 def test_every_value_is_a_boolean(bare_pc):

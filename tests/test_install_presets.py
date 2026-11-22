@@ -278,5 +278,6 @@ def test_install_commands_include_constraints_when_file_exists(monkeypatch, tmp_
 def test_the_speaker_pack_installs_what_the_default_model_needs():
     """Nemotron is the default speaker model (diarize_nemotron.missing_packages names these)."""
     pack = next(t for t in diagnostics.INSTALL_TASKS if t["id"] == "speakers")
-    assert {"transformers", "librosa", "torch"} <= set(pack["packages"]) - set(pack.get("optional", ()))
+    assert {"transformers", "librosa", "torch"} <= set(pack["packages"])
+    assert not {"transformers", "librosa", "torch"} & set(pack.get("optional", ()))
     assert "librosa" in diagnostics.OPTIONAL_DEPENDENCIES

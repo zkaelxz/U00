@@ -149,7 +149,7 @@ class TestStartDiarizationRun:
         import diarize_nemotron
         settings_service.set_settings({"speaker_model": "nemotron"})
         monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf_x")
-        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name == "pyannote.audio")
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name in ("pyannote.audio", "torch"))
         monkeypatch.setattr(diarize_nemotron, "missing_packages", lambda: ["librosa"])
         assert diarization_service.speaker_detection_problem() is None
 

@@ -185,7 +185,9 @@ def test_real_korean_lettering_is_not_taken_for_the_stamp(text):
     assert not regions[0]["skip"]
 
 
-@pytest.mark.parametrize("text", ["토끼야!", "산토끼", "토끼가", "토끼는?", "미리 보기", "웹툰 보기", "미리보기"])
+@pytest.mark.parametrize("text", ["토끼야!", "산토끼", "토끼가", "토끼는?", "두 토끼", "네 토끼", "미리 보기", "웹툰 보기",
+                                  "미리보기", "미리보기는", "미리 보기를", "웹툰 보기가", "웹툰 보기 싫어",
+                                  "웹툰 보기가\n좋아", "미리 보기를\n해줄게"])
 def test_dialogue_that_shares_syllables_with_the_stamp_is_kept(text):
     regions = [_r(text)]
     assert wm.flag_site_marks(regions) == 0
@@ -198,7 +200,7 @@ def test_a_balloon_that_starts_with_a_rabbit_line_is_kept_whole():
     assert regions[0]["source_text"] == "토끼야!\n어디 가?"
 
 
-@pytest.mark.parametrize("text", ["뉴로끼", "뉴토기", "뮤토끼"])
+@pytest.mark.parametrize("text", ["뉴로끼", "뉴토기", "뮤토끼", "누토끼", "늬토끼"])
 def test_a_misread_bare_site_name_is_still_cut_from_a_caption(text):
     regions = [_r(f"자신이 원하는걸 얻고야 말겠다는\n{text}")]
     assert wm.flag_site_marks(regions) == 0

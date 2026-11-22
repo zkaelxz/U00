@@ -90,12 +90,13 @@ def speaker_detection_problem():
     """(code, plain notice) of what stops speaker detection from running, or None.
     Checks the saved token and whether the packages are importable; no network.
     Under Nemotron, missing packages stop the run only when the pyannote fallback
-    can't run either (no token or no pyannote)."""
+    can't run either (no token, or no pyannote or torch)."""
     if not needs_pyannote():
         import diarize_nemotron
         problem = diarize_nemotron.packages_problem()
         if problem and not (settings_service.resolve_key("hf_token")
-                            and diagnostics.check_dependency("pyannote.audio")):
+                            and diagnostics.check_dependency("pyannote.audio")
+                            and diagnostics.check_dependency("torch")):
             return "no_nemotron", problem
         return None
     if not settings_service.resolve_key("hf_token"):

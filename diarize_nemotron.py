@@ -43,9 +43,13 @@ def packages_problem():
     missing = missing_packages()
     if not missing:
         return None
+    import diagnostics
+    # Installing the pack leaves an installed transformers as it is, so an old one needs Update.
+    old = "transformers" in missing and diagnostics.check_dependency("transformers")
+    fix = ("Update transformers and install the Speaker detection pack" if old
+           else "Install the Speaker detection pack")
     return (f"Nemotron speaker detection needs transformers {MIN_TRANSFORMERS} or newer, librosa "
-            f"and torch (missing or too old: {', '.join(missing)}). Install the Speaker detection "
-            f"pack in Diagnostics > Packages.")
+            f"and torch (missing or too old: {', '.join(missing)}). {fix} in Diagnostics > Packages.")
 
 
 def turns_from_segments(segments, probs=None, frame_seconds: float = 0.01) -> list[dict]:

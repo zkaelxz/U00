@@ -36,7 +36,9 @@ def _floor(name):
 
 
 def test_requirements_floor_matches_the_version_the_code_checks():
-    assert _floor("transformers")[:2] == qwen3_native.MIN_TRANSFORMERS[:2]
+    import diarize_nemotron
+    nemotron = tuple(int(p) for p in diarize_nemotron.MIN_TRANSFORMERS.split("."))
+    assert _floor("transformers")[:2] == max(qwen3_native.MIN_TRANSFORMERS[:2], nemotron)
 
 
 def test_japanese_and_korean_alignment_packages_are_required_lines():
