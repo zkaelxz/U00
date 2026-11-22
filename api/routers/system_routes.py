@@ -13,11 +13,11 @@ with a one-time token (services/shutdown_service.py); otherwise it is a 404.
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Request
-from api.auth import is_auth_enabled, is_local_request, local_only, public_route
-from api.schemas import (API_VERSION, HealthResponse, MetaResponse, PcProfilePinRequest,
+from api.auth import is_auth_enabled, is_local_request, local_only, public_route, require_permission
+from api.schemas import (API_VERSION, AppVersionInfo, HealthResponse, MetaResponse, PcProfilePinRequest,
                          PcProfileSavedStatus, PcProfileSetPinRequest, PcProfileStatus, ShutdownResponse)
 from lib import features
-from services import pc_profile_service, shutdown_service
+from services import pc_profile_service, shutdown_service, update_service
 from lib.errors import ForbiddenError, NotFoundError
 
 router = APIRouter(prefix="/api", tags=["system"])
@@ -44,6 +44,15 @@ def meta(request: Request):
     return MetaResponse(app="Baihe Studio", api_version=API_VERSION,
                         environment=environment, local=local, pc_profile=profile,
                         features=features.status(settings.features_off))
+
+
+# Outside /api/system/ so it reaches other devices: the version line shows
+# at the top of Settings and in Diagnostics everywhere. Signed in only, so the
+# public listener doesn't tell strangers which version to aim at.
+@router.get("/version", dependencies=[require_permission("library.read")], response_model=AppVersionInfo,
+            summary="This copy's version and its release or commit date")
+def app_version():
+    return AppVersionInfo(**update_service.version_info())
 
 
 @router.post("/system/shutdown", dependencies=[local_only()], response_model=ShutdownResponse,

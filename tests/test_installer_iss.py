@@ -314,7 +314,13 @@ class TestUninstall:
         for pattern in ("'baihe_*'", "'baihe_page_*'", "'baihe_tmp_*'", "'baihe_typeset_*'", "'baihe-plan-*'",
                         "'baihe-torch-pins-*'"):
             assert pattern in temp
-        assert "FILE_ATTRIBUTE_DIRECTORY" in _func(iss, "DeleteTempMatches")
+        matches = _func(iss, "DeleteTempMatches")
+        assert "FILE_ATTRIBUTE_DIRECTORY" in matches
+        # Renamed before deleting: a folder another running copy uses can't be, so it is kept whole.
+        assert "RenameFile(AddBackslash(Temp) + Folders[I], Moved) and DelTreeNoLinks(Moved)" in matches
+        assert "DelTreeNoLinks(AddBackslash(Temp) + Rec.Name)" not in matches
+        # Renamed only after the search is closed, so a renamed folder is never met again.
+        assert matches.index("FindClose(Rec)") < matches.index("RenameFile(")
         assert ".deno" in step
 
     def test_vtuber_list_goes_on_every_uninstall_by_name_only(self, iss):
