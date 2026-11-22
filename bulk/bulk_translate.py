@@ -24,11 +24,13 @@ pipeline in bulk_reflect.py, polling and cancel in bulk_poll.py.
 import datetime
 from lib import clock
 import hashlib
+import os
 import json
 
 from bulk.bulk_providers import make_provider, next_deepseek_offpeak_start
 import db
 import emotion
+import novel_text
 import source_change
 from engine_backends import shared, llm_tasks, pricing
 from engine_backends import line_text
@@ -58,6 +60,29 @@ def _utcnow():
 # ---------------------------------------------------------------------------
 # Submission
 # ---------------------------------------------------------------------------
+
+def stored_translate_args(args: dict | None) -> dict | None:
+    """args as saved on a bulk job row. The novel reference is the title's own file, so the row
+    keeps a marker and the file is read when the job runs, not a copy of a book per row."""
+    if not args or not args.get("novel_reference"):
+        return args
+    stored = {k: v for k, v in args.items() if k != "novel_reference"}
+    stored["novel_reference_from_title"] = True
+    return stored
+
+
+def resolve_novel_reference(drama_id: int, args: dict | None) -> str | None:
+    """The novel reference a stored job runs with. Rows saved before the marker existed
+    hold the text itself, so that still wins."""
+    args = args or {}
+    if args.get("novel_reference"):
+        return args["novel_reference"]
+    if not args.get("novel_reference_from_title"):
+        return None
+    drama = db.get_drama(drama_id) or {}
+    return novel_text.read_title_text_file(os.path.join(db.DRAMAS_DIR, str(drama_id)),
+                                           drama.get("novel_reference_filename"))
+
 
 def _target_lines(lines, force_retranslate: bool):
     targets = lines if force_retranslate else [ln for ln in lines if not (ln.en or "").strip()]
@@ -170,7 +195,7 @@ def schedule_offpeak_translation(drama_id: int, lines, engine_choice: str, model
     return db.create_bulk_job(
         drama_id, engine_choice, model, "scheduled",
         [(ln.id, None, zh_hash(ln.zh), ln.en or "") for ln in targets],
-        scheduled_for=start.isoformat(), translate_args=translate_args)
+        scheduled_for=start.isoformat(), translate_args=stored_translate_args(translate_args))
 
 
 # ---------------------------------------------------------------------------
