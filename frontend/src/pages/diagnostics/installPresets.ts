@@ -67,9 +67,9 @@ export function groupsNeedingInstallFirst(tasks: DiagnosticsInstallTask[]): Task
   return groupTasks(tasks).map((g) => ({ ...g, tasks: sortTasksNeedingInstall(g.tasks) }))
 }
 
-/** Says what Packages' Install all leaves out: it does not set up GPU PyTorch, which has its own confirmation and a 2.5 GB download. */
+/** Says what Packages' Install all does about GPU PyTorch, a 2.5 GB download. */
 export const INSTALL_ALL_NOTE =
-  'Install all adds every package listed below that is still missing. It does not set up GPU PyTorch: use GPU PyTorch further down, or Install all under Setup > Recommended installs, which does that first.'
+  "Install all adds every package listed below that is still missing. On an NVIDIA PC without PyTorch it sets up GPU PyTorch first; to pick another PyTorch build, use GPU PyTorch further down."
 
 /** One task standing for every task's missing packages, each once (tasks share packages); null when nothing is missing. */
 export function installAllTask(tasks: DiagnosticsInstallTask[], packages: Record<string, DiagnosticsPackageInfo>): DiagnosticsInstallTask | null {

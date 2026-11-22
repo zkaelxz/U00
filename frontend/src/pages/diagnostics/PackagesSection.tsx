@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
-import { checkPackageUpdates, getInstallPresets, installDependency, planUpgrade, planUpgradeOutdated, setupGpuTorch, upgradeDependency, upgradeOutdated } from '../../api/diagnostics'
+import { checkPackageUpdates, getGpuTorch, getInstallPresets, installDependency, planUpgrade, planUpgradeOutdated, setupGpuTorch, upgradeDependency, upgradeOutdated } from '../../api/diagnostics'
 import { getCudaRuntimeStatus, getUpgradeCheck, testUpgrade } from '../../api/diagnosticsInstalls'
 import { cancelPendingInstall, queueOutdatedUpdate, dismissInstallResult, getPendingInstall } from '../../api/pendingInstall'
 import { Badge } from '../../components/Badge'
@@ -303,8 +303,14 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     onBusy({ kind: 'install', name: busyName })
     setOutcome(null)
     try {
-      const r = await runInstallJob(() => setupGpuTorch(), (job) => onBusy({ kind: 'install', name: busyName, job }), GPU_NAME)
+      const { recommended } = await getGpuTorch()
+      // A CUDA build always: with no NVIDIA GPU answering the server would pick the CPU one, and the
+      // task would then install on it without a word; asked for CUDA, it refuses and says why.
+      const variant = recommended.needs_nvidia ? recommended.variant : 'cu128'
+      const r = await runInstallJob(() => setupGpuTorch(variant), (job) => onBusy({ kind: 'install', name: busyName, job }), GPU_NAME)
       if (r.ok) {
+        // Kept if the preview that follows is blocked or closed, so the 2.5 GB install isn't silent.
+        setOutcome({ kind: 'install', name: GPU_NAME, ok: true, output: r.output_tail, text: `GPU PyTorch is set up for ${label}.` })
         changed()
         return true
       }

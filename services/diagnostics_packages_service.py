@@ -449,14 +449,16 @@ def get_install_presets() -> dict:
     outdated = _outdated_names(packages, offered)
     # On an NVIDIA PC without torch, torch comes from the GPU PyTorch setup (install_registry
     # refuses it here) and must come first, or a package that pulls torch brings PyPI's CPU build.
-    gpu_torch_missing = bool(shutil.which("nvidia-smi")) and not packages["torch"]["installed"]
+    nvidia = bool(shutil.which("nvidia-smi"))
+    torch_missing = not packages["torch"]["installed"]
     for t in diagnostics.INSTALL_TASKS:
         roles = {n: dependency_updates.task_package_role(t, n) for n in t["packages"]}
         rows = [packages[n] for n in t["packages"]]
         missing = [r for r in rows if not r["installed"]]
         to_install = [r for r in missing if r["installable"] and roles[r["name"]] != "optional"]
-        gpu_torch_first = gpu_torch_missing and any(
-            r["name"] in gpu_torch.TORCH_FAMILY or r["pulls_torch"] for r in to_install)
+        # Any torch-family package is refused here on NVIDIA, not only torch (word timing's torchaudio).
+        gpu_torch_first = nvidia and any(
+            r["name"] in gpu_torch.TORCH_FAMILY or (torch_missing and r["pulls_torch"]) for r in to_install)
         if gpu_torch_first:
             to_install = [r for r in to_install if r["name"] not in gpu_torch.TORCH_FAMILY]
         tasks.append({

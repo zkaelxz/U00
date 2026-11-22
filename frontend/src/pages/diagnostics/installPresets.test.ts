@@ -55,9 +55,9 @@ describe('install presets helpers', () => {
     expect(installAllTask([], pkgs)).toBeNull()
   })
 
-  it('Install all says plainly that it leaves GPU PyTorch to its own button and the Setup one', () => {
-    expect(INSTALL_ALL_NOTE).toContain('does not set up GPU PyTorch')
-    expect(INSTALL_ALL_NOTE).toContain('Setup > Recommended installs')
+  it('Install all says plainly when it sets up GPU PyTorch', () => {
+    expect(INSTALL_ALL_NOTE).toContain('sets up GPU PyTorch first')
+    expect(INSTALL_ALL_NOTE).toContain('GPU PyTorch further down')
   })
 
   it('shows status and moves ready tasks last', () => {
