@@ -49,6 +49,9 @@ button.keys-btn { padding: 6px 12px; color: var(--muted); }
 button.keys-btn:hover:not(:disabled) { color: var(--text); }
 @media (pointer: coarse), (max-width: 640px) { button.keys-btn { min-width: 44px; min-height: 44px; padding-inline: 0; } }
 
-/* The shortcut hint only shows where the header has room for words, so the icon buttons keep one width everywhere else. */
+/* The shortcut hint only shows where the header has room for words, so the icon buttons keep one width everywhere else,
+   and never on a touch screen, which has no Ctrl key to press. */
 .palette-key { display: none; font: inherit; font-size: var(--text-xs); }
-@container header-end (min-width: 80rem) { .header-end.has-room .palette-key { display: inline; } }
+@media (pointer: fine) {
+  @container header-end (min-width: 80rem) { .header-end.has-room .palette-key { display: inline; } }
+}
