@@ -33,6 +33,8 @@ def test_the_chosen_profile_round_trips_and_a_missing_one_is_404(client):
 
 
 def test_a_start_without_a_profile_is_refused_and_creates_no_title(client):
+    # A fresh install has the Default profile; "None" in Settings is the way to have no profile.
+    assert client.post("/api/quick-video/settings", json={"profile_id": None}, headers=JSON).status_code == 200
     r = client.post("/api/quick-video/start", json={"url": "https://example.com/v"}, headers=JSON)
     assert r.status_code == 422 and "Settings" in r.json()["error"]["message"]
     assert db.list_dramas() == []

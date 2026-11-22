@@ -4,7 +4,7 @@ import type { Route } from '../../router'
 import type { JobPage, JobRecord } from '../../types/jobs'
 import { testJob } from '../../types/jobFixture'
 import {
-  NO_FILTERS, effectiveStatus, filterJobs, jobLinks, kindGroup, normalizeFilters, progressPercent, relativeTime, sortJobs, statusCounts,
+  NO_FILTERS, effectiveStatus, filterJobs, jobLinks, kindGroup, normalizeFilters, progressPercent, relativeTime, sortJobs, statusCounts, withLinkedJob,
   type JobFilters,
 } from './jobsFilter'
 
@@ -88,6 +88,16 @@ describe('other filters', () => {
   it('a queued job is dated by its last update', () => {
     const q = job({ job_id: 'q', status: 'queued', started_at: null, finished_at: null, updated_at: NOW - 10 * 86_400 })
     expect(filterJobs([q], f({ status: 'all', range: 'week' }), titles, NOW)).toHaveLength(1)
+  })
+})
+
+describe('a link to one job', () => {
+  it('keeps the job a link named on screen even when the filters leave it out', () => {
+    const shown = filterJobs(sample, f({ kind: 'transcribe' }), titles, NOW)
+    expect(ids(withLinkedJob(shown, sample, 'err1'))).toEqual(['err1', 'run1'])
+    expect(ids(withLinkedJob(shown, sample, 'run1'))).toEqual(['run1'])
+    expect(ids(withLinkedJob(shown, sample, 'gone'))).toEqual(['run1'])
+    expect(withLinkedJob(shown, sample, null)).toBe(shown)
   })
 })
 

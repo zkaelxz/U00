@@ -17,7 +17,7 @@ import { kindBadgeText } from './titleKind'
 import { TitleFlowStart } from './TitleFlowStart'
 import { TitleViewSwitch } from './TitleViewSwitch'
 import { placeText, type QueuePlace } from './stages/review/checkQueueModel'
-import { checkActionLabel, focusStep, mainInStepsPanel, stepLinks, stepPlace, titleSteps, type StepInput, type StepKey } from './stepModel'
+import { checkActionLabel, focusStep, mainInStepsPanel, mainLinksHere, stepLinks, stepPlace, titleSteps, type StepInput, type StepKey } from './stepModel'
 import type { TitleView } from './titleView'
 import './titleTop.css'
 
@@ -158,6 +158,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
   const focus = focusStep(steps, openStep)
   // On the Check step the phone keeps the main button inside the panel, so the check card stays near the top.
   const mainInPanel = mainInStepsPanel(openStep, current?.key ?? null, home, progress.riskCount ?? null)
+  const showMain = !!current && !mainLinksHere(openStep, current.key, progress.flowOn)
 
   return (
     <>
@@ -210,10 +211,10 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
           </div>
           <div id={foldId} className="steps-fold-body" hidden={!foldOpen}>
             <StepRow id={id} input={progress} openStep={openStep} />
-            {current && mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
+            {showMain && mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
             <div className="steps-fold-controls">{switchView}</div>
           </div>
-          {current && !mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
+          {showMain && !mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
         </>
       ) : (
         <>
@@ -222,7 +223,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
             {playerButton}
           </div>
           <StepRow id={id} input={progress} openStep={openStep} />
-          {current && !mainElsewhere && <TitleMainRow>{main}</TitleMainRow>}
+          {showMain && !mainElsewhere && <TitleMainRow>{main}</TitleMainRow>}
         </>
       )}
     </>

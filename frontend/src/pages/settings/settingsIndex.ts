@@ -107,7 +107,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('server-addresses', 'Server addresses', 'ollama url server address endpoint local model'),
   e('defaults', 'Translation style', 'english variant locale style note default novel chapters parallel at once lanes faster'),
   e('language-packs', 'Language packs', 'honorifics address terms kinship set phrases glossary built-in defaults'),
-  e('quick-video', 'Quick video translate', 'link profile one button download watch once translation profile'),
+  e('quick-video', 'One-click translate', 'quick video link profile one button download watch once translation profile default'),
 
   e('spending', 'Spending', 'monthly cap budget cost counter reset usd'),
   e('past-costs', 'Past costs', 'cost by title history spend'),

@@ -168,8 +168,10 @@ test('with lines the phone shows the lines themselves, long lines wrapped, with 
 test('the step links and buttons on a stage page are tall enough to tap and do not scroll sideways', async ({ page }) => {
   await page.goto('/#/drama/1')
   await chooseSimple(page)
-  await page.goto('/#/drama/1/translate')
   await expectTall(page.getByRole('link', { name: main, exact: true }), main)
+  // The Translate page shows its own Translate button, so the header does not link to the page it is on.
+  await page.goto('/#/drama/1/translate')
+  await expect(page.getByRole('link', { name: main, exact: true })).toHaveCount(0)
   // The open stage's step names the button.
   await expect(stepsButton(page)).toHaveText('Step 3 of 5 · Translate')
   await page.goto('/#/drama/1/export')

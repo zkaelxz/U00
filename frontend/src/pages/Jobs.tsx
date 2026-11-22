@@ -4,7 +4,7 @@
  * There is no Retry: re-running means opening the stage and pressing its
  * primary, which keeps the cost and engine checks in one place.
  */
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api/client'
 import { cancelJob, clearFinishedJobs, deleteJob, forceStopJob, getQueueSummary } from '../api/jobs'
@@ -21,7 +21,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { cancelsAnyJob, useSession } from '../hooks/useSession'
-import { routeHref } from '../router'
+import { routeHref, useRoute } from '../router'
 import {
   CANCEL_RULE_NOTE, FORCE_STOP_HINT, cancelHint, cancelNeedsConfirm, jobOutcomeDetail, jobOutcomeText, offersCancel, offersForceStop, queueLine, queuePlace,
   shownStatus, type JobQueueSummary, type JobRecord,
@@ -31,7 +31,7 @@ import { JobStagesPanel } from './diagnostics/JobStagesPanel'
 import { JobQueue } from './jobs/JobQueue'
 import { RunSettings } from './jobs/RunSettings'
 import {
-  KIND_OPTIONS, NO_FILTERS, RANGE_OPTIONS, STATUS_CHIPS, effectiveStatus, filterJobs, hasActiveFilters, jobLinks,
+  KIND_OPTIONS, NO_FILTERS, RANGE_OPTIONS, STATUS_CHIPS, effectiveStatus, filterJobs, hasActiveFilters, jobLinks, withLinkedJob,
   normalizeFilters, progressPercent, relativeTime, sortJobs, statusCounts,
   type JobFilters, type KindFilter, type RangeFilter, type SortDir, type SortKey,
 } from './jobs/jobsFilter'
@@ -65,6 +65,9 @@ export default function JobsPage() {
   const [actionError, setActionError] = useState<unknown>(null)
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
   const [queue, setQueue] = useState<JobQueueSummary | null>(null)
+  const route = useRoute()
+  const linked = route.name === 'jobs' ? route.job ?? null : null
+  const linkedDone = useRef<string | null>(null)
 
   // Titles come from the library list; a failed read just leaves the Title column blank.
   useEffect(() => {
@@ -95,7 +98,22 @@ export default function JobsPage() {
   const status = effectiveStatus(filters, all)
   const counts = statusCounts(all)
   const matching = sortJobs(filterJobs(all, filters, titles, now), sort.key, sort.dir, now)
-  const shown = matching.slice(0, Math.max(limit, matching.filter((j) => isActive(j.status)).length))
+  const shown = withLinkedJob(matching.slice(0, Math.max(limit, matching.filter((j) => isActive(j.status)).length)), all, linked)
+  // A link to one job (a title page's "See details") opens its details once and brings them into view.
+  const linkedShown = linked !== null && shown.some((j) => j.job_id === linked)
+  useEffect(() => {
+    if (!linked || !linkedShown || linkedDone.current === linked) return
+    linkedDone.current = linked
+    setOpen((cur) => new Set(cur).add(linked))
+  }, [linked, linkedShown])
+  const linkedScrolled = useRef<string | null>(null)
+  useEffect(() => {
+    if (!linked || linkedScrolled.current === linked || !open.has(linked)) return
+    const el = document.querySelector(`[data-testid="job-details-${CSS.escape(linked)}"]`)
+    if (!el) return
+    linkedScrolled.current = linked
+    el.scrollIntoView({ block: 'center' })
+  }, [linked, open])
   const cancellable = (j: JobRecord) => isActive(j.status) && offersCancel(j, anyJob)
   const finishedCount = counts.finished + counts.failed + counts.cancelled
 
@@ -211,7 +229,7 @@ export default function JobsPage() {
                 </p>
               )}
 
-              {matching.length === 0 ? (
+              {shown.length === 0 ? (
                 <p className="muted" data-testid="jobs-no-match">
                   No jobs match.{' '}
                   <button type="button" className="link" onClick={() => setStored({ ...NO_FILTERS, status: 'all' })}>
