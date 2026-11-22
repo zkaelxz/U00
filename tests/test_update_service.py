@@ -961,6 +961,40 @@ def test_current_version_reads_the_install_manifest(tmp_path, monkeypatch):
     assert us.current_version() is None
 
 
+def test_an_installed_copy_shows_its_stamped_release_date(tmp_path, monkeypatch):
+    from installer import build_installer as bi
+    import datetime
+    app = tmp_path / "app"
+    app.mkdir()
+    monkeypatch.setattr(us, "_APP_DIR", str(app))
+    monkeypatch.setattr(us, "_is_installed", lambda: True)
+    (tmp_path / "manifest.json").write_text(json.dumps({"product": "Baihe Studio",
+                                                        "app_version": "0.1.6"}))
+    assert us.version_info() == {"version": "0.1.6", "released": None, "source_copy": False,
+                                 "commit_date": None}
+    bi.write_release_stamp(app, "0.1.6", today=datetime.date(2026, 11, 22))
+    assert us.version_info()["released"] == "2026-11-22"
+    # A stamp left by another version must not date this one.
+    bi.write_release_stamp(app, "0.1.5", today=datetime.date(2026, 11, 1))
+    assert us.version_info()["released"] is None
+
+
+def test_a_source_copy_shows_its_commit_date(monkeypatch):
+    from services import source_update_service as su
+    monkeypatch.setattr(us, "_is_installed", lambda: False)
+    monkeypatch.setattr(us, "_commit_date_cache", {})
+    calls = []
+    monkeypatch.setattr(su, "_git", lambda *a, **k: calls.append(a) or (0, "2026-11-21"))
+    info = us.version_info()
+    assert info == {"version": us.portable.SOURCE_VERSION, "released": None, "source_copy": True,
+                    "commit_date": "2026-11-21"}
+    us.version_info()
+    assert calls == [("log", "-1", "--format=%cs")]
+    monkeypatch.setattr(us, "_commit_date_cache", {})
+    monkeypatch.setattr(su, "_git", lambda *a, **k: (None, ""))
+    assert us.version_info()["commit_date"] is None
+
+
 def test_auto_check_is_on_by_default_and_daily(http):
     _serve_release(http)
     assert us.status()["auto_check"] is True

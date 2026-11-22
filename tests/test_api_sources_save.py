@@ -91,6 +91,20 @@ def test_a_chapter_with_too_many_pages_is_not_saved(client, fakes, root, monkeyp
     assert _files(root) == []
 
 
+def test_a_chapter_over_the_total_size_cap_is_not_saved(client, fakes, root, monkeypatch):
+    """Pages are held in memory until the CBZ is written: a chapter whose pages
+    add up past the cap fails before anything is written."""
+    from tests.sources_helpers import png
+    fakes["comicx"] = _make("comicx", comic=True)
+    # The fake chapter's two pages, one byte over the cap.
+    monkeypatch.setattr(save, "MAX_CHAPTER_BYTES", len(png(20, 30, seed=0)) + len(png(20, 30, seed=1)) - 1)
+    _start(client, "comicx", ["c1"])
+    _, body = _result(client, JOB)
+    row = body["result"]["chapters"][0]
+    assert row["outcome"] == "failed" and "too large to save" in row["error"]
+    assert _files(root) == []
+
+
 def test_failed_chapter_leaves_no_partial_file(client, fakes, root):
     err = SourceError("site down", FailureReason.SERVER_ERROR)
     fakes["comicx"] = _make("comicx", comic=True, fail={"c2": err})

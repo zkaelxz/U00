@@ -241,7 +241,7 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, hasAudio, ext
       <div className="voice-block">
         <h4>Voice bank</h4>
         <div className="voice-row">
-          <Field label="Save as" help="Name this voice to reuse it in other projects.">
+          <Field label="Save as" help="Name this voice to reuse it in other projects. Shared with everyone in the household.">
             <input aria-label={`Voice bank name for ${label}`} value={bankName} onChange={(e) => setBankName(e.target.value)} />
           </Field>
           <button

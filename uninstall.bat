@@ -129,8 +129,11 @@ REM files its code makes: baihe_page_/baihe_tmp_/baihe_typeset_, baihe-plan-,
 REM baihe-torch-pins-). Python's own tmp* items could belong to any program and
 REM stay. Done in PowerShell, with the path passed through the environment, so a
 REM ! or quote in %TEMP% survives; a junction is deleted as a link, never followed.
+REM A folder is renamed before it is deleted: Windows refuses that while another
+REM running Baihe copy has a file open or works in it, so such a folder is skipped
+REM whole instead of being half deleted.
 set "BAIHE_TEMP_REMOVED=0"
-for /f "usebackq delims=" %%N in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$t=$env:TEMP; $n=0; foreach($d in Get-ChildItem -LiteralPath $t -Directory -Filter 'baihe_*' -Force -ErrorAction SilentlyContinue){ try{ if($d.Attributes -band 'ReparsePoint'){ $d.Delete() } else { Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction Stop }; $n++ }catch{} }; foreach($p in 'baihe_page_*','baihe_tmp_*','baihe_typeset_*','baihe-plan-*','baihe-torch-pins-*'){ foreach($f in Get-ChildItem -LiteralPath $t -File -Filter $p -Force -ErrorAction SilentlyContinue){ try{ Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $n++ }catch{} } }; $n" 2^>nul`) do set "BAIHE_TEMP_REMOVED=%%N"
+for /f "usebackq delims=" %%N in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$t=$env:TEMP; $n=0; foreach($d in Get-ChildItem -LiteralPath $t -Directory -Filter 'baihe_*' -Force -ErrorAction SilentlyContinue){ try{ if($d.Attributes -band 'ReparsePoint'){ $d.Delete() } else { $g=Join-Path $t ($d.Name+'.uninstall'); [IO.Directory]::Move($d.FullName, $g); Remove-Item -LiteralPath $g -Recurse -Force -ErrorAction Stop }; $n++ }catch{} }; foreach($p in 'baihe_page_*','baihe_tmp_*','baihe_typeset_*','baihe-plan-*','baihe-torch-pins-*'){ foreach($f in Get-ChildItem -LiteralPath $t -File -Filter $p -Force -ErrorAction SilentlyContinue){ try{ Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $n++ }catch{} } }; $n" 2^>nul`) do set "BAIHE_TEMP_REMOVED=%%N"
 if not "!BAIHE_TEMP_REMOVED!"=="0" echo Removed !BAIHE_TEMP_REMOVED! of Baihe's scratch items from your Temp folder.
 
 echo.

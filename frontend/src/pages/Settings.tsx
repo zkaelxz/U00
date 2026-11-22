@@ -13,6 +13,7 @@ import {
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RetryBanner } from '../components/RetryBanner'
+import { AppVersionLine } from '../components/AppVersionLine'
 import { PageShell } from '../components/PageShell'
 import { buttonClass } from '../components/uiClasses'
 import { Field } from '../components/Field'
@@ -276,6 +277,7 @@ export default function SettingsPage() {
       title="Settings"
       label="Settings"
       className="settings-page"
+      meta={<AppVersionLine />}
       actions={<a className={buttonClass('secondary', 'sm')} href={USER_GUIDE_URL} target="_blank" rel="noopener noreferrer">Help: user guide</a>}
       tabs={(
         <>
