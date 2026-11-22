@@ -714,9 +714,6 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                 if background_jobs.is_cancel_requested(job_id):
                     status = "cancelled"
                     break
-                if r.pop("over_budget", False):
-                    status, capped = "stopped_cap", True
-                    break
                 if streak.record(failed=bool(r.get("error")) and not r.get("unreadable"), succeeded=not r.get("error")):
                     stop_note = paid_calls.failure_stop_reason(streak.count)
             else:
@@ -725,6 +722,9 @@ def _run_plan(job_id, stage, plan, case_ids, use_gpu, job_cap=None, progress=Non
                     # The interrupted case would be saved as an engine error.
                     status = "cancelled"
                     break
+            if r.pop("over_budget", False):
+                status, capped = "stopped_cap", True
+                break
             score, metric, scorer = vision.score(stage, cfg, r, case)
             if r.get("error") and score is not None:
                 # A referenced case that errored is a fail scored 0, so an
