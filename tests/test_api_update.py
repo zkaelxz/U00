@@ -126,3 +126,12 @@ def test_prerelease_switch_saves_without_developer_mode(client):
     assert r.json()["include_prereleases"] is True
     assert r.json()["auto_check"] is True
     assert client.post("/api/system/update/settings", json={}).status_code == 422
+
+
+def test_the_version_line_is_readable_by_any_signed_in_device(client, monkeypatch):
+    monkeypatch.setattr(us, "version_info", lambda: {"version": "0.1.6", "released": "2026-11-22",
+                                                      "source_copy": False, "commit_date": None})
+    r = client.get("/api/version")
+    assert r.status_code == 200
+    assert r.json() == {"version": "0.1.6", "released": "2026-11-22", "source_copy": False,
+                        "commit_date": None}

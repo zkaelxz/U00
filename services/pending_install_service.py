@@ -143,6 +143,7 @@ def restart_info() -> dict:
     return {"available": source_update_service.restart_problem() is None,
             "reason": source_update_service.restart_problem(),
             "running_jobs": jobs,
+            "service": source_update_service.runs_as_service(),
             # Another Baihe process's job can't be listed or stopped from here.
             "other_jobs": _jobs_running() and not jobs}
 

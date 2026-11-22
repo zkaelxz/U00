@@ -52,6 +52,7 @@ Standard library only.
 """
 
 import argparse
+import datetime
 import hashlib
 import importlib.util
 import json
@@ -676,6 +677,20 @@ def stage_service(payload_dir, python_zip, winsw_exe, caddy_exe, caddy_licenses)
     _copy(script, service / STAGE_SERVICE_SCRIPT)
 
 
+# services/update_service.RELEASE_STAMP_NAME
+RELEASE_STAMP_NAME = "release.json"
+
+
+def write_release_stamp(app_dest, version, today=None) -> Path:
+    """The version and the day it was built, in the staged app folder: the app
+    shows them as "released <date>" on every device. The app-only zip is
+    built from this folder, so it carries the same stamp."""
+    released = (today or datetime.datetime.now(datetime.timezone.utc).date()).isoformat()
+    path = Path(app_dest) / RELEASE_STAMP_NAME
+    path.write_text(json.dumps({"version": version, "released": released}) + "\n", encoding="utf-8")
+    return path
+
+
 def write_manifest(payload_dir, version, python_version=PYTHON_VERSION,
                    python_sha256=PYTHON_EMBED_SHA256) -> Path:
     """What this payload contains, for the upgrade logic the design keeps
@@ -751,6 +766,7 @@ def build(version, out_dir=DEFAULT_OUT, skip_frontend_build=False, python_zip=No
         _build_release_module().build_frontend(REPO_ROOT / "frontend")
     staged = stage_app(REPO_ROOT, payload / "app")
     check_payload(payload / "app")
+    write_release_stamp(payload / "app", version)
     print(f"Staged {len(staged)} app files.")
     if python_zip is None:
         python_zip = out_dir / f"python-{PYTHON_VERSION}-embed-amd64.zip"

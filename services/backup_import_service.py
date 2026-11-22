@@ -620,13 +620,14 @@ def _import_usage(src, dst, old_id: int, live_id: int) -> int:
         "SELECT created_at, engine, model, operation, input_tokens, output_tokens "
         "FROM usage_log WHERE created_at BETWEEN ? AND ?", (min(stamps), max(stamps)))}
     fresh = [r for r in rows if _usage_key(r) not in have]
+    imported_at = clock.utcnow().isoformat()
     dst.executemany(
         "INSERT INTO usage_log (drama_id, engine, model, operation, input_tokens, output_tokens, "
         "estimated_cost_usd, estimated_cost_usd_before_recost, created_at, cache_read_tokens, "
-        "user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+        "user_id, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
         [(live_id, r["engine"], r["model"], r["operation"], r["input_tokens"],
           r["output_tokens"], r["estimated_cost_usd"], r["estimated_cost_usd_before_recost"],
-          r["created_at"], r["cache_read_tokens"]) for r in fresh])
+          r["created_at"], r["cache_read_tokens"], imported_at) for r in fresh])
     return len(fresh)
 
 
