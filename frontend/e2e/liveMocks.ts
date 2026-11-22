@@ -142,7 +142,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   await page.route('**/api/translate/engines', (route) => opts.enginesFail
     ? json(route, { error: { code: 'internal', message: 'Boom.' } }, 500)
     : json(route, { items: opts.ollama ? [OLLAMA, ...ENGINES] : ENGINES }))
-  await page.route('**/api/live/options', (route) => json(route, { ...LIVE_FORM_FALLBACK, ...opts.liveOptions }))
+  await page.route('**/api/live/options', (route) => json(route, { ...LIVE_FORM_FALLBACK, default_model: 'translategemma:27b', ...opts.liveOptions }))
   await page.route('**/api/live/ollama-check*', (route) => {
     const model = new URL(route.request().url()).searchParams.get('model') ?? ''
     m.ollamaChecks.push(model)

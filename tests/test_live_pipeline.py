@@ -750,3 +750,67 @@ class TestStreamBreaks:
             assert _wait(lambda: sum(t.startswith("Reconnected after") for t in b.start.notes) == n)
         reconnected = [k for t, k in zip(b.start.notes, b.start.keys) if t.startswith("Reconnected after")]
         assert len(set(reconnected)) == 2
+
+    # The delayed player's recorders fetch the same expiring URLs as the capture, so a
+    # break stops them; after the reconnect they start again on the new URL, or the
+    # session says the player is off so the page shows the embed.
+
+    @pytest.fixture
+    def players(self, monkeypatch):
+        from live import live_player
+
+        class FakePlayer:
+            def __init__(self, url):
+                self.url, self.failed, self.stopped = url, False, False
+
+            def failure(self):
+                return "broke" if self.failed else None
+
+            def stop(self, kill=False):
+                self.stopped = True
+
+        started, outcomes, cleared = [], [], []
+
+        def start_if_possible(height, url, audio_url, out_dir, note, *a, **k):
+            if outcomes and outcomes.pop(0) is None:
+                note(live_player.UNAVAILABLE_NOTE, "player")
+                return None
+            player = FakePlayer(audio_url)
+            started.append(player)
+            return player
+        monkeypatch.setattr(live_player, "start_if_possible", start_if_possible)
+        monkeypatch.setattr(live_player, "clear", lambda out_dir: cleared.append(out_dir))
+        return started, outcomes, cleared
+
+    def _run(self, breaks, monkeypatch, job_id, running):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.resolve_outcomes[:] = ["http://stream"]
+        b.stream.add(2)
+        assert b.start(job_id, Gate(), delayed_player=480, report_player=running.append)
+        assert _wait(lambda: len(_result(job_id)) == 1)
+        return b
+
+    def test_the_player_starts_again_on_the_new_url_after_a_reconnect(self, breaks, players, monkeypatch):
+        from live import live_player
+        started, _, cleared = players
+        running = []
+        b = self._run(breaks, monkeypatch, "live_player_back", running)
+        assert running == [True] and started[0].url == "http://stream"
+        started[0].failed = True
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: len(started) == 2)
+        assert started[0].stopped and started[1].url == "http://stream2"
+        assert _wait(lambda: running == [True, False, True])
+        assert cleared   # the stale copy is gone before the new one records
+        assert live_player.RESTARTED_NOTE in b.start.notes
+
+    def test_a_player_that_cannot_start_again_is_reported_off(self, breaks, players, monkeypatch):
+        started, outcomes, _ = players
+        running = []
+        b = self._run(breaks, monkeypatch, "live_player_gone", running)
+        outcomes[:] = [None]
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: len(b.captures) == 2)
+        assert _wait(lambda: running[-1] is False)
+        assert len(started) == 1 and started[0].stopped

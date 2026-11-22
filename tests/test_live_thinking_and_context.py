@@ -255,6 +255,8 @@ class TestLiveServiceWiring:
             raise engine_local.OllamaUnavailableError(
                 "ollama_model_missing", f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first.")
         monkeypatch.setattr(engine_local, "check_ollama_model_installed", missing)
+        import memory_headroom
+        monkeypatch.setattr(memory_headroom, "total_mb", lambda memory: 24 * 1024)
         out = live_service.check_ollama()
         assert out["ok"] is False and out["model"] == "translategemma:27b"
         assert "ollama pull translategemma:27b" in out["message"] and "localhost" not in out["message"]
@@ -262,7 +264,8 @@ class TestLiveServiceWiring:
     def test_ollama_check_without_a_model_uses_the_model_start_would_use(self, monkeypatch):
         seen = []
         monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda b, m: seen.append(m))
-        monkeypatch.setattr(engine_registry, "effective_default_model", lambda name: "override:7b")
+        monkeypatch.setattr(engine_registry, "model_override_for_default", lambda name: "override:7b")
+        monkeypatch.setattr(live_service, "_gpu_room_note", lambda *a: None)
         assert live_service.check_ollama()["model"] == "override:7b"
         assert seen == ["override:7b"]
 
@@ -279,7 +282,9 @@ class TestLiveServiceWiring:
 
     def test_ollama_check_ok_and_bad_model_name(self, monkeypatch):
         monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda b, m: None)
-        assert live_service.check_ollama("qwen3.5:9b") == {"ok": True, "model": "qwen3.5:9b", "message": None}
+        monkeypatch.setattr(live_service, "_gpu_room_note", lambda *a: None)
+        assert live_service.check_ollama("qwen3.5:9b") == {
+            "ok": True, "model": "qwen3.5:9b", "message": None, "gpu_fit": False}
         from lib.errors import InvalidInputError
         with pytest.raises(InvalidInputError):
             live_service.check_ollama("../x")
@@ -313,14 +318,16 @@ class TestOllamaCheckGraphicsMemory:
     def test_a_model_and_whisper_that_eat_the_reserve_are_named_before_start(self, gpu):
         gpu(free_gb=22, model_gb=17)
         out = live_service.check_ollama("translategemma:27b", "large-v3", True)
-        assert out["ok"] is False
-        assert out["message"].startswith("translategemma:27b and Whisper large-v3 may not fit: they need about")
-        assert "kept free" in out["message"] and "localhost" not in out["message"]
+        assert out["ok"] is False and out["gpu_fit"] is True
+        assert out["message"] == (
+            "translategemma:27b and Whisper large-v3 may not fit in graphics memory (need about 27.4 GB, "
+            "22.0 GB free, 5.0 GB kept free for other programs). Pick a smaller model, such as "
+            "translategemma:12b, or turn off Use GPU.")
 
     def test_room_enough_is_ok(self, gpu):
         gpu(free_gb=33, model_gb=17)
         assert live_service.check_ollama("translategemma:27b", "large-v3", True) == {
-            "ok": True, "model": "translategemma:27b", "message": None}
+            "ok": True, "model": "translategemma:27b", "message": None, "gpu_fit": False}
 
     def test_memory_another_loaded_ollama_model_holds_counts_as_free(self, gpu):
         gpu(free_gb=24, model_gb=17, loaded=[("translategemma:12b", 9)])
@@ -353,9 +360,44 @@ class TestOllamaCheckGraphicsMemory:
         gpu(free_gb=10, model_gb=17, loaded=[("translategemma:27b", 24)])
         assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is False
 
-    def test_without_the_gpu_nothing_is_said(self, gpu):
-        gpu(free_gb=1, model_gb=17)
+    def test_with_the_reserve_at_its_default_of_0_a_pair_that_does_not_fit_is_named(self, gpu, monkeypatch):
+        import memory_headroom
+        monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 0.0)
+        gpu(free_gb=11, model_gb=17)
+        out = live_service.check_ollama("translategemma:27b", "small", True)
+        assert out["ok"] is False and out["gpu_fit"] is True
+        assert out["message"].startswith("translategemma:27b and Whisper small may not fit in graphics memory")
+        assert "kept free" not in out["message"]
+        assert "To go ahead" not in out["message"] and "int8" not in out["message"]
+        gpu(free_gb=33, model_gb=17)
+        assert live_service.check_ollama("translategemma:27b", "small", True)["ok"] is True
+
+    def test_with_use_gpu_off_the_model_alone_is_checked(self, gpu, monkeypatch):
+        # Ollama is its own program and loads onto the GPU whatever Use GPU says.
+        import memory_headroom
+        monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 0.0)
+        gpu(free_gb=11, model_gb=17)
+        out = live_service.check_ollama("translategemma:27b", "large-v3", False)
+        assert out["ok"] is False and out["message"] == (
+            "translategemma:27b may not fit in graphics memory (need about 21.8 GB, 11.0 GB free). "
+            "Pick a smaller model, such as translategemma:12b.")
+        # Whisper stays on the CPU, so its size does not count.
+        gpu(free_gb=23, model_gb=17)
         assert live_service.check_ollama("translategemma:27b", "large-v3", False)["ok"] is True
+
+    def test_with_use_gpu_off_a_loaded_model_needs_no_more_room(self, gpu, monkeypatch):
+        # Without Use GPU nothing unloads it first, so it stays where it is.
+        import memory_headroom
+        monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 0.0)
+        gpu(free_gb=1, model_gb=17, loaded=[("translategemma:27b", 21)])
+        assert live_service.check_ollama("translategemma:27b", "large-v3", False)["ok"] is True
+
+    def test_the_small_model_is_not_suggested_for_itself(self, gpu, monkeypatch):
+        import memory_headroom
+        monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 0.0)
+        gpu(free_gb=4, model_gb=8.1, name="translategemma:12b")
+        out = live_service.check_ollama("translategemma:12b", None, False)
+        assert out["message"].endswith("free). Pick a smaller model.")
 
 
 class TestStageTimerCleanup:

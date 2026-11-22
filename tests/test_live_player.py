@@ -209,3 +209,35 @@ def test_a_failed_start_stops_and_reaps_the_recorder_already_running(tmp_path, m
         live_player.start_player("v", "a", str(tmp_path))
     # stop_capture is what halts the pump, kills the process and joins the pump's threads.
     assert stopped == [(video, True)]
+
+
+def test_a_stopped_player_clears_its_copy_so_it_no_longer_reads_ready(folder):
+    # Old playlists left on disk kept reading as ready, so the page kept the dead player.
+    out_dir = str(folder)
+    for name in ("video.m3u8", "audio.m3u8"):
+        _write(folder, name, "#EXTM3U\n#EXTINF:4,\nv_000000.ts\n")
+    _write(folder, "v_000000.ts")
+    _write(folder, "notes.txt")
+    assert live_player.ready(out_dir)
+
+    class Failed:
+        def failure(self):
+            return "x"
+
+        def stop(self, kill=False):
+            pass
+    assert live_player.watch(Failed(), lambda *a: None, out_dir) is None
+    assert not live_player.ready(out_dir)
+    assert os.listdir(live_player.player_dir(out_dir)) == ["notes.txt"]   # only the files the player serves
+
+
+def test_the_session_status_says_when_its_player_stopped(monkeypatch):
+    sid = "live_" + "c" * 32
+    monkeypatch.setattr(live_service, "_require", lambda *a, **k: {"status": "running"})
+    monkeypatch.setattr(background_jobs, "get_status", lambda job_id: {"status": "running"})
+    monkeypatch.setitem(live_service._sessions, sid, {"dir": None, "delayed_player": True})
+    assert live_service.get_session(sid)["player_stopped"] is False
+    live_service.set_player_running(sid, False)
+    assert live_service.get_session(sid)["player_stopped"] is True
+    live_service.set_player_running(sid, True)
+    assert live_service.get_session(sid)["player_stopped"] is False

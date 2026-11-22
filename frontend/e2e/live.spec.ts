@@ -60,6 +60,9 @@ test('start, see lines arrive, stop', async ({ page }) => {
   await live.getByLabel('Language', { exact: true }).selectOption('ja')
   // Only engines with a key are offered; the first is picked.
   await expect(live.getByLabel('AI engine', { exact: true }).locator('option')).toHaveText(['DeepSeek (paid)', 'Fake'])
+  // A paid engine with no monthly cap gets a per-session limit beside the engine.
+  await expect(live.getByLabel('Spend limit', { exact: true })).toHaveValue('2')
+  await live.getByLabel('Spend limit', { exact: true }).fill('5')
 
   await live.getByText('Advanced').click()
   await live.getByLabel('Chunk', { exact: true }).fill('30')
@@ -70,7 +73,7 @@ test('start, see lines arrive, stop', async ({ page }) => {
   await expect.poll(() => m.posts.length).toBe(1)
   expect(m.posts[0].body).toEqual({
     url: 'https://www.youtube.com/watch?v=abc', source_language: 'ja', whisper_size: 'small', segment_seconds: 30,
-    overlap_seconds: 3, engine: 'deepseek', model: null, max_minutes: 15, use_gpu: true,
+    overlap_seconds: 3, engine: 'deepseek', model: null, max_minutes: 15, spend_limit_usd: 5, use_gpu: true,
     reply_without_thinking: true,
   })
   expect(m.posts[0].headers['x-baihe-local']).toBe('1')
