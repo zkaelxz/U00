@@ -10,7 +10,7 @@ test('Fast captions fills the chunk options and the start body carries them', as
   const live = await openLive(page)
   await live.getByText('Advanced').click()
   // Today's defaults are untouched until the preset is pressed.
-  await expect(live.getByLabel('Chunk', { exact: true })).toHaveValue('20')
+  await expect(live.getByLabel('Chunk', { exact: true })).toHaveValue('10')
   await expect(live.getByLabel('Overlap', { exact: true })).toHaveValue('3')
 
   await live.getByTestId('live-fast-captions').click()
