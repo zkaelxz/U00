@@ -328,7 +328,7 @@ class SettingsPreferences(TimingPreferences):
     novel_parallel_chapters: int = 3
     claude_reasoning: str = "default"
     openai_reasoning: str = "less"
-    translate_alignment_check: bool = False
+    translate_alignment_check: bool = True
     episode_summary_engine: str
     monthly_cap_usd: Optional[float] = None
     max_upload_mb: int = 20480
