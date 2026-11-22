@@ -493,3 +493,37 @@ def test_member_tracked_series_saved_by_the_owner_gets_no_browser(env, tmp_path)
     store.set_tracked_save("alpha", SERIES, True, by_user_id=None)
     chapter_check_service.run_check_cycle(allow_browser=True)
     assert env["alpha"].seen and set(env["alpha"].seen) == {False}
+
+
+def _browser_only(name, comic=False):
+    """_recording's adapter for a source that reads nothing without the browser (Fanjiao,
+    Bilibili Manga)."""
+    cls = _recording(name, comic)
+    cls.needs_browser = True
+    return cls
+
+
+def test_a_browser_only_member_series_says_why_it_was_not_imported(shared_link, env):
+    env["alpha"] = _browser_only("alpha")
+    _a, _b, did = shared_link
+    summary = chapter_check_service.run_check_cycle(allow_browser=True)
+    assert summary["queued"] == [] and env["alpha"].seen == []
+    error = summary["errors"]["Series T"]
+    assert error.startswith("Auto-import skipped: Alpha needs the PC owner's browser")
+    assert "a member linked or saves" in error
+    waiting = store.import_retry_rows("alpha", SERIES, did)
+    assert [(r["chapter_id"], r["status"]) for r in waiting] == [("c2", "not_attempted"),
+                                                                  ("c3", "not_attempted")]
+    assert "PC owner's browser" in waiting[0]["error"]
+
+
+def test_a_browser_only_member_cbz_save_says_why_and_stays_pending(env, tmp_path):
+    db.set_app_setting("comic_save", {"folder": str(tmp_path)})
+    env["alpha"] = _browser_only("alpha", comic=True)
+    b = _user("b@example.com")
+    _track("alpha")
+    store.set_tracked_save("alpha", SERIES, True, by_user_id=b)
+    summary = chapter_check_service.run_check_cycle(allow_browser=True)
+    assert summary["saved"] == [] and env["alpha"].seen == []
+    assert summary["errors"]["Series T"].startswith("Saving as CBZ: Alpha needs the PC owner's browser")
+    assert store.save_pending_ids(_row("alpha")) == ["c2", "c3"]
