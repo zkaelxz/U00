@@ -48,7 +48,7 @@ const headerTextsCut = (page: Page) => page.locator('.workspace-header').evaluat
 // behind the steps button, so the click is not followed by check()'s look at a radio that is no longer on screen.
 async function chooseSimple(page: Page) {
   await page.getByRole('button', { name: 'Title actions' }).tap()
-  await page.getByRole('radio', { name: 'Simple', exact: true }).click({ force: true })
+  await page.getByRole('radio', { name: 'Guided', exact: true }).click({ force: true })
   await expect(stepsButton(page)).toBeVisible()
 }
 
@@ -90,7 +90,7 @@ test('Simple fits a phone: More and the steps button each open their panel, the 
     await expect(tabs).toHaveText(['Done · Add', 'Done · Transcribe, 10 lines', 'Now · Translate, 10 of 10 left', /^Next · Review(, .+)?$/, 'Export'])
     for (let n = 0; n < 5; n++) await expectTall(tabs.nth(n), `step ${n + 1} at ${width}px`)
     // The radios are visually hidden; the visible control is their label. The switch stays with the steps.
-    for (const name of ['Simple', 'Full']) {
+    for (const name of ['Guided', 'All tools']) {
       await expectTall(panel.locator('label').filter({ hasText: new RegExp(`^${name}$`) }).first(), `${name} switch at ${width}px`)
     }
     const stepsOrder = [panel.getByRole('list', { name: 'Steps' }), panel.getByRole('group', { name: 'Title view' })]
@@ -140,7 +140,7 @@ test('choosing Simple then reloading keeps Simple', async ({ page }) => {
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
   // The switch is in the panel the steps button opens.
   await stepsButton(page).tap()
-  await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
+  await expect(page.getByRole('radio', { name: 'Guided', exact: true })).toBeChecked()
 })
 
 test('with lines the phone shows the lines themselves, long lines wrapped, with no sideways scroll', async ({ page }) => {
@@ -349,7 +349,7 @@ test.describe(() => {
     await expect(fold).toHaveAttribute('aria-expanded', 'true')
     await expect(page.getByRole('list', { name: 'Steps' }).getByRole('link')).toHaveCount(5)
     await expect(page.getByRole('button', { name: 'Check the 3 lines', exact: true })).toBeVisible()
-    await expect(page.getByRole('radio', { name: 'Simple', exact: true })).toBeChecked()
+    await expect(page.getByRole('radio', { name: 'Guided', exact: true })).toBeChecked()
     await expectNoSidewaysScroll(page)
     await page.setViewportSize({ width: 390, height: 844 })
     await expectNoSidewaysScroll(page)
