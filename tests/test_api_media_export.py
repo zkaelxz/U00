@@ -542,12 +542,24 @@ def test_mark_exported_sets_status_only(local_client, drama, isolated_db):
 SAME_ORIGIN = {"Sec-Fetch-Site": "same-origin"}
 
 
-@pytest.mark.parametrize("field", ["en", "zh", "bilingual"])
+@pytest.mark.parametrize("field", ["en", "bilingual"])
 def test_full_subtitle_export_without_blanks_marks_exported(local_client, drama, isolated_db, field):
     isolated_db.update_drama(drama, status="translated")
     r = local_client.get(f"/api/export/dramas/{drama}/subtitle?field={field}", headers=SAME_ORIGIN)
     assert r.status_code == 200
     assert isolated_db.get_drama(drama)["status"] == "exported"
+
+
+@pytest.mark.parametrize("status", ["aligned", "translated"])
+def test_a_source_only_subtitle_export_leaves_the_status_alone(local_client, drama, isolated_db, status):
+    """Downloading the Chinese to check it before translating must not mark
+    the title finished: nothing moves it back out of Exported later."""
+    isolated_db.update_drama(drama, status=status)
+    r = local_client.get(f"/api/export/dramas/{drama}/subtitle?field=zh", headers=SAME_ORIGIN)
+    assert r.status_code == 200
+    assert local_client.post(f"/api/export/dramas/{drama}/ass", json={"field": "zh"},
+                             headers=SAME_ORIGIN).status_code == 200
+    assert isolated_db.get_drama(drama)["status"] == status
 
 
 def test_ass_export_without_blanks_marks_exported(local_client, drama, isolated_db):

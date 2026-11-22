@@ -80,6 +80,7 @@ export interface SettingsPreferences extends TimingPreferences {
   translate_alignment_check: boolean // flag lines whose English doesn't match the source (bge-m3 via Ollama)
   episode_summary_engine: string
   monthly_cap_usd: number | null // null: BAIHE_MONTHLY_CAP_USD from .env applies
+  narration_pace: number // 0.75..1.25, 1: as the voice speaks, default 0.9
   max_upload_mb: number // media/backup upload cap; BAIHE_MAX_UPLOAD_MB wins when set
   ollama_num_ctx_override: number // 0: sized from the prompt
   keep_free_vram_gb: number // 0: off

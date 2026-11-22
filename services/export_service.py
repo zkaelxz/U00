@@ -789,9 +789,15 @@ def mark_exported_if_complete(drama_id: int, field: str) -> bool:
     bilingual). Exports are always the whole title, so "full" needs no check.
     "exported" is the last status, so a title already there is left alone and
     nothing is ever moved backwards. Writes only `status`. Returns whether
-    the status was set by this call."""
+    the status was set by this call.
+
+    A file without the English never counts: people download the source
+    text to check it in a player before translating, and nothing moves a
+    title back out of "exported" once translation finishes."""
+    wanted = {"en": ("en",), "bilingual": ("en", "zh")}.get(field)
+    if wanted is None:
+        return False
     lines = core_module.lines_from_rows(db.load_lines(drama_id))
-    wanted = {"en": ("en",), "zh": ("zh",), "bilingual": ("en", "zh")}[field]
     if not lines or any(not (getattr(ln, f, "") or "").strip() for ln in lines for f in wanted):
         return False
     drama = ownership_service.require_drama(drama_id)
