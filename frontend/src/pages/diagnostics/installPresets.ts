@@ -2,6 +2,7 @@
 // GET /api/diagnostics/install-presets). Sizes are the server's static
 // estimates, always shown as "approx.".
 import type { DiagnosticsInstallPresets, DiagnosticsInstallTask, DiagnosticsPackageInfo } from '../../types/diagnostics'
+import { GPU_TORCH_SIZE } from '../readiness/needs'
 
 /** "approx. 45 MB", "approx. 2.5 GB", "under 1 MB"; null when unknown. */
 export function formatApproxMb(mb: number | null | undefined): string | null {
@@ -66,15 +67,19 @@ export function groupsNeedingInstallFirst(tasks: DiagnosticsInstallTask[]): Task
   return groupTasks(tasks).map((g) => ({ ...g, tasks: sortTasksNeedingInstall(g.tasks) }))
 }
 
-/** Says what Packages' Install all leaves out: it does not set up GPU PyTorch, which has its own confirmation and a 2.5 GB download. */
+/** Says what Packages' Install all does about GPU PyTorch, a 2.5 GB download. */
 export const INSTALL_ALL_NOTE =
-  'Install all adds every package listed below that is still missing. It does not set up GPU PyTorch: use GPU PyTorch further down, or Install all under Setup > Recommended installs, which does that first.'
+  "Install all adds every package listed below that is still missing. On an NVIDIA PC without PyTorch it sets up GPU PyTorch first; to pick another PyTorch build, use GPU PyTorch further down."
 
 /** One task standing for every task's missing packages, each once (tasks share packages); null when nothing is missing. */
 export function installAllTask(tasks: DiagnosticsInstallTask[], packages: Record<string, DiagnosticsPackageInfo>): DiagnosticsInstallTask | null {
   const toInstall = [...new Set(tasks.flatMap((t) => t.to_install))]
-  if (!tasks[0] || !toInstall.length) return null
-  return { ...tasks[0], id: 'all-tasks', label: 'all tasks', to_install: toInstall, approx_mb: toInstall.reduce((mb, n) => mb + (packages[n]?.approx_mb ?? 0), 0) }
+  if (!tasks[0] || (!toInstall.length && !tasks.some((t) => t.gpu_torch_first))) return null
+  return {
+    ...tasks[0], id: 'all-tasks', label: 'all tasks', to_install: toInstall,
+    approx_mb: toInstall.reduce((mb, n) => mb + (packages[n]?.approx_mb ?? 0), 0),
+    gpu_torch_first: tasks.some((t) => t.gpu_torch_first),
+  }
 }
 
 /** The closed group's one-liner: how many of its tasks still need something installed. */
@@ -109,12 +114,17 @@ export const belowMinText = (p: DiagnosticsPackageInfo | undefined): string | nu
 export function taskConfirmLabel(t: DiagnosticsInstallTask): string {
   const size = formatApproxMb(t.approx_mb)
   const n = t.to_install.length
-  return `Confirm install ${n} ${n === 1 ? 'package' : 'packages'}${size ? ` (${size})` : ''}`
+  const packagesText = `${n} ${n === 1 ? 'package' : 'packages'}${size ? ` (${size})` : ''}`
+  if (!t.gpu_torch_first) return `Confirm install ${packagesText}`
+  return n ? `Confirm set up GPU PyTorch (${GPU_TORCH_SIZE}), then install ${packagesText}` : `Confirm set up GPU PyTorch (${GPU_TORCH_SIZE})`
 }
+
+/** Shown on a task whose install starts with the GPU PyTorch setup. */
+export const GPU_TORCH_FIRST_NOTE = `This NVIDIA PC needs GPU PyTorch first, so the install sets it up (${GPU_TORCH_SIZE}) before the packages.`
 
 /** Warnings and not-offered reasons for a task's packages, as "name: text"; installed ones below the app's minimum. */
 export function taskNotes(t: DiagnosticsInstallTask, packages: Record<string, DiagnosticsPackageInfo>): string[] {
-  const notes: string[] = []
+  const notes: string[] = t.gpu_torch_first ? [GPU_TORCH_FIRST_NOTE] : []
   for (const name of t.packages) {
     const p = packages[name]
     if (!p) continue

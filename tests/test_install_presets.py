@@ -24,7 +24,7 @@ CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")
 # after checking its real distribution name.
 KNOWN_PYPI_DISTS = {
     "onnxruntime", "faster-whisper", "ctranslate2", "nvidia-cublas-cu12", "nvidia-cudnn-cu12", "opencv-python", "anthropic", "openai", "requests",
-    "beautifulsoup4", "pyannote-audio", "soundfile", "pydub",
+    "beautifulsoup4", "pyannote-audio", "librosa", "soundfile", "pydub",
     "omnivoice", "pytesseract", "pillow", "paddleocr",
     "paddlepaddle",
     "manga-ocr", "budoux", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
@@ -160,6 +160,32 @@ def test_presets_report_installed_state_sizes_and_what_to_install(monkeypatch):
     assert cv2["source_url"] == "https://pypi.org/project/opencv-python/"
 
 
+@pytest.mark.parametrize("nvidia", [True, False])
+def test_on_a_fresh_nvidia_pc_a_task_sets_up_gpu_pytorch_before_its_packages(monkeypatch, nvidia):
+    """install_registry refuses torch on an NVIDIA PC, and pyannote would pull PyPI's CPU torch."""
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: False)
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda dist: None)
+    monkeypatch.setattr(packages_svc.shutil, "which", lambda cmd: "/usr/bin/nvidia-smi" if nvidia else None)
+    out = packages_svc.get_install_presets()
+    speakers = next(t for t in out["tasks"] if t["id"] == "speakers")
+    transcribe = next(t for t in out["tasks"] if t["id"] == "transcribe")
+    assert speakers["gpu_torch_first"] is nvidia
+    assert ("torch" in speakers["to_install"]) is not nvidia
+    assert "pyannote.audio" in speakers["to_install"]
+    assert transcribe["gpu_torch_first"] is False
+
+
+def test_a_missing_torchaudio_beside_an_installed_torch_also_comes_from_the_gpu_setup(monkeypatch):
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: imp == "torch")
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda dist: None)
+    monkeypatch.setattr(packages_svc.shutil, "which", lambda cmd: "/usr/bin/nvidia-smi")
+    out = packages_svc.get_install_presets()
+    timing = next(t for t in out["tasks"] if t["id"] == "word_timing")
+    speakers = next(t for t in out["tasks"] if t["id"] == "speakers")
+    assert timing["gpu_torch_first"] is True and "torchaudio" not in timing["to_install"]
+    assert speakers["gpu_torch_first"] is False      # torch is here, so pyannote needs no setup
+
+
 # ---- D/E: sizes and links ----
 
 def test_every_offered_package_has_an_approx_size():
@@ -273,3 +299,11 @@ def test_install_commands_include_constraints_when_file_exists(monkeypatch, tmp_
     want = ["-c", str(tmp_path / "constraints.txt")]
     ((cmd, _t),) = packages_svc._install_commands("jieba")
     assert cmd[-2:] == want
+
+
+def test_the_speaker_pack_installs_what_the_default_model_needs():
+    """Nemotron is the default speaker model (diarize_nemotron.missing_packages names these)."""
+    pack = next(t for t in diagnostics.INSTALL_TASKS if t["id"] == "speakers")
+    assert {"transformers", "librosa", "torch"} <= set(pack["packages"])
+    assert not {"transformers", "librosa", "torch"} & set(pack.get("optional", ()))
+    assert "librosa" in diagnostics.OPTIONAL_DEPENDENCIES

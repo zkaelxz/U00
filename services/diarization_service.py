@@ -23,8 +23,8 @@ import diarize
 import whisper_models
 from services import (characters_service, drama_service, ownership_service, run_settings_service, settings_service,
                       transcribe_pipeline)
-from lib.errors import (ConflictError, InvalidInputError, MissingKeyError,
-                                      UnsupportedOperationError)
+from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+                        MissingKeyError, UnsupportedOperationError)
 
 
 def speaker_time_summary(drama_id: int) -> Optional[dict]:
@@ -88,9 +88,16 @@ def needs_pyannote() -> bool:
 
 def speaker_detection_problem():
     """(code, plain notice) of what stops speaker detection from running, or None.
-    Checks the saved token and whether the package is importable; no network.
-    Neither stops a Nemotron run."""
+    Checks the saved token and whether the packages are importable; no network.
+    Under Nemotron, missing packages stop the run only when the pyannote fallback
+    can't run either (no token, or no pyannote or torch)."""
     if not needs_pyannote():
+        import diarize_nemotron
+        problem = diarize_nemotron.packages_problem()
+        if problem and not (settings_service.resolve_key("hf_token")
+                            and diagnostics.check_dependency("pyannote.audio")
+                            and diagnostics.check_dependency("torch")):
+            return "no_nemotron", problem
         return None
     if not settings_service.resolve_key("hf_token"):
         return "no_token", NO_TOKEN_NOTICE
@@ -388,6 +395,9 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     hf_token = settings_service.resolve_key("hf_token")
     if not hf_token and needs_pyannote():
         raise MissingKeyError("Hugging Face", kind="token")
+    problem = speaker_detection_problem()
+    if problem and problem[0] == "no_nemotron":
+        raise DependencyUnavailableError(problem[1])
 
     audio_path = _drama_audio_path(drama_id, drama)
     if audio_path is None:

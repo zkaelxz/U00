@@ -714,6 +714,11 @@ def _chain_diarization(job_id, drama_id, hf_token, diarize_audio_path, expected_
         return False, "no audio file for this title"
     if diarize_requested and pyannote and not diagnostics.check_dependency("pyannote.audio"):
         return False, "pyannote.audio is not installed"
+    if diarize_requested and not pyannote:
+        problem = diarization_service.speaker_detection_problem()
+        if problem:
+            # Starting the job would only end in the same missing-package failure.
+            return False, problem[1].rstrip(".")
     # The token is only read when detection was asked for, so it alone used to mean "asked".
     if not ((hf_token or (diarize_requested and not pyannote)) and diarize_audio_path):
         return False, None

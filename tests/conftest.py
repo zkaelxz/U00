@@ -241,6 +241,19 @@ def _no_automatic_cover():
 
 
 @pytest.fixture(autouse=True)
+def _nemotron_packages_present():
+    """Nemotron is the default speaker model, and CI has neither librosa nor a new enough
+    transformers, so every speaker-detection test would otherwise be refused up front;
+    tests that check the missing-package case patch this back. Set by hand for the same
+    ordering reason as above."""
+    import diarize_nemotron
+    real = diarize_nemotron.missing_packages
+    diarize_nemotron.missing_packages = lambda: []
+    yield
+    diarize_nemotron.missing_packages = real
+
+
+@pytest.fixture(autouse=True)
 def _uploads_not_probed():
     """Most upload tests send a few placeholder bytes as audio; tests/test_api_media_upload.py
     puts the real ffprobe check back. Set by hand for the same ordering reason as above."""

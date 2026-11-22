@@ -17482,6 +17482,11 @@ export interface components {
         DiagnosticsInstallTask: {
             /** Approx Mb */
             approx_mb: number;
+            /**
+             * Gpu Torch First
+             * @default false
+             */
+            gpu_torch_first: boolean;
             /** Group */
             group: string;
             /** Help */
@@ -24811,6 +24816,8 @@ export interface components {
             monthly_cap_usd: number;
             /** Notice */
             notice: string | null;
+            /** Overlap Note */
+            overlap_note: string | null;
             /** Overlap Online Translate */
             overlap_online_translate: boolean;
             schedule: components["schemas"]["QueueSchedule"] | null;
@@ -28919,10 +28926,14 @@ export interface components {
             key_openai: boolean;
             /** Kiwi */
             kiwi: boolean;
+            /** Librosa */
+            librosa: boolean;
             /** Manga Ocr */
             manga_ocr: boolean;
             /** Nagisa */
             nagisa: boolean;
+            /** Nemotron Transformers */
+            nemotron_transformers: boolean;
             /** Ollama Model Pulled */
             ollama_model_pulled: boolean;
             /** Ollama Reachable */

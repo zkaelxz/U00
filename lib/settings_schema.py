@@ -299,7 +299,8 @@ SETTINGS = (
           tab="system", section="Advanced"),
     _pref("speaker_model", "choice", "nemotron", choices="speaker_models", label="Speaker detection model",
           help="Nemotron-3 is NVIDIA's newer model and mixed up fewer lines than pyannote on the titles we scored; "
-               "it needs the transformers and librosa packages and downloads about 380 MB the first time. "
+               "it needs transformers 5.18 or newer and librosa (the Speaker detection pack in Diagnostics) "
+               "and downloads about 380 MB the first time. "
                "Pyannote (community-1) is the older choice: pick it to go back. "
                "Nemotron ignores a typed speaker count; pyannote runs only when Nemotron isn't available on this PC.",
           tab="system", section="Advanced"),

@@ -20,8 +20,36 @@ class NemotronUnavailable(RuntimeError):
     only case where speaker detection may use pyannote instead."""
 
 
-MISSING_PACKAGES_NOTICE = ("Nemotron speaker detection needs the transformers and librosa packages, "
-                           "which aren't installed.")
+# The first transformers release with the nemotron3_diarization model type; older ones
+# fail to load it with a KeyError.
+MIN_TRANSFORMERS = "5.18"
+
+
+def missing_packages() -> list[str]:
+    """The Diagnostics package keys Nemotron still needs on this PC, in install order;
+    transformers is listed when it is missing or older than MIN_TRANSFORMERS. Nothing
+    is imported."""
+    import diagnostics
+    missing = [name for name in ("librosa", "torch") if not diagnostics.check_dependency(name)]
+    if (not diagnostics.check_dependency("transformers")
+            or diagnostics.below_min_version(diagnostics.get_installed_version("transformers"),
+                                             MIN_TRANSFORMERS)):
+        missing.insert(0, "transformers")
+    return missing
+
+
+def packages_problem():
+    """A plain sentence saying what to install before Nemotron can run, or None."""
+    missing = missing_packages()
+    if not missing:
+        return None
+    import diagnostics
+    # Installing the pack leaves an installed transformers as it is, so an old one needs Update.
+    old = "transformers" in missing and diagnostics.check_dependency("transformers")
+    fix = ("Update transformers and install the Speaker detection pack" if old
+           else "Install the Speaker detection pack")
+    return (f"Nemotron speaker detection needs transformers {MIN_TRANSFORMERS} or newer, librosa "
+            f"and torch (missing or too old: {', '.join(missing)}). {fix} in Diagnostics > Packages.")
 
 
 def turns_from_segments(segments, probs=None, frame_seconds: float = 0.01) -> list[dict]:
@@ -114,12 +142,15 @@ def diarize(audio_path: str, use_gpu: bool = False, on_progress=None) -> tuple[l
     are {} when they can't be made (pyannote or its embedding model isn't on this PC, or
     the step fails): the turns alone are still a good result."""
     say = on_progress or (lambda frac, message: None)
+    problem = packages_problem()
+    if problem:
+        raise NemotronUnavailable(problem)
     try:
         import librosa
         import torch
         from transformers import AutoModelForAudioFrameClassification, AutoProcessor
     except ImportError as exc:
-        raise NemotronUnavailable(MISSING_PACKAGES_NOTICE) from exc
+        raise NemotronUnavailable(f"Nemotron speaker detection couldn't load its packages ({exc})") from exc
     local_only = model_offline.active()
     say(0.02, "Loading Nemotron speaker model...")
     try:
