@@ -1,3 +1,6 @@
+import java.time.LocalDate
+import java.time.ZoneOffset
+
 plugins {
     id("com.android.application")
 }
@@ -17,7 +20,7 @@ android {
         versionName = "build $versionCode"
         // Shown beside the build number in Baihe's version line (MainActivity's user agent).
         buildConfigField("String", "BUILD_DATE",
-            "\"${java.time.LocalDate.now(java.time.ZoneOffset.UTC)}\"")
+            "\"${LocalDate.now(ZoneOffset.UTC)}\"")
     }
 
     buildFeatures {
