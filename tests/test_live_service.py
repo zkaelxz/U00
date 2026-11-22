@@ -688,16 +688,38 @@ def test_ollama_model_must_be_pulled_at_start(live, monkeypatch):
     assert seen == {} and live_service._sessions == {}
 
 
-def test_ollama_default_model_is_checked_and_used(live, monkeypatch):
+@pytest.mark.parametrize("total_gb,expected", [
+    (12, "translategemma:12b"), (19.9, "translategemma:12b"), (None, "translategemma:12b"),
+    (20, "translategemma:27b"), (24, "translategemma:27b")])
+def test_ollama_default_model_goes_by_graphics_memory(live, monkeypatch, total_gb, expected):
+    # 27B spills onto the CPU on a smaller card and Live then falls behind the stream.
+    import memory_headroom
     from engine_backends import local as engine_local
+    monkeypatch.setattr(memory_headroom, "total_mb",
+                        lambda memory: None if total_gb is None else total_gb * 1024)
     seen = _capture_engine(live, monkeypatch)
     checked = []
     monkeypatch.setattr(engine_local, "check_ollama_model_installed",
                         lambda base, model: checked.append(model))
     sid = _start(engine="ollama")
     assert _terminal(sid)
-    assert checked == [engine_local.OLLAMA_DEFAULT_MODEL]
-    assert seen["engine"].model == engine_local.OLLAMA_DEFAULT_MODEL
+    assert checked == [expected]
+    assert seen["engine"].model == expected
+    assert live_service.form_options()["default_model"] == expected
+
+
+def test_a_model_picked_in_settings_beats_the_graphics_memory_default(live, monkeypatch):
+    import memory_headroom
+    from engine_backends import engine_registry, local as engine_local
+    monkeypatch.setattr(memory_headroom, "total_mb", lambda memory: 8 * 1024)
+    monkeypatch.setattr(engine_registry, "model_override_for_default",
+                        lambda name: "translategemma:27b" if name == "ollama" else None)
+    seen = _capture_engine(live, monkeypatch)
+    monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda base, model: None)
+    sid = _start(engine="ollama")
+    assert _terminal(sid)
+    assert seen["engine"].model == "translategemma:27b"
+    assert live_service.form_options()["default_model"] == "translategemma:27b"
 
 
 def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
@@ -747,7 +769,6 @@ def test_the_live_form_offers_what_the_service_accepts():
     import core
     from live import live_player
     import whisper_models
-    from engine_backends import local
     src = open(os.path.join(os.path.dirname(__file__), "..", "frontend", "src", "api", "live.ts"),
                encoding="utf-8").read()
 
@@ -766,13 +787,17 @@ def test_the_live_form_offers_what_the_service_accepts():
     languages = _re.search(r"LIVE_LANGUAGES = \[(.*?)\]", src, _re.S).group(1)
     assert tuple(_re.findall(r"code: '(\w+)'", languages)) == core.SOURCE_LANGUAGES
     assert _re.findall(r"'([^']*)'", const("LIVE_DEFAULT_ENGINE")) == [live_service.LIVE_DEFAULT_ENGINE]
-    assert _re.findall(r"'([^']*)'", const("LIVE_DEFAULT_MODEL")) == [local.OLLAMA_DEFAULT_MODEL]
+    assert _re.findall(r"'([^']*)'", const("LIVE_DEFAULT_MODEL")) == [live_service.LIVE_SMALL_CARD_MODEL]
+    from services import live_spend_service
+    assert tuple(float(n) for n in _re.findall(r"[\d.]+", const("SPEND_LIMIT_RANGE"))) == \
+        live_spend_service.SESSION_LIMIT_RANGE
     defaults = _re.search(r"DEFAULT_FORM: LiveForm = \{(.*?)\n\}", src, _re.S).group(1)
     params = inspect.signature(live_service.start_session).parameters
     for key in ("source_language", "whisper_size", "segment_seconds", "overlap_seconds",
-                "max_minutes", "player_height"):
+                "max_minutes", "player_height", "spend_limit_usd"):
         shown = _re.search(rf"\b{key}: '?([^',\n]+)'?,", defaults).group(1)
-        assert str(params[key].default) == shown, key
+        assert (float(shown) if key == "spend_limit_usd" else shown) == (
+            params[key].default if key == "spend_limit_usd" else str(params[key].default)), key
 
 
 @pytest.mark.parametrize("url, ref", [

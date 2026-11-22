@@ -70,6 +70,11 @@ OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
 LIVE_DEFAULT_ENGINE = "ollama"
+# Live must keep up with speech, so a card that cannot hold TranslateGemma 27B
+# starts on 12B, which never fell behind once warm on a 12 GB card.
+LIVE_SMALL_CARD_MODEL = "translategemma:12b"
+LIVE_LARGE_CARD_MODEL = "translategemma:27b"
+LARGE_CARD_MB = 20 * 1024
 # A glossary note is advice for a translator, not text to repeat per chunk.
 HINT_NOTE_CHARS = 120
 MAX_SESSIONS = 32
@@ -164,6 +169,17 @@ def _require_offered_model(engine_name: str, model: Optional[str]):
         raise InvalidInputError("That model isn't offered for this engine.")
 
 
+def live_default_model(engine_name: str = LIVE_DEFAULT_ENGINE):
+    """The model Live runs when none is chosen. For Ollama with no model picked
+    in Settings it goes by the card's graphics memory; an unreadable card gets
+    the small model, since 27B on the CPU cannot keep up with a stream."""
+    if engine_name != "ollama" or engine_registry.model_override_for_default("ollama"):
+        return engine_registry.effective_default_model(engine_name)
+    import memory_headroom
+    total = memory_headroom.total_mb("vram")
+    return LIVE_LARGE_CARD_MODEL if total is not None and total >= LARGE_CARD_MB else LIVE_SMALL_CARD_MODEL
+
+
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
     # Never the Settings default: that may be a hosted engine, and a Live
     # request without an engine (API client, extension, stale bundle) must not
@@ -172,6 +188,8 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
     if engine_name not in engine_registry.ENGINES:
         raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     _require_offered_model(engine_name, model)
+    if engine_name == "ollama" and not model:
+        model = live_default_model("ollama")
     api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise MissingKeyError(engine_name)
@@ -196,33 +214,37 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
 
 def check_ollama(model: Optional[str] = None, whisper_size: Optional[str] = None,
                  use_gpu: bool = False) -> dict:
-    """{ok, model, message}: whether Ollama answers and has the model, and
-    whether it and Whisper (on the GPU) fit beside the keep-free reserve, so the
-    Live form can say so before Start. The message is the plain text the chat
-    call uses and never carries the Ollama address."""
+    """{ok, model, message, gpu_fit}: whether Ollama answers and has the model,
+    and whether the model (with Whisper too when use_gpu) fits in graphics
+    memory, so the Live form can say so before Start. gpu_fit marks a message
+    that is only that warning: Start still goes ahead. The message is the plain
+    text the chat call uses and never carries the Ollama address."""
     from services import translate_run_service
     # The model Start would run when none is chosen, so the note describes it.
-    model = model or engine_registry.effective_default_model("ollama")
+    model = model or live_default_model("ollama")
     if model is None or not translate_run_service._is_safe_ollama_model(model):
         raise InvalidInputError("That model isn't offered for this engine.")
     try:
         engine_local.check_ollama_model_installed(
             settings_service.ollama_url(), model)
     except engine_local.OllamaUnavailableError as exc:
-        return {"ok": False, "model": model, "message": shared.redact_secrets(exc.message)}
-    room = _gpu_room_note(model, whisper_size) if use_gpu else None
-    return {"ok": room is None, "model": model, "message": room}
+        return {"ok": False, "model": model, "message": shared.redact_secrets(exc.message), "gpu_fit": False}
+    # Ollama is its own program and puts the model on the GPU whatever Use GPU
+    # says; Use GPU only moves Whisper there too.
+    room = _gpu_room_note(model, whisper_size if use_gpu else None, bool(use_gpu))
+    return {"ok": room is None, "model": model, "message": room, "gpu_fit": room is not None}
 
 
 _GPU_PAIR_OVERHEAD_MB = 1024
 
 
-def _gpu_room_note(model: str, whisper_size: Optional[str]) -> Optional[str]:
-    """Why the model and Whisper may not fit in graphics memory, or None. Without
-    it a model refused by the keep-free reserve (TranslateGemma 27B beside another
-    program on the GPU) only failed after Start, once Whisper had loaded and the
-    first chunks were waiting. It counts what Start does: Whisper's load first
-    unloads every Ollama model (when Settings lets it), then the model loads again."""
+def _gpu_room_note(model: str, whisper_size: Optional[str], use_gpu: bool = True) -> Optional[str]:
+    """Why the model (and Whisper, when it runs on the GPU) may not fit in graphics
+    memory, or None. Without it a model that does not fit (TranslateGemma 27B on a
+    12 GB card) only showed after Start, as lines skipped to keep up. It counts
+    what Start does: with Use GPU, Whisper's load first unloads every Ollama model
+    (when Settings lets it), then the model loads again. It warns with the
+    keep-free reserve at 0 too: a model that spills onto the CPU is too slow for Live."""
     import memory_headroom
     import ollama_unload
     footprint = memory_headroom.ollama_footprint(settings_service.ollama_url(), model)
@@ -230,23 +252,33 @@ def _gpu_room_note(model: str, whisper_size: Optional[str]) -> Optional[str]:
     if not footprint or reading is None:
         return None
     load_mb, loaded, resident_mb = footprint
-    unloads = ollama_unload.is_enabled()
+    unloads = use_gpu and ollama_unload.is_enabled()
     free_mb = reading[1] + (resident_mb if unloads else 0)
     ollama_mb = load_mb if unloads or not loaded else 0
     key = memory_headroom.whisper_key(whisper_size or "")
     # A Whisper an earlier session left loaded in this process already holds its memory.
     cached = f"{whisper_size}_gpu" in whisper_models._whisper_model_cache
-    whisper_mb = 0 if cached else (memory_headroom.estimate_mb("whisper", whisper_size or "") or (0, 0))[0]
+    whisper_mb = 0 if cached or not whisper_size else (
+        memory_headroom.estimate_mb("whisper", whisper_size) or (0, 0))[0]
     label = f"{model} and Whisper {key}" if whisper_mb else model
     # Two programs on the card each hold their own CUDA runtime; on the V100 ja-1.5b
     # beside TranslateGemma 12B took about 1 GB more than its Whisper estimate.
     overhead_mb = _GPU_PAIR_OVERHEAD_MB if whisper_mb and ollama_mb else 0
-    try:
-        memory_headroom.check_need(label, ollama_mb + whisper_mb + overhead_mb, "vram", free_mb=free_mb)
-    except memory_headroom.HeadroomError as exc:
-        verb = "need" if whisper_mb else "needs"
-        return (str(exc).replace(f"Not loading {label}: it needs", f"{label} may not fit: {'they' if whisper_mb else 'it'} {verb}", 1))
-    return None
+    need_mb = ollama_mb + whisper_mb + overhead_mb
+    reserved = memory_headroom.reserved_mb("vram")
+    if not need_mb or free_mb - need_mb >= reserved:
+        return None
+    kept = f", {_gb(reserved)} kept free for other programs" if reserved > 0 else ""
+    advice = ("Pick a smaller model, such as translategemma:12b" if model != LIVE_SMALL_CARD_MODEL
+              else "Pick a smaller model")
+    if whisper_mb:
+        advice += ", or turn off Use GPU"
+    return (f"{label} may not fit in graphics memory (need about {_gb(need_mb)}, {_gb(free_mb)} free{kept}). "
+            f"{advice}.")
+
+
+def _gb(mb: float) -> str:
+    return f"{max(mb, 0) / 1024:.1f} GB"
 
 
 def _language_whisper_defaults() -> dict:
@@ -280,14 +312,17 @@ def form_options() -> dict:
         "max_url_len": MAX_URL_LEN,
         "player_heights": list(live_player.HEIGHTS),
         "default_engine": LIVE_DEFAULT_ENGINE,
-        # The model Start runs when none is chosen, which Settings can change.
-        "default_model": engine_registry.effective_default_model(LIVE_DEFAULT_ENGINE),
+        # The model Start runs when none is chosen, which Settings or the card's memory changes.
+        "default_model": live_default_model(LIVE_DEFAULT_ENGINE),
         "thinking_switch_engines": list(thinking.NO_THINKING_ENGINES),
         # Per language, only where a better-than-default model is already downloaded.
         "language_whisper_defaults": _language_whisper_defaults(),
+        "spend_limit_range": list(live_spend_service.SESSION_LIMIT_RANGE),
+        # A monthly cap bounds every session already, so the form hides the session limit then.
+        "monthly_cap_set": bool(translate_run_service.month_cap_usd()),
         "defaults": {k: defaults[k].default for k in (
             "source_language", "whisper_size", "segment_seconds", "overlap_seconds",
-            "max_minutes", "player_height")},
+            "max_minutes", "player_height", "spend_limit_usd")},
     }
 
 
@@ -320,6 +355,15 @@ def set_stats(session_id: str, numbers: dict) -> None:
         entry = _sessions.get(session_id)
         if entry is not None:
             entry.setdefault("stats", {}).update(clean)
+
+
+def set_player_running(session_id: str, running: bool) -> None:
+    """Whether the session's delayed player records now (it stops when the
+    stream breaks and starts again after a reconnect)."""
+    with _lock:
+        entry = _sessions.get(session_id)
+        if entry is not None:
+            entry["player_running"] = bool(running)
 
 
 def _remove_dir(session_id: str):
@@ -407,7 +451,8 @@ def _make_target(session_id: str, chat=None):
                     *args, proxy=proxy.url,
                     report_stage=functools.partial(job_stage_service.set_stage, session_id),
                     report_note=functools.partial(add_note, session_id),
-                    report_stats=functools.partial(set_stats, session_id), **kwargs)
+                    report_stats=functools.partial(set_stats, session_id),
+                    report_player=functools.partial(set_player_running, session_id), **kwargs)
         finally:
             if worker is not None:
                 worker.stop()
@@ -507,12 +552,15 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                   reply_without_thinking: bool = True, glossary_drama_id: Optional[int] = None,
                   series_id: Optional[int] = None, delayed_player: bool = False,
                   player_height: int = live_player.DEFAULT_HEIGHT, read_chat: bool = False,
+                  spend_limit_usd: float = live_spend_service.DEFAULT_SESSION_LIMIT_USD,
                   principal=None) -> dict:
     """Starts one live capture session; returns {"session_id": ...}.
     glossary_drama_id: a title whose glossary and language packs the stream's
     translation may use (read-only); NotFoundError when the caller cannot see it.
     series_id: instead, a series: its glossary, and the packs of its
     newest title with a pack choice. Not both.
+    spend_limit_usd: what a paid engine may cost this session when no monthly
+    cap is set (live_spend_service.SessionBudget).
     use_saved_cookies: pass yt-dlp the saved Settings cookies (browser or
     cookies.txt). The router sets it only for a request made at the PC, so
     another device never reads streams as the owner's signed-in account.
@@ -538,6 +586,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     overlap_seconds = _num("overlap_seconds", overlap_seconds, *OVERLAP_RANGE)
     overlap_seconds = min(overlap_seconds, segment_seconds / 2)
     max_minutes = _num("max_minutes", max_minutes, *MAX_MINUTES_RANGE)
+    spend_limit_usd = _num("spend_limit_usd", spend_limit_usd, *live_spend_service.SESSION_LIMIT_RANGE)
     if model is not None and not isinstance(model, str):
         raise InvalidInputError("model must be a string.")
     if glossary_drama_id is not None and series_id is not None:
@@ -573,15 +622,18 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         return _start_registered(session_id, out_dir, url, source_language, whisper_size,
                                  segment_seconds, overlap_seconds, max_minutes, eng, engine_name,
                                  use_gpu, use_saved_cookies, reply_without_thinking, term_hints,
-                                 player_height if delayed_player else 0, chat_video, model)
+                                 player_height if delayed_player else 0, chat_video, model,
+                                 spend_limit_usd)
 
 
 def _start_registered(session_id, out_dir, url, source_language, whisper_size, segment_seconds,
                       overlap_seconds, max_minutes, eng, engine_name, use_gpu,
                       use_saved_cookies, reply_without_thinking, term_hints=None,
-                      player_height=0, chat_video=None, requested_model=None):
+                      player_height=0, chat_video=None, requested_model=None,
+                      spend_limit_usd=live_spend_service.DEFAULT_SESSION_LIMIT_USD):
+    budget = live_spend_service.session_budget(eng, engine_name, spend_limit_usd)
     spend_guard = live_spend_service.LiveSpendGuard(
-        eng, engine_name, functools.partial(_stop_for_spend, session_id))
+        eng, engine_name, functools.partial(_stop_for_spend, session_id), budget)
     chat = None
     if chat_video:
         # Its own engine and guard: engines keep per-request usage on the instance, so sharing the
@@ -590,7 +642,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
         chat = {"video_id": chat_video, "engine": chat_engine, "source_language": source_language,
                 "reply_without_thinking": bool(reply_without_thinking), "term_hints": term_hints,
                 "spend_guard": live_spend_service.LiveSpendGuard(
-                    chat_engine, engine_name, functools.partial(_stop_for_spend, session_id))}
+                    chat_engine, engine_name, functools.partial(_stop_for_spend, session_id), budget)}
     with _lock:
         # One session at a time (a design limit):
         # each holds the GPU and an engine for up to max_minutes. The
@@ -756,6 +808,8 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "source_language": entry.get("source_language"),
             "delayed_player": bool(entry.get("delayed_player")),
             "player_ready": live_player.ready(entry.get("dir")),
+            # The page shows the site's own embed while this is true.
+            "player_stopped": bool(entry.get("delayed_player")) and entry.get("player_running") is False,
             "chat": entry.get("chat") is not None,
             "stream": entry.get("stream"),
             **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},
