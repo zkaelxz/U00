@@ -403,3 +403,18 @@ def test_bulk_title_cancelled_on_its_own_is_not_counted_translated(isolated_db):
         assert results["translated"] == [did]
     finally:
         background_jobs.clear_job(job_id)
+
+
+def test_the_alignment_judge_stops_once_the_monthly_cap_is_reached(monkeypatch):
+    asked = {}
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder", lambda should_stop=None: (lambda texts: None))
+    monkeypatch.setattr(wjs.alignment_judge, "judge_for",
+                        lambda engine, usage_cb=None, should_stop=None: asked.setdefault("stop", should_stop))
+    monkeypatch.setattr(wjs, "_usage_logger", lambda *a: None)
+    month_cap = {"hit": False}
+    monkeypatch.setattr(wjs, "_month_cap_check", lambda choice, engine: lambda: month_cap["hit"])
+    monkeypatch.setattr(wjs.background_jobs, "is_cancel_requested", lambda job_id: False)
+    wjs._alignment_args(1, object(), "claude", "job1", {})
+    assert asked["stop"]() is False
+    month_cap["hit"] = True
+    assert asked["stop"]() is True

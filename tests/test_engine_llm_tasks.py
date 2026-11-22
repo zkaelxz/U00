@@ -731,3 +731,19 @@ def test_failed_flag_batches_are_logged_not_silently_clean(monkeypatch):
     lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(4)]
     llm_tasks.flag_uncertain_lines(lines, FakeFlaggingEngine(), batch_size=2)
     assert seen == ["flag check failed for 2 of 2 batches; their lines were not checked"]
+
+
+def test_a_fallback_chain_asks_the_engine_it_is_on(monkeypatch):
+    from engine_backends import fallback, llm_tasks
+    from engine_backends.gemini import GeminiEngine
+
+    class Chain(fallback.FallbackEngine):
+        def __init__(self, engine):
+            self.engines, self.choices, self.active = [engine], ["gemini"], 0
+
+    engine = GeminiEngine.__new__(GeminiEngine)
+    engine.model = "gemini-x"
+    engine.prompt_body = lambda prompt, system=None: {"p": prompt}
+    engine.generate = lambda body: ({"candidates": [{"content": {"parts": [{"text": "{\"1\": \"ok\"}"}]}, "finishReason": "STOP"}]},
+                                    {"input_tokens": 1, "output_tokens": 1})
+    assert llm_tasks.call_llm_json(Chain(engine), "q", fallback="{}") == '{"1": "ok"}'
