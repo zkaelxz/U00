@@ -20,6 +20,7 @@ import base64
 import html
 import json
 import random
+import secrets
 import re
 import statistics
 import sys
@@ -35,6 +36,7 @@ PAGE_NAME = "blind.html"
 # judged a passage at a time instead of as one wall of text.
 NOVEL_LINES_PER_CARD = 6
 MAX_CARDS = 120
+MAX_VERSIONS = 4
 
 # Suffixes count only after a hyphen ("Mina-san"), since "san" or "chan" alone
 # is often an English word or a name; the rest also stand alone ("Gege!").
@@ -82,6 +84,8 @@ def find_series(root: Path) -> list:
 
 
 def load_series(path: Path, medium: str | None = None, genre: str | None = None) -> Series:
+    # Resolved so a relative path such as "." still yields its medium and genre folders.
+    path = path.resolve()
     medium = medium or path.parent.parent.name
     s = Series(medium, genre or path.parent.name, path.name, path)
     s.originals = _files(path / "original", IMAGE_EXTS if medium == "comic" else {".txt"})
@@ -171,7 +175,7 @@ def score_run(s: Series, run: str) -> dict:
         "chrf": round(chrf(hyp, ref), 3), "chrf_pp": round(chrf(hyp, ref, word_order=2), 3),
         "worst": sorted(per_item.items(), key=lambda kv: kv[1])[:3],
         "length_ratio": round(len(_WORD.findall(hyp)) / max(len(_WORD.findall(ref)), 1), 2),
-        "fingerprint": fingerprint(hyp), "reference_fingerprint": fingerprint(ref),
+        "fingerprint": fingerprint(hyp),
     }
 
 
@@ -201,7 +205,8 @@ def build_report(root: Path) -> str:
             out += ["", "Style fingerprint (the reference column is the target):", "",
                     "| Measure | Reference | " + " | ".join(scored) + " |",
                     "|---|---|" + "---|" * len(scored)]
-            ref_fp = next(iter(scored.values()))["reference_fingerprint"]
+            # The translator's whole reference is the target, whichever items each run covers.
+            ref_fp = fingerprint("\n".join(read_text(p) for p in s.references.values()))
             for key, label in FINGERPRINT_LABELS.items():
                 out.append(f"| {label} | {ref_fp[key]} | " + " | ".join(str(r["fingerprint"][key])
                                                                        for r in scored.values()) + " |")
@@ -256,8 +261,8 @@ def make_blind(series_dir: Path, runs: list, with_reference: bool, seed: int | N
     unknown = [r for r in runs if r not in s.runs]
     if unknown:
         raise SystemExit(f"No such run folder: {', '.join(unknown)} (have: {', '.join(s.runs) or 'none'})")
-    if len(runs) + int(with_reference) < 2:
-        raise SystemExit("A blind test needs at least two versions.")
+    if not 2 <= len(runs) + int(with_reference) <= MAX_VERSIONS:
+        raise SystemExit(f"A blind test needs 2 to {MAX_VERSIONS} versions.")
     rng = random.Random(seed)
     cards, key = [], []
     for n, card in enumerate(_cards(s, runs, with_reference), 1):
@@ -271,12 +276,16 @@ def make_blind(series_dir: Path, runs: list, with_reference: bool, seed: int | N
                       "versions": [[ltr, card["texts"][v]] for ltr, v in zip(letters, order)]})
     if not cards:
         raise SystemExit("No item has every version yet; run `check` to see what is missing.")
-    return _page(s.label, cards), {"series": s.label, "runs": runs, "with_reference": with_reference, "cards": key}
+    # A new build id per page keeps picks saved for an earlier shuffle (or another
+    # series: file:// pages share one browser storage) from being read against this key.
+    build = secrets.token_hex(6)
+    return _page(s.label, cards, build), {"series": s.label, "build": build, "runs": runs,
+                                          "with_reference": with_reference, "cards": key}
 
 
-def _page(label: str, cards: list) -> str:
+def _page(label: str, cards: list, build: str) -> str:
     data = json.dumps(cards, ensure_ascii=False).replace("</", "<\\/")
-    return _PAGE.replace("__TITLE__", html.escape(label)).replace("__DATA__", data)
+    return _PAGE.replace("__TITLE__", html.escape(label)).replace("__BUILD__", build).replace("__DATA__", data)
 
 
 def unblind(key: dict, results: dict) -> str:
@@ -321,7 +330,7 @@ textarea{width:100%;min-height:90px;font:12px monospace;background:var(--surface
 <span id="count"></span></p><button class="btn" id="copy">Copy results</button></header>
 <div id="cards"></div><textarea id="out" readonly aria-label="Results to paste back"></textarea></div>
 <script>
-const CARDS=__DATA__;const KEY="style-blind:"+document.title+":"+CARDS.length;
+const CARDS=__DATA__;const KEY="style-blind:__BUILD__";
 let picks={};try{picks=JSON.parse(localStorage.getItem(KEY)||"{}")}catch(e){}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(picks))}catch(e){}
 document.getElementById("count").textContent=Object.keys(picks).length+" of "+CARDS.length+" marked.";

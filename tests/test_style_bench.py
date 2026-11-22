@@ -91,3 +91,34 @@ def test_cli_writes_page_and_sealed_key(tmp_path, capsys):
     assert (series / style_bench.PAGE_NAME).is_file() and key["runs"] == ["plain", "guide"]
     style_bench.main(["unblind", str(series), json.dumps({"1": "A"})])
     assert "Blind result for novel/xianxia/demo" in capsys.readouterr().out
+
+
+def test_blind_refuses_more_versions_than_letters(tmp_path):
+    series = _novel(tmp_path)
+    for run in ("r3", "r4"):
+        _write(series / "runs" / run / "ch001.txt", "x\ny\nz")
+    with pytest.raises(SystemExit):
+        style_bench.make_blind(series, ["plain", "guide", "r3", "r4"], with_reference=True)
+
+
+def test_relative_series_path_keeps_medium_and_genre(tmp_path, monkeypatch):
+    series = _novel(tmp_path)
+    monkeypatch.chdir(series)
+    assert style_bench.load_series(style_bench.Path(".")).label == "novel/xianxia/demo"
+
+
+def test_each_blind_build_saves_picks_under_its_own_name(tmp_path):
+    series = _novel(tmp_path)
+    page1, key1 = style_bench.make_blind(series, ["plain", "guide"], with_reference=False, seed=1)
+    page2, key2 = style_bench.make_blind(series, ["plain", "guide"], with_reference=False, seed=1)
+    assert key1["build"] != key2["build"]
+    assert f'"style-blind:{key1["build"]}"' in page1 and key1["build"] not in page2
+
+
+def test_reference_column_covers_every_reference_item(tmp_path):
+    pytest.importorskip("sacrebleu")
+    series = _novel(tmp_path)
+    _write(series / "runs" / "other" / "ch002.txt", "She left.")
+    report = style_bench.build_report(tmp_path)
+    ref_words = style_bench.fingerprint("Shixiong's here.\nHe smiled.\nNight fell.\nShe left.")["words_per_sentence"]
+    assert f"| Words per sentence | {ref_words} |" in report
