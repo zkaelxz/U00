@@ -80,7 +80,8 @@ def test_worker_speaks_each_item_and_keeps_going_after_a_failure():
     events, spoken = [], []
 
     def load(spec):
-        def speak(item):
+        def speak(items):
+            (item,) = items
             if item["id"] == "bad":
                 raise RuntimeError("no voice")
             spoken.append(item["id"])
@@ -91,6 +92,83 @@ def test_worker_speaks_each_item_and_keeps_going_after_a_failure():
     assert events == [{"loaded": True}, {"done": "a"},
                       {"failed": "bad", "error": "RuntimeError: no voice"}, {"done": "c"}]
     assert spoken == ["a", "c"]
+
+
+def _pair_items(n, **voice):
+    return [dict({"ref_audio": "a.wav", "ref_text": "", "instruct": "", "language": "en"}, **voice,
+                 id=str(i), text=f"line {i}") for i in range(n)]
+
+
+def test_batches_pair_lines_of_one_voice_in_order_and_only_look_a_little_ahead():
+    items = _pair_items(4)
+    assert [[i["id"] for i in b] for b in voice_worker._batches(items, 2)] == [["0", "1"], ["2", "3"]]
+    lone = _pair_items(1, language="zh") + _pair_items(voice_worker.BATCH_LOOKAHEAD + 1, ref_audio="b.wav")
+    lone.append(dict(lone[0], id="late"))
+    batches = [[i["id"] for i in b] for b in voice_worker._batches(lone, 2)]
+    # The first line's partner is too far ahead to wait for, so it goes alone.
+    assert batches[0] == ["0"] and batches[-1] == ["late"]
+    assert sorted(i for b in batches for i in b) == sorted(i["id"] for i in lone)
+    assert [[i["id"] for i in b] for b in voice_worker._batches(items, 1)] == [["0"], ["1"], ["2"], ["3"]]
+
+
+def test_a_failed_pair_is_retried_one_line_at_a_time(monkeypatch):
+    monkeypatch.setitem(voice_worker.BATCH_SIZES, "fake", 2)
+    calls, events = [], []
+
+    def load(spec):
+        def speak(items):
+            calls.append([i["id"] for i in items])
+            if len(items) > 1:
+                raise RuntimeError("shape mismatch")
+            if items[0]["id"] == "1":
+                raise RuntimeError("no voice")
+        return speak
+
+    voice_worker.run({"engine": "fake", "items": _pair_items(6)}, events.append, adapters={"fake": load})
+    # Not out of memory, so the next pair is still tried together; after two failed
+    # pairs the rest goes one at a time.
+    assert calls == [["0", "1"], ["0"], ["1"], ["2", "3"], ["2"], ["3"], ["4"], ["5"]]
+    assert events == [{"loaded": True}, {"done": "0"}, {"failed": "1", "error": "RuntimeError: no voice"},
+                      {"done": "2"}, {"done": "3"}, {"done": "4"}, {"done": "5"}]
+
+
+def test_out_of_gpu_memory_on_a_pair_drops_the_rest_of_the_run_to_one_line_at_a_time(monkeypatch):
+    import types
+    monkeypatch.setitem(voice_worker.BATCH_SIZES, "fake", 2)
+    emptied = []
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(cuda=types.SimpleNamespace(
+        is_available=lambda: True, empty_cache=lambda: emptied.append(True))))
+    calls, events = [], []
+
+    class OutOfMemoryError(RuntimeError):
+        pass
+
+    def load(spec):
+        def speak(items):
+            calls.append([i["id"] for i in items])
+            if len(items) > 1:
+                raise OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB")
+        return speak
+
+    voice_worker.run({"engine": "fake", "items": _pair_items(4)}, events.append, adapters={"fake": load})
+    assert calls == [["0", "1"], ["0"], ["1"], ["2"], ["3"]]
+    assert events == [{"loaded": True}] + [{"done": str(i)} for i in range(4)]
+    assert emptied == [True]
+
+
+def test_an_engine_that_returns_too_few_clips_fails_the_pair_and_retries_it(monkeypatch):
+    calls, written = _fake_qwen_stack(monkeypatch, major=8)
+
+    def short_answer(self, text, language, voice_clone_prompt):
+        calls.append(("speak", text))
+        return [[0.0, 0.1]], 24000
+    monkeypatch.setattr(_FakeQwenModel, "generate_voice_clone", short_answer)
+    events = []
+    items = [dict(i, out=f"{i['id']}.wav") for i in _pair_items(2, ref_text="嗯")]
+    voice_worker.run({"engine": "qwen3_tts", "items": items}, events.append)
+    assert [c[1] for c in calls if c[0] == "speak"] == [["line 0", "line 1"], ["line 0"], ["line 1"]]
+    assert events == [{"loaded": True}, {"done": "0"}, {"done": "1"}]
+    assert written[-2:] == [("0.wav", 24000), ("1.wav", 24000)]
 
 
 def test_worker_stops_when_the_model_cannot_load():
@@ -225,7 +303,7 @@ class _FakeQwenModel:
 
     def generate_voice_clone(self, text, language, voice_clone_prompt):
         self.calls.append(("speak", text, language, voice_clone_prompt))
-        return [[0.0, 0.1]], 24000
+        return [[0.0, 0.1]] * len(text), 24000
 
 
 def _fake_qwen_stack(monkeypatch, major):
@@ -262,7 +340,7 @@ def test_qwen3_tts_adapter_builds_each_voice_once_and_maps_languages(monkeypatch
     prompts = [c for c in calls if c[0] == "prompt"]
     # One prompt per voice; a clip with no transcript uses only the speaker embedding.
     assert prompts == [("prompt", "a.wav", "嗯", False), ("prompt", "b.wav", None, True)]
-    assert [c[2] for c in calls if c[0] == "speak"] == ["Chinese", "English", "Auto"]
+    assert [c[2] for c in calls if c[0] == "speak"] == [["Chinese"], ["English"], ["Auto"]]
     assert written == [("0.wav", 24000), ("1.wav", 24000), ("2.wav", 24000)]
 
 
@@ -397,9 +475,13 @@ def _fake_omnivoice_stack(monkeypatch, cuda, generated, loaded, written):
         float16="fp16", float32="fp32", cuda=types.SimpleNamespace(is_available=lambda: cuda))
 
     class Model:
+        def create_voice_clone_prompt(self, ref_audio, ref_text):
+            generated.append(("prompt", ref_audio, ref_text))
+            return f"prompt:{ref_audio}:{ref_text}"
+
         def generate(self, **kwargs):
             generated.append(kwargs)
-            return [numpy.full(2400, 0.5, dtype=numpy.float32)]
+            return [numpy.full(2400, 0.5, dtype=numpy.float32) for _ in kwargs["text"]]
 
     omnivoice = types.SimpleNamespace(OmniVoice=types.SimpleNamespace(
         from_pretrained=lambda repo, **kw: (loaded.append((repo, kw)), Model())[1]))
@@ -422,10 +504,30 @@ def test_omnivoice_adapter_clones_from_a_clip_designs_without_one_and_loads_once
     assert events == [{"loaded": True}, {"done": "0"}, {"done": "1"}, {"done": "2"}]
     assert loaded == [("k2-fsa/OmniVoice", {"device_map": "cuda:0", "dtype": "fp16"})]
     # Without the transcript OmniVoice transcribes the clip itself; a voice design needs no clip.
-    assert generated == [{"text": "Hi", "ref_audio": "a.wav", "ref_text": "你好"},
-                         {"text": "Hi", "ref_audio": "a.wav"},
-                         {"text": "Hi", "instruct": "female, low pitch"}]
+    assert generated == [("prompt", "a.wav", "你好"),
+                         {"text": ["Hi"], "voice_clone_prompt": ["prompt:a.wav:你好"]},
+                         ("prompt", "a.wav", None),
+                         {"text": ["Hi"], "voice_clone_prompt": ["prompt:a.wav:None"]},
+                         {"text": ["Hi"], "instruct": "female, low pitch"}]
     assert written == [("0.wav", 24000), ("1.wav", 24000), ("2.wav", 24000)]
+
+
+def test_omnivoice_speaks_two_lines_of_one_voice_at_once_and_encodes_the_clip_once(monkeypatch):
+    generated, loaded, written = [], [], []
+    _fake_omnivoice_stack(monkeypatch, True, generated, loaded, written)
+    narrator = {"language": "en", "ref_audio": "n.wav", "ref_text": "嗯", "instruct": ""}
+    other = {"language": "en", "ref_audio": None, "ref_text": "", "instruct": "male, low pitch"}
+    voices = [narrator, other, narrator, other, narrator]
+    items = [dict(voice, id=str(i), text=f"line {i}", out=f"{i}.wav") for i, voice in enumerate(voices)]
+    events = []
+    voice_worker.run({"engine": "omnivoice", "items": items}, events.append)
+    assert [c for c in generated if isinstance(c, tuple)] == [("prompt", "n.wav", "嗯")]
+    # Pairs share a voice; the leftover narrator line goes alone.
+    assert [c["text"] for c in generated if isinstance(c, dict)] == [
+        ["line 0", "line 2"], ["line 1", "line 3"], ["line 4"]]
+    assert events == [{"loaded": True}, {"done": "0"}, {"done": "2"}, {"done": "1"}, {"done": "3"},
+                      {"done": "4"}]
+    assert sorted(path for path, _ in written) == [f"{i}.wav" for i in range(5)]
 
 
 def test_omnivoice_runs_in_full_precision_on_the_cpu(monkeypatch):

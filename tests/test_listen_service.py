@@ -10,6 +10,7 @@ import pytest
 
 from core import Line
 from services import listen_service
+from voice import dub
 from lib.errors import DependencyUnavailableError, InvalidInputError, NotFoundError
 
 # A GPT-SoVITS address left in .env by an older version.
@@ -185,7 +186,7 @@ class TestRemovedEnginesAndBlockers:
     @pytest.mark.parametrize("key", ["tada", "gpt_sovits"])
     def test_start_refuses_a_character_stored_with_a_removed_engine(self, isolated_db, key):
         did = _drama(isolated_db, [_line(0, "A")])
-        isolated_db.upsert_character(did, "A", clone_engine=key, voice_design="calm")
+        isolated_db.upsert_character(did, "A", clone_engine=key, voice_design="female, low pitch")
         with pytest.raises(InvalidInputError, match="engine was removed"):
             listen_service.start_listen(did, "omnivoice")
         assert isolated_db.list_characters(did)[0]["clone_engine"] == key
@@ -195,6 +196,26 @@ class TestRemovedEnginesAndBlockers:
         did = _drama(isolated_db, [_line(0, "A")])
         with pytest.raises(InvalidInputError, match="Unknown narration language"):
             listen_service.start_listen(did, "omnivoice", "klingon")
+
+
+class TestVoiceDescriptions:
+    def test_a_description_omnivoice_would_refuse_blocks_the_run_with_the_words_it_accepts(self, isolated_db):
+        did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
+        isolated_db.upsert_character(did, "A", character_name="Lin", voice_design="warm audiobook narrator")
+        blocker = listen_service.config_blocker(isolated_db.list_characters(did))
+        assert "Lin" in blocker and "warm audiobook narrator" in blocker and "young adult" in blocker
+
+    def test_a_description_is_only_checked_where_it_would_be_spoken(self, isolated_db):
+        did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
+        isolated_db.upsert_character(did, "A", voice_design="warm", ref_audio_filename="voices/a.wav")
+        isolated_db.upsert_character(did, "B", voice_design="男，老年，低音调")
+        assert dub.engine_blockers(isolated_db.list_characters(did), "omnivoice") == []
+
+    def test_two_of_a_kind_or_an_accent_with_a_dialect_is_refused(self):
+        assert dub.voice_description_problem("male, female")
+        assert dub.voice_description_problem("british accent, 四川话")
+        assert dub.voice_description_problem(" Female ,  Elderly, whisper ") is None
+        assert all(dub.voice_description_problem(d) is None for d in dub.DEFAULT_VOICE_DESCRIPTIONS)
 
 
 class TestSpeakersWithoutAVoice:
@@ -207,7 +228,7 @@ class TestSpeakersWithoutAVoice:
 
     def _title(self, db):
         did = _drama(db, [_line(0, "A"), _line(1, "B"), _line(2, "B", en="")])
-        db.upsert_character(did, "A", character_name="Lin", voice_design="calm")
+        db.upsert_character(did, "A", character_name="Lin", voice_design="female, low pitch")
         db.upsert_character(did, "B", character_name="Wei")
         return did
 
