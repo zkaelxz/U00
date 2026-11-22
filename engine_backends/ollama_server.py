@@ -150,24 +150,78 @@ def model_pulled(base_url: str, model: str) -> bool:
         return False
 
 
-# A pull streams layers for as long as the connection takes; one request waits for all of it.
+# Only a backstop: a pull's progress lines are about 150 bytes each.
+_PULL_MAX_BYTES = 64 * 1024 * 1024
+# Ollama pauses its progress while it verifies a finished layer, so the read timeout is generous;
+# a cancel does not wait for it because the reader runs in its own thread.
+_PULL_READ_TIMEOUT_SECONDS = 300
 PULL_TIMEOUT_SECONDS = 60 * 60
+_PULL_POLL_SECONDS = 0.5
 
 
-def pull_model(base_url: str, model: str) -> None:
-    """Asks the server to pull `model` and returns when it has. Raises ValueError with the
-    server's own reason (redacted) when it refuses; a server that is down raises the http error."""
+def pull_model(base_url: str, model: str, on_progress=None, cancelled=None) -> None:
+    """Pulls `model` through the server's streamed /api/pull and returns when it is in.
+    `on_progress(done_bytes, total_bytes)` is called as layers arrive (the total grows as Ollama
+    names more layers); `cancelled()` is polled about twice a second, and a true answer closes
+    the connection, which makes Ollama stop (the part already fetched is kept for the next try).
+    Returns False when stopped by `cancelled()`, else True. Raises ValueError with the server's
+    own reason (redacted) when it refuses; a server that is down raises the http error."""
+    import queue
+    import threading
+    import time
     from diagnostics_report import redact_for_support
     base_url = settings_schema.normalize_ollama_url(base_url)
-    resp = http.post(f"{base_url}/api/pull", timeout=(5, PULL_TIMEOUT_SECONDS), max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
-                     guard=None, allow_redirects=True, deadline=PULL_TIMEOUT_SECONDS,
-                     json={"model": model, "stream": False})
+    # guard=None: the address is the one the PC owner set in Settings.
+    timeout = (5, _PULL_READ_TIMEOUT_SECONDS)
+    session = http.session(timeout=timeout, guard=None, max_bytes=_PULL_MAX_BYTES)
+    lines: queue.Queue = queue.Queue()
+    holder = {}
+
+    def read():
+        try:
+            resp = session.post(f"{base_url}/api/pull", json={"model": model, "stream": True}, timeout=timeout)
+            holder["resp"] = resp
+            if not resp.ok:
+                lines.put(("error", f"Ollama answered HTTP {resp.status_code}"))
+                return
+            for raw in resp.iter_lines():
+                if raw:
+                    lines.put(("line", raw))
+            lines.put(("end", None))
+        except Exception as exc:
+            lines.put(("down", exc))
+
+    threading.Thread(target=read, daemon=True, name="ollama-pull").start()
+    layers = {}
+    started = time.monotonic()
     try:
-        failure = json.loads(resp.body).get("error")
-    except (ValueError, AttributeError):
-        failure = None
-    if failure:
-        # Ollama's pull errors quote blob paths and registry URLs.
-        raise ValueError(redact_for_support(str(failure))[:200])
-    if not resp.ok:
-        raise ValueError(f"Ollama answered HTTP {resp.status}")
+        while True:
+            if cancelled is not None and cancelled():
+                return False
+            if time.monotonic() - started > PULL_TIMEOUT_SECONDS:
+                raise ValueError("The pull took more than an hour and was stopped.")
+            try:
+                kind, value = lines.get(timeout=_PULL_POLL_SECONDS)
+            except queue.Empty:
+                continue
+            if kind == "end":
+                return True
+            if kind == "error":
+                raise ValueError(value)
+            if kind == "down":
+                raise value
+            try:
+                event = json.loads(value)
+            except ValueError:
+                continue
+            if event.get("error"):
+                # Ollama's pull errors quote blob paths and registry URLs.
+                raise ValueError(redact_for_support(str(event["error"]))[:200])
+            if event.get("digest") and event.get("total"):
+                layers[event["digest"]] = (event.get("completed") or 0, event["total"])
+                if on_progress is not None:
+                    on_progress(sum(c for c, _ in layers.values()), sum(t for _, t in layers.values()))
+    finally:
+        resp = holder.get("resp")
+        if resp is not None:
+            resp.close()
