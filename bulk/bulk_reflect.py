@@ -142,7 +142,7 @@ def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: s
     targets = _copy_english_lines(drama_id, _target_lines(lines, force_retranslate))
     if not targets:
         raise ValueError("Nothing to translate -- every line already has a translation.")
-    batch_size = batch_size or engine_registry.default_batch_size(engine)
+    batch_size = batch_size or engine_registry.default_batch_size(engine, reflect=True)
     pipeline_id = f"reflect_{drama_id}_{uuid.uuid4().hex[:12]}"
     names = _character_names(drama_id)
     batches = []
@@ -232,7 +232,7 @@ def _stage_chunks(job: dict, ids: list, engine):
     current = db.load_line_objects(job["drama_id"])
     wanted, names = set(ids), _character_names(job["drama_id"])
     alive = [ln for ln in current if ln.id in wanted]
-    n = engine_registry.default_batch_size(engine)
+    n = engine_registry.default_batch_size(engine, reflect=True)
     for start in range(0, len(alive), n):
         batch = alive[start:start + n]
         instructions, batch_ctx, source_by_id, _speakers = _reflect_prompt_parts(
@@ -421,7 +421,7 @@ def _stage_over_cap(job: dict, ids: list, engine, remaining_usd: float) -> str |
     wanted = set(ids)
     zh = [ln.zh for ln in db.load_line_objects(job["drama_id"]) if ln.id in wanted]
     estimate = pricing.estimate_translation_cost(
-        engine, zh, engine_registry.default_batch_size(engine)) * 2
+        engine, zh, engine_registry.default_batch_size(engine, reflect=True)) * 2
     if estimate <= remaining_usd:
         return None
     return (f"it would cost about ${estimate:.2f}, more than the ${remaining_usd:.2f} "

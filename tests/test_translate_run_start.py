@@ -245,9 +245,9 @@ def test_api_passes_prompt_toggles_and_validates_them(isolated_db, monkeypatch):
 
 def test_batch_size_over_the_cap_is_refused_with_a_clear_message(isolated_db):
     did = _seed([("你好", "")])
-    with pytest.raises(InvalidInputError, match="can't be more than 60"):
+    with pytest.raises(InvalidInputError, match="can't be more than 90"):
         svc.start_translate_run(did, engine_name="fake", batch_size=200)
-    job_id = svc.start_translate_run(did, engine_name="fake", batch_size=60)["job_id"]
+    job_id = svc.start_translate_run(did, engine_name="fake", batch_size=90)["job_id"]
     # The job thread must not outlive isolated_db's library folder.
     assert job_runner.wait_for_job_threads(5, [job_id])
 
