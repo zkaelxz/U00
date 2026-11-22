@@ -62,6 +62,8 @@ TURNED_OFF = "Updates are turned off for this copy."
 NOT_WINDOWS = "Updating from the website works on Windows only."
 NOT_WINDOWS_RESTART = "Restarting from the website works on Windows only."
 INSTALLED_RESTART = "This copy was installed with Setup, so it can't restart itself yet. Close Baihe and open it again."
+SERVICE_RESTART = ("Baihe runs as a background service on this PC, so closing its window doesn't "
+                   "restart it. Restart the PC to install it.")
 NOT_START_BAT = "Baihe wasn't started with start.bat, so it can't restart itself. Update it on the PC."
 JOBS_RUNNING = "Finish or cancel the running jobs first: the update restarts Baihe."
 NOT_CHECKED = "Check for updates first."
@@ -254,13 +256,20 @@ def _start_helper(pid, port) -> None:
                          close_fds=True)
 
 
+def runs_as_service() -> bool:
+    """The boot service's server: its environment (installer/service_config)
+    asks it to run a queued install as it starts, which only a service
+    restart or a PC restart brings about."""
+    return os.environ.get("BAIHE_APPLY_PENDING") == "1"
+
+
 def restart_problem():
     """Why this copy can't stop and start itself through start.bat, else None.
     No git or branch checks: a restart changes no version of its own."""
     if not us._is_windows():
         return NOT_WINDOWS_RESTART
     if us._is_installed():
-        return INSTALLED_RESTART
+        return SERVICE_RESTART if runs_as_service() else INSTALLED_RESTART
     if os.environ.get(STARTED_BY_ENV) != "1" or not os.path.isfile(os.path.join(_root(), "start.bat")):
         return NOT_START_BAT
     return None

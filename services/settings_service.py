@@ -511,10 +511,12 @@ def get_monthly_cap_usd(env_path: str | None = None) -> float:
 
 
 def month_spend_status() -> dict:
-    """Numbers and a timestamp only: the full month's logged spend, what the
-    cap counts (since an active reset), and when that reset was made."""
+    """Numbers and a timestamp only: the full month's logged spend, the part
+    of it imported with titles from another library, what the cap counts
+    (since an active reset), and when that reset was made."""
     import db
     return {"month_spend_usd": db.get_month_spend(since_reset=False),
+            "month_spend_imported_usd": db.get_imported_month_spend(),
             "month_spend_counted_usd": db.get_month_spend(),
             "month_spend_reset_at": db.get_month_spend_reset_at()}
 

@@ -354,7 +354,7 @@ class TestExportBackupArtifacts:
         time.sleep(1.1)   # backup names carry the second they were made
         assert client.post(f"{BASE}/backup", json={}).status_code == 200
         st = wait_for_job(las.BACKUP_JOB_ID, timeout=15)
-        assert st["status"] == "error" and "could not be written" in st.get("error", "")
+        assert st["status"] == "error" and "failed its check" in st.get("error", "")
         assert {n: open(os.path.join(folder, n), "rb").read() for n in os.listdir(folder)} == good
 
     def test_database_backup_job_info_download(self, client):

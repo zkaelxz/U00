@@ -83,7 +83,7 @@ def test_get_settings_overview_shape(tmp_path, isolated_db):
                              "preferences", "endpoints",
                              "upload_max_mb_from_env", "effective_upload_max_mb",
                              "monthly_cap_env_usd", "effective_monthly_cap_usd", "month_spend_usd",
-                             "month_spend_counted_usd", "month_spend_reset_at", "choices"}
+                             "month_spend_imported_usd", "month_spend_counted_usd", "month_spend_reset_at", "choices"}
     assert overview["engine_keys"]["claude"] is True
     assert isinstance(overview["gpu_limit_enabled"], bool)
     assert isinstance(overview["notify_on_completion"], bool)

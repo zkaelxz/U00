@@ -89,8 +89,8 @@ STAGED, STOPPING, SWITCHING, CHECKING, DONE, QUEUED = (
     "staged", "stopping", "switching", "checking", "done", "queued")
 STATES = (STAGED, STOPPING, SWITCHING, CHECKING, DONE, QUEUED)
 # result codes the server turns into plain words
-RESULT_CODES = ("updated", "queued", "not_started", "rolled_back_health", "rolled_back_switch",
-                "recovered", "broken")
+RESULT_CODES = ("updated", "updated_unrecorded", "queued", "not_started", "rolled_back_health",
+                "rolled_back_switch", "recovered", "broken")
 
 # Set for the start right after a switch was queued (Launcher.open_window).
 DEFER_ENV = "BAIHE_APP_UPDATE_DEFER"
@@ -711,9 +711,19 @@ def apply(root, launcher=None, sleep=time.sleep, notify=None, recovery=True) -> 
             return "rolled_back_switch"
         _record(root, journal, CHECKING, 2)
         if launcher.start_and_check():
-            finish(root, journal)
+            code = "updated"
+            try:
+                finish(root, journal)
+            except (OSError, SwapError):
+                # The new version runs, but manifest.json still names the old
+                # one (a full disk), so the app would re-offer this update
+                # with no word. Say so rather than leave the person in silence.
+                code = "updated_unrecorded"
+                log(root, f"{new} runs but its version could not be recorded")
+                with contextlib.suppress(OSError):
+                    write_result(root, code, old, new)
             launcher.open_window()
-            return "updated"
+            return code
         log(root, f"{new} didn't answer /api/health; going back to {old}")
         launcher.stop()
         try:
@@ -791,7 +801,8 @@ def main(argv=None) -> int:
         code = recover(root)
         if code == "broken":
             _message(BROKEN_MESSAGE)
-    return 0 if code in (None, "updated", "queued", "recovered", "not_started", "busy") else 1
+    return 0 if code in (None, "updated", "updated_unrecorded", "queued", "recovered",
+                         "not_started", "busy") else 1
 
 
 if __name__ == "__main__":
