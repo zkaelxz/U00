@@ -119,7 +119,7 @@ test('Settings: a member gets no keys, engines or system tabs and no sharing lis
   await expect(page.getByRole('switch', { name: 'Find' })).toHaveCount(1)
   await expect(page.getByText('Stronger translation for hard lines')).toHaveCount(0)
   // The admin-only per-item sharing list is hidden, not just refused.
-  await expect(sharing.getByRole('list', { name: 'Titles and series' })).toHaveCount(0)
+  await expect(sharing.getByRole('group', { name: 'Titles and series' })).toHaveCount(0)
   expect(refused).toEqual([])
 
   await shareDefault.click()

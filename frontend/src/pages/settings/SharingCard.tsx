@@ -5,7 +5,8 @@
  * its owner and a Shared/Private switch; the server allows a flip only by
  * the owner or an admin and explains a refusal (409) in plain words, which
  * is shown as is. Other people's per-item switches live only here, for admins.
- * Admins also pick each item's owner (an account or the PC); away from the PC
+ * Admins also pick each item's owner (an account or the PC) once there is an
+ * account to pick, since a lone "PC owner" choice changes nothing; away from the PC
  * the server allows that, like a flip, only for their own and PC-made items.
  * Items with no owner (made at the PC or with sign-in off) are stored private,
  * so the list notes that, badges them and can filter to the private ones.
@@ -33,6 +34,7 @@ import {
   canSeeAllItems,
   filterPcPrivate,
   followsSeries,
+  groupBySharing,
   isSharingForbidden,
   isShared,
   itemKey,
@@ -40,6 +42,7 @@ import {
   mergePage,
   seriesNote,
   shareDefaultHelp,
+  showOwnerPicker,
   sharingErrorText,
   sharingStatusLabel,
 } from './sharing'
@@ -236,6 +239,57 @@ function SharingItems({ owners }: { owners: boolean }) {
     )
   }
 
+  const renderRow = (item: SharingItem) => {
+    const key = itemKey(item)
+    const title = itemTitle(item)
+    const kindLabel = item.kind === 'series' ? 'Series' : 'Title'
+    return (
+      <li key={key} className={followsSeries(item) ? 'sharing-in-series' : undefined} data-testid={`sharing-${key}`}>
+        <div className="status-row sharing-row">
+          <span className="status-row-name">
+            {title}
+            <span className="settings-note sharing-meta">
+              {kindLabel} · Owner: {item.owner_name}
+            </span>
+            {item.created_at_pc && <span className={badgeClass('neutral')}>Created at the PC</span>}
+          </span>
+          {owners && showOwnerPicker(item, people) && (
+            <select
+              className="sharing-owner"
+              aria-label={`Owner of ${kindLabel.toLowerCase()} “${title}”`}
+              value={item.owner_user_id == null ? 'pc' : String(item.owner_user_id)}
+              disabled={busyKey === key}
+              onChange={(e) => changeOwner(item, e.target.value)}
+            >
+              <option value="pc">PC owner</option>
+              {item.owner_user_id != null && !people.some((p) => p.id === item.owner_user_id) && (
+                <option value={String(item.owner_user_id)}>{item.owner_name}</option>
+              )}
+              {people.map((p) => (
+                <option key={p.id} value={String(p.id)}>{p.name}</option>
+              ))}
+            </select>
+          )}
+          <span className="sharing-status">{sharingStatusLabel(item)}</span>
+          {!followsSeries(item) && (
+            <Toggle
+              checked={isShared(item)}
+              disabled={busyKey === key}
+              aria-label={`Share ${kindLabel.toLowerCase()} “${title}” with the household`}
+              onChange={(next) => flip(item, next)}
+            />
+          )}
+        </div>
+        {followsSeries(item) && <p className="settings-note">{seriesNote(item)}</p>}
+        {rowError?.key === key && (
+          <p className="error" role="alert">
+            {rowError.text}
+          </p>
+        )}
+      </li>
+    )
+  }
+
   return (
     <div className="settings-group">
       <h2 className="settings-subhead subhead">Every title and series</h2>
@@ -263,58 +317,16 @@ function SharingItems({ owners }: { owners: boolean }) {
       ) : pcOnly && filterPcPrivate(items).length === 0 ? (
         <p className="muted">No private items created at the PC{items.length < total ? ' in the items shown so far' : ''}.</p>
       ) : (
-        <ul className="status-list sharing-list" aria-label="Titles and series">
-          {(pcOnly ? filterPcPrivate(items) : items).map((item) => {
-            const key = itemKey(item)
-            const title = itemTitle(item)
-            const kindLabel = item.kind === 'series' ? 'Series' : 'Title'
-            return (
-              <li key={key} className={followsSeries(item) ? 'sharing-in-series' : undefined} data-testid={`sharing-${key}`}>
-                <div className="status-row sharing-row">
-                  <span className="status-row-name">
-                    {title}
-                    <span className="settings-note sharing-meta">
-                      {kindLabel} · Owner: {item.owner_name}
-                    </span>
-                    {item.created_at_pc && <span className={badgeClass('neutral')}>Created at the PC</span>}
-                  </span>
-                  {owners && (
-                    <select
-                      className="sharing-owner"
-                      aria-label={`Owner of ${kindLabel.toLowerCase()} “${title}”`}
-                      value={item.owner_user_id == null ? 'pc' : String(item.owner_user_id)}
-                      disabled={busyKey === key}
-                      onChange={(e) => changeOwner(item, e.target.value)}
-                    >
-                      <option value="pc">PC owner</option>
-                      {item.owner_user_id != null && !people.some((p) => p.id === item.owner_user_id) && (
-                        <option value={String(item.owner_user_id)}>{item.owner_name}</option>
-                      )}
-                      {people.map((p) => (
-                        <option key={p.id} value={String(p.id)}>{p.name}</option>
-                      ))}
-                    </select>
-                  )}
-                  <span className="sharing-status">{sharingStatusLabel(item)}</span>
-                  {!followsSeries(item) && (
-                    <Toggle
-                      checked={isShared(item)}
-                      disabled={busyKey === key}
-                      aria-label={`Share ${kindLabel.toLowerCase()} “${title}” with the household`}
-                      onChange={(next) => flip(item, next)}
-                    />
-                  )}
-                </div>
-                {followsSeries(item) && <p className="settings-note">{seriesNote(item)}</p>}
-                {rowError?.key === key && (
-                  <p className="error" role="alert">
-                    {rowError.text}
-                  </p>
-                )}
-              </li>
-            )
-          })}
-        </ul>
+        <div role="group" aria-label="Titles and series">
+          {groupBySharing(pcOnly ? filterPcPrivate(items) : items).map((group) => (
+            <div key={group.label}>
+              <h3 className="subhead">{group.label} ({group.items.length})</h3>
+              <ul className="status-list sharing-list" aria-label={`${group.label} titles and series`}>
+                {group.items.map(renderRow)}
+              </ul>
+            </div>
+          ))}
+        </div>
       )}
       {listError && (
         <p className="error" role="alert">

@@ -11,10 +11,12 @@ import {
   filterPcPrivate,
   isPcPrivate,
   followsSeries,
+  groupBySharing,
   itemTitle,
   mergePage,
   seriesNote,
   shareDefaultHelp,
+  showOwnerPicker,
   sharingErrorText,
   sharingStatusLabel,
 } from './sharing'
@@ -130,5 +132,26 @@ describe('sharing helpers', () => {
     expect(sharingErrorText(new ApiError(500, { code: 'internal_error', message: 'KeyError: owner_user_id' }))).not.toMatch(/KeyError/)
     expect(shareDefaultHelp(false, false)).toMatch(/^Off: .*private.*only affects new items/)
     expect(shareDefaultHelp(true, true)).toMatch(/^On: .*list below/)
+  })
+
+  it('groups shared items before private ones, keeping a series and its titles together in list order', () => {
+    const series = item({ kind: 'series', id: 9, is_private: true })
+    const ep = item({ id: 4, series_id: 9, series_is_private: true, is_private: false })
+    const open = item({ id: 2, is_private: false })
+    const hidden = item({ id: 3, is_private: true })
+    const groups = groupBySharing([hidden, series, ep, open])
+    expect(groups.map((g) => g.label)).toEqual(['Shared', 'Private'])
+    expect(groups[0].items).toEqual([open])
+    expect(groups[1].items).toEqual([hidden, series, ep])
+    expect(groupBySharing([open]).map((g) => g.label)).toEqual(['Shared'])
+    expect(groupBySharing([])).toEqual([])
+  })
+
+  it('offers the owner picker only when someone besides the PC owner can be chosen', () => {
+    const pcItem = item({ owner_user_id: null, owner_name: 'PC owner', created_at_pc: true })
+    expect(showOwnerPicker(pcItem, [])).toBe(false)
+    expect(showOwnerPicker(pcItem, [{ id: 2, name: 'Ann' }])).toBe(true)
+    // An item already owned by an account can still be handed back to the PC.
+    expect(showOwnerPicker(item({ owner_user_id: 2 }), [])).toBe(true)
   })
 })
