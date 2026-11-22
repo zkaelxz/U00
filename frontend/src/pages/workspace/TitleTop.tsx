@@ -158,7 +158,8 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
   const focus = focusStep(steps, openStep)
   // On the Check step the phone keeps the main button inside the panel, so the check card stays near the top.
   const mainInPanel = mainInStepsPanel(openStep, current?.key ?? null, home, progress.riskCount ?? null)
-  const showMain = !!current && !mainLinksHere(openStep, current.key, progress.flowOn)
+  const mainIsRun = progress.flowOn || (current?.key === 'transcribe' && !!progress.audioReady && progress.lineCount !== null)
+  const showMain = !!current && !mainLinksHere(openStep, current.key, mainIsRun)
 
   return (
     <>
