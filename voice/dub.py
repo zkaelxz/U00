@@ -14,6 +14,7 @@ speaker) and speaks each line with that speaker's entry.
 """
 
 import os
+import re
 import json
 import hashlib
 
@@ -90,8 +91,8 @@ def clone_engine_supports_language(engine: str, language: str) -> bool:
 
 
 # Engines that load a local model -- dub generation takes the GPU slot for
-# these. Clips are generated one at a time: one shared model on one GPU
-# gains nothing from threads.
+# these. One model on one GPU gains nothing from threads; the worker speaks
+# two lines of one voice per model call instead (voice_worker.BATCH_SIZES).
 LOCAL_MODEL_ENGINES = {"omnivoice", "qwen3_tts", "chatterbox"}
 # Engines whose packages clash with the app's, run through voice_venv. Their lines are
 # spoken in one batch per run so the model loads once.
@@ -213,19 +214,58 @@ def clone_map_from_characters(characters, drama_dir: str,
     return out
 
 
+# The words OmniVoice's voice design accepts (omnivoice 0.2.1, utils/voice_design.py),
+# one set per group it allows only one of. Anything else, such as "warm audiobook
+# narrator", makes OmniVoice refuse every line, which would leave the whole narration
+# silent, so a description is checked before a run starts.
+OMNIVOICE_DESCRIPTION_GROUPS = (
+    {"male", "female", "男", "女"},
+    {"child", "teenager", "young adult", "middle-aged", "elderly", "儿童", "少年", "青年", "中年", "老年"},
+    {"very low pitch", "low pitch", "moderate pitch", "high pitch", "very high pitch",
+     "极低音调", "低音调", "中音调", "高音调", "极高音调"},
+    {"whisper", "耳语"},
+    {f"{a} accent" for a in ("american", "british", "australian", "chinese", "canadian", "indian",
+                             "korean", "portuguese", "russian", "japanese")},
+    {"河南话", "陕西话", "四川话", "贵州话", "云南话", "桂林话", "济南话", "石家庄话", "甘肃话",
+     "宁夏话", "青岛话", "东北话"},
+)
+DESCRIPTION_HELP = ("A voice description is a few of these, separated by commas: male or female; child, "
+                    "teenager, young adult, middle-aged or elderly; very low, low, moderate, high or very "
+                    "high pitch; whisper; an accent such as british accent. For a warmer, audiobook-like "
+                    "voice, give the speaker a reference clip of a narrator instead.")
+
+
+def voice_description_problem(text: str):
+    """Why OmniVoice would refuse `text` as a voice description, else None."""
+    items = [i.strip().lower() for i in re.split(r"[,，]", text or "") if i.strip()]
+    unknown = [i for i in items if not any(i in group for group in OMNIVOICE_DESCRIPTION_GROUPS)]
+    if unknown:
+        return f"OmniVoice doesn't know \u201c{', '.join(unknown)}\u201d. {DESCRIPTION_HELP}"
+    if any(sum(i in group for i in items) > 1 for group in OMNIVOICE_DESCRIPTION_GROUPS):
+        return f"The voice description names two of the same kind (two ages, say). {DESCRIPTION_HELP}"
+    if any(i in OMNIVOICE_DESCRIPTION_GROUPS[4] for i in items) and any(
+            i in OMNIVOICE_DESCRIPTION_GROUPS[5] for i in items):
+        return f"A voice description can't have both an accent and a Chinese dialect. {DESCRIPTION_HELP}"
+    return None
+
+
 def engine_blockers(characters, tts_engine) -> list:
-    """Plain messages for every stored engine that can no longer generate:
-    the run's own engine and each character's clone_engine. Empty means
-    nothing stands in the way. The rows themselves are never touched."""
+    """Plain messages for everything stored that can no longer generate: the
+    run's own engine, each character's clone_engine, and a voice description
+    OmniVoice would refuse (only where it is used: a speaker with no clip).
+    Empty means nothing stands in the way. The rows themselves are never touched."""
     out = []
     refusal = engine_refusal(tts_engine)
     if refusal:
         out.append(refusal)
     for c in characters:
+        name = c.get("character_name") or c["speaker_label"]
         engine = c.get("clone_engine")
         if engine and engine_refusal(engine):
-            name = c.get("character_name") or c["speaker_label"]
             out.append(f"{name}: {engine_refusal(engine)}")
+        design = (c.get("voice_design") or "").strip()
+        if design and not c.get("ref_audio_filename") and voice_description_problem(design):
+            out.append(f"{name}: {voice_description_problem(design)}")
     return out
 
 

@@ -19,7 +19,7 @@ from voice import dub_narration
 import novel_text
 from voice import voice_venv
 from jobs import job_launch
-from services import ownership_service
+from services import ownership_service, settings_service
 from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError
 
 NARRATION_LANGUAGE_OPTIONS = ["translation", "original"]
@@ -242,6 +242,11 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
     db.update_drama(drama_id, status="dubbed")
 
 
+def _narration_pace() -> float:
+    pace = settings_service.get("narration_pace")
+    return float(pace) if isinstance(pace, (int, float)) else 1.0
+
+
 def narration_job_id(drama_id: int) -> str:
     # Kept as dub_<id> so jobs started before the Dub stage was removed still resolve.
     return f"dub_{drama_id}"
@@ -287,7 +292,8 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
     # Keyword-bound so background_jobs' trailing result_queue lands on the
     # worker's result_queue parameter (declared before these options).
     worker = functools.partial(dub_narration.build_narration_subprocess_worker,
-                               narrate_original=narrate_original, source_language=source_lang)
+                               narrate_original=narrate_original, source_language=source_lang,
+                               pace=_narration_pace())
     started = job_launch.start_process_job(
         job_id, worker, args=(lines, ddir, clone_map),
         gpu_touching=dub.clone_map_uses_local_model(clone_map),

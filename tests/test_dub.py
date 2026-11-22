@@ -230,7 +230,7 @@ class TestBuildNarrationTrack:
         # lines would share one -- see TestNarrationTTSUnits).
         lines = [Line(idx=0, start=0, end=0, zh="x", en="First", speaker="A"),
                  Line(idx=1, start=0, end=0, zh="y", en="Second", speaker="B")]
-        dub_narration.build_narration_track(lines, str(tmp_path), ALL, gap_ms=350)
+        dub_narration.build_narration_track(lines, str(tmp_path), ALL)
 
         assert lines[0].start == 0.0
         assert lines[0].end == 2.0
@@ -248,7 +248,7 @@ class TestBuildNarrationTrack:
         speak_with(monkeypatch, lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
 
         lines = [Line(idx=0, start=0, end=0, zh="x", en="fails")]
-        out_path, errors = dub_narration.build_narration_track(lines, str(tmp_path), ALL, gap_ms=350)
+        out_path, errors = dub_narration.build_narration_track(lines, str(tmp_path), ALL)
 
         assert len(errors) == 1
         assert lines[0].end == pytest.approx(0.35)
@@ -309,6 +309,13 @@ class TestLongNarrationTrack:
         cmd = ffmpeg.cmd
         assert cmd[cmd.index("-f") + 1] == "s16le" and cmd[cmd.index("-ar") + 1] == "24000"
         assert cmd[cmd.index("-ac") + 1] == "1" and cmd[-1] == str(tmp_path / "t.flac")
+
+    def test_a_slower_pace_goes_through_ffmpeg_atempo_even_when_it_fits_a_wav(self, monkeypatch, tmp_path):
+        track, ffmpeg = _Track(), _FakeFfmpeg()
+        monkeypatch.setattr(dub_narration.subprocess, "Popen", ffmpeg)
+        dub_narration._export_flac(track, str(tmp_path / "t.flac"), pace=0.92)
+        assert not track.exported and bytes(ffmpeg.fed) == track.raw_data
+        assert ffmpeg.cmd[ffmpeg.cmd.index("-af") + 1] == "atempo=0.9200"
 
     def test_an_ffmpeg_failure_says_what_ffmpeg_said(self, monkeypatch, tmp_path):
         monkeypatch.setattr(dub_narration, "WAV_MAX_DATA_BYTES", 4)

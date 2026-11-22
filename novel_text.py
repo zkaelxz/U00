@@ -83,6 +83,15 @@ def is_volume_heading_text(text: str) -> bool:
     return bool(_VOLUME_HEADING_RE.match(text))
 
 
+def heading_title(text: str):
+    """What a line that opens with chapter labels says after them, letters and digits
+    only ("第1章 第一章 “若是我早些……" -> "若是我早些"), or None when it opens with none."""
+    rest, found = (text or "").strip(), False
+    while (match := _CHAPTER_HEADING_RE.match(rest)) is not None and match.end():
+        rest, found = rest[match.end():].lstrip(" \t:：.-–—"), True
+    return re.sub(r"[\W_]+", "", rest).lower() if found else None
+
+
 def is_chapter_heading(ln) -> bool:
     return is_heading_text(ln.zh) or is_heading_text(ln.en)
 
