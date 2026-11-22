@@ -48,11 +48,11 @@ import {
 const TITLE = 'Notifications'
 
 // `notifyToggle` is the "notify me when a job finishes" switch, which belongs with the channels it notifies through.
-export function NotificationsSection({ notifyToggle }: { notifyToggle: ReactNode }) {
-  return <NotificationControls notifyToggle={notifyToggle} />
+export function NotificationsSection({ notifyToggle, popupOn }: { notifyToggle: ReactNode; popupOn: boolean }) {
+  return <NotificationControls notifyToggle={notifyToggle} popupOn={popupOn} />
 }
 
-function NotificationControls({ notifyToggle }: { notifyToggle: ReactNode }) {
+function NotificationControls({ notifyToggle, popupOn }: { notifyToggle: ReactNode; popupOn: boolean }) {
   const [status, setStatus] = useState<NotificationStatus | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [testing, setTesting] = useState(false)
@@ -117,7 +117,7 @@ function NotificationControls({ notifyToggle }: { notifyToggle: ReactNode }) {
   return (
     <Card
       title={TITLE}
-      meta={status ? notificationSummary(status) : undefined}
+      meta={notificationSummary(status, popupOn)}
       aria-label={TITLE}
       actions={
         status && (
@@ -163,6 +163,7 @@ function NotificationControls({ notifyToggle }: { notifyToggle: ReactNode }) {
                     <ChannelForm
                       channel={c.channel}
                       configured={configured}
+                      ntfyAllowLocal={status.ntfy_allow_local}
                       onResult={(channel, ok) =>
                         setStatus((cur) =>
                           cur ? { ...cur, [channel === 'discord' ? 'discord_configured' : 'ntfy_configured']: ok } : cur,
@@ -196,12 +197,6 @@ function NotificationControls({ notifyToggle }: { notifyToggle: ReactNode }) {
             <p className="settings-note">{CATEGORIES_NOTE}</p>
           </div>
           <PcNameField status={status} onSaved={setStatus} onError={setError} />
-          <p className="settings-note" data-testid="ntfy-local-note">
-            {status.ntfy_allow_local
-              ? 'A local ntfy server (on this PC or your home network) is allowed.'
-              : 'A local ntfy server needs BAIHE_NTFY_ALLOW_LOCAL=1 in .env on the Baihe PC.'}
-          </p>
-          <p className="settings-note">{SAVED_ON_PC_NOTE}</p>
         </>
       )}
     </Card>
@@ -260,10 +255,11 @@ function PcNameField({
 type FormProps = {
   channel: NotificationChannel
   configured: boolean
+  ntfyAllowLocal: boolean
   onResult: (channel: NotificationChannel, configured: boolean) => void
 }
 
-function ChannelForm({ channel, configured, onResult }: FormProps) {
+function ChannelForm({ channel, configured, ntfyAllowLocal, onResult }: FormProps) {
   const meta = CHANNELS.find((c) => c.channel === channel)!
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -321,6 +317,14 @@ function ChannelForm({ channel, configured, onResult }: FormProps) {
           }}
         />
       </Field>
+      <p className="settings-note">{SAVED_ON_PC_NOTE}</p>
+      {channel === 'ntfy' && (
+        <p className="settings-note" data-testid="ntfy-local-note">
+          {ntfyAllowLocal
+            ? 'A local ntfy server (on this PC or your home network) is allowed.'
+            : 'A local ntfy server needs BAIHE_NTFY_ALLOW_LOCAL=1 in .env on the Baihe PC.'}
+        </p>
+      )}
       <div className="settings-actions">
         <ConfirmButton
           label="Save…"

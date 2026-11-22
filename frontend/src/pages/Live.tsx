@@ -28,6 +28,7 @@ import { getAllSeries } from '../api/library'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
 import { Field } from '../components/Field'
 import { HelpTip } from '../components/HelpTip'
+import { SettingsMentions } from '../components/SettingLink'
 import { PageShell } from '../components/PageShell'
 import { ModelSelect } from '../components/ModelSelect'
 import { Section } from '../components/Section'
@@ -409,7 +410,7 @@ export default function LivePage() {
               </button>
             )}
           </div>
-          {!active && blocker && <p className="muted">{blocker}</p>}
+          {!active && blocker && <p className="muted"><SettingsMentions text={blocker} /></p>}
           {!active && needList.length > 0 && <div className="stack">{needList.map((n) => <NeedsInstall key={n.id} need={n} />)}</div>}
           {pc === 'remote' && !active && !holdsImport && (
             <p className="muted">From this device, starting needs the owner to allow importing from links.</p>

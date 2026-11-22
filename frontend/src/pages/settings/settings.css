@@ -107,3 +107,6 @@
 .settings-page .section-body > p { margin: 0; }
 .settings-page [data-testid='month-counter'] { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
 .settings-page [data-testid='month-counter'] > * { margin: 0; }
+
+.alert-limits { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.alert-limits input[type='number'] { width: 5.5rem; }

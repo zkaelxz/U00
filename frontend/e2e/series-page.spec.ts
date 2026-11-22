@@ -94,7 +94,7 @@ test('opens a series from the Library and uses every tab', async ({ page }) => {
   const posts = await mockSeries(page)
   await page.goto('/')
   await page.getByText('Series (2)').click()
-  await page.getByRole('link', { name: 'Saga', exact: true }).click()
+  await page.getByRole('link', { name: /^Saga/ }).first().click()
   await expect(page).toHaveURL(/#\/series\/9$/)
   await expect(page.getByRole('heading', { name: 'Saga' })).toBeVisible()
   await expect(page.getByTestId('series-meta')).toHaveText('2 titles · 1 glossary term · 2 series characters')

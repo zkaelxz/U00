@@ -59,10 +59,12 @@ export function itemName(i: QueueItem): string {
   return `${STEP_LABELS[i.step]} ${i.title}`
 }
 
-export function runStateText(q: QueueState): string {
+/** Null for an empty idle queue: the list below already says there are no steps, so a second "nothing" line would repeat it. */
+export function runStateText(q: QueueState): string | null {
   if (q.state === 'running') return 'Running: one item at a time.'
   if (q.state === 'paused') return 'Paused: no new item starts. A running one finishes.'
-  return waitingCount(q.items) ? 'Not running.' : 'Nothing waiting.'
+  if (waitingCount(q.items)) return 'Not running.'
+  return q.items.length ? 'Nothing waiting.' : null
 }
 
 export function scheduleText(s: QueueSchedule | null, now: Date = new Date()): string | null {
