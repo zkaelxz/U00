@@ -51,7 +51,7 @@ def test_lists_each_model_with_whether_it_is_on_disk(client, models):
     state["sensevoice"] = True
     body = client.get("/api/diagnostics/model-downloads").json()
     assert {m["id"]: m["downloaded"] for m in body["models"]} == {
-        "qwen3_asr": False, "sensevoice": True, "manga_ocr": False, "lama_manga": False, "nemotron_diarization": False, "pyannote_diarization": False,
+        "qwen3_asr": False, "sensevoice": True, "manga_ocr": False, "bge_m3": False, "lama_manga": False, "nemotron_diarization": False, "pyannote_diarization": False,
         "whisper_large_v3": False, "whisper_large_v3_turbo": False, "whisper_ja_1_5b": False,
         "whisper_kotoba_v2": False, "whisper_medium": False, "whisper_anime": False,
         "whisper_breeze_asr_25": False}
@@ -264,3 +264,47 @@ def test_sensevoice_download_cancel_stops_the_child(monkeypatch, tmp_path):
     with pytest.raises(background_jobs.JobCancelled):
         svc._fetch_modelscope(lambda f, m: None, lambda: True)
     assert time.monotonic() - started < 15
+
+
+def test_bge_m3_is_ready_once_ollama_lists_it_and_a_missing_server_counts_as_not_ready(monkeypatch):
+    from engine_backends import ollama_server
+    monkeypatch.setattr(ollama_server, "_tag_entries", lambda url, timeout=5: [{"name": "bge-m3:latest"}])
+    assert ollama_server.model_pulled("http://o:1", "bge-m3")
+
+    def down(url, timeout=5):
+        raise OSError("refused")
+    monkeypatch.setattr(ollama_server, "_tag_entries", down)
+    assert not ollama_server.model_pulled("http://o:1", "bge-m3")
+
+
+def test_pulling_bge_m3_says_plainly_when_ollama_is_down_or_refuses(monkeypatch):
+    from engine_backends import ollama_server
+    monkeypatch.setattr(ollama_server, "check_ollama_reachable", lambda url: False)
+    with pytest.raises(svc.ModelDownloadFailed, match="isn't running"):
+        svc._fetch_bge_m3(lambda *a: None, lambda: False)
+
+    monkeypatch.setattr(ollama_server, "check_ollama_reachable", lambda url: True)
+
+    def refuse(url, model):
+        raise ValueError("pull model manifest: file does not exist")
+    monkeypatch.setattr(ollama_server, "pull_model", refuse)
+    with pytest.raises(svc.ModelDownloadFailed, match="could not pull bge-m3"):
+        svc._fetch_bge_m3(lambda *a: None, lambda: False)
+
+
+def test_pull_model_posts_the_model_and_raises_the_servers_error(monkeypatch):
+    from engine_backends import ollama_server
+    from lib import http
+    sent = {}
+
+    class Resp:
+        ok, status, body = False, 500, b'{"error": "write /usr/share/ollama/blobs/x: no space left"}'
+
+    def post(url, **kw):
+        sent.update(url=url, json=kw["json"], timeout=kw["timeout"])
+        return Resp()
+    monkeypatch.setattr(http, "post", post)
+    with pytest.raises(ValueError, match="no space left") as caught:
+        ollama_server.pull_model("http://o:1", "bge-m3")
+    assert "/usr/share" not in str(caught.value)
+    assert sent["url"].endswith("/api/pull") and sent["json"] == {"model": "bge-m3", "stream": False}

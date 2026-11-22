@@ -37,6 +37,7 @@ import { runInstallJob } from '../diagnostics/installJob'
 import { useInstallPlan } from '../diagnostics/useInstallPlan'
 import { formatSizeMb } from '../../labels'
 import { SchemaCard } from './SchemaCard'
+import { SourceMatchModel } from './SourceMatchModel'
 
 const grid = { display: 'grid', gap: 'var(--space-3)' } as const
 
@@ -55,15 +56,18 @@ type AdvancedProps = Props & { openSignal?: number; uploadsSignal?: number }
 export function DefaultsCard({ schema, settings, onSettings }: Props) {
   const p = settings.preferences
   return (
-    <SchemaCard
-      schema={schema}
-      settings={settings}
-      onSettings={onSettings}
-      section="Translation style"
-      as="card"
-      title="Translation style"
-      summary={`${humanize('locale', p.default_locale)}${p.default_style_note ? ' · style note' : ''}`}
-    />
+    <>
+      <SchemaCard
+        schema={schema}
+        settings={settings}
+        onSettings={onSettings}
+        section="Translation style"
+        as="card"
+        title="Translation style"
+        summary={`${humanize('locale', p.default_locale)}${p.default_style_note ? ' · style note' : ''}`}
+      />
+      <SourceMatchModel />
+    </>
   )
 }
 
