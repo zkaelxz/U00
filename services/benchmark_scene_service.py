@@ -208,7 +208,7 @@ class SceneRunner:
         lang = scene[0].get("source_language") if scene[0].get("source_language") in SOURCE_LANGUAGES else "zh"
         lines = [Line(idx=i, start=float(i), end=i + 0.5, zh=c.get("source_text") or "", id=c["id"])
                  for i, c in enumerate(scene)]
-        spent = [0.0]
+        spent, refused = [0.0], []
 
         def usage_cb(tokens_in, tokens_out, cache_read=0, cache_write=0):
             cost = engine_pricing.estimate_cost_for_engine(self.engine, tokens_in, tokens_out, cache_read, cache_write)
@@ -227,7 +227,7 @@ class SceneRunner:
                 context_window=options["context_window"], context_window_ahead=options["context_window_ahead"],
                 reflect=options["reflect"], scene_aware_batches=False, translate_by_sentence=False,
                 cost_cap_usd=remaining_usd, cancel_check_cb=self.is_cancelled, usage_cb=usage_cb,
-                temperature=options["temperature"])
+                cap_cb=refused.append, temperature=options["temperature"])
         except Exception as exc:
             failure, stop_reason = redact(exc, self.api_key), paid_calls.stop_reason_for(exc)
         # Matched back to the case by its id, never by position.
@@ -240,22 +240,27 @@ class SceneRunner:
         stopped = last_failed >= 0 and not any(ln.en for ln in lines[last_failed + 1:]) and not self.is_cancelled()
         stopped_by = redact(failed[lines[last_failed].id] if stopped else None, self.api_key)
         run_error = redact(no_lines[-1] if no_lines and not self.is_cancelled() else None, self.api_key)
-        capped = remaining_usd is not None and spent[0] >= remaining_usd
+        # A batch priced above what is left is never sent, so the cap can stop a scene before
+        # its spend reaches it, even before its first batch.
+        capped = bool(refused) or (remaining_usd is not None and spent[0] >= remaining_usd)
         weight = {ln.id: max(len(ln.zh), 1) for ln in lines}
         elapsed = time.monotonic() - started
         self.total += spent[0]
         out = {}
         for p, ln in enumerate(lines):
             share = weight[ln.id] / sum(weight.values())
-            error = None
+            error, over_budget = None, False
             if not ln.en:
                 unsent = (stopped_by if 0 <= last_failed < p else None) or run_error
-                error = failure or redact(failed.get(ln.id), self.api_key) or (
+                error = failure or redact(failed.get(ln.id), self.api_key)
+                over_budget = capped and not error
+                error = error or (
                     "Stopped at the spending cap." if capped else
                     f"Not translated: the run stopped after an error ({unsent})." if unsent else
                     "The engine returned no translation for this line.")
             out[ln.id] = {"output_text": ln.en or "", "error": error, "cost_usd": spent[0] * share, "usage": {},
-                          "duration_seconds": elapsed * share, "stop_reason": stop_reason, "usage_logged": True}
+                          "duration_seconds": elapsed * share, "stop_reason": stop_reason, "usage_logged": True,
+                          "over_budget": over_budget}
         return out
 
 

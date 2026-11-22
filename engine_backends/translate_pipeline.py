@@ -19,10 +19,10 @@ from .novel_batches import chapter_start_idxs, novel_paragraph_ends, plan_paragr
 from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
                         llm_tasks_scope_active, request_deadline_for)
 from .local import is_ollama_cloud_model, scrub_error_text
-from .pricing import estimate_cost_for_engine
+from .pricing import estimate_cost_for_engine, estimate_run_tokens
 from .run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
-from .prompts import (MALE_PRONOUN_WORD, is_male_speaker_label, known_male_names,
-                      pronoun_default_active, pronoun_neutral_texts)
+from .prompts import (MALE_PRONOUN_WORD, build_stable_system_text, is_male_speaker_label,
+                      known_male_names, pronoun_default_active, pronoun_neutral_texts)
 from .reflect_pass import REFLECT_PASSES, reflect_translate_batch
 from .thinking import title_thinking
 from .translation_guard import FLAG_NOTE as MERGE_SHIFT_FLAG_NOTE
@@ -275,6 +275,8 @@ class _TranslateRun:
         self.spent = 0.0
         # Dearest finished batch and its size: a batch costs at least that much, more only if it is longer.
         self._dearest = (0.0, 1)
+        # Stands in for _dearest until a batch is measured, so the first batch of a capped run is priced too.
+        self._first_batch_estimate = (0.0, 1)
         self.last_frac = 0.0
         self.bi = 0
         self.batch_label = ""
@@ -305,6 +307,7 @@ class _TranslateRun:
                               else bool(a.check_replies))
         batches = self._plan(target_lines)
         self.n_batches = len(batches)
+        self._seed_first_batch_estimate(target_lines, batches)
         chapters = self._chapter_groups(batches)
         finished = self._run_chapter_lanes(chapters) if chapters else self._run_batches(batches)
         if finished:
@@ -394,13 +397,29 @@ class _TranslateRun:
         if cost > self._dearest[0]:
             self._dearest = (cost, chars)
 
+    def _seed_first_batch_estimate(self, target_lines, batches):
+        """Prices an average batch from the pre-run estimate. Without it a capped run started
+        again after "Stopped at the spending cap" would send one unpriced batch every time."""
+        a = self.args
+        if not batches or (a.cost_cap_usd is None and not a.month_cap_left_cb):
+            return
+        zh = [ln.zh or "" for ln in target_lines]
+        # The title's real prompt (glossary, style guide, novel excerpt): the bare instructions
+        # alone leave a long glossary unpriced. A copy, since building it records the excerpt.
+        stable = build_stable_system_text(dict(self.context, drama_meta=self.context.get("drama_meta") or {}))
+        inp, out, _ = estimate_run_tokens(zh, self.size, stable,
+                                          context_lines=(a.context_window, a.context_window_ahead))
+        total = estimate_cost_for_engine(self.engine, inp, out) * (len(REFLECT_PASSES) if a.reflect else 1)
+        chars = sum(self._batch_chars(b) for b in batches)
+        self._first_batch_estimate = (total / len(batches), max(1, chars // len(batches)))
+
     def _batch_estimate(self, batch) -> float:
-        cost, chars = self._dearest
+        cost, chars = self._dearest if self._dearest[0] > 0 else self._first_batch_estimate
         return cost * max(1.0, self._batch_chars(batch) / chars)
 
     def _would_pass_cap(self, batch) -> bool:
         """True when this batch, priced like the dearest one so far, would not fit under the
-        tightest cap. The first batch is never priced (nothing is measured yet), so it is sent."""
+        tightest cap. Until a batch is measured it is priced from the pre-run estimate."""
         headroom = self._cap_headroom()
         return headroom is not None and self._batch_estimate(batch) > headroom
 

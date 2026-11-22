@@ -226,7 +226,7 @@ parallel_chapters: 2 or 3 translates that many novel chapters at once (setting
 `settings_service.parallel_chapters()`. Only Claude, GPT, DeepSeek, a paid Gemini key and an Ollama `-cloud` model qualify
 (`can_run_in_parallel`); each lane gets its own engine copy, batches inside a chapter stay in
 order. Under a job or monthly cap a batch starts only while the ones in flight (each costed as the
-dearest batch so far) leave room, and the first batch goes alone, so the cap is passed by about one
+dearest batch so far, or from the pre-run estimate before one is measured) leave room, and the first batch goes alone, so the cap is passed by about one
 batch as in a one-chapter run (more only if a later batch costs more than any before it) (`_reserve_batch`; the monthly room comes from `month_cap_left_cb`).
 Each lane has its own rate-limit wait budget. In this mode every chapter start cuts a batch (`one_chapter_per_batch`), because a chapter start in the first half of a batch otherwise leaves chapters sharing a request and the lanes find fewer chapters than the book has (6 chapters gave 3 lanes' worth of groups).
 
