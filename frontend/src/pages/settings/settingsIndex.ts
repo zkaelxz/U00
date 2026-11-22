@@ -114,7 +114,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('spend-history', 'Spend history', 'monthly spend chart months'),
 
   e('notifications', 'Notifications', 'alerts channels push email discord telegram webhook'),
-  e('notifications', 'Notify when a job finishes', 'notify me completion'),
+  e('notifications', 'Pop-up on this PC when a job finishes', 'notify me completion'),
   e('pc-alerts', 'PC alerts', 'gpu temperature throttling ram cpu disk space gpu memory limit minutes warning hot full'),
   e('updates', 'Updates', 'app updates version upgrade release phone app android apk packages python pip outdated'),
   e('updates', 'Update Baihe', 'upgrade restart git latest version check'),

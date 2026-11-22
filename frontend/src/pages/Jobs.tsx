@@ -35,6 +35,7 @@ import {
   normalizeFilters, progressPercent, relativeTime, sortJobs, statusCounts,
   type JobFilters, type KindFilter, type RangeFilter, type SortDir, type SortKey,
 } from './jobs/jobsFilter'
+import { SettingsMentions } from '../components/SettingLink'
 import './jobs/jobs.css'
 import { useInterval } from '../hooks/useInterval'
 
@@ -314,7 +315,7 @@ function StatusCell({ job, place }: { job: JobRecord; place?: number }) {
       <Badge tone={statusTone(shownStatus(job))}>{jobStatusLabel(job)}</Badge>
       {job.stale && <Badge tone="warn">Stale</Badge>}
       {job.stalled && !job.stale && <Badge tone="warn">Stalled</Badge>}
-      {outcome && <div className="muted jobs-outcome">{plainJobText(outcome)}</div>}
+      {outcome && <div className="muted jobs-outcome"><SettingsMentions text={plainJobText(outcome)} /></div>}
       {job.status === 'queued' && place != null && <div className="muted jobs-outcome" data-testid={`job-place-${job.job_id}`}>{queuePlace(place)}</div>}
     </>
   )
@@ -366,8 +367,8 @@ function Details({ job, now }: { job: JobRecord; now: number }) {
         <dd>{formatJobDuration(job, now)}</dd>
         {jobTimeLeftText(job, now) && (<><dt>Estimate</dt><dd>{jobTimeLeftText(job, now)}</dd></>)}
       </dl>
-      {outcome && <p className={shownStatus(job) === 'error' ? 'error' : undefined}>{plainJobText(outcome)}</p>}
-      {detail && <p className={job.status === 'error' ? 'error' : 'muted'}>{plainJobText(detail)}</p>}
+      {outcome && <p className={shownStatus(job) === 'error' ? 'error' : undefined}><SettingsMentions text={plainJobText(outcome)} /></p>}
+      {detail && <p className={job.status === 'error' ? 'error' : 'muted'}><SettingsMentions text={plainJobText(detail)} /></p>}
       {developerMode && fields.length > 0 && (
         <dl>
           {fields.map(([k, v]) => (<span key={k} className="jobs-field"><dt>{k.replace(/_/g, ' ')}</dt><dd>{String(v)}</dd></span>))}

@@ -356,7 +356,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
       type="button"
       className="comic-tools-btn"
       aria-pressed={toolsOpen}
-      aria-controls="comic-scanlate"
+      aria-controls={toolsOpen ? 'comic-scanlate' : undefined}
       onClick={() => {
         setToolsOpen((v) => !v)
         // Closing removes the panel above the stage and shifts every page; scroll back to the current
@@ -523,9 +523,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           <SourceLink href={sourceUrl} dramaId={id} />
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
           {!empty && <>{warningMenu}{toolsButton}</>}
-          {addButton}
-          {!empty && editButton}
-          {view}
+          {!empty && <>{addButton}{editButton}{view}</>}
           {chapterBar}
         </header>
       ) : (
@@ -540,9 +538,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           )}
           {toggles}
           {!empty && <>{warningMenu}{toolsButton}</>}
-          {addButton}
-          {!empty && editButton}
-          {view}
+          {!empty && <>{addButton}{editButton}{view}</>}
           {chapterBar}
         </div>
       )}

@@ -5,8 +5,8 @@ import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 export const RELATION_LABEL: Record<ProcessRow['relation'], string> = {
   this_server: 'This server',
   child: 'Started by this server',
-  orphan: 'Not started by this server; its parent has ended (left over?)',
-  other: 'Not started by this server (another program started it)',
+  orphan: 'Left over?',
+  other: 'Other program',
 }
 
 export const STATE_NOTE: Record<ProcessMemory['state'], string> = {
@@ -15,10 +15,10 @@ export const STATE_NOTE: Record<ProcessMemory['state'], string> = {
   unavailable: "Couldn't read the process list.",
 }
 
-// 0 means Windows listed the graphics counters and this process isn't in them;
-// null means the counters couldn't be read at all.
+// 0 means the graphics counters were listed and this process isn't in them;
+// null means the counters couldn't be read at all (no GPU, or an OS that doesn't report it per process).
 export const vramCell = (r: ProcessRow) =>
-  r.vram_bytes == null ? "Windows doesn't say" : r.vram_bytes === 0 ? 'None' : formatDecimalBytes(r.vram_bytes)
+  r.vram_bytes == null ? 'Not reported' : r.vram_bytes === 0 ? 'None' : formatDecimalBytes(r.vram_bytes)
 
 /** RAM now (working set), plus the memory the process has claimed even if Windows has paged it out. */
 export const ramCell = (r: ProcessRow) =>

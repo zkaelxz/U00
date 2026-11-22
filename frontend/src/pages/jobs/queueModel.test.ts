@@ -35,7 +35,8 @@ describe('queueModel', () => {
 
   it('says what the run state means', () => {
     expect(runStateText(queue({ state: 'paused' }))).toContain('A running one finishes')
-    expect(runStateText(queue())).toBe('Nothing waiting.')
+    expect(runStateText(queue())).toBeNull()
+    expect(runStateText(queue({ items: [item({ status: 'done' })] }))).toBe('Nothing waiting.')
     expect(runStateText(queue({ items: [item()] }))).toBe('Not running.')
   })
 

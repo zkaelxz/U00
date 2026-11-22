@@ -58,12 +58,14 @@ for (const width of [360, 390]) {
   })
 }
 
-// The phone follows its own screen, so the desktop-oriented Display card (width, text size, spacing, nav position) is left out, search included.
-test('Settings leaves out the Display card on a phone', async ({ page }) => {
+// The phone follows its own screen for width, spacing and the nav, but text size and style still apply there.
+test('Settings shows only Text size and Style of Display on a phone', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'My account and look')
   await expect(page.getByLabel('Sharing', { exact: true }).first()).toBeVisible()
+  await expect(page.getByLabel('Text size', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Style', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Page width', { exact: true })).toHaveCount(0)
-  await page.getByRole('searchbox', { name: 'Search settings' }).fill('text size')
-  await expect(page.getByLabel('Text size', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Spacing', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Nav position', { exact: true })).toHaveCount(0)
 })
