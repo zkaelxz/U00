@@ -24811,6 +24811,8 @@ export interface components {
             monthly_cap_usd: number;
             /** Notice */
             notice: string | null;
+            /** Overlap Note */
+            overlap_note: string | null;
             /** Overlap Online Translate */
             overlap_online_translate: boolean;
             schedule: components["schemas"]["QueueSchedule"] | null;

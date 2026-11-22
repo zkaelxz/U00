@@ -420,13 +420,16 @@ def _alignment_args(drama_id, engine, engine_choice, job_id, cap_reached) -> dic
     """The source-match check's embedder and its judge (the run's own engine confirms the
     lines the embeddings doubt, billed like the translation), both left out while the
     setting is off."""
-    embed = settings_service.alignment_embedder()
+    embed = settings_service.alignment_embedder(lambda: background_jobs.is_cancel_requested(job_id))
     if embed is None:
         return {}
     # The judge's calls sit outside the translation's cost scope, so a stop or a reached
     # cap has to end them here or they would keep spending after the user said stop.
+    month_cap_hit = _month_cap_check(engine_choice, engine)
+
     def stopped():
-        return background_jobs.is_cancel_requested(job_id) or cap_reached.get("spent") is not None
+        return (background_jobs.is_cancel_requested(job_id) or cap_reached.get("spent") is not None
+                or bool(month_cap_hit and month_cap_hit()))
 
     return {"embed_texts": embed,
             "judge": alignment_judge.judge_for(
