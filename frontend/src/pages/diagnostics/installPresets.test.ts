@@ -55,9 +55,9 @@ describe('install presets helpers', () => {
     expect(installAllTask([], pkgs)).toBeNull()
   })
 
-  it('Install all says plainly that it leaves GPU PyTorch to its own button and the Setup one', () => {
-    expect(INSTALL_ALL_NOTE).toContain('does not set up GPU PyTorch')
-    expect(INSTALL_ALL_NOTE).toContain('Setup > Recommended installs')
+  it('Install all says plainly when it sets up GPU PyTorch', () => {
+    expect(INSTALL_ALL_NOTE).toContain('sets up GPU PyTorch first')
+    expect(INSTALL_ALL_NOTE).toContain('GPU PyTorch further down')
   })
 
   it('shows status and moves ready tasks last', () => {
@@ -99,6 +99,14 @@ describe('install presets helpers', () => {
   it('builds the confirm label with count and size', () => {
     expect(taskConfirmLabel(task())).toBe('Confirm install 2 packages (approx. 82 MB)')
     expect(taskConfirmLabel(task({ to_install: ['a'], approx_mb: 2500 }))).toBe('Confirm install 1 package (approx. 2.5 GB)')
+  })
+
+  it('names the GPU PyTorch setup when the install starts with it', () => {
+    expect(taskConfirmLabel(task({ gpu_torch_first: true }))).toBe('Confirm set up GPU PyTorch (about 2.5 GB), then install 2 packages (approx. 82 MB)')
+    expect(taskConfirmLabel(task({ gpu_torch_first: true, to_install: [], approx_mb: 0 }))).toBe('Confirm set up GPU PyTorch (about 2.5 GB)')
+    expect(taskNotes(task({ gpu_torch_first: true }), {})[0]).toContain('needs GPU PyTorch first')
+    const all = installAllTask([task({ to_install: [] }), task({ id: 'u', to_install: [], gpu_torch_first: true })], {})
+    expect(all).toMatchObject({ to_install: [], gpu_torch_first: true })
   })
 
   it('lists not-offered reasons and warnings for missing packages only', () => {

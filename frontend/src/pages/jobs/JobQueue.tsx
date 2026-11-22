@@ -284,6 +284,7 @@ export function JobQueue({ titles }: Props) {
             <Field label="Run a transcription beside an online translation">
               <Toggle checked={queue.overlap_online_translate} disabled={busy} onChange={(on) => void act(() => setQueuePolicy({ overlap_online_translate: on }))} />
             </Field>
+            {queue.overlap_note && <p className="muted" data-testid="queue-overlap-note">{queue.overlap_note}</p>}
           </div>
         </div>
       ) : (

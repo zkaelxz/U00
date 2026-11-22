@@ -72,12 +72,15 @@ def _embed_one(base_url: str, model: str, text: str):
     return [sum(v[i] for v in got) / len(got) for i in range(len(got[0]))]
 
 
-def embed(base_url: str, texts: list, model: str = EMBED_MODEL):
+def embed(base_url: str, texts: list, model: str = EMBED_MODEL, should_stop=None):
     """One vector per text from Ollama's /api/embed (None in place of a text the server
-    could not embed), or None when the server or the model is unusable. A missing model
-    must never fail the translate run."""
+    could not embed), or None when the server or the model is unusable, or `should_stop`
+    turns true between requests (a stopped run). A missing model must never fail the
+    translate run."""
     vectors = []
     for start in range(0, len(texts), EMBED_BATCH):
+        if should_stop and should_stop():
+            return None
         chunk = texts[start:start + EMBED_BATCH]
         try:
             status, got = _post_embed(base_url, model, chunk)
