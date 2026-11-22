@@ -259,6 +259,19 @@ class TestSafeEverywhere:
         assert db.list_glossary_terms(sid)[0]["aliases"] == "亞羅赫"
         assert db.list_line_history(did)[0]["label"] == "before mis-heard word fix"
 
+    def test_remember_writes_the_alias_the_card_suggested_not_the_main_spelling(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(misheard_service, "_text_tools", lambda drama: None)
+        sid = db.get_or_create_series("S")
+        did = db.create_drama(title_en="T", series_id=sid, source_language="zh")
+        db.upsert_glossary_term(sid, "楊若鶴", "Yang Ruohe", aliases="若鶴")
+        db.save_lines(did, [Line(idx=0, start=0, end=1, zh="楊若賀你來了", en=""),
+                            Line(idx=1, start=1, end=2, zh="若賀說話", en="")])
+        [term] = db.list_glossary_terms(sid)
+        out = misheard_service.remember_spelling(did, "若賀", "若鶴", term["id"])
+        assert out == {"applied": 2, "skipped": 0, "aliases_added": 1}
+        assert [ln.zh for ln in db.load_line_objects(did)] == ["楊若鶴你來了", "若鶴說話"]
+        assert db.list_glossary_terms(sid)[0]["aliases"] == "若鶴|若賀"
+
     def test_remember_refuses_a_term_that_is_not_the_suggestion_and_writes_nothing(self, isolated_db):
         did, ids = _title_with_slips(isolated_db)
         sid = db.get_drama(did)["series_id"]
