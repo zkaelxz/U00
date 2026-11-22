@@ -192,14 +192,14 @@ function holdInView(row: HTMLElement, list: HTMLElement): () => void {
 
 /**
  * Where the list opens: its view (useInitialLinesFilter), and its page and pending move from the line kept for that
- * view, unless the link names lines (`focus`, `find`). A go-to that arrives later, like any other move of the person's,
+ * view, unless the link names lines (`focus`, `find`; `focus=source` only opens a panel). A go-to that arrives later, like any other move of the person's,
  * cancels a restore that is still on its way (`abandon`). Called before the list loads; useKeepPlace does the rest.
  */
 export function useReviewPlace(dramaId: number, simple: boolean, pendingRef: MutableRefObject<Pending | null>) {
   const route = useRoute()
   const [filter, setFilter] = useState<LineFilter>(useInitialLinesFilter(simple))
   const [opening] = useState(() => {
-    const link = route.name === 'drama' && (route.focus !== undefined || route.find !== undefined)
+    const link = route.name === 'drama' && ((route.focus !== undefined && route.focus !== 'source') || route.find !== undefined)
     return spotToOpen(readKept(dramaId), filter, simple, link)
   })
   const [page, setPage] = useState(opening?.spot.page ?? 1)

@@ -315,7 +315,7 @@ test.describe('with sound', () => {
     await expect(now(page).getByTestId('watch-now-checked')).toBeVisible()
     await expect(now(page).getByRole('status')).toHaveText('Marked as looks right.')
     await page.keyboard.press('m')
-    await expect(now(page).getByTestId('line-mark')).toContainText('Mixed')
+    await expect(now(page).getByTestId('line-mark')).toContainText('Partly')
     await expect(now(page).getByTestId('watch-now-checked')).toHaveCount(0)
     await expect(now(page).getByRole('status')).toHaveText('Marked mixed.')
     await page.keyboard.press('g')
@@ -329,7 +329,7 @@ test.describe('with sound', () => {
     for (let n = 0; n < 4; n++) await page.keyboard.press('ArrowDown')
     await expect(rowButton(page, 6)).toHaveAttribute('aria-current', 'true')
     await page.keyboard.press('m')
-    await expect(row(page, 6).getByTestId('line-mark')).toContainText('Mixed')
+    await expect(row(page, 6).getByTestId('line-mark')).toContainText('Partly')
 
     await page.keyboard.press('p')
     await expect(rowButton(page, 2)).toHaveAttribute('aria-current', 'true')

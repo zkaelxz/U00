@@ -79,6 +79,12 @@ const WHISPER_LABELS: Record<string, string> = {
   'kotoba-v2': 'Japanese only: kotoba-whisper v2.0, opt-in, about 1.5 GB, fast; line timing only',
   'breeze-asr-25': 'Chinese only: Breeze-ASR-25 (Taiwanese Mandarin), opt-in, about 3 GB',
 }
+// Breeze measured ahead of large-v3 on the hand-checked Chinese titles, and is the default for Chinese once downloaded,
+// so on a Chinese title it takes the "recommended" wording and large-v3 loses it.
+const ZH_WHISPER_LABELS: Record<string, string> = {
+  'large-v3': 'Most accurate',
+  'breeze-asr-25': 'Recommended for Chinese: Breeze-ASR-25 (Taiwanese Mandarin), about 3 GB',
+}
 // Download sizes, mirrored from services/transcribe_pipeline._MODEL_DOWNLOAD_SIZES for the two models the picker offers.
 const WHISPER_DOWNLOAD: Record<string, string> = { 'large-v3': 'about 3 GB', 'large-v3-turbo': 'about 1.6 GB' }
 function whisperModelHelp(size: string, notDownloaded: boolean, notUsed: string | null, replacement: string | null): string | undefined {
@@ -546,7 +552,7 @@ export default function TranscribeStage({
               <select className="w-md" value={cf.whisper_size} disabled={!!backendNotUsed} title={backendNotUsed ?? undefined} onChange={(e) => setC('whisper_size', e.target.value)}>
                 {whisperChoices.map((o) => (
                   <option key={o.size} value={o.size} disabled={!!o.reason} title={o.reason ?? undefined}>
-                    {o.hidden ? `${o.size} (older choice, hidden)` : WHISPER_LABELS[o.size] ?? o.size}{o.reason ? ` (not for ${LANGUAGE_NAMES[language] ?? language})` : ''}
+                    {o.hidden ? `${o.size} (older choice, hidden)` : (language === 'zh' && ZH_WHISPER_LABELS[o.size]) || WHISPER_LABELS[o.size] || o.size}{o.reason ? ` (not for ${LANGUAGE_NAMES[language] ?? language})` : ''}
                   </option>
                 ))}
               </select>
@@ -688,7 +694,7 @@ export default function TranscribeStage({
                 {' · '}
                 {gpuUnavailable
                   ? <>Your graphics card isn't set up for Baihe, so this will be slow. {pc === 'remote' ? 'Ask the person who runs Baihe.' : <>Fix it in <a href="#/diagnostics">Diagnostics</a>.</>}</>
-                  : <>GPU: {useGpu ? 'on' : 'off'} - change in <a href="#/settings">Settings</a></>}
+                  : <>GPU {useGpu ? 'on' : 'off'} · change in <a href="#/settings">Settings</a></>}
               </span>
             )}
           </p>

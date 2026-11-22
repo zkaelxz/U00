@@ -15,6 +15,7 @@ ffmpeg) live in services/media_export_service.py.
 No FastAPI import: plain functions, plain dicts/bytes in and
 out, so another service could call them too.
 """
+import copy
 import contextlib
 import os
 import re
@@ -501,6 +502,23 @@ def _speaker_display_names(drama_id: int) -> dict:
             if c.get("character_name")}
 
 
+def _with_speaker_names(lines, field: str, names: Optional[dict]):
+    """Copies of `lines` whose first shown row starts "Name: " (see core.cue_speaker_name);
+    `lines` itself when the option is off."""
+    if names is None:
+        return lines
+    out = []
+    for ln in lines:
+        name = core_module.cue_speaker_name(ln, names)
+        # Bilingual shows English first, and the source alone when there is no English.
+        target = "zh" if field == "zh" or (field == "bilingual" and not ln.en.strip()) else "en"
+        if name and getattr(ln, target).strip():
+            ln = copy.copy(ln)
+            setattr(ln, target, f"{name}: {getattr(ln, target)}")
+        out.append(ln)
+    return out
+
+
 def generate_subtitle_text(drama_id: int, fmt: str, field: str, **options) -> str:
     """The text of generate_subtitle_export, for callers that don't need
     the adjusted-cue count."""
@@ -578,11 +596,13 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
         fps = _probe_title_fps(drama_id, drama)
     timed, report = (subtitle_formats.tidy_cue_timing(export_lines, fps) if tidy_timing
                      else (export_lines, None))
-    wrapped = subtitle_formats.wrap_lines(timed, wrap_chars, **break_language(drama))
+    # The name goes in before wrapping, so the first row still fits the wrap width with it.
+    wrapped = subtitle_formats.wrap_lines(_with_speaker_names(timed, field, names), wrap_chars,
+                                          **break_language(drama))
     if field == "bilingual":
-        text = core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx, speaker_names=names)
+        text = core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx)
     else:
-        text = core_module.lines_to_srt(wrapped, field, notes_by_idx=notes_by_idx, speaker_names=names)
+        text = core_module.lines_to_srt(wrapped, field, notes_by_idx=notes_by_idx)
     return _export_result(text, report, fps if tidy_timing else None)
 
 

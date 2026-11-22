@@ -336,7 +336,7 @@ SETTINGS = (
     # tests/test_blocked_phrases.py fails if they drift apart.
     _pref("blocked_phrases", "text", _BLOCKED_PHRASES_DEFAULT, multiline=True, max_len=4000,
          label="Blocked phrases",
-         help="One phrase per line. A subtitle line that contains one is removed when a title is transcribed, even next to real speech (for the stock lines Whisper invents, such as 'please like, share and subscribe'). Case, spaces and punctuation are ignored; a phrase needs at least 4 letters. Clear the box to block nothing. Applies to transcriptions that start afterwards.",
+         help="One phrase per line. A subtitle line that contains one is removed when a title is transcribed only if Whisper made it up: the voice detector hears no speech under it, or the line is only that phrase alone in silence (for the stock lines Whisper invents, such as 'please like, share and subscribe'). The same words said inside a longer line with speech around them are kept. Case, spaces and punctuation are ignored; a phrase needs at least 4 letters. Clear the box to block nothing. Applies to transcriptions that start afterwards.",
          tab="system", section="Transcription experiments"),
     _own("voice_detector", "choice", "auto", choices="voice_detectors", label="Voice detector",
          tab="system", section="Transcription experiments"),

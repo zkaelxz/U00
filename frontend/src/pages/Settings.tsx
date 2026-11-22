@@ -50,6 +50,7 @@ import { DisplayCard } from './settings/DisplayCard'
 import { AdvancedCard, DefaultsCard, EndpointsCard, KeepFreeMemory, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
 import { TimingSettingsCard } from './settings/TimingSettingsCard'
+import { useDeveloperMode } from './assistant/developerMode'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsSchemaRow, SettingsToggleKey } from '../types/settings'
@@ -225,12 +226,14 @@ export default function SettingsPage() {
   // The Android shell is the web app in a phone-width view; width, text size, spacing and nav position follow the phone there.
   const phone = useMediaQuery('(max-width: 640px)')
   const features = useFeatures()
+  // Advanced transcription holds experiments nobody asked for by default; the saved values keep applying to runs while it is hidden.
+  const developerMode = useDeveloperMode()
   const canUpdate = useHolds('system.update')
   const available: ReadonlySet<string> = useMemo(() => {
     const cards = loaded ? ALL_CARDS : MEMBER_CARDS
     return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (canUpdate || id !== 'updates')
-      && !(remote && PC_ONLY_CARDS.has(id)) && !(phone && id === 'display') && !(id in FEATURE_CARDS && !featureOn(FEATURE_CARDS[id], features))))
-  }, [loaded, ownKeyShown, canUpdate, remote, phone, features])
+      && !(remote && PC_ONLY_CARDS.has(id)) && !(phone && id === 'display') && !(id === 'transcription-experiments' && !developerMode) && !(id in FEATURE_CARDS && !featureOn(FEATURE_CARDS[id], features))))
+  }, [loaded, ownKeyShown, canUpdate, remote, phone, features, developerMode])
   const shown = (id: string) => available.has(id)
   const searching = query.trim() !== ''
   const match = useMemo(() => filterSettings(query, available), [query, available])

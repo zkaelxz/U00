@@ -56,6 +56,16 @@ CLEANABLE_CATEGORIES = {
                 "audio. Until the next full transcription separates it again, hearing a "
                 "line again uses the full audio.",
     },
+    "stale_narration_wav": {
+        "label": "Old narration copy",
+        "pattern_names": ["narration_track.wav"],
+        # The WAV is the only narration of a title narrated before FLAC, so it is
+        # cleanable only once the FLAC that replaced it exists.
+        "only_beside": "narration_track.flac",
+        "regenerable": True,
+        "note": "The WAV a title narrated before FLAC keeps beside its newer narration. "
+                "The FLAC is the one that plays.",
+    },
     "temp_files": {
         "label": "Leftover temp files",
         "pattern_suffixes": [".tmp.png", ".tmp"],
@@ -103,6 +113,9 @@ def _matching_files(drama_dir: str, cfg: dict) -> list:
     match, in the drama folder itself or in its `pattern_subdir`."""
     subdir = cfg.get("pattern_subdir", "")
     folder = os.path.join(drama_dir, subdir) if subdir else drama_dir
+    companion = cfg.get("only_beside")
+    if companion and not os.path.isfile(os.path.join(drama_dir, companion)):
+        return []
     try:
         entries = sorted(os.listdir(folder))
     except OSError:
@@ -239,6 +252,7 @@ def categories_for_preset(preset_key: str):
     cats = ["temp_files"]  # always safe
     if not preset["keep_dub_clips"]:
         cats.append("dub_clips")
+        cats.append("stale_narration_wav")
     if not preset["keep_ocr_temp"]:
         cats.append("ocr_temp")
     if not preset["keep_vocals"]:

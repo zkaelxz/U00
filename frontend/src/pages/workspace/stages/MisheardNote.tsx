@@ -21,11 +21,11 @@ export function MisheardNote({ busy }: { busy: boolean }) {
     }
   }, [dramaId, busy])
   if (count === 0) return null
-  const href = routeHref({ name: 'drama', id: dramaId, stage: 'review' })
+  const href = routeHref({ name: 'drama', id: dramaId, stage: 'review', focus: 'source' })
   return (
     <p className="muted" data-testid="misheard-note">
       {count} {count === 1 ? 'word' : 'words'} may be mis-heard.{' '}
-      <a href={href}>Check them in Review</a> (press the source-text chip).
+      <a href={href}>Check them in Review</a>.
     </p>
   )
 }

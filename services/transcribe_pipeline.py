@@ -637,7 +637,13 @@ class _PipelineRun:
             rules=asr_backend.sentence_split_rules(tuning) if self.sentence_lines else None)
             if s["text"].strip()]
         # After splitting, so a blocked sentence inside a long segment costs only its own line.
-        pieces = whisper_hallucination.drop_blocked_phrases(pieces, tuning.blocked_phrases)
+        # Difficult audio turns the detector off because it scores shouted speech as silence, so
+        # its "no speech here" cannot be believed on such a run.
+        import vad_segments
+        detector = None if (o.timing or {}).get(difficult.FLAG) else (
+            lambda: vad_segments.speech_spans_in_file(self.audio_path))
+        pieces = whisper_hallucination.drop_blocked_phrases(
+            pieces, tuning.blocked_phrases, speech_spans=detector, isolation_sec=tuning.stock_isolation_sec)
         return [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
                      speaker=seg.get("speaker") or None, flag=seg.get("flag"),
                      flag_note=seg.get("flag_note") or "", lang=seg.get("lang"),

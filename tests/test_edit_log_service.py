@@ -71,3 +71,15 @@ def test_a_logging_failure_never_fails_the_edit(isolated_db, monkeypatch):
     monkeypatch.setattr(db, "record_source_edits", lambda *a: 1 / 0)
     [ln] = [x for x in db.load_line_objects(did) if x.id == ids[0]]
     assert svc.record_source_edits(did, [(ln, "申")], svc.PERSON) == 0
+
+
+def test_clearing_deleted_title_history_leaves_live_titles_and_english_edits(isolated_db):
+    gone, gone_ids = _title()
+    kept, kept_ids = _title()
+    for did, ids in ((gone, gone_ids), (kept, kept_ids)):
+        db.record_edit_sample(did, "甲", "a", "A", line_id=ids[0])
+        db.record_source_edits(did, [{"line_id": ids[0], "path": "person", "before_zh": "甲", "after_zh": "申"}])
+    db.delete_drama(gone)
+    assert db.clear_deleted_title_source_edits() == 1
+    assert [r["drama_id"] for r in db.list_source_edits(limit=-1)] == [kept]
+    assert len(db.list_edit_samples(limit=-1)) == 2

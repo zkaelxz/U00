@@ -1311,6 +1311,15 @@ class TestTrashEmpty:
         assert sorted(os.listdir(_trash_dir(tree))) == ["20260101-000000-abcdef12.bak", "notes.txt"]
         assert os.path.exists(os.path.join(tree, "library", "dramas", "1", "audio.mp3"))
 
+    def test_emptying_also_clears_the_source_edit_history_kept_from_deleted_titles(self, tree):
+        import db
+        did = db.create_drama(title_en="D")
+        db.record_source_edits(did, [{"line_id": None, "path": "person", "before_zh": "甲", "after_zh": "申"}])
+        db.delete_drama(did)
+        assert len(db.list_source_edits(limit=-1)) == 1
+        _empty()
+        assert db.list_source_edits(limit=-1) == []
+
     def test_nothing_to_empty(self, tree):
         assert _empty() == {"freed_bytes": 0, "removed": 0, "failed": 0}
         _trash_one()

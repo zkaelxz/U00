@@ -59,15 +59,17 @@ def _count_words(lines, cut: Cutter, canon: Canon):
     return seen, surface
 
 
-def _trusted_pool(trusted, seen, surface, canon: Canon) -> Dict[str, Tuple[str, str]]:
-    """canon word -> (source, display text); a person-typed source beats a frequent one."""
+def _trusted_pool(trusted, seen, surface, canon: Canon,
+                  display: Canon = lambda w: w) -> Dict[str, Tuple[str, str]]:
+    """canon word -> (source, display text); a person-typed source beats a frequent one.
+    A typed word is shown through `display` (a Simplified glossary term on a Traditional title)."""
     pool: Dict[str, Tuple[str, str]] = {}
     for word, source in trusted:
         word = (word or "").strip()
         if _is_word(word):
             key = canon(word)
             if key not in pool or SOURCE_RANK[source] < SOURCE_RANK[pool[key][0]]:
-                pool[key] = (source, word)
+                pool[key] = (source, display(word))
     for key, spots in seen.items():
         if len(spots) >= FREQUENT_MIN_COUNT and key not in pool:
             pool[key] = ("frequent", surface[key].most_common(1)[0][0])
@@ -103,12 +105,14 @@ def _one_per_stretch(found: List[dict]) -> List[dict]:
 
 def find_misheard(lines: Iterable[SourceLine], trusted: Iterable[Tuple[str, str]], cut: Cutter,
                   canon: Canon = lambda w: w,
+                  display: Canon = lambda w: w,
                   is_dictionary_word: Callable[[str], bool] = lambda w: False,
                   skip: Iterable[Tuple[str, str]] = ()) -> dict:
     """Suggestions for words that sound like a trusted word spelled differently.
 
     `trusted` is (word, source) with source one of SOURCE_RANK's glossary / name / title.
-    `canon` folds Traditional to Simplified so a pair of forms counts as one word.
+    `canon` folds Traditional to Simplified so a pair of forms counts as one word. `display`
+    writes a typed word in the title's own script, since a suggestion is what Use here writes.
     `is_dictionary_word` says a word is ordinary Chinese: such a word is never offered as a
     slip of a merely frequent word (地板 for 地上), only of a glossary, name or title word.
     `skip` is (heard, suggested) pairs a person answered Keep as heard: dropped before the cap,
@@ -117,7 +121,7 @@ def find_misheard(lines: Iterable[SourceLine], trusted: Iterable[Tuple[str, str]
     spelling, the suggested one, where the suggestion came from, both counts and the lines."""
     lines = list(lines)
     seen, surface = _count_words(lines, cut, canon)
-    pool = _trusted_pool(trusted, seen, surface, canon)
+    pool = _trusted_pool(trusted, seen, surface, canon, display)
     by_length: Dict[int, List[Tuple[str, str, str, str]]] = defaultdict(list)
     for key, (source, display) in pool.items():
         by_length[len(key)].append((key, display, source, ph.phonetic_key(key, "zh")))

@@ -242,9 +242,9 @@ def collapse_phrase_loop(text):
         text = text[:unit_end] + text[run_end:]
 
 
-# Phrases dropped wherever they sit in a line, whatever is around it: Whisper writes these over
-# speech too, so the silence check (STOCK_PHRASE_ISOLATION_SEC) lets them through. This is the
-# starting text of Settings > Blocked phrases, one phrase per line; the person edits it.
+# The starting text of Settings > Blocked phrases, one phrase per line; the person edits it.
+# A line holding one is dropped only when Whisper made it up (see drop_blocked_phrases): a
+# streamer can really say "like and share" mid-sentence.
 BLOCKED_PHRASES_DEFAULT = "\n".join((
     "please like, share and subscribe",
     "like, share and subscribe",
@@ -268,19 +268,51 @@ def parse_blocked_phrases(text):
     return tuple(dict.fromkeys(k for k in keys if len(k) >= BLOCKED_PHRASE_MIN_LETTERS))
 
 
-def drop_blocked_phrases(segments, keys):
-    """`segments` without those whose text contains one of `keys` (parse_blocked_phrases),
-    each recorded as a stock-phrase drop."""
+# Letters allowed around a blocked phrase for the line to still count as "only the phrase"
+# ("请点赞和分享": a politeness word Whisper adds to its own stock line).
+BLOCKED_ONLY_PHRASE_EXTRA_LETTERS = 3
+# Whisper's line times are rougher than the detector's; a line this close to detected speech
+# is not "no speech under it".
+BLOCKED_SPEECH_MARGIN_SEC = 0.25
+
+
+def _speech_under(seg, spans):
+    start, end = seg["start"] - BLOCKED_SPEECH_MARGIN_SEC, seg["end"] + BLOCKED_SPEECH_MARGIN_SEC
+    return any(s < end and e > start for s, e in spans)
+
+
+def _only_blocked_phrase(key, keys):
+    rest = key
+    for k in sorted(keys, key=len, reverse=True):
+        rest = rest.replace(k, "")
+    return len(rest) <= BLOCKED_ONLY_PHRASE_EXTRA_LETTERS
+
+
+def drop_blocked_phrases(segments, keys, speech_spans=None, isolation_sec=STOCK_PHRASE_ISOLATION_SEC):
+    """`segments` without the lines Whisper made up from `keys` (parse_blocked_phrases), each
+    recorded as a stock-phrase drop. A line holding a blocked phrase goes only when
+    - the voice detector finds no speech under it (`speech_spans`: a function returning the
+      detector's (start, end) spans in seconds, or None when it cannot say; called once, and
+      only if some line holds a phrase), or
+    - the line is nothing but the phrase and sits alone in silence (`isolation_sec` each side, as for a stock credit phrase).
+    Said inside a longer line, with speech around it, it is kept: the person may have said it."""
     if not keys:
         return segments
-    kept = []
-    for seg in segments:
-        key = _stock_key(seg["text"])
-        if any(k in key for k in keys):
+    candidates = [i for i, seg in enumerate(segments) if any(k in _stock_key(seg["text"]) for k in keys)]
+    if not candidates:
+        return segments
+    spans = speech_spans() if speech_spans else None
+    dropped = set()
+    for i in candidates:
+        seg = segments[i]
+        try:
+            no_speech = spans is not None and not _speech_under(seg, spans)
+        except KeyError:
+            no_speech = False
+        if no_speech or (_only_blocked_phrase(_stock_key(seg["text"]), keys) and _alone_in_silence(segments, i, isolation_sec)):
+            dropped.add(i)
             _record_drop(seg, DROP_STOCK_PHRASE)
-        else:
-            kept.append(seg)
-    return kept
+    return [seg for i, seg in enumerate(segments) if i not in dropped]
 
 
 def is_credit_like(text):
@@ -311,9 +343,9 @@ def is_stock_phrase(text):
     return any(rx.fullmatch(key) for rx in _STOCK_PHRASE_RES)
 
 
-def _is_isolated_stock_phrase(segments, i, isolation_sec=STOCK_PHRASE_ISOLATION_SEC):
-    if not is_stock_phrase(segments[i]["text"]):
-        return False
+def _alone_in_silence(segments, i, isolation_sec=STOCK_PHRASE_ISOLATION_SEC):
+    """Whether segments[i] has `isolation_sec` of gap on each side (a shorter one before the
+    file's last line, which has nothing after it to confirm the silence)."""
     seg = segments[i]
     try:
         before = isolation_sec if i + 1 < len(segments) else min(isolation_sec, FINAL_STOCK_PHRASE_ISOLATION_SEC)
@@ -324,6 +356,10 @@ def _is_isolated_stock_phrase(segments, i, isolation_sec=STOCK_PHRASE_ISOLATION_
     except KeyError:
         return False
     return True
+
+
+def _is_isolated_stock_phrase(segments, i, isolation_sec=STOCK_PHRASE_ISOLATION_SEC):
+    return is_stock_phrase(segments[i]["text"]) and _alone_in_silence(segments, i, isolation_sec)
 
 
 def _without_phrase_loop(seg):

@@ -51,7 +51,7 @@ Every feature below is in the code today. The [User guide](docs/user-guide.md) h
 
 ### Review and fixing
 - **Line editor**: flags, checks, history and undo, keyboard-first on desktop and a thumb bar on phones.
-- **Review queue**: Riskiest first, Least confident, Next line to check, Mark checked and Mark episode reviewed.
+- **Review queue**: Riskiest first, Unsure, Next line to check, Mark checked and Mark episode reviewed.
 - **AI checks**: flag lines for a second look, fix flagged lines, alternatives and a grammar breakdown for study.
 - **Compare transcription**: hear lines again and compare recipes on your own audio.
 - **Restructure**: add, delete, merge, split or re-segment lines, and restore an earlier version of the lines.

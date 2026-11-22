@@ -93,6 +93,19 @@ def speech_spans(audio, sr: int, *, threshold: float = THRESHOLD,
     return _normalize(kept, duration)
 
 
+def speech_spans_in_file(audio_path: str) -> Optional[list]:
+    """(start_s, end_s) speech spans of an audio file, or None when it cannot be decoded or the
+    detector is missing: a caller must read "unknown" as "keep", never as "no speech".
+    Uses the sensitive numbers of _fit_to_speech so quiet speech is not scored as silence."""
+    try:
+        from faster_whisper import decode_audio
+        audio = decode_audio(audio_path, sampling_rate=_VAD_SAMPLE_RATE)
+        return [(s.start_s, s.end_s) for s in speech_spans(
+            audio, _VAD_SAMPLE_RATE, threshold=0.4, min_silence_ms=150, pad_ms=0)]
+    except Exception:
+        return None
+
+
 LEVEL_HOP_S = 0.01
 
 

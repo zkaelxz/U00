@@ -406,7 +406,7 @@ test('source options offer large-v3 as default and turbo with a Korean/Chinese n
   await language.selectOption('zh')
   await expect(page.getByRole('note').filter({ hasText: 'tests disagree' })).toHaveCount(1)
   await expect(page.getByLabel('Chinese script', { exact: true }).locator('option', { hasText: 'Traditional (Taiwan, Hong Kong)' })).toHaveCount(1)
-  await expect(page.getByTestId('gpu-note')).toContainText(/GPU: (on|off) - change in Settings/)
+  await expect(page.getByTestId('gpu-note')).toContainText(/GPU (on|off) · change in Settings/)
 })
 
 test('form state and the running job survive a stage-tab switch', async ({ page }) => {

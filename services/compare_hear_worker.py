@@ -12,6 +12,7 @@ from jobs import process_worker
 import audio_extract
 import whisper_transcribe
 import whisper_hallucination
+import vad_segments
 import whisper_models
 import ollama_unload
 from engine_backends.shared import redact_secrets
@@ -46,7 +47,8 @@ def hear(slice_path: str, cfg: dict, language, on_fallback) -> str:
     # The main run drops these after splitting; a re-heard line would otherwise offer a made-up
     # credit phrase as the other engine's reading.
     segments = whisper_hallucination.drop_blocked_phrases(
-        segments or [], cfg.get("blocked_phrases", ()))
+        segments or [], cfg.get("blocked_phrases", ()),
+        speech_spans=lambda: vad_segments.speech_spans_in_file(slice_path))
     return join_segment_texts(s.get("text") or "" for s in segments)
 
 

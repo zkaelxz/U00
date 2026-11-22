@@ -126,7 +126,7 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
                       <button type="button" className={buttonClass('secondary', 'md', 'watch-mark watch-mark-wrong')} aria-pressed={line.mark === 'wrong'} disabled={busy || markBusy || !line.en}
                               aria-keyshortcuts="X" aria-label="Wrong" title="Wrong (X)" onClick={(e) => press(e, () => onMark('wrong'))}><span aria-hidden="true">✗</span></button>
                       <button type="button" className={buttonClass('secondary', 'md', 'watch-mark watch-mark-mixed')} aria-pressed={line.mark === 'mixed'} disabled={busy || markBusy || !line.en}
-                              aria-keyshortcuts="M" aria-label="Mixed" title="Partly right (M)" onClick={(e) => press(e, () => onMark('mixed'))}><span aria-hidden="true">〰</span></button>
+                              aria-keyshortcuts="M" aria-label="Partly" title="Partly right (M)" onClick={(e) => press(e, () => onMark('mixed'))}><span aria-hidden="true">〰</span></button>
                     </>
                   )}
                   {onJump && (
