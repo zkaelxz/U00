@@ -129,6 +129,30 @@ class TestStartDiarizationRun:
         assert calls[0][1] is None and calls[0][3]["backend"] == "nemotron"
         assert diarization_service.speaker_detection_problem() is None
 
+    def test_nemotron_without_its_packages_or_a_fallback_is_refused_with_the_fix(
+            self, isolated_db, monkeypatch):
+        import diarize_nemotron
+        settings_service.set_settings({"speaker_model": "nemotron"})
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: None)
+        monkeypatch.setattr(diarize_nemotron, "missing_packages", lambda: ["librosa"])
+        did, _ = _drama_with_audio(isolated_db)
+        started = []
+        monkeypatch.setattr(job_launch, "start_process_job", lambda *a, **k: started.append(a) or True)
+        with pytest.raises(DependencyUnavailableError, match="Speaker detection pack"):
+            diarization_service.start_diarization_run(did)
+        assert not started
+        assert diarization_service.speaker_detection_problem()[0] == "no_nemotron"
+
+    def test_nemotron_without_its_packages_still_runs_when_pyannote_can_take_over(
+            self, isolated_db, monkeypatch):
+        import diagnostics
+        import diarize_nemotron
+        settings_service.set_settings({"speaker_model": "nemotron"})
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf_x")
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name == "pyannote.audio")
+        monkeypatch.setattr(diarize_nemotron, "missing_packages", lambda: ["librosa"])
+        assert diarization_service.speaker_detection_problem() is None
+
     def test_a_speaker_count_needs_no_token_with_nemotron(self, isolated_db, monkeypatch):
         """A typed count no longer switches to pyannote, so Nemotron starts without the token."""
         settings_service.set_settings({"speaker_model": "nemotron"})

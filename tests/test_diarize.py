@@ -17,6 +17,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import diarize
+from diarize_nemotron import missing_packages as _REAL_NEMOTRON_MISSING  # imported before conftest swaps it
 
 
 @pytest.fixture(autouse=True)
@@ -1071,3 +1072,29 @@ def test_m4a_is_decoded_before_soundfile_reads_it(monkeypatch):
     monkeypatch.setattr(audio_extract, "sndfile_readable", fake_readable)
     diarize.diarize("/fake/source.m4a", "hf_xxx")
     assert reads == ["/tmp/decoded.wav"]
+
+
+class TestNemotronPackages:
+    def _pc(self, monkeypatch, importable, transformers_version="5.20.0"):
+        import diagnostics
+        import diarize_nemotron
+        monkeypatch.setattr(diarize_nemotron, "missing_packages", _REAL_NEMOTRON_MISSING)
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name in importable)
+        monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: transformers_version)
+        return diarize_nemotron
+
+    def test_everything_installed_is_no_problem(self, monkeypatch):
+        nemotron = self._pc(monkeypatch, {"transformers", "librosa", "torch"})
+        assert nemotron.missing_packages() == [] and nemotron.packages_problem() is None
+
+    def test_a_transformers_too_old_for_the_model_is_listed(self, monkeypatch):
+        nemotron = self._pc(monkeypatch, {"transformers", "librosa", "torch"}, "5.17.0")
+        assert nemotron.missing_packages() == ["transformers"]
+
+    def test_a_clean_pc_is_told_to_install_the_speaker_pack(self, monkeypatch):
+        nemotron = self._pc(monkeypatch, set(), None)
+        assert nemotron.missing_packages() == ["transformers", "librosa", "torch"]
+        problem = nemotron.packages_problem()
+        assert "Speaker detection pack" in problem and "Diagnostics" in problem
+        with pytest.raises(nemotron.NemotronUnavailable, match="Speaker detection pack"):
+            nemotron.diarize("/fake/audio.wav")

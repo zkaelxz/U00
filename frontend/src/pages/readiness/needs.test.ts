@@ -11,7 +11,7 @@ import {
 // A fresh GPU server: almost nothing optional is installed.
 const FRESH: SetupReadiness = {
   faster_whisper: false, torch: false, torchaudio: false, uroman: false, soundfile: false, audio_separator: false,
-  pyannote: false, onnxruntime: false, openai: false, anthropic: false, yt_dlp: false, pypdf: false,
+  pyannote: false, librosa: false, nemotron_transformers: false, onnxruntime: false, openai: false, anthropic: false, yt_dlp: false, pypdf: false,
   genanki: false, ebooklib: false, cv2: false, jieba: false, sudachi: false, kiwi: false, nagisa: false, soynlp: false,
   pytesseract: false, paddle_ocr: false, transformers_ok: false, qwen3_asr: false, ffmpeg: true, ffmpeg_libass: true,
   js_runtime: false, tesseract_program: false, manga_ocr: false, plyer: false, trafilatura: false, playwright: false,
@@ -82,6 +82,20 @@ describe('a fresh install', () => {
 
   it('asks for no token when the chosen speaker model is Nemotron', () => {
     expect(speakerNeeds({ ...READY, hf_token_configured: false, speaker_token_needed: false })).toEqual([])
+  })
+
+  it("asks for Nemotron's packages, not pyannote, when Nemotron is the chosen model", () => {
+    const nemotron = { ...FRESH, speaker_token_needed: false }
+    const [pkg, ...rest] = speakerNeeds(nemotron)
+    expect(pkg).toMatchObject({ id: 'speakers_package', packages: ['transformers', 'librosa', 'torch'] })
+    expect(pkg.reason).toContain('Nemotron')
+    expect(rest).toEqual([])
+    expect(speakerNeeds({ ...READY, speaker_token_needed: false, pyannote: false })).toEqual([])
+    expect(speakerNeeds({ ...READY, speaker_token_needed: false, librosa: false, hf_token_configured: false })[0].packages).toEqual(['librosa'])
+  })
+
+  it('asks for nothing when only Nemotron is missing and pyannote can run in its place', () => {
+    expect(speakerNeeds({ ...READY, speaker_token_needed: false, librosa: false, nemotron_transformers: false })).toEqual([])
   })
 
   it('asks for a Groq key', () => {

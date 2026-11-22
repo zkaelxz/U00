@@ -24,7 +24,7 @@ CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")
 # after checking its real distribution name.
 KNOWN_PYPI_DISTS = {
     "onnxruntime", "faster-whisper", "ctranslate2", "nvidia-cublas-cu12", "nvidia-cudnn-cu12", "opencv-python", "anthropic", "openai", "requests",
-    "beautifulsoup4", "pyannote-audio", "soundfile", "pydub",
+    "beautifulsoup4", "pyannote-audio", "librosa", "soundfile", "pydub",
     "omnivoice", "pytesseract", "pillow", "paddleocr",
     "paddlepaddle",
     "manga-ocr", "budoux", "jieba", "pypinyin", "sudachipy", "pykakasi", "kiwipiepy",
@@ -273,3 +273,10 @@ def test_install_commands_include_constraints_when_file_exists(monkeypatch, tmp_
     want = ["-c", str(tmp_path / "constraints.txt")]
     ((cmd, _t),) = packages_svc._install_commands("jieba")
     assert cmd[-2:] == want
+
+
+def test_the_speaker_pack_installs_what_the_default_model_needs():
+    """Nemotron is the default speaker model (diarize_nemotron.missing_packages names these)."""
+    pack = next(t for t in diagnostics.INSTALL_TASKS if t["id"] == "speakers")
+    assert {"transformers", "librosa", "torch"} <= set(pack["packages"]) - set(pack.get("optional", ()))
+    assert "librosa" in diagnostics.OPTIONAL_DEPENDENCIES

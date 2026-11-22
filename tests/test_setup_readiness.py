@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import diagnostics
 import diagnostics_torch
+from diarize_nemotron import missing_packages as _REAL_NEMOTRON_MISSING  # imported before conftest swaps it
 import qwen3_native
 import whisper_models
 from api import auth as api_auth
@@ -253,3 +254,16 @@ def test_the_speaker_token_is_needed_only_for_pyannote(isolated_db, bare_pc, mod
     settings_service.set_settings({"speaker_model": model})
     svc.clear_cache()
     assert svc.get_readiness()["speaker_token_needed"] is needed
+
+
+def test_nemotron_needs_transformers_new_enough(isolated_db, bare_pc, monkeypatch):
+    import diarize_nemotron
+    monkeypatch.setattr(diarize_nemotron, "missing_packages", _REAL_NEMOTRON_MISSING)
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: "5.17.0")
+    svc.clear_cache()
+    out = svc.get_readiness()
+    assert out["librosa"] is True and out["nemotron_transformers"] is False
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: "5.18.0")
+    svc.clear_cache()
+    assert svc.get_readiness()["nemotron_transformers"] is True

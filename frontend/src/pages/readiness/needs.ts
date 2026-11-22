@@ -31,6 +31,8 @@ export interface Need {
 }
 
 export const GPU_TORCH_SIZE = 'about 2.5 GB'
+// Mirrored from diarize_nemotron.MIN_TRANSFORMERS.
+const NEMOTRON_TRANSFORMERS = '5.18'
 // Mirrored from qwen3_native.APPROX_DOWNLOAD_GB (the 1.7B model; the aligner is 1.8 GB).
 export const QWEN3_MODEL_SIZE = 'about 4.1 GB'
 const QWEN3_ALIGNER_SIZE = 'about 1.8 GB'
@@ -113,16 +115,24 @@ function groqNeed(r: SetupReadiness | null): Need | null {
   }
 }
 
-/** Speaker detection: the pyannote package (with torch), then a Hugging Face token when the chosen model needs one. Two needs, two fixes. */
+/** Speaker detection: the chosen model's packages (with torch), then a Hugging Face token when the chosen model needs one. Two needs, two fixes. */
 export function speakerNeeds(r: SetupReadiness | null): Need[] {
   if (!r) return []
   const out: Need[] = []
-  const missing = [!r.pyannote && 'pyannote.audio', !r.torch && 'torch'].filter((x): x is string => !!x)
+  // speaker_token_needed is true exactly when pyannote is the chosen model. Without Nemotron's
+  // packages a run still works through pyannote when that and a token are here (diarize._try_nemotron).
+  const pyannoteCanRun = r.pyannote && r.torch && r.hf_token_configured
+  const missing = (r.speaker_token_needed
+    ? [!r.pyannote && 'pyannote.audio', !r.torch && 'torch']
+    : pyannoteCanRun ? [] : [!r.nemotron_transformers && 'transformers', !r.librosa && 'librosa', !r.torch && 'torch']
+  ).filter((x): x is string => !!x)
   if (missing.length) {
     out.push({
       id: 'speakers_package', label: 'Speaker detection', action: 'diagnostics', packages: missing,
       size: r.torch ? undefined : GPU_TORCH_SIZE,
-      reason: `Speaker detection needs pyannote.audio and torch. Missing: ${names(missing)}.`,
+      reason: r.speaker_token_needed
+        ? `Speaker detection needs pyannote.audio and torch. Missing: ${names(missing)}.`
+        : `Speaker detection (Nemotron) needs transformers ${NEMOTRON_TRANSFORMERS} or newer, librosa and torch. Missing: ${names(missing)}.`,
     })
   }
   if (!r.hf_token_configured && r.speaker_token_needed) {

@@ -25,6 +25,8 @@ onnxruntime>=1.31.1
 
 # --- speaker diarization ---
 pyannote.audio>=4.0.7
+librosa>=0.10            # Nemotron speaker detection (diarize_nemotron.py) loads the audio with it;
+                         # Nemotron also needs transformers 5.18 or newer (the floor at the top is Qwen3's).
 soundfile>=0.14.0         # diarize.py reads the normalized audio.wav through
                          # this (libsndfile-based) rather than torchcodec or
                          # torchaudio -- lighter, no compiled-per-FFmpeg-
