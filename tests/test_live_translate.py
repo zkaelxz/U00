@@ -390,20 +390,32 @@ class TestResolveStreamUrl:
 
 
 class TestGenerationHelpers:
-    def test_starts_at_zero_and_increments(self):
+    def test_starts_at_zero_and_each_bump_is_new(self):
         job_id = "test_gen_helpers"
-        lt._generations.pop(job_id, None)
+        lt.drop_generation(job_id)
         assert lt.current_generation(job_id) == 0
-        assert lt.bump_generation(job_id) == 1
-        assert lt.current_generation(job_id) == 1
-        assert lt.bump_generation(job_id) == 2
+        first = lt.bump_generation(job_id)
+        assert first > 0 and lt.current_generation(job_id) == first
+        second = lt.bump_generation(job_id)
+        assert second != first and lt.current_generation(job_id) == second
 
     def test_independent_per_job_id(self):
-        lt._generations.pop("job_a", None)
-        lt._generations.pop("job_b", None)
-        lt.bump_generation("job_a")
-        assert lt.current_generation("job_a") == 1
+        lt.drop_generation("job_a")
+        lt.drop_generation("job_b")
+        mine = lt.bump_generation("job_a")
+        assert lt.current_generation("job_a") == mine
         assert lt.current_generation("job_b") == 0
+
+    def test_a_bump_after_the_run_dropped_its_entry_is_still_not_that_runs(self):
+        # Stop can read the job as running just after run_live_job's finally
+        # dropped the entry; what that run left behind must stay superseded.
+        job_id = "test_gen_late_stop"
+        mine = lt.bump_generation(job_id)
+        lt.drop_generation(job_id)
+        assert lt.current_generation(job_id) != mine
+        lt.bump_generation(job_id)
+        assert lt.current_generation(job_id) != mine
+        lt.drop_generation(job_id)
 
 
 class TestStaleChunkGuard:
@@ -1165,6 +1177,14 @@ class TestLongLinesInLive:
     def test_a_long_line_without_cjk_text_is_left_to_the_splitter(self):
         seg = {"start": 0, "end": 12, "text": "x" * 120}
         assert lt.force_cut_cjk(seg) == [seg]
+
+    @pytest.mark.parametrize("text", ["かかかか" + "ア" * 12, "ア" * 12 + "かかかか"])
+    def test_a_forced_cut_never_leaves_a_piece_under_the_minimum(self, text):
+        # A change of script 4 characters from either end would make the nearest cut.
+        cues = lt.force_cut_cjk({"start": 0.0, "end": 12.0, "text": text})
+        assert "".join(c["text"] for c in cues) == text
+        assert len(cues) == 2
+        assert all(len(c["text"]) >= lt.MIN_FORCED_PIECE_CHARS for c in cues)
 
 
 class TestOverlapTailTextWindow:

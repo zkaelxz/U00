@@ -22531,7 +22531,7 @@ export interface components {
             reply_without_thinking?: boolean;
             /**
              * Segment Seconds
-             * @default 20
+             * @default 10
              */
             segment_seconds?: number;
             /**

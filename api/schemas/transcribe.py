@@ -332,7 +332,7 @@ class LiveSessionStart(BaseModel):
     url: str = Field(min_length=1, max_length=2000)
     source_language: str = Field("zh", max_length=5)
     whisper_size: str = Field("small", max_length=32)
-    segment_seconds: float = 20
+    segment_seconds: float = 10
     overlap_seconds: float = 3
     engine: Optional[str] = Field(None, max_length=40,
                                   description="None = Ollama on this PC, never the Settings default engine.")
