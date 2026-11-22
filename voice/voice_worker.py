@@ -259,7 +259,7 @@ def _error_text(exc: BaseException) -> str:
 def run(spec: dict, emit, adapters=None) -> None:
     """Speaks every item in `spec["items"]`, reporting through `emit(event)`. One item
     failing does not stop the rest; a model that can't load stops the batch."""
-    load = (ADAPTERS if adapters is None else adapters).get(spec.get("engine"))
+    load = (ADAPTERS if adapters is None else adapters).get(spec.get("engine") or "")
     if load is None:
         emit({"fatal": "Unknown voice engine."})
         return
@@ -269,7 +269,7 @@ def run(spec: dict, emit, adapters=None) -> None:
         emit({"fatal": _error_text(exc)})
         return
     emit({"loaded": True})
-    size = BATCH_SIZES.get(spec.get("engine"), 1)
+    size = BATCH_SIZES.get(spec.get("engine") or "", 1)
     failed_pairs = 0
     for batch in _batches(spec.get("items") or [], size):
         if len(batch) > 1 and size > 1:

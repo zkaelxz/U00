@@ -13,6 +13,7 @@ __all__ = [
     "MonthCounterResetResult",
     "HealthResponse",
     "MetaResponse",
+    "AppVersionInfo",
     "PcProfileStatus",
     "PcProfileSavedStatus",
     "PcProfilePinRequest",
@@ -100,6 +101,16 @@ class MetaResponse(BaseModel):
                                       description="Feature switches (`jellyfin`, `sources`, "
                                                   "`extension`): false when the area is switched "
                                                   "off, so the UI hides it.")
+
+
+class AppVersionInfo(BaseModel):
+    version: Optional[str] = Field(None, description="This copy's version; null for an installed "
+                                                     "copy whose manifest.json can't be read.")
+    released: Optional[str] = Field(None, description="An installed copy's release date "
+                                                      "(YYYY-MM-DD), from its build stamp.")
+    source_copy: bool = Field(description="A source checkout, not a copy installed with Setup.")
+    commit_date: Optional[str] = Field(None, description="A source checkout's commit date "
+                                                         "(YYYY-MM-DD); null without git.")
 
 
 class DependencyStatus(BaseModel):
@@ -395,6 +406,8 @@ class SettingsOverview(BaseModel):
     effective_monthly_cap_usd: float = 0.0
     # Full month vs what the cap counts since an active reset (UTC ISO time).
     month_spend_usd: float = 0.0
+    # The part of month_spend_usd that came with titles imported from a backup.
+    month_spend_imported_usd: float = 0.0
     month_spend_counted_usd: float = 0.0
     month_spend_reset_at: Optional[str] = None
     choices: SettingsChoices
@@ -402,6 +415,7 @@ class SettingsOverview(BaseModel):
 
 class MonthSpendStatus(BaseModel):
     month_spend_usd: float
+    month_spend_imported_usd: float = 0.0
     month_spend_counted_usd: float
     month_spend_reset_at: Optional[str] = None
 

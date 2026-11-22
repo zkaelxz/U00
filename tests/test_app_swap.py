@@ -352,6 +352,50 @@ def test_a_full_disk_when_recording_done_does_not_roll_a_good_update_back(root, 
     assert _current(root) == NEW and _app_version(root) == NEW
 
 
+def test_a_full_disk_for_both_records_still_says_updated_and_opens_the_window(root, monkeypatch):
+    # Both the DONE journal and manifest.json failed to write: apply() raised,
+    # no result was left and the window never opened.
+    _stage(root)
+    record, write = sw._record, sw._atomic_write
+
+    def full_on_done(root_, journal, state, step=None):
+        if state == sw.DONE:
+            raise OSError(28, "No space left on device")
+        record(root_, journal, state, step)
+
+    def full_manifest(path, data):
+        if Path(path).name == "manifest.json":
+            raise OSError(28, "No space left on device")
+        write(path, data)
+    monkeypatch.setattr(sw, "_record", full_on_done)
+    monkeypatch.setattr(sw, "_atomic_write", full_manifest)
+    launcher = FakeLauncher([True])
+    assert sw.apply(root, launcher, sleep=lambda s: None) == "updated_unrecorded"
+    assert launcher.calls[-1] == "window"
+    assert _current(root) == NEW and _app_version(root) == OLD
+    assert sw.read_result(root)["code"] == "updated_unrecorded"
+
+
+def test_a_full_disk_when_finishing_at_the_next_start_lets_the_new_version_start(root, monkeypatch):
+    # The DONE journal was written but manifest.json wasn't: "broken" would stop
+    # the launcher from starting the new version that is already in app\.
+    _crash_after(root, 2)
+    sw.write_journal(root, sw.DONE, OLD, NEW, OLD)
+    write = sw._atomic_write
+
+    def full_manifest(path, data):
+        if Path(path).name == "manifest.json":
+            raise OSError(28, "No space left on device")
+        write(path, data)
+    monkeypatch.setattr(sw, "_atomic_write", full_manifest)
+    assert sw.recover(root) == "updated_unrecorded"
+    assert _current(root) == NEW and _app_version(root) == OLD
+    assert sw.read_result(root)["code"] == "updated_unrecorded"
+    monkeypatch.setattr(sw, "_atomic_write", write)
+    assert sw.recover(root) == "updated"
+    assert _app_version(root) == NEW and sw.read_journal(root) is None
+
+
 def test_a_crash_after_the_manifest_was_written_still_rolls_back_cleanly(root):
     _crash_after(root, 2)
     sw.set_installed_version(root, NEW, OLD)

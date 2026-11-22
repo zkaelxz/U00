@@ -501,3 +501,48 @@ def test_estimate_leaves_the_judge_out_when_it_would_not_run(isolated_db, cap, m
     assert svc.estimate_translate_cost(did, "ollama")["alignment_check_usd"] is None  # free on this PC
     present["yes"] = False  # without bge-m3 the check stops before the judge
     assert svc.estimate_translate_cost(did, "claude")["alignment_check_usd"] is None
+
+
+class TestMemberLimitInTheRunBudget:
+    """A member's own limit is part of the run's budget, so parallel lanes
+    can't each land a batch past it before the after-spend stop fires."""
+
+    @pytest.fixture
+    def member(self, isolated_db, cap, monkeypatch):
+        from services import auth_service, translate_service
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "k")
+        uid = auth_service.add_user("kid@example.com")["id"]
+        auth_service.admin_set_paid_limit(uid, 2.0)
+        with db.spending_for(uid):
+            db.log_usage(None, "claude", "m", "translate", 1, 1, 1.5)
+        return uid
+
+    def _caps(self, uid, job_cap=None, chain=None, engine="claude", model=None):
+        with db.spending_for(uid):
+            return svc._build_engine_chain(engine, model, chain, False, job_cap)[2]
+
+    def test_the_budget_is_the_smaller_of_the_monthly_cap_and_the_members_room(self, member, cap):
+        cap(10.0)
+        assert self._caps(member) == [pytest.approx(0.5)]
+        assert self._caps(member, job_cap=0.2) == [pytest.approx(0.2)]
+        cap(0.3, spend=0.0)
+        assert self._caps(member) == [pytest.approx(0.3)]
+        cap(0)    # no monthly cap: the member's room alone
+        assert self._caps(member) == [pytest.approx(0.5)]
+
+    def test_free_engines_get_no_budget_and_the_pc_owner_no_member_room(self, member, cap):
+        cap(10.0)
+        assert self._caps(member, engine="ollama", model="qwen3:8b") == [None]
+        assert self._caps(member, engine="ollama", model="gpt-oss:120b-cloud") == [pytest.approx(0.5)]
+        assert self._caps(None) == [pytest.approx(10.0)]
+
+    def test_a_used_up_limit_refuses_the_run(self, member, cap):
+        cap(10.0)
+        with db.spending_for(member):
+            db.log_usage(None, "claude", "m", "translate", 1, 1, 0.5)
+        with pytest.raises(UnsupportedOperationError, match="limit for paid engines"):
+            self._caps(member)
+        with pytest.raises(UnsupportedOperationError, match="limit for paid engines"):
+            self._caps(member, engine="ollama", model="gpt-oss:120b-cloud")
+        # Free engines keep working once the limit is used up.
+        assert self._caps(member, engine="ollama", model="qwen3:8b") == [None]

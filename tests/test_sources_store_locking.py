@@ -98,3 +98,15 @@ def test_leaving_a_with_block_closes_the_connection(isolated_db):
         conn.execute("SELECT 1")
     with pytest.raises(sqlite3.ProgrammingError):
         conn.execute("SELECT 1")
+
+
+def test_concurrent_adult_toggles_keep_every_change(isolated_db):
+    # Was a read in one connection and a write in another: two changes at once lost one.
+    import threading
+    names = [f"s{i}" for i in range(8)]
+    threads = [threading.Thread(target=store.set_adult_enabled, args=(n, True)) for n in names]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert all(store.adult_enabled(n) for n in names)
+    store.set_adult_enabled("s0", False)
+    assert not store.adult_enabled("s0") and store.adult_enabled("s1")

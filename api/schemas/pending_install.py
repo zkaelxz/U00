@@ -71,6 +71,8 @@ class PendingInstallRestart(BaseModel):
     reason: Optional[str] = Field(None, description="Plain words why it can't.")
     running_jobs: List[str] = Field(description="Jobs a restart would stop.")
     other_jobs: bool = Field(description="Another Baihe process has a job; a restart waits for it.")
+    service: bool = Field(False, description="The background service runs this copy: closing "
+                          "its window doesn't restart it.")
 
 
 class PendingInstallRestartRequest(BaseModel):
