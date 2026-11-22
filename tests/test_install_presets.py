@@ -160,6 +160,21 @@ def test_presets_report_installed_state_sizes_and_what_to_install(monkeypatch):
     assert cv2["source_url"] == "https://pypi.org/project/opencv-python/"
 
 
+@pytest.mark.parametrize("nvidia", [True, False])
+def test_on_a_fresh_nvidia_pc_a_task_sets_up_gpu_pytorch_before_its_packages(monkeypatch, nvidia):
+    """install_registry refuses torch on an NVIDIA PC, and pyannote would pull PyPI's CPU torch."""
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: False)
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda dist: None)
+    monkeypatch.setattr(packages_svc.shutil, "which", lambda cmd: "/usr/bin/nvidia-smi" if nvidia else None)
+    out = packages_svc.get_install_presets()
+    speakers = next(t for t in out["tasks"] if t["id"] == "speakers")
+    transcribe = next(t for t in out["tasks"] if t["id"] == "transcribe")
+    assert speakers["gpu_torch_first"] is nvidia
+    assert ("torch" in speakers["to_install"]) is not nvidia
+    assert "pyannote.audio" in speakers["to_install"]
+    assert transcribe["gpu_torch_first"] is False
+
+
 # ---- D/E: sizes and links ----
 
 def test_every_offered_package_has_an_approx_size():

@@ -27,6 +27,7 @@ import { useInstallPlan } from './useInstallPlan'
 import { usePickedPackage } from './usePickedPackage'
 import { setupConfirmLabel, verifyText } from './gpuTorch'
 import { InstallProgress } from './InstallProgress'
+import { GPU_TORCH_SIZE } from '../readiness/needs'
 import { cancelledText, runInstallJob } from './installJob'
 import { canUpdate, updateLine, updatesSummary, versionLabel } from './packageUpdates'
 import { strandedTest } from './upgradeTestText'
@@ -296,6 +297,40 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     }
   }
 
+  // GPU PyTorch has to be in place before the preview, or it would refuse every package that pulls torch.
+  const gpuTorchFirst = async (label: string): Promise<boolean> => {
+    const busyName = `GPU PyTorch for ${label} (${GPU_TORCH_SIZE})`
+    onBusy({ kind: 'install', name: busyName })
+    setOutcome(null)
+    try {
+      const r = await runInstallJob(() => setupGpuTorch(), (job) => onBusy({ kind: 'install', name: busyName, job }), GPU_NAME)
+      if (r.ok) {
+        changed()
+        return true
+      }
+      const check = r.verify ? ` ${verifyText(r.verify)}` : ''
+      setOutcome({
+        kind: 'install', name: GPU_NAME, ok: false, output: r.output_tail, hint: r.hint,
+        text: (r.cancelled ? 'PyTorch setup cancelled' : 'PyTorch setup failed') + `, so nothing else for ${label} was installed.${check}`,
+      })
+      return false
+    } catch (e) {
+      setOutcome({ kind: 'install', name: GPU_NAME, error: e })
+      return false
+    } finally {
+      onBusy(null)
+    }
+  }
+
+  const installTask = async (t: DiagnosticsInstallTask) => {
+    if (t.gpu_torch_first && !(await gpuTorchFirst(t.label))) return
+    if (!t.to_install.length) {
+      setOutcome({ kind: 'install', name: t.label, ok: true, output: [], text: `Installed everything for ${t.label}.` })
+      return
+    }
+    await withPlan(t.label, t.to_install, (accepted) => runTask(t, accepted))
+  }
+
   const allTasks = presets ? installAllTask(presets.tasks, presets.packages) : null
 
   const taskRow = (t: DiagnosticsInstallTask) => presets && (
@@ -303,7 +338,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     queued={queued}
     installOne={(n) => (queued.has(n) ? null : action('install', n))}
     cudaNotNeeded={cudaNotNeeded}
-    action={local && t.to_install.length > 0 && (
+    action={local && (t.to_install.length > 0 || t.gpu_torch_first) && (
       <ConfirmButton
         name={t.label}
         label="Install for this task…"
@@ -314,7 +349,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         disabled={!!blocked}
         describedBy={running ? runningId : blocked ? reasonId : undefined}
         busy={!!busy && taskRunning === t.id}
-        onConfirm={() => void withPlan(t.label, t.to_install, (accepted) => runTask(t, accepted))}
+        onConfirm={() => void installTask(t)}
       />
     )} />
   )
@@ -403,7 +438,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                     disabled={!!blocked}
                     describedBy={running ? runningId : blocked ? reasonId : undefined}
                     busy={!!busy && taskRunning === allTasks.id}
-                    onConfirm={() => void withPlan(allTasks.label, allTasks.to_install, (accepted) => runTask(allTasks, accepted))}
+                    onConfirm={() => void installTask(allTasks)}
                   />
                 </div>
                 <p className="muted">{INSTALL_ALL_NOTE}</p>
