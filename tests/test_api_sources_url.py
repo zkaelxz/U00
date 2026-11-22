@@ -204,11 +204,27 @@ def test_fetch_page_tiers_follow_the_flags(isolated_db, monkeypatch):
     monkeypatch.setattr(generic_import.ladder, "run_ladder",
                         lambda url, tiers, source=None: seen.append(set(tiers)) or LadderResult(url))
     monkeypatch.setattr(generic_import.ladder, "record_ladder_result", lambda *a, **k: None)
-    for kw in ({}, {"allow_signed_in": False}, {"allow_signed_in": False, "allow_browser": False}):
+    for kw in ({"allow_signed_in": True, "allow_browser": True},
+               {"allow_signed_in": False, "allow_browser": True},
+               {"allow_signed_in": False, "allow_browser": False}, {}):
         generic_import.fetch_page("https://novel.example/x", **kw)
+    # A caller that says nothing gets neither the profile nor a browser.
     assert seen == [{AccessTier.AUTHENTICATED_BROWSER},
                     {AccessTier.STATIC_HTTP, AccessTier.RENDERED_BROWSER},
-                    {AccessTier.STATIC_HTTP}]
+                    {AccessTier.STATIC_HTTP}, {AccessTier.STATIC_HTTP}]
+
+
+@pytest.mark.parametrize("fn", ["generic_import.fetch_page", "generic_import.import_comic_page",
+                                "adaptive.import_novel", "adaptive.import_comic",
+                                "front_door.preview", "preflight.preflight",
+                                "novel_follow.follow_novel", "novel_follow.follow_from"])
+def test_fetch_helpers_default_to_no_browser_and_no_signed_in_profile(fn):
+    import inspect
+    import importlib
+    module, name = fn.split(".")
+    params = inspect.signature(getattr(importlib.import_module(f"sources.{module}"), name)).parameters
+    assert params["allow_signed_in"].default is False
+    assert params["allow_browser"].default is False
 
 
 # ---------------------------------------------------------------------------

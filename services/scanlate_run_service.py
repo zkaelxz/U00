@@ -190,7 +190,13 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
         if read_ahead_from not in targets:
             raise UnsupportedOperationError("That page is not in the reading order.")
         start = targets.index(read_ahead_from)
-        targets = targets[start:start + 1 + READ_AHEAD_PAGES]
+        targets = [pid for pid in targets[start:start + 1 + READ_AHEAD_PAGES]
+                   if _missing_run_has_work(drama_id, pid)]
+        if not targets:
+            # A job that would find nothing to do still holds the title's one job id,
+            # so the person's own action on the title would be refused meanwhile.
+            raise UnsupportedOperationError("The pages ahead have nothing left to translate or typeset.",
+                                            details={"reason": "NOTHING_TO_READ_AHEAD"})
     if not targets:
         raise UnsupportedOperationError("No pages to run: they are all hidden.")
     _require_opencv()
@@ -208,6 +214,19 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
         engine_name, built, detect_backend, art_captions, keep_text,
         description=f"Scanlate translate (title {drama_id})")
     return {**started, "engine": engine_name, "mode": mode}
+
+
+def _missing_run_has_work(drama_id: int, page_id) -> bool:
+    """Whether a "missing" run would do anything on this page (_detect_stage's
+    rule): read a page with no text yet, or typeset one that has none and
+    has something to place."""
+    page = db.get_page(page_id, drama_id=drama_id)
+    if page is None:
+        return False
+    bubbles = db.load_bubbles(page_id)
+    if not any(_has_text(b) for b in bubbles):
+        return True
+    return not page.get("rendered_filename") and render_svc.has_something_to_place(bubbles)
 
 
 def _has_text(region: dict) -> bool:

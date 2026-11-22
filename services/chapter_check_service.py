@@ -52,6 +52,8 @@ def run_check_cycle(job_id: str | None = None, adapter_factory=None, scheduled: 
 # household-wide, so it must not say whether the drama was deleted, went
 # private or its linker lost access.
 LINK_UNAVAILABLE = "Auto-import skipped: the linked drama is not available."
+MEMBER_NO_BROWSER = ("{source} needs the PC owner's browser, which Baihe never uses for a series "
+                     "a member linked or saves. Import or save these chapters at the PC instead.")
 
 
 def _link_owner_can_edit(row) -> bool:
@@ -105,17 +107,36 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
             continue
         summary["checked"] += 1
         summary["new"] += len(new)
+        # The browser's signed-in profile is the PC owner's. Pages and audio
+        # fetched for a series a member tracked, linked or saves are read as
+        # an anonymous visitor, so the owner's sign-in never reaches them.
+        owner_browser = (allow_browser and row.get("linked_by_user_id") is None
+                         and row.get("save_cbz_by_user_id") is None)
+        adapter.allow_browser = owner_browser
+        # A source that reads nothing without the browser would fail each
+        # chapter with its own text, which blames a request not from this PC.
+        withheld = (MEMBER_NO_BROWSER.format(source=adapter.display_name or row["source"])
+                    if allow_browser and not owner_browser and adapter.needs_browser else None)
         if row.get("save_cbz"):
-            _save_new(adapter, row, new, summary)
+            _save_new(adapter, row, new, summary, withheld)
         if new and auto_queue and row.get("drama_id"):
             from sources.pipeline import start_import
             if db.get_drama(row["drama_id"]) is None or not _link_owner_can_edit(row):
                 summary["errors"][row["title"]] = LINK_UNAVAILABLE
                 store.mark_checked(row["source"], row["series_id"], error=LINK_UNAVAILABLE)
                 continue
+            if withheld:
+                summary["errors"][row["title"]] = f"Auto-import skipped: {withheld}"
+                store.record_import_retry(
+                    row["source"], row["series_id"], row["drama_id"],
+                    [(c.chapter_id, redact_for_storage(c.title or ""), "not_attempted", withheld)
+                     for c in new])
+                store.mark_checked(row["source"], row["series_id"],
+                                   error=f"Auto-import skipped: {withheld}"[:300])
+                continue
             try:
                 queued = start_import(row["source"], row["series_id"], new, row["drama_id"],
-                                      series_url=row.get("url") or "", allow_browser=allow_browser)
+                                      series_url=row.get("url") or "", allow_browser=owner_browser)
             except ConflictError as e:
                 # The drama is being deleted or cleaned up right now. The new
                 # chapters are already known, so a later check won't offer
@@ -136,15 +157,20 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
     return summary
 
 
-def _save_new(adapter, row, new, summary):
+def _save_new(adapter, row, new, summary, withheld=None):
     """Saves a series' new chapters as CBZ files, plus the ones an earlier
     check failed to save: the chapters are marked known before this runs,
     so a failed save is kept in `save_pending` and retried each check until
     it is saved (or the site no longer lists it). A failure is reported in
-    the summary like a check error; the chapters stay announced either way."""
+    the summary like a check error; the chapters stay announced either way.
+    `withheld`: why nothing can be saved this check (kept pending)."""
     from services.sources_save_service import save_series_chapters
     ids = list(dict.fromkeys(store.save_pending_ids(row) + [str(c.chapter_id) for c in new]))
     if not ids:
+        return
+    if withheld:
+        store.set_save_pending(row["source"], row["series_id"], ids)
+        summary["errors"][row["title"]] = f"Saving as CBZ: {withheld}"
         return
     try:
         rows, _ = save_series_chapters(adapter, row["source"], row["series_id"], ids,

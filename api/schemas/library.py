@@ -560,7 +560,8 @@ class VoiceBankDeleteResult(BaseModel):
 # ---------------------------------------------------------------------------
 class MediaUrlDownloadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    url: StrictStr = Field(min_length=1, max_length=2000)
+    # Empty only with keep_lines, which then uses the title's own link.
+    url: StrictStr = Field(default="", max_length=2000)
     audio_only: StrictBool
     confirm_replace_audio: StrictBool = False
     # "Download anyway" for one video over 6 h (cap 12 h); never remembered.
@@ -571,6 +572,9 @@ class MediaUrlDownloadRequest(BaseModel):
     exact_cuts: StrictBool = False
     # "Video quality": the tallest picture to keep; left out means the best on offer.
     max_height: Optional[Literal[2160, 1440, 1080, 720, 480, 360]] = None
+    # "Download again, keep the lines": the same video at another quality; the
+    # job refuses a file whose length doesn't match the title's current media.
+    keep_lines: StrictBool = False
 
 
 class MediaUrlDownloadStarted(BaseModel):

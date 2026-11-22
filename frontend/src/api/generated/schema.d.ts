@@ -6308,7 +6308,7 @@ export interface paths {
         put?: never;
         /**
          * Job: download a drama's audio/video from a URL with yt-dlp (PC only)
-         * @description The URL must be a public http(s) address (checked before anything starts). Replacing existing audio needs confirm_replace_audio=true (422 with details.reason "confirm_replace_audio" otherwise). Poll GET /api/jobs/{job_id}; cancel with POST /api/jobs/{job_id}/cancel. Up to 3 downloads run at once, started at least 20 s apart; more wait in line (the job message says "Queued: 2nd in line"). allow_long raises the 6 h cap to 12 h for this download; part_start/part_end (h:mm:ss) download only that section, exact_cuts re-encodes it for precise cuts. max_height keeps a video no taller than that (the best on offer when left out).
+         * @description The URL must be a public http(s) address (checked before anything starts). Replacing existing audio needs confirm_replace_audio=true (422 with details.reason "confirm_replace_audio" otherwise). Poll GET /api/jobs/{job_id}; cancel with POST /api/jobs/{job_id}/cancel. Up to 3 downloads run at once, started at least 20 s apart; more wait in line (the job message says "Queued: 2nd in line"). allow_long raises the 6 h cap to 12 h for this download; part_start/part_end (h:mm:ss) download only that section, exact_cuts re-encodes it for precise cuts. max_height keeps a video no taller than that (the best on offer when left out). keep_lines downloads the title's video again at another quality: no confirm needed, an empty url uses the title's own link, no part, and the job fails with the title unchanged when the new length doesn't match the current media's.
          */
         post: operations["post_download_url_api_media_dramas__drama_id__download_url_post"];
         delete?: never;
@@ -22991,14 +22991,22 @@ export interface components {
              * @default false
              */
             exact_cuts?: boolean;
+            /**
+             * Keep Lines
+             * @default false
+             */
+            keep_lines?: boolean;
             /** Max Height */
             max_height?: (2160 | 1440 | 1080 | 720 | 480 | 360) | null;
             /** Part End */
             part_end?: string | null;
             /** Part Start */
             part_start?: string | null;
-            /** Url */
-            url: string;
+            /**
+             * Url
+             * @default
+             */
+            url?: string;
         };
         /** MediaUrlDownloadStarted */
         MediaUrlDownloadStarted: {

@@ -99,6 +99,23 @@ def test_failed_pages_are_counted(rendered, monkeypatch):
     assert "2 page(s) failed" in job["message"]
 
 
+def test_a_comic_with_text_but_no_english_counts_as_having_no_translations(rendered, monkeypatch):
+    _comic(name="A")
+    untranslated, _ = _comic(name="Read, not translated", translated=False)
+    for pid in [p["id"] for p in db.list_pages(untranslated)]:
+        db.save_bubbles(pid, [{"x": 1, "y": 1, "w": 5, "h": 5, "source_text": "a", "kind": "bubble"}])
+
+    def render(drama_id, page_id, notes=None, cancel_check=None):
+        rendered.append(page_id)
+        return {"rendered": drama_id != untranslated, "blank": 0}
+
+    monkeypatch.setattr(render_svc, "render_page", render)
+    job = wait_for_job(svc.start_typeset_all()["job_id"])
+    assert job["result"]["titles_done"] == 1 and job["result"]["titles_no_text"] == 1
+    assert "1 title(s) typeset, 2 page(s) redrawn" in job["message"]
+    assert "1 title(s) have no translations" in job["message"]
+
+
 def test_cancel_stops_before_the_next_title(isolated_db, monkeypatch):
     first, _ = _comic(name="A")
     second, second_ids = _comic(name="B")

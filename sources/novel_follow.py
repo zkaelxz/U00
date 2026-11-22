@@ -173,8 +173,8 @@ def _unfollowable(url: str, current: str, seen: set):
 
 
 def follow_novel(url: str, max_pages: int = DEFAULT_FOLLOW_PAGES, engine=None, client=None,
-                 rendered_fetch=None, use_cache: bool = True, allow_signed_in: bool = True,
-                 allow_browser: bool = True, remember: bool = True, hold_profiles: bool = False,
+                 rendered_fetch=None, use_cache: bool = True, allow_signed_in: bool = False,
+                 allow_browser: bool = False, remember: bool = True, hold_profiles: bool = False,
                  max_chars: int = MAX_FOLLOW_CHARS, url_check=None, cancel_check=None,
                  progress=None, parts_only: bool = False) -> FollowResult:
     """import_novel on `url`, then its next-chapter link, page by page,
@@ -220,8 +220,8 @@ def follow_novel(url: str, max_pages: int = DEFAULT_FOLLOW_PAGES, engine=None, c
 
 def follow_from(url: str, first: NovelImportResult, report: ExtractionReport,
                 max_pages: int = DEFAULT_FOLLOW_PAGES, engine=None, client=None,
-                rendered_fetch=None, use_cache: bool = True, allow_signed_in: bool = True,
-                allow_browser: bool = True, remember: bool = True,
+                rendered_fetch=None, use_cache: bool = True, allow_signed_in: bool = False,
+                allow_browser: bool = False, remember: bool = True,
                 max_chars: int = MAX_FOLLOW_CHARS, url_check=None, cancel_check=None,
                 progress=None, parts_only: bool = False) -> FollowResult:
     """follow_novel after its first page: `first`, `report` are what

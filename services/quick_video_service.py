@@ -36,6 +36,9 @@ _NO_LANGUAGE = "This profile has no source language. Set one in the profile's On
 _NOT_TEMPORARY = "This title was not made as a watch-once title, so it is not removed here."
 _PAID = "This profile translates with a paid engine, which your account can't use."
 _RUN_STEPS = ("download", "transcribe", "translate", "export")
+# The From a URL picker's default (Alex, 2026-11-22): a taller picture costs disk and download
+# time and is not needed to watch with subtitles.
+VIDEO_HEIGHT = 1080
 # Made when no profile was ever chosen, so a pasted link works on first use. It sets only the source
 # language (the Add box's file side starts on Chinese too); everything else is left unset, so a run
 # uses the app's default recognizer, engine, model and export, as describe_profile shows.
@@ -158,7 +161,8 @@ def start_download(drama: dict, url) -> str:
     """Starts the chain's download item as the video download of the title (the video is kept for watching)."""
     if not isinstance(url, str) or not url:
         raise InvalidInputError("This item has no link.")
-    return url_media_service.start_url_download(drama["id"], url, False)["job_id"]
+    return url_media_service.start_url_download(drama["id"], url, False,
+                                                max_height=VIDEO_HEIGHT)["job_id"]
 
 
 def _export_settings(options: dict) -> dict:
