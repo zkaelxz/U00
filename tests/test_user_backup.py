@@ -352,9 +352,10 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
         for t, (rule, _why) in lub.USER_BACKUP_TABLES.items():
             if rule == "empty" and t not in ("audit_log", "job_records", "app_settings"):
                 assert conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0] == 0, t
-        # Only the version stamp the restored library's first open writes.
-        assert [r[0] for r in conn.execute("SELECT key FROM app_settings")] == \
-            [db.APP_VERSION_SETTING]
+        # Only what the restored library's first open writes: the version stamp and the
+        # data-migration marker, no carried-over setting.
+        assert sorted(r[0] for r in conn.execute("SELECT key FROM app_settings")) == \
+            [db.APP_VERSION_SETTING, "migrations.separate_vocals_unset"]
     finally:
         conn.close()
     _assert_clean_db_file(db.DB_PATH)
