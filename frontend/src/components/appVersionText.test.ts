@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { appVersionText, phoneAppText, shortDate } from './AppVersionLine'
+import { appVersionText, phoneAppText, shortDate } from './appVersionText'
 
 describe('the version line', () => {
   it('shows an installed copy with its release date', () => {
