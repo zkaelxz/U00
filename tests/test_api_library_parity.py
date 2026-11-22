@@ -52,6 +52,15 @@ def test_list_dramas_honours_every_filter(client):
         assert [i["id"] for i in items] == [a], params
 
 
+def test_list_dramas_says_which_titles_have_a_cover(client):
+    # The Library card shows an uploaded cover instead of the letter tile, so the list must carry the flag.
+    with_cover = db.create_drama(title_en="Covered")
+    without = db.create_drama(title_en="Plain")
+    db.update_drama(with_cover, cover_art_filename="cover.jpg")
+    flags = {i["id"]: i["has_cover_art"] for i in client.get("/api/library/dramas").json()["items"]}
+    assert flags == {with_cover: True, without: False}
+
+
 def test_clear_history_needs_confirm_and_keeps_progress(client):
     a = db.create_drama(title_en="A")
     db.save_progress(a, last_line_idx=2, percent_complete=30.0)

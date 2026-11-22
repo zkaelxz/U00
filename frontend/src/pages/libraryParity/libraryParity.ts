@@ -21,11 +21,11 @@ export function usageLine(u: LibraryUsage): string {
   return parts.join(' · ')
 }
 
-// Library header: "5 dramas · 2,875 of 4,210 lines · 1,335 left". "Translated"
-// is implied by the count; the line count and the left-over show only while there are lines to count.
+// Library header: "5 dramas · 2,875 of 4,210 lines translated · 1,335 left". The line count and
+// the left-over show only while there are lines to count.
 export function libraryHeadline(s: Pick<LibraryDashboard, 'total_dramas' | 'total_lines' | 'translated_lines'>): string {
   const parts = [countDramas(s.total_dramas)]
-  if (s.total_lines) parts.push(`${s.translated_lines.toLocaleString()} of ${s.total_lines.toLocaleString()} lines`)
+  if (s.total_lines) parts.push(`${s.translated_lines.toLocaleString()} of ${s.total_lines.toLocaleString()} lines translated`)
   if (s.total_lines > s.translated_lines) parts.push(`${(s.total_lines - s.translated_lines).toLocaleString()} left`)
   return parts.join(' · ')
 }
@@ -63,11 +63,11 @@ export function costMeta(c: { input_tokens: number; output_tokens: number; cache
   ].join(' · ')
 }
 
-// Only a series with 2+ dramas is shown (one drama shares nothing), with a
-// count per media type; a drama with no type is an audio drama (the original
-// default).
+// Each series with a count per media type; a drama with no type is an audio
+// drama (the original default). A one-title series is kept, so Library tools
+// counts series the way the Library and the Series page do.
 export function sharedSeries<S extends { dramas: { media_type: string | null }[] }>(items: S[]): (S & { types: Record<string, number> })[] {
-  return items.filter((s) => s.dramas.length >= 2).map((s) => {
+  return items.map((s) => {
     const types: Record<string, number> = {}
     for (const d of s.dramas) {
       const t = d.media_type || 'audio_drama'

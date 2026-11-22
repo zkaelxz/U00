@@ -4,7 +4,7 @@ import { openSettingsGroups } from './settingsNav'
 test('settings toggles round-trip and keys are yes/no only', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Connections')
-  const box = page.getByRole('switch', { name: /Notify when a job finishes/ })
+  const box = page.getByRole('switch', { name: /Pop-up on this PC when a job finishes/ })
   await expect(box).toBeVisible()
   const before = await box.isChecked()
 
@@ -196,4 +196,42 @@ test('Settings links to the user guide in a new tab', async ({ page }) => {
   const help = page.getByRole('link', { name: 'Help: user guide' })
   await expect(help).toHaveAttribute('href', /\/docs\/user-guide\.md$/)
   await expect(help).toHaveAttribute('target', '_blank')
+})
+
+test('PC alerts save on leaving a field, skip an unchanged one, and keep a bad value as typed', async ({ page }) => {
+  const rule = (id: string, label: string, limit: number) => ({
+    id, label, unit: '%', below: false, has_limit: true, enabled: true, limit, minutes: 15,
+    limit_min: 50, limit_max: 100, minutes_min: 1, minutes_max: 120, default_enabled: true, default_limit: limit, default_minutes: 15,
+  })
+  let rules = [rule('ram', 'RAM', 90), rule('gpu_mem', 'GPU memory', 85)]
+  const posts: unknown[] = []
+  await page.route('**/api/settings/resource-alerts', async (route) => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { rules: Record<string, object> }
+      posts.push(body.rules)
+      rules = rules.map((r) => ({ ...r, ...(body.rules[r.id] ?? {}) }))
+    }
+    await route.fulfill({ json: { rules } })
+  })
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Connections')
+  const card = page.getByRole('region', { name: 'PC alerts' })
+  const ram = card.getByRole('spinbutton', { name: 'RAM: alert at or above (%)' })
+  const gpu = card.getByRole('spinbutton', { name: 'GPU memory: alert at or above (%)' })
+
+  await ram.fill('80')
+  await ram.press('Tab') // leaving the field saves it
+  await expect(card.getByRole('status')).toHaveText(/Saved/)
+  await card.getByRole('spinbutton', { name: 'RAM: after (minutes)' }).press('Tab') // nothing changed: no second save
+  expect(posts).toEqual([{ ram: { limit: 80 } }])
+
+  // A value out of range stays as typed and is not sent; turning another rule off still saves, and keeps it.
+  await gpu.fill('5')
+  await gpu.blur()
+  await expect(card.getByText('Use 50 to 100.')).toBeVisible()
+  await card.getByRole('group', { name: 'RAM' }).getByRole('switch').click()
+  await expect.poll(() => posts.length).toBe(2)
+  expect(posts[1]).toEqual({ ram: { enabled: false } })
+  await expect(gpu).toHaveValue('5')
+  await expect(card.getByRole('spinbutton', { name: 'RAM: after (minutes)' })).toHaveCount(0) // fields hide while a rule is off
 })

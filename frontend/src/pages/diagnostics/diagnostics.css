@@ -14,19 +14,16 @@
 .diag-panel[hidden], .diag-card:empty { display: none; }
 .diag-card { min-width: 0; scroll-margin-top: var(--space-4); }
 .diag-card > details.section, .diag-card > .card-fold > details.section { margin: 0; background: var(--surface); }
-/* Models in memory is a titled Card that folds: undo the Card's own box and title size so it matches the plain Sections beside it. */
-.diag-card > .card-fold { display: block; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; backdrop-filter: none; }
-.diag-card > .card-fold > details.section { border: 1px solid var(--glass-edge); border-radius: var(--radius-panel); padding: var(--space-2) var(--space-4); }
-.diag-card > .card-fold > details.section > summary .section-title { font-size: inherit; font-weight: 600; }
-/* People and access: Uploads from away and PC profiles are folding Cards among plain Sections, so drop the Card's box, taller row and larger title to match the rows beside them. */
-.admin-card-slot > .card-fold { display: block; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; backdrop-filter: none; }
-.admin-card-slot > .card-fold > details.section { border: 1px solid transparent; border-top-color: var(--border); border-radius: 0; padding: var(--space-2) var(--space-4); }
-.admin-card-slot > .card-fold > details.section > summary { align-items: baseline; }
+/* Models in memory and Memory by process (Diagnostics), Uploads from away and PC profiles (People and access) are folding
+   Cards among plain Sections: drop the Card's box, taller row and larger title so they are the same flat hairline fold. */
+:is(.diag-card, .admin-card-slot) > .card-fold { display: block; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; backdrop-filter: none; }
+:is(.diag-card, .admin-card-slot) > .card-fold > details.section { border: 1px solid transparent; border-top-color: var(--border); border-radius: 0; padding: var(--space-2) var(--space-4); }
+:is(.diag-card, .admin-card-slot) > .card-fold > details.section > summary { align-items: baseline; }
 /* The 44px touch target stays on phones and touch screens, where the plain sections have it too. */
 @media (pointer: fine) and (min-width: 641px) {
-  .admin-card-slot > .card-fold > details.section > summary { min-height: 0; }
+  :is(.diag-card, .admin-card-slot) > .card-fold > details.section > summary { min-height: 0; }
 }
-.admin-card-slot > .card-fold > details.section > summary .section-title { font-size: inherit; font-weight: 600; }
+:is(.diag-card, .admin-card-slot) > .card-fold > details.section > summary .section-title { font-size: inherit; font-weight: 600; }
 /* A fold inside a fold (Missing / Installed packages) is a divided row, not a box in a box. */
 .diag-card details.section details.section { margin: 0; padding-inline: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; }
 @media (pointer: coarse), (max-width: 640px) {

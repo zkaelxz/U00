@@ -69,7 +69,7 @@ export function ProcessMemoryCard({ openSignal = 0 }: { openSignal?: number }) {
         <div className="settings-form">
           <p className="muted">
             Python, Ollama and llama.cpp processes on this PC. A process that this server did not start is
-            something else holding memory: another Baihe window, a worker that outlived its job, or another program.
+            something else holding memory: another Baihe window, a worker that outlived its job, or another program. “Other program” means something else started it; “Left over?” means the process that started it has ended.
           </p>
           {data.processes.length === 0 ? (
             <p className="muted" data-testid="process-empty">No such processes found.</p>

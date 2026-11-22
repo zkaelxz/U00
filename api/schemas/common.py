@@ -277,6 +277,7 @@ class DramaSummary(BaseModel):
         default=None, description="The signed-in viewer may change its sharing: they created it, "
                                   "or they are an admin and it was made at the PC (or they are at "
                                   "the PC). Only set in the Library list.")
+    has_cover_art: bool = Field(default=False, description="An uploaded cover exists. Only set in the Library list.")
     line_count: int = Field(default=0, description="Lines the title has. Only counted in the Library list.")
     translated_count: int = Field(default=0, description="Lines with English text. Only counted in the Library list.")
     page_count: int = Field(default=0, description="Pages a comic has. Only counted in the Library list.")
@@ -303,7 +304,7 @@ class DramaDetail(DramaSummary):
     series_instructions: Optional[str] = None
     has_audio: bool = Field(description="A source audio/video file is attached.")
     has_novel_reference: bool
-    has_cover_art: bool
+    has_cover_art: bool = False
     keep_original: bool = Field(
         default=False, description="\"Keep original files\": storage cleanup never removes "
                                    "this title's originals and an export always includes them.")
