@@ -185,6 +185,14 @@ class TestFallbackVoices:
         assert out["A"]["instruct"] == dub.DEFAULT_VOICE_DESCRIPTIONS[0]
         assert out["B"]["instruct"] == dub.DEFAULT_VOICE_DESCRIPTIONS[1]
 
+    def test_a_remembered_voice_another_speaker_here_uses_is_not_shared(self):
+        d = dub.DEFAULT_VOICE_DESCRIPTIONS
+        chars = [{"speaker_label": "A", "voice_design": d[0]},
+                 {"speaker_label": "B", "series_voice_design": d[0]},
+                 {"speaker_label": "C", "series_voice_design": d[2]}]
+        picks = dub.default_voice_designs(chars, ["A", "B", "C"])
+        assert picks["C"] == d[2] and picks["B"] not in (d[0], d[2])
+
     def test_the_pool_wraps_when_there_are_more_speakers_than_voices(self, tmp_path):
         labels = [f"S{i}" for i in range(len(dub.DEFAULT_VOICE_DESCRIPTIONS) + 1)]
         out = dub.clone_map_from_characters([], str(tmp_path), speaker_labels=labels)

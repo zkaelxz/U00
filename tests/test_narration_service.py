@@ -464,7 +464,7 @@ class TestBusyTitle:
         for job_id in added:
             job_table._jobs.pop(job_id, None)
 
-    @pytest.mark.parametrize("prefix,what", [("translate_", "translation"), ("dub_", "narration")])
+    @pytest.mark.parametrize("prefix,what", [("translate_", "translation"), ("bulk_translate_", "translation"), ("dub_", "narration")])
     @pytest.mark.parametrize("status", ["running", "queued"])
     def test_start_refuses_and_leaves_the_running_job_alone(self, isolated_db, key, monkeypatch, running,
                                                             prefix, what, status):

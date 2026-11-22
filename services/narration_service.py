@@ -158,7 +158,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
 
 # Job id prefix -> what to call it. Saving new lines would stop these (cancel_line_jobs), and
 # hours of narration or a paid translation are not thrown away for a chunk and tag.
-_BUSY_LINE_JOBS = (("translate_", "translation"), ("dub_", "narration"))
+_BUSY_LINE_JOBS = (("translate_", "translation"), ("bulk_translate_", "translation"), ("dub_", "narration"))
 
 
 def _refuse_while_lines_are_used(drama_id: int) -> None:

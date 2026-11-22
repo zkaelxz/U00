@@ -179,7 +179,11 @@ class _FlacStream:
                *tempo, "-c:a", "flac", "-f", "flac", self.path]
         # In the title's folder, not the system temp folder; the OS removes it on close or kill.
         self.err = tempfile.TemporaryFile(dir=self.workdir)
-        self.proc = _start_ffmpeg(cmd, self.err)
+        try:
+            self.proc = _start_ffmpeg(cmd, self.err)
+        except BaseException:
+            self.err.close()
+            raise
         self.timer = threading.Timer(self.timeout, self._time_out)
         self.timer.daemon = True
         self.timer.start()

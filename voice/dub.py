@@ -213,9 +213,13 @@ def _picked_designs(characters, own: dict, speaker_labels) -> dict:
     remembered = {c["speaker_label"]: (c.get("series_voice_design") or "").strip() for c in characters}
     bare = sorted((s for s in set(speaker_labels) if s not in own), key=lambda s: s or "")
     # Checked, as a restored backup can bring any text; a refused one would silence the speaker.
-    picks = {s: remembered[s] for s in bare
-             if remembered.get(s) and voice_description_problem(remembered[s]) is None}
-    taken = {e["instruct"] for e in own.values() if e.get("instruct")} | set(picks.values())
+    taken = {e["instruct"] for e in own.values() if e.get("instruct")}
+    picks = {}
+    for s in bare:
+        # A remembered voice another speaker here already uses would make the two sound alike.
+        if remembered.get(s) and remembered[s] not in taken and voice_description_problem(remembered[s]) is None:
+            picks[s] = remembered[s]
+            taken.add(remembered[s])
     pool = [d for d in DEFAULT_VOICE_DESCRIPTIONS if d not in taken] or DEFAULT_VOICE_DESCRIPTIONS
     for i, label in enumerate(s for s in bare if s not in picks):
         picks[label] = pool[i % len(pool)]
