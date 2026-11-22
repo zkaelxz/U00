@@ -28615,7 +28615,7 @@ export interface components {
             tesseract_cmd_configured: boolean;
             /**
              * Translate Alignment Check
-             * @default false
+             * @default true
              */
             translate_alignment_check: boolean;
             /**

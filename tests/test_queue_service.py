@@ -743,8 +743,10 @@ def test_a_failed_job_read_before_its_record_lands_keeps_no_path(isolated_db, mo
 
 def _paid_ready(cap, monkeypatch):
     real = settings_service.get
+    # Both default to running on this PC's GPU after the batches, which keeps the overlap off.
+    overrides = {"episode_summary_engine": "claude", "translate_alignment_check": False}
     monkeypatch.setattr(settings_service, "get",
-                        lambda k, *a, **kw: "claude" if k == "episode_summary_engine" else real(k, *a, **kw))
+                        lambda k, *a, **kw: overrides[k] if k in overrides else real(k, *a, **kw))
     monkeypatch.setattr(translate_run_service.translate_service, "resolve_api_key", lambda name: "k")
     cap(5.0)
 

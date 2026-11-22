@@ -71,12 +71,12 @@ def test_embed_returns_none_when_model_missing_or_server_down(monkeypatch):
     assert alignment_check.embed("http://o:1", ["a"]) is None
 
 
-def test_setting_is_off_by_default_and_gates_the_embedder(isolated_db):
+def test_setting_is_on_by_default_and_gates_the_embedder(isolated_db):
     from services import settings_service
-    assert settings_service.get("translate_alignment_check") is False
-    assert settings_service.alignment_embedder() is None
-    settings_service.set_settings({"translate_alignment_check": True})
+    assert settings_service.get("translate_alignment_check") is True
     assert callable(settings_service.alignment_embedder())
+    settings_service.set_settings({"translate_alignment_check": False})
+    assert settings_service.alignment_embedder() is None
 
 
 def _finish(db, embed_texts):
