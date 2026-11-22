@@ -18,6 +18,8 @@ import os
 import re
 import secrets
 import tempfile
+from collections.abc import Iterator
+from typing import Any
 
 import portable
 from voice import voice_worker
@@ -86,7 +88,7 @@ NO_AUDIO = "The voice engine wrote no audio."
 
 
 def run_batch(engine: str, items: list, workdir: str, timeout: float, cancel=None,
-              options: dict | None = None, on_start=None, own_group: bool = True):
+              options: dict | None = None, on_start=None, own_group: bool = True) -> Iterator[dict[str, Any]]:
     """Speaks `items` ({"id": str, "out": wav path, plus the engine's own fields such as
     text, language, ref_audio, ref_text}) in one child. Yields one event per checked line
     ({"loaded": True}, {"done": id}, {"failed": id, "error", "detail"},
