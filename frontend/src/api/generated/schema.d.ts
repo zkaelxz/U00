@@ -28919,10 +28919,14 @@ export interface components {
             key_openai: boolean;
             /** Kiwi */
             kiwi: boolean;
+            /** Librosa */
+            librosa: boolean;
             /** Manga Ocr */
             manga_ocr: boolean;
             /** Nagisa */
             nagisa: boolean;
+            /** Nemotron Transformers */
+            nemotron_transformers: boolean;
             /** Ollama Model Pulled */
             ollama_model_pulled: boolean;
             /** Ollama Reachable */

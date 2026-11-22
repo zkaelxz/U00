@@ -15,6 +15,7 @@ class SetupReadiness(BaseModel):
     soundfile: bool
     audio_separator: bool
     pyannote: bool
+    librosa: bool
     onnxruntime: bool
     openai: bool
     anthropic: bool
@@ -58,6 +59,8 @@ class SetupReadiness(BaseModel):
     hf_token_configured: bool
     # The chosen speaker model needs the token (pyannote; Nemotron is public).
     speaker_token_needed: bool
+    # transformers is new enough for Nemotron (diarize_nemotron.MIN_TRANSFORMERS).
+    nemotron_transformers: bool
     key_claude: bool
     key_deepseek: bool
     key_gemini: bool
