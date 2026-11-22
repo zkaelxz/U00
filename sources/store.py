@@ -496,12 +496,19 @@ def adult_enabled(source: str) -> bool:
 
 
 def set_adult_enabled(source: str, enabled: bool):
-    current = set(get_setting("adult_sources") or [])
-    if enabled:
-        current.add(source)
-    else:
-        current.discard(source)
-    set_setting("adult_sources", sorted(current))
+    # One JSON list for every source: as in set_source_pace, the read-modify-write
+    # is one write transaction, or two changes at once lose one of them.
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT value FROM settings WHERE key=?", ("adult_sources",)).fetchone()
+        current = set((json.loads(row["value"]) if row else DEFAULT_SETTINGS.get("adult_sources")) or [])
+        if enabled:
+            current.add(source)
+        else:
+            current.discard(source)
+        conn.execute("INSERT INTO settings(key, value) VALUES(?, ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                     ("adult_sources", json.dumps(sorted(current))))
 
 
 # ---------------------------------------------------------------------------

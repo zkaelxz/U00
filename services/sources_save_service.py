@@ -55,6 +55,9 @@ from sources.models import ChallengeDetected, FailureReason, SourceError, TermsP
 # The reader refuses a chapter with more pages than this, so saving one would
 # only produce a file that never opens.
 MAX_CHAPTER_PAGES = 2000
+# A chapter's pages are held in memory until the CBZ is written, and each
+# page may be up to the transport's image cap, so the total needs its own cap.
+MAX_CHAPTER_BYTES = 1024 * 1024 * 1024
 
 SAVE_DIRNAME = "saved_comics"
 SETTING = "comic_save"
@@ -306,7 +309,7 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
                                   FailureReason.LAYOUT_CHANGED)
             if len(pages) > MAX_CHAPTER_PAGES:
                 raise SourceError("This chapter has too many pages to save.")
-            images = []
+            images, total_bytes = [], 0
             for j, page in enumerate(pages, start=1):
                 progress(((i - 1) + j / max(len(pages), 1)) / total,
                          f"Chapter {i} / {total} -- page {j} / {len(pages)}")
@@ -316,6 +319,10 @@ def save_series_chapters(adapter, name: str, series_id: str, chapter_ids, root: 
                     # Checked before writing: a saved chapter is never re-fetched.
                     raise SourceError(f"Page {j} isn't an image (the site sent something else, "
                                       "such as an error page).", FailureReason.HTTP_ERROR)
+                total_bytes += len(data)
+                if total_bytes > MAX_CHAPTER_BYTES:
+                    raise SourceError("This chapter is too large to save (its pages come to "
+                                      f"over {MAX_CHAPTER_BYTES // (1024 ** 3)} GB).")
                 images.append((data, ext))
             write_cbz(path, images, series_title, ch.title or ch.chapter_id, number, language,
                       note=f"{label} series {series_id}")

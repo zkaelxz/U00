@@ -285,26 +285,123 @@ def test_pulling_bge_m3_says_plainly_when_ollama_is_down_or_refuses(monkeypatch)
 
     monkeypatch.setattr(ollama_server, "check_ollama_reachable", lambda url: True)
 
-    def refuse(url, model):
+    def refuse(url, model, progress=None, cancelled=None):
         raise ValueError("pull model manifest: file does not exist")
     monkeypatch.setattr(ollama_server, "pull_model", refuse)
     with pytest.raises(svc.ModelDownloadFailed, match="could not pull bge-m3"):
         svc._fetch_bge_m3(lambda *a: None, lambda: False)
 
 
-def test_pull_model_posts_the_model_and_raises_the_servers_error(monkeypatch):
-    from engine_backends import ollama_server
+class _StreamResp:
+    ok, status_code = True, 200
+
+    def __init__(self, lines, hold=None):
+        self._lines, self._hold, self.closed = lines, hold, False
+
+    def iter_lines(self):
+        yield from self._lines
+        if self._hold:
+            self._hold.wait(10)
+
+    def close(self):
+        self.closed = True
+        if self._hold:
+            self._hold.set()
+
+
+def _fake_session(monkeypatch, resp, sent=None, before_reply=None):
     from lib import http
-    sent = {}
 
-    class Resp:
-        ok, status, body = False, 500, b'{"error": "write /usr/share/ollama/blobs/x: no space left"}'
+    class Session:
+        def close(self):
+            pass
 
-    def post(url, **kw):
-        sent.update(url=url, json=kw["json"], timeout=kw["timeout"])
-        return Resp()
-    monkeypatch.setattr(http, "post", post)
+        def post(self, url, **kw):
+            if before_reply:
+                before_reply()
+            if sent is not None:
+                sent.update(url=url, json=kw["json"])
+            return resp
+    monkeypatch.setattr(http, "session", lambda **kw: Session())
+
+
+def test_pull_model_streams_progress_across_layers(monkeypatch):
+    import json
+    from engine_backends import ollama_server
+    resp = _StreamResp([json.dumps(e).encode() for e in (
+        {"status": "pulling manifest"},
+        {"digest": "a", "total": 1000, "completed": 250},
+        {"digest": "b", "total": 1000, "completed": 0},
+        {"digest": "a", "total": 1000, "completed": 1000},
+        {"status": "success"})])
+    sent, seen = {}, []
+    _fake_session(monkeypatch, resp, sent)
+    assert ollama_server.pull_model("http://o:1", "bge-m3", lambda d, t: seen.append((d, t))) is True
+    assert sent["url"].endswith("/api/pull") and sent["json"] == {"model": "bge-m3", "stream": True}
+    assert seen == [(250, 1000), (250, 2000), (1000, 2000)]
+    assert resp.closed
+
+
+def test_pull_model_raises_the_servers_error_without_paths(monkeypatch):
+    import json
+    from engine_backends import ollama_server
+    _fake_session(monkeypatch, _StreamResp([json.dumps(
+        {"error": "write /usr/share/ollama/blobs/x: no space left"}).encode()]))
     with pytest.raises(ValueError, match="no space left") as caught:
         ollama_server.pull_model("http://o:1", "bge-m3")
     assert "/usr/share" not in str(caught.value)
-    assert sent["url"].endswith("/api/pull") and sent["json"] == {"model": "bge-m3", "stream": False}
+
+
+def test_pull_model_cancel_closes_the_connection_while_the_server_is_quiet(monkeypatch):
+    import threading
+    from engine_backends import ollama_server
+    resp = _StreamResp([], hold=threading.Event())
+    _fake_session(monkeypatch, resp)
+    started = time.monotonic()
+    assert ollama_server.pull_model("http://o:1", "bge-m3", None, lambda: True) is False
+    assert time.monotonic() - started < 3 and resp.closed
+
+
+def test_cancelling_the_bge_m3_download_ends_the_job_as_cancelled(monkeypatch):
+    from engine_backends import ollama_server
+    monkeypatch.setattr(ollama_server, "check_ollama_reachable", lambda url: True)
+    monkeypatch.setattr(ollama_server, "pull_model", lambda url, model, progress, cancelled: False)
+    with pytest.raises(background_jobs.JobCancelled):
+        svc._fetch_bge_m3(lambda *a: None, lambda: True)
+
+
+def test_pull_model_cancelled_before_ollama_answers_closes_the_late_response(monkeypatch):
+    import threading
+    from engine_backends import ollama_server
+    asked, release, answered = threading.Event(), threading.Event(), threading.Event()
+    resp = _StreamResp([b'{"digest": "a", "total": 10, "completed": 1}'])
+    seen = []
+
+    def wait_for_cancel():
+        asked.set()
+        release.wait(10)
+
+    _fake_session(monkeypatch, resp, before_reply=wait_for_cancel)
+    real_close = resp.close
+
+    def close():
+        real_close()
+        answered.set()
+    resp.close = close
+    # Cancel only once the request is in flight, so no response exists yet when it is seen.
+    cancel = lambda: asked.is_set()  # noqa: E731
+    assert ollama_server.pull_model("http://o:1", "bge-m3", seen.append, cancel) is False
+    release.set()
+    assert answered.wait(5), "the late response was left open, so Ollama would keep pulling"
+    assert seen == []
+
+
+def test_pull_model_reports_the_reason_in_an_error_status(monkeypatch):
+    from engine_backends import ollama_server
+
+    class Refused(_StreamResp):
+        ok, status_code = False, 404
+        content = b'{"error": "pull model manifest: file does not exist"}'
+    _fake_session(monkeypatch, Refused([]))
+    with pytest.raises(ValueError, match="file does not exist"):
+        ollama_server.pull_model("http://o:1", "bge-m3")

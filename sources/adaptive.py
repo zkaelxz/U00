@@ -373,8 +373,8 @@ def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
 
 
 def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_html: str | None = None,
-                 use_cache: bool = True, allow_signed_in: bool = True,
-                 allow_browser: bool = True, remember: bool = True,
+                 use_cache: bool = True, allow_signed_in: bool = False,
+                 allow_browser: bool = False, remember: bool = True,
                  hold_profiles: bool = False):
     """The generic novel import with the fetch ladder. Returns
     (NovelImportResult, report); raises NoContentFound (with `.report`).
@@ -580,8 +580,8 @@ def extract_comic(page, candidates, engine=None, download=None, remember: bool =
 
 
 def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_html: str | None = None,
-                 remember: bool = True, use_cache: bool = True, allow_signed_in: bool = True,
-                 allow_browser: bool = True, budget=None, hold_profiles: bool = False,
+                 remember: bool = True, use_cache: bool = True, allow_signed_in: bool = False,
+                 allow_browser: bool = False, budget=None, hold_profiles: bool = False,
                  learn: bool = True):
     """The generic comic import with the fetch ladder. Returns
     (ComicImportResult, report); raises NoContentFound (with `.report`).

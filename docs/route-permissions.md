@@ -825,6 +825,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/vdb-names/dramas/{drama_id}` | library.read |
 | `POST /api/vdb-names/dramas/{drama_id}` | lines.edit |
 | `POST /api/vdb-names/fetch` | local_only() |
+| `GET /api/version` | library.read |
 | `GET /api/voices` | library.read |
 | `POST /api/voices/{series_id}/{character_id}/clear` | local_only() |
 | `POST /api/voices/{series_id}/{character_id}/remove-sample` | local_only() |

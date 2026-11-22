@@ -258,8 +258,12 @@ export const SOURCE_DRAFT_SHAPE = { from: 'file' }
 
 // The "From a URL" form's draft (stage "source.url"); Replace is never kept.
 export const URL_DRAFT_STAGE = 'source.url'
-// maxHeight 0 is "Best available".
-export const URL_DRAFT_SHAPE = { url: '', audioOnly: false, maxHeight: 0 }
+// videoHeight 0 is "Best available". A new key (it was maxHeight): every draft saved before
+// 1080p became the default held Best available, chosen or not, so those start at 1080p.
+export const DEFAULT_VIDEO_HEIGHT = 1080
+export const URL_DRAFT_SHAPE = { url: '', audioOnly: false, videoHeight: DEFAULT_VIDEO_HEIGHT }
+export const KEEP_LINES_NOTE =
+  "Only the audio and video are replaced; the title's transcription and translation stay. Leave the link empty to use the title's own link. If the new file's length doesn't match the current one, nothing is changed."
 export const SAME_LINK_REPLACE_NOTE =
   'A video or audio file that was downloaded from this same link before is deleted, not kept, because it can be downloaded again. Anything else you replace is kept in the title\'s folder.'
 export const videoQualityLabel = (height: number) => (height === 2160 ? '4K (2160p)' : `${height}p`)

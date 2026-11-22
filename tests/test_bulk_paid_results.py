@@ -717,6 +717,37 @@ class TestBulkReflectMatchesLiveReflect:
                 "locale": "en-US", "glossary_terms": [], "style_guidelines": self._guidelines}
         return did, drama, args
 
+    def _store_novel(self, isolated_db, did):
+        folder = os.path.join(isolated_db.DRAMAS_DIR, str(did))
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "novel_reference.txt"), "w", encoding="utf-8") as f:
+            f.write(self._novel)
+        isolated_db.update_drama(did, novel_reference_filename="novel_reference.txt")
+
+    def test_the_stored_job_points_at_the_title_instead_of_copying_the_novel(self, isolated_db):
+        did, _drama_row, args = self._setup(isolated_db)
+        self._store_novel(isolated_db, did)
+        jid = bulk_reflect.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), _claude_engine(),
+                                                   "claude", args)
+        stored = isolated_db.get_bulk_job(jid)["translate_args"]
+        assert "novel_reference" not in stored and stored["novel_reference_from_title"] is True
+        assert bulk_translate.resolve_novel_reference(did, stored) == self._novel
+
+    def test_a_job_stored_with_the_novel_text_still_runs_with_it(self, isolated_db):
+        did, _drama_row, _args = self._setup(isolated_db)
+        old = {"novel_reference": "stored copy"}
+        assert bulk_translate.resolve_novel_reference(did, old) == "stored copy"
+        assert bulk_translate.resolve_novel_reference(did, {}) is None
+        assert bulk_translate.resolve_novel_reference(did, {"novel_reference_from_title": True}) is None
+
+    def test_an_offpeak_job_stores_the_marker_too(self, isolated_db):
+        did, _drama_row, _args = self._setup(isolated_db)
+        jid = bulk_translate.schedule_offpeak_translation(
+            did, isolated_db.load_line_objects(did), "deepseek", "deepseek-v4-flash",
+            {"novel_reference": self._novel, "style_note": ""})
+        stored = isolated_db.get_bulk_job(jid)["translate_args"]
+        assert "novel_reference" not in stored and stored["novel_reference_from_title"] is True
+
     def test_the_faithful_prompt_is_the_live_pass_one_prompt(self, isolated_db, monkeypatch):
         from engine_backends import reflect_pass
         import translation_guide
@@ -744,6 +775,7 @@ class TestBulkReflectMatchesLiveReflect:
 
     def test_later_stages_keep_the_novel_block_and_pronoun_handling(self, isolated_db):
         did, _drama_row, args = self._setup(isolated_db)
+        self._store_novel(isolated_db, did)
         engine = _claude_engine()
         jid = bulk_reflect.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), engine, "claude", args)
         batches = engine.client.messages.batches

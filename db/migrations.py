@@ -298,6 +298,11 @@ def _migrate_series_and_character_columns(conn):
         # (services/usage_recost_service) replaced it; NULL means never
         # re-costed. Undo copies it back.
         db._safe_alter(conn, "ALTER TABLE usage_log ADD COLUMN estimated_cost_usd_before_recost REAL")
+    if "imported_at" not in usage_cols:
+        # When a backup import copied the row in (NULL: a call made in this
+        # library), so Settings can say how much of the month's spend came
+        # with titles from another PC.
+        db._safe_alter(conn, "ALTER TABLE usage_log ADD COLUMN imported_at TEXT")
     if "voice_fingerprint" not in sc_cols:
         # A running-average pyannote voice embedding (JSON list of
         # floats), built up from every drama where a speaker was confirmed

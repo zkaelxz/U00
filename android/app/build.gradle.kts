@@ -1,3 +1,6 @@
+import java.time.LocalDate
+import java.time.ZoneOffset
+
 plugins {
     id("com.android.application")
 }
@@ -12,8 +15,16 @@ android {
         targetSdk = 34
         // Each build offered as an update must be higher than the one it replaces.
         versionCode = (project.findProperty("baiheVersionCode") as String?)?.toInt() ?: 1
-        // Android's app info shows only the name: a fixed "0.1" made every build look the same.
-        versionName = "0.1.$versionCode"
+        // Android's app info shows only the name: a fixed "0.1" made every build look the same,
+        // and "0.1.1042" read like a Baihe version.
+        versionName = "build $versionCode"
+        // Shown beside the build number in Baihe's version line (MainActivity's user agent).
+        buildConfigField("String", "BUILD_DATE",
+            "\"${LocalDate.now(ZoneOffset.UTC)}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {

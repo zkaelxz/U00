@@ -142,14 +142,25 @@ def set_item_private(kind: str, item_id: int, private: bool,
         return cur.rowcount > 0
 
 
-def set_item_owner(kind: str, item_id: int, owner_user_id) -> bool:
-    """Field-scoped write of owner_user_id only. False for an unknown item."""
+def set_item_owner(kind: str, item_id: int, owner_user_id, expected_owner_user_id) -> bool:
+    """Field-scoped write of owner_user_id only, applied only while the owner
+    is still `expected_owner_user_id` (the one the caller's rule was checked
+    on), so a change made in between is never overwritten. A drama is also
+    never given to someone other than the owner of the private series it is
+    in, checked in the same write so a series made private (or a move into
+    one) in between can't slip past. False for an unknown item, an owner that
+    changed, or that series."""
     table = {"series": "series", "drama": "dramas"}.get(kind)
     if table is None:
         raise ValueError(f"unknown ownership kind: {kind!r}")
+    sql = f"UPDATE {table} SET owner_user_id = ? WHERE id = ? AND owner_user_id IS ?"
+    params = [owner_user_id, item_id, expected_owner_user_id]
+    if kind == "drama" and owner_user_id is not None:
+        sql += (" AND NOT EXISTS (SELECT 1 FROM series s WHERE s.id = dramas.series_id "
+                "AND COALESCE(s.is_private, 0) = 1 AND s.owner_user_id IS NOT ?)")
+        params.append(owner_user_id)
     with contextlib.closing(db.get_conn()) as conn:
-        cur = conn.execute(f"UPDATE {table} SET owner_user_id = ? WHERE id = ?",
-                           (owner_user_id, item_id))
+        cur = conn.execute(sql, params)
         conn.commit()
         return cur.rowcount > 0
 

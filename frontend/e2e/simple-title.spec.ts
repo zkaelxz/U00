@@ -489,8 +489,10 @@ test.describe('the check queue', () => {
     await card(page, 24).getByRole('button', { name: 'Looks right, next' }).click()
     await expect(page.locator('.review-line .review-idx')).toHaveText(['#7', '#12'])
     await expect(card(page, 7)).toHaveAttribute('aria-current', 'true')
-    const saved = await (await page.request.get('/api/review/dramas/3/lines?page=1&page_size=40&only=all')).json()
-    expect(saved.lines[23]).toMatchObject({ en: 'Let them see what the Yiling Patriarch really is.', reviewed: true })
+    // Saving the English clears #24's glossary flag, so the queue already moves on to #7 after that save,
+    // before the check is written: wait for the line as saved, not for the card.
+    await expect.poll(async () => (await (await page.request.get('/api/review/dramas/3/lines?page=1&page_size=40&only=all')).json()).lines[23])
+      .toMatchObject({ en: 'Let them see what the Yiling Patriarch really is.', reviewed: true })
 
     // R on an unchecked card does the same as Looks right, next.
     await card(page, 7).locator('.review-line-meta').click()

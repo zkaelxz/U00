@@ -40,7 +40,7 @@ urllib3>=2.6           # a floor, not a cap: requests alone would allow 1.26, wh
 nvidia-cublas-cu12>=12.9.2.10,<13         # the CUDA 12 / cuDNN 9 build of CTranslate2 (faster-whisper's
 nvidia-cudnn-cu12>=9.28.1.4,<10       # GPU runtime) needs cuBLAS 12 and cuDNN 9; a 13 or a cuDNN 8
                                # would not load. Only the Diagnostics CUDA runtime row installs them.
-                               # The cuBLAS floor is 12.8: 12.9.3.13 and later have no Windows wheel, so a higher floor
+                               # The cuBLAS floor is 12.9.2.10: 12.9.3.13 and later have no Windows wheel, so a higher floor
                                # makes the install impossible on the PCs this runtime is for.
 
 # The API stack is pinned exactly to the versions installer/wheels.lock.txt ships, so

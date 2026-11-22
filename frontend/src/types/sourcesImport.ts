@@ -121,6 +121,8 @@ export interface UrlDownloadRequest {
   exact_cuts?: boolean
   // "Video quality": the tallest picture to keep; left out means the best on offer.
   max_height?: VideoHeight
+  // "Download the same video again": replaces only the media, keeps the lines; url may be empty.
+  keep_lines?: boolean
 }
 
 export const VIDEO_HEIGHTS = [2160, 1440, 1080, 720, 480, 360] as const
