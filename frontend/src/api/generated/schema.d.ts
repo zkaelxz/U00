@@ -28377,6 +28377,11 @@ export interface components {
             /** Monthly Cap Usd */
             monthly_cap_usd: number | null;
             /**
+             * Narration Pace
+             * @default 1
+             */
+            narration_pace: number;
+            /**
              * Novel Parallel Chapters
              * @default 3
              */
@@ -28758,6 +28763,8 @@ export interface components {
             max_upload_mb?: number | null;
             /** Monthly Cap Usd */
             monthly_cap_usd?: number | null;
+            /** Narration Pace */
+            narration_pace?: number | null;
             /** Notify On Completion */
             notify_on_completion?: boolean | null;
             /** Novel Parallel Chapters */

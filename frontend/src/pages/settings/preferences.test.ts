@@ -30,6 +30,7 @@ const saved: SettingsPreferences = {
   openai_reasoning: 'default',
   translate_alignment_check: true,
   episode_summary_engine: 'ollama',
+  narration_pace: 1,
   max_upload_mb: 20480,
   monthly_cap_usd: null,
   ollama_num_ctx_override: 0,

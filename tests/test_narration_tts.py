@@ -256,7 +256,7 @@ class TestNarrationTTSUnits:
         lines = [Line(idx=0, start=0, end=0, zh="一", en="She opened the door.", speaker="N"),
                  Line(idx=1, start=0, end=0, zh="二", en="Rain.", speaker="N"),
                  Line(idx=2, start=0, end=0, zh="三", en="Nothing but rain, all night.", speaker="N")]
-        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
 
         assert synth_calls == ["She opened the door. Rain. Nothing but rain, all night."]
         # the audio unit is longer than every exported cue for the same passage
@@ -301,10 +301,67 @@ class TestNarrationTTSUnits:
         speak_with(monkeypatch, lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="N"),
                  Line(idx=1, start=0, end=0, zh="b", en="Two.", speaker="N")]
-        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
         assert [e["line_idx"] for e in errors] == [0, 1]
         assert lines[1].end == pytest.approx(0.7)
         assert not any(f.endswith(".partial.wav") for f in os.listdir(tmp_path / "dub_clips"))
+
+
+class TestNarrationPauses:
+    @pytest.fixture(autouse=True)
+    def _speak(self, monkeypatch):
+        speak_with(monkeypatch, lambda text, out_path, **kw: open(out_path, "w").close())
+
+    def test_the_pause_is_longer_at_a_paragraph_end_and_longest_around_a_chapter(self, fake_pydub, tmp_path):
+        (tmp_path / dub_narration.NOVEL_SOURCE_FILENAME).write_text(
+            "前文。\n\n又一段。\n\n第二章 雨夜\n\n正文。后半。", encoding="utf-8")
+        lines = [Line(idx=0, start=0, end=0, zh="前文。", en="Before.", speaker="A"),
+                 Line(idx=1, start=0, end=0, zh="又一段。", en="Another.", speaker="N"),
+                 Line(idx=2, start=0, end=0, zh="第二章 雨夜", en="Chapter 2: A Rainy Night", speaker="N"),
+                 Line(idx=3, start=0, end=0, zh="正文。", en="After.", speaker="A"),
+                 Line(idx=4, start=0, end=0, zh="后半。", en="More.", speaker="N")]
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
+        gaps = [round(b.start - a.end, 3) for a, b in zip(lines, lines[1:])]
+        # Every clip is 1 s: a paragraph, then a chapter heading on both sides, then a
+        # speaker change inside one paragraph.
+        assert gaps == [dub_narration.PARAGRAPH_PAUSE_MS / 1000, dub_narration.CHAPTER_PAUSE_MS / 1000,
+                        dub_narration.CHAPTER_PAUSE_MS / 1000, dub_narration.SENTENCE_PAUSE_MS / 1000]
+
+    def test_a_chapter_title_given_twice_in_a_row_is_read_once(self, fake_pydub, tmp_path, monkeypatch):
+        spoken = []
+        speak_with(monkeypatch, lambda text, out_path, **kw: (spoken.append(text), open(out_path, "w").close()))
+        site_title = "第1章 第一章 \u201c若是我早些\u2026\u2026"
+        lines = [Line(idx=0, start=0, end=0, zh=site_title, en="", speaker="N"),
+                 Line(idx=1, start=0, end=0, zh=site_title, en="", speaker="N"),
+                 Line(idx=2, start=0, end=0, zh="正文。", en="", speaker="N"),
+                 Line(idx=3, start=0, end=0, zh="第2章 第二章 雨夜", en="", speaker="N"),
+                 Line(idx=4, start=0, end=0, zh="第二章 雨夜来了", en="", speaker="N"),
+                 Line(idx=5, start=0, end=0, zh="第三章 晴天", en="", speaker="N"),
+                 Line(idx=6, start=0, end=0, zh="第四章 阴天", en="", speaker="N")]
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, narrate_original=True)
+        # Two different chapters in a row (a contents page) both stay.
+        assert spoken == [site_title, "正文。", "第二章 雨夜来了", "第三章 晴天", "第四章 阴天"]
+        assert lines[0].start == lines[0].end == 0.0 and not lines[0].dub_filename
+        assert lines[1].dub_filename and not lines[3].dub_filename
+
+    def test_a_slower_pace_stretches_every_line_time_to_match_the_slowed_track(self, fake_pydub, tmp_path,
+                                                                                monkeypatch):
+        slowed = []
+        monkeypatch.setattr(dub_narration, "_export_flac", lambda track, path, pace=1.0: (
+            slowed.append(pace), open(path, "w").close()))
+        lines = [Line(idx=i, start=0, end=0, zh=str(i), en=f"Line {i}.", speaker=s)
+                 for i, s in enumerate(("A", "B"))]
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
+        normal = [(ln.start, ln.end) for ln in lines]
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, pace=0.8)
+        assert [(ln.start, ln.end) for ln in lines] == [(s / 0.8, e / 0.8) for s, e in normal]
+        assert slowed == [1.0, 0.8]
+
+    def test_a_pace_out_of_range_is_refused_before_anything_is_spoken(self, fake_pydub, tmp_path):
+        lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="N")]
+        with pytest.raises(ValueError):
+            dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, pace=0.5)
+        assert not os.listdir(tmp_path / "dub_clips")
 
 
 class TestNarrationTrackFormat:
@@ -312,7 +369,7 @@ class TestNarrationTrackFormat:
         speak_with(monkeypatch, lambda text, out_path, **kw: open(out_path, "w").close())
         (tmp_path / "narration_track.wav").write_bytes(b"old")
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="N")]
-        out, _ = dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
+        out, _ = dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
         assert out == str(tmp_path / "narration_track.flac")
         assert not (tmp_path / "narration_track.wav").exists()
         assert dub_narration.find_narration_track(str(tmp_path)) == "narration_track.flac"
@@ -326,7 +383,7 @@ class TestNarrationTrackFormat:
         monkeypatch.setattr(FakeAudio, "export", killed)
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="N")]
         with pytest.raises(OSError):
-            dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
+            dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
         assert os.listdir(tmp_path / "dub_clips") and not (tmp_path / "narration_track.flac").exists()
         assert not (tmp_path / "narration_track.flac.part").exists()
 
@@ -391,7 +448,7 @@ class TestSequentialNarration:
         speak_with(monkeypatch, lambda text, out_path, **kw: spoken.append(text) or open(out_path, "w").close())
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="A"),
                  Line(idx=1, start=0, end=0, zh="b", en="Two.", speaker="B")]
-        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), {"A": dict(VOICE)}, gap_ms=350)
+        _, errors = dub_narration.build_narration_track(lines, str(tmp_path), {"A": dict(VOICE)})
         assert spoken == ["One."]
         assert errors == [{"line_idx": 1, "error": dub.NO_VOICE_ERROR}]
         assert lines[1].end == pytest.approx(lines[1].start + 0.35)
@@ -506,7 +563,7 @@ class TestExportM4b:
         lines = [Line(idx=0, start=0, end=0, zh="一。", en="One."),
                  Line(idx=1, start=0, end=0, zh="二。", en="Two."),
                  Line(idx=2, start=0, end=0, zh="三。", en="Three.")]
-        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, gap_ms=350)
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
         (tmp_path / "narration_track.flac").unlink()  # the fake encoder's stub; this run exports an older title's WAV
         _write_wav(tmp_path / "narration_track.wav", 3.0)
 

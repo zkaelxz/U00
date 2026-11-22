@@ -5,7 +5,7 @@ It runs under a different interpreter whose packages clash with the app's (qwen-
 chatterbox-tts pin other transformers), so it imports nothing from the app and only the standard library
 at module level; an engine's packages are imported by its adapter once the spec names it.
 
-The model is loaded once per batch, then each item is written to its "out" path. Events
+The model is loaded once per spec, then each item is written to its "out" path. Events
 go to stdout as `@@voice-<nonce> {json}` lines, one per event; anything else on the stream
 is library noise and the parent ignores it. Events: {"loaded": true} once the model is up,
 {"done": id} or {"failed": id, "error": text} per item, {"fatal": text} when nothing more
@@ -77,20 +77,30 @@ def _load_qwen3_tts(spec: dict):
         device_map="cuda:0" if cuda else "cpu", dtype=dtype)
     prompts = {}
 
-    def speak(item):
+    def speak(items):
+        first = items[0]
         # Building the clone prompt encodes the reference clip; a narration reuses a
         # handful of voices for hundreds of lines, so each is built once.
-        key = (item["ref_audio"], item.get("ref_text") or "")
+        key = (first["ref_audio"], first.get("ref_text") or "")
         if key not in prompts:
             prompts[key] = model.create_voice_clone_prompt(
-                ref_audio=item["ref_audio"], ref_text=item.get("ref_text") or None,
+                ref_audio=first["ref_audio"], ref_text=first.get("ref_text") or None,
                 # Without the clip's transcript only the speaker embedding can be used.
-                x_vector_only_mode=not item.get("ref_text"))
+                x_vector_only_mode=not first.get("ref_text"))
+        language = QWEN3_TTS_LANGUAGES.get(first.get("language"), "Auto")
         wavs, rate = model.generate_voice_clone(
-            text=item["text"], language=QWEN3_TTS_LANGUAGES.get(item.get("language"), "Auto"),
-            voice_clone_prompt=prompts[key])
-        sf.write(item["out"], _trim_tail(wavs[0], rate), rate)
+            text=[item["text"] for item in items], language=[language] * len(items),
+            voice_clone_prompt=prompts[key] * len(items))
+        _write_each(sf, items, wavs, rate)
     return speak
+
+
+def _write_each(sf, items, wavs, rate) -> None:
+    # A short answer would leave a line silent, or put one line's audio in another's file.
+    if len(wavs) != len(items):
+        raise RuntimeError(f"the engine returned {len(wavs)} clips for {len(items)} lines")
+    for item, wav in zip(items, wavs):
+        sf.write(item["out"], _trim_tail(wav, rate), rate)
 
 
 # Chatterbox stops after 1000 speech tokens (about 40 s), dropping the rest of the text
@@ -142,7 +152,8 @@ def _load_chatterbox(spec: dict):
         device="cuda" if torch.cuda.is_available() else "cpu")
     voices = {}
 
-    def speak(item):
+    def speak(items):
+        (item,) = items
         # The model keeps one voice at a time; encoding a clip is the slow part, so each
         # voice's encoding is kept and swapped back in for its next line.
         if item["ref_audio"] not in voices:
@@ -169,26 +180,73 @@ def _load_omnivoice(spec: dict):
     model = OmniVoice.from_pretrained(
         OMNIVOICE_REPO, device_map="cuda:0" if cuda else "cpu",
         dtype=torch.float16 if cuda else torch.float32)
+    prompts = {}
 
-    def speak(item):
-        kwargs = {}
-        if item.get("ref_audio"):
-            kwargs["ref_audio"] = item["ref_audio"]
-            # Without the clip's transcript OmniVoice transcribes the clip itself.
-            if item.get("ref_text"):
-                kwargs["ref_text"] = item["ref_text"]
-        elif item.get("instruct"):
-            kwargs["instruct"] = item["instruct"]
-        audio = model.generate(text=item["text"], **kwargs)
-        sf.write(item["out"], _trim_tail(audio[0], OMNIVOICE_SAMPLE_RATE), OMNIVOICE_SAMPLE_RATE)
+    def speak(items):
+        first, kwargs = items[0], {}
+        if first.get("ref_audio"):
+            # generate() would encode the clip again for every call, and without the
+            # clip's transcript also run its own speech recognition on it, so each
+            # voice's prompt is built once, with the same defaults generate() uses.
+            key = (first["ref_audio"], first.get("ref_text") or "")
+            if key not in prompts:
+                prompts[key] = model.create_voice_clone_prompt(
+                    ref_audio=first["ref_audio"], ref_text=first.get("ref_text") or None)
+            kwargs["voice_clone_prompt"] = [prompts[key]] * len(items)
+        elif first.get("instruct"):
+            kwargs["instruct"] = first["instruct"]
+        audio = model.generate(text=[item["text"] for item in items], **kwargs)
+        _write_each(sf, items, audio, OMNIVOICE_SAMPLE_RATE)
     return speak
 
 
 OMNIVOICE_SAMPLE_RATE = 24000
 
-# engine -> load(spec) returning speak(item), which writes item["out"].
+# engine -> load(spec) returning speak(items), which writes each item's "out". Every
+# item in one call shares a voice and a language (_voice_key).
 ADAPTERS = {"omnivoice": _load_omnivoice, "qwen3_tts": _load_qwen3_tts,
             "chatterbox": _load_chatterbox}
+
+# Lines spoken in one model call. Speaking two at once keeps the GPU busier than one
+# short line can; Chatterbox's generate() takes one text, so it stays at one.
+BATCH_SIZES = {"omnivoice": 2, "qwen3_tts": 2}
+# A line waits for a partner in its voice only among the next few, so a run still goes
+# through the book in order and a cancel leaves no gap far behind the last clip.
+BATCH_LOOKAHEAD = 8
+
+
+def _voice_key(item) -> tuple:
+    return (item.get("ref_audio") or "", item.get("ref_text") or "", item.get("instruct") or "",
+            item.get("language") or "")
+
+
+def _batches(items: list, size: int):
+    """`items` in order, cut into lists of up to `size` that share one _voice_key."""
+    taken = [False] * len(items)
+    for i, item in enumerate(items):
+        if taken[i]:
+            continue
+        batch, key = [item], _voice_key(item)
+        for j in range(i + 1, min(len(items), i + 1 + BATCH_LOOKAHEAD)):
+            if len(batch) == size:
+                break
+            if not taken[j] and _voice_key(items[j]) == key:
+                taken[j] = True
+                batch.append(items[j])
+        yield batch
+
+
+def _out_of_memory(exc: BaseException) -> bool:
+    return "out of memory" in str(exc).lower() or type(exc).__name__ == "OutOfMemoryError"
+
+
+def _free_gpu_cache() -> None:
+    torch = sys.modules.get("torch")
+    try:
+        if torch is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
 
 def _error_text(exc: BaseException) -> str:
@@ -208,13 +266,29 @@ def run(spec: dict, emit, adapters=None) -> None:
         emit({"fatal": _error_text(exc)})
         return
     emit({"loaded": True})
-    for item in spec.get("items") or []:
-        try:
-            speak(item)
-        except Exception as exc:
-            emit({"failed": item["id"], "error": _error_text(exc)})
-        else:
-            emit({"done": item["id"]})
+    size = BATCH_SIZES.get(spec.get("engine"), 1)
+    for batch in _batches(spec.get("items") or [], size):
+        if len(batch) > 1 and size > 1:
+            try:
+                speak(batch)
+            except Exception as exc:
+                # A pair can fail where each line alone would not, so the pair is
+                # retried one line at a time. Out of GPU memory, the rest of the run
+                # goes one at a time too rather than failing that way again.
+                if _out_of_memory(exc):
+                    size = 1
+                _free_gpu_cache()
+            else:
+                for item in batch:
+                    emit({"done": item["id"]})
+                continue
+        for item in batch:
+            try:
+                speak([item])
+            except Exception as exc:
+                emit({"failed": item["id"], "error": _error_text(exc)})
+            else:
+                emit({"done": item["id"]})
 
 
 def _exit_when_orphaned(write) -> None:

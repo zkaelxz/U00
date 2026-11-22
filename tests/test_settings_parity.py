@@ -57,7 +57,7 @@ def test_preference_defaults(isolated_db, env_file):
     assert {k: v for k, v in prefs.items() if k not in timing_settings_service.KEYS} == {
         "default_engine": "claude", "default_locale": "en-US", "default_style_note": "",
         "scene_aware_batches": True, "blocked_phrases": whisper_hallucination.BLOCKED_PHRASES_DEFAULT, "scanlate_chapter_brief": True, "scanlate_page_image": True, "scanlate_sfx_gloss": False, "scanlate_match_text_color": True, "scanlate_rect_layout": False, "episode_brief": True, "stream_plain_prompt": True, "ollama_cloud_default": False, "translate_reply_guard": "auto", "novel_parallel_chapters": 3, "claude_reasoning": "default", "openai_reasoning": "less", "translate_alignment_check": True, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
-        "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "keep_free_vram_gb": 0.0,
+        "narration_pace": 1.0, "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "keep_free_vram_gb": 0.0,
         "keep_free_ram_gb": 0.0, "gpu_guard": True, "second_hearing": False, "gpu_guard_temp_c": 85, "gpu_guard_stop_minutes": 2,
         "whisper_model_path": "", "ocr_backend": "auto", "speaker_model": "nemotron",
         "ocr_prefer_paddle_vl_manga": False, "tesseract_cmd": "", "lncrawl_cmd": "",

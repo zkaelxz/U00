@@ -28,6 +28,7 @@ const PREFS = {
   translate_alignment_check: true,
   episode_summary_engine: 'ollama',
   monthly_cap_usd: null as number | null,
+  narration_pace: 1,
   max_upload_mb: 20480,
   ollama_num_ctx_override: 0,
   keep_free_vram_gb: 0,
