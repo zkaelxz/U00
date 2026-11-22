@@ -124,11 +124,12 @@ def test_a_failed_pair_is_retried_one_line_at_a_time(monkeypatch):
                 raise RuntimeError("no voice")
         return speak
 
-    voice_worker.run({"engine": "fake", "items": _pair_items(4)}, events.append, adapters={"fake": load})
-    # Not out of memory, so the next pair is still tried together.
-    assert calls == [["0", "1"], ["0"], ["1"], ["2", "3"], ["2"], ["3"]]
+    voice_worker.run({"engine": "fake", "items": _pair_items(6)}, events.append, adapters={"fake": load})
+    # Not out of memory, so the next pair is still tried together; after two failed
+    # pairs the rest goes one at a time.
+    assert calls == [["0", "1"], ["0"], ["1"], ["2", "3"], ["2"], ["3"], ["4"], ["5"]]
     assert events == [{"loaded": True}, {"done": "0"}, {"failed": "1", "error": "RuntimeError: no voice"},
-                      {"done": "2"}, {"done": "3"}]
+                      {"done": "2"}, {"done": "3"}, {"done": "4"}, {"done": "5"}]
 
 
 def test_out_of_gpu_memory_on_a_pair_drops_the_rest_of_the_run_to_one_line_at_a_time(monkeypatch):

@@ -343,6 +343,17 @@ class TestNarrationPauses:
         assert spoken == [site_title, "正文。", "第二章 雨夜来了", "第三章 晴天", "第四章 阴天"]
         assert lines[0].start == lines[0].end == 0.0 and not lines[0].dub_filename
         assert lines[1].dub_filename and not lines[3].dub_filename
+        # The audiobook's chapter list names each chapter once, by the line that is read.
+        titles = [t for _, t in dub_narration.narration_chapters(lines, narrate_original=True)]
+        assert titles == [site_title, "第二章 雨夜来了", "第三章 晴天", "第四章 阴天"]
+
+    def test_a_short_title_inside_a_longer_one_is_not_a_repeat(self, fake_pydub, tmp_path, monkeypatch):
+        spoken = []
+        speak_with(monkeypatch, lambda text, out_path, **kw: (spoken.append(text), open(out_path, "w").close()))
+        lines = [Line(idx=0, start=0, end=0, zh="第2章 他", en="", speaker="N"),
+                 Line(idx=1, start=0, end=0, zh="第3章 我和他", en="", speaker="N")]
+        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, narrate_original=True)
+        assert spoken == ["第2章 他", "第3章 我和他"]
 
     def test_a_slower_pace_stretches_every_line_time_to_match_the_slowed_track(self, fake_pydub, tmp_path,
                                                                                 monkeypatch):

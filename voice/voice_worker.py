@@ -213,6 +213,7 @@ BATCH_SIZES = {"omnivoice": 2, "qwen3_tts": 2}
 # A line waits for a partner in its voice only among the next few, so a run still goes
 # through the book in order and a cancel leaves no gap far behind the last clip.
 BATCH_LOOKAHEAD = 8
+PAIR_FAILURES_BEFORE_SINGLES = 2
 
 
 def _voice_key(item) -> tuple:
@@ -237,7 +238,9 @@ def _batches(items: list, size: int):
 
 
 def _out_of_memory(exc: BaseException) -> bool:
-    return "out of memory" in str(exc).lower() or type(exc).__name__ == "OutOfMemoryError"
+    text = str(exc).lower()
+    return ("out of memory" in text or "alloc_failed" in text
+            or type(exc).__name__ == "OutOfMemoryError")
 
 
 def _free_gpu_cache() -> None:
@@ -267,15 +270,18 @@ def run(spec: dict, emit, adapters=None) -> None:
         return
     emit({"loaded": True})
     size = BATCH_SIZES.get(spec.get("engine"), 1)
+    failed_pairs = 0
     for batch in _batches(spec.get("items") or [], size):
         if len(batch) > 1 and size > 1:
             try:
                 speak(batch)
             except Exception as exc:
                 # A pair can fail where each line alone would not, so the pair is
-                # retried one line at a time. Out of GPU memory, the rest of the run
-                # goes one at a time too rather than failing that way again.
-                if _out_of_memory(exc):
+                # retried one line at a time. Out of GPU memory, or after pairs keep
+                # failing, the rest of the run goes one at a time too: three calls a
+                # pair would eat into the batch's time limit.
+                failed_pairs += 1
+                if _out_of_memory(exc) or failed_pairs >= PAIR_FAILURES_BEFORE_SINGLES:
                     size = 1
                 _free_gpu_cache()
             else:

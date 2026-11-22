@@ -34,18 +34,18 @@ PACE_MIN, PACE_MAX = 0.75, 1.25
 
 
 def _repeated_headings(lines, narrate_original: bool) -> set:
-    """idx of each chapter heading line followed straight away by a line that opens with
-    a chapter label and gives the same title (a site's own title over the chapter's,
+    """idx of each chapter heading line followed straight away by another heading that
+    gives the same title, or the start of it (a site's own title over the chapter's,
     "第1章 第一章 若是我早些……" then "第一章 若是我早些来"), so the chapter is
-    announced once, by the later, fuller line."""
+    announced once, by the later line."""
     voiced = [ln for ln in lines if (ln.zh if narrate_original else ln.en).strip()]
     out = set()
     for ln, nxt in zip(voiced, voiced[1:]):
-        if not is_chapter_heading(ln):
+        if not (is_chapter_heading(ln) and is_chapter_heading(nxt)):
             continue
         a = heading_title(ln.zh if narrate_original else ln.en)
         b = heading_title(nxt.zh if narrate_original else nxt.en)
-        if a and b and (a in b or b in a):
+        if a and b and (a.startswith(b) or b.startswith(a)):
             out.add(ln.idx)
     return out
 
@@ -368,7 +368,8 @@ def narration_chapters(lines, paragraph_ends=None, narrate_original: bool = Fals
     narrate_original: "voiced" and chapter titles come from
     ln.zh (what was actually spoken) instead of ln.en."""
     text_field = "zh" if narrate_original else "en"
-    voiced = [ln for ln in lines if getattr(ln, text_field).strip()]
+    repeated = _repeated_headings(lines, narrate_original)
+    voiced = [ln for ln in lines if getattr(ln, text_field).strip() and ln.idx not in repeated]
     if not voiced:
         return []
     headings = [ln for ln in voiced if is_chapter_heading(ln)]
