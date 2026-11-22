@@ -389,6 +389,9 @@ class LibraryVoice(BaseModel):
     ref_text: Optional[str] = None
     created_at: Optional[str] = None
     clip_available: bool
+    # The caller can't see the title the voice came from, so source_drama
+    # and ref_text are left out (and must not be saved back as blanks).
+    source_hidden: bool = False
 
 
 class LibraryVoiceBankResponse(BaseModel):

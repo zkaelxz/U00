@@ -195,6 +195,8 @@ def _backup_files(library_dir: str, skip: set, excluded: tuple) -> list:
 # Share of the progress bar the file copy uses; the rest is the database
 # snapshot and manifest, which are written last.
 _BACKUP_FILES_SHARE = 0.95
+BACKUP_CHECK_FAILED = ("The backup failed its check, so it was removed. Earlier backups are "
+                       "as they were.")
 _BACKUP_PROGRESS_INTERVAL = 0.25
 
 
@@ -281,17 +283,18 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
     return skipped
 
 
-def _check_backup_zip(path: str):
+def _check_backup_zip(path: str, on_read=None):
     """Raises OSError unless the zip at `path` passes what a restore and the
     auto backup check: the restore's zip checks (CRCs, unsafe or encrypted
     members), a sound library.db and, when present, a sound sources.db, which
     a restore would refuse. Runs on the partial file, before it is named as a
-    backup, so a failed check only ever removes that file."""
+    backup, so a failed check only ever removes that file. `on_read` is
+    validate_backup_file's progress and cancel hook."""
     # Imported here: both modules import this one.
     from services import auto_backup_files as abf
     from services import library_backup_restore_service as lbr
     try:
-        lbr.validate_backup_file(path, check_disk=False, check_limits=False)
+        lbr.validate_backup_file(path, check_disk=False, check_limits=False, on_read=on_read)
         with zipfile.ZipFile(path) as zf, storage.job_workdir("backup_check") as tmp:
             abf.extract_db(zf, tmp)
             if "sources.db" in zf.namelist():
@@ -310,7 +313,24 @@ def _backup_job(job_id):
             progress=lambda frac, msg: background_jobs.update_progress(job_id, frac, msg),
             should_cancel=lambda: background_jobs.is_cancel_requested(job_id)))
         background_jobs.update_progress(job_id, _BACKUP_FILES_SHARE, "Checking the backup...")
-        _check_backup_zip(dest)
+        last_report = 0.0
+
+        def checked(done, total):
+            nonlocal last_report
+            if background_jobs.is_cancel_requested(job_id):
+                raise background_jobs.JobCancelled()
+            now = time.monotonic()
+            if total and now - last_report >= _BACKUP_PROGRESS_INTERVAL:
+                last_report = now
+                background_jobs.update_progress(
+                    job_id, _BACKUP_FILES_SHARE + (1 - _BACKUP_FILES_SHARE) * done / total,
+                    f"Checking the backup ({done * 100 // total}%)...")
+        try:
+            _check_backup_zip(dest, on_read=checked)
+        except OSError:
+            # Not "could not be written": the zip was written, and a damaged
+            # one is removed here rather than kept as a backup.
+            raise RuntimeError(BACKUP_CHECK_FAILED) from None
 
     name, size = _write_artifact("backup", ".zip", "The backup could not be written.", write)
     background_jobs.set_result(job_id, {"name": name, "size": size, "skipped_count": len(skipped)})

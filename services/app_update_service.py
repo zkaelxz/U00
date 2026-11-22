@@ -77,6 +77,9 @@ SERVICE_AUTO_APPLY_KEY = "update.service_auto_apply"
 
 RESULT_MESSAGES = {
     "updated": "Updated to {new}.",
+    "updated_unrecorded": ("Updated to {new}, but the version could not be recorded, so Baihe "
+                           "Studio may still say {old} and offer this update again. Free some "
+                           "disk space, then install the update again to record it."),
     "queued": ("A file in the app folder was in use, so the update to {new} will finish the "
                "next time Baihe Studio starts."),
     "not_started": "The update to {new} didn't start; {old} kept running.",

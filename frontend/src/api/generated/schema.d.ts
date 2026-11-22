@@ -12657,6 +12657,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This copy's version and its release or commit date */
+        get: operations["app_version_api_version_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/voices": {
         parameters: {
             query?: never;
@@ -13035,6 +13052,29 @@ export interface components {
             started: boolean;
             /** Version */
             version: string;
+        };
+        /** AppVersionInfo */
+        AppVersionInfo: {
+            /**
+             * Commit Date
+             * @description A source checkout's commit date (YYYY-MM-DD); null without git.
+             */
+            commit_date: string | null;
+            /**
+             * Released
+             * @description An installed copy's release date (YYYY-MM-DD), from its build stamp.
+             */
+            released: string | null;
+            /**
+             * Source Copy
+             * @description A source checkout, not a copy installed with Setup.
+             */
+            source_copy: boolean;
+            /**
+             * Version
+             * @description This copy's version; null for an installed copy whose manifest.json can't be read.
+             */
+            version: string | null;
         };
         /** ArtifactInfo */
         ArtifactInfo: {
@@ -21600,6 +21640,11 @@ export interface components {
             ref_text: string | null;
             /** Source Drama */
             source_drama: string | null;
+            /**
+             * Source Hidden
+             * @default false
+             */
+            source_hidden: boolean;
             /** Source Speaker */
             source_speaker: string | null;
         };
@@ -23392,6 +23437,11 @@ export interface components {
         MonthSpendStatus: {
             /** Month Spend Counted Usd */
             month_spend_counted_usd: number;
+            /**
+             * Month Spend Imported Usd
+             * @default 0
+             */
+            month_spend_imported_usd: number;
             /** Month Spend Reset At */
             month_spend_reset_at: string | null;
             /** Month Spend Usd */
@@ -24428,6 +24478,12 @@ export interface components {
              * @description Jobs a restart would stop.
              */
             running_jobs: string[];
+            /**
+             * Service
+             * @description The background service runs this copy: closing its window doesn't restart it.
+             * @default false
+             */
+            service: boolean;
         };
         /** PendingInstallRestartRequest */
         PendingInstallRestartRequest: {
@@ -28278,6 +28334,11 @@ export interface components {
              * @default 0
              */
             month_spend_counted_usd: number;
+            /**
+             * Month Spend Imported Usd
+             * @default 0
+             */
+            month_spend_imported_usd: number;
             /** Month Spend Reset At */
             month_spend_reset_at: string | null;
             /**
@@ -71589,6 +71650,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    app_version_api_version_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppVersionInfo"];
                 };
             };
         };

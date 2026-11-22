@@ -12,6 +12,8 @@ import re
 import tempfile
 from typing import NamedTuple, Optional
 
+from lib.safe_paths import plain_file_in
+
 
 # A line that's a chapter heading of its own: 第十二章 / 第3回 / 第二卷 /
 # 第5話 / 제3화 / 12화 / 序章 / プロローグ / 프롤로그 / "Chapter 12: Title" /
@@ -554,3 +556,19 @@ def narration_paragraph_ends(lines, drama_dir: str):
         return None
     with open(path, encoding="utf-8") as f:
         return novel_paragraph_ends(lines, f.read())
+
+
+MAX_REFERENCE_BYTES = 32 * 1024 * 1024
+
+
+def read_title_text_file(folder: str, filename, max_bytes: int | None = MAX_REFERENCE_BYTES) -> Optional[str]:
+    """The UTF-8 text of a file stored under a title's folder, or None when the stored name is
+    not a plain file in it, is missing, or is over max_bytes. A restored or imported row can
+    hold any filename, and this text goes to the translation engine."""
+    path = plain_file_in(folder, filename)
+    if path is None or not os.path.isfile(path):
+        return None
+    if max_bytes is not None and os.path.getsize(path) > max_bytes:
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()

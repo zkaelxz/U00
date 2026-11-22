@@ -197,7 +197,9 @@ export function PendingInstallBanner({ status, onCancel, onDismiss, onRestarted 
         <div className="diag-stack" role="status" data-testid="pending-install">
           <p>
             <Badge tone="warn">pending install (restart)</Badge>{' '}
-            {status.packages.join(', ')} will install when you restart Baihe. {RESTART_HELP}
+            {status.packages.join(', ')} will install when you restart Baihe.
+            {/* The service's reason, shown below, says how it restarts: closing a window doesn't. */}
+            {status.restart.service ? '' : ` ${RESTART_HELP}`}
           </p>
           <div className="actions">
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={onCancel}>

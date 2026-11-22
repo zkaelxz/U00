@@ -304,6 +304,31 @@ def test_backup_job_cancel_marks_job_cancelled(isolated_db, monkeypatch):
     assert os.listdir(las._artifact_dir("backup", create=True)) == []
 
 
+def test_backup_check_can_be_cancelled_and_reports_progress(isolated_db, monkeypatch):
+    # The check rereads the whole zip (many GB with media); it was uncancellable.
+    _media()
+    checking = []
+    real_check = lbs._check_backup_zip
+
+    def check(path, on_read=None):
+        checking.append(True)
+        return real_check(path, on_read=on_read)
+    monkeypatch.setattr(lbs, "_check_backup_zip", check)
+    monkeypatch.setattr(lbs, "_BACKUP_PROGRESS_INTERVAL", 0)
+    monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: bool(checking))
+    seen = []
+    monkeypatch.setattr(background_jobs, "update_progress", lambda jid, frac, msg: seen.append(msg))
+    with pytest.raises(background_jobs.JobCancelled):
+        lbs._backup_job(las.BACKUP_JOB_ID)
+    assert checking and "Checking the backup..." in seen
+    assert os.listdir(las._artifact_dir("backup", create=True)) == []
+
+    monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: False)
+    seen.clear()
+    lbs._backup_job(las.BACKUP_JOB_ID)
+    assert any(m.startswith("Checking the backup (") for m in seen)
+
+
 # ---- restore --------------------------------------------------------------
 
 def test_restore_refused_while_job_running(isolated_db, monkeypatch):

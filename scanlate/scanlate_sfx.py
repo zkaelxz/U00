@@ -98,6 +98,7 @@ def draw_gloss(pil_img, region: dict, font_path: str | None = None, avoid: tuple
             best = (cost, lines, left, top)
         if cost == 0:
             break
+    assert best is not None  # the loop above always runs at least once
     _, lines, left, top = best
     stroke = max(2, size // 8)
     for i, line in enumerate(lines):
