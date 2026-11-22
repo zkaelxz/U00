@@ -228,7 +228,7 @@ overwritten; only bubbles still untranslated are translated, or a note points
 to Scanlate when no engine is set. Capture sends no chapter labels, so an
 identical page shared by two chapters (credits) is reused too, not duplicated.
 
-A translated page gets what a Scanlate run sends with it: the series cast's pronouns and voice notes, and, for the Claude, Gemini, OpenAI and Ollama engines while *Show the comic page to the translator* is on, the page's picture (a Claude engine reads it with Haiku 5.5, as Scanlate does). That setting's cost note applies: a page with its picture costs several times the text alone. If the picture request fails, the page is translated from its text.
+A translated page gets what a Scanlate run sends with it: the series cast's pronouns and voice notes, and, while *Show the comic page to the translator* is on, the page's picture, read as Scanlate reads it: by Gemma 4 31B on Ollama's servers when the engine is a cloud one (DeepSeek included) and Ollama is signed in, else by the engine itself (Claude as Haiku 5.5; DeepSeek then sends text only). That setting's cost note applies: a page with its picture costs several times the text alone. If the picture request fails, the page is translated from its text.
 
 Everything funnels into the existing, tested pipeline
 (`scanlate.detect_and_ocr_page` → `scanlate_translate.translate_page_bubbles`) and

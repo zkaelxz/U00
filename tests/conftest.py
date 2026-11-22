@@ -295,6 +295,26 @@ def _ml_detector_failure_forgotten():
 
 
 @pytest.fixture(autouse=True)
+def _no_gemma_picture_reader():
+    """A comic page's picture goes to Gemma on Ollama's servers whenever the PC's
+    Ollama answers, so a test run beside a running Ollama would send real, billed
+    requests. The real function stays on `.real` for its own tests; the skip
+    window it sets after a failure is process-wide, so it is cleared too."""
+    from services import scanlate_run_service
+    saved = scanlate_run_service._ollama_picture_reader
+
+    def stub(*args, **kwargs):
+        return None
+    stub.real = saved
+    scanlate_run_service._ollama_picture_reader = stub
+    try:
+        yield
+    finally:
+        scanlate_run_service._ollama_picture_reader = saved
+        scanlate_run_service._ollama_reader_down_until = 0.0
+
+
+@pytest.fixture(autouse=True)
 def _live_whisper_not_loaded():
     """A Live job loads Whisper before it captures; no test may load a real
     model. The real function stays on `warm_up.real` for its own tests.
