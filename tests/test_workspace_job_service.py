@@ -130,7 +130,7 @@ def test_bulk_cap_engines_match_translate_run(isolated_db, monkeypatch, engine):
     seen, _ = _capture_bulk_start(isolated_db, monkeypatch, engine, "audio_drama")
     assert seen["kwargs"]["cost_cap_usd"] == pytest.approx(5.0)
     # Claude lost lines at 60 per request, so both engines keep 30.
-    assert seen["args"][13] == 10 and seen["kwargs"]["batch_size"] == 30
+    assert seen["args"][13] == 10 and seen["kwargs"]["batch_size"] == (90 if engine == "deepseek" else 30)
 
 
 # A local tag: the Library batch never picks up a remembered cloud tag.

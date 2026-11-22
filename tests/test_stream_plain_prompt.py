@@ -84,7 +84,7 @@ def test_brief_prompt_asks_only_for_register_and_who_talks_to_whom():
 def test_plain_stream_defaults_are_no_context_and_ten_line_batches():
     opts = engine_registry.default_translate_options("ollama", GEMMA, plain_stream=True)
     assert (opts["context_window"], opts["context_window_ahead"], opts["batch_size"]) == (0, 0, 10)
-    assert engine_registry.default_translate_options("ollama", GEMMA)["batch_size"] == 30
+    assert engine_registry.default_translate_options("ollama", GEMMA)["batch_size"] == 90
     assert engine_registry.is_gemma4("ollama", GEMMA) and not engine_registry.is_gemma4("ollama", "translategemma:27b")
 
 

@@ -51,7 +51,7 @@ def test_a_translate_item_without_settings_still_records_its_run(isolated_db, se
 
 
 @pytest.mark.parametrize("settings", [
-    {"batch_size": 0}, {"batch_size": 61}, {"batch_size": True}, {"batch_size": "5"}, {"locale": "fr"},
+    {"batch_size": 0}, {"batch_size": 91}, {"batch_size": True}, {"batch_size": "5"}, {"locale": "fr"},
     {"style_preset": "nope"}, {"model": "not-a-model/../x"}, {"model": ""}, {"engine": "claude"}, {"beam_size": 5},
 ])
 def test_bad_translate_settings_are_refused_before_anything_is_queued(isolated_db, seen_run, settings):

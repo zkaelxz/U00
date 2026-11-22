@@ -78,7 +78,7 @@ export function validateProfile(f: ProfileForm, fields: ProfileField[]): string 
   if (f.name.trim().length > 100) return 'A profile name is at most 100 characters.'
   if (!f.engine) return 'Choose a translation engine.'
   for (const [label, raw, lo, hi] of [
-    ['Batch size', f.batch_size, 1, 60], ['Context window', f.context_window, 0, 100],
+    ['Batch size', f.batch_size, 1, 90], ['Context window', f.context_window, 0, 100],
     ['Context window ahead', f.context_window_ahead, 0, 100],
   ] as const) {
     if (raw.trim() && !whole(raw, lo, hi)) return `${label} is a whole number from ${lo} to ${hi}, or blank.`
