@@ -642,7 +642,7 @@ class _LiveRun(ChunkCaptioner):
                  engine, use_gpu, poll_interval, cookies_browser, cookies_file, overlap_seconds,
                  max_seconds, stream_url_check, proxy, report_stage, reply_without_thinking,
                  report_note, whisper_clock, report_stats, term_hints, spend_guard,
-                 delayed_player):
+                 delayed_player, report_player=None):
         self.job_id = job_id
         self.url = url
         self.out_dir = out_dir
@@ -664,6 +664,7 @@ class _LiveRun(ChunkCaptioner):
         self.term_hints = term_hints
         self.spend_guard = spend_guard
         self.delayed_player = delayed_player
+        self.report_player = report_player
         self.my_generation = bump_generation(job_id)
         self.started = time.monotonic()
         self.note = report_note or (lambda text, key=None: None)
@@ -813,10 +814,7 @@ class _LiveRun(ChunkCaptioner):
                 self.proc = start_segment_capture(
                     self.source_url, self.out_dir, self.segment_seconds, proxy=self.proxy)
                 self.capture_started = _timeline_clock()
-                self.player = live_player.start_if_possible(
-                    self.delayed_player, self.url, self.source_url, self.out_dir, self.note,
-                    self.should_stop, self.stream_url_check, self.proxy,
-                    self.cookies_browser, self.cookies_file)
+                self._start_player()
                 finishing = self._capture_loop(control, worker)
                 if self.outage is not None:
                     self._end_outage()
@@ -840,7 +838,9 @@ class _LiveRun(ChunkCaptioner):
             if self.time_up():
                 self._ended("Stopped: time limit reached.")
                 return True
-            self.player = live_player.watch(self.player, self.note)
+            watched = live_player.watch(self.player, self.note, self.out_dir)
+            if watched is not self.player:
+                self._set_player(watched)
             code = proc.poll()
             if getattr(proc, "ended_live", False):
                 self._ended("Capture stopped: the stream is no longer live.")
@@ -943,9 +943,41 @@ class _LiveRun(ChunkCaptioner):
                 continue
             self.source_url, self.proc, self.capture_stopped = url, proc, False
             self._skip_outage_on_timeline()
+            if self.delayed_player:
+                try:
+                    self._restart_player()
+                except background_jobs.JobCancelled:
+                    self._end_outage()
+                    return "cancel"
             self.stage.outage(f"Stream found again (try {attempt}): waiting for its first "
                               "chunk...")
             return "resumed"
+
+    def _start_player(self):
+        self._set_player(live_player.start_if_possible(
+            self.delayed_player, self.url, self.source_url, self.out_dir, self.note,
+            self.should_stop, self.stream_url_check, self.proxy,
+            self.cookies_browser, self.cookies_file))
+
+    def _restart_player(self):
+        """The recorders fetch the same expiring stream URLs as the capture, so
+        after a reconnect they are started again on the newly resolved ones. The
+        old copy is cleared first, so the page waits for the new one instead of
+        playing a window that no longer grows."""
+        if self.player is not None:
+            self.player.stop(kill=True)
+            self.player = None
+        live_player.clear(self.out_dir)
+        self._start_player()
+        if self.player is not None:
+            self.note(live_player.RESTARTED_NOTE, "player")
+
+    def _set_player(self, player):
+        """Tells the session whether its delayed player runs, so the page shows
+        the site's own embed while it does not."""
+        self.player = player
+        if self.delayed_player and self.report_player is not None:
+            self.report_player(player is not None)
 
     def _outage_wait(self, seconds, control):
         """"resumed" once `seconds` pass; "finish" or "cancel" if the session ends first."""
@@ -1076,7 +1108,8 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float | None = None,
                   stream_url_check=None, proxy: str | None = None, report_stage=None,
                   reply_without_thinking: bool = True, report_note=None, whisper_clock=None,
-                  report_stats=None, term_hints=None, spend_guard=None, delayed_player=False):
+                  report_stats=None, term_hints=None, spend_guard=None, delayed_player=False,
+                  report_player=None):
     """
     The background-thread target (see job_launch.start_job). Runs
     until request_cancel(job_id) is set, live_pipeline.request_finish(job_id)
@@ -1124,7 +1157,9 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     report_note(text, key=): a short fixed-text event worth keeping on screen
     after the status moves on; a note replaces the earlier one with its key.
     None drops them. report_stats(numbers): live_pipeline.LagStats figures
-    after each chunk. whisper_clock: a test seam.
+    after each chunk. report_player(running): with delayed_player, whether its
+    recorders run, each time that changes (a failure, a restart after a reconnect).
+    whisper_clock: a test seam.
 
     Whisper runs on one live_whisper.WhisperRunner thread at a time: Stop
     interrupts it within a poll, and a chunk it cannot finish in max(30 s,
@@ -1140,4 +1175,4 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
              use_gpu, poll_interval, cookies_browser, cookies_file, overlap_seconds,
              max_seconds, stream_url_check, proxy, report_stage, reply_without_thinking,
              report_note, whisper_clock, report_stats, term_hints, spend_guard,
-             delayed_player).run()
+             delayed_player, report_player).run()

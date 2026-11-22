@@ -52,7 +52,10 @@ export const POLL_MS = 2000
 /** The picture sizes the delayed player can record (live_player.HEIGHTS). */
 export const PLAYER_HEIGHTS = [360, 480, 720, 1080]
 export const LIVE_DEFAULT_ENGINE = 'ollama'
-export const LIVE_DEFAULT_MODEL = 'translategemma:27b'
+// The server picks 27b on a card of 20 GB or more; until it answers, the model that fits most cards.
+export const LIVE_DEFAULT_MODEL = 'translategemma:12b'
+/** What a paid engine may cost one session when no monthly cap is set (live_spend_service). */
+export const SPEND_LIMIT_RANGE: [number, number] = [0.1, 100]
 // Engines whose request can switch thinking off (engine_backends/thinking.py).
 export const THINKING_SWITCH_ENGINES = ['deepseek', 'ollama']
 
@@ -74,6 +77,8 @@ export interface LiveForm {
   delayed_player: boolean
   // The tallest picture the delayed player records, in pixels.
   player_height: number
+  // US dollars a paid engine may cost this session; only used when no monthly cap is set.
+  spend_limit_usd: number
   // null = no title: the translation gets no glossary or packs, as before.
   glossary_drama_id: number | null
   // A series instead of a title; at most one of the two is set. Settings saved
@@ -95,6 +100,7 @@ export const DEFAULT_FORM: LiveForm = {
   read_chat: false,
   delayed_player: false,
   player_height: 480,
+  spend_limit_usd: 2,
   glossary_drama_id: null,
   series_id: null,
 }
@@ -133,8 +139,10 @@ export const LIVE_FORM_FALLBACK: LiveFormOptions = {
   default_model: LIVE_DEFAULT_MODEL,
   thinking_switch_engines: THINKING_SWITCH_ENGINES,
   language_whisper_defaults: {},
-  defaults: (({ source_language, whisper_size, segment_seconds, overlap_seconds, max_minutes, player_height }) =>
-    ({ source_language, whisper_size, segment_seconds, overlap_seconds, max_minutes, player_height }))(DEFAULT_FORM),
+  spend_limit_range: SPEND_LIMIT_RANGE,
+  monthly_cap_set: false,
+  defaults: (({ source_language, whisper_size, segment_seconds, overlap_seconds, max_minutes, player_height, spend_limit_usd }) =>
+    ({ source_language, whisper_size, segment_seconds, overlap_seconds, max_minutes, player_height, spend_limit_usd }))(DEFAULT_FORM),
 }
 
 /** The model a stream in this language starts on when this browser has not picked one. */
@@ -156,7 +164,7 @@ const sessionPath = (id: string) => {
 
 /** No model asks about the one Start runs when none is chosen: the server decides, so the answer can't drift from it. */
 export const getLiveOptions = (f?: Fetch) => getJson<LiveFormOptions>('/api/live/options', f)
-/** With a Whisper size and the GPU on, it also says whether the model and Whisper fit in graphics memory. */
+/** Also says whether the model fits in graphics memory, beside Whisper when the GPU is on. */
 export const checkOllama = (model: string, f?: Fetch, gpu?: { whisperSize: string, useGpu: boolean }) => {
   const q = new URLSearchParams()
   if (model) q.set('model', model)
@@ -232,6 +240,7 @@ export function buildStartBody(form: LiveForm, opts: LiveFormOptions = LIVE_FORM
     engine: form.engine || null,
     model: form.model || null,
     max_minutes: clamp(form.max_minutes, opts.max_minutes_range, d.max_minutes),
+    spend_limit_usd: clamp(form.spend_limit_usd, opts.spend_limit_range, d.spend_limit_usd),
     use_gpu: form.use_gpu === true,
     reply_without_thinking: form.reply_without_thinking !== false,
     ...(form.read_chat === true ? { read_chat: true } : {}),

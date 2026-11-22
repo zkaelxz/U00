@@ -3,6 +3,7 @@ import pytest
 
 import background_jobs
 import db
+from core import Line
 from jobs import gpu_guard
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnsupportedOperationError
 from services import (auth_service, glossary_extract_service, page_run_service as runs, queue_service as q,
@@ -105,6 +106,8 @@ def test_a_failed_step_stops_the_run_with_its_reason_but_not_the_queue(names):
     view = runs.title_flow(None, did)
     assert view["state"] == "stopped" and view["step"] == "transcribe"
     assert "engine said no" in view["reason"]
+    # The page links the stopped step's job, where its log is.
+    assert view["job_id"] == f"transcribe_{did}"
     state = q.get_queue(None)
     assert state["notice"] is None
 
@@ -112,6 +115,23 @@ def test_a_failed_step_stops_the_run_with_its_reason_but_not_the_queue(names):
     names.fail.clear()
     names.gates.pop(f"transcribe_{did}")
     assert runs.start_title_flow(None, did, True, at_pc=True)["state"] == "waiting"
+
+
+def test_continuing_after_a_failed_names_step_skips_the_transcription_already_done(names):
+    did = _bare()
+    names.fail.add(f"lines_glossary_{did}")
+    runs.start_title_flow(None, did, True, at_pc=True)
+    q.tick()
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])   # what the transcription wrote
+    names.finish(f"transcribe_{did}")
+    q.tick()
+    names.finish(f"lines_glossary_{did}")
+    q.tick()
+    assert runs.title_flow(None, did)["step"] == "names"
+
+    names.fail.clear()
+    runs.start_title_flow(None, did, True, at_pc=True)
+    assert _flow(did) == [("transcribe", "done"), ("names", "failed"), ("names", "waiting")]
 
 
 def test_after_a_restart_a_pressed_run_waits_for_a_new_press(names):

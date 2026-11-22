@@ -130,7 +130,7 @@ def _store_episode_summary(drama_id: int, summary_engine, summary_engine_choice,
         db.update_drama(drama_id, episode_summary=summary)
 
 
-def _flag_for_review(drama_id: int, lines, landed: set, embed_texts, judge=None) -> None:
+def _flag_for_review(drama_id: int, lines, landed: set, embed_texts, judge=None, stage_cb=None) -> None:
     """Review flags computed from the run's English: reading speed on every line,
     and the optional source-match check (embed_texts, None skips it) only on the
     lines this run's English landed on. `judge` confirms the lines that check doubts."""
@@ -139,6 +139,10 @@ def _flag_for_review(drama_id: int, lines, landed: set, embed_texts, judge=None)
     dismissals.flag_dense_lines(drama_id, lines)
     if embed_texts is not None:
         from engine_backends import alignment_check
+        # Its own timing stage: on a CPU Ollama the embedding and the judge can take
+        # minutes, which the Finish stage around it would hide.
+        if stage_cb is not None:
+            stage_cb("Source match check")
         try:
             unchecked = []
             alignment_check.flag_mismatches([ln for ln in lines if ln.id in landed], embed_texts,
@@ -151,6 +155,8 @@ def _flag_for_review(drama_id: int, lines, landed: set, embed_texts, judge=None)
         except Exception:
             # An optional extra check must not fail a finished translation.
             logging.getLogger(__name__).exception("source-match check failed")
+        if stage_cb is not None:
+            stage_cb("Finish (version)")
     _log_finish_step(drama_id, "review flags", started, len(lines),
                      "with source-match" if embed_texts is not None else "")
 
@@ -195,7 +201,7 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
                            line_scoped: bool = False,
                            summary_monthly_cap_usd: float | None = None,
                            flags_needing_recheck: set | None = None, *, enforce_ids, embed_texts=None,
-                           sentence_parts=(), stage_cb=None, judge=None) -> bool:
+                           sentence_parts=(), stage_cb=None, judge=None, cancel_check=None) -> bool:
     """What happens after translate_pipeline.translate_lines_with_engine
     returns, shared by the translate jobs so they can't drift: applies
     enforce_exact glossary terms, flags reading-speed-dense lines, saves
@@ -240,7 +246,11 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     reading-speed or a content-blocked one); the ids of lines that changed
     during the run are added to flags_needing_recheck (a set, if given).
 
-    sentence_parts: the line ids of each sentence the run translated as one."""
+    sentence_parts: the line ids of each sentence the run translated as one.
+
+    cancel_check, if given, is asked after the review flags: a cancel that arrived
+    during them (the source-match check) skips the episode summary, though the
+    finished translation is still saved as a version."""
     # First: the exact-term substitution below changes `en` in the database,
     # which the compare-and-set on this run's English would then refuse.
     source_change.save_cleared_flags(drama_id, lines)
@@ -281,7 +291,9 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     # translate_lines_with_engine may already have set a content_blocked flag
     # on some lines, and that has to reach the database too, or it
     # only ever exists on this run's in-memory copies.
-    _flag_for_review(drama_id, lines, landed, embed_texts, judge)
+    _flag_for_review(drama_id, lines, landed, embed_texts, judge, stage_cb)
+    if cancel_check is not None and cancel_check():
+        summary_engine = None
     # Compare-and-set on the analysed text too: an edit saved after the
     # read above must not get a flag computed from this run's English.
     stale = db.save_lines(drama_id, [ln for ln in lines if ln.id in landed],

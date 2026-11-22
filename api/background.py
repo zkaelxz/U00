@@ -274,6 +274,12 @@ def start_background_services(features_off=frozenset()) -> dict:
     except Exception as exc:
         log_warning("leftover watch-once titles were not swept: %s", exc)
     try:
+        from services import quick_video_service
+        # So Library tools lists the Default profile before anyone has opened the Add box.
+        quick_video_service.chosen_profile_id()
+    except Exception as exc:
+        log_warning("the Default One-click translate profile was not made: %s", redact_secrets(str(exc)))
+    try:
         import translation_finish
         translation_finish.repair_stale_aligned_statuses()
     except Exception as exc:

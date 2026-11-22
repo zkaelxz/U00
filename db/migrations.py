@@ -315,6 +315,9 @@ def _migrate_series_and_character_columns(conn):
         # Not a foreign key: a deleted bank entry clears it in delete_voice_bank_entry, and a
         # restored library may hold an id whose entry is gone, which readers treat as unset.
         db._safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_bank_id INTEGER")
+    if "voice_design" not in sc_cols:
+        # The default voice a narration picked for this character, so later titles keep it.
+        db._safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_design TEXT")
 
 
 def _migrate_scanlate_columns(conn):
@@ -474,6 +477,14 @@ def _migrate_ownership_columns(conn):
             "SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
         conn.execute("UPDATE users SET share_by_default = 0")
         conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+    # Separate vocals first became "unset = on for Breeze titles" (owner decision 2026-11-22).
+    # Every title held the column default 0 that nobody chose, so reset them to unset once;
+    # the marker keeps a title switched off afterwards off.
+    marker = "migrations.separate_vocals_unset"
+    if conn.execute("SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
+        conn.execute("UPDATE dramas SET separate_vocals_first = NULL WHERE separate_vocals_first = 0")
+        # IGNORE: a second process starting at once may have set the marker since the check
+        conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
 
 
 def _grant_lines_read_for_reader_page(conn):

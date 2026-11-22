@@ -346,9 +346,10 @@ jobs:
             requirements-core.txt
             constraints.txt
 
-      # opencv headless: the runner has no libGL for the full wheel.
+      # opencv headless: the runner has no libGL for the full wheel. pydub imports audioop,
+      # which Python 3.13 removed; audioop-lts puts it back.
       - name: Install dependencies
-        run: pip install -r requirements-core.txt -r requirements-ci.txt jieba pypinyin opencc-python-reimplemented ebooklib genanki soundfile pypdf opencv-contrib-python-headless -c constraints.txt
+        run: pip install -r requirements-core.txt -r requirements-ci.txt jieba pypinyin opencc-python-reimplemented ebooklib genanki soundfile pypdf opencv-contrib-python-headless pyyaml pydub audioop-lts -c constraints.txt
 
       - name: Install ffmpeg
         run: |
@@ -363,7 +364,8 @@ jobs:
             tests/test_resegment.py tests/test_scanlate.py tests/test_scanlate_art_text.py \
             tests/test_scanlate_bench.py tests/test_scanlate_condense.py tests/test_scanlate_ocr_deps.py tests/test_scanlate_quality.py \
             tests/test_scanlate_regions.py tests/test_segment.py tests/test_transcription_quality.py tests/test_api_reader_m4.py tests/test_release_signing.py tests/test_api_scanlate_auto.py \
-            tests/test_video_export.py tests/test_vocab_export.py --junitxml=optional-tests.xml
+            tests/test_video_export.py tests/test_vocab_export.py tests/test_misheard_finder.py tests/test_ci_workflows.py \
+            tests/test_audio_levelling.py tests/test_narration_tts.py --junitxml=optional-tests.xml
 
       # A skip counts as a pass, so a library this job stopped installing would turn its tests
       # into green skips; the checker fails on any skip reason it doesn't expect.

@@ -9,11 +9,12 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import video_export
 from lib.atomic_write import replace_file
 from novel_text import (  # noqa: F401 (re-exported)
-    NARRATION_TRACK_NAMES, NOVEL_SOURCE_FILENAME, find_narration_track, is_chapter_heading,
-    narration_paragraph_ends)
+    NARRATION_TRACK_NAMES, NOVEL_SOURCE_FILENAME, find_narration_track, heading_title,
+    is_chapter_heading, narration_paragraph_ends)
 
 from audio_levelling import level_clip
 from voice.dub import (NO_VOICE_ERROR, engine_refusal, M4B_ENCODE_TIMEOUT_SECONDS, VENV_ENGINES, VENV_LINE_FAILED,
@@ -25,10 +26,32 @@ from voice.dub import (NO_VOICE_ERROR, engine_refusal, M4B_ENCODE_TIMEOUT_SECOND
 # better cross-sentence prosody than one call per subtitle-sized line.
 NARRATION_TTS_MAX_CHARS = 500
 
+# One even gap: longer pauses at paragraph ends put a stop after every line of a novel
+# written one paragraph per line, which Kae found worse (2026-11-22).
+CLIP_GAP_MS = 350
+PACE_MIN, PACE_MAX = 0.75, 1.25
+
+
+def _repeated_headings(lines, narrate_original: bool) -> set:
+    """idx of each chapter heading line followed straight away by another heading that
+    gives the same title, or the start of it (a site's own title over the chapter's,
+    "第1章 第一章 若是我早些……" then "第一章 若是我早些来"), so the chapter is
+    announced once, by the later line."""
+    voiced = [ln for ln in lines if (ln.zh if narrate_original else ln.en).strip()]
+    out = set()
+    for ln, nxt in zip(voiced, voiced[1:]):
+        if not (is_chapter_heading(ln) and is_chapter_heading(nxt)):
+            continue
+        a = heading_title(ln.zh if narrate_original else ln.en)
+        b = heading_title(nxt.zh if narrate_original else nxt.en)
+        if a and b and (a.startswith(b) or b.startswith(a)):
+            out.add(ln.idx)
+    return out
+
 
 def _narration_steps(lines, character_clone_map, paragraph_ends, narrate_original: bool = False):
     """Splits narration lines, in order, into ("blank", line) for a line
-    with nothing to say and ("unit", unit) for one TTS call. A unit joins
+    with nothing to say (or a repeated chapter heading) and ("unit", unit) for one TTS call. A unit joins
     consecutive lines while they share a speaker (so one voice), up to
     NARRATION_TTS_MAX_CHARS -- never across a paragraph end or a chapter
     heading, which always stands alone so it can mark an audiobook chapter.
@@ -36,9 +59,10 @@ def _narration_steps(lines, character_clone_map, paragraph_ends, narrate_origina
     narrate_original: speaks ln.zh (the drama's source text)
     instead of ln.en -- for novel narration's "original language" mode."""
     steps, current = [], None
+    repeated = _repeated_headings(lines, narrate_original)
     for ln in lines:
         text = (ln.zh if narrate_original else ln.en).strip()
-        if not text:
+        if not text or ln.idx in repeated:
             steps.append(("blank", ln))
             current = None
             continue
@@ -124,64 +148,158 @@ def _keep_partial(partial: str, clip_path: str):
         return VENV_LINE_FAILED
 
 
-def join_segments(pieces):
-    """The pieces end to end, as repeated `+=` would give. pydub's `+` copies both
-    sides, so adding one clip at a time is quadratic for a book of thousands of clips;
-    joining neighbours in rounds copies the audio only log2(n) times."""
-    pieces = list(pieces)
-    while len(pieces) > 1:
-        joined = [pieces[i] + pieces[i + 1] for i in range(0, len(pieces) - 1, 2)]
-        if len(pieces) % 2:
-            joined.append(pieces[-1])
-        pieces = joined
-    return pieces[0]
-
-
-# A WAV's sizes are 32-bit, so its data tops out just under 4 GB: about 24 h of the
-# engines' 24 kHz mono 16-bit audio. pydub writes FLAC through a temporary WAV.
-WAV_MAX_DATA_BYTES = 0xFFFFFFFF - 36
 # pydub keeps 8-bit audio signed in memory (it adds the WAV bias back only when writing a WAV).
 _PCM_FORMATS = {1: "s8", 2: "s16le", 3: "s24le", 4: "s32le"}
 _PIPE_CHUNK_BYTES = 8 * 1024 * 1024
+# The engines' own output, for a track that has no clip to take the format from.
+_DEFAULT_FORMAT = (24000, 1, 2)
 
 
-def _export_flac(track, path: str) -> None:
-    """Writes `track` as FLAC. A track too long for a WAV goes to ffmpeg as raw samples on
-    its stdin instead, so a long book's narration is not lost at the very last step."""
-    data = track.raw_data
-    if len(data) <= WAV_MAX_DATA_BYTES:
-        track.export(path, format="flac")
-        return
-    cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", _PCM_FORMATS[track.sample_width],
-           "-ar", str(track.frame_rate), "-ac", str(track.channels), "-i", "pipe:0",
-           "-c:a", "flac", "-f", "flac", path]
-    with tempfile.TemporaryFile() as err:
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
+def _start_ffmpeg(cmd, stderr):
+    return subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=stderr)
+
+
+class _FlacStream:
+    """ffmpeg encoding the track to FLAC from raw samples fed one clip at a time, so a book's
+    narration never sits in memory or in a temporary WAV (pydub's export writes one to the
+    system temp folder and leaves it there when it fails). Silence is written as zeros up to
+    each clip's start, so the audio stays on the line times. ffmpeg is killed once it has run
+    for `timeout` seconds (a hung ffmpeg would block a write for ever) and on any failure."""
+
+    def __init__(self, path: str, pace: float, workdir: str, timeout: float = M4B_ENCODE_TIMEOUT_SECONDS):
+        self.path, self.pace, self.workdir, self.timeout = path, pace, workdir, timeout
+        self.proc = self.err = self.timer = self.format = None
+        self.frames, self.timed_out = 0, False
+
+    def _open(self, frame_rate: int, channels: int, sample_width: int) -> None:
+        self.format = (frame_rate, channels, sample_width)
+        tempo = ["-af", f"atempo={self.pace:.4f}"] if self.pace != 1.0 else []
+        cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", _PCM_FORMATS[sample_width],
+               "-ar", str(frame_rate), "-ac", str(channels), "-i", "pipe:0",
+               *tempo, "-c:a", "flac", "-f", "flac", self.path]
+        # In the title's folder, not the system temp folder; the OS removes it on close or kill.
+        self.err = tempfile.TemporaryFile(dir=self.workdir)
         try:
-            view, cut_short = memoryview(data), False
-            try:
-                for i in range(0, len(view), _PIPE_CHUNK_BYTES):
-                    proc.stdin.write(view[i:i + _PIPE_CHUNK_BYTES])
-                proc.stdin.close()
-            except OSError:
-                # ffmpeg stopped reading (a full disk, say): its own message says why.
-                cut_short = True
-            proc.wait(timeout=M4B_ENCODE_TIMEOUT_SECONDS)
+            self.proc = _start_ffmpeg(cmd, self.err)
         except BaseException:
-            with contextlib.suppress(OSError):
-                proc.stdin.close()
-            proc.kill()
-            proc.wait()
+            self.err.close()
             raise
-        if proc.returncode or cut_short:
-            err.seek(0)
+        self.timer = threading.Timer(self.timeout, self._time_out)
+        self.timer.daemon = True
+        self.timer.start()
+
+    def _time_out(self) -> None:
+        self.timed_out = True
+        with contextlib.suppress(OSError):
+            self.proc.kill()
+
+    def _write(self, data) -> None:
+        view = memoryview(data)
+        try:
+            for i in range(0, len(view), _PIPE_CHUNK_BYTES):
+                self.proc.stdin.write(view[i:i + _PIPE_CHUNK_BYTES])
+        except OSError:
+            # ffmpeg stopped reading (a full disk, say): its own message says why.
+            self._fail()
+
+    def _pad_to(self, ms: float) -> None:
+        rate, channels, width = self.format
+        missing = round(ms * rate / 1000) - self.frames
+        if missing <= 0:
+            return
+        self.frames += missing
+        frame_bytes = channels * width
+        chunk_frames = max(1, _PIPE_CHUNK_BYTES // frame_bytes)
+        while missing > 0:
+            n = min(missing, chunk_frames)
+            self._write(bytes(n * frame_bytes))
+            missing -= n
+
+    def add(self, clip, at_ms: float):
+        """Writes `clip` starting at `at_ms` into the track; returns the clip as written (in the
+        track's format), whose len() is its length in ms."""
+        if self.proc is None:
+            self._open(clip.frame_rate, clip.channels, clip.sample_width)
+        rate, channels, width = self.format
+        if clip.frame_rate != rate:
+            clip = clip.set_frame_rate(rate)
+        if clip.channels != channels:
+            clip = clip.set_channels(channels)
+        if clip.sample_width != width:
+            clip = clip.set_sample_width(width)
+        self._pad_to(at_ms)
+        data = clip.raw_data
+        self.frames += len(data) // (channels * width)
+        self._write(data)
+        return clip
+
+    def finish(self, end_ms: float) -> None:
+        if self.proc is None:
+            self._open(*_DEFAULT_FORMAT)
+        self._pad_to(end_ms)
+        try:
+            self.proc.stdin.close()
+        except OSError:
+            self._fail()
+        self.proc.wait()
+        if self.proc.returncode or self.timed_out:
+            self._fail()
+        self.abort()
+
+    def _fail(self):
+        self._stop()
+        if self.timed_out:
+            message = (f"ffmpeg took more than {int(self.timeout // 3600)} hours to write the "
+                       "narration track, so it was stopped.")
+        else:
+            self.err.seek(0)
             # ffmpeg names the output path; job errors never carry filesystem paths.
-            said = err.read()[-500:].decode("utf-8", "replace").replace(path, os.path.basename(path))
-            raise RuntimeError(f"ffmpeg could not write the narration track: {said.strip()}")
+            said = self.err.read()[-500:].decode("utf-8", "replace").replace(self.path, os.path.basename(self.path))
+            message = f"ffmpeg could not write the narration track: {said.strip()}"
+        self.abort()
+        raise RuntimeError(message)
+
+    def _stop(self) -> None:
+        self.timer.cancel()
+        with contextlib.suppress(OSError):
+            self.proc.stdin.close()
+        if self.proc.returncode is None:
+            with contextlib.suppress(OSError):
+                self.proc.kill()
+        self.proc.wait()
+
+    def abort(self) -> None:
+        """Stops ffmpeg and closes its error file; safe to call more than once."""
+        if self.proc is not None:
+            self._stop()
+            self.err.close()
+
+
+def partial_track_path(drama_dir: str) -> str:
+    """Where a track is written before it replaces the old one."""
+    return os.path.join(drama_dir, NARRATION_TRACK_NAMES[0]) + ".part"
+
+
+def remove_partial_track(drama_dir: str) -> None:
+    """For a run that was killed (a cancel) before it could remove its half-written track."""
+    with contextlib.suppress(OSError):
+        os.remove(partial_track_path(drama_dir))
+
+
+def _check_pace(pace: float) -> None:
+    if not PACE_MIN <= pace <= PACE_MAX:
+        raise ValueError(f"Narration pace must be between {PACE_MIN} and {PACE_MAX}.")
+
+
+def _stretch_times(lines, pace: float) -> None:
+    """Line times to match a track played at `pace`."""
+    if pace != 1.0:
+        for ln in lines:
+            ln.start, ln.end = ln.start / pace, ln.end / pace
 
 
 def build_narration_track(lines, drama_dir: str, character_clone_map: dict, progress_cb=None,
-                           gap_ms: int = 350,
+                           pace: float = 1.0,
                            narrate_original: bool = False, source_language: str = "zh"):
     """
     For novel-narration mode: there's no pre-existing timing to sync
@@ -202,13 +320,18 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
     (resegment.split_times, the same split re-segmentation uses), and
     every line in the unit points at the one shared clip.
 
-    Clips are generated first, one at a time -- any that already exist from
-    a prior run are reused, not regenerated -- then assembled in order.
+    Clips are generated first, each to its own file -- any that already exist from
+    a prior run are reused, not regenerated -- then fed to ffmpeg one clip at a time
+    (_FlacStream), so memory holds about one clip whatever the book's length.
     character_clone_map is as for clone_map_from_characters; a speaker with no entry
     (NO_VOICE_ERROR) is treated like any other failed unit.
 
-    Returns (path_to_wav, errors) -- a line whose unit failed is skipped
+    pace below 1 slows the track (not the saved clips) and stretches line times to match.
+
+    Returns (path_to_flac, errors) -- a line whose unit failed is skipped
     (silent gap inserted instead) rather than aborting the whole narration.
+    RuntimeError, with the title's track left as it was, when more than half the
+    spoken lines failed.
     """
     from types import SimpleNamespace
     from pydub import AudioSegment
@@ -218,6 +341,7 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
     os.makedirs(clips_dir, exist_ok=True)
     errors = []
 
+    _check_pace(pace)
     steps = _narration_steps(lines, character_clone_map,
                              narration_paragraph_ends(lines, drama_dir), narrate_original=narrate_original)
     units = [unit for kind, unit in steps if kind == "unit"]
@@ -243,60 +367,77 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
         if progress_cb:
             progress_cb(finished / len(units))
 
+    remove_partial_track(drama_dir)
     _generate_units(units, record, source_language if narrate_original else "en", clips_dir)
 
-    pieces = [AudioSegment.silent(duration=0)]
-    cursor_ms = 0
-    for kind, item in steps:
-        if kind == "blank":
-            item.start = item.end = cursor_ms / 1000.0
-            continue
-        if item["error"]:
-            for ln in item["lines"]:
-                errors.append({"line_idx": ln.idx, "error": item["error"]})
-                ln.start = cursor_ms / 1000.0
-                cursor_ms += gap_ms
-                ln.end = cursor_ms / 1000.0
-                pieces.append(AudioSegment.silent(duration=gap_ms))
-            continue
-
-        # Levelled here, not in the clip file, so a cached clip and its clip_signature stay valid.
-        clip = level_clip(AudioSegment.from_file(item["clip_path"]))
-        start_ms, end_ms = cursor_ms, cursor_ms + len(clip)
-        members = item["lines"]
-        # Split proportionally by whichever text was actually
-        # spoken (narrate_original: the source text, not the translation).
-        _split_texts = [(ln.zh if narrate_original else ln.en) for ln in members]
-        cuts = (split_times(SimpleNamespace(start=start_ms, end=end_ms), _split_texts)
-                if len(members) > 1 else [])
-        edges = [start_ms] + cuts + [end_ms]
-        dub_filename = os.path.relpath(item["clip_path"], drama_dir)
-        for k, ln in enumerate(members):
-            ln.dub_filename = dub_filename
-            ln.start = edges[k] / 1000.0
-            ln.end = edges[k + 1] / 1000.0
-        pieces.append(clip)
-        cursor_ms = end_ms
-        pieces.append(AudioSegment.silent(duration=gap_ms))
-        cursor_ms += gap_ms
+    _refuse_mostly_failed(units, drama_dir)
 
     out_path = os.path.join(drama_dir, NARRATION_TRACK_NAMES[0])
-    track = join_segments(pieces)
     # Written beside the final name and renamed, so a kill mid-export can't leave a
     # truncated track that the Reader would serve as complete.
-    part_path = out_path + ".part"
+    part_path = partial_track_path(drama_dir)
+    stream = _FlacStream(part_path, pace, drama_dir)
     try:
-        _export_flac(track, part_path)
+        cursor_ms = 0
+        for kind, item in steps:
+            if kind == "blank":
+                item.start = item.end = cursor_ms / 1000.0
+                # Nothing is spoken for it in this run, so a clip named by an earlier one is stale.
+                item.dub_filename = None
+                continue
+            if item["error"]:
+                for ln in item["lines"]:
+                    errors.append({"line_idx": ln.idx, "error": item["error"]})
+                    ln.start = cursor_ms / 1000.0
+                    cursor_ms += CLIP_GAP_MS
+                    ln.end = cursor_ms / 1000.0
+                continue
+
+            # Levelled here, not in the clip file, so a cached clip and its clip_signature stay valid.
+            clip = stream.add(level_clip(AudioSegment.from_file(item["clip_path"])), cursor_ms)
+            start_ms, end_ms = cursor_ms, cursor_ms + len(clip)
+            # Freed before the next clip is decoded, so only one is ever in memory.
+            del clip
+            members = item["lines"]
+            # Split proportionally by whichever text was actually
+            # spoken (narrate_original: the source text, not the translation).
+            _split_texts = [(ln.zh if narrate_original else ln.en) for ln in members]
+            cuts = (split_times(SimpleNamespace(start=start_ms, end=end_ms), _split_texts)
+                    if len(members) > 1 else [])
+            edges = [start_ms] + cuts + [end_ms]
+            dub_filename = os.path.relpath(item["clip_path"], drama_dir)
+            for k, ln in enumerate(members):
+                ln.dub_filename = dub_filename
+                ln.start = edges[k] / 1000.0
+                ln.end = edges[k + 1] / 1000.0
+            # Shortened by the pace, so the gap is the same length once the track is slowed.
+            cursor_ms = end_ms + round(CLIP_GAP_MS * pace)
+        stream.finish(cursor_ms)
         # Retries while the Reader is still streaming the old track on Windows.
         replace_file(part_path, out_path)
     finally:
-        with contextlib.suppress(OSError):
-            os.remove(part_path)
+        stream.abort()
+        remove_partial_track(drama_dir)
+
+    _stretch_times(lines, pace)
     # A regenerated title must not keep serving, or backing up, its old WAV copy.
     legacy = os.path.join(drama_dir, NARRATION_TRACK_NAMES[1])
     if os.path.isfile(legacy):
         os.remove(legacy)
     return out_path, errors
+
+
+def _refuse_mostly_failed(units, drama_dir: str) -> None:
+    """Keeps the title's track when more than half the spoken lines failed (an engine that
+    would not start, say): a track that is mostly silence would replace a good one."""
+    total = sum(len(u["lines"]) for u in units)
+    failed = [u for u in units if u["error"]]
+    failed_lines = sum(len(u["lines"]) for u in failed)
+    if failed_lines * 2 <= total:
+        return
+    kept = ("so the previous track was kept" if find_narration_track(drama_dir)
+            else "so no track was made")
+    raise RuntimeError(f"Narration failed on {failed_lines} of {total} lines, {kept}. {failed[0]['error']}")
 
 
 def narration_chapters(lines, paragraph_ends=None, narrate_original: bool = False) -> list:
@@ -309,7 +450,8 @@ def narration_chapters(lines, paragraph_ends=None, narrate_original: bool = Fals
     narrate_original: "voiced" and chapter titles come from
     ln.zh (what was actually spoken) instead of ln.en."""
     text_field = "zh" if narrate_original else "en"
-    voiced = [ln for ln in lines if getattr(ln, text_field).strip()]
+    repeated = _repeated_headings(lines, narrate_original)
+    voiced = [ln for ln in lines if getattr(ln, text_field).strip() and ln.idx not in repeated]
     if not voiced:
         return []
     headings = [ln for ln in voiced if is_chapter_heading(ln)]
@@ -409,7 +551,7 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
 
 
 def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, result_queue,
-                                      narrate_original=False, source_language="zh"):
+                                      narrate_original=False, source_language="zh", pace=1.0):
     """Process-job entry point for build_narration_track(), so Cancel can
     actually stop it. Safe to hard-stop: clips are reused from a prior
     partial run, and clips in flight are written under a temporary name
@@ -430,8 +572,10 @@ def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, res
 
     try:
         out_path, errors = build_narration_track(
-            lines, drama_dir, character_clone_map, progress_cb=report,
+            lines, drama_dir, character_clone_map, progress_cb=report, pace=pace,
             narrate_original=narrate_original, source_language=source_language)
-        result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors}))
+        # failed_count: the job result lists only the first errors.
+        result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors,
+                                 "failed_count": len(errors)}))
     except Exception as exc:
         result_queue.put(process_worker.error_item(exc))

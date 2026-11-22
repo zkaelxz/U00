@@ -3,7 +3,7 @@
 import json
 import logging
 
-from . import llm_tasks
+from . import llm_tasks, pricing
 from .line_text import extract_first_json_value, language_name
 from .paid_calls import TranslateRunStopped
 from .shared import redact_secrets
@@ -12,7 +12,23 @@ log = logging.getLogger(__name__)
 
 # Lines per request: each brings its two neighbours, so a request holds about 45 lines of text.
 JUDGE_BATCH = 15
+JUDGE_MAX_TOKENS = 600
 VERDICTS = ("ok", "shifted", "wrong")
+
+# For the estimate shown before a run, averaged over every line the check scores (only the
+# ones the embeddings doubt are asked). Measured on the owner's runs: about $0.03 per
+# 427-line range on Claude Sonnet 5.5, so about 70 micro-dollars a line, which at its
+# $2/$10 per million tokens is about 30 in and 1 out (30*2 + 1*10 = 70). Priced per engine,
+# that gives under $0.002 on gemma4:31b-cloud as measured, but about $0.004 on DeepSeek,
+# which measured about $0.01: its replies carry reasoning.
+ESTIMATE_INPUT_TOKENS_PER_LINE = 30
+ESTIMATE_OUTPUT_TOKENS_PER_LINE = 1
+
+
+def estimate_tokens(checked_lines: int) -> tuple:
+    """(input, output) tokens the judge is expected to spend on a run that checks this many lines."""
+    return (ESTIMATE_INPUT_TOKENS_PER_LINE * checked_lines,
+            ESTIMATE_OUTPUT_TOKENS_PER_LINE * checked_lines)
 
 
 def build_judge_prompt(items: list, source_language=None) -> str:
@@ -49,10 +65,13 @@ def parse_verdicts(text: str, ids) -> dict:
     return out
 
 
-def judge_for(engine, usage_cb=None, source_language=None, should_stop=None):
+def judge_for(engine, usage_cb=None, source_language=None, should_stop=None, on_progress=None, fits_budget=None):
     """A function items -> {id: verdict} that asks `engine`, or None when it cannot take
     such a request (a plain machine-translation engine). A request that fails leaves its
-    items without a verdict, so the caller falls back to the embedding score for them."""
+    items without a verdict, so the caller falls back to the embedding score for them.
+    on_progress(items done, items) is called before each request. fits_budget(usd) is asked
+    with each request's price before it is sent (its prompt plus a full reply); False ends
+    the asking, so a cap is never passed by a judge request."""
     if not getattr(engine, "supports_reference", False):
         return None
 
@@ -61,10 +80,16 @@ def judge_for(engine, usage_cb=None, source_language=None, should_stop=None):
         for start in range(0, len(items), JUDGE_BATCH):
             if should_stop and should_stop():
                 break
+            if on_progress:
+                on_progress(start, len(items))
             batch = items[start:start + JUDGE_BATCH]
+            prompt = build_judge_prompt(batch, source_language)
+            if fits_budget and not fits_budget(pricing.estimate_cost_for_engine(
+                    engine, int(pricing.estimate_text_tokens(prompt)), JUDGE_MAX_TOKENS)):
+                break
             try:
                 text = llm_tasks.call_llm_json(
-                    engine, build_judge_prompt(batch, source_language), max_tokens=600,
+                    engine, prompt, max_tokens=JUDGE_MAX_TOKENS,
                     fallback="{}", usage_cb=usage_cb, expect="json_object")
             except TranslateRunStopped:
                 break

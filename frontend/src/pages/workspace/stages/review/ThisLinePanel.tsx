@@ -9,6 +9,7 @@ import { lineNumber } from '../../../../lineNumber'
 import { routeHref } from '../../../../router'
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { alsoUnsureText, aroundFrom, queueAction, queueReason, type Around } from './checkQueueModel'
+import { ReasonDetails } from './LineRow'
 import type { PlayerHandle } from './Player'
 import { sourceTextLang } from './reviewDraft'
 import { formatTenths, PAGE_SIZE, pageForPosition } from './reviewLogic'
@@ -156,6 +157,7 @@ export function LineWhy({ dramaId, line }: { dramaId: number; line: ReviewLine }
     <section className="card this-line-card" aria-labelledby={headId}>
       <h3 id={headId} className="this-line-title">Why it is listed</h3>
       <p className="this-line-why" data-testid="this-line-why">{also ? `${reason.text} ${also}` : reason.text}</p>
+      <ReasonDetails details={reason.details} />
       {queueAction(line) === 'glossary' && (
         <a className="this-line-link" href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })}>Glossary</a>
       )}

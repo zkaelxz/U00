@@ -1,5 +1,5 @@
 /*
- * Settings > Quick video translate: the profile the "From a link" button on Make subtitles uses.
+ * Settings > One-click translate: the profile the "From a link" button on Make subtitles uses.
  * Profiles are the saved translation profiles; New and Edit open the same editor as Library tools.
  */
 import { useEffect, useState } from 'react'
@@ -26,10 +26,8 @@ export function QuickVideoCard() {
   const [reload, setReload] = useState(0)
 
   useEffect(() => {
-    Promise.all([getQuickVideoSettings(), getPresets()]).then(
-      ([s, p]) => { setSettings(s); setPresets(p.items) },
-      setError,
-    )
+    // Settings first: on a fresh install that read is what makes the Default profile the list must include.
+    getQuickVideoSettings().then((s) => getPresets().then((p) => { setSettings(s); setPresets(p.items) })).catch(setError)
   }, [reload])
 
   const open = (existing: LibraryPreset | null) => {
@@ -43,7 +41,7 @@ export function QuickVideoCard() {
   const chosen = presets.find((p) => p.id === settings?.profile_id) ?? null
 
   return (
-    <Card title="Quick video translate" meta="Profile for the link button" aria-label="Quick video translate">
+    <Card title="One-click translate" meta="Profile for the link button" aria-label="One-click translate">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <Field label="Profile">
         <select value={settings?.profile_id ?? ''} disabled={!canManage || !settings} onChange={(e) => choose(e.target.value)}>

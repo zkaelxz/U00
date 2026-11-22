@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { guardWrites, mockDiagnostics } from './diagnosticsConsolidateMocks'
 import { diagTab } from './diagnosticsTabsNav'
+import { enableDeveloperMode } from './sourceHelpers'
 
 // Diagnostics (desktop): four tabs built on the same Tabs component as Settings, deep links that name
 // a card, attention badges, and which cards start open.
@@ -91,6 +92,7 @@ test('each tab starts with only its first card open; a card collapses and is rem
 test('the Models tab has the Benchmark Lab link and Test my models; the old places are gone', async ({ page }) => {
   await guardWrites(page)
   await mockDiagnostics(page)
+  await enableDeveloperMode(page)
   await page.goto('/#/diagnostics?tab=models')
   await expect(page.getByRole('link', { name: 'Open Benchmark Lab' })).toHaveAttribute('href', '#/benchmark')
   await expect(page.getByRole('button', { name: 'Show model engines' })).toHaveCount(0)

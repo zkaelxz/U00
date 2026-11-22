@@ -5,7 +5,7 @@ import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import { routeHref } from '../../router'
-import { flowActive, flowText, useFlowRun } from './flowRun'
+import { flowActive, flowText, stoppedJob, useFlowRun } from './flowRun'
 
 const STEP_TEXT: Record<string, string> = {
   transcribe: 'Transcribing',
@@ -21,6 +21,7 @@ export function TitleFlowStart({ id, onProgress }: { id: number; onProgress: () 
   const { run, setRun, again } = useFlowRun(id, getTitleFlow, () => onProgress())
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  const job = stoppedJob(run)
 
   const start = () => {
     setStarting(true)
@@ -34,10 +35,13 @@ export function TitleFlowStart({ id, onProgress }: { id: number; onProgress: () 
         <ButtonLink variant="primary" href={routeHref({ name: 'drama', id, stage: 'translate', tab: 'glossary' })}>Review the glossary</ButtonLink>
       ) : (
         <button type="button" className={buttonClass('primary')} disabled={starting || flowActive(run)} onClick={start}>
-          {error || run?.state === 'stopped' ? 'Continue' : 'Transcribe and build glossary'}
+          {/* Continue goes on from the stopped step: the server adds only the steps the title still needs. A refused
+              start is not a stopped run, so pressing again would only be refused again; the banner says why. */}
+          {!error && run?.state === 'stopped' ? 'Continue' : 'Transcribe and build glossary'}
         </button>
       )}
       <span className="muted" role="status" aria-live="polite">{flowText(run, STEP_TEXT)}</span>
+      {job && <a href={routeHref({ name: 'jobs', job })}>See details</a>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </>
   )

@@ -331,6 +331,7 @@ class SettingsPreferences(TimingPreferences):
     translate_alignment_check: bool = True
     episode_summary_engine: str
     monthly_cap_usd: Optional[float] = None
+    narration_pace: float = 0.9
     max_upload_mb: int = 20480
     ollama_num_ctx_override: int
     keep_free_vram_gb: float = 0.0
@@ -447,6 +448,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     translate_alignment_check: Optional[StrictBool] = None
     episode_summary_engine: Optional[StrictStr] = Field(None, max_length=40)
     monthly_cap_usd: Optional[Union[StrictInt, StrictFloat]] = None
+    narration_pace: Optional[Union[StrictInt, StrictFloat]] = None
     max_upload_mb: Optional[StrictInt] = None
     ollama_num_ctx_override: Optional[StrictInt] = None
     keep_free_vram_gb: Optional[Union[StrictInt, StrictFloat]] = None

@@ -27,7 +27,7 @@ Every feature below is in the code today. The [User guide](docs/user-guide.md) h
 
 ### Subtitles from audio and video
 - **Quick translate**: drop in an audio or video file and get an SRT in one screen.
-- **Quick video translate**: paste a video link and one button downloads, transcribes, translates and exports it, with a "Watch once" option that deletes it afterwards.
+- **One-click translate**: paste a video link and one button downloads, transcribes, translates and exports it, with a "Watch once" option that deletes it afterwards.
 - **Video links**: download with yt-dlp (queued, a part of a video only, long videos on request) or upload `.mp4`, `.mov`, `.mkv` or `.webm`.
 - **Transcription**: Whisper (with optional Qwen3-ASR and Breeze-ASR-25 for Chinese), name priming, vocal separation, difficult-audio settings and coverage checks.
 - **Speaker detection**: Nemotron-3 (default) or pyannote.

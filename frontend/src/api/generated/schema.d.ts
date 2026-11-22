@@ -22348,6 +22348,11 @@ export interface components {
             segment_seconds: number;
             /** Source Language */
             source_language: string;
+            /**
+             * Spend Limit Usd
+             * @default 2
+             */
+            spend_limit_usd: number;
             /** Whisper Size */
             whisper_size: string;
         };
@@ -22374,12 +22379,25 @@ export interface components {
             max_minutes_range: number[];
             /** Max Url Len */
             max_url_len: number;
+            /**
+             * Monthly Cap Set
+             * @default false
+             */
+            monthly_cap_set: boolean;
             /** Overlap Range */
             overlap_range: number[];
             /** Player Heights */
             player_heights: number[];
             /** Segment Range */
             segment_range: number[];
+            /**
+             * Spend Limit Range
+             * @default [
+             *       0.1,
+             *       100
+             *     ]
+             */
+            spend_limit_range: number[];
             /** Thinking Switch Engines */
             thinking_switch_engines: string[];
             /** Whisper Exclusions */
@@ -22400,6 +22418,11 @@ export interface components {
         };
         /** LiveOllamaCheck */
         LiveOllamaCheck: {
+            /**
+             * Gpu Fit
+             * @default false
+             */
+            gpu_fit: boolean;
             /** Message */
             message: string | null;
             /** Model */
@@ -22476,6 +22499,12 @@ export interface components {
              * @default zh
              */
             source_language?: string;
+            /**
+             * Spend Limit Usd
+             * @description A paid engine with no monthly cap set: the session stops once its translations cost this much (clamped to 0.10-100).
+             * @default 2
+             */
+            spend_limit_usd?: number;
             /** Url */
             url: string;
             /**
@@ -22536,6 +22565,11 @@ export interface components {
              * @default false
              */
             player_ready: boolean;
+            /**
+             * Player Stopped
+             * @default false
+             */
+            player_stopped: boolean;
             /**
              * Processing Seconds
              * @default 0
@@ -28384,6 +28418,11 @@ export interface components {
             /** Monthly Cap Usd */
             monthly_cap_usd: number | null;
             /**
+             * Narration Pace
+             * @default 0.9
+             */
+            narration_pace: number;
+            /**
              * Novel Parallel Chapters
              * @default 3
              */
@@ -28765,6 +28804,8 @@ export interface components {
             max_upload_mb?: number | null;
             /** Monthly Cap Usd */
             monthly_cap_usd?: number | null;
+            /** Narration Pace */
+            narration_pace?: number | null;
             /** Notify On Completion */
             notify_on_completion?: boolean | null;
             /** Novel Parallel Chapters */
@@ -32146,6 +32187,8 @@ export interface components {
          * @description Advisory pre-run cost estimate.
          */
         TranslateRunEstimate: {
+            /** Alignment Check Usd */
+            alignment_check_usd: number | null;
             /** Cap Applies */
             cap_applies: boolean;
             /** Effective Cap Usd */

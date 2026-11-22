@@ -55,11 +55,13 @@ export interface QueueReason {
   short: string
   chip: string
   next: string
+  // Figures behind the sentence that a reader cannot act on, shown only behind a Details toggle.
+  details?: string
 }
 
 // A note the server writes in a known shape becomes its own sentence (none: the kind's own sentence already says it all);
 // null means "not that shape", never a part of it.
-type ReadNote = (note: string) => { text?: string; short?: string; chip?: string } | null
+type ReadNote = (note: string) => { text?: string; short?: string; chip?: string; details?: string } | null
 
 interface FlagKind {
   text: string
@@ -79,6 +81,28 @@ const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1)
 const fixedNotes = (notes: Record<string, string>): ReadNote => (note) => (note in notes ? { text: notes[note] } : null)
 // A note whose words the kind's own sentence already covers.
 const saidByKind = (matches: (note: string) => boolean): ReadNote => (note) => (matches(note) ? {} : null)
+
+// engine_backends/alignment_check.py flag_note, shift_note and JUDGED_NOTES, which runs before this one also wrote.
+const COMPARE = ' Compare it with the lines around it.'
+const readSourceMatch: ReadNote = (note) => {
+  const own = new RegExp(`^Source match: the English reads unlike its source line \\(similarity ${NUM}\\)$`).exec(note)
+  if (own) return { text: `This English reads unlike its source line.${COMPARE}`, details: `Similarity to its own source line: ${own[1]}.` }
+  const shift = new RegExp(`^Source match: the English fits the (next|previous) line's source better \\(${NUM}\\) than its own \\(${NUM}\\)$`).exec(note)
+  if (shift) {
+    return {
+      text: `This English may belong to the ${shift[1]} line. Compare the two and move it if so.`,
+      short: `May belong to the ${shift[1]} line`,
+      details: `Similarity to the ${shift[1]} line’s source: ${shift[2]}; to its own source: ${shift[3]}.`,
+    }
+  }
+  if (note === 'Source match: a check found this English translates a neighbouring line, not its own') {
+    return { text: `The engine check says this English translates a neighbouring line.${COMPARE}`, short: 'May belong to a nearby line' }
+  }
+  if (note === 'Source match: a check found this English does not say what its source line says') {
+    return { text: 'The engine check says this English doesn’t match its line. Read both and fix the English.' }
+  }
+  return null
+}
 
 // engine_backends/glossary_check.py flag_note: "Glossary: 夷陵老祖 -> Yiling Patriarch; 魏婴 -> Wei Ying missing (+2 more)".
 const readGlossary: ReadNote = (note) => {
@@ -375,9 +399,9 @@ const FLAG_KINDS: Record<string, FlagKind> = {
     read: readGlossary,
   },
   source_mismatch: {
-    text: 'The English reads unlike its source line. It may belong to the line before or after, leave something out, or answer a different line. Compare it with the lines around it.',
+    text: 'The English may not match its source line. Compare it with the lines around it.',
     short: 'May not match the source',
-    read: saidByKind((note) => /^Source match: the English reads unlike its source line \(similarity [\d.]+\)$/.test(note)),
+    read: readSourceMatch,
   },
   source_suspect: {
     text: 'The source text looks off: the transcription may be wrong or split badly, which can make the English odd. Play it and fix the source text, or transcribe the line again.',
@@ -429,7 +453,7 @@ export function queueReason(line: Pick<ReviewLine, 'flag' | 'flag_note' | 'confi
   const read = note && kind.read ? kind.read(note) : null
   if (read) {
     const short = read.short ?? kind.short
-    return { text: read.text ?? kind.text, short, chip: read.chip ?? kind.chip ?? short, next }
+    return { text: read.text ?? kind.text, short, chip: read.chip ?? kind.chip ?? short, next, ...(read.details ? { details: read.details } : {}) }
   }
   return { text: note ? `${kind.text} Note: ${capFirst(note)}` : kind.text, short: kind.short, chip: kind.chip ?? kind.short, next }
 }

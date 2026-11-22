@@ -140,7 +140,7 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
         {!audioOnlyResult && !isDirectMediaUrl(url) && (
           <Field
             label="Video quality"
-            help="The largest picture to keep. A smaller one takes less disk space and downloads faster; the subtitles come out the same. If the site has nothing that small, the smallest it has is used."
+            help="The largest picture to keep. A lower quality takes less disk space and downloads faster. Keep 1080p or higher for titles whose subtitles are read off the picture. If the site has nothing that small, the smallest it has is used."
           >
             <select value={maxHeight} onChange={(e) => setMaxHeight(Number(e.target.value))} data-testid="url-video-quality">
               <option value={0}>Best available</option>

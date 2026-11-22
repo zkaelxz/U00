@@ -64,6 +64,8 @@ RESULT_ALLOWED_KEYS = (
     "speakers_reassigned", "timing", "note",
     # A paid job a money rule ended early: the plain reason ("Stopped: ...").
     "stopped",
+    # Translate: the Source match engine check a cost cap stopped (a fixed sentence).
+    "judge_skipped",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
@@ -519,6 +521,9 @@ def _summary_outcome(result: dict) -> tuple:
         parts.append("Only part of the work finished.")
     warnings = _warning_parts(result)
     parts.extend(warnings)
+    if result.get("judge_skipped"):
+        # The English is all there; only the optional engine check was cut short.
+        parts.append(str(result["judge_skipped"]))
     if result.get("speaker_count_hint"):
         # A suggestion, not a failure, so it doesn't make the outcome partial.
         parts.append(str(result["speaker_count_hint"]))
