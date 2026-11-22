@@ -251,3 +251,15 @@ class TestVoiceBankListForCaller:
         assert owner_a["s"]["source_drama"] == "Secret" and owner_a["t"]["ref_text"] == "t says hi"
         assert all(not e["source_hidden"] for e in view(admin).values())
         assert view(admin)["gone"]["source_drama"] == "Deleted title"
+
+    def test_write_answers_hide_the_source_too(self, isolated_db, tmp_path):
+        db = isolated_db
+        a = db.auth_create_user("a@example.com")
+        guest = {"user_id": None, "is_admin": False, "is_local_owner": False}
+        db.create_drama(title_en="Secret", owner_user_id=a, is_private=1)
+        entry = self._entry(db, tmp_path, "s", "Secret")
+        renamed = library_service.rename_voice_bank_entry(entry, "s2", guest)
+        assert (renamed["source_drama"], renamed["ref_text"], renamed["source_hidden"]) == (None, None, True)
+        edited = library_service.update_voice_bank_details(entry, "n", "new words", None, guest)
+        assert edited["ref_text"] is None and edited["source_hidden"]
+        assert library_service.rename_voice_bank_entry(entry, "s3")["source_drama"] == "Secret"

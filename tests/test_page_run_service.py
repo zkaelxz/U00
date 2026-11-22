@@ -364,3 +364,16 @@ def test_a_queued_step_on_an_ollama_cloud_model_needs_paid_engines(isolated_db, 
                         lambda name: "gpt-oss:120b-cloud" if name == "ollama" else None)
     with pytest.raises(ForbiddenError):
         runs._require_free_or_paid(free_member, "ollama", None, "finds names")
+
+
+def test_a_queued_cloud_step_runs_on_the_adders_own_ollama_key(isolated_db, monkeypatch):
+    """The add-time gate (require_cloud_model_allowed) lets a member with their own
+    Ollama key use a cloud tag without engines.paid; the start must agree."""
+    from services import member_key_service
+    free_member = {"user_id": 7, "permissions": ("lines.edit", "jobs.start")}
+    monkeypatch.setattr(member_key_service, "has_usable_key", lambda uid: uid == 7)
+    runs._require_free_or_paid(free_member, "ollama", "gpt-oss:120b-cloud", "makes lines")
+    with pytest.raises(ForbiddenError):    # the key covers Ollama only
+        runs._require_free_or_paid(free_member, "claude", None, "makes lines")
+    with pytest.raises(ForbiddenError):
+        runs._require_free_or_paid({**free_member, "user_id": 8}, "ollama", "gpt-oss:120b-cloud", "makes lines")

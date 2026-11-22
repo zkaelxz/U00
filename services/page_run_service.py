@@ -230,11 +230,16 @@ def start_file_run(principal, drama_id: int, job_id: str, engine: str, locale: O
 
 def _require_free_or_paid(principal, engine: str, model, what: str) -> None:
     # Checked again at start, as for Translate: the adder's permission and the title's engine may have changed.
-    # Ollama is free, but its cloud tags are billed, so they need engines.paid too.
+    # Ollama is free, but its cloud tags are billed, so they need engines.paid too, or the
+    # adder's own Ollama key, which the queue start sends them with (require_cloud_model_allowed).
+    from services import member_key_service
     from services.translate_run_service import engine_cap_applies
-    paid = engine not in engine_registry.FREE_ENGINES or engine_cap_applies(
+    if q._holds(principal, "engines.paid"):
+        return
+    cloud = engine in engine_registry.FREE_ENGINES and engine_cap_applies(
         engine, False, model or engine_registry.effective_default_model(engine))
-    if paid and not q._holds(principal, "engines.paid"):
+    if engine not in engine_registry.FREE_ENGINES or (
+            cloud and not member_key_service.has_usable_key((principal or {}).get("user_id"))):
         raise ForbiddenError(f"This title {what} with a paid engine, which the account that added it can't use.")
 
 

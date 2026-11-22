@@ -374,6 +374,14 @@ def list_sharing(principal, offset: int = 0, limit: int = 100) -> dict:
     return {"total": total, "offset": offset, "limit": limit, "items": items}
 
 
+def _in_others_private_series(kind: str, row: dict, owner_user_id) -> bool:
+    """A member can't see a title inside someone else's private series
+    (_visible), so giving it to them would hand them nothing. The PC owner
+    (None) sees everything. db.set_item_owner repeats this in its write."""
+    return (kind == "drama" and bool(row.get("series_is_private")) and owner_user_id is not None
+            and owner_user_id != row.get("series_owner_user_id"))
+
+
 def set_owner(principal, kind: str, item_id, owner_user_id) -> dict:
     """An admin gives an item to another account, or to the PC (None).
     Away from the PC an admin changes only what set_private lets them flip
@@ -395,14 +403,14 @@ def set_owner(principal, kind: str, item_id, owner_user_id) -> dict:
                 and 0 < owner_user_id < 2**63 else None)
         if not user or not user.get("is_active"):
             raise InvalidInputError("Pick an active account, or the PC.")
-    # A member can't see a title inside someone else's private series
-    # (_visible), so giving it to them would hand them nothing.
-    if kind == "drama" and row.get("series_is_private") and owner_user_id is not None \
-            and owner_user_id != row.get("series_owner_user_id"):
+    if _in_others_private_series(kind, row, owner_user_id):
         raise ConflictError(_OWNER_IN_PRIVATE_SERIES_MESSAGE)
     if not db.set_item_owner(kind, item_id, owner_user_id, row.get("owner_user_id")):
-        if db.get_item_ownership(kind, item_id) is None:
+        now = db.get_item_ownership(kind, item_id)
+        if now is None:
             raise _not_found(kind)
+        if _in_others_private_series(kind, now, owner_user_id):
+            raise ConflictError(_OWNER_IN_PRIVATE_SERIES_MESSAGE)
         raise ConflictError(_OWNER_CHANGED_MESSAGE)
     from services import auth_service
     auth_service.write_audit(user_id(principal), "sharing.set_owner",
