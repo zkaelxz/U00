@@ -21600,6 +21600,11 @@ export interface components {
             ref_text: string | null;
             /** Source Drama */
             source_drama: string | null;
+            /**
+             * Source Hidden
+             * @default false
+             */
+            source_hidden: boolean;
             /** Source Speaker */
             source_speaker: string | null;
         };

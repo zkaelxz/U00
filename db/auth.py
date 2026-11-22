@@ -142,14 +142,18 @@ def set_item_private(kind: str, item_id: int, private: bool,
         return cur.rowcount > 0
 
 
-def set_item_owner(kind: str, item_id: int, owner_user_id) -> bool:
-    """Field-scoped write of owner_user_id only. False for an unknown item."""
+def set_item_owner(kind: str, item_id: int, owner_user_id, expected_owner_user_id) -> bool:
+    """Field-scoped write of owner_user_id only, applied only while the owner
+    is still `expected_owner_user_id` (the one the caller's rule was checked
+    on), so a change made in between is never overwritten. False for an
+    unknown item or an owner that changed."""
     table = {"series": "series", "drama": "dramas"}.get(kind)
     if table is None:
         raise ValueError(f"unknown ownership kind: {kind!r}")
     with contextlib.closing(db.get_conn()) as conn:
-        cur = conn.execute(f"UPDATE {table} SET owner_user_id = ? WHERE id = ?",
-                           (owner_user_id, item_id))
+        cur = conn.execute(f"UPDATE {table} SET owner_user_id = ? "
+                           "WHERE id = ? AND owner_user_id IS ?",
+                           (owner_user_id, item_id, expected_owner_user_id))
         conn.commit()
         return cur.rowcount > 0
 

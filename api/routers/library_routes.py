@@ -167,8 +167,8 @@ def rename_preset(body: LibraryRename, preset_id: int = Path(ge=1, le=2**31 - 1)
 
 @router.get("/voice-bank", dependencies=[require_permission("library.read")], response_model=LibraryVoiceBankResponse,
             summary="Voice bank entries (no file paths)")
-def get_voice_bank():
-    return {"items": library_service.list_voice_bank()}
+def get_voice_bank(request: Request):
+    return {"items": library_service.list_voice_bank(principal=request.state.principal)}
 
 
 @router.post("/voice-bank", dependencies=[local_only()], response_model=LibraryVoice,

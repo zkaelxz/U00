@@ -209,3 +209,45 @@ class TestListSeriesWithDramas:
             isolated_db.create_drama(title_en=f"S{i}-1", series_id=sid)
         many = self._count_queries(isolated_db, monkeypatch)
         assert few > 0 and many == few
+
+
+class TestVoiceBankListForCaller:
+    """A voice saved from a member's private title must not show that title's
+    name or a line from it to members who can't see the title."""
+
+    @staticmethod
+    def _entry(db, tmp_path, name, source):
+        clip = tmp_path / f"{name}.wav"
+        clip.write_bytes(b"RIFF")
+        return db.save_voice_bank_entry(name, str(clip), ref_text=f"{name} says hi",
+                                        source_drama=source, source_speaker="Hero")
+
+    def test_source_and_transcript_follow_title_visibility(self, isolated_db, tmp_path):
+        db = isolated_db
+        a = db.auth_create_user("a@example.com")
+        b = db.auth_create_user("b@example.com")
+        member_b = {"user_id": b, "is_admin": False, "is_local_owner": False}
+        admin = {"user_id": None, "is_admin": True, "is_local_owner": True}
+        db.create_drama(title_en="Secret", owner_user_id=a, is_private=1)
+        db.create_drama(title_en="Open", owner_user_id=a, is_private=0)
+        # The same name on a shared and a private title: the private one wins.
+        db.create_drama(title_en="Twin", owner_user_id=a, is_private=0)
+        db.create_drama(title_en="Twin", owner_user_id=a, is_private=1)
+        for name, source in (("s", "Secret"), ("o", "Open"), ("t", "Twin"),
+                             ("gone", "Deleted title"), ("none", None)):
+            self._entry(db, tmp_path, name, source)
+
+        def view(principal):
+            return {e["name"]: e for e in library_service.list_voice_bank(principal=principal)}
+
+        seen = view(member_b)
+        for hidden in ("s", "t", "gone"):
+            assert (seen[hidden]["source_drama"], seen[hidden]["ref_text"]) == (None, None)
+            assert seen[hidden]["source_hidden"] is True
+            assert seen[hidden]["source_speaker"] == "Hero" and seen[hidden]["clip_available"]
+        assert seen["o"]["source_drama"] == "Open" and seen["o"]["ref_text"] == "o says hi"
+        assert seen["none"]["ref_text"] == "none says hi" and not seen["none"]["source_hidden"]
+        owner_a = view({"user_id": a, "is_admin": False, "is_local_owner": False})
+        assert owner_a["s"]["source_drama"] == "Secret" and owner_a["t"]["ref_text"] == "t says hi"
+        assert all(not e["source_hidden"] for e in view(admin).values())
+        assert view(admin)["gone"]["source_drama"] == "Deleted title"

@@ -60,6 +60,8 @@ _PC_DRAMA_IN_SERIES_MESSAGE = "This series holds a title owned at the PC; ask an
 _NEW_SERIES_PRIVATE_MESSAGE = (
     "A new series starts private, so it can't take someone else's title. Create the series "
     "first and share it in Settings > Sharing, then add the title; or pick a shared series.")
+_OWNER_IN_PRIVATE_SERIES_MESSAGE = "Move it out of the private series first."
+_OWNER_CHANGED_MESSAGE = "Someone changed the owner just now. Reload and try again."
 _KINDS = ("drama", "series")
 
 
@@ -393,8 +395,15 @@ def set_owner(principal, kind: str, item_id, owner_user_id) -> dict:
                 and 0 < owner_user_id < 2**63 else None)
         if not user or not user.get("is_active"):
             raise InvalidInputError("Pick an active account, or the PC.")
-    if not db.set_item_owner(kind, item_id, owner_user_id):
-        raise _not_found(kind)
+    # A member can't see a title inside someone else's private series
+    # (_visible), so giving it to them would hand them nothing.
+    if kind == "drama" and row.get("series_is_private") and owner_user_id is not None \
+            and owner_user_id != row.get("series_owner_user_id"):
+        raise ConflictError(_OWNER_IN_PRIVATE_SERIES_MESSAGE)
+    if not db.set_item_owner(kind, item_id, owner_user_id, row.get("owner_user_id")):
+        if db.get_item_ownership(kind, item_id) is None:
+            raise _not_found(kind)
+        raise ConflictError(_OWNER_CHANGED_MESSAGE)
     from services import auth_service
     auth_service.write_audit(user_id(principal), "sharing.set_owner",
                              f"{kind} {item_id}: owner={owner_user_id}")

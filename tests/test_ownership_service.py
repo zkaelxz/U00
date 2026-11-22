@@ -745,3 +745,44 @@ def test_set_owner_refuses_on_guest_what_guest_cannot_see(people, monkeypatch):
     with pytest.raises(NotFoundError):
         own.set_owner(LOCAL, "drama", hidden, people["b_id"])
     assert db.get_item_ownership("drama", hidden)["owner_user_id"] is None
+
+
+def test_set_owner_refuses_when_the_owner_changed_after_it_was_read(people, monkeypatch):
+    """An admin away from the PC may give a PC-made title away; if the PC
+    gives it to a member in between, the remote write must not win."""
+    remote = _p(people["admin"]["user_id"], admin=True, override=False)
+    title = db.create_drama(title_zh="pc")
+    real_get_user = db.auth_get_user
+
+    def pc_hands_it_to_a_meanwhile(uid):
+        db.set_item_owner("drama", title, people["a_id"], None)
+        return real_get_user(uid)
+
+    monkeypatch.setattr(db, "auth_get_user", pc_hands_it_to_a_meanwhile)
+    with pytest.raises(ConflictError, match="Someone changed the owner just now"):
+        own.set_owner(remote, "drama", title, people["b_id"])
+    assert db.get_item_ownership("drama", title)["owner_user_id"] == people["a_id"]
+    assert not [r for r in db.auth_list_audit(50) if r["action"] == "sharing.set_owner"]
+
+
+def test_set_item_owner_writes_only_over_the_expected_owner(people):
+    title = db.create_drama(title_zh="t", owner_user_id=people["a_id"])
+    assert not db.set_item_owner("drama", title, people["b_id"], None)
+    assert db.set_item_owner("drama", title, people["b_id"], people["a_id"])
+    assert db.get_item_ownership("drama", title)["owner_user_id"] == people["b_id"]
+    assert not db.set_item_owner("drama", 10**6, None, None)
+
+
+def test_set_owner_refuses_a_title_in_someone_elses_private_series(people):
+    series = db.get_or_create_series("A's", owner_user_id=people["a_id"], is_private=1)
+    title = db.create_drama(title_zh="t", owner_user_id=people["a_id"], series_id=series)
+    with pytest.raises(ConflictError, match="Move it out of the private series first."):
+        own.set_owner(people["admin"], "drama", title, people["b_id"])
+    assert db.get_item_ownership("drama", title)["owner_user_id"] == people["a_id"]
+    # The series owner and the PC can still take it, and a shared series is no bar.
+    own.set_owner(people["admin"], "drama", title, None)
+    own.set_owner(people["admin"], "drama", title, people["a_id"])
+    shared = db.get_or_create_series("Shared", owner_user_id=people["a_id"], is_private=0)
+    other = db.create_drama(title_zh="o", owner_user_id=people["a_id"], series_id=shared)
+    assert own.set_owner(people["admin"], "drama", other, people["b_id"])["owner_user_id"] == people["b_id"]
+    assert own.can_see_drama(people["b"], other)

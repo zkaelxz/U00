@@ -343,3 +343,24 @@ def test_a_lost_upload_job_stops_the_add_box_run_with_a_reason(jobs):  # noqa: F
     q.tick()
     view = runs.file_run(None, did)
     assert view["state"] == "stopped" and "Lost track" in view["reason"]
+
+
+def test_a_queued_step_on_an_ollama_cloud_model_needs_paid_engines(isolated_db, monkeypatch):
+    """Ollama is free, but its cloud tags are billed: a member who can't use paid
+    engines (or whose limit is used up) must not start one from the queue."""
+    from engine_backends import engine_registry
+    free_member = {"user_id": 7, "permissions": ("lines.edit", "jobs.start")}
+    paid_member = {"user_id": 7, "permissions": ("lines.edit", "jobs.start", "engines.paid")}
+    with pytest.raises(ForbiddenError, match="paid engine"):
+        runs._require_free_or_paid(free_member, "ollama", "gpt-oss:120b-cloud", "translates")
+    runs._require_free_or_paid(paid_member, "ollama", "gpt-oss:120b-cloud", "translates")
+    runs._require_free_or_paid(free_member, "ollama", "qwen3:8b", "translates")
+    with pytest.raises(ForbiddenError):
+        runs._require_free_or_paid(free_member, "claude", None, "translates")
+    with pytest.raises(ForbiddenError):
+        runs._require_free_or_paid(free_member, "", None, "translates")
+    # No model named: the engine's default model is the one that runs.
+    monkeypatch.setattr(engine_registry, "effective_default_model",
+                        lambda name: "gpt-oss:120b-cloud" if name == "ollama" else None)
+    with pytest.raises(ForbiddenError):
+        runs._require_free_or_paid(free_member, "ollama", None, "finds names")
