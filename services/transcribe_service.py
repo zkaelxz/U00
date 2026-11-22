@@ -213,6 +213,12 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     # The language first: the model and backend checks below are against the language being saved.
     language = fields.get("source_language") or drama.get("source_language") or "zh"
     source_changes = {k: fields[k] for k in ("source_language", "chinese_script") if fields.get(k) is not None}
+    # The form sends back the value it was shown; for a title that never chose, that is the
+    # default, and saving it would turn the default into a choice (and keep it after a
+    # later model change). Only a value that differs from what was shown is a choice.
+    if (drama.get("separate_vocals_first") is None
+            and fields.get("separate_vocals_first") == effective_separate_vocals(drama)):
+        fields = {k: v for k, v in fields.items() if k != "separate_vocals_first"}
     updates = check_transcribe_fields(fields, language)
     if fields.get("run_start") is not None:
         updates["transcribe_start_json"] = check_run_start(fields["run_start"])

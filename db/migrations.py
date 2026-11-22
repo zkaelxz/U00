@@ -480,7 +480,8 @@ def _migrate_ownership_columns(conn):
     marker = "migrations.separate_vocals_unset"
     if conn.execute("SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
         conn.execute("UPDATE dramas SET separate_vocals_first = NULL WHERE separate_vocals_first = 0")
-        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+        # IGNORE: a second process starting at once may have set the marker since the check
+        conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
 
 
 def _grant_lines_read_for_reader_page(conn):

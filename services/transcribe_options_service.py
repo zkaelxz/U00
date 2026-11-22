@@ -662,7 +662,7 @@ _ADVICE_RULES = (
      lambda c: c["model"] in _WEAK_WHISPER_SIZES and _runs_whisper(c) and not c["use_groq"],
      "Whisper small and medium read worse than large-v3.", lambda c: {"whisper_size": "large-v3"}),
     ("separate_vocals", "warn",
-     lambda c: c["separate_vocals_first"],
+     lambda c: c["separate_vocals_first"] and c["model"] != whisper_models.BREEZE_KEY,
      "Separate vocals first can drop quiet speech. Use it only if background music makes Whisper invent text, and compare line counts.",
      lambda c: {"separate_vocals_first": False}),
     ("fast_mode", "warn",

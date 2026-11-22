@@ -65,6 +65,21 @@ class TestRegistry:
         monkeypatch.setattr(model_readiness_service, "separation_ready", lambda: sep_ready)
         assert transcribe_options_service.effective_separate_vocals({"source_language": "zh", **drama}) is expected
 
+    def test_saving_the_shown_default_does_not_make_it_a_choice(self, isolated_db, monkeypatch):
+        from services import model_readiness_service, settings_service
+        monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
+        real_get = settings_service.get
+        monkeypatch.setattr(settings_service, "get", lambda key, *a: True if key == "use_gpu" else real_get(key, *a))
+        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda: True)
+        did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size="large-v3")
+        # The form shows Off on large-v3; the user picks Breeze and saves without touching the switch.
+        transcribe_service.update_transcribe_config(did, whisper_size=KEY, separate_vocals_first=False)
+        assert isolated_db.get_drama(did)["separate_vocals_first"] is None
+        assert transcribe_service.get_transcribe_config(did)["separate_vocals_first"] is True
+        # Turning it off is a choice and is kept.
+        transcribe_service.update_transcribe_config(did, separate_vocals_first=False)
+        assert isolated_db.get_drama(did)["separate_vocals_first"] == 0
+
     def test_a_new_title_has_the_switch_unset(self, isolated_db):
         did = isolated_db.create_drama(title_zh="t")
         assert isolated_db.get_drama(did)["separate_vocals_first"] is None
