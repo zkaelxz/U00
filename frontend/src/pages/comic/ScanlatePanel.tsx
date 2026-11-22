@@ -350,7 +350,8 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
         </button>
         {blocked && (
           <span id="scanlate-blocked" className={need ? 'visually-hidden' : 'muted'}>
-            <SettingsMentions text={blocked} />
+            {/* Hidden, it only names the button's reason for a screen reader, so a link in it would be a stop no one can see. */}
+            {need ? blocked : <SettingsMentions text={blocked} />}
           </span>
         )}
       </div>

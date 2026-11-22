@@ -63,11 +63,11 @@ export function costMeta(c: { input_tokens: number; output_tokens: number; cache
   ].join(' · ')
 }
 
-// Only a series with 2+ dramas is shown (one drama shares nothing), with a
-// count per media type; a drama with no type is an audio drama (the original
-// default).
+// Each series with a count per media type; a drama with no type is an audio
+// drama (the original default). A one-title series is kept, so Library tools
+// counts series the way the Library and the Series page do.
 export function sharedSeries<S extends { dramas: { media_type: string | null }[] }>(items: S[]): (S & { types: Record<string, number> })[] {
-  return items.filter((s) => s.dramas.length >= 2).map((s) => {
+  return items.map((s) => {
     const types: Record<string, number> = {}
     for (const d of s.dramas) {
       const t = d.media_type || 'audio_drama'

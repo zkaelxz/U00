@@ -18,7 +18,7 @@ test('dashboard, costs and series fit a phone', async ({ page }) => {
   await page.route('**/api/library/costs', (r) => r.fulfill({
     json: { items: [{ id: 1, title_en: 'A rather long title title that wraps on a phone', title_zh: null, translation_engine: 'claude', input_tokens: 1_250_000, output_tokens: 540_000, cache_read_tokens: 300_000, estimated_cost_usd: 12.5, call_count: 999 }] },
   }))
-  await page.route('**/api/library/series', (r) => r.fulfill({
+  await page.route((u) => u.pathname === '/api/library/series', (r) => r.fulfill({
     json: { items: [{ id: 1, name: 'A series with a long name', character_count: 9, glossary_term_count: 20, dramas: [ref(1, 'A rather long title title that wraps on a phone', 'audio_drama'), ref(2, 'Second', 'manhua')] }] },
   }))
   await page.goto('/#/library-tools')

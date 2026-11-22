@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 
 import {
-  clearReadingHistory, getCosts, getHistory, getPresets, getSeries, getStats, getVoiceBank, renamePreset,
+  clearReadingHistory, getCosts, getHistory, getAllSeries, getPresets, getStats, getVoiceBank, renamePreset,
   addVoiceBankEntry, editVoiceBankDetails, renameVoiceBankEntry, replaceVoiceBankClip,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
@@ -408,7 +408,8 @@ export default function LibraryToolsPage() {
   const stats = useLoad(getStats, reloadKey)
   // The library has no per-title translated count here, so any comic title counts; the job itself skips comics with no translations.
   const hasComic = Object.entries(stats.data?.by_media_type ?? {}).some(([type, n]) => n > 0 && isComicType(type))
-  const series = useLoad(getSeries, reloadKey)
+  // Every series with a title, one-title ones too, so the count matches the Library's Series link and the Series page.
+  const series = useLoad(getAllSeries, reloadKey)
   const costs = useLoad(getCosts, reloadKey)
   const history = useLoad(getHistory, reloadKey)
   const presets = useLoad(getPresets, reloadKey)

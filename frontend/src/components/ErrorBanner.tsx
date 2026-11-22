@@ -12,13 +12,16 @@ export function ErrorBanner({ error, onDismiss, describe }: {
   if (!error) return null
   const { title, detail } = describeError(error, describe)
   const action = errorAction(error)
+  const extensionHelp = (error as { code?: string }).code === 'extension_only'
+  // A banner that already ends in a link to Settings keeps its text plain, so it doesn't offer the same link twice.
+  const text = (t: string) => (extensionHelp || action?.href === routeHref({ name: 'settings' }) ? t : <SettingsMentions text={t} />)
   return (
     <div className="banner error-banner" role="alert">
       <div>
-        <strong><SettingsMentions text={title} /></strong>
-        {detail && <div className="muted"><SettingsMentions text={detail} /></div>}
+        <strong>{text(title)}</strong>
+        {detail && <div className="muted">{text(detail)}</div>}
         {action && <div><a href={action.href}>{action.label}</a></div>}
-        {(error as { code?: string }).code === 'extension_only' && (
+        {extensionHelp && (
           <div><a href={routeHref({ name: 'settings' })}>Extension help</a></div>
         )}
       </div>

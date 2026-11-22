@@ -63,14 +63,14 @@ describe('cost rows (parity L04)', () => {
 
 describe('series view (parity L05)', () => {
   const d = (media_type: string | null) => ({ media_type })
-  it('keeps only series with 2+ titles and counts their types', () => {
+  it('keeps one-title series, so the count matches the Series page, and counts their types', () => {
     const out = sharedSeries([
       { id: 1, dramas: [d('audio_drama'), d(null), d('novel')] },
       { id: 2, dramas: [d('manhua')] },
-      { id: 3, dramas: [] },
     ])
-    expect(out.map((s) => s.id)).toEqual([1])
+    expect(out.map((s) => s.id)).toEqual([1, 2])
     expect(out[0].types).toEqual({ audio_drama: 2, novel: 1 })
+    expect(out[1].types).toEqual({ manhua: 1 })
   })
   it('shared line', () => {
     expect(sharedLine({ character_count: 14, glossary_term_count: 1 })).toBe('14 shared characters · 1 glossary term')

@@ -304,7 +304,7 @@ class DramaDetail(DramaSummary):
     series_instructions: Optional[str] = None
     has_audio: bool = Field(description="A source audio/video file is attached.")
     has_novel_reference: bool
-    has_cover_art: bool
+    has_cover_art: bool = False
     keep_original: bool = Field(
         default=False, description="\"Keep original files\": storage cleanup never removes "
                                    "this title's originals and an export always includes them.")

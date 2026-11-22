@@ -18603,7 +18603,10 @@ export interface components {
              * @description A source audio/video file is attached.
              */
             has_audio: boolean;
-            /** Has Cover Art */
+            /**
+             * Has Cover Art
+             * @default false
+             */
             has_cover_art: boolean;
             /** Has Novel Reference */
             has_novel_reference: boolean;
@@ -18752,7 +18755,10 @@ export interface components {
              * @description A source audio/video file is attached.
              */
             has_audio: boolean;
-            /** Has Cover Art */
+            /**
+             * Has Cover Art
+             * @default false
+             */
             has_cover_art: boolean;
             /** Has Novel Reference */
             has_novel_reference: boolean;

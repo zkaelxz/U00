@@ -94,13 +94,15 @@ const series = {
   ],
 }
 
-test('Series view: only 2+ titles, types, shared counts, Open (L05)', async ({ page }) => {
-  await page.route('**/api/library/series', (r) => r.fulfill({ json: series }))
+test('Series view: every series with a title, types, shared counts, Open (L05)', async ({ page }) => {
+  await page.route((u) => u.pathname === '/api/library/series', (r) => r.fulfill({ json: series }))
   await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
   const panel = tools.getByRole('region', { name: 'Series' })
   await expect(panel).toContainText('Mo Dao Zu Shi')
-  await expect(panel).not.toContainText('Lonely Series')
+  // A one-title series is listed too, so the fold counts series the way the Library and the Series page do.
+  await expect(panel).toContainText('Lonely Series')
+  await expect(tools.locator('summary', { hasText: /^Series/ }).locator('.section-count')).toHaveText('2')
   await expect(panel).toContainText('Audio drama 1 · Manhua 1')
   await expect(panel).toContainText('14 shared characters · 1 glossary term')
   const dramas = panel.getByRole('list', { name: 'Titles in Mo Dao Zu Shi' }).getByRole('listitem')
@@ -109,9 +111,9 @@ test('Series view: only 2+ titles, types, shared counts, Open (L05)', async ({ p
   await expect(panel.getByRole('link', { name: 'Open MDZS (manhua)' })).toHaveAttribute('href', '#/drama/4')
 })
 
-test('Series fold is hidden when no series has 2+ titles (L05)', async ({ page }) => {
-  await page.route('**/api/library/series', (r) =>
-    r.fulfill({ json: { items: [series.items[1]] } }))
+test('Series fold is hidden when there is no series (L05)', async ({ page }) => {
+  await page.route((u) => u.pathname === '/api/library/series', (r) =>
+    r.fulfill({ json: { items: [] } }))
   await page.goto('/#/library-tools')
   const tools = page.getByRole('region', { name: 'Library tools' })
   await expect(page.getByRole('tab', { name: 'Backup' })).toBeVisible()

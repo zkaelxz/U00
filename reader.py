@@ -336,6 +336,8 @@ def build_reader_html(lines, source_language: str, definitions: dict,
   ruby.word:hover {{ background: {c_hover}; }}
   ruby.word.active {{ background: {c_active}; }}
   rt {{ font-size: {rt_size}px; color: {c_rt}; user-select: none; }}
+  /* The muted reading colour drops under 4.5:1 on the highlight (dark theme most), so a highlighted word's reading takes the text colour. */
+  ruby.word:hover rt, ruby.word.active rt {{ color: {c_fg}; }}
   .seek-btn {{ border: none; background: {c_border}; border-radius: 50%; width: 28px;
               height: 28px; cursor: pointer; flex-shrink: 0; margin-top: 10px;
               color: {c_fg}; }}

@@ -30,9 +30,10 @@ export function CustomizeMenuCard() {
             <li key={navId(i)} className="customize-menu-row">
               <span id={`menu-item-${navId(i)}`}>{i.label}</span>
               {locked && <span className="muted">Always shown</span>}
-              {advancedOnly && <span className="muted">Advanced menu only</span>}
+              {advancedOnly && <span className="muted" id={`menu-item-${navId(i)}-advanced`}>Advanced menu only</span>}
               <Toggle
                 aria-labelledby={`menu-item-${navId(i)}`}
+                aria-describedby={advancedOnly ? `menu-item-${navId(i)}-advanced` : undefined}
                 checked={locked || !hidden.includes(navId(i))}
                 disabled={locked}
                 onChange={(show) => setHidden(navId(i), !show)}
