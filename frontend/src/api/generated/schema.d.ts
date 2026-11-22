@@ -17482,6 +17482,11 @@ export interface components {
         DiagnosticsInstallTask: {
             /** Approx Mb */
             approx_mb: number;
+            /**
+             * Gpu Torch First
+             * @default false
+             */
+            gpu_torch_first: boolean;
             /** Group */
             group: string;
             /** Help */

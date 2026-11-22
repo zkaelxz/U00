@@ -187,6 +187,8 @@ class DiagnosticsInstallTask(BaseModel):
     to_install: List[str]           # missing required + recommended (Install for this task)
     optional_missing: List[str] = []
     approx_mb: int
+    # GPU PyTorch must be set up before to_install, which then leaves torch out.
+    gpu_torch_first: bool = False
 
 
 class DiagnosticsInstallPresets(BaseModel):
