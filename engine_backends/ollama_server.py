@@ -137,3 +137,37 @@ def check_ollama_model_installed(base_url: str, model: str) -> None:
             "ollama_model_missing",
             f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
             "or pick another model in Settings.")
+
+
+def model_pulled(base_url: str, model: str) -> bool:
+    """Whether `model` is pulled on the server, embedding models included (pulled_ollama_models
+    leaves those out). False when the server does not answer."""
+    wanted = model if ":" in model else f"{model}:latest"
+    try:
+        return any(wanted in _entry_names(e) or model in _entry_names(e)
+                   for e in _tag_entries(base_url, timeout=2.5))
+    except Exception:
+        return False
+
+
+# A pull streams layers for as long as the connection takes; one request waits for all of it.
+PULL_TIMEOUT_SECONDS = 60 * 60
+
+
+def pull_model(base_url: str, model: str) -> None:
+    """Asks the server to pull `model` and returns when it has. Raises ValueError with the
+    server's own reason (redacted) when it refuses; a server that is down raises the http error."""
+    from diagnostics_report import redact_for_support
+    base_url = settings_schema.normalize_ollama_url(base_url)
+    resp = http.post(f"{base_url}/api/pull", timeout=(5, PULL_TIMEOUT_SECONDS), max_bytes=PROVIDER_RESPONSE_MAX_BYTES,
+                     guard=None, allow_redirects=True, deadline=PULL_TIMEOUT_SECONDS,
+                     json={"model": model, "stream": False})
+    try:
+        failure = json.loads(resp.body).get("error")
+    except (ValueError, AttributeError):
+        failure = None
+    if failure:
+        # Ollama's pull errors quote blob paths and registry URLs.
+        raise ValueError(redact_for_support(str(failure))[:200])
+    if not resp.ok:
+        raise ValueError(f"Ollama answered HTTP {resp.status}")

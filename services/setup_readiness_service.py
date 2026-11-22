@@ -37,6 +37,7 @@ _PACKAGES = {
     "soundfile": ("soundfile",),
     "audio_separator": ("audio_separator",),
     "pyannote": ("pyannote.audio",),
+    "librosa": ("librosa",),
     "onnxruntime": ("onnxruntime",),
     "openai": ("openai",),
     "anthropic": ("anthropic",),
@@ -133,6 +134,7 @@ def _compute() -> dict:
     out["torch_cuda"] = _safe(_torch_cuda)
     out["hf_token_configured"] = _safe(lambda: settings_service.resolve_key("hf_token"))
     out["speaker_token_needed"] = _safe(_speaker_token_needed)
+    out["nemotron_transformers"] = _safe(_nemotron_transformers_ok)
     for engine in _KEYS:
         out[f"key_{engine}"] = _safe(lambda e=engine: settings_service.resolve_key(e))
     try:
@@ -140,6 +142,11 @@ def _compute() -> dict:
     except Exception:
         out["ollama_reachable"] = out["ollama_model_pulled"] = False
     return out
+
+
+def _nemotron_transformers_ok() -> bool:
+    import diarize_nemotron
+    return "transformers" not in diarize_nemotron.missing_packages()
 
 
 def _speaker_token_needed() -> bool:

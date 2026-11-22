@@ -414,6 +414,11 @@ def _strict() -> bool:
 
 def _call_llm_json(engine, prompt, max_tokens, fallback, usage_cb, system=None,
                    expect="json_object", translation_of=None) -> str:
+    if isinstance(engine, FallbackEngine):
+        # The isinstance checks below need the real engine: a chain proxies attributes such as
+        # `client` but is none of the engine classes, so Gemini, OpenAI and Ollama behind a
+        # chain used to reach the "can't run this feature" error.
+        engine = engine.engines[engine.active]
     client = getattr(engine, "client", None)
     chat_messages = ([{"role": "system", "content": system}] if system else []) + [
         {"role": "user", "content": prompt}]

@@ -241,6 +241,19 @@ def _no_automatic_cover():
 
 
 @pytest.fixture(autouse=True)
+def _nemotron_packages_present():
+    """Nemotron is the default speaker model, and CI has neither librosa nor a new enough
+    transformers, so every speaker-detection test would otherwise be refused up front;
+    tests that check the missing-package case patch this back. Set by hand for the same
+    ordering reason as above."""
+    import diarize_nemotron
+    real = diarize_nemotron.missing_packages
+    diarize_nemotron.missing_packages = lambda: []
+    yield
+    diarize_nemotron.missing_packages = real
+
+
+@pytest.fixture(autouse=True)
 def _uploads_not_probed():
     """Most upload tests send a few placeholder bytes as audio; tests/test_api_media_upload.py
     puts the real ffprobe check back. Set by hand for the same ordering reason as above."""
@@ -279,6 +292,26 @@ def _ml_detector_failure_forgotten():
     yield
     from scanlate import scanlate_detect
     scanlate_detect.forget_ml_failure()
+
+
+@pytest.fixture(autouse=True)
+def _no_gemma_picture_reader():
+    """A comic page's picture goes to Gemma on Ollama's servers whenever the PC's
+    Ollama answers, so a test run beside a running Ollama would send real, billed
+    requests. The real function stays on `.real` for its own tests; the skip
+    window it sets after a failure is process-wide, so it is cleared too."""
+    from services import scanlate_run_service
+    saved = scanlate_run_service._ollama_picture_reader
+
+    def stub(*args, **kwargs):
+        return None
+    stub.real = saved
+    scanlate_run_service._ollama_picture_reader = stub
+    try:
+        yield
+    finally:
+        scanlate_run_service._ollama_picture_reader = saved
+        scanlate_run_service._ollama_reader_down_until = 0.0
 
 
 @pytest.fixture(autouse=True)
