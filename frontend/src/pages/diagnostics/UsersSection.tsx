@@ -130,7 +130,7 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen, openSignal }: { sign
         {users === null ? (
           !error && <p className="muted">Loading…</p>
         ) : users.length === 0 ? (
-          <p className="muted">No one is signed up yet. Ask the first person to sign in on the main PC.</p>
+          <p className="muted">No one added yet. Add a person below by their Google email; then they can sign in with that Google account.</p>
         ) : (
           <ul className="pkg-list admin-user-list" aria-label="People">
             {users.map((u) => (
@@ -305,7 +305,7 @@ function AddPersonForm({ busy, onAdded }: { busy: boolean; onAdded: (user: Admin
       <h3 className="subhead">Add a person</h3>
       <p className="muted">
         They sign in with Google using this email. They start with the household rights (see the library, read and
-        edit subtitles, start and stop jobs, use Review); tick more in their Rights row once they are added.
+        edit subtitles, start and stop jobs, use Review, play audio and video); tick more in their Rights row once they are added.
       </p>
       <p className="muted">
         While your Google app is in testing, also add the same email to its test users (Google Cloud Console, OAuth

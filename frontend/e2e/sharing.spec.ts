@@ -96,8 +96,11 @@ test('admin: share-new-items switch, every item with its owner, flips and a plai
   await expect(shareDefault).toHaveAttribute('aria-checked', 'true')
   await expect(card.getByTestId('share-default-help')).toHaveText(/^On: /)
 
-  const list = card.getByRole('list', { name: 'Titles and series' })
+  const list = card.getByRole('group', { name: 'Titles and series' })
   await expect(list.getByRole('listitem')).toHaveCount(4)
+  // Grouped by who can see them: Saga and its episode are shared, the other two private.
+  await expect(list.getByRole('heading')).toHaveText(['Shared (2)', 'Private (2)'])
+  await expect(card.getByRole('list', { name: 'Private titles and series' }).getByRole('listitem')).toHaveCount(2)
   await expect(list).not.toContainText('@')
   const hidden = card.getByTestId('sharing-drama:3')
   await expect(hidden).toContainText('Owner: Ann')
@@ -110,6 +113,7 @@ test('admin: share-new-items switch, every item with its owner, flips and a plai
 
   await card.getByRole('switch', { name: 'Share title “Hidden Letters” with the household' }).click()
   await expect(hidden).toContainText('Shared')
+  await expect(card.getByRole('list', { name: 'Shared titles and series' }).getByTestId('sharing-drama:3')).toBeVisible()
 
   const series = card.getByRole('switch', { name: 'Share series “Saga” with the household' })
   await expect(series).toHaveAttribute('aria-checked', 'true')
@@ -125,7 +129,7 @@ test('admin: share-new-items switch, every item with its owner, flips and a plai
   await expect(list).not.toContainText('@')
 
   // Items made at the PC (no owner) are private until an admin shares them.
-  await expect(card.getByTestId('sharing-pc-note')).toHaveText(/sign-in is turned on, others will not see them/)
+  await expect(card.getByTestId('sharing-pc-note')).toHaveText(/^Items made at the PC .* belong to the PC owner and start private\. .*sign-in is turned on, others will not see them/)
   await expect(card.getByTestId('sharing-drama:5')).toContainText('Created at the PC')
   await expect(hidden).not.toContainText('Created at the PC')
   await card.getByRole('switch', { name: 'Show only private items created at the PC' }).click()
@@ -167,6 +171,21 @@ test('household member: only their own share-new-items switch, no item list, fit
   const box = await card.getByRole('switch').boundingBox()
   expect(box && box.height).toBeGreaterThanOrEqual(24)
   expect(unmocked).toEqual([])
+})
+
+test('admin at the PC with nobody added: no Owner pickers, the switches stay', async ({ page }) => {
+  await mockSharing(page, ADMIN_ME)
+  const people = page.waitForResponse('**/api/admin/users')
+  await page.route('**/api/admin/users', (route) => route.fulfill({ json: { users: [], member_permissions: [] } }))
+  await page.route('**/api/sharing/items*', (route) => route.fulfill({ json: { total: 1, offset: 0, limit: 100, items: [ITEMS[3]] } }))
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'My account and look')
+  await people
+  const card = page.getByRole('region', { name: 'Sharing' })
+  const row = card.getByTestId('sharing-drama:5')
+  await expect(row).toContainText('Owner: PC owner')
+  await expect(row.getByRole('switch', { name: 'Share title “Solo Story” with the household' })).toBeVisible()
+  await expect(card.getByRole('combobox')).toHaveCount(0)
 })
 
 test('admin: with no titles or series the list offers the way to the Library', async ({ page }) => {
