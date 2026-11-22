@@ -774,6 +774,32 @@ def test_transcription_starts_beside_an_online_translation_when_switched_on(jobs
     assert [i["status"] for i in _items()] == ["done", "done"]
 
 
+def _source_match_on(cap, monkeypatch, model_present):
+    _paid_ready(cap, monkeypatch)
+    real = settings_service.get
+    monkeypatch.setattr(settings_service, "get",
+                        lambda k, *a, **kw: True if k == "translate_alignment_check" else real(k, *a, **kw))
+    monkeypatch.setattr(q, "_source_match_model_present", lambda: model_present)
+
+
+def test_the_source_match_check_keeps_the_overlap_off_only_while_its_model_is_there(jobs, cap, monkeypatch):
+    _source_match_on(cap, monkeypatch, model_present=False)
+    a, b = _overlap_queue("claude", True)
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"translate_{a}", f"transcribe_{b}"]
+    assert q.get_queue(None)["overlap_note"] is None
+
+
+def test_the_jobs_page_says_why_a_transcription_waits_when_the_check_has_its_model(jobs, cap, monkeypatch):
+    _source_match_on(cap, monkeypatch, model_present=True)
+    a, _b = _overlap_queue("claude", True)
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"translate_{a}"]
+    assert "Source match" in q.get_queue(None)["overlap_note"]
+
+
 def test_overlap_is_off_by_default(jobs, cap, monkeypatch):
     _paid_ready(cap, monkeypatch)
     a, _b = _overlap_queue("claude", False)
@@ -813,6 +839,7 @@ def test_a_policy_call_changes_only_what_it_sends(jobs):
 @pytest.mark.parametrize("key, value", [("episode_summary_engine", "ollama"), ("translate_alignment_check", True)])
 def test_a_local_summary_or_alignment_check_blocks_the_overlap(jobs, cap, monkeypatch, key, value):
     _paid_ready(cap, monkeypatch)
+    monkeypatch.setattr(q, "_source_match_model_present", lambda: True)
     patched = settings_service.get
     monkeypatch.setattr(settings_service, "get", lambda k, *a, **kw: value if k == key else patched(k, *a, **kw))
     a, _b = _overlap_queue("claude", True)

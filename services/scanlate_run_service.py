@@ -45,6 +45,7 @@ import translation_guide as tguide
 from engine_backends import engine_registry
 from engine_backends import shared as engine_shared
 from engine_backends import llm_tasks, paid_calls
+from engine_backends import local as engine_local
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.vision import VISION_ENGINES
 from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
@@ -286,13 +287,15 @@ def load_translation_guide(drama: dict) -> tuple:
     return (terms, tguide.build_character_guidance(db.list_series_characters(series_id)))
 
 
-def _page_image(drama_id: int, page_id: int, engine_name: str):
+def _page_image(drama_id: int, page_id: int, engine_name: str, model=None):
     """(bytes, mime, scale) of the page as it is sent with its regions, or None
-    when the setting is off, the engine takes no pictures, or the file can't be
+    when the setting is off, nothing can read the picture (picture_readers),
+    or the file can't be
     prepared; the page is then translated from its text alone. `scale` maps a
     region's box from the stored page to the sent picture, which is cut down
     to the provider's size limit."""
-    if not settings_service.get("scanlate_page_image") or engine_name not in VISION_ENGINES:
+    if not settings_service.get("scanlate_page_image") or not (
+            engine_name in VISION_ENGINES or _sends_text_off_pc(engine_name, model)):
         return None
     try:
         page = db.get_page(page_id, drama_id=drama_id) or {}
@@ -314,15 +317,69 @@ def page_picture(content: bytes):
     return data, mime, sent_width / width
 
 
+# Kae's blind test of six models on 10 text-heavy pages (2026-11-22): Gemma 4
+# 31B on Ollama's servers was best on the most pages at under half of Haiku's cost.
+PAGE_IMAGE_OLLAMA_MODEL = "gemma4:31b-cloud"
 # Measured on 16 comic pages: with the picture, Haiku 5.5 reads dialogue as well
 # as Sonnet 5.5 at about a fifteenth of the cost.
 PAGE_IMAGE_CLAUDE_MODEL = "claude-haiku-5-5"
+# Once Ollama can't serve Gemma (not running, not signed in), it is skipped
+# this long, so a run doesn't wait on a failing request for every page.
+OLLAMA_READER_RETRY_SECONDS = 600
+_ollama_reader_down_until = 0.0
+# Named, not "every engine but Ollama": a local engine added later (or the test
+# engine) must not start sending pages to Ollama's servers.
+_CLOUD_ENGINES = frozenset({"claude", "gemini", "openai", "deepseek"})
+
+
+def _sends_text_off_pc(engine_name: str, model) -> bool:
+    """Whether the chosen engine already sends the page off this PC. Only then is
+    Gemma on Ollama's servers offered the picture: a local Ollama model never
+    starts sending pages away (the rule OLLAMA_CLOUD_MODELS keeps)."""
+    if engine_name == "ollama":
+        return engine_local.is_ollama_cloud_model(model)
+    return engine_name in _CLOUD_ENGINES
+
+
+def _ollama_picture_reader(engine, engine_name: str):
+    """Gemma on Ollama's servers as a picture reader, or None when the chosen
+    engine stays on this PC, already is Gemma, Ollama recently failed, or the
+    PC's Ollama isn't answering. A member's own Ollama key goes to ollama.com
+    directly, so the PC's Ollama need not answer then."""
+    global _ollama_reader_down_until
+    model = getattr(engine, "model", None)
+    if model == PAGE_IMAGE_OLLAMA_MODEL or not _sends_text_off_pc(engine_name, model):
+        return None
+    try:
+        if engine_local.member_cloud_key() is None:
+            if time.monotonic() < _ollama_reader_down_until:
+                return None
+            if not engine_local.check_ollama_reachable(settings_service.ollama_url()):
+                # The check's own cache is seconds long, and an Ollama address that is
+                # switched off costs its whole timeout on every page.
+                _ollama_reader_down_until = time.monotonic() + OLLAMA_READER_RETRY_SECONDS
+                return None
+        return llm_tasks.bound_batches(engine_registry.get_engine(
+            "ollama", translate_service.resolve_api_key("ollama"), model=PAGE_IMAGE_OLLAMA_MODEL,
+            base_url=settings_service.ollama_url()))
+    except Exception:
+        return None
+
+
+def _note_ollama_reader_failed(exc) -> None:
+    """Skips Gemma for a while after Ollama said it can't serve it. A member's
+    refused key is that member's problem, so it doesn't stop it for others."""
+    global _ollama_reader_down_until
+    if (isinstance(exc, (engine_local.OllamaUnavailableError, engine_local.OllamaCloudLimitError,
+                         LLMTaskTimeout))
+            and engine_local.member_cloud_key() is None):
+        _ollama_reader_down_until = time.monotonic() + OLLAMA_READER_RETRY_SECONDS
 
 
 def _picture_engine(engine, engine_name: str):
-    """The engine that reads a page's picture: the chosen Claude engine is swapped
-    for Haiku 5.5 here only, so text-only translation keeps the model the user
-    picked. Any other engine, or a Haiku that can't be built, is used as chosen."""
+    """The chosen engine as a picture reader: Claude is swapped for Haiku 5.5
+    here only, so text-only translation keeps the model the user picked. Any
+    other engine, or a Haiku that can't be built, is used as chosen."""
     if engine_name != "claude" or getattr(engine, "model", None) == PAGE_IMAGE_CLAUDE_MODEL:
         return engine
     try:
@@ -332,27 +389,53 @@ def _picture_engine(engine, engine_name: str):
         return engine
 
 
+def picture_readers(engine, engine_name: str) -> list:
+    """[(engine, engine name)] to read a page's picture with, tried in order
+    until one answers: Gemma on Ollama's servers, then the chosen engine (Haiku
+    for Claude) when it takes pictures. Empty: the page goes as text alone."""
+    readers = []
+    gemma = _ollama_picture_reader(engine, engine_name)
+    if gemma is not None:
+        readers.append((gemma, "ollama"))
+    if engine_name in VISION_ENGINES:
+        readers.append((_picture_engine(engine, engine_name), engine_name))
+    return readers
+
+
 def _translate_with_image(by_key: dict, page_image, engine, drama: dict, context: str, usage_cb,
-                          glossary, character_notes: str, chapter_brief: str, notes: list):
+                          glossary, character_notes: str, chapter_brief: str, notes: list,
+                          then: str = "it was translated from its text alone"):
     """(result, new_context) of the page-with-image request, or (None, context)
-    after a note when it failed or its answer could not be matched by id, so
-    the caller translates the page from its text instead."""
+    after a note (ending with `then`, what the caller does next) when it failed
+    or its answer could not be matched by id."""
     from scanlate import scanlate_translate
     data, mime, scale = page_image
     regions = [{"id": key, "text": b["source_text"],
                 "box": {name: round(b[name] * scale) for name in ("x", "y", "w", "h")},
                 **({"sound_effect": True} if b.get("kind") == "sfx" else {})}
                for key, b in by_key.items()]
+    gemma = getattr(engine, "model", None) == PAGE_IMAGE_OLLAMA_MODEL
     try:
         return scanlate_translate.translate_regions_with_image(
             regions, data, mime, engine, drama, previous_context=context, usage_cb=usage_cb,
             glossary_terms=glossary, character_notes=character_notes, chapter_brief=chapter_brief)
-    except (HeadroomError, LLMTaskTimeout, TranslateRunStopped):
+    except (HeadroomError, TranslateRunStopped):
         raise
+    except LLMTaskTimeout:
+        # Gemma runs on Ollama's servers, so its slow request holds nothing the
+        # next reader needs; the run's own engine timing out stops the run.
+        if not gemma:
+            raise
+        _note_ollama_reader_failed(LLMTaskTimeout())
+        notes.append(("info", f"Reading this page's picture with {PAGE_IMAGE_OLLAMA_MODEL} timed "
+                              f"out; {then}."))
+        return None, context
     except Exception as exc:
+        if gemma:
+            _note_ollama_reader_failed(exc)
         reason = f"{type(exc).__name__}: {engine_shared.redact_secrets(str(exc))}"
-        notes.append(("info", f"Reading this page's picture failed ({reason}); it was translated "
-                              "from its text alone."))
+        model = getattr(engine, "model", None) or "the chosen engine"
+        notes.append(("info", f"Reading this page's picture with {model} failed ({reason}); {then}."))
         return None, context
 
 
@@ -383,11 +466,17 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
 
     result, new_context = None, context
     if page_image is not None and len(keyed) <= scanlate_translate.REGIONS_PER_CALL:
-        picture_engine = _picture_engine(engine, engine_name)
-        result, new_context = _translate_with_image(
-            by_key, page_image, picture_engine, drama, context,
-            paid_calls.usage_logger(drama_id, engine_name, picture_engine, "scanlate_translate"), glossary, character_notes,
-            chapter_brief, notes)
+        readers = picture_readers(engine, engine_name)
+        for i, (reader, reader_name) in enumerate(readers):
+            later = readers[i + 1][0] if i + 1 < len(readers) else None
+            result, new_context = _translate_with_image(
+                by_key, page_image, reader, drama, context,
+                paid_calls.usage_logger(drama_id, reader_name, reader, "scanlate_translate"),
+                glossary, character_notes, chapter_brief, notes,
+                then=(f"trying {getattr(later, 'model', None) or 'the chosen engine'} next"
+                      if later is not None else "it was translated from its text alone"))
+            if result is not None:
+                break
     try:
         if result is None:
             result, new_context = scanlate_translate.translate_regions_by_id(
@@ -651,7 +740,7 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
         translated_ok, new_context = _translate(
             bubbles, engine, engine_name, drama, guide[0],
             _translation_context(drama_id, page_id), drama_id, notes, guide[1], chapter_brief,
-            page_image=_page_image(drama_id, page_id, engine_name))
+            page_image=_page_image(drama_id, page_id, engine_name, getattr(engine, "model", None)))
     if translated_ok:
         # Only the English this call just wrote: a region kept from an earlier run, or typed by
         # hand, is the person's text and is not rewritten.
