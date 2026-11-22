@@ -93,15 +93,24 @@ def speech_spans(audio, sr: int, *, threshold: float = THRESHOLD,
     return _normalize(kept, duration)
 
 
-def speech_spans_in_file(audio_path: str) -> Optional[list]:
+def speech_spans_in_file(audio_path: str, windows=None) -> Optional[list]:
     """(start_s, end_s) speech spans of an audio file, or None when it cannot be decoded or the
     detector is missing: a caller must read "unknown" as "keep", never as "no speech".
+    `windows` ((start_s, end_s) pairs) limits the detector to those stretches, since scoring a
+    whole livestream on the CPU takes minutes; None hears the whole file.
     Uses the sensitive numbers of _fit_to_speech so quiet speech is not scored as silence."""
     try:
         from faster_whisper import decode_audio
         audio = decode_audio(audio_path, sampling_rate=_VAD_SAMPLE_RATE)
-        return [(s.start_s, s.end_s) for s in speech_spans(
-            audio, _VAD_SAMPLE_RATE, threshold=0.4, min_silence_ms=150, pad_ms=0)]
+        sr = _VAD_SAMPLE_RATE
+        duration = audio.shape[0] / sr
+        stretches = [(0.0, duration)] if windows is None else _normalize(windows, duration)
+        found = []
+        for lo, hi in stretches:
+            piece = audio[int(lo * sr):int(hi * sr)]
+            found.extend((lo + s.start_s, lo + s.end_s) for s in speech_spans(
+                piece, sr, threshold=0.4, min_silence_ms=150, pad_ms=0))
+        return found
     except Exception:
         return None
 

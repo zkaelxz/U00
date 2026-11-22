@@ -17,7 +17,6 @@ import { useLineSelectionContext } from './LineSelectionContext'
 import { SelectionBar } from './SelectionBar'
 import { selectionContext } from './selectionActions'
 import { useSimple } from '../../StageContext'
-import { useRoute } from '../../../../router'
 import { useCheckQueue, useLineTab, useQueueMedia } from './useCheckQueue'
 import { ThisLineDock } from './ThisLinePanel'
 import { LineRow, type EditState, type RowIssue } from './LineRow'
@@ -43,7 +42,7 @@ import { useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
 import { SourceSuspectPanel } from './SourceSuspect'
-import { useSourceSuspects } from './useSourceSuspects'
+import { useOpensSourcePanel, useSourceSuspects } from './useSourceSuspects'
 import { ShortcutSheet } from './ShortcutSheet'
 import { useStrongerOffers } from './useStrongerOffers'
 import { buildStructureEdits, type UndoOffer } from './structureEdits'
@@ -116,9 +115,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const isWide = useMediaQuery(WIDE) // tablets and wider: a source video gets its own sticky card beside the lines
   const isShort = useMediaQuery(SHORT)
   const collapsed = useScrollCollapse(isPhone)
-  const route = useRoute()
-  // A link from Transcribe's mis-heard note (?focus=source) opens the panel it talks about.
-  const [suspectOpen, setSuspectOpen] = useState(route.name === 'drama' && route.id === dramaId && route.focus === 'source')
+  const [suspectOpen, setSuspectOpen] = useState(useOpensSourcePanel(dramaId))
   const suspects = useSourceSuspects(dramaId, reloads, suspectOpen)
   const selection = useLineSelectionContext()
   const pending = useRef<Pending | null>(null)

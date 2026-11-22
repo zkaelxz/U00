@@ -271,9 +271,12 @@ def parse_blocked_phrases(text):
 # Letters allowed around a blocked phrase for the line to still count as "only the phrase"
 # ("请点赞和分享": a politeness word Whisper adds to its own stock line).
 BLOCKED_ONLY_PHRASE_EXTRA_LETTERS = 3
-# Whisper's line times are rougher than the detector's; a line this close to detected speech
-# is not "no speech under it".
-BLOCKED_SPEECH_MARGIN_SEC = 0.25
+# Whisper's line times can sit up to about a second off the voice (more on a piece cut out of a
+# long segment); a line this close to detected speech may be that speech, so it is not
+# "no speech under it". A line invented over an outro or a silent stretch sits further out.
+BLOCKED_SPEECH_MARGIN_SEC = 1.0
+# Audio the detector hears on each side of that margin, so it starts and ends with context.
+BLOCKED_DETECTOR_CONTEXT_SEC = 1.0
 
 
 def _speech_under(seg, spans):
@@ -288,28 +291,46 @@ def _only_blocked_phrase(key, keys):
     return len(rest) <= BLOCKED_ONLY_PHRASE_EXTRA_LETTERS
 
 
+def _detector_windows(segments, candidates):
+    """Where the detector must listen: around each line that holds a phrase, not the whole file."""
+    pad = BLOCKED_SPEECH_MARGIN_SEC + BLOCKED_DETECTOR_CONTEXT_SEC
+    windows = []
+    for i in candidates:
+        try:
+            windows.append((max(0.0, float(segments[i]["start"]) - pad), float(segments[i]["end"]) + pad))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return windows
+
+
 def drop_blocked_phrases(segments, keys, speech_spans=None, isolation_sec=STOCK_PHRASE_ISOLATION_SEC):
     """`segments` without the lines Whisper made up from `keys` (parse_blocked_phrases), each
-    recorded as a stock-phrase drop. A line holding a blocked phrase goes only when
-    - the voice detector finds no speech under it (`speech_spans`: a function returning the
-      detector's (start, end) spans in seconds, or None when it cannot say; called once, and
-      only if some line holds a phrase), or
-    - the line is nothing but the phrase and sits alone in silence (`isolation_sec` each side, as for a stock credit phrase).
-    Said inside a longer line, with speech around it, it is kept: the person may have said it."""
+    recorded as a stock-phrase drop. `speech_spans(windows)` returns the voice detector's
+    (start, end) speech spans in seconds inside those (start, end) windows, or None when it
+    cannot say; it is called once, and only if some line holds a phrase.
+    - With the detector's answer, a line goes only when it hears no speech under it. Speech under
+      it keeps it, even when it is nothing but the phrase: a streamer really says these.
+    - Without it (no detector, unreadable audio, Difficult audio), a line goes only when it is
+      nothing but the phrase and sits alone in silence (`isolation_sec` each side, as for a stock
+      credit phrase). Said inside a longer line, or close to other lines, it is kept."""
     if not keys:
         return segments
     candidates = [i for i, seg in enumerate(segments) if any(k in _stock_key(seg["text"]) for k in keys)]
     if not candidates:
         return segments
-    spans = speech_spans() if speech_spans else None
+    spans = speech_spans(_detector_windows(segments, candidates)) if speech_spans else None
     dropped = set()
     for i in candidates:
         seg = segments[i]
-        try:
-            no_speech = spans is not None and not _speech_under(seg, spans)
-        except KeyError:
-            no_speech = False
-        if no_speech or (_only_blocked_phrase(_stock_key(seg["text"]), keys) and _alone_in_silence(segments, i, isolation_sec)):
+        if spans is not None:
+            try:
+                made_up = not _speech_under(seg, spans)
+            except (KeyError, TypeError):
+                made_up = False
+        else:
+            made_up = (_only_blocked_phrase(_stock_key(seg["text"]), keys)
+                       and _alone_in_silence(segments, i, isolation_sec))
+        if made_up:
             dropped.add(i)
             _record_drop(seg, DROP_STOCK_PHRASE)
     return [seg for i, seg in enumerate(segments) if i not in dropped]

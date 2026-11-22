@@ -114,7 +114,9 @@ def _matching_files(drama_dir: str, cfg: dict) -> list:
     subdir = cfg.get("pattern_subdir", "")
     folder = os.path.join(drama_dir, subdir) if subdir else drama_dir
     companion = cfg.get("only_beside")
-    if companion and not os.path.isfile(os.path.join(drama_dir, companion)):
+    # A link is not a replacement: find_narration_track skips one and plays the WAV instead.
+    if companion and (not os.path.isfile(os.path.join(drama_dir, companion))
+                      or os.path.islink(os.path.join(drama_dir, companion))):
         return []
     try:
         entries = sorted(os.listdir(folder))

@@ -4,6 +4,7 @@ import { listMisheard } from '../../../../api/misheard'
 import { listSourceSuspects } from '../../../../api/sourceSuspect'
 import type { MisheardSuggestion } from '../../../../types/misheard'
 import type { SourceSuspectItem } from '../../../../types/sourceSuspect'
+import { useRoute } from '../../../../router'
 
 export interface SourceSuspects {
   items: SourceSuspectItem[]
@@ -20,6 +21,12 @@ const NONE: SourceSuspects = { items: [], misheard: { items: [], kept: 0 }, coun
 // The mis-heard scan cuts and compares the whole title, which can take seconds on a long one, and every line
 // edit bumps `reloads`. So after the first scan it runs again only while the panel is open, once typing pauses.
 const MISHEARD_RESCAN_DEBOUNCE_MS = 800
+
+/** Whether the page was opened by a link from Transcribe's mis-heard note (?focus=source), which talks about this panel. */
+export function useOpensSourcePanel(dramaId: number): boolean {
+  const route = useRoute()
+  return route.name === 'drama' && route.id === dramaId && route.focus === 'source'
+}
 
 export interface ScanState {
   dramaId: number

@@ -157,12 +157,23 @@ class TestLineLanguage:
         did, _ = _drama(2)
         monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda path, *a, **kw: [
             {"start": 0.0, "end": 1.0, "text": "订阅我们的频道"},
-            {"start": 1.0, "end": 2.0, "text": "你好"}])
+            {"start": 3.5, "end": 4.5, "text": "你好"}])
         # The detector hears speech only under 你好: the phrase is made up.
-        monkeypatch.setattr(vad_segments, "speech_spans_in_file", lambda path: [(1.5, 2.0)])
+        monkeypatch.setattr(vad_segments, "speech_spans_in_file", lambda path, windows=None: [(3.5, 4.5)])
         _run(did)
         proposals = svc.get_compare_result(did)["proposals"]
         assert [p["candidate_zh"] for p in proposals] == ["你好", "你好"]
+
+    def test_a_difficult_audio_title_keeps_a_phrase_the_detector_calls_silence(self, _env, monkeypatch):
+        did, _ = _drama(2, difficult_audio=1)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda path, *a, **kw: [
+            {"start": 0.0, "end": 1.0, "text": "订阅我们的频道"},
+            {"start": 3.5, "end": 4.5, "text": "你好"}])
+        asked = []
+        monkeypatch.setattr(vad_segments, "speech_spans_in_file", lambda path, windows=None: asked.append(1) or [])
+        _run(did)
+        assert asked == []
+        assert [p["candidate_zh"] for p in svc.get_compare_result(did)["proposals"]] == ["订阅我们的频道你好"] * 2
 
     def test_single_language_title_is_unchanged(self, _env):
         did, _ = _drama(3)

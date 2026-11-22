@@ -351,6 +351,22 @@ class TestStorage:
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_a_linked_flac_does_not_make_the_narration_wav_spare(self):
+        d = self._make_dir()
+        try:
+            with open(os.path.join(d, "narration_track.wav"), "wb") as f:
+                f.write(b"w" * 900)
+            elsewhere = os.path.join(d, "other.flac")
+            with open(elsewhere, "wb") as f:
+                f.write(b"f")
+            try:
+                os.symlink(elsewhere, os.path.join(d, "narration_track.flac"))
+            except (OSError, NotImplementedError):
+                pytest.skip("this system cannot make symlinks")
+            assert stg.scan_drama_storage(d)["categories"]["stale_narration_wav"] == 0
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
     def test_separated_vocals_are_cleaned_by_every_preset_but_archival(self):
         d = self._make_dir()
         try:

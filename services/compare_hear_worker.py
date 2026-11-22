@@ -45,10 +45,12 @@ def hear(slice_path: str, cfg: dict, language, on_fallback) -> str:
             segments = asr_backend.get_backend(backend).transcribe(
                 slice_path, language, segments, use_gpu=use_gpu)
     # The main run drops these after splitting; a re-heard line would otherwise offer a made-up
-    # credit phrase as the other engine's reading.
+    # credit phrase as the other engine's reading. A Difficult audio title's detector is not
+    # believed, as in the main run.
+    detector = None if cfg.get("difficult_kwargs") else (
+        lambda windows: vad_segments.speech_spans_in_file(slice_path, windows))
     segments = whisper_hallucination.drop_blocked_phrases(
-        segments or [], cfg.get("blocked_phrases", ()),
-        speech_spans=lambda: vad_segments.speech_spans_in_file(slice_path))
+        segments or [], cfg.get("blocked_phrases", ()), speech_spans=detector)
     return join_segment_texts(s.get("text") or "" for s in segments)
 
 

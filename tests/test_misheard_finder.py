@@ -282,9 +282,9 @@ class TestSafeEverywhere:
         assert db.load_line_objects(did)[0].zh == "亞羅赫來了" and db.list_line_history(did) == []
 
 
-@pytest.mark.skipif(importlib.util.find_spec("jieba") is None or importlib.util.find_spec("opencc") is None,
-                    reason="jieba or opencc not installed")
 def test_a_simplified_glossary_term_is_suggested_in_a_traditional_titles_script(isolated_db):
+    pytest.importorskip("jieba")
+    pytest.importorskip("opencc")
     sid = db.get_or_create_series("S")
     did = db.create_drama(title_en="T", series_id=sid, source_language="zh", chinese_script="traditional")
     db.upsert_glossary_term(sid, "亚洛赫", "Yaloch", aliases="")
