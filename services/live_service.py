@@ -755,6 +755,8 @@ def stop_session(session_id, principal=None) -> dict:
     if job is not None and job.get("status") in ("queued", "running"):
         live_translate.bump_generation(session_id)
     if job is None or background_jobs.cancel_queued(session_id):
+        # A job cancelled while queued never runs, so no run drops it.
+        live_translate.drop_generation(session_id)
         _remove_dir(session_id)
     else:
         background_jobs.request_cancel(session_id)

@@ -818,6 +818,47 @@ class TestStreamBreaks:
         assert background_jobs.get_status("live_late")["status"] == "done"
         assert len(b.captures) == 1
 
+    def test_a_lookup_that_outlasts_the_reconnect_window_gives_up_at_its_end(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        monkeypatch.setattr(lt, "RECONNECT_GIVE_UP_SECONDS", 0.5)
+        release = threading.Event()
+        b.stream.add(2)
+        assert b.start("live_slowdns", Gate())
+        assert _wait(lambda: len(_result("live_slowdns")) == 1)
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: release.wait(30) and "http://stream2")
+        b.start.proc.error = "The stream stopped sending audio."
+        began = time.monotonic()
+        assert _ended("live_slowdns", PROMPT)
+        assert time.monotonic() - began < PROMPT
+        release.set()
+        assert background_jobs.get_status("live_slowdns")["status"] == "done"
+        assert any("could not be reconnected" in n for n in b.start.notes)
+        assert len(b.captures) == 1
+
+    def test_stop_during_the_reconnect_address_check_ends_at_once(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        checking, release = threading.Event(), threading.Event()
+
+        def check(url):
+            if url == "http://stream2":
+                checking.set()
+                release.wait(30)
+        b.resolve_outcomes[:] = ["http://stream", "http://stream2"]
+        b.stream.add(2)
+        assert b.start("live_slowcheck", Gate(), stream_url_check=check)
+        assert _wait(lambda: len(_result("live_slowcheck")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert checking.wait(8)
+        began = time.monotonic()
+        assert live_pipeline.request_finish("live_slowcheck")
+        assert _ended("live_slowcheck", PROMPT)
+        assert time.monotonic() - began < PROMPT
+        release.set()
+        assert background_jobs.get_status("live_slowcheck")["status"] == "done"
+        assert len(b.captures) == 1
+
     def test_a_finished_run_drops_its_generation(self, breaks, monkeypatch):
         b = breaks
         _whisper_by_chunk(monkeypatch, cues_per_chunk=1)

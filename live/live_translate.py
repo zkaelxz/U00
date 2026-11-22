@@ -62,11 +62,12 @@ Known limitations, stated plainly rather than glossed over:
   - Built and verified with a real ffmpeg segment-capture pipeline
     against a local looping source (proving the capture -> chunk-
     detection -> transcribe -> translate loop genuinely works end to
-    end), and since run on real live news broadcasts (YTN, TBS). A
+    end), and since run on real live news broadcasts. A
     reconnect after a real broadcast break is covered only by mocked
     tests.
 """
 
+import itertools
 import os
 import re
 import subprocess
@@ -591,15 +592,17 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
 # behind background_jobs' own lock -- a single int increment/read per
 # job_id needs no more ceremony than that, same reasoning as
 # background_jobs' own is_cancel_requested flag. A run removes its
-# entry when it ends: session ids are never reused, and 0 then never
-# matches a run's own generation, so anything that run left behind
-# still reads as superseded.
+# entry when it ends. Generations come from one process-wide counter, so
+# a value is never handed out twice: a Stop that lands just after the
+# run removed its entry adds a new one that still differs from the run's,
+# and anything that run left behind keeps reading as superseded.
 _generations = {}
+_next_generation = itertools.count(1)
 
 
 def bump_generation(job_id: str) -> int:
-    """Advances this live session's generation counter and returns the
-    new value. Call this from the Stop button's own handler (alongside
+    """Gives this live session a new generation, one never handed out
+    before, and returns it. Call this from the Stop button's own handler (alongside
     request_cancel) -- that's the one place a NEW generation can start
     while an OLDER one's chunk is still genuinely in flight (mid
     transcribe/translate call inside run_live_job's own thread, which
@@ -609,8 +612,13 @@ def bump_generation(job_id: str) -> int:
     so by the time a new run_live_job call can begin, the old one has
     already returned -- but bumping here too costs nothing and keeps the
     guard honest if that single-instance assumption ever changes."""
-    _generations[job_id] = _generations.get(job_id, 0) + 1
-    return _generations[job_id]
+    generation = next(_next_generation)
+    _generations[job_id] = generation
+    return generation
+
+
+def drop_generation(job_id: str) -> None:
+    _generations.pop(job_id, None)
 
 
 def current_generation(job_id: str) -> int:
@@ -900,15 +908,21 @@ class _LiveRun(ChunkCaptioner):
             self.outage = {"since": time.monotonic(), "attempt": 0}
         self._drain_broken(worker)
         self.outage["reason"] = reason
+        # A first Stop, the time limit or the reconnect budget must not wait
+        # out a lookup that can take several yt-dlp tries (or DNS timeouts)
+        # in an outage; the lookup thread is abandoned.
+        give_up_at = self.outage["since"] + RECONNECT_GIVE_UP_SECONDS
+
+        def interrupted():
+            return (self.should_stop() or control.finish.is_set() or self.time_up()
+                    or time.monotonic() >= give_up_at)
+        check = self.stream_url_check
         while True:
             self.outage["attempt"] += 1
             attempt = self.outage["attempt"]
             delay = RECONNECT_DELAYS[min(attempt, len(RECONNECT_DELAYS)) - 1]
             if time.monotonic() + delay - self.outage["since"] > RECONNECT_GIVE_UP_SECONDS:
-                self._end_outage()
-                self._ended(f"Stopped: the stream broke off and could not be reconnected "
-                            f"within {RECONNECT_GIVE_UP_SECONDS // 60} minutes.")
-                return "finish"
+                return self._give_up()
             self.stats.reconnect_attempt = attempt
             self.stats.send()
             if attempt == 1:
@@ -923,16 +937,13 @@ class _LiveRun(ChunkCaptioner):
             self.stage.outage(f"Stream broke off: {self.outage['reason']} Reconnecting now "
                               f"(try {attempt})...")
             try:
-                # A first Stop must not wait out a lookup that can take several
-                # yt-dlp tries in an outage; the lookup thread is abandoned.
                 url = _run_abortable(
                     lambda: resolve_stream_url(self.url, cookies_browser=self.cookies_browser,
                                                cookies_file=self.cookies_file, proxy=self.proxy,
                                                live_only=True),
-                    lambda: self.should_stop() or control.finish.is_set())
+                    interrupted)
             except background_jobs.JobCancelled:
-                self._end_outage()
-                return "cancel" if self.should_stop() else "finish"
+                return self._lookup_interrupted(control)
             except StreamEnded:
                 self._end_outage()
                 self._ended("Capture stopped: the stream is no longer live.")
@@ -943,9 +954,11 @@ class _LiveRun(ChunkCaptioner):
                 continue
             # A refused address ends the job as it does at Start; a lookup that
             # failed (DNS on a flaky network, when reconnects happen) is retried.
-            if self.stream_url_check is not None:
+            if check is not None:
                 try:
-                    self.stream_url_check(url)
+                    _run_abortable(lambda: check(url), interrupted)
+                except background_jobs.JobCancelled:
+                    return self._lookup_interrupted(control)
                 except DependencyUnavailableError as exc:
                     live_whisper.log_failure(f"reconnect try {attempt}: address check failed", exc)
                     self.outage["reason"] = RESOLVE_FAILED
@@ -976,6 +989,26 @@ class _LiveRun(ChunkCaptioner):
             self.stage.outage(f"Stream found again (try {attempt}): waiting for its first "
                               "chunk...")
             return "resumed"
+
+    def _give_up(self):
+        self._end_outage()
+        self._ended(f"Stopped: the stream broke off and could not be reconnected "
+                    f"within {RECONNECT_GIVE_UP_SECONDS // 60} minutes.")
+        return "finish"
+
+    def _lookup_interrupted(self, control):
+        """Why a reconnect lookup was abandoned, as _reconnect's outcome."""
+        if self.should_stop():
+            self._end_outage()
+            return "cancel"
+        if control.finish.is_set():
+            self._end_outage()
+            return "finish"
+        if self.time_up():
+            self._end_outage()
+            self._ended("Stopped: time limit reached.")
+            return "finish"
+        return self._give_up()
 
     def _start_player(self):
         self._set_player(live_player.start_if_possible(
@@ -1201,4 +1234,4 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                  report_note, whisper_clock, report_stats, term_hints, spend_guard,
                  delayed_player, report_player).run()
     finally:
-        _generations.pop(job_id, None)
+        drop_generation(job_id)

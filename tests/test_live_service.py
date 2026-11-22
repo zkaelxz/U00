@@ -183,8 +183,19 @@ def test_stop_on_a_finished_session_leaves_no_generation_behind(live, monkeypatc
     monkeypatch.setattr(live_translate, "run_live_job", lambda *a, **k: None)
     sid = _start()
     assert _terminal(sid)
-    live_translate._generations.pop(sid, None)
+    live_translate.drop_generation(sid)
     live_service.stop_session(sid)
+    assert sid not in live_translate._generations
+
+
+def test_stop_on_a_queued_session_leaves_no_generation_behind(live, monkeypatch):
+    monkeypatch.setattr(job_launch, "get_gpu_limit_enabled", lambda: True)
+    monkeypatch.setattr(job_launch, "_gpu_slot_available_locked", lambda *a: False)
+    monkeypatch.setattr(job_runner, "_gpu_slot_available_locked", lambda *a: False)
+    sid = _start(use_gpu=True)
+    assert background_jobs.get_status(sid)["status"] == "queued"
+    assert live_service.stop_session(sid)["finishing"] is False
+    assert background_jobs.get_status(sid)["status"] == "cancelled"
     assert sid not in live_translate._generations
 
 
