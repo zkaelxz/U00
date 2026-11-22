@@ -4,7 +4,7 @@ import { openSettingsGroups } from './settingsNav'
 test('settings toggles round-trip and keys are yes/no only', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Connections')
-  const box = page.getByRole('switch', { name: /Notify when a job finishes/ })
+  const box = page.getByRole('switch', { name: /Pop-up on this PC when a job finishes/ })
   await expect(box).toBeVisible()
   const before = await box.isChecked()
 

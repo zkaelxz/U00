@@ -36,7 +36,7 @@ const stats = {
 test('dashboard: API calls, cache-hit share, header stats line (L01)', async ({ page }) => {
   await page.route('**/api/library/stats', (r) => r.fulfill({ json: stats }))
   await page.goto('/')
-  await expect(page.getByTestId('stats')).toHaveText('5 titles · 2,875 of 4,210 lines · 1,335 left')
+  await expect(page.getByTestId('stats')).toHaveText('5 titles · 2,875 of 4,210 lines translated · 1,335 left')
   await page.getByText('$3.47 spent').click()
   await expect(page.getByTestId('stats-usage')).toHaveText('318 API calls · 30% cache hits')
   await expect(page.getByTestId('stats-breakdown')).toHaveCount(0)

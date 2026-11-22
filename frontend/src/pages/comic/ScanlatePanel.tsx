@@ -13,6 +13,7 @@ import { engineOptionLabel, engineShortName } from '../../api/translate'
 import { routeHref } from '../../router'
 import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { SettingsMentions } from '../../components/SettingLink'
 import { Field } from '../../components/Field'
 import { RedoControls, type RedoRequest } from './RedoControls'
 import { Section } from '../../components/Section'
@@ -283,11 +284,18 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
               multiple
               accept={accept}
               aria-label="Page images or PDFs"
+              className="visually-hidden"
+              tabIndex={-1}
               onChange={(e) => {
                 setUploadMsg(null)
                 setFiles(Array.from(e.target.files ?? []))
               }}
             />
+            {/* The browser's own picker button shows "Choose Files / No file chosen" in its language, unlike the rest of the app. */}
+            <button type="button" className={buttonClass('secondary')} disabled={uploading || running} onClick={() => fileInput.current?.click()}>
+              Choose pages
+            </button>
+            <span className="muted" aria-live="polite">{files.length ? `${files.length} ${files.length === 1 ? 'file' : 'files'} chosen` : 'No files chosen'}</span>
             <button
               type="button"
               className={buttonClass('secondary')}
@@ -342,7 +350,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
         </button>
         {blocked && (
           <span id="scanlate-blocked" className={need ? 'visually-hidden' : 'muted'}>
-            {blocked}
+            <SettingsMentions text={blocked} />
           </span>
         )}
       </div>

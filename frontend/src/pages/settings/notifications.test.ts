@@ -37,6 +37,13 @@ describe('notification text helpers', () => {
     )
   })
 
+  it('counts the PC pop-up in the summary', () => {
+    const none = { discord_configured: false, ntfy_configured: false, ntfy_allow_local: false, send_jobs: true, send_chapters: true, send_remote: true, show_private_titles: false, pc_name: '', pc_name_default: 'PC' }
+    expect(notificationSummary(none, true)).toBe('On: Pop-up on this PC')
+    expect(notificationSummary(null, true)).toBe('On: Pop-up on this PC')
+    expect(notificationSummary({ ...none, ntfy_configured: true }, true)).toBe('On: Pop-up on this PC, ntfy')
+  })
+
   it('maps errors to one plain line', () => {
     expect(notificationErrorMessage(new ApiError(403, { code: 'forbidden', message: 'Not allowed.' }))).toBe(
       keyWritesRefused(),

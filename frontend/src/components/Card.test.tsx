@@ -17,13 +17,13 @@ describe('Card', () => {
 
   it('folds inside a fold provider: the title and value show while closed, the body is inside the fold', () => {
     const html = renderToStaticMarkup(
-      <CardFoldContext.Provider value={fold({ summary: 'Notify when a job finishes: Off' })}>
+      <CardFoldContext.Provider value={fold({ summary: 'Pop-up on this PC: Off' })}>
         <Card title="Notifications" meta="No channel set" aria-label="Notifications">body</Card>
       </CardFoldContext.Provider>,
     )
     expect(html).toContain('<details class="section">')
     expect(html).not.toMatch(/<details[^>]* open/)
-    expect(html).toContain('Notify when a job finishes: Off')
+    expect(html).toContain('Pop-up on this PC: Off')
     expect(html).toContain('aria-label="Notifications"')
   })
 

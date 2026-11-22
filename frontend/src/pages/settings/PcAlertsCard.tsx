@@ -13,7 +13,6 @@ import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
-import { buttonClass } from '../../components/uiClasses'
 import type { ResourceAlertChange, ResourceAlertRule } from '../../types/resourceAlerts'
 import { type AlertDraft, changeOf, draftOf, hasProblem, limitProblem, minutesProblem, ruleSummary } from './pcAlerts'
 
@@ -46,25 +45,17 @@ export function PcAlertsCard() {
     }
   }, [])
 
-  const edit = (id: string, patch: Partial<AlertDraft>) => {
-    setNote('')
-    setDrafts((cur) => ({ ...cur, [id]: { ...cur[id], ...patch } }))
-  }
-
-  const changes: Record<string, ResourceAlertChange> = {}
-  let invalid = false
-  for (const r of rules ?? []) {
-    const d = drafts[r.id]
-    if (!d) continue
-    if (hasProblem(r, d)) invalid = true
-    else {
+  // Changes are saved as soon as a switch is flipped or a field is left, like the switches around this card.
+  // Rows with a bad value are skipped until fixed, so one typo never blocks the others.
+  const save = (nextDrafts: Record<string, AlertDraft>) => {
+    const changes: Record<string, ResourceAlertChange> = {}
+    for (const r of rules ?? []) {
+      const d = nextDrafts[r.id]
+      if (!d || hasProblem(r, d)) continue
       const c = changeOf(r, d)
       if (c) changes[r.id] = c
     }
-  }
-  const dirty = Object.keys(changes).length > 0
-
-  const save = () => {
+    if (Object.keys(changes).length === 0) return
     setSaving(true)
     setError(null)
     setResourceAlerts(changes).then(
@@ -78,6 +69,13 @@ export function PcAlertsCard() {
         setSaving(false)
       },
     )
+  }
+
+  const edit = (id: string, patch: Partial<AlertDraft>, saveNow: boolean) => {
+    setNote('')
+    const next = { ...drafts, [id]: { ...drafts[id], ...patch } }
+    setDrafts(next)
+    if (saveNow) save(next)
   }
 
   return (
@@ -98,48 +96,19 @@ export function PcAlertsCard() {
               return (
                 <div key={r.id} className="setting-list" role="group" aria-label={r.label}>
                   <Field label={r.label} help={ruleSummary(r)}>
-                    <Toggle checked={d.enabled} disabled={saving} onChange={(next) => edit(r.id, { enabled: next })} />
+                    <Toggle checked={d.enabled} disabled={saving} onChange={(next) => edit(r.id, { enabled: next }, true)} />
                   </Field>
-                  {r.has_limit && (
-                    <Field
-                      label={`${r.label}: ${r.below ? 'alert below' : 'alert at or above'} (${r.unit})`}
-                      error={limitProblem(r, d.limit)}
-                    >
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min={r.limit_min ?? undefined}
-                        max={r.limit_max ?? undefined}
-                        value={d.limit}
-                        disabled={saving}
-                        onChange={(e) => edit(r.id, { limit: e.target.value })}
-                      />
-                    </Field>
-                  )}
-                  <Field label={`${r.label}: after (minutes)`} error={minutesProblem(r, d.minutes)}>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={r.minutes_min}
-                      max={r.minutes_max}
-                      value={d.minutes}
-                      disabled={saving}
-                      onChange={(e) => edit(r.id, { minutes: e.target.value })}
+                  {d.enabled && (
+                    <AlertLimits
+                      rule={r}
+                      draft={d}
+                      onChange={(patch) => edit(r.id, patch, false)}
+                      onLeave={() => save(drafts)}
                     />
-                  </Field>
+                  )}
                 </div>
               )
             })}
-          </div>
-          <div className="settings-actions">
-            <button
-              type="button"
-              className={buttonClass('primary')}
-              disabled={saving || invalid || !dirty}
-              onClick={save}
-            >
-              {saving ? 'Saving…' : 'Save PC alerts'}
-            </button>
           </div>
           <p className="muted" role="status">
             {note}
@@ -150,5 +119,51 @@ export function PcAlertsCard() {
         </>
       )}
     </Card>
+  )
+}
+
+// "Alert at [85] % for [15] min" on one line; hidden while the rule is off.
+function AlertLimits({ rule: r, draft: d, onChange, onLeave }: {
+  rule: ResourceAlertRule
+  draft: AlertDraft
+  onChange: (patch: Partial<AlertDraft>) => void
+  onLeave: () => void
+}) {
+  const limitError = limitProblem(r, d.limit)
+  const minutesError = minutesProblem(r, d.minutes)
+  return (
+    <div className="alert-limits">
+      {r.has_limit && (
+        <>
+          <span>Alert {r.below ? 'below' : 'at'}</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            aria-label={`${r.label}: alert ${r.below ? 'below' : 'at or above'} (${r.unit})`}
+            aria-invalid={limitError != null}
+            min={r.limit_min ?? undefined}
+            max={r.limit_max ?? undefined}
+            value={d.limit}
+            onChange={(e) => onChange({ limit: e.target.value })}
+            onBlur={onLeave}
+          />
+          <span>{r.unit} for</span>
+        </>
+      )}
+      {!r.has_limit && <span>Alert after</span>}
+      <input
+        type="number"
+        inputMode="numeric"
+        aria-label={`${r.label}: after (minutes)`}
+        aria-invalid={minutesError != null}
+        min={r.minutes_min}
+        max={r.minutes_max}
+        value={d.minutes}
+        onChange={(e) => onChange({ minutes: e.target.value })}
+        onBlur={onLeave}
+      />
+      <span>min</span>
+      {(limitError ?? minutesError) && <span className="field-error" role="alert">{limitError ?? minutesError}</span>}
+    </div>
   )
 }

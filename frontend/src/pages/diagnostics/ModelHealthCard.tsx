@@ -5,13 +5,14 @@ import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
+import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { routeHref } from '../../router'
 import { buttonClass } from '../../components/uiClasses'
 import type { PcMode } from '../../hooks/usePcOnly'
 import { useDeveloperMode } from '../assistant/developerMode'
 import {
-  canChooseModel, compareHref, engineCheckLines, healthBadge, kindHelp, lastCheckedLine, modelHealthError, modelStatusLoadError, modelStatusLabel,
+  canChooseModel, CHECK_FIRST_HINT, compareHref, engineCheckLines, healthBadge, kindHelp, lastCheckedLine, modelHealthError, modelStatusLoadError, modelStatusLabel,
   modelStatusTone, noCandidatesLine, offerModelsNote, OFFER_MODELS_HELP, OFFER_MODELS_LABEL, overrideLine, splitModelItems, whereLabel,
 } from './modelHealth'
 
@@ -180,23 +181,15 @@ export function ModelHealthCard({ pc, onProblems, openSignal }: {
           </p>
 
           {canAct && (
-            <div className="model-offer">
-              <label htmlFor="offer-provider-models">
-                <strong>{OFFER_MODELS_LABEL}</strong>
-              </label>{' '}
-              <Toggle
-                id="offer-provider-models"
-                checked={!!status.offer_provider_models}
-                disabled={busy !== null}
-                onChange={toggleOffer}
-                aria-describedby="offer-provider-models-help"
-              />
-              <p className="muted" id="offer-provider-models-help">
-                {OFFER_MODELS_HELP}
-              </p>
+            <div className="model-offer setting-list">
+              <Field label={OFFER_MODELS_LABEL} help={OFFER_MODELS_HELP}>
+                <Toggle checked={!!status.offer_provider_models} disabled={busy !== null} onChange={toggleOffer} />
+              </Field>
               {offerModelsNote(status) && <p data-testid="model-offer-note">{offerModelsNote(status)}</p>}
             </div>
           )}
+
+          {canAct && !status.checked_at && [...attention, ...others].some(canChooseModel) && <p className="muted">{CHECK_FIRST_HINT}</p>}
 
           {checks.length > 0 && (
             <ul className="model-checks" aria-label="Last provider check">

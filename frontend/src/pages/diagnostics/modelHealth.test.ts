@@ -184,7 +184,7 @@ describe('choosing another model for a default or tier', () => {
   })
 
   it('asks for a check first when nothing was listed yet', () => {
-    expect(noCandidatesLine(item({ candidates: [] }), null)).toMatch(/Check providers now/)
+    expect(noCandidatesLine(item({ candidates: [] }), null)).toBeNull()
     expect(noCandidatesLine(item({ candidates: [] }), '2026-10-01T00:00:00')).toBe('The last check listed no other model to choose.')
     expect(noCandidatesLine(item({ candidates: ['a'] }), null)).toBeNull()
   })

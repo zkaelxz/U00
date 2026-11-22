@@ -9,7 +9,8 @@
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
-import { setThemePref, THEME_OPTIONS, themeLabel, useThemePref, type ThemePref } from '../theme'
+import { useMediaQuery } from '../hooks/useMediaQuery'
+import { resolveTheme, setThemePref, THEME_OPTIONS, themeLabel, useThemePref, type ThemePref } from '../theme'
 import './themeMenu.css'
 
 const svg = (children: ReactNode) => (
@@ -59,6 +60,9 @@ export function ThemeMenuItems({ id, theme, itemRefs, onKeyDown, onPick }: {
 
 export function ThemeMenu() {
   const theme = useThemePref()
+  const systemDark = useMediaQuery('(prefers-color-scheme: dark)')
+  // The button shows the look in use (sun or moon), not the monitor that stands for "Match this device"; the menu rows keep their own icons.
+  const look = resolveTheme(theme, systemDark)
   const [open, setOpen] = useState(false)
   const wrap = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
@@ -122,7 +126,7 @@ export function ThemeMenu() {
           } else if (e.key === 'Escape' && open) close(false)
         }}
       >
-        <span className="hb-icon">{ICONS[theme]}</span>
+        <span className="hb-icon">{look === 'dark' || look === 'oled' ? ICONS.dark : ICONS.light}</span>
       </button>
       {open && (
         <ThemeMenuItems

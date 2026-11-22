@@ -17,9 +17,9 @@ import html
 
 THEMES = {
     "light": {"bg": "#fafafa", "fg": "#1a1a1a", "sub": "#444", "border": "#e5e5e5",
-              "hover": "#ffe9a8", "active": "#ffd35c", "rt": "#888"},
+              "hover": "#ffe9a8", "active": "#ffd35c", "rt": "#595959"},
     "sepia": {"bg": "#f4ecd8", "fg": "#3a3226", "sub": "#5b5040", "border": "#ddd0b4",
-              "hover": "#e8d9a8", "active": "#dcc37a", "rt": "#8a7a5c"},
+              "hover": "#e8d9a8", "active": "#dcc37a", "rt": "#5b5040"},
     "dark":  {"bg": "#1c1c1e", "fg": "#e8e8ea", "sub": "#b0b0b6", "border": "#3a3a3e",
               "hover": "#4a4320", "active": "#6b5d20", "rt": "#9a9aa0"},
 }

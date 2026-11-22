@@ -18978,6 +18978,12 @@ export interface components {
             custom_tags: string[];
             /** Director */
             director: string | null;
+            /**
+             * Has Cover Art
+             * @description An uploaded cover exists. Only set in the Library list.
+             * @default false
+             */
+            has_cover_art: boolean;
             /** Id */
             id: number;
             /**

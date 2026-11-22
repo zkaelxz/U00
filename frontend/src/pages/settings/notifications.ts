@@ -80,8 +80,12 @@ export function isConfigured(status: NotificationStatus, channel: NotificationCh
   return channel === 'discord' ? status.discord_configured : status.ntfy_configured
 }
 
-export function notificationSummary(status: NotificationStatus): string {
-  const on = CHANNELS.filter((c) => isConfigured(status, c.channel)).map((c) => c.label)
+// The folded card and the open card show this same line, so it counts the PC pop-up as well as the channels.
+export function notificationSummary(status: NotificationStatus | null, popupOn = false): string {
+  const on = [
+    ...(popupOn ? ['Pop-up on this PC'] : []),
+    ...(status ? CHANNELS.filter((c) => isConfigured(status, c.channel)).map((c) => c.label) : []),
+  ]
   return on.length ? `On: ${on.join(', ')}` : 'Off'
 }
 

@@ -9,6 +9,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { helpOpenAfterClick } from './fieldIds'
+import { SettingsMentions } from './SettingLink'
 
 type HelpTipProps = {
   label: string
@@ -108,7 +109,7 @@ export function HelpTip({ label, id, children, className }: HelpTipProps) {
         i
       </button>
       <span id={id} ref={tipRef} role="tooltip" className="field-help-text" hidden={!open} onMouseDown={(e) => e.preventDefault()}>
-        {children}
+        {typeof children === 'string' ? <SettingsMentions text={children} /> : children}
       </span>
     </span>
   )
