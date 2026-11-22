@@ -141,18 +141,22 @@ def _bge_m3_ready() -> bool:
 
 
 def _fetch_bge_m3(report, cancelled) -> None:
-    # A non-streamed pull gives no progress and cannot be cancelled: the request ends when the
-    # model is in (about 1.2 GB), and the message says so rather than offering a dead Cancel.
     from engine_backends import alignment_check, ollama_server
     from services import settings_service
     url = settings_service.ollama_url()
     if not ollama_server.check_ollama_reachable(url):
         raise ModelDownloadFailed("Ollama isn't running. Start it, then try again.")
-    report(0.0, "Downloading bge-m3 through Ollama (about 1.2 GB; this cannot be cancelled)…")
+    report(0.0, "Downloading bge-m3 through Ollama (about 1.2 GB)…")
+
+    def progress(done, total):
+        report(done / total, f"Downloading bge-m3 through Ollama… {done / 1e6:.0f} of {total / 1e6:.0f} MB")
+
     try:
-        ollama_server.pull_model(url, alignment_check.EMBED_MODEL)
+        finished = ollama_server.pull_model(url, alignment_check.EMBED_MODEL, progress, cancelled)
     except ValueError as exc:
         raise ModelDownloadFailed(f"Ollama could not pull bge-m3: {exc}") from exc
+    if not finished:
+        raise background_jobs.JobCancelled()
 
 
 def _fetch_hub(repos, report, cancelled, allow_patterns=None) -> None:
