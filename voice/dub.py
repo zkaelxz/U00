@@ -190,9 +190,39 @@ def clone_map_from_characters(characters, drama_dir: str,
     A character whose engine was removed or is unknown gets no entry (see
     engine_blockers, which the caller checks before generating).
     speaker_labels: every speaker in the lines (None for lines with no
-    speaker). One with no entry yet gets a distinct designed voice when
-    default_engine is OmniVoice. A character's elevenlabs_voice_id (hosted
+    speaker). One with no entry yet gets a designed voice when default_engine
+    is OmniVoice (default_voice_designs). A character's elevenlabs_voice_id (hosted
     cloning, since removed) is ignored."""
+    out = _own_voices(characters, drama_dir, default_engine)
+    if default_engine == "omnivoice":
+        for label, design in _picked_designs(characters, out, speaker_labels).items():
+            out[label] = {"engine": "omnivoice", "instruct": design}
+    return out
+
+
+def default_voice_designs(characters, speaker_labels) -> dict:
+    """{speaker_label: description} for each speaker an OmniVoice run would give a default
+    voice: the one remembered on its linked series character (a row's series_voice_design,
+    from db.list_characters_with_series_names), else a description no other speaker of the
+    title uses. The caller saves them on the characters, so a speaker keeps its voice when
+    later chapters bring new speakers instead of every voice moving along the list."""
+    return _picked_designs(characters, _own_voices(characters, "", "omnivoice"), speaker_labels)
+
+
+def _picked_designs(characters, own: dict, speaker_labels) -> dict:
+    remembered = {c["speaker_label"]: (c.get("series_voice_design") or "").strip() for c in characters}
+    bare = sorted((s for s in set(speaker_labels) if s not in own), key=lambda s: s or "")
+    # Checked, as a restored backup can bring any text; a refused one would silence the speaker.
+    picks = {s: remembered[s] for s in bare
+             if remembered.get(s) and voice_description_problem(remembered[s]) is None}
+    taken = {e["instruct"] for e in own.values() if e.get("instruct")} | set(picks.values())
+    pool = [d for d in DEFAULT_VOICE_DESCRIPTIONS if d not in taken] or DEFAULT_VOICE_DESCRIPTIONS
+    for i, label in enumerate(s for s in bare if s not in picks):
+        picks[label] = pool[i % len(pool)]
+    return picks
+
+
+def _own_voices(characters, drama_dir: str, default_engine: str) -> dict:
     out = {}
     for c in characters:
         label = c["speaker_label"]
@@ -204,13 +234,6 @@ def clone_map_from_characters(characters, drama_dir: str,
                           "ref_text": c.get("ref_text") or ""}
         elif (c.get("voice_design") or "").strip():
             out[label] = {"engine": "omnivoice", "instruct": c["voice_design"].strip()}
-
-    if default_engine == "omnivoice":
-        bare = sorted((s for s in set(speaker_labels) if s not in out), key=lambda s: s or "")
-        taken = {e["instruct"] for e in out.values() if e.get("instruct")}
-        pool = [d for d in DEFAULT_VOICE_DESCRIPTIONS if d not in taken] or DEFAULT_VOICE_DESCRIPTIONS
-        for i, label in enumerate(bare):
-            out[label] = {"engine": "omnivoice", "instruct": pool[i % len(pool)]}
     return out
 
 
@@ -287,13 +310,42 @@ def clip_signature(text: str, voice: dict) -> str:
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:10]
 
 
+_DIGESTS: dict = {}
+
+
+def _file_digest(path: str):
+    """SHA-1 of the file's bytes; None when it can't be read (the engine then refuses the
+    line itself). Cached by size and modification time, as every unit of a speaker asks."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (path, st.st_size, st.st_mtime_ns)
+    if key not in _DIGESTS:
+        digest = hashlib.sha1()
+        try:
+            with open(path, "rb") as f:
+                for block in iter(lambda: f.read(1 << 20), b""):
+                    digest.update(block)
+        except OSError:
+            return None
+        _DIGESTS[key] = digest.hexdigest()
+    return _DIGESTS[key]
+
+
 def _voice_for_signature(clone, lang=None) -> dict:
     """lang: the narration language mode ("zh"/"ja"/"ko" for
     original-language narration, omitted/None for ordinary translation-mode
     narration or dubbing) -- folded into the signature explicitly so
     switching a drama's narration language always regenerates its clips,
-    rather than relying on the spoken text alone happening to differ."""
+    rather than relying on the spoken text alone happening to differ.
+
+    The reference clip counts by its content, not its path: "Replace clip" in the
+    voice bank writes the new clip under the same file name, and a restored title
+    has the same clip under a new folder."""
     out = dict(clone)
+    if out.get("ref_audio"):
+        out["ref_audio"] = _file_digest(out["ref_audio"])
     if lang:
         out["narration_lang"] = lang
     return out

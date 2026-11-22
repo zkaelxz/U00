@@ -3,11 +3,12 @@ import { useEffect, useState } from 'react'
 import { listenApi, listenTestVoiceUrl } from '../../api/listen'
 import { getCharacters } from '../../api/translateStage'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { withoutExceptionNames } from '../../components/errorMessages'
 import { Section } from '../../components/Section'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { useReattachJob } from '../../hooks/useReattachJob'
 import { useSession } from '../../hooks/useSession'
-import { chooseEngine, listenBlocker, skippedLines, type ListenConfig } from '../../types/listen'
+import { chooseEngine, listenBlocker, skippedCount, skippedLines, type ListenConfig } from '../../types/listen'
 import type { CharacterEntry } from '../../types/translateStage'
 import { jobFailed, jobSucceeded } from '../../types/jobs'
 import { holds } from '../diagnostics/adminUsers'
@@ -155,10 +156,14 @@ function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfi
   // This run just made the track: the player in Watch / listen takes over.
   if (!busy && done && jobSucceeded(job)) {
     const skipped = skippedLines(job)
-    if (skipped.length > 0) {
+    const count = skippedCount(job)
+    if (count > 0) {
       return (
         <div className="muted" role="status">
-          <p>The narration is in the player below, but {skipped.length === 1 ? '1 line was' : `${skipped.length} lines were`} left silent:</p>
+          <p>
+            The narration is in the player below, but {count === 1 ? '1 line was' : `${count} lines were`} left silent
+            {count > skipped.length ? ` (the first ${skipped.length} are listed)` : ''}:
+          </p>
           <ul>{skipped.map((s) => <li key={s}>{s}</li>)}</ul>
         </div>
       )
@@ -168,7 +173,7 @@ function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfi
   const engine = chooseEngine(cfg.tts_engines, cfg.default_engine, pickedEngine)
   const narrationLanguage = cfg.narration_language_options.includes(pickedLanguage) ? pickedLanguage : cfg.narration_language
   const blocker = listenBlocker(cfg, engine)
-  const failedText = done && job && jobFailed(job) ? (job.error || job.message) : null
+  const failedText = done && job && jobFailed(job) ? withoutExceptionNames(job.error || job.message || '') : null
   const start = () =>
     listenApi.run(dramaId, { tts_engine: engine, narration_language: narrationLanguage }).then((r) => {
       setError(null)

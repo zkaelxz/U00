@@ -448,6 +448,68 @@ BOOK = ("第1章 开始\n\n他说：你好。\n\n夜很深了。\n\n"
         "第3章 结束\n\n天亮了。\n\n他走了。\n")
 
 
+class TestBusyTitle:
+    """Chunk and tag and Add chapters wait for a translation or narration running on the title
+    instead of cancelling it (hours of narration, or a paid translation, were thrown away)."""
+
+    @pytest.fixture
+    def running(self):
+        added = []
+
+        def run(job_id, status="running"):
+            job_table._jobs[job_id] = {"status": status, "progress": 0.0, "message": "", "error": None,
+                                       "cancel_requested": False, "result": None}
+            added.append(job_id)
+        yield run
+        for job_id in added:
+            job_table._jobs.pop(job_id, None)
+
+    @pytest.mark.parametrize("prefix,what", [("translate_", "translation"), ("dub_", "narration")])
+    @pytest.mark.parametrize("status", ["running", "queued"])
+    def test_start_refuses_and_leaves_the_running_job_alone(self, isolated_db, key, monkeypatch, running,
+                                                            prefix, what, status):
+        did = _drama(isolated_db)
+        running(f"{prefix}{did}", status)
+        started = []
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: started.append(a) or True)
+        with pytest.raises(ConflictError) as caught:
+            narration_service.start_narration_run(did)
+        assert str(caught.value) == f"Wait for the running {what} to finish, or stop it first."
+        assert started == [] and not job_table._jobs[f"{prefix}{did}"]["cancel_requested"]
+
+    def test_another_titles_translation_does_not_count(self, isolated_db, key, monkeypatch, running):
+        did, other = _drama(isolated_db), _drama(isolated_db)
+        running(f"translate_{other}")
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: True)
+        assert narration_service.start_narration_run(did) == {"job_id": f"narration_{did}"}
+
+    def test_a_translation_started_while_tagging_stops_the_save_not_the_translation(
+            self, isolated_db, monkeypatch, running):
+        from engine_backends import llm_tasks, engine_registry
+        did = _drama(isolated_db, novel=BOOK)
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _Engine())
+
+        def tag(chunks, engine, known, **k):
+            running(f"translate_{did}")
+            return {i: "Ann" for i in chunks}
+        monkeypatch.setattr(llm_tasks, "tag_speakers_by_id", tag)
+        with pytest.raises(ConflictError, match="Wait for the running translation"):
+            narration_service._run_narration_job(f"narration_{did}", did, BOOK, "claude", "k", None,
+                                                 chapters=(2, 2))
+        assert isolated_db.load_line_objects(did) == []
+        assert not job_table._jobs[f"translate_{did}"]["cancel_requested"]
+
+    def test_added_chapters_wait_too(self, isolated_db, running):
+        from core import Line
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="旧", en="old")])
+        running(f"dub_{did}")
+        with pytest.raises(ConflictError, match="Wait for the running narration"):
+            narration_service._append_lines(f"narration_{did}", did, [Line(idx=0, start=0, end=1, zh="新")])
+        assert [ln.zh for ln in isolated_db.load_line_objects(did)] == ["旧"]
+        assert not job_table._jobs[f"dub_{did}"]["cancel_requested"]
+
+
 class TestChapterSelection:
     def _tagger(self, monkeypatch):
         from engine_backends import llm_tasks, engine_registry

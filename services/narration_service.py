@@ -103,7 +103,8 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
                         chapter_to: Optional[int] = None, one_narrator: bool = False) -> dict:
     """Starts the chunk-and-tag job; returns {"job_id"}. NotFoundError for
     an unknown drama, InvalidInputError for no novel text or an engine that
-    cannot tag speakers, ConflictError if a run is already active.
+    cannot tag speakers, ConflictError if a run is already active or a
+    translation or narration is running on the title (checked again before the save).
     With no key for the engine the job still cuts the text and marks every
     chunk "Narrator" (chunking needs no AI), so a pasted novel opens
     without any account. one_narrator asks for that on purpose (one voice reads the
@@ -141,6 +142,7 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
         text = _pending_tail(drama_id, text)
     if selection:
         _check_selection_can_run(drama_id, text, selection)
+    _refuse_while_lines_are_used(drama_id)
     api_key = None if one_narrator else _api_key(engine_name)
 
     job_id = f"narration_{drama_id}"
@@ -152,6 +154,19 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     if not started:
         raise ConflictError("A narration chunk & tag run is already active for this title.")
     return {"job_id": job_id}
+
+
+# Job id prefix -> what to call it. Saving new lines would stop these (cancel_line_jobs), and
+# hours of narration or a paid translation are not thrown away for a chunk and tag.
+_BUSY_LINE_JOBS = (("translate_", "translation"), ("dub_", "narration"))
+
+
+def _refuse_while_lines_are_used(drama_id: int) -> None:
+    """ConflictError while a translation or narration is running or queued on the title."""
+    for prefix, what in _BUSY_LINE_JOBS:
+        job = background_jobs.get_status(f"{prefix}{drama_id}")
+        if job and job["status"] in ("running", "queued"):
+            raise ConflictError(f"Wait for the running {what} to finish, or stop it first.")
 
 
 def _selection(chapter_from, chapter_to, text: str) -> Optional[tuple]:
@@ -398,6 +413,7 @@ def _append_lines(job_id, drama_id, lines, notice=None):
     made in Review survive. Refuses (ConflictError) if the lines changed while the job ran."""
     job_timing.mark_stage(job_id, "Save")
     background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
+    _refuse_while_lines_are_used(drama_id)
     background_jobs.cancel_line_jobs(drama_id)
     existing = db.load_line_objects(drama_id)
     first = max((ln.idx for ln in existing), default=-1) + 1
@@ -428,6 +444,7 @@ def _save_chapters(job_id, drama_id, lines, chapters, whole_text, notice=None):
     lines keeps each line's English and review state, and the lines are renumbered in order."""
     job_timing.mark_stage(job_id, "Save")
     background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
+    _refuse_while_lines_are_used(drama_id)
     background_jobs.cancel_line_jobs(drama_id)
     existing = db.load_line_objects(drama_id)
     chunks_by_chapter = _chapter_chunks(whole_text)
@@ -460,6 +477,7 @@ def _save_chapters(job_id, drama_id, lines, chapters, whole_text, notice=None):
 def _save_lines(job_id, drama_id, lines, notice=None):
     job_timing.mark_stage(job_id, "Save")
     background_jobs.update_progress(job_id, 0.9, notice or "Saving lines...")
+    _refuse_while_lines_are_used(drama_id)
     for label in sorted({ln.speaker or "Narrator" for ln in lines}):
         db.upsert_character(drama_id, label, character_name=label)
     background_jobs.cancel_line_jobs(drama_id)
