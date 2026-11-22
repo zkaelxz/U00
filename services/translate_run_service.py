@@ -269,6 +269,22 @@ def _estimate_run_calls(drama_id, drama, stand_in, targets, zh_lines, batch_size
     return total
 
 
+def _alignment_check_estimate(engine_name: str, model, targets) -> Optional[float]:
+    """Dollars the source-match judge is expected to spend after a Workspace run of these
+    lines, or None when it would not run: the setting is off, the engine cannot judge (the
+    same test as alignment_judge.judge_for, read from the engine class), or bge-m3 is not
+    on the Ollama server, without which the check stops before the judge."""
+    from engine_backends import alignment_check, alignment_judge
+    if (not settings_service.get("translate_alignment_check")
+            or not getattr(engine_registry.ENGINES.get(engine_name), "supports_reference", False)
+            or not settings_service.source_match_model_present()):
+        return None
+    checked = sum(1 for ln in targets
+                  if len((ln.get("zh") or "").strip()) >= alignment_check.MIN_SOURCE_CHARS)
+    stand_in = SimpleNamespace(name=engine_name, model=model, free_tier=False)
+    return float(pricing.estimate_cost_for_engine(stand_in, *alignment_judge.estimate_tokens(checked)))
+
+
 def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model: str | None = None,
                             reflect: bool = False, force_retranslate: bool = False,
                             bulk: bool = False, gemini_free_tier: bool | None = None,
@@ -322,6 +338,8 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
             whole_title=line_ids is None, bulk=bulk)
         if bulk and not reflect and cap_applies:
             estimated *= bulk_translate.BATCH_PRICE_FACTOR
+    alignment_usd = (_alignment_check_estimate(engine_name, resolved_model, targets)
+                     if targets and not bulk and not free else None)
 
     monthly_cap = month_cap_usd() if cap_applies else 0.0
     spend = db.get_month_spend() if monthly_cap else 0.0
@@ -336,6 +354,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
         "engine": engine_name,
         "model": resolved_model,
         "estimated_usd": estimated,
+        "alignment_check_usd": alignment_usd,
         "target_line_count": len(targets),
         "free": free,
         "cap_applies": cap_applies,

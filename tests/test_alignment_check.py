@@ -254,3 +254,10 @@ def test_embedding_stops_between_requests_when_the_run_is_stopped(monkeypatch):
     monkeypatch.setattr(alignment_check, "_post_embed", lambda *a: calls.append(1) or (200, [[1.0]] * 32))
     assert alignment_check.embed("http://o:1", ["x"] * 64, should_stop=lambda: len(calls) >= 1) is None
     assert len(calls) == 1
+
+
+def test_embedding_reports_progress_before_each_request(monkeypatch):
+    seen = []
+    monkeypatch.setattr(alignment_check, "_post_embed", lambda *a: (200, [[1.0]] * len(a[2])))
+    alignment_check.embed("http://o:1", ["x"] * 40, on_progress=lambda done, total: seen.append((done, total)))
+    assert seen == [(0, 40), (32, 40)]

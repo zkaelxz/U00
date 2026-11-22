@@ -32187,6 +32187,8 @@ export interface components {
          * @description Advisory pre-run cost estimate.
          */
         TranslateRunEstimate: {
+            /** Alignment Check Usd */
+            alignment_check_usd: number | null;
             /** Cap Applies */
             cap_applies: boolean;
             /** Effective Cap Usd */

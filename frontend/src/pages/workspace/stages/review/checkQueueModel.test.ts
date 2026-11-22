@@ -114,8 +114,8 @@ const REASONS: [string, string, string, string, string, string][] = [
   ['glossary_missing', 'Glossary: 夷陵老祖 -> Yiling Patriarch missing', // glossary_check.flag_note
     'The glossary writes 夷陵老祖 as “Yiling Patriarch”, but the English doesn’t use that name. Put it in the English, or change the glossary if the name is wrong.',
     'Glossary name not used: 夷陵老祖', 'The English does not use the glossary name for 夷陵老祖', 'glossary name not used'],
-  ['source_mismatch', 'Source match: the English reads unlike its source line (similarity 0.42)', // alignment_check.flag_note
-    'The English reads unlike its source line. It may belong to the line before or after, leave something out, or answer a different line. Compare it with the lines around it.',
+  ['source_mismatch', 'Source match: a check found this English does not say what its source line says', // alignment_check.JUDGED_NOTES
+    'The engine check says this English doesn’t match its line. Read both and fix the English.',
     'May not match the source', 'May not match the source', 'may not match the source'],
   ['source_suspect', '“哈” repeats 4+ times in a row; ends mid-phrase; the next line is only “吗”', // source_suspect.py
     'The source text looks off: “哈” repeats 4 or more times in a row and it stops mid-sentence, and the next line is only “吗”. The transcription may be wrong or split badly, which can make the English odd. Play it and fix the source text, or transcribe the line again.',
@@ -160,6 +160,24 @@ describe('queue reasons', () => {
   }
 
   const say = (flag: string, flag_note: string) => queueReason({ flag, flag_note, confidence: null })
+
+  it('says each source match note in plain words, with its scores only under Details', () => {
+    const own = say('source_mismatch', 'Source match: the English reads unlike its source line (similarity 0.42)')
+    expect(own?.text).toBe('This English reads unlike its source line. Compare it with the lines around it.')
+    expect(own?.details).toBe('Similarity to its own source line: 0.42.')
+    const next = say('source_mismatch', "Source match: the English fits the next line's source better (0.71) than its own (0.63)")
+    expect(next?.text).toBe('This English may belong to the next line. Compare the two and move it if so.')
+    expect(next?.short).toBe('May belong to the next line')
+    expect(next?.details).toBe('Similarity to the next line’s source: 0.71; to its own source: 0.63.')
+    expect(say('source_mismatch', "Source match: the English fits the previous line's source better (0.70) than its own (0.60)")?.text)
+      .toBe('This English may belong to the previous line. Compare the two and move it if so.')
+    const judged = say('source_mismatch', 'Source match: a check found this English translates a neighbouring line, not its own')
+    expect(judged?.text).toBe('The engine check says this English translates a neighbouring line. Compare it with the lines around it.')
+    expect(judged?.details).toBeUndefined()
+    for (const r of [own, next, judged]) {
+      expect(r?.text).not.toMatch(/\d|Source match:|reads unlike its source line\. It may belong/)
+    }
+  })
 
   it('reads the other shapes a note can take', () => {
     expect(say('glossary_missing', 'Glossary: 夷陵老祖 -> Yiling Patriarch; 魏婴 -> Wei Ying; 蓝湛 -> Lan Zhan missing (+2 more)')).toEqual({

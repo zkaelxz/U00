@@ -467,3 +467,37 @@ def test_estimate_counts_the_pre_read_and_a_paid_summary(isolated_db, cap, monke
     patch_setting(monkeypatch, "episode_summary_engine", "claude")
     with_summary = svc.estimate_translate_cost(did, "claude")["estimated_usd"]
     assert with_summary > with_brief
+
+
+def test_estimate_prices_the_source_match_judge_apart_when_it_would_run(isolated_db, cap, monkeypatch):
+    from engine_backends import alignment_judge, pricing
+    cap(0)
+    did = _drama()
+    # 427 lines, the size of the owner's measured range; the one-character line is never checked.
+    _seed(did, [("你好世界你好", "")] * 427 + [("嗯", "")])
+    patch_setting(monkeypatch, "translate_alignment_check", True)
+    monkeypatch.setattr(settings_service, "source_match_model_present", lambda: True)
+    plain = svc.estimate_translate_cost(did, "claude", model="claude-sonnet-5-5")
+    assert plain["alignment_check_usd"] == pytest.approx(pricing.estimate_cost(
+        "claude-sonnet-5-5", *alignment_judge.estimate_tokens(427)))
+    assert plain["alignment_check_usd"] == pytest.approx(0.03, rel=0.1)
+    deepseek = svc.estimate_translate_cost(did, "deepseek")["alignment_check_usd"]
+    assert 0 < deepseek < plain["alignment_check_usd"]
+    # The translation's own figure leaves it out, so the run's cap check is unchanged.
+    patch_setting(monkeypatch, "translate_alignment_check", False)
+    off = svc.estimate_translate_cost(did, "claude", model="claude-sonnet-5-5")
+    assert off["alignment_check_usd"] is None
+    assert off["estimated_usd"] == pytest.approx(plain["estimated_usd"])
+
+
+def test_estimate_leaves_the_judge_out_when_it_would_not_run(isolated_db, cap, monkeypatch):
+    cap(0)
+    did = _drama()
+    _seed(did, [("你好世界你好", "")] * 20)
+    patch_setting(monkeypatch, "translate_alignment_check", True)
+    present = {"yes": True}
+    monkeypatch.setattr(settings_service, "source_match_model_present", lambda: present["yes"])
+    assert svc.estimate_translate_cost(did, "claude", bulk=True)["alignment_check_usd"] is None
+    assert svc.estimate_translate_cost(did, "ollama")["alignment_check_usd"] is None  # free on this PC
+    present["yes"] = False  # without bge-m3 the check stops before the judge
+    assert svc.estimate_translate_cost(did, "claude")["alignment_check_usd"] is None

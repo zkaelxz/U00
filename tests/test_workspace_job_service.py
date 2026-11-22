@@ -407,25 +407,52 @@ def test_bulk_title_cancelled_on_its_own_is_not_counted_translated(isolated_db):
 
 def test_the_alignment_judge_stops_once_the_monthly_cap_is_reached(monkeypatch):
     asked = {}
-    monkeypatch.setattr(wjs.settings_service, "alignment_embedder", lambda should_stop=None: (lambda texts: None))
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder",
+                        lambda should_stop=None, on_progress=None: (lambda texts: None))
     monkeypatch.setattr(wjs.alignment_judge, "judge_for",
                         lambda engine, usage_cb=None, should_stop=None, **kw: asked.setdefault("stop", should_stop))
     monkeypatch.setattr(wjs, "_usage_logger", lambda *a: None)
     month_cap = {"hit": False}
     monkeypatch.setattr(wjs, "_month_cap_check", lambda choice, engine: lambda: month_cap["hit"])
     monkeypatch.setattr(wjs.background_jobs, "is_cancel_requested", lambda job_id: False)
-    wjs._alignment_args(1, object(), "claude", "job1", {})
+    check = {}
+    wjs._alignment_args(1, object(), "claude", "job1", {}, check)
     assert asked["stop"]() is False
     month_cap["hit"] = True
     assert asked["stop"]() is True
+    assert "cancelled" not in check  # a cap stop is not the user's cancel
+
+
+def test_the_source_match_check_reports_its_progress_and_notes_a_cancel(monkeypatch):
+    got, messages = {}, []
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder",
+                        lambda should_stop=None, on_progress=None:
+                        got.update(embed_stop=should_stop, embed_progress=on_progress) or (lambda texts: None))
+    monkeypatch.setattr(wjs.alignment_judge, "judge_for",
+                        lambda engine, usage_cb=None, should_stop=None, on_progress=None, **kw:
+                        got.update(judge_progress=on_progress))
+    monkeypatch.setattr(wjs, "_usage_logger", lambda *a: None)
+    monkeypatch.setattr(wjs, "_month_cap_check", lambda choice, engine: None)
+    monkeypatch.setattr(wjs.background_jobs, "update_progress", lambda job_id, frac, msg: messages.append(msg))
+    cancel = {"on": False}
+    monkeypatch.setattr(wjs.background_jobs, "is_cancel_requested", lambda job_id: cancel["on"])
+    check = {}
+    wjs._alignment_args(1, object(), "claude", "job1", {}, check)
+    got["embed_progress"](32, 80)  # 40 lines: their sources, then their English
+    got["judge_progress"](15, 21)
+    assert messages == ["Checking source match: 16 of 40 lines",
+                        "Checking source match: 15 of 21 lines (engine check)"]
+    assert got["embed_stop"]() is False and "cancelled" not in check
+    cancel["on"] = True
+    assert got["embed_stop"]() is True and check["cancelled"] is True
 
 
 def _judge_args(monkeypatch, cost_cap_usd, run_spend, month_left=None):
     """_alignment_args with the judge_for arguments captured and no database."""
     asked = {}
-    monkeypatch.setattr(wjs.settings_service, "alignment_embedder", lambda should_stop=None: (lambda texts: None))
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder", lambda should_stop=None, on_progress=None: (lambda texts: None))
     monkeypatch.setattr(wjs.alignment_judge, "judge_for",
-                        lambda engine, usage_cb=None, should_stop=None, fits_budget=None:
+                        lambda engine, usage_cb=None, should_stop=None, fits_budget=None, **kw:
                         asked.update(usage=usage_cb, stop=should_stop, fits=fits_budget))
     monkeypatch.setattr(wjs, "_usage_logger", lambda *a: (lambda *args: None))
     monkeypatch.setattr(wjs, "_month_cap_check", lambda choice, engine: None)
@@ -433,7 +460,7 @@ def _judge_args(monkeypatch, cost_cap_usd, run_spend, month_left=None):
     monkeypatch.setattr(wjs.background_jobs, "is_cancel_requested", lambda job_id: False)
     budget = wjs._JudgeBudget()
     budget.spend = run_spend
-    wjs._alignment_args(1, object(), "claude", "job1", {}, cost_cap_usd, budget)
+    wjs._alignment_args(1, object(), "claude", "job1", {}, {}, cost_cap_usd, budget)
     return asked, budget
 
 
@@ -490,7 +517,7 @@ def test_a_translate_run_whose_cap_stops_the_judge_says_so_when_it_finishes(isol
     monkeypatch.setattr(wjs.pricing, "estimate_cost_for_engine",
                         lambda engine, inp, out, *rest: 0.09 if out == 0 else 0.02)
     monkeypatch.setattr(wjs.alignment_judge.llm_tasks, "call_llm_json", lambda *a, **k: sent.append(1) or "{}")
-    monkeypatch.setattr(wjs.settings_service, "alignment_embedder", lambda should_stop=None: (lambda texts: None))
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder", lambda should_stop=None, on_progress=None: (lambda texts: None))
     monkeypatch.setattr(wjs, "_month_cap_left", lambda choice, engine: None)
     monkeypatch.setattr(wjs.translate_pipeline, "translate_lines_with_engine", fake_translate)
     monkeypatch.setattr(wjs.translation_finish, "finish_translation_run", fake_finish)

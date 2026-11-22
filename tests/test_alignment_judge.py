@@ -53,6 +53,15 @@ def test_the_judge_stops_asking_once_told_to_stop(monkeypatch):
     assert seen == []
 
 
+def test_the_judge_reports_progress_before_each_request(monkeypatch):
+    progress = []
+    monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **k: "{}")
+    monkeypatch.setattr(alignment_judge, "JUDGE_BATCH", 1)
+    items = [{"id": 0, "zh": "a", "en": "b"}, {"id": 1, "zh": "c", "en": "d"}]
+    alignment_judge.judge_for(_Engine(), on_progress=lambda done, total: progress.append((done, total)))(items)
+    assert progress == [(0, 2), (1, 2)]
+
+
 def test_the_judge_prices_each_request_before_sending_it(monkeypatch):
     seen, prices = [], []
     monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **k: seen.append(1) or "{}")
