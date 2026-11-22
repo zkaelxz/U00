@@ -18,7 +18,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
 import type { QuickVideoRun, QuickVideoSettings, QuickVideoStep } from '../../types/quickVideo'
-import { foundForLink, linkCanRun, NO_PROFILE_PLAN, planForLink, type LinkProbeState } from './addBoxModel'
+import { foundForLink, linkCanRun, NO_CAP_PLAN, NO_PROFILE_PLAN, planForLink, type LinkProbeState } from './addBoxModel'
 import { settingText } from './makeSubtitlesFlow'
 
 const POLL_MS = 3000
@@ -80,6 +80,7 @@ export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
   const plan = planForLink({
     pc, source: !canRun && pc !== 'remote', loaded: settings !== null,
     profile: profile?.name ?? null, engine: summary.find((r) => r.engine)?.engine ?? null,
+    capNeeded: settings?.cap_needed === true,
   })
 
   const go = () => {
@@ -96,7 +97,8 @@ export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
       <div className="add-box-found">
         <p data-testid="add-found"><strong>Found:</strong> {foundForLink(url, probeShown)}</p>
         <p data-testid="add-plan">
-          {plan === NO_PROFILE_PLAN ? <a href={routeHref({ name: 'settings', card: 'quick-video' })}>{plan}</a> : plan}
+          {plan === NO_PROFILE_PLAN ? <a href={routeHref({ name: 'settings', card: 'quick-video' })}>{plan}</a>
+            : plan === NO_CAP_PLAN ? <a href={routeHref({ name: 'settings', card: 'spending' })}>{plan}</a> : plan}
         </p>
       </div>
       {canRun && (
@@ -104,7 +106,7 @@ export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
           <button
             type="button"
             className={buttonClass('primary')}
-            disabled={busy || !profile}
+            disabled={busy || !profile || settings?.cap_needed === true}
             title={summaryText || undefined}
             aria-describedby={summary.length ? 'quick-video-settings' : undefined}
             onClick={go}

@@ -14,7 +14,7 @@ export const probeOf = (o: Partial<MediaLinkProbe>): MediaLinkProbe => ({
 
 export interface QuickVideoMock { started: unknown[]; probed: string[]; settingsReads: number }
 
-export async function mockAddLink(page: Page, probe: MediaLinkProbe): Promise<QuickVideoMock> {
+export async function mockAddLink(page: Page, probe: MediaLinkProbe, opts: { capNeeded?: boolean } = {}): Promise<QuickVideoMock> {
   const m: QuickVideoMock = { started: [], probed: [], settingsReads: 0 }
   await page.route('**/api/media-link/probe', (r) => {
     m.probed.push((r.request().postDataJSON() as { url: string }).url)
@@ -29,6 +29,7 @@ export async function mockAddLink(page: Page, probe: MediaLinkProbe): Promise<Qu
       { label: 'Engine and model', value: 'deepseek-chat', engine: 'deepseek' },
       { label: 'Batch size', value: '30', engine: null },
     ],
+    cap_needed: opts.capNeeded === true,
     })
   })
   await page.route('**/api/quick-video/start', (r) => {
