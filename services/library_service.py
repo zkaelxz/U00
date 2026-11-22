@@ -11,7 +11,7 @@ every tag picked must be present. No HTTP types:
 it takes plain values and returns plain dicts, so any caller can use it.
 """
 
-from core import SOURCE_LANGUAGES
+from core import LINE_LANGUAGES
 import os
 import sqlite3
 
@@ -333,7 +333,7 @@ def update_voice_bank_details(entry_id: int, notes: str, ref_text: str, language
         raise NotFoundError(f"No voice bank entry with id {entry_id}.")
     if len(notes) > 1000 or len(ref_text) > 5000:
         raise InvalidInputError("Notes are up to 1000 characters and the transcript up to 5000.")
-    if language and language not in SOURCE_LANGUAGES:
-        raise InvalidInputError(f"Language must be one of {', '.join(SOURCE_LANGUAGES)}.")
+    if language and language not in LINE_LANGUAGES:
+        raise InvalidInputError(f"Language must be one of {', '.join(LINE_LANGUAGES)}.")
     db.update_voice_bank_details(entry_id, notes.strip(), ref_text.strip(), language or None)
     return next(e for e in list_voice_bank(principal) if e["id"] == entry_id)

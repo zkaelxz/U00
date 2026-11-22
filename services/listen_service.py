@@ -166,7 +166,7 @@ def _missing_engine_dependency(tts_engine: str):
     """Fixed-text reason the requested engine (or ffmpeg) can't run here, or
     None. Never names a path."""
     if shutil.which("ffmpeg") is None:
-        return "ffmpeg is not installed or not on PATH, which dubbing requires."
+        return "ffmpeg is not installed or not on PATH, which narration requires."
     return _pydub_problem() or _engine_install_problem(tts_engine)
 
 
@@ -240,6 +240,24 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
     if failed and not any(src.dub_filename and src.idx not in failed for src in produced.values()):
         return  # nothing was narrated; "dubbed" would claim a track that is only silence
     db.update_drama(drama_id, status="dubbed")
+    _remove_unused_clips(drama_id)
+
+
+def _remove_unused_clips(drama_id: int) -> None:
+    """Deletes the clips no line of the title names any more (each voice or text change
+    leaves the old ones, about 170 MB per narrated hour). Read back after the save, so a
+    line edited or added while the run went keeps its clip. Never fails the run."""
+    try:
+        used = [row.get("dub_filename") for row in db.load_lines(drama_id)]
+        removed = dub_narration.remove_unused_clips(db.drama_dir(drama_id), used)
+    except Exception as exc:
+        import applog
+        applog.get_logger().warning(f"unused narration clips not removed on title {drama_id}: "
+                                    f"{type(exc).__name__}")
+        return
+    if removed:
+        import applog
+        applog.get_logger().info(f"removed {removed} unused narration clips on title {drama_id}")
 
 
 def _narration_pace() -> float:
@@ -272,14 +290,12 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
     lines = db.load_line_objects(drama_id)
     if not any((getattr(ln, "zh" if narrate_original else "en") or "").strip() for ln in lines):
         raise InvalidInputError("No source text to narrate." if narrate_original
-                                else "No translated lines to dub yet.")
+                                else "No translated lines to narrate yet.")
 
     job_id = narration_job_id(drama_id)
     job = background_jobs.get_status(job_id)
     if job and job["status"] in ("running", "queued"):
-        raise ConflictError(f"A dub job is already running for title {drama_id}.")
-    if narration_language != (drama.get("narration_language") or "translation"):
-        db.update_drama(drama_id, narration_language=narration_language)
+        raise ConflictError(_ALREADY_RUNNING)
 
     voiceless = _speakers_without_voice(chars, lines, tts_engine, "zh" if narrate_original else "en",
                                         _drama_path(drama_id))
@@ -288,8 +304,6 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
 
     ddir = db.drama_dir(drama_id)
     speaker_labels = {ln.speaker or None for ln in lines}
-    if tts_engine == "omnivoice" and _keep_default_voices(drama_id, chars, speaker_labels):
-        chars = db.list_characters_with_series_names(drama_id)
     clone_map = dub.clone_map_from_characters(
         chars, ddir, default_engine=tts_engine, speaker_labels=speaker_labels)
     # Keyword-bound so background_jobs' trailing result_queue lands on the
@@ -300,15 +314,24 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
     started = job_launch.start_process_job(
         job_id, worker, args=(lines, ddir, clone_map),
         gpu_touching=dub.clone_map_uses_local_model(clone_map),
-        description=f"Dub generation (title #{drama_id})",
+        description=f"Narration (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn",
         on_done=lambda _jid, result: apply_narration_result(drama_id, result),
         # A cancel kills the worker before it can remove its half-written track.
         on_finish=lambda _jid: dub_narration.remove_partial_track(ddir),
         line_fields=("dub_filename", "start", "end"))
     if not started:
-        raise ConflictError(f"A dub job is already running for title {drama_id}.")
+        raise ConflictError(_ALREADY_RUNNING)
+    # Saved only now, so a refused start leaves the title as it was.
+    if narration_language != (drama.get("narration_language") or "translation"):
+        db.update_drama(drama_id, narration_language=narration_language)
+    if tts_engine == "omnivoice":
+        # The clone map already holds these picks: a saved description maps to the same voice.
+        _keep_default_voices(drama_id, chars, speaker_labels)
     return {"job_id": job_id}
+
+
+_ALREADY_RUNNING = "A narration is already running for this title."
 
 
 def _keep_default_voices(drama_id: int, chars, speaker_labels) -> bool:

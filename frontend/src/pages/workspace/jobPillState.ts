@@ -8,7 +8,7 @@ const VERBS: Record<JobKind, string> = {
   transcribe: 'Transcribing',
   translate: 'Translating',
   align: 'Aligning',
-  dub: 'Dubbing',
+  dub: 'Narrating',
   export: 'Exporting',
   review: 'Reviewing',
   import: 'Importing',
