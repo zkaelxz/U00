@@ -779,7 +779,7 @@ def _source_match_on(cap, monkeypatch, model_present):
     real = settings_service.get
     monkeypatch.setattr(settings_service, "get",
                         lambda k, *a, **kw: True if k == "translate_alignment_check" else real(k, *a, **kw))
-    monkeypatch.setattr(q, "_source_match_model_present", lambda: model_present)
+    monkeypatch.setattr(settings_service, "source_match_model_present", lambda: model_present)
 
 
 def test_the_source_match_check_keeps_the_overlap_off_only_while_its_model_is_there(jobs, cap, monkeypatch):
@@ -839,7 +839,7 @@ def test_a_policy_call_changes_only_what_it_sends(jobs):
 @pytest.mark.parametrize("key, value", [("episode_summary_engine", "ollama"), ("translate_alignment_check", True)])
 def test_a_local_summary_or_alignment_check_blocks_the_overlap(jobs, cap, monkeypatch, key, value):
     _paid_ready(cap, monkeypatch)
-    monkeypatch.setattr(q, "_source_match_model_present", lambda: True)
+    monkeypatch.setattr(settings_service, "source_match_model_present", lambda: True)
     patched = settings_service.get
     monkeypatch.setattr(settings_service, "get", lambda k, *a, **kw: value if k == key else patched(k, *a, **kw))
     a, _b = _overlap_queue("claude", True)

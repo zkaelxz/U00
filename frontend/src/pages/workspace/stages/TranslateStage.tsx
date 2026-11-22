@@ -111,15 +111,21 @@ const REVIEW_GLOSSARY_HELP = `Changes what the Translate button does. ${REVIEW_G
 
 const ESTIMATE_BUTTON_ID = 'translate-estimate'
 
-function EstimateView({ e }: { e: TranslateRunEstimate }) {
-  const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown'
-    : e.estimate_is_lower_bound ? `at least $${e.estimated_usd.toFixed(2)} (thinking adds hidden output, so the real cost is higher)`
-      : `about $${e.estimated_usd.toFixed(2)}`
+export function EstimateView({ e }: { e: TranslateRunEstimate }) {
+  const check = e.alignment_check_usd ?? null
+  const total = e.estimated_usd === null ? null : e.estimated_usd + (check ?? 0)
+  const cost = e.free ? 'free' : total === null ? 'unknown'
+    : e.estimate_is_lower_bound ? `at least $${total.toFixed(2)} (thinking adds hidden output, so the real cost is higher)`
+      : `about $${total.toFixed(2)}`
+  const parts = check !== null && e.estimated_usd !== null && !e.free
+    ? ` (translation $${e.estimated_usd.toFixed(2)}, Source match check ${check < 0.01 ? 'under $0.01' : `$${check.toFixed(2)}`})`
+    : ''
   const cap = e.effective_cap_usd !== null ? ` · cap $${e.effective_cap_usd.toFixed(2)}` : ''
   return (
     <span className="translate-estimate" data-testid="estimate">
       {e.target_line_count} line(s) with {humanize('engine', e.engine)}
       {e.model ? ` (${e.model})` : ''}: {cost}
+      {parts}
       {cap}
       {e.monthly_refusal && (
         <span className="error" role="alert">The monthly cap would be exceeded, so this run would be refused.</span>

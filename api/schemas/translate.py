@@ -228,6 +228,8 @@ class TranslateRunEstimate(BaseModel):
     engine: str
     model: Optional[str] = None
     estimated_usd: Optional[float] = None
+    # The source-match judge after the run, which estimated_usd leaves out; None when it would not run.
+    alignment_check_usd: Optional[float] = None
     target_line_count: int
     free: bool
     cap_applies: bool
