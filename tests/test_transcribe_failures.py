@@ -226,6 +226,18 @@ class TestSpeakerDetectionSkipped:
         assert job["result"]["diarize_started"] is True and self.started == [f"diarize_{did}"]
         assert job["result"]["diarize_skipped_reason"] is None
 
+    def test_nemotron_without_its_packages_is_skipped_with_the_fix(self, drama):
+        import diarize_nemotron
+        settings_service.set_settings({"speaker_model": "nemotron"})
+        self._installed(False)
+        self.monkeypatch.setattr(diarize_nemotron, "missing_packages", lambda: ["transformers", "librosa"])
+        did, audio = drama
+        _, job = _run(did, audio, diarize_requested=True, diarize_audio_path=audio)
+        assert job["result"]["diarize_started"] is False and not self.started
+        _, message = jobs_service.derive_outcome(job["status"], None, job["result"])
+        assert "Speaker detection did not run: Nemotron speaker detection needs" in message
+        assert "Speaker detection pack" in message
+
     def test_token_and_audio_still_start_diarization(self, drama):
         self._installed(True)
         did, audio = drama

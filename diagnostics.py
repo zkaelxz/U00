@@ -31,6 +31,7 @@ OPTIONAL_DEPENDENCIES = {
     "requests": ("requests", "outbound HTTP (lib.http), metadata lookup/navigator", "required"),
     "bs4": ("bs4", "metadata lookup, navigator, bulk import", "feature"),
     "pyannote.audio": ("pyannote.audio", "speaker diarization", "feature"),
+    "librosa": ("librosa", "Nemotron speaker detection (reads the audio for it)", "feature"),
     "soundfile": ("soundfile", "speaker diarization, vocal separation chunking, word-level realignment", "feature"),
     "pydub": ("pydub", "dub/narration track mixing", "feature"),
     # Keys are the real pip names -- Diagnostics' Install button runs
@@ -174,7 +175,7 @@ APPROX_DOWNLOAD_MB = {
     "pydub": 1, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "paddlepaddle": 200, "manga-ocr": 20,
     "rapidocr": 26, "shapely": 2, "pyclipper": 1, "omegaconf": 1, "colorlog": 1, "six": 1, "tqdm": 1, "pyyaml": 1,
     "jieba": 20, "pypinyin": 1, "sudachipy": 5, "pykakasi": 3, "budoux": 1,
-    "kiwipiepy": 90, "transformers": 20, "torch": 2500, "torchaudio": 10, "uroman": 1,
+    "kiwipiepy": 90, "transformers": 20, "librosa": 60, "torch": 2500, "torchaudio": 10, "uroman": 1,
     "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
     "sudachidict-core": 70, "safetensors": 1, "huggingface-hub": 1, "pypdf": 1,
     "genanki": 1, "ebooklib": 1, "plyer": 1,
@@ -240,8 +241,12 @@ INSTALL_TASKS = [
      "packages": ["audio-separator", "audioread", "torch", "soundfile", "numpy"],
      "recommended": ["audio-separator", "audioread"]},
     {"id": "speakers", "group": "Audio", "label": "Speaker detection",
-     "help": "Split and label lines by who is speaking (needs a Hugging Face token).",
-     "packages": ["pyannote.audio", "soundfile", "torch"]},
+     "help": "Split and label lines by who is speaking. The default model, Nemotron, needs no "
+             "token; pyannote needs a Hugging Face token.",
+     "packages": ["transformers", "librosa", "soundfile", "torch", "pyannote.audio"],
+     # Nemotron is the default model; pyannote makes the voice prints and runs when
+     # pyannote is the chosen model.
+     "recommended": ["pyannote.audio"]},
     {"id": "alt_asr", "group": "Audio", "label": "Qwen3-ASR / SenseVoice transcription",
      "help": "Alternative transcription engines; SenseVoice also tags emotion and sounds.",
      "packages": ["transformers", "nagisa", "soynlp", "funasr", "soundfile", "torch", "onnxruntime"],

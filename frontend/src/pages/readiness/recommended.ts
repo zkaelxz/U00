@@ -35,8 +35,10 @@ export function recommendedRows(r: SetupReadiness): RecommendedRow[] {
   rows.push(
     row('separation', 'Vocal separation', false, 'Removes background music before transcribing (audio-separator).',
       'about 30 MB, plus a model on first use', [separationNeed(r)]),
-    row('speakers', 'Speaker detection', false, 'Tells speakers apart (pyannote). Needs a Hugging Face token and accepted model terms.',
-      r.torch ? 'about 20 MB, plus a model on first use' : `about 20 MB, plus PyTorch (${GPU_TORCH_SIZE})`, speakerNeeds(r)),
+    row('speakers', 'Speaker detection', false, r.speaker_token_needed
+      ? 'Tells speakers apart (pyannote). Needs a Hugging Face token and accepted model terms.'
+      : 'Tells speakers apart (Nemotron). No token needed.',
+      r.torch ? 'about 100 MB, plus a model on first use' : `about 100 MB, plus PyTorch (${GPU_TORCH_SIZE})`, speakerNeeds(r)),
     row('asmr', 'ASMR voice detector', false, 'Finds soft and whispered speech in Japanese ASMR.',
       'about 15 MB, plus a model of about 119 MB', [asmrNeed(r)]),
     row('qwen3', 'Qwen3 ASR', false, 'A second speech recogniser that can read speech Whisper skips.',
