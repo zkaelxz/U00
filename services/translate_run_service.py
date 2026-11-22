@@ -127,7 +127,10 @@ def _without_untouched_defaults(remembered: dict, is_novel: bool, engine, model)
     prompt with neighbouring lines, which made Gemma's captions worse. A value the person
     changed differs from the old default, so it stays."""
     old_defaults = engine_registry.default_translate_options(engine, model, novel=is_novel)
-    return {k: v for k, v in remembered.items() if old_defaults.get(k, object()) != v}
+    # A title run before the batch default rose to 90 echoed 30 back as if it were the default.
+    old_batch = engine_registry.DEFAULT_BATCH_SIZE
+    return {k: v for k, v in remembered.items()
+            if old_defaults.get(k, object()) != v and not (k == "batch_size" and v == old_batch)}
 
 
 def remembered_and_defaults(drama, remembered: dict, is_novel: bool, engine_name, model):
