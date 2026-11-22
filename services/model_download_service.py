@@ -131,6 +131,30 @@ class ModelDownloadFailed(Exception):
     """A plain reason for the person; never carries a path or URL."""
 
 
+def _bge_m3_ready() -> bool:
+    from engine_backends import alignment_check, ollama_server
+    from services import settings_service
+    url = settings_service.ollama_url()
+    # The cached reachability answer keeps a stopped or unreachable server from slowing every
+    # Diagnostics and Settings load by a full request timeout.
+    return ollama_server.check_ollama_reachable(url) and ollama_server.model_pulled(url, alignment_check.EMBED_MODEL)
+
+
+def _fetch_bge_m3(report, cancelled) -> None:
+    # A non-streamed pull gives no progress and cannot be cancelled: the request ends when the
+    # model is in (about 1.2 GB), and the message says so rather than offering a dead Cancel.
+    from engine_backends import alignment_check, ollama_server
+    from services import settings_service
+    url = settings_service.ollama_url()
+    if not ollama_server.check_ollama_reachable(url):
+        raise ModelDownloadFailed("Ollama isn't running. Start it, then try again.")
+    report(0.0, "Downloading bge-m3 through Ollama (about 1.2 GB; this cannot be cancelled)…")
+    try:
+        ollama_server.pull_model(url, alignment_check.EMBED_MODEL)
+    except ValueError as exc:
+        raise ModelDownloadFailed(f"Ollama could not pull bge-m3: {exc}") from exc
+
+
 def _fetch_hub(repos, report, cancelled, allow_patterns=None) -> None:
     try:
         import huggingface_hub
@@ -270,6 +294,11 @@ CATALOG = {
         "label": "pyannote speaker model community-1 (needs your Hugging Face token)",
         "ready": readiness.diarization_ready,
         "fetch": _fetch_pyannote,
+    },
+    "bge_m3": {
+        "label": "bge-m3 (Source match check, through Ollama)",
+        "ready": _bge_m3_ready,
+        "fetch": _fetch_bge_m3,
     },
     "lama_manga": {
         "label": "LaMa-manga (Scanlate text cleanup)",
