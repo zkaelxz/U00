@@ -28385,7 +28385,7 @@ export interface components {
             monthly_cap_usd: number | null;
             /**
              * Narration Pace
-             * @default 1
+             * @default 0.9
              */
             narration_pace: number;
             /**

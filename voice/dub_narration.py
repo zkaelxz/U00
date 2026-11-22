@@ -319,8 +319,10 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
             ln.end = edges[k + 1] / 1000.0
         pieces.append(clip)
         cursor_ms = end_ms
-        pieces.append(AudioSegment.silent(duration=CLIP_GAP_MS))
-        cursor_ms += CLIP_GAP_MS
+        # Shortened by the pace, so the gap is the same length once the track is slowed.
+        gap = round(CLIP_GAP_MS * pace)
+        pieces.append(AudioSegment.silent(duration=gap))
+        cursor_ms += gap
 
     _stretch_times(lines, pace)
 

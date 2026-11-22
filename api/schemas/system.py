@@ -331,7 +331,7 @@ class SettingsPreferences(TimingPreferences):
     translate_alignment_check: bool = True
     episode_summary_engine: str
     monthly_cap_usd: Optional[float] = None
-    narration_pace: float = 1.0
+    narration_pace: float = 0.9
     max_upload_mb: int = 20480
     ollama_num_ctx_override: int
     keep_free_vram_gb: float = 0.0

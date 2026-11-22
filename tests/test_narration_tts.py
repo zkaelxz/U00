@@ -340,18 +340,18 @@ class TestNarrationHeadingsAndPace:
         dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, narrate_original=True)
         assert spoken == ["第2章 他", "第3章 我和他"]
 
-    def test_a_slower_pace_stretches_every_line_time_to_match_the_slowed_track(self, fake_pydub, tmp_path,
-                                                                                monkeypatch):
+    def test_a_slower_pace_stretches_the_speech_but_keeps_the_gap_between_lines(self, fake_pydub, tmp_path,
+                                                                                 monkeypatch):
         slowed = []
         monkeypatch.setattr(dub_narration, "_export_flac", lambda track, path, pace=1.0: (
             slowed.append(pace), open(path, "w").close()))
         lines = [Line(idx=i, start=0, end=0, zh=str(i), en=f"Line {i}.", speaker=s)
                  for i, s in enumerate(("A", "B"))]
-        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
-        normal = [(ln.start, ln.end) for ln in lines]
         dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS, pace=0.8)
-        assert [(ln.start, ln.end) for ln in lines] == [(s / 0.8, e / 0.8) for s, e in normal]
-        assert slowed == [1.0, 0.8]
+        # Each 1 s clip plays for 1.25 s; the gap between them is still 350 ms.
+        assert [(ln.start, ln.end) for ln in lines] == [
+            pytest.approx((0.0, 1.25)), pytest.approx((1.6, 2.85))]
+        assert slowed == [0.8]
 
     def test_a_pace_out_of_range_is_refused_before_anything_is_spoken(self, fake_pydub, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="N")]
