@@ -73,7 +73,7 @@ describe('batch size default', () => {
     expect(validateRun(f, 'claude')).toBeNull()
     expect(buildRunBody(f)).not.toHaveProperty('batch_size')
     expect(buildRunBody({ ...f, batch_size: '25' })).toMatchObject({ batch_size: 25 })
-    expect(validateRun({ ...f, batch_size: '61' }, 'claude')).toMatch(/Batch size/)
+    expect(validateRun({ ...f, batch_size: '91' }, 'claude')).toMatch(/Batch size/)
   })
 })
 
@@ -638,9 +638,9 @@ describe('batch size override', () => {
 
 describe('range hints', () => {
   it('reads the limits from the constants', () => {
-    expect(batchSizeRange()).toBe('1-60 lines')
+    expect(batchSizeRange()).toBe('1-90 lines')
     expect(contextRange()).toBe('0-100 lines')
-    expect(validateRun({ ...initialForm(config), batch_size: '61' }, 'claude')).toBe('Batch size must be a whole number, 1-60 lines.')
+    expect(validateRun({ ...initialForm(config), batch_size: '91' }, 'claude')).toBe('Batch size must be a whole number, 1-90 lines.')
   })
 })
 

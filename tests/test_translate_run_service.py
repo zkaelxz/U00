@@ -366,6 +366,10 @@ def test_default_batch_size_by_engine_and_model(isolated_db, engine, model, expe
     assert engine_registry.default_batch_size(engine, model) == expected
 
 
+def test_reflect_keeps_the_old_default_for_long_batch_models(isolated_db):
+    assert engine_registry.default_batch_size("deepseek", reflect=True) == 30
+
+
 def test_default_batch_size_accepts_an_engine_instance(isolated_db):
     strong = engine_registry.ENGINES["gemini"]("k", model="gemini-pro-latest")
     small = engine_registry.ENGINES["gemini"]("k", model="gemini-flash-latest")

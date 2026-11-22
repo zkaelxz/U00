@@ -300,7 +300,7 @@ class _TranslateRun:
             ollama_num_ctx_override=a.ollama_num_ctx_override, thinking=a.thinking,
             temperature=a.temperature, reasoning=a.reasoning)
         self.context["check_replies"] = a.check_replies
-        self.size = a.batch_size or default_batch_size(self.engine)
+        self.size = a.batch_size or default_batch_size(self.engine, reflect=a.reflect)
         self.guard_enabled = (default_reply_guard(self.engine) if a.check_replies is None
                               else bool(a.check_replies))
         batches = self._plan(target_lines)

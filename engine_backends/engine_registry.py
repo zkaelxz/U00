@@ -283,13 +283,15 @@ def _is_strong_model(engine_name: str, name: str) -> bool:
                for engine, fragments in _STRONG_BATCH_MODELS)
 
 
-def default_batch_size(engine, model: str | None = None) -> int:
+def default_batch_size(engine, model: str | None = None, reflect: bool = False) -> int:
     """Lines per request to use when the user hasn't chosen a batch size.
     `engine` is an engine name or an engine instance (the pipeline holds the
     instance); `model` None means the instance's model, else the engine's
     effective default model."""
     engine_name, name = _engine_and_model_name(engine, model)
-    if any(e == engine_name and (not frags or any(f in name for f in frags))
+    # Reflect replies carry a critique and a rewrite inside the same 4000-token cap, and only
+    # plain translation was tested at 90.
+    if not reflect and any(e == engine_name and (not frags or any(f in name for f in frags))
            for e, frags in _LONG_BATCH_MODELS):
         return LONG_BATCH_SIZE
     return STRONG_ENGINE_BATCH_SIZE if _is_strong_model(engine_name, name) else DEFAULT_BATCH_SIZE
