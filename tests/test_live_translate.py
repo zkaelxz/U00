@@ -1166,6 +1166,14 @@ class TestLongLinesInLive:
         seg = {"start": 0, "end": 12, "text": "x" * 120}
         assert lt.force_cut_cjk(seg) == [seg]
 
+    @pytest.mark.parametrize("text", ["かかかか" + "ア" * 12, "ア" * 12 + "かかかか"])
+    def test_a_forced_cut_never_leaves_a_piece_under_the_minimum(self, text):
+        # A change of script 4 characters from either end would make the nearest cut.
+        cues = lt.force_cut_cjk({"start": 0.0, "end": 12.0, "text": text})
+        assert "".join(c["text"] for c in cues) == text
+        assert len(cues) == 2
+        assert all(len(c["text"]) >= lt.MIN_FORCED_PIECE_CHARS for c in cues)
+
 
 class TestOverlapTailTextWindow:
     """What run_live_job hands the NEXT chunk as overlap_tail_text: only

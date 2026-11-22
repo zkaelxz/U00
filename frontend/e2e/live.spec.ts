@@ -450,6 +450,22 @@ test('a missing Ollama is muted information until Start is pressed, then an aler
   await expect(note).toHaveAttribute('role', 'alert')
 })
 
+test('a model that may not fit asks "Start anyway?" once, and then starts', async ({ page }) => {
+  const fit = 'translategemma:27b may not fit in graphics memory (need about 17.0 GB, 11.0 GB free). Pick a smaller model, such as translategemma:12b.'
+  const m = await mockLive(page, { ollama: true, ollamaFit: fit })
+  const live = await openLive(page)
+  const note = live.getByTestId('live-ollama-note')
+  await expect(note).toContainText(fit)
+  await expect(note).not.toContainText('Start anyway?')
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect(note).toContainText('Start anyway?')
+  expect(m.posts).toHaveLength(0)
+  await live.getByTestId('live-start-anyway').click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'translategemma:27b' })
+})
+
 test('Stop on a session the server no longer has says it is gone and drops the Stop button', async ({ page }) => {
   const m = await mockLive(page)
   const live = await openLive(page)

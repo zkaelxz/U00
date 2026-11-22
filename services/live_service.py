@@ -550,7 +550,7 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None):
     return hints
 
 
-def start_session(url, source_language="zh", whisper_size="small", segment_seconds: float = 20,
+def start_session(url, source_language="zh", whisper_size="small", segment_seconds: float = 10,
                   overlap_seconds: float = live_translate.DEFAULT_OVERLAP_SECONDS,
                   engine: Optional[str] = None, model: Optional[str] = None,
                   max_minutes: float = DEFAULT_MAX_MINUTES, use_gpu: bool = False,
@@ -751,7 +751,9 @@ def stop_session(session_id, principal=None) -> dict:
     if (job or {}).get("status") == "running" and live_pipeline.request_finish(session_id):
         add_note(session_id, FINISHING_NOTE, key="finishing")
         return {"session_id": session_id, "stopping": True, "finishing": True}
-    live_translate.bump_generation(session_id)
+    # A finished run has dropped its generation; bumping would only add it back.
+    if job is not None and job.get("status") in ("queued", "running"):
+        live_translate.bump_generation(session_id)
     if job is None or background_jobs.cancel_queued(session_id):
         _remove_dir(session_id)
     else:
@@ -768,7 +770,10 @@ def _status(job) -> str:
     return status if status in ("queued", "running", "done", "error", "cancelled") else "error"
 
 
-_CAPTURE_ERROR_PREFIX = f"{live_translate.LiveCaptureError.__name__}: "
+# The errors a session's job raises with fixed text of its own: Live's capture
+# errors and the stream address check (check_stream_url).
+_FIXED_TEXT_PREFIXES = tuple(f"{cls.__name__}: " for cls in (
+    live_translate.LiveCaptureError, InvalidInputError, DependencyUnavailableError))
 
 
 def get_session(session_id, after=0, principal=None) -> dict:
@@ -784,10 +789,12 @@ def get_session(session_id, after=0, principal=None) -> dict:
     status = _status(job)
     if status == "error":
         error = str((job or {}).get("error") or "")
-        # The job record names the exception class; for Live's own error the
+        # The job record names the exception class; for these errors the
         # text after it is the whole message.
-        if error.startswith(_CAPTURE_ERROR_PREFIX):
-            error = error[len(_CAPTURE_ERROR_PREFIX):]
+        for prefix in _FIXED_TEXT_PREFIXES:
+            if error.startswith(prefix):
+                error = error[len(prefix):]
+                break
         message = clean_message(error) or "The live session failed."
     elif job is None:
         message = "Cancelled."

@@ -39,8 +39,8 @@ Known limitations, stated plainly rather than glossed over:
     a stall) reconnects by itself once the session has captioned a chunk:
     the page link is resolved again and capture resumes at the live edge,
     with the captions, the translator's context and the timeline kept. The
-    speech during the break is not heard, and the delayed player is not
-    restarted. See _LiveRun._reconnect.
+    speech during the break is not heard; the delayed player starts again on
+    the new stream link. See _LiveRun._reconnect.
   - Chunk boundaries: ffmpeg still cuts hard, non-overlapping chunks,
     but each chunk is transcribed with the last few seconds of the
     PREVIOUS chunk's actual audio prepended (overlap_seconds, see
@@ -62,10 +62,9 @@ Known limitations, stated plainly rather than glossed over:
   - Built and verified with a real ffmpeg segment-capture pipeline
     against a local looping source (proving the capture -> chunk-
     detection -> transcribe -> translate loop genuinely works end to
-    end); NOT tested against an actual live YouTube/Twitch broadcast,
-    since that needs a real stream running at test time. Sanity-check
-    the first couple of chunks after starting before relying on it for
-    a whole stream.
+    end), and since run on real live news broadcasts (YTN, TBS). A
+    reconnect after a real broadcast break is covered only by mocked
+    tests.
 """
 
 import os
@@ -76,12 +75,12 @@ import time
 from typing import Any
 
 import background_jobs
+from lib.errors import DependencyUnavailableError
 from live import live_cue_feed
 from live import live_fetch
 from live import live_pipeline
 from live import live_player
 from live import live_whisper
-from live.live_caption import CHUNK_CONTEXT_CARRY_CHARS as _CONTEXT_CARRY_CHARS  # noqa: F401
 from live.live_audio import read_wav_tail, write_padded_chunk  # noqa: F401 -- re-exported for callers and tests
 from live.live_caption import ChunkCaptioner
 from live.live_cue_translation import CueTranslator, build_live_context
@@ -465,12 +464,12 @@ def force_cut_cjk(seg: dict) -> list:
     cuts, last = [], 0
     for k in range(1, pieces):
         even = round(len(text) * k / pieces)
-        lo, hi = max(last + MIN_FORCED_PIECE_CHARS // 2, even - FORCED_CUT_REACH), \
-            min(len(text) - 1, even + FORCED_CUT_REACH)
-        turns = [i for i in range(lo, hi + 1) if _script(text[i - 1]) != _script(text[i])]
-        at = min(turns, key=lambda i: abs(i - even)) if turns else even
-        if at <= last:
+        lo = max(last + MIN_FORCED_PIECE_CHARS, even - FORCED_CUT_REACH)
+        hi = min(len(text) - MIN_FORCED_PIECE_CHARS, even + FORCED_CUT_REACH)
+        if lo > hi:
             continue
+        turns = [i for i in range(lo, hi + 1) if _script(text[i - 1]) != _script(text[i])]
+        at = min(turns, key=lambda i: abs(i - even)) if turns else min(max(even, lo), hi)
         cuts.append(at)
         last = at
     bounds = [0, *cuts, len(text)]
@@ -500,7 +499,13 @@ RECONNECT_DELAYS = (2, 5, 10, 20, 30)
 RECONNECT_GIVE_UP_SECONDS = 300
 FFMPEG_BROKE = ("ffmpeg could not read the stream (an unsupported format, or the "
                 "stream broke off).")
+# The same exit once the stream has worked: the format is not in question, and
+# the reconnect status already says the stream broke off.
+FFMPEG_STOPPED = "ffmpeg stopped reading the stream."
 RESOLVE_FAILED = "The stream could not be found again."
+# Every break shares one note, so a stream that breaks often does not push the
+# skip counts and other notes out of the session's short list.
+RECONNECT_NOTE_KEY = "reconnect"
 # The clock a break's length on the stream timeline is measured with; a test seam.
 _timeline_clock = time.monotonic
 
@@ -585,7 +590,10 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
 # {job_id: generation}, a plain module dict rather than something
 # behind background_jobs' own lock -- a single int increment/read per
 # job_id needs no more ceremony than that, same reasoning as
-# background_jobs' own is_cancel_requested flag.
+# background_jobs' own is_cancel_requested flag. A run removes its
+# entry when it ends: session ids are never reused, and 0 then never
+# matches a run's own generation, so anything that run left behind
+# still reads as superseded.
 _generations = {}
 
 
@@ -849,7 +857,8 @@ class _LiveRun(ChunkCaptioner):
             if broke:
                 if not self.captured_any or broke in live_fetch.PERMANENT:
                     raise LiveCaptureError(broke)
-                outcome = self._reconnect(broke, control, worker)
+                outcome = self._reconnect(FFMPEG_STOPPED if broke == FFMPEG_BROKE else broke,
+                                          control, worker)
                 if outcome == "resumed":
                     continue
                 return outcome == "finish"
@@ -904,7 +913,7 @@ class _LiveRun(ChunkCaptioner):
             self.stats.send()
             if attempt == 1:
                 self.note(f"Stream broke off: {self.outage['reason']} Reconnecting; "
-                          "the captions so far are kept.", self._break_key())
+                          "the captions so far are kept.", RECONNECT_NOTE_KEY)
             self.stage.outage(f"Stream broke off: {self.outage['reason']} Reconnecting "
                               f"in {delay} s (try {attempt})...")
             waited = self._outage_wait(delay, control)
@@ -914,14 +923,16 @@ class _LiveRun(ChunkCaptioner):
             self.stage.outage(f"Stream broke off: {self.outage['reason']} Reconnecting now "
                               f"(try {attempt})...")
             try:
+                # A first Stop must not wait out a lookup that can take several
+                # yt-dlp tries in an outage; the lookup thread is abandoned.
                 url = _run_abortable(
                     lambda: resolve_stream_url(self.url, cookies_browser=self.cookies_browser,
                                                cookies_file=self.cookies_file, proxy=self.proxy,
                                                live_only=True),
-                    self.should_stop)
+                    lambda: self.should_stop() or control.finish.is_set())
             except background_jobs.JobCancelled:
                 self._end_outage()
-                return "cancel"
+                return "cancel" if self.should_stop() else "finish"
             except StreamEnded:
                 self._end_outage()
                 self._ended("Capture stopped: the stream is no longer live.")
@@ -930,9 +941,22 @@ class _LiveRun(ChunkCaptioner):
                 live_whisper.log_failure(f"reconnect try {attempt}: resolve failed", exc)
                 self.outage["reason"] = RESOLVE_FAILED
                 continue
-            # Outside the retry: a refused address ends the job as it does at Start.
+            # A refused address ends the job as it does at Start; a lookup that
+            # failed (DNS on a flaky network, when reconnects happen) is retried.
             if self.stream_url_check is not None:
-                self.stream_url_check(url)
+                try:
+                    self.stream_url_check(url)
+                except DependencyUnavailableError as exc:
+                    live_whisper.log_failure(f"reconnect try {attempt}: address check failed", exc)
+                    self.outage["reason"] = RESOLVE_FAILED
+                    continue
+            # The lookup can return just as Stop is pressed: no capture to start and stop again.
+            if self.should_stop():
+                self._end_outage()
+                return "cancel"
+            if control.finish.is_set():
+                self._end_outage()
+                return "finish"
             try:
                 proc = start_segment_capture(url, self.out_dir, self.segment_seconds,
                                              proxy=self.proxy, start_number=self.state["last"] + 1,
@@ -1025,13 +1049,12 @@ class _LiveRun(ChunkCaptioner):
             return
         took = time.monotonic() - self.outage["since"]
         self._end_outage()
-        self.note(f"Reconnected after {took:.0f} s; speech during the break was not captured.",
-                  self._break_key())
-
-    def _break_key(self):
-        """Each break's note replaces only its own "broke off" line, so every
-        break stays listed once it is over."""
-        return f"reconnect-{self.breaks}"
+        if self.breaks == 1:
+            self.note(f"Reconnected after {took:.0f} s; speech during the break was not captured.",
+                      RECONNECT_NOTE_KEY)
+        else:
+            self.note(f"Reconnected {self.breaks} times (last after {took:.0f} s); speech during "
+                      "the breaks was not captured.", RECONNECT_NOTE_KEY)
 
     def _end_outage(self):
         self.outage = None
@@ -1171,8 +1194,11 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     reconnects (_LiveRun._reconnect) and, if the stream does not come back,
     ends like a stream that simply ends: a normal finish.
     """
-    _LiveRun(job_id, url, out_dir, segment_seconds, source_language, whisper_size, engine,
-             use_gpu, poll_interval, cookies_browser, cookies_file, overlap_seconds,
-             max_seconds, stream_url_check, proxy, report_stage, reply_without_thinking,
-             report_note, whisper_clock, report_stats, term_hints, spend_guard,
-             delayed_player, report_player).run()
+    try:
+        _LiveRun(job_id, url, out_dir, segment_seconds, source_language, whisper_size, engine,
+                 use_gpu, poll_interval, cookies_browser, cookies_file, overlap_seconds,
+                 max_seconds, stream_url_check, proxy, report_stage, reply_without_thinking,
+                 report_note, whisper_clock, report_stats, term_hints, spend_guard,
+                 delayed_player, report_player).run()
+    finally:
+        _generations.pop(job_id, None)
