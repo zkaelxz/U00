@@ -58,6 +58,14 @@ def test_run_starts_the_narration_job_in_the_chosen_language(client, isolated_db
     assert started[0]["target"].keywords["narrate_original"] is True
 
 
+def test_run_plays_the_narration_at_the_pace_set_in_settings(client, isolated_db, started):
+    from services import settings_service
+    settings_service.set_settings({"narration_pace": 0.9})
+    did = _drama(isolated_db, content_mode="novel_narration")
+    assert client.post(f"/api/listen/dramas/{did}/run", json={}).status_code == 200
+    assert started[0]["target"].keywords["pace"] == 0.9
+
+
 def test_run_rejects_pacing_and_background_fields(client, isolated_db, started):
     did = _drama(isolated_db, content_mode="novel_narration")
     r = client.post(f"/api/listen/dramas/{did}/run", json={"max_speedup": 1.5})
@@ -186,13 +194,13 @@ class TestTestVoice:
 
     def test_it_speaks_the_speakers_first_line_cut_short_in_their_voice(self, client, isolated_db, thread_jobs):
         did = self._title(isolated_db)
-        isolated_db.upsert_character(did, "S1", voice_design="calm")
+        isolated_db.upsert_character(did, "S1", voice_design="female, low pitch")
         r = client.post(f"/api/listen/dramas/{did}/test-voice", json={"speaker_label": "S1"})
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": f"voicetest_{did}"}
         call = thread_jobs[0]
         _, voice, sentence, language = call["args"]
-        assert voice["instruct"] == "calm"
+        assert voice["instruct"] == "female, low pitch"
         assert sentence == "x" * listen_service.TEST_SENTENCE_MAX_CHARS
         assert language == "en"
         assert call["launch"]["line_fields"] == ()
