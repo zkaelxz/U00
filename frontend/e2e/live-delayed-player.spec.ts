@@ -48,6 +48,14 @@ test('the delayed player replaces the embed once the recording is ready', async 
   await expect(live.getByLabel('Video delay', { exact: true })).toBeVisible()
   await page.screenshot({ path: `${SCREENS}/desktop-delayed-player.png`, fullPage: true })
 
+  // A stream break stopped the recorders and they could not start again: the site's embed takes over.
+  m.state.figures = { delayed_player: true, player_ready: false, player_stopped: true }
+  await expect(page.locator('iframe[title="Stream video"]')).toHaveCount(1)
+  await expect(live.getByTestId('live-delayed-video')).toHaveCount(0)
+  // Started again after the reconnect: back to the delayed player.
+  m.state.figures = { delayed_player: true, player_ready: true }
+  await expect(live.getByTestId('live-delayed-video')).toHaveCount(1)
+
   await live.getByRole('button', { name: 'Stop', exact: true }).click()
   await expect(live.getByTestId('live-status')).toHaveText('Stopped · 2 lines')
   await expect(live.getByTestId('live-delayed-video')).toHaveCount(0)

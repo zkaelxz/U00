@@ -145,6 +145,12 @@ export function speakerNeeds(r: SetupReadiness | null): Need[] {
   return out
 }
 
+/** Nemotron, not pyannote, will detect speakers: it is the chosen model and its packages are here
+ * (diarize._try_nemotron falls back to pyannote otherwise). Nemotron takes no speaker count. */
+export function nemotronWillRun(r: SetupReadiness | null): boolean {
+  return !!r && !r.speaker_token_needed && r.nemotron_transformers && r.librosa && r.torch
+}
+
 /** Under the "Transcribe on the GPU" switch: why it changes nothing, or the way to make it faster. */
 export function gpuSettingNote(r: SetupReadiness | null): Need | null {
   if (r && !r.gpu_found) {

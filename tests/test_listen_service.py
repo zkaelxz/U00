@@ -263,6 +263,74 @@ class TestSpeakersWithoutAVoice:
         assert listen_service.start_listen(did, "omnivoice") == {"job_id": f"dub_{did}"}
 
 
+class TestSteadyDefaultVoices:
+    """A speaker OmniVoice picks a voice for keeps it: the pick is saved on the character (and
+    its series character), so a new speaker in a later chapter doesn't move everyone's voice
+    along the list, which would also speak every one of their clips again."""
+
+    @pytest.fixture(autouse=True)
+    def _engines_installed(self, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ffmpeg")
+        monkeypatch.setattr(listen_service, "_engine_install_problem", lambda engine: None)
+
+    @pytest.fixture
+    def runs(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(listen_service.job_launch, "start_process_job",
+                            lambda job_id, worker, args=(), **kw: calls.append((args, kw)) or True)
+        return calls
+
+    def _voices(self, db, did):
+        return {c["speaker_label"]: c["voice_design"] for c in db.list_characters(did)}
+
+    def test_a_new_speaker_in_a_later_chapter_does_not_move_the_others(self, isolated_db, runs):
+        d = dub.DEFAULT_VOICE_DESCRIPTIONS
+        did = _drama(isolated_db, [_line(0, "Bob"), _line(1, "Narrator")])
+        listen_service.start_listen(did, "omnivoice")
+        assert self._voices(isolated_db, did) == {"Bob": d[0], "Narrator": d[1]}
+
+        # "Alice" sorts before both, which used to give her Bob's voice and Bob the Narrator's.
+        isolated_db.save_lines(did, [_line(0, "Bob"), _line(1, "Narrator"), _line(2, "Alice")])
+        listen_service.start_listen(did, "omnivoice")
+        assert self._voices(isolated_db, did) == {"Bob": d[0], "Narrator": d[1], "Alice": d[2]}
+        clone_map = runs[-1][0][2]
+        assert {k: v["instruct"] for k, v in clone_map.items()} == {"Bob": d[0], "Narrator": d[1], "Alice": d[2]}
+
+    def test_the_series_character_keeps_the_voice_for_the_next_title(self, isolated_db, runs):
+        sid = isolated_db.get_or_create_series("Saga")
+        wei = isolated_db.insert_series_character(sid, "Wei")
+        first = _drama(isolated_db, [_line(0, "Lin"), _line(1, "Wei")], series_id=sid)
+        isolated_db.upsert_character(first, "Wei", series_character_id=wei)
+        listen_service.start_listen(first, "omnivoice")
+        picked = self._voices(isolated_db, first)["Wei"]
+
+        second = _drama(isolated_db, [_line(0, "Ann"), _line(1, "Wei")], series_id=sid)
+        isolated_db.upsert_character(second, "Wei", series_character_id=wei)
+        listen_service.start_listen(second, "omnivoice")
+        voices = self._voices(isolated_db, second)
+        assert voices["Wei"] == picked and voices["Ann"] != picked
+
+    def test_a_voice_of_your_own_is_never_overwritten(self, isolated_db, runs):
+        did = _drama(isolated_db, [_line(0, "A")])
+        isolated_db.upsert_character(did, "A", voice_design="male, low pitch")
+        listen_service.start_listen(did, "omnivoice")
+        assert self._voices(isolated_db, did) == {"A": "male, low pitch"}
+
+    def test_lines_with_no_speaker_get_a_voice_but_nothing_is_saved_for_them(self, isolated_db, runs):
+        did = _drama(isolated_db, [_line(0, None)])
+        listen_service.start_listen(did, "omnivoice")
+        assert isolated_db.list_characters(did) == []
+        assert runs[0][0][2][None]["instruct"] == dub.DEFAULT_VOICE_DESCRIPTIONS[0]
+
+    def test_a_cancelled_run_leaves_no_half_written_track(self, isolated_db, runs):
+        did = _drama(isolated_db, [_line(0, "A")])
+        listen_service.start_listen(did, "omnivoice")
+        part = os.path.join(isolated_db.drama_dir(did), "narration_track.flac.part")
+        open(part, "wb").close()
+        runs[0][1]["on_finish"](f"dub_{did}")
+        assert not os.path.exists(part)
+
+
 class TestEngineInstallChecks:
     """_engine_install_problem against what is really importable here."""
 

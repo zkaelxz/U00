@@ -9,6 +9,7 @@ import { Toggle } from '../../components/Toggle'
 import { routeHref } from '../../router'
 import { buttonClass } from '../../components/uiClasses'
 import type { PcMode } from '../../hooks/usePcOnly'
+import { useDeveloperMode } from '../assistant/developerMode'
 import {
   canChooseModel, compareHref, engineCheckLines, healthBadge, kindHelp, lastCheckedLine, modelHealthError, modelStatusLoadError, modelStatusLabel,
   modelStatusTone, noCandidatesLine, offerModelsNote, OFFER_MODELS_HELP, OFFER_MODELS_LABEL, overrideLine, splitModelItems, whereLabel,
@@ -28,6 +29,8 @@ export function ModelHealthCard({ pc, onProblems, openSignal }: {
   onProblems: (count: number) => void
   openSignal?: number
 }) {
+  // Benchmark Lab is only a "Developer Mode is off" notice until the mode is on, so its compare link would be a dead end.
+  const developerMode = useDeveloperMode()
   const [status, setStatus] = useState<ModelStatus | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -221,6 +224,7 @@ export function ModelHealthCard({ pc, onProblems, openSignal }: {
                   key={rowKey(item)}
                   item={item}
                   canAct={canAct}
+                  canCompare={developerMode}
                   busy={busy}
                   checkedAt={status.checked_at}
                   onSwitch={() => switchPreset(item)}
@@ -246,6 +250,7 @@ export function ModelHealthCard({ pc, onProblems, openSignal }: {
                     key={rowKey(item)}
                     item={item}
                     canAct={canAct}
+                    canCompare={developerMode}
                     busy={busy}
                     checkedAt={status.checked_at}
                     onSwitch={() => switchPreset(item)}
@@ -285,16 +290,17 @@ function othersSummary(items: ModelStatusItem[]): string {
 
 const rowKey = (i: ModelStatusItem) => `${i.kind}|${i.preset_id ?? i.where}|${i.engine}|${i.model}`
 
-function ModelRow({ item, canAct, busy, checkedAt, onSwitch, onChoose, onUseBuiltIn }: {
+function ModelRow({ item, canAct, canCompare, busy, checkedAt, onSwitch, onChoose, onUseBuiltIn }: {
   item: ModelStatusItem
   canAct: boolean
+  canCompare: boolean
   busy: string | null
   checkedAt: string | null
   onSwitch: () => void
   onChoose: (to: string) => void
   onUseBuiltIn: () => void
 }) {
-  const href = item.severity >= 1 ? compareHref(item) : null
+  const href = canCompare && item.severity >= 1 ? compareHref(item) : null
   const help = item.severity >= 1 ? kindHelp(item) : null
   const switchable = item.can_switch && item.preset_id != null && !!item.replacement
   const key = `switch:${item.preset_id}`

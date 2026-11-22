@@ -337,7 +337,7 @@ function SavedSettings({ dramaId, step, edits, onFields, onEdit, onReset }: Save
 
   // A changed model or batch size re-prices the cost row; the controls stay as they are.
   const ownModel = typeof edits.model === 'string' ? edits.model : undefined
-  const ownBatch = typeof edits.batch_size === 'number' && edits.batch_size >= 1 && edits.batch_size <= 60 ? edits.batch_size : undefined
+  const ownBatch = typeof edits.batch_size === 'number' && edits.batch_size >= 1 && edits.batch_size <= 90 ? edits.batch_size : undefined
   const loaded = data !== null
   const repriced = useRef(false)
   useEffect(() => {

@@ -348,6 +348,9 @@ class LiveSessionStart(BaseModel):
         480, description="With delayed_player: the tallest picture to record, in pixels.")
     read_chat: StrictBool = Field(
         False, description="YouTube links only: also read the stream's live chat and translate it.")
+    spend_limit_usd: float = Field(
+        2.0, description="A paid engine with no monthly cap set: the session stops once its "
+                         "translations cost this much (clamped to 0.10-100).")
     glossary_drama_id: Optional[StrictInt] = Field(
         None, ge=1, le=2**62,
         description="A title whose glossary and language packs the translation may use (read-only).")
@@ -368,6 +371,7 @@ class LiveFormDefaults(BaseModel):
     overlap_seconds: float
     max_minutes: float
     player_height: int
+    spend_limit_usd: float = 2.0
 
 
 class LiveFormOptions(BaseModel):
@@ -386,6 +390,9 @@ class LiveFormOptions(BaseModel):
     thinking_switch_engines: List[str]
     # {language: model} the form starts on for that language, only for models already downloaded.
     language_whisper_defaults: Dict[str, str] = {}
+    spend_limit_range: List[float] = [0.1, 100.0]
+    # True when a monthly cap is set: it bounds every session, so the per-session limit does not apply.
+    monthly_cap_set: bool = False
     defaults: LiveFormDefaults
 
 
@@ -393,6 +400,8 @@ class LiveOllamaCheck(BaseModel):
     ok: bool
     model: str
     message: Optional[str] = None
+    # The message only warns that the model may not fit in graphics memory; Start still goes ahead.
+    gpu_fit: bool = False
 
 
 class LiveSessionStarted(BaseModel):
@@ -439,6 +448,8 @@ class LiveSessionStatus(BaseModel):
     # Whether this session records a delayed copy, and once its playlists have segments to play.
     delayed_player: bool = False
     player_ready: bool = False
+    # The delayed player stopped (the stream broke) and is not recording; the page shows the embed.
+    player_stopped: bool = False
     # Whether this session reads the stream's chat (GET .../chat has the messages).
     chat: bool = False
     # The video the session follows, for another device to show it; never the link itself.

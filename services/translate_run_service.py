@@ -92,8 +92,9 @@ def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool, model) -> No
 
 
 # Claude replies are capped at 4000 output tokens; past this the JSON reply risks
-# being cut off and the batch coming back empty.
-MAX_BATCH_SIZE = 60
+# being cut off (Claude keeps the finished pairs and retries the rest). Raised from 60 so DeepSeek and
+# gemma4:31b-cloud can default to 90; Claude's own default stays 30.
+MAX_BATCH_SIZE = 90
 
 
 # Serialises writes to dramas.last_translate_errors: the dismiss route and a
@@ -126,7 +127,10 @@ def _without_untouched_defaults(remembered: dict, is_novel: bool, engine, model)
     prompt with neighbouring lines, which made Gemma's captions worse. A value the person
     changed differs from the old default, so it stays."""
     old_defaults = engine_registry.default_translate_options(engine, model, novel=is_novel)
-    return {k: v for k, v in remembered.items() if old_defaults.get(k, object()) != v}
+    # A title run before the batch default rose to 90 echoed 30 back as if it were the default.
+    old_batch = engine_registry.DEFAULT_BATCH_SIZE
+    return {k: v for k, v in remembered.items()
+            if old_defaults.get(k, object()) != v and not (k == "batch_size" and v == old_batch)}
 
 
 def remembered_and_defaults(drama, remembered: dict, is_novel: bool, engine_name, model):

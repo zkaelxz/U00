@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
-  LIVE_FORM_FALLBACK, chatReadFrom, mergeChat, formDefaults, languageWhisperDefault, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, statusTone, stopLive, WHISPER_SIZES,
+  LIVE_FORM_FALLBACK, SPEND_LIMIT_RANGE, chatReadFrom, mergeChat, formDefaults, languageWhisperDefault, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, statusTone, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
 
@@ -27,8 +27,16 @@ describe('buildStartBody', () => {
   it('trims the link and sends defaults', () => {
     expect(buildStartBody({ ...DEFAULT_FORM, url: ' https://a.test/live ', engine: 'deepseek' })).toEqual({
       url: 'https://a.test/live', source_language: 'zh', whisper_size: 'small', segment_seconds: 20,
-      overlap_seconds: 3, engine: 'deepseek', model: null, max_minutes: 60, use_gpu: false, reply_without_thinking: true,
+      overlap_seconds: 3, engine: 'deepseek', model: null, max_minutes: 60, spend_limit_usd: 2, use_gpu: false, reply_without_thinking: true,
     })
+  })
+
+  it('sends the session spend limit within its range', () => {
+    const body = (v: number) => buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', spend_limit_usd: v }).spend_limit_usd
+    expect(body(5)).toBe(5)
+    expect(body(0)).toBe(SPEND_LIMIT_RANGE[0])
+    expect(body(1e6)).toBe(SPEND_LIMIT_RANGE[1])
+    expect(body(Number.NaN)).toBe(2)
   })
 
   it('asks for the delayed player only when it is on', () => {
@@ -228,7 +236,7 @@ describe('requests', () => {
     ])
   })
 
-  it('asks about graphics memory only when the GPU is on', async () => {
+  it('names Whisper only when the GPU is on; the server checks the model alone otherwise', async () => {
     const f = ok({ ok: true, model: 'm', message: null })
     await checkOllama('translategemma:27b', f, { whisperSize: 'large-v3', useGpu: true })
     await checkOllama('translategemma:27b', f, { whisperSize: 'large-v3', useGpu: false })
@@ -252,7 +260,8 @@ describe('requests', () => {
 
 describe('default engine and model', () => {
   const engines = [{ name: 'deepseek' }, { name: 'ollama' }, { name: 'claude' }]
-  it('starts on Ollama with translategemma:27b when nothing was chosen', () => {
+  it('starts on Ollama with translategemma:12b until the server names its pick for this card', () => {
+    expect(LIVE_DEFAULT_MODEL).toBe('translategemma:12b')
     expect(pickEngine(engines, '')).toBe('ollama')
     expect(resolveModel({ name: 'ollama', models: ['llama3.1:8b', LIVE_DEFAULT_MODEL] }, '')).toEqual({ model: LIVE_DEFAULT_MODEL, fellBack: false })
   })
@@ -271,7 +280,7 @@ describe('default engine and model', () => {
 })
 
 describe('model choice', () => {
-  const ollama = { name: 'ollama', models: ['llama3.1:8b', 'translategemma:27b'] }
+  const ollama = { name: 'ollama', models: ['llama3.1:8b', 'translategemma:12b', 'translategemma:27b'] }
   it('keeps an offered model and sends it', () => {
     expect(resolveModel(ollama, 'llama3.1:8b')).toEqual({ model: 'llama3.1:8b', fellBack: false })
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', engine: 'ollama', model: 'llama3.1:8b' }).model).toBe('llama3.1:8b')

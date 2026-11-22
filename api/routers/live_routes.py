@@ -48,7 +48,7 @@ def post_session(body: LiveSessionStart, request: Request):
         engine=body.engine, model=body.model, max_minutes=body.max_minutes,
         use_gpu=body.use_gpu, use_saved_cookies=is_local_request(request),
         reply_without_thinking=body.reply_without_thinking, delayed_player=body.delayed_player, player_height=body.player_height,
-        read_chat=body.read_chat,
+        read_chat=body.read_chat, spend_limit_usd=body.spend_limit_usd,
         glossary_drama_id=body.glossary_drama_id, series_id=body.series_id,
         principal=request.state.principal)
 

@@ -14,6 +14,7 @@ import { useJobs } from '../hooks/useJobs'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { routeHref, useRoute, type Route } from '../router'
+import { useDeveloperMode } from './assistant/developerMode'
 import type { DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks } from '../types/diagnostics'
 import { BrowserInstall } from './diagnostics/BrowserInstall'
 import { FfmpegInstall } from './diagnostics/FfmpegInstall'
@@ -66,6 +67,8 @@ const tabOfRoute = (r: Route): DiagnosticsTab | null =>
 function DiagnosticsContent() {
   const pc = usePcOnly()
   const route = useRoute()
+  // Benchmark Lab is only a "Developer Mode is off" notice until the mode is on, so the link would be a dead end.
+  const developerMode = useDeveloperMode()
   const { jobs, error: jobsError, polling, reload: refreshJobs } = useJobs()
   const [overview, setOverview] = useState<DiagnosticsOverview | null>(null)
   const [setup, setSetup] = useState<DiagnosticsSetupChecks | null>(null)
@@ -288,10 +291,12 @@ function DiagnosticsContent() {
           {card('loaded-models', <LoadedModelsCard openSignal={signal('loaded-models')} />)}
           {card('process-memory', <ProcessMemoryCard openSignal={signal('process-memory')} />)}
           {card('test-models', <RealModelCheck pc={pc} jobsActive={active} openSignal={signal('test-models')} />)}
-          <p className="muted diag-lab-link">
-            Compare engines and prompts on your own test sets.{' '}
-            <ButtonLink href={routeHref({ name: 'benchmark' })} variant="secondary" size="sm">Open Benchmark Lab</ButtonLink>
-          </p>
+          {developerMode && (
+            <p className="muted diag-lab-link">
+              Compare engines and prompts on your own test sets.{' '}
+              <ButtonLink href={routeHref({ name: 'benchmark' })} variant="secondary" size="sm">Open Benchmark Lab</ButtonLink>
+            </p>
+          )}
         </>
       ))}
 

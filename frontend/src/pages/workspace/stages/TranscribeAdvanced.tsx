@@ -58,6 +58,8 @@ interface Props {
   needs: TranscribeNeeds | null
   // The toggle above the run button already lists what speaker detection is missing; listing it again here repeats the same warning.
   speakersExplainedAbove: boolean
+  // Nemotron will detect speakers and ignores a typed count, so the count boxes are hidden.
+  speakerCountIgnored: boolean
   onNeedInstalled: () => void
   // The title's options were saved before (see optionsSaved in TranscribeStage): decides which fold opens first.
   optionsSaved: boolean
@@ -153,11 +155,13 @@ export function TranscribeAdvanced(p: Props) {
 
   const speakersMissing = !!p.needs && p.needs.speakers.length > 0
   const asrOptions = asrBackendOptionsFor(language)
-  const fields: Record<AdvancedFieldId, () => Placed> = {
-    expected_speakers: () => speaker('Expected speakers', 'expected', `${rangeHint(0, 20)} Blank lets the app decide.`),
-    min_speakers: () =>
+  const fields: Record<AdvancedFieldId, () => Placed | null> = {
+    expected_speakers: () => p.speakerCountIgnored
+      ? { zone: 'block', node: <p className="muted" data-testid="speaker-count-ignored">Nemotron finds the number of speakers itself.</p> }
+      : speaker('Expected speakers', 'expected', `${rangeHint(0, 20)} Blank lets the app decide.`),
+    min_speakers: () => p.speakerCountIgnored ? null :
       speaker('Min speakers', 'min', `${rangeHint(1, 20)} When you know a range but not the exact count. Used by Detect speakers only and by detecting speakers after transcribing.`, true),
-    max_speakers: () => speaker('Max speakers', 'max', `${rangeHint(1, 20)} Leave Expected speakers blank when using a range.`, true),
+    max_speakers: () => p.speakerCountIgnored ? null : speaker('Max speakers', 'max', `${rangeHint(1, 20)} Leave Expected speakers blank when using a range.`, true),
     detect_speakers_only: () => ({
       zone: 'block',
       node: (
@@ -296,7 +300,7 @@ export function TranscribeAdvanced(p: Props) {
       toggle(
         'Separate vocals first',
         'separate_vocals_first',
-        'Removes background music before transcribing. Skip it unless the background is music alone: it hurt with noise and did nothing on clean audio. Fast on a GPU; on the CPU it adds a long wait (often many times the clip length).',
+        'Removes background music before transcribing. On by default for titles that use Breeze-ASR-25 (it scored better with it); off with every other model, where it hurt large-v3. It makes a run 1.5 to 5 times slower. Fast on a GPU; on the CPU it adds a long wait (often many times the clip length).',
         undefined,
         p.needs?.separation,
       ),
@@ -312,7 +316,7 @@ export function TranscribeAdvanced(p: Props) {
   }
 
   const summaries: Record<string, string> = {
-    speakers: speakersSummary(p.speakers.expected, p.speakers.min, p.speakers.max),
+    speakers: p.speakerCountIgnored ? 'auto' : speakersSummary(p.speakers.expected, p.speakers.min, p.speakers.max),
     timing: `${optionLabel(cf.sensitivity_preset)} · ${cf.min_silence_ms} ms · ${cf.min_pause_sec} s`,
     models: optionLabel(cf.asr_backend_choice),
     guards: Number(cf.hallucination_silence_sec) === DEFAULT_HALLUCINATION_SILENCE_SEC ? 'off' : `hallucination guard ${cf.hallucination_silence_sec} s`,
@@ -326,7 +330,7 @@ export function TranscribeAdvanced(p: Props) {
         {readableSummary(advancedSummary({ ...cf, prompt: override, source_language: language }, developerMode))}
       </p>
       {advancedGroups(developerMode, p.optionsSaved, p.kind).map((g) => {
-        const placed = g.fields.map((f) => fields[f]())
+        const placed = g.fields.map((f) => fields[f]()).filter((x): x is Placed => x !== null)
         const grid = placed.filter((x) => x.zone === 'grid')
         const blocks = placed.filter((x) => x.zone === 'block')
         const list = placed.filter((x) => x.zone === 'list')

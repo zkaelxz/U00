@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { CharacterEntry } from '../../types/translateStage'
-import { chooseEngine, listenBlocker, skippedLines } from '../../types/listen'
+import { chooseEngine, listenBlocker, skippedCount, skippedLines } from '../../types/listen'
 import type { ListenConfig } from '../../types/listen'
 import { ListenPicker } from './ListenSection'
 
@@ -103,6 +103,19 @@ describe('skippedLines', () => {
     expect(skippedLines({ result: { errors: [] } })).toEqual([])
     expect(skippedLines({ result: null })).toEqual([])
     expect(skippedLines(null)).toEqual([])
+  })
+})
+
+describe('skippedCount', () => {
+  it('is the true count when the result lists only the first lines', () => {
+    const errors = Array.from({ length: 20 }, (_, i) => `line ${i}: failed`)
+    expect(skippedCount({ result: { errors, failed_count: 312 } })).toBe(312)
+  })
+
+  it('falls back to the listed lines for a result without a count', () => {
+    expect(skippedCount({ result: { errors: ['line 5: failed'] } })).toBe(1)
+    expect(skippedCount({ result: { errors: [], failed_count: 0 } })).toBe(0)
+    expect(skippedCount(null)).toBe(0)
   })
 })
 
