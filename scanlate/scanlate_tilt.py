@@ -103,12 +103,12 @@ def _draw_in_text_frame(pil_img, box: dict, mask, angle: float, size: int, draw_
     """Lays the text out against the balloon turned level, so a slanted strip gives the text
     its full length as one line instead of a narrow level box, then turns the result back."""
     w, h = box["w"], box["h"]
-    level = Image.fromarray(mask.astype(np.uint8) * 255).rotate(angle, resample=Image.NEAREST, expand=True)
+    level = Image.fromarray(mask.astype(np.uint8) * 255).rotate(angle, resample=Image.Resampling.NEAREST, expand=True)
     level_mask = np.asarray(level) > 127
     ww, hh = level.size
     # The frame's centre is the box's centre, so the result turns back onto the box.
     room = np.asarray(Image.fromarray(level_mask.astype(np.uint8) * 255).rotate(
-        -angle, resample=Image.NEAREST)) > 127
+        -angle, resample=Image.Resampling.NEAREST)) > 127
     return _place_turned(pil_img, round(box["x"] + w / 2 - ww / 2), round(box["y"] + h / 2 - hh / 2),
                          (ww, hh), {"x": 0, "y": 0, "w": ww, "h": hh}, level_mask, room, angle, size,
                          draw_text, (ww / 2, hh / 2))
@@ -127,7 +127,7 @@ def _place_turned(pil_img, x: int, y: int, frame: tuple, frame_box: dict, mask_i
         layers.append(np.asarray(layer).astype(np.float32))
     white, black = layers
     coverage = 1.0 - (white - black).mean(axis=2) / 255.0
-    turned = [np.asarray(Image.fromarray(a).rotate(-angle, resample=Image.BICUBIC, center=centre))
+    turned = [np.asarray(Image.fromarray(a).rotate(-angle, resample=Image.Resampling.BICUBIC, center=centre))
               for a in (coverage.astype(np.float32), black[:, :, 0], black[:, :, 1], black[:, :, 2])]
     alpha = np.clip(turned[0], 0.0, 1.0)
     ink = alpha > 0.2
