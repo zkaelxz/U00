@@ -159,7 +159,7 @@ PULL_TIMEOUT_SECONDS = 60 * 60
 _PULL_POLL_SECONDS = 0.5
 
 
-def pull_model(base_url: str, model: str, on_progress=None, cancelled=None) -> None:
+def pull_model(base_url: str, model: str, on_progress=None, cancelled=None) -> bool:
     """Pulls `model` through the server's streamed /api/pull and returns when it is in.
     `on_progress(done_bytes, total_bytes)` is called as layers arrive (the total grows as Ollama
     names more layers); `cancelled()` is polled about twice a second, and a true answer closes
@@ -176,15 +176,28 @@ def pull_model(base_url: str, model: str, on_progress=None, cancelled=None) -> N
     session = http.session(timeout=timeout, guard=None, max_bytes=_PULL_MAX_BYTES)
     lines: queue.Queue = queue.Queue()
     holder = {}
+    # A cancel can arrive while the request is still waiting for Ollama's first answer (it fetches
+    # the manifest first), when there is no response to close yet; the reader checks this itself.
+    stop = threading.Event()
 
     def read():
         try:
             resp = session.post(f"{base_url}/api/pull", json={"model": model, "stream": True}, timeout=timeout)
             holder["resp"] = resp
+            if stop.is_set():
+                resp.close()
+                return
             if not resp.ok:
-                lines.put(("error", f"Ollama answered HTTP {resp.status_code}"))
+                try:
+                    reason = json.loads(resp.content[:4096]).get("error")
+                except (ValueError, AttributeError, TypeError):
+                    reason = None
+                lines.put(("error", redact_for_support(str(reason))[:200] if reason
+                           else f"Ollama answered HTTP {resp.status_code}"))
                 return
             for raw in resp.iter_lines():
+                if stop.is_set():
+                    return
                 if raw:
                     lines.put(("line", raw))
             lines.put(("end", None))
@@ -222,6 +235,8 @@ def pull_model(base_url: str, model: str, on_progress=None, cancelled=None) -> N
                 if on_progress is not None:
                     on_progress(sum(c for c, _ in layers.values()), sum(t for _, t in layers.values()))
     finally:
+        stop.set()
         resp = holder.get("resp")
         if resp is not None:
             resp.close()
+        session.close()
