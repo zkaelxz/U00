@@ -47,7 +47,7 @@ import { GpuBanner } from '../../diagnostics/GpuBanner'
 import { PreflightCard } from '../../preflight/PreflightCard'
 import { NeedRows, type ListedNeed } from '../../readiness/NeedRows'
 import { NeedsInstall } from '../../readiness/NeedsInstall'
-import { QWEN3_BACKENDS, qwen3Warning, runBlockers, transcribeNeeds, usesLocalWhisper, type TranscribeNeedsForm } from '../../readiness/needs'
+import { QWEN3_BACKENDS, nemotronWillRun, qwen3Warning, runBlockers, transcribeNeeds, usesLocalWhisper, type TranscribeNeedsForm } from '../../readiness/needs'
 import { useSimple, useStage } from '../StageContext'
 import type { MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
@@ -127,6 +127,8 @@ export default function TranscribeStage({
   const developerMode = useDeveloperMode()
   const pc = usePcOnly()
   const { readiness, refresh: refreshReadiness } = useReadiness()
+  // Nemotron takes no speaker count: its boxes are hidden, and a value typed earlier isn't sent.
+  const speakerCountIgnored = nemotronWillRun(readiness)
   const [saved, setSaved] = useState(false)
   // The server does not say whether a title's options were ever saved, so remember a save here; options
   // that already differ from the defaults count as saved too. It only picks which fold opens first.
@@ -323,13 +325,13 @@ export default function TranscribeStage({
 
   // Builds the run body, or reports why it can't (returns null).
   const buildRequest = (): TranscribeRunRequest | null => {
-    const expected = parseExpectedSpeakers(speakers)
+    const expected = speakerCountIgnored ? undefined : parseExpectedSpeakers(speakers)
     if (expected === null) {
       setProblem('Expected speakers must be a whole number from 0 to 20.')
       return null
     }
     // The Min/Max range goes with speaker detection after transcribing too.
-    const hints = runDiarize ? parseSpeakerHints(speakers, minSpeakers, maxSpeakers) : null
+    const hints = runDiarize && !speakerCountIgnored ? parseSpeakerHints(speakers, minSpeakers, maxSpeakers) : null
     if (typeof hints === 'string') {
       setProblem(hints)
       return null
@@ -403,7 +405,7 @@ export default function TranscribeStage({
   })
 
   const diarize = () => {
-    const hints = parseSpeakerHints(speakers, minSpeakers, maxSpeakers)
+    const hints = speakerCountIgnored ? {} : parseSpeakerHints(speakers, minSpeakers, maxSpeakers)
     if (typeof hints === 'string') {
       setProblem(hints)
       return
@@ -707,6 +709,7 @@ export default function TranscribeStage({
             haveTranscript={haveTranscript}
             needs={needs}
             speakersExplainedAbove={speakersOff !== null && !runDiarize}
+            speakerCountIgnored={speakerCountIgnored}
             onNeedInstalled={() => void refreshReadiness()}
             optionsSaved={optionsSaved}
             fieldError={fieldError}

@@ -241,6 +241,14 @@ class TestFallbackAndBulkProjection:
         outcome, msg = jobs_service.derive_outcome("done", None, out)
         assert outcome == "ok" and "Only 2 speakers found." in msg
 
+    def test_a_capped_source_match_check_shows_in_outcome_without_making_it_partial(self):
+        from services import workspace_job_service
+        out = jobs_service.project_result({"errors": [], "translated_count": 3,
+                                           "judge_skipped": workspace_job_service.JUDGE_CAP_SKIPPED})
+        outcome, msg = jobs_service.derive_outcome("done", None, out)
+        assert outcome == "ok"
+        assert "engine check in Source match was skipped because the cost cap was reached" in msg
+
     def _bulk(self, **kw):
         base = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                 "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
