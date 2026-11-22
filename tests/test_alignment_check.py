@@ -247,3 +247,10 @@ def test_the_judge_sees_the_neighbours_and_is_not_asked_about_clear_lines():
 def test_a_judge_saying_ok_cannot_clear_a_line_scoring_under_the_bar():
     lines, embed, judge, _ = _judged("0.6,0.1,0.0", {1: "ok"})
     assert alignment_check.flag_mismatches(lines, embed, judge=judge) == 1
+
+
+def test_embedding_stops_between_requests_when_the_run_is_stopped(monkeypatch):
+    calls = []
+    monkeypatch.setattr(alignment_check, "_post_embed", lambda *a: calls.append(1) or (200, [[1.0]] * 32))
+    assert alignment_check.embed("http://o:1", ["x"] * 64, should_stop=lambda: len(calls) >= 1) is None
+    assert len(calls) == 1
