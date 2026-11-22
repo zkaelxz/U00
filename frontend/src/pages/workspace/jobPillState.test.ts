@@ -14,7 +14,7 @@ describe('jobVerb', () => {
     expect(jobVerb('translate')).toBe('Translating')
     expect(jobVerb('transcribe')).toBe('Transcribing')
     expect(jobVerb('align')).toBe('Aligning')
-    expect(jobVerb('dub')).toBe('Dubbing')
+    expect(jobVerb('dub')).toBe('Narrating')
     expect(jobVerb('export')).toBe('Exporting')
     expect(jobVerb('review')).toBe('Reviewing')
     expect(jobVerb('import')).toBe('Importing')
