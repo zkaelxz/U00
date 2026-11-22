@@ -220,7 +220,7 @@ def apply(drama_id: int, heard: str, suggested: str, line_id: int | None = None,
 
 
 def remember_spelling(drama_id: int, heard: str, suggested: str, term_id: int) -> dict:
-    """Use the glossary term's spelling on every line (as `apply` does, leaving longer words
+    """Use the suggested spelling (the term's or one of its aliases) on every line (as `apply` does, leaving longer words
     alone) AND save the heard spelling as an alias of the term, so later transcriptions in the
     series fix it by themselves. The term must be the one the suggestion named; nothing is
     written when it is not."""
@@ -234,7 +234,9 @@ def remember_spelling(drama_id: int, heard: str, suggested: str, term_id: int) -
         raise InvalidInputError("A spelling must be 2 to %d characters." % MAX_TERM_LEN)
     if any(heard == t["term_original"] for t in terms.values()):
         raise InvalidInputError("That spelling is another glossary term.")
-    result = apply(drama_id, heard, term["term_original"])
+    # The card promised `suggested`, which may be an alias: writing the main spelling where the
+    # heard text was only part of the name doubles characters (楊若賀 -> 楊楊若鶴).
+    result = apply(drama_id, heard, suggested)
     added = 0
     # A fragment of a longer spelling already saved would match inside it, so the longer one stays.
     covered = any(len(w) > len(heard) and heard in w for t in terms.values()
