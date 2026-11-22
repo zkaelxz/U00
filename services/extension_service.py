@@ -169,21 +169,24 @@ def resolved_translation_config() -> dict:
 def page_extras(drama, config: dict, engine, image: bytes | None) -> dict:
     """What a Scanlate run sends with a page besides its text, for the same
     quality: the series cast's pronouns and voice notes, and the page's
-    picture (when the setting is on and the engine takes pictures).
+    picture (when the setting is on and a reader can take it: run.picture_readers).
     Keys are the `translate_page_bubbles` arguments."""
     from engine_backends import paid_calls
     from services import scanlate_run_service as run
     extras = {"character_notes": run.load_translation_guide(drama or {})[1]}
     name = config.get("engine") or ""
-    if image and settings_service.get("scanlate_page_image") and name in run.VISION_ENGINES:
-        picture = run.page_picture(image)
-        if picture is not None:
-            data, mime, scale = picture
-            picture_engine = run._picture_engine(engine, name)
-            extras["page_image"] = {
-                "data": data, "mime": mime, "scale": scale, "engine": picture_engine,
-                "usage_cb": paid_calls.usage_logger((drama or {}).get("id"), name, picture_engine,
-                                                     "extension_translate")}
+    readers = (run.picture_readers(engine, name)
+               if image and settings_service.get("scanlate_page_image") else [])
+    picture = run.page_picture(image) if image and readers else None
+    if picture is not None:
+        data, mime, scale = picture
+        extras["page_image"] = {
+            "data": data, "mime": mime, "scale": scale,
+            "readers": [{"engine": reader, "usage_cb": paid_calls.usage_logger(
+                (drama or {}).get("id"), reader_name, reader, "extension_translate"),
+                **({"on_failure": run._note_ollama_reader_failed}
+                   if getattr(reader, "model", None) == run.PAGE_IMAGE_OLLAMA_MODEL else {})}
+                for reader, reader_name in readers]}
     return extras
 
 

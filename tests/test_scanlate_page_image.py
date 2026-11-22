@@ -129,7 +129,10 @@ def test_the_page_picture_needs_the_setting_and_an_engine_that_reads_pictures(is
     patch_setting(monkeypatch, "scanlate_page_image", True)
     data, mime, scale = run_svc._page_image(did, pid, "claude")
     assert data and mime == "image/png" and scale == 1.0
-    assert run_svc._page_image(did, pid, "deepseek") is None      # DeepSeek takes no pictures
+    # DeepSeek takes no pictures, but its page is already off the PC, so Gemma may read it.
+    assert run_svc._page_image(did, pid, "deepseek") is not None
+    assert run_svc._page_image(did, pid, "ollama", "translategemma:27b") is not None
+    assert run_svc._page_image(did, pid, "nonesuch") is None
     patch_setting(monkeypatch, "scanlate_page_image", False)
     assert run_svc._page_image(did, pid, "claude") is None
 
@@ -312,3 +315,186 @@ def test_an_ordinary_error_in_one_retry_does_not_stop_the_others(monkeypatch):
     monkeypatch.setattr(scanlate_translate, "translate_regions_by_id", flaky)
     got = scanlate_translate.retry_missing_regions({"0": "a", "1": "b"}, {}, _Engine(), {})
     assert got == {"1": "ok"}
+
+
+class _Gemma(_Engine):
+    name = "ollama"
+    client = None
+    model = "gemma4:31b-cloud"
+
+
+@pytest.fixture
+def ollama_up(monkeypatch):
+    """Ollama answers; engines are doubles named after what was asked for."""
+    built = []
+
+    def get_engine(name, key, model=None, **kw):
+        built.append((name, model))
+        return _Gemma() if name == "ollama" else type("_Built", (_Engine,), {"model": model})()
+
+    monkeypatch.setattr(run_svc.engine_registry, "get_engine", get_engine)
+    monkeypatch.setattr(run_svc.translate_service, "resolve_api_key", lambda n: "k")
+    monkeypatch.setattr(run_svc.engine_local, "check_ollama_reachable", lambda url: True)
+    monkeypatch.setattr(run_svc.engine_local, "member_cloud_key", lambda: None)
+    monkeypatch.setattr(run_svc, "_ollama_picture_reader", run_svc._ollama_picture_reader.real)
+    return built
+
+
+def _reader_models(readers):
+    return [(name, engine.model) for engine, name in readers]
+
+
+def test_gemma_on_ollama_reads_the_picture_first_and_haiku_is_the_fallback(ollama_up):
+    assert _reader_models(run_svc.picture_readers(_Engine(), "claude")) == [
+        ("ollama", "gemma4:31b-cloud"), ("claude", "claude-haiku-5-5")]
+    gemini = type("_Gemini", (_Engine,), {"name": "gemini", "model": "gemini-flash"})()
+    assert _reader_models(run_svc.picture_readers(gemini, "gemini")) == [
+        ("ollama", "gemma4:31b-cloud"), ("gemini", "gemini-flash")]
+
+
+def test_deepseek_gets_gemma_for_the_picture_since_it_takes_none_itself(ollama_up):
+    deepseek = type("_DeepSeek", (_Engine,), {"name": "deepseek", "model": "deepseek-chat"})()
+    assert _reader_models(run_svc.picture_readers(deepseek, "deepseek")) == [
+        ("ollama", "gemma4:31b-cloud")]
+
+
+def test_a_model_on_this_pc_never_sends_the_page_to_ollamas_servers(ollama_up):
+    local = type("_Local", (_Gemma,), {"model": "translategemma:27b"})()
+    assert _reader_models(run_svc.picture_readers(local, "ollama")) == [
+        ("ollama", "translategemma:27b")]
+    assert ollama_up == []
+
+
+def test_a_gemma_run_reads_the_picture_with_itself_once(ollama_up):
+    assert _reader_models(run_svc.picture_readers(_Gemma(), "ollama")) == [
+        ("ollama", "gemma4:31b-cloud")]
+
+
+def test_without_a_running_ollama_the_old_picture_reader_is_used(ollama_up, monkeypatch):
+    monkeypatch.setattr(run_svc.engine_local, "check_ollama_reachable", lambda url: False)
+    assert _reader_models(run_svc.picture_readers(_Engine(), "claude")) == [
+        ("claude", "claude-haiku-5-5")]
+    deepseek = type("_DeepSeek", (_Engine,), {"name": "deepseek", "model": "deepseek-chat"})()
+    assert run_svc.picture_readers(deepseek, "deepseek") == []
+
+
+def test_a_members_own_ollama_key_needs_no_ollama_on_the_pc(ollama_up, monkeypatch):
+    monkeypatch.setattr(run_svc.engine_local, "check_ollama_reachable", lambda url: False)
+    monkeypatch.setattr(run_svc.engine_local, "member_cloud_key", lambda: "member-key")
+    assert _reader_models(run_svc.picture_readers(_Engine(), "claude"))[0] == (
+        "ollama", "gemma4:31b-cloud")
+
+
+def test_gemma_not_signed_in_falls_back_to_haiku_and_is_skipped_on_later_pages(ollama_up, monkeypatch):
+    asked, logged = [], []
+
+    def with_image(regions, data, mime, engine, drama, **kw):
+        asked.append(engine.model)
+        if engine.model == "gemma4:31b-cloud":
+            raise run_svc.engine_local.OllamaUnavailableError(
+                "ollama_cloud_signin", "Ollama cloud models need you to be signed in.")
+        kw["usage_cb"](100, 10)
+        return {r["id"]: "EN" for r in regions}, "ctx"
+
+    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
+    monkeypatch.setattr(run_svc.paid_calls, "usage_logger",
+                        lambda did, name, engine, op: lambda i, o: logged.append((name, engine.model)))
+    notes = []
+    ok, _ = run_svc._translate([_region("你好")], _Engine(), "claude", {"source_language": "zh"},
+                               None, "", 1, notes, page_image=(b"x", "image/png", 1.0))
+    assert ok and asked == ["gemma4:31b-cloud", "claude-haiku-5-5"]
+    assert logged == [("claude", "claude-haiku-5-5")]
+    assert "gemma4:31b-cloud failed" in notes[0][1] and "trying claude-haiku-5-5" in notes[0][1]
+    asked.clear()
+    ok, _ = run_svc._translate([_region("你好")], _Engine(), "claude", {"source_language": "zh"},
+                               None, "", 1, [], page_image=(b"x", "image/png", 1.0))
+    assert ok and asked == ["claude-haiku-5-5"]
+
+
+def test_a_gemma_picture_read_is_logged_as_ollama(ollama_up, monkeypatch):
+    logged = []
+    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image",
+                        lambda regions, *a, **kw: (kw["usage_cb"](100, 10)
+                                                   or ({r["id"]: "EN" for r in regions}, "ctx")))
+    monkeypatch.setattr(run_svc.paid_calls, "usage_logger",
+                        lambda did, name, engine, op: lambda i, o: logged.append((name, engine.model)))
+    deepseek = type("_DeepSeek", (_Engine,), {"name": "deepseek", "model": "deepseek-chat"})()
+    ok, _ = run_svc._translate([_region("你好")], deepseek, "deepseek", {"source_language": "zh"},
+                               None, "", 1, [], page_image=(b"x", "image/png", 1.0))
+    assert ok and logged == [("ollama", "gemma4:31b-cloud")]
+
+
+def test_the_gemma_request_carries_the_page_picture(monkeypatch):
+    from engine_backends import local
+    seen = {}
+
+    def chat(base_url, payload):
+        seen.update(payload)
+        return {"message": {"content": _answer({"0": "Hello."})[0]},
+                "prompt_eval_count": 900, "eval_count": 20}
+
+    monkeypatch.setattr(vision, "_ollama_chat", chat)
+    got, _ = scanlate_translate.translate_regions_with_image(
+        [{"id": "0", "text": "你好", "box": {"x": 1, "y": 2, "w": 3, "h": 4}}], b"PNGDATA",
+        "image/png", local.OllamaEngine(model="gemma4:31b-cloud"), {"source_language": "zh"})
+    assert got == {"0": "Hello."}
+    assert seen["model"] == "gemma4:31b-cloud"
+    assert seen["messages"][0]["images"] == ["UE5HREFUQQ=="]
+
+
+def test_an_engine_on_this_pc_other_than_ollama_never_gets_gemma(ollama_up):
+    fake = type("_Fake", (_Engine,), {"name": "fake", "model": "fake"})()
+    assert run_svc.picture_readers(fake, "fake") == [] and ollama_up == []
+
+
+def test_a_gemma_timeout_falls_back_instead_of_stopping_the_run(ollama_up, monkeypatch):
+    asked = []
+
+    def with_image(regions, data, mime, engine, drama, **kw):
+        asked.append(engine.model)
+        if engine.model == "gemma4:31b-cloud":
+            raise run_svc.LLMTaskTimeout("slow")
+        return {r["id"]: "EN" for r in regions}, "ctx"
+
+    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
+    notes = []
+    ok, _ = run_svc._translate([_region("你好")], _Engine(), "claude", {"source_language": "zh"},
+                               None, "", 1, notes, page_image=(b"x", "image/png", 1.0))
+    assert ok and asked == ["gemma4:31b-cloud", "claude-haiku-5-5"] and "timed out" in notes[0][1]
+
+
+def test_an_ollama_that_is_not_answering_is_not_asked_again_on_every_page(ollama_up, monkeypatch):
+    probes = []
+    monkeypatch.setattr(run_svc.engine_local, "check_ollama_reachable",
+                        lambda url: probes.append(url) or False)
+    run_svc.picture_readers(_Engine(), "claude")
+    run_svc.picture_readers(_Engine(), "claude")
+    assert len(probes) == 1
+
+
+def test_a_members_own_key_ignores_the_pcs_ollama_failure(ollama_up, monkeypatch):
+    monkeypatch.setattr(run_svc, "_ollama_reader_down_until", float("inf"))
+    monkeypatch.setattr(run_svc.engine_local, "member_cloud_key", lambda: "member-key")
+    assert _reader_models(run_svc.picture_readers(_Engine(), "claude"))[0] == (
+        "ollama", "gemma4:31b-cloud")
+
+
+def test_the_extension_tries_gemma_then_haiku_and_a_gemma_failure_starts_the_skip(ollama_up, monkeypatch):
+    from services import extension_service
+    asked = []
+
+    def with_image(regions, data, mime, engine, drama, **kw):
+        asked.append(engine.model)
+        if engine.model == "gemma4:31b-cloud":
+            raise run_svc.engine_local.OllamaUnavailableError("ollama_cloud_signin", "sign in")
+        return {r["id"]: "EN" for r in regions}, "ctx"
+
+    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
+    patch_setting(monkeypatch, "scanlate_page_image", True)
+    monkeypatch.setattr(run_svc, "load_translation_guide", lambda drama: (None, ""))
+    monkeypatch.setattr(run_svc, "page_picture", lambda image: (b"x", "image/png", 1.0))
+    extras = extension_service.page_extras({}, {"engine": "claude"}, _Engine(), b"png")
+    bubbles = [{"source_text": "你好", "x": 1, "y": 2, "w": 3, "h": 4}]
+    scanlate_translate.translate_page_bubbles(bubbles, _Engine(), {}, **extras)
+    assert asked == ["gemma4:31b-cloud", "claude-haiku-5-5"] and bubbles[0]["translated_text"] == "EN"
+    assert run_svc.picture_readers(_Engine(), "claude")[0][1] == "claude"

@@ -63,7 +63,7 @@ const TRICKY_ROWS: HandRunRow[] = [
 
 const COMIC_ROWS: HandRunRow[] = [
   { model: 'Haiku 5.5, crops only', costUsd: 0.0002, reading: 'Matched full-page dialogue, but one crop returned a picture description instead of a translation.' },
-  { model: 'Haiku 5.5, full page (the app\'s picture model)', costUsd: 0.0006, reading: 'Dialogue as good as Sonnet 5.5 on these pages at about a fifteenth of the cost.' },
+  { model: 'Haiku 5.5, full page (the app\'s picture model then)', costUsd: 0.0006, reading: 'Dialogue as good as Sonnet 5.5 on these pages at about a fifteenth of the cost.' },
   { model: 'Gemini 3.1 Flash-Lite, page image', costUsd: 0.0006, reading: 'No dropped lines; on par with Haiku in a spot-check of fewer lines; same caption mistake as text-only Sonnet.' },
   { model: 'GPT-6 Luna, page image', costUsd: 0.0004, costEstimated: true, reading: 'Read well, but translated a watermark line. Price was unconfirmed at the time.' },
   { model: 'Gemini Flash-Lite (older), page image', costUsd: 0.0008, reading: 'Dropped one line.' },
