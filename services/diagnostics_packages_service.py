@@ -14,6 +14,7 @@ _run_commands.
 import importlib
 import os
 import re
+import shutil
 import sys
 import tempfile
 import threading
@@ -446,11 +447,20 @@ def get_install_presets() -> dict:
     packages = {n: _package_info(n, _package_installed(n), offered, mins) for n in sorted(names)}
     tasks = []
     outdated = _outdated_names(packages, offered)
+    # On an NVIDIA PC without torch, torch comes from the GPU PyTorch setup (install_registry
+    # refuses it here) and must come first, or a package that pulls torch brings PyPI's CPU build.
+    nvidia = bool(shutil.which("nvidia-smi"))
+    torch_missing = not packages["torch"]["installed"]
     for t in diagnostics.INSTALL_TASKS:
         roles = {n: dependency_updates.task_package_role(t, n) for n in t["packages"]}
         rows = [packages[n] for n in t["packages"]]
         missing = [r for r in rows if not r["installed"]]
         to_install = [r for r in missing if r["installable"] and roles[r["name"]] != "optional"]
+        # Any torch-family package is refused here on NVIDIA, not only torch (word timing's torchaudio).
+        gpu_torch_first = nvidia and any(
+            r["name"] in gpu_torch.TORCH_FAMILY or (torch_missing and r["pulls_torch"]) for r in to_install)
+        if gpu_torch_first:
+            to_install = [r for r in to_install if r["name"] not in gpu_torch.TORCH_FAMILY]
         tasks.append({
             "id": t["id"], "group": t["group"], "label": t["label"], "help": t["help"],
             "packages": list(t["packages"]),
@@ -461,5 +471,6 @@ def get_install_presets() -> dict:
             "optional_missing": [r["name"] for r in missing
                                  if r["installable"] and roles[r["name"]] == "optional"],
             "approx_mb": sum(r["approx_mb"] or 0 for r in to_install),
+            "gpu_torch_first": gpu_torch_first,
         })
     return {"tasks": tasks, "packages": packages, "outdated": outdated}

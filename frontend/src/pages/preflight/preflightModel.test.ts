@@ -10,7 +10,7 @@ const denied = <T,>(): Read<T> => ({ data: null, denied: true, failed: false })
 const presets = (installed: boolean): DiagnosticsInstallPresets => ({
   tasks: [{
     id: 'transcribe', group: 'Audio', label: 'Transcribe', help: '', packages: ['faster_whisper'],
-    installed_count: installed ? 1 : 0, to_install: installed ? [] : ['faster_whisper'], approx_mb: 80,
+    installed_count: installed ? 1 : 0, to_install: installed ? [] : ['faster_whisper'], approx_mb: 80, gpu_torch_first: false,
     roles: {}, required_missing: [], optional_missing: [],
   }],
   packages: { faster_whisper: { name: 'faster_whisper', installed } as DiagnosticsInstallPresets['packages'][string] },
