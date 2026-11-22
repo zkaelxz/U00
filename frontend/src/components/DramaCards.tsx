@@ -1,3 +1,6 @@
+import { useState } from 'react'
+
+import { coverUrl } from '../api/metadata'
 import type { DramaSummary } from '../api/types'
 import { mediaTypeLabel } from '../labels'
 import { Badge } from './Badge'
@@ -34,7 +37,7 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
         const read = readAction(d, continuing?.has(d.id))
         return (
           <li key={d.id} className={d.id === selectedId ? 'drama-card selected' : 'drama-card'}>
-            <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true">{tileText(d)}</div>
+            <DramaTile d={d} />
             <div className="drama-card-main">
               <a className="drama-card-title" href={workspaceHref(d.id)} title={title}>{title}</a>
               <CardText d={d} />
@@ -57,6 +60,18 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
         )
       })}
     </ul>
+  )
+}
+
+// A cover that fails to load falls back to the letter tile, so a missing file never leaves a blank card.
+function DramaTile({ d }: { d: DramaSummary }) {
+  const [broken, setBroken] = useState(false)
+  return (
+    <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true">
+      {d.has_cover_art && !broken
+        ? <img src={coverUrl(d.id)} alt="" loading="lazy" onError={() => setBroken(true)} />
+        : tileText(d)}
+    </div>
   )
 }
 
@@ -96,7 +111,7 @@ function SelectCards({ items, checked, onToggle }: {
         // The card (li) toggles selection on click; without stopPropagation on the checkbox label a click on it would toggle twice.
         return (
           <li key={d.id} className={on ? 'drama-card selected' : 'drama-card'} onClick={() => onToggle(d.id)}>
-            <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true">{tileText(d)}</div>
+            <DramaTile d={d} />
             <label className="card-check" onClick={(e) => e.stopPropagation()}>
               <input type="checkbox" checked={on} onChange={() => onToggle(d.id)} aria-label={`Select ${title}`} />
             </label>

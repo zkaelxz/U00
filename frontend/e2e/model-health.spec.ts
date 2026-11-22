@@ -55,7 +55,7 @@ test('retired and older rows come first with their notes; the rest fold away', a
   await expect(rows.nth(0)).toContainText("DeepSeek's legacy alias")
   await expect(rows.nth(1)).toContainText('Deprecated')
   // A built-in row can now be changed by the owner, once a provider check has listed models to choose from.
-  await expect(rows.nth(1)).toContainText('Press "Check providers now" first to load the models your provider lists.')
+  await expect(c.getByText('Press "Check providers now" first to load the models your provider lists.')).toHaveCount(1)
   await expect(rows.nth(1).getByRole('button')).toHaveCount(0)
   await expect(rows.nth(2)).toContainText('Older model')
   await expect(rows.nth(2).getByRole('button', { name: 'Switch Preset: Title A to claude-sonnet-5' })).toBeVisible()

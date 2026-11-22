@@ -26,7 +26,7 @@ describe('checkLiveUrl', () => {
 describe('buildStartBody', () => {
   it('trims the link and sends defaults', () => {
     expect(buildStartBody({ ...DEFAULT_FORM, url: ' https://a.test/live ', engine: 'deepseek' })).toEqual({
-      url: 'https://a.test/live', source_language: 'zh', whisper_size: 'small', segment_seconds: 20,
+      url: 'https://a.test/live', source_language: 'zh', whisper_size: 'small', segment_seconds: 10,
       overlap_seconds: 3, engine: 'deepseek', model: null, max_minutes: 60, spend_limit_usd: 2, use_gpu: false, reply_without_thinking: true,
     })
   })
@@ -100,7 +100,7 @@ describe('buildStartBody', () => {
   })
 
   it('Fast captions is a short chunk that still goes out as chosen, and DEFAULT_FORM itself is unchanged', () => {
-    expect(DEFAULT_FORM).toMatchObject({ segment_seconds: 20, overlap_seconds: 3, whisper_size: 'small', reply_without_thinking: true })
+    expect(DEFAULT_FORM).toMatchObject({ segment_seconds: 10, overlap_seconds: 3, whisper_size: 'small', reply_without_thinking: true })
     const b = buildStartBody({ ...DEFAULT_FORM, ...FAST_CAPTIONS, url: 'https://a.test' })
     expect(b).toMatchObject({ segment_seconds: 4, overlap_seconds: 1, whisper_size: 'small', reply_without_thinking: true })
   })
@@ -114,7 +114,7 @@ describe('buildStartBody', () => {
 
   it('falls back to defaults for blank (NaN or null) numbers', () => {
     const b = buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', segment_seconds: NaN, overlap_seconds: null as unknown as number, max_minutes: NaN })
-    expect(b).toMatchObject({ segment_seconds: 20, overlap_seconds: 3, max_minutes: 60 })
+    expect(b).toMatchObject({ segment_seconds: 10, overlap_seconds: 3, max_minutes: 60 })
   })
 })
 
@@ -191,9 +191,9 @@ describe('sessions', () => {
   })
 
   it('summarises the advanced options', () => {
-    expect(advancedSummary({ ...DEFAULT_FORM })).toBe('Whisper small · chunk 20s · overlap 3s · stop after 60 min · CPU · no thinking')
+    expect(advancedSummary({ ...DEFAULT_FORM })).toBe('Whisper small · chunk 10s · overlap 3s · stop after 60 min · CPU · no thinking')
     // A cleared field and an overlap over half the chunk read as what Start sends.
-    expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: Number.NaN, max_minutes: Number.NaN })).toBe('Whisper small · chunk 20s · overlap 3s · stop after 60 min · CPU · no thinking')
+    expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: Number.NaN, max_minutes: Number.NaN })).toBe('Whisper small · chunk 10s · overlap 3s · stop after 60 min · CPU · no thinking')
     expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: 4, overlap_seconds: 8 })).toBe('Whisper small · chunk 4s · overlap 2s · stop after 60 min · CPU · no thinking')
     expect(DEFAULT_OPTIONS).not.toHaveProperty('url')
   })

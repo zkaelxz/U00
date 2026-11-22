@@ -304,7 +304,8 @@ def default_batch_size(engine, model: str | None = None, reflect: bool = False) 
 NOVEL_BATCH_CHARS_CEILING = 10_000
 NOVEL_BATCH_CHARS_DEFAULT = 8_000
 _NOVEL_BATCH_CHARS = (
-    # Held every id at 60 lines in the proxy test and have large reply caps.
+    # Large reply caps. Sonnet 5.5 lost ids at 60 lines, so a novel batch is also held to the
+    # default line count; these figures only bound how long the batch's text can get.
     ("claude", ("opus", "sonnet", "fable"), 10_000),
     ("gemini", ("pro",), 10_000),
     # Small and fast: longer batches cost it ids.

@@ -59,6 +59,18 @@ def test_embed_batches_and_reads_vectors(monkeypatch):
     assert sent[0][0] == "http://o:1/api/embed" and sent[0][1]["model"] == "bge-m3"
 
 
+def test_embed_gives_up_connecting_quickly_but_reads_slowly(monkeypatch):
+    seen = {}
+
+    def post(url, **kw):
+        seen["timeout"] = kw["timeout"]
+        return http.Response(200, {}, json.dumps({"embeddings": [[1.0]]}).encode(), url)
+
+    monkeypatch.setattr(alignment_check.http, "post", post)
+    alignment_check.embed("http://o:1", ["a"])
+    assert seen["timeout"] == (5, alignment_check.EMBED_TIMEOUT)
+
+
 def test_embed_returns_none_when_model_missing_or_server_down(monkeypatch):
     monkeypatch.setattr(alignment_check.http, "post",
                         lambda url, **kw: http.Response(404, {}, b'{"error":"x"}', url))

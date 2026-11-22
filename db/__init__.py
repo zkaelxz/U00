@@ -309,8 +309,8 @@ def _refuse_newer_database(conn, running):
     if stored_v and running_v and stored_v > running_v:
         raise NewerDatabaseError(
             f"This library was last opened by Baihe {stored}, but this is Baihe {running}. "
-            "Upgrade Baihe, or restore a backup from the backups folder "
-            "(the backups folder inside your Baihe data folder).")
+            "Upgrade Baihe, or restore a backup made before you updated, from the "
+            "backups folder inside your Baihe data folder.")
 
 
 def init_db():
@@ -701,6 +701,7 @@ from db.usage import (  # noqa: F401
     MONTHLY_SPEND_RESET_KEY,
     get_month_spend_reset_at,
     get_logged_month_spend,
+    get_imported_month_spend,
     get_month_spend,
     get_month_spend_by_user,
     get_logged_user_month_spend,

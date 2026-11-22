@@ -16,7 +16,7 @@ from bulk.bulk_providers import (BulkAuthError, PollGuard, is_deepseek_offpeak,
                             WindowGate, offpeak_cap)
 from bulk.bulk_reflect import (_advance_pipeline, _fail_keeping_drafts, apply_reflect_stage_results,
                           sibling_stage_job)
-from bulk.bulk_translate import _character_names, _utcnow
+from bulk.bulk_translate import _character_names, _utcnow, resolve_novel_reference
 import db
 import job_force_stop
 from engine_backends import shared, translate_pipeline, pricing
@@ -194,7 +194,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = Non
     cap = {}
     _, errors = translate_pipeline.translate_lines_with_engine(
         lines, engine, drama_meta=drama, style_note=args.get("style_note", ""),
-        novel_reference=args.get("novel_reference"), force_retranslate=True,
+        novel_reference=resolve_novel_reference(did, args), force_retranslate=True,
         target_ids=eligible, locale=args.get("locale", "en-US"),
         glossary_terms=terms, style_guidelines=args.get("style_guidelines", ""),
         context_window=args.get("context_window", 6), character_names=_character_names(did),

@@ -5,6 +5,7 @@ import { useInterval } from '../../hooks/useInterval'
 import { useHolds } from '../../hooks/useHolds'
 import { browserStorage } from '../../hooks/usePersistedState'
 
+import { ApiError } from '../../api/client'
 import { cancelJob, getJob } from '../../api/jobs'
 import { scanlateApi } from '../../api/scanlate'
 import type { ComicPageInfo } from '../../types/comic'
@@ -20,6 +21,10 @@ const POLL_MS = 4000
 // without this it showed the original page with the translation only in the text panel.
 export function needsReadAhead(ahead: ComicPageInfo[], tried: ReadonlySet<number>): boolean {
   return ahead.some((p) => (!p.has_regions || !p.has_rendered) && !tried.has(p.id))
+}
+
+export function nothingToReadAhead(e: unknown): boolean {
+  return e instanceof ApiError && (e.details as { reason?: unknown } | undefined)?.reason === 'NOTHING_TO_READ_AHEAD'
 }
 
 interface Options {
@@ -74,7 +79,9 @@ export function useReadAhead({ titleId, pages, visible, position, count, canType
         },
         // A job (or the import) already running, no monthly cap for a paid engine, no key or no permission:
         // reading goes on without it, and the next page turn or arriving page asks again.
-        () => {
+        // Pages with nothing left to do stay tried, so this visit does not keep asking about them.
+        (e: unknown) => {
+          if (nothingToReadAhead(e)) return
           for (const p of ahead) tried.current.delete(p.id)
         },
       )

@@ -169,6 +169,36 @@ def test_a_capture_error_reads_as_its_own_message(live, monkeypatch):
         "Couldn't resolve that stream URL: This live event will begin in 2 hours."
 
 
+def test_a_refused_stream_address_reads_without_the_error_class(live, monkeypatch):
+    def refused(*a, **k):
+        raise DependencyUnavailableError("The address could not be resolved. Check the URL and your connection.")
+    monkeypatch.setattr(live_translate, "run_live_job", refused)
+    sid = _start()
+    assert _terminal(sid)
+    assert live_service.get_session(sid)["message"] == \
+        "The address could not be resolved. Check the URL and your connection."
+
+
+def test_stop_on_a_finished_session_leaves_no_generation_behind(live, monkeypatch):
+    monkeypatch.setattr(live_translate, "run_live_job", lambda *a, **k: None)
+    sid = _start()
+    assert _terminal(sid)
+    live_translate.drop_generation(sid)
+    live_service.stop_session(sid)
+    assert sid not in live_translate._generations
+
+
+def test_stop_on_a_queued_session_leaves_no_generation_behind(live, monkeypatch):
+    monkeypatch.setattr(job_launch, "get_gpu_limit_enabled", lambda: True)
+    monkeypatch.setattr(job_launch, "_gpu_slot_available_locked", lambda *a: False)
+    monkeypatch.setattr(job_runner, "_gpu_slot_available_locked", lambda *a: False)
+    sid = _start(use_gpu=True)
+    assert background_jobs.get_status(sid)["status"] == "queued"
+    assert live_service.stop_session(sid)["finishing"] is False
+    assert background_jobs.get_status(sid)["status"] == "cancelled"
+    assert sid not in live_translate._generations
+
+
 def test_status_carries_the_session_language(live):
     sid = _start(source_language="ja")
     assert live_service.get_session(sid)["source_language"] == "ja"

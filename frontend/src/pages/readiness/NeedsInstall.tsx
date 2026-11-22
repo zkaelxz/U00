@@ -1,6 +1,7 @@
 import { ButtonLink } from '../../components/Button'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { SettingsMentions } from '../../components/SettingLink'
 import { buttonClass } from '../../components/uiClasses'
 import { useHolds } from '../../hooks/useHolds'
 import { usePcOnly } from '../../hooks/usePcOnly'
@@ -59,7 +60,7 @@ export function NeedsInstall({ need, onInstalled }: { need: Need; onInstalled?: 
   return (
     <div className="needs-install" id={`needs-install-${need.id}`} data-testid={`needs-${need.id}`}>
       <p className={need.recommended ? 'muted' : 'warn'} role="note">
-        {need.reason}{need.size ? ` (${need.size})` : ''}
+        <SettingsMentions text={need.reason} />{need.size ? ` (${need.size})` : ''}
       </p>
       <div className="actions">
         {action()}

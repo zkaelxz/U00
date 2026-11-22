@@ -69,8 +69,8 @@ test('From a URL: toggle, checks, download starts the urlmedia job', async ({ pa
   await expect(page.getByRole('switch', { name: 'Audio only' })).not.toBeChecked()
   await expect(page.getByText('Still needed: tick “Replace the current audio”.')).toBeVisible()
   await page.getByRole('checkbox', { name: 'Replace the current audio' }).check()
-  // Best available sends nothing; a chosen quality is sent as the tallest picture to keep.
-  await expect(page.getByTestId('url-video-quality')).toHaveValue('0')
+  // 1080p is the default; a chosen quality is sent as the tallest picture to keep.
+  await expect(page.getByTestId('url-video-quality')).toHaveValue('1080')
   await page.getByTestId('url-video-quality').selectOption('720')
   await download.click()
   await expect.poll(() => s.bodies).toEqual([{ url: 'https://video.example/watch?v=1', audio_only: false, confirm_replace_audio: true, max_height: 720 }])
@@ -79,6 +79,21 @@ test('From a URL: toggle, checks, download starts the urlmedia job', async ({ pa
   // The choice is remembered.
   await page.reload()
   await expect(page.getByRole('radio', { name: 'From a URL' })).toBeChecked()
+  expect(s.unmocked).toEqual([])
+})
+
+test('From a URL: download the same video again keeps the lines and needs no Replace tick', async ({ page }) => {
+  const s = await mockUrlDownload(page, { hasAudio: true, hasSourceVideo: true })
+  await page.goto('/#/drama/1/source')
+  await page.getByRole('radio', { name: 'From a URL' }).check()
+  await page.getByRole('checkbox', { name: 'Download the same video again (keeps the lines)' }).check()
+  await expect(page.getByTestId('url-keep-lines')).toContainText("the title's transcription and translation stay")
+  await expect(page.getByRole('checkbox', { name: 'Replace the current audio' })).toHaveCount(0)
+  // The link may stay empty: the server uses the title's own link.
+  await page.getByRole('textbox', { name: 'Video or audio link' }).fill('')
+  await page.getByTestId('url-video-quality').selectOption('2160')
+  await page.getByRole('button', { name: 'Download', exact: true }).click()
+  await expect.poll(() => s.bodies).toEqual([{ url: '', audio_only: false, confirm_replace_audio: false, keep_lines: true, max_height: 2160 }])
   expect(s.unmocked).toEqual([])
 })
 
@@ -164,7 +179,7 @@ test('From a URL: a refused long video offers a part or Download anyway', async 
   await expect(page.getByLabel('Part start (h:mm:ss)')).toBeFocused()
   await page.getByRole('button', { name: 'Download anyway' }).click()
   await expect.poll(() => s.bodies.length).toBe(2)
-  expect(s.bodies[1]).toEqual({ url: 'https://video.example/watch?v=long', audio_only: false, confirm_replace_audio: false, allow_long: true })
+  expect(s.bodies[1]).toEqual({ url: 'https://video.example/watch?v=long', audio_only: false, confirm_replace_audio: false, allow_long: true, max_height: 1080 })
   await expect(page.getByTestId('url-download-long')).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })
@@ -186,7 +201,7 @@ test('From a URL: Only this part sends the times and says subtitles start at 0',
   await download.click()
   await expect.poll(() => s.bodies).toEqual([{
     url: 'https://video.example/watch?v=part', audio_only: false, confirm_replace_audio: false,
-    part_start: '1:00:00', part_end: '1:30:00', exact_cuts: true,
+    max_height: 1080, part_start: '1:00:00', part_end: '1:30:00', exact_cuts: true,
   }])
   expect(s.unmocked).toEqual([])
 })

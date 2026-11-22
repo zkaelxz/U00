@@ -134,6 +134,8 @@ export interface SettingsOverview extends Record<SettingsToggleKey, boolean> {
   effective_monthly_cap_usd: number
   // Full month vs what the cap counts since an active reset (UTC ISO time).
   month_spend_usd: number
+  // The part of month_spend_usd imported with titles from another library; it still counts toward the cap.
+  month_spend_imported_usd?: number
   month_spend_counted_usd: number
   month_spend_reset_at: string | null
   choices: SettingsChoices

@@ -75,7 +75,9 @@ export function registerReadinessCases(prefix: string) {
 
   test(`${prefix}fresh install: each control that needs something is off, says why, and links the fix`, async ({ page }) => {
     await enableDeveloperMode(page)
-    await setup(page, FRESH)
+    // Detect speakers stays clickable while it is on, so the title's saved choice is pinned off here
+    // rather than taken from whatever the seeded drama 1 was left with.
+    await setup(page, FRESH, { run_start: { run_diarize: false } })
     await page.goto('/#/drama/1/source?tab=transcribe')
     await expect(page.getByTestId('settings-summary')).toBeVisible()
     // Detect speakers after transcribing sits on the Transcribe tab.

@@ -119,8 +119,8 @@ def classify_html(url: str, html: str) -> Preview:
     return p
 
 
-def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = True,
-            allow_browser: bool = True, cancel_check=None, video_probe=None) -> Preview:
+def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = False,
+            allow_browser: bool = False, cancel_check=None, video_probe=None) -> Preview:
     """`allow_signed_in`/`allow_browser`: see generic_import.fetch_page (the
     API turns both off for a request not from this PC). `cancel_check`
     reaches a registered adapter's paced client (raises Cancelled).

@@ -3,9 +3,10 @@ import { useEffect, useState } from 'react'
 import { getResources } from '../../api/diagnostics'
 import { Badge } from '../../components/Badge'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { routeHref } from '../../router'
 import { Section } from '../../components/Section'
 import type { ResourceReadings } from '../../types/diagnostics'
-import { readingText, resourcesSummary, resourceStatus, ruleText, sampledText } from './resourcesFormat'
+import { readingText, resourcesSummary, resourceStatus, ruleText, sampledText, visibleMetrics } from './resourcesFormat'
 
 const REFRESH_MS = 30_000
 
@@ -32,12 +33,13 @@ export function ResourcesSection({ openSignal }: { openSignal?: number }) {
       ) : (
         <>
           <p className="muted" data-testid="resources-sampled">{sampledText(data)}</p>
+          <p><a href={routeHref({ name: 'settings', card: 'pc-alerts' })}>Change limits</a></p>
           <ul className="diag-rows diag-stack" data-testid="resources-list">
-            {data.metrics.map((m) => {
+            {visibleMetrics(data).map((m) => {
               const status = resourceStatus(m)
               return (
                 <li key={m.name} data-testid={`resource-${m.name}`}>
-                  <strong>{m.label}</strong>: {readingText(m)} <Badge tone={status.tone}>{status.label}</Badge>
+                  <strong>{m.label}</strong>: {readingText(m)}{status && <> <Badge tone={status.tone}>{status.label}</Badge></>}
                   <br />
                   <span className="muted">{ruleText(m)}</span>
                 </li>

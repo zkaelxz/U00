@@ -142,6 +142,19 @@ def get_logged_month_spend(now: datetime.datetime | None = None, since_reset: bo
     return float(row["spent"])
 
 
+def get_imported_month_spend(now: datetime.datetime | None = None) -> float:
+    """The part of the full month's logged spend that a backup import brought
+    in (rows from another library dated this month). It still counts toward
+    the cap: it is the same person's money."""
+    now = now or clock.utcnow()
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(estimated_cost_usd), 0) AS spent FROM usage_log "
+            "WHERE created_at >= ? AND imported_at IS NOT NULL",
+            (_month_start(now, False),)).fetchone()
+    return float(row["spent"])
+
+
 def get_month_spend(now: datetime.datetime | None = None, since_reset: bool = True) -> float:
     """What the monthly cap is checked against: the logged spend since an
     active reset plus the estimates of bulk batches not billed yet (a batch's

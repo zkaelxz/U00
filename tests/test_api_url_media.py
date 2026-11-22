@@ -1544,3 +1544,89 @@ def test_a_cover_the_download_did_not_make_survives_a_failed_install(client, env
                         lambda *a, **kw: (_ for _ in ()).throw(OSError("disk full")))
     assert _run(client, did)["status"] == "error"
     assert removed == []
+
+
+# ---- download again at another quality, keeping the lines -------------------
+
+def _with_lines(audio=b"old audio"):
+    from core import Line
+    did = _drama()
+    ddir = db.drama_dir(did)
+    with open(os.path.join(ddir, "audio.flac"), "wb") as f:
+        f.write(audio)
+    db.update_drama(did, audio_filename="audio.flac")
+    db.save_lines(did, [Line(idx=0, start=0, end=2, zh="你好", en="Hello"),
+                        Line(idx=1, start=3, end=5, zh="再见", en="Bye")])
+    return did, _texts(did)
+
+
+def _texts(did):
+    return [(ln["zh"], ln["en"]) for ln in db.load_lines(did)]
+
+
+def _lengths(monkeypatch, old, new):
+    """ffprobe stand-in: the title's current file is `old` seconds, the download (still in
+    the job's temp folder) `new`."""
+    import media_inspect
+    temp = os.path.realpath(storage.temp_root())
+    monkeypatch.setattr(media_inspect, "duration_seconds", lambda path, timeout=30:
+                        new if os.path.realpath(path).startswith(temp) else old)
+
+
+def test_download_again_replaces_only_the_media_and_keeps_the_lines(client, env, monkeypatch):
+    did, lines = _with_lines()
+    _lengths(monkeypatch, 1420.0, 1420.4)
+    st = _run(client, did, audio_only=False, keep_lines=True, max_height=720)
+    assert st["status"] == "done", st
+    assert st["message"] == "Downloaded again. The lines were kept."
+    drama = db.get_drama(did)
+    assert (drama["audio_filename"], drama["source_video_filename"]) == ("audio-2.flac", "source.mp4")
+    assert _texts(did) == lines
+    assert FakeYDL.last_opts["format_sort"] == ["res:720"]
+
+
+def test_download_again_refuses_a_different_video_and_changes_nothing(client, env, monkeypatch):
+    did, lines = _with_lines()
+    _lengths(monkeypatch, 1420.0, 1500.0)
+    st = _run(client, did, audio_only=False, keep_lines=True)
+    assert st["status"] == "error"
+    assert st["error"].endswith("This looks like a different video (25:00 vs 23:40), so the lines "
+                                "were kept and the new file was not used.")
+    drama = db.get_drama(did)
+    assert (drama["audio_filename"], drama["source_video_filename"]) == ("audio.flac", None)
+    assert _texts(did) == lines
+    assert sorted(os.listdir(db.drama_dir(did))) == ["audio.flac"]
+    _no_tmp(did)
+
+
+def test_download_again_refuses_when_a_length_cannot_be_read(client, env, monkeypatch):
+    import media_inspect
+    did, lines = _with_lines()
+    monkeypatch.setattr(media_inspect, "duration_seconds", lambda path, timeout=30: None)
+    st = _run(client, did, keep_lines=True)
+    assert st["status"] == "error" and st["error"].endswith(svc._UNMEASURED)
+    assert db.get_drama(did)["audio_filename"] == "audio.flac"
+    assert _texts(did) == lines
+
+
+def test_download_again_uses_the_titles_own_link_when_none_is_given(client, env, monkeypatch):
+    did, _ = _with_lines()
+    _lengths(monkeypatch, 60.0, 60.0)
+    db.update_drama(did, source_url="https://video.example/watch", source_url_full=URL)
+    st = _run(client, did, url="", keep_lines=True)
+    assert st["status"] == "done", st
+    assert FakeYDL.calls and FakeYDL.calls[-1] == URL
+
+
+def test_download_again_refusals(client, env):
+    empty = _drama()
+    r = _start(client, empty, keep_lines=True)
+    assert r.status_code == 422 and r.json()["error"]["message"] == svc._NOTHING_TO_REDOWNLOAD
+    did, _ = _with_lines()
+    r = _start(client, did, url="", keep_lines=True)
+    assert r.status_code == 422 and r.json()["error"]["message"] == svc._NO_LINK_TO_REDOWNLOAD
+    r = _start(client, did, keep_lines=True, audio_only=False, part_start="0:10")
+    assert r.status_code == 422 and r.json()["error"]["message"] == svc._REDOWNLOAD_PART
+    # Without keep_lines an empty link is refused as before.
+    assert _start(client, did, url="", confirm_replace_audio=True).status_code == 422
+    assert FakeYDL.calls == []

@@ -29,8 +29,8 @@ import {
   EXACT_CUTS_HELP, MAX_URL_LEN, PART_CLIP_NOTE, QUEUE_NOTE, downloadReason, partProblem,
 } from '../../sources/urlImportFormat'
 import {
-  SAME_LINK_REPLACE_NOTE, SWITCHES_FROM_BURNED_IN, URL_DRAFT_SHAPE, URL_DRAFT_STAGE, URL_SETS_VIDEO_ASIDE,
-  isDirectAudioUrl, isDirectMediaUrl, videoQualityLabel,
+  DEFAULT_VIDEO_HEIGHT, KEEP_LINES_NOTE, SAME_LINK_REPLACE_NOTE, SWITCHES_FROM_BURNED_IN, URL_DRAFT_SHAPE, URL_DRAFT_STAGE,
+  URL_SETS_VIDEO_ASIDE, isDirectAudioUrl, isDirectMediaUrl, videoQualityLabel,
 } from '../sourceForm'
 import './urlDownload.css'
 
@@ -56,13 +56,16 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
   const { draft, save: saveDraft } = useStageDraft(dramaId, URL_DRAFT_STAGE, URL_DRAFT_SHAPE)
   const [typed, setTyped] = useState(draft.url ?? '')
   const [audioOnly, setAudioOnly] = useState(() => draft.audioOnly ?? isDirectAudioUrl(fixedUrl ?? draft.url ?? ''))
-  const [maxHeight, setMaxHeight] = useState<number>(() =>
-    VIDEO_HEIGHTS.includes(draft.maxHeight as VideoHeight) ? (draft.maxHeight as number) : 0,
-  )
+  const [maxHeight, setMaxHeight] = useState<number>(() => {
+    const kept = draft.videoHeight
+    return kept === 0 || VIDEO_HEIGHTS.includes(kept as VideoHeight) ? (kept as number) : DEFAULT_VIDEO_HEIGHT
+  })
   useEffect(() => {
-    saveDraft({ url: typed, audioOnly, maxHeight })
+    saveDraft({ url: typed, audioOnly, videoHeight: maxHeight })
   }, [saveDraft, typed, audioOnly, maxHeight])
   const [replace, setReplace] = useState(false)
+  // "Download again, keep the lines": kept for this visit only, like Replace.
+  const [keepLines, setKeepLines] = useState(false)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<unknown>(null)
   // The server says the drama has audio even if the status we read did not.
@@ -81,11 +84,14 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
 
   const url = fixedUrl ?? typed
   const audioThere = hasAudio || serverHasAudio
-  const partReason = partProblem(partStart, partEnd)
+  const again = audioThere && keepLines
+  const partReason = again ? null : partProblem(partStart, partEnd)
   // Unknown readiness needs nothing: the server still refuses what cannot run.
   const needs = urlDownloadNeeds(readiness, isDirectMediaUrl(url))
-  const reason = downloadReason(url, audioThere, replace) ?? partReason ?? (needs.length ? 'Still needed: set up what is listed below.' : null)
-  const hasPart = partStart.trim() !== '' || partEnd.trim() !== ''
+  // Download again may leave the link empty: the server then uses the title's own link.
+  const linkReason = again ? (url.trim() ? downloadReason(url, false, false) : null) : downloadReason(url, audioThere, replace)
+  const reason = linkReason ?? partReason ?? (needs.length ? 'Still needed: set up what is listed below.' : null)
+  const hasPart = !again && (partStart.trim() !== '' || partEnd.trim() !== '')
   // The server's own words for why it refused (services/url_media_service.py failed_reason).
   const refusedFor = job?.status === 'error' ? (job.result as { failed_reason?: string } | null | undefined)?.failed_reason : undefined
   const audioOnlyResult = audioOnly || isDirectAudioUrl(url)
@@ -94,7 +100,8 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
     if (reason || busy || starting) return
     setStarting(true)
     setError(null)
-    const body: UrlDownloadRequest = { url: url.trim(), audio_only: audioOnly, confirm_replace_audio: audioThere && replace }
+    const body: UrlDownloadRequest = { url: url.trim(), audio_only: audioOnly, confirm_replace_audio: !again && audioThere && replace }
+    if (again) body.keep_lines = true
     if (anyway) body.allow_long = true
     if (maxHeight && !audioOnly && !isDirectMediaUrl(url)) body.max_height = maxHeight as VideoHeight
     if (hasPart && !isDirectAudioUrl(url)) {
@@ -153,7 +160,7 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
           </Field>
         )}
       </div>
-      {!simple && !isDirectAudioUrl(url) && (
+      {!simple && !again && !isDirectAudioUrl(url) && (
         <fieldset className="url-download-part">
           <legend>Only this part (optional)</legend>
           <div className="url-download-part-times">
@@ -200,10 +207,21 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
       {audioThere && (
         <div className="url-download-checks">
           <label>
-            <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
-            Replace the current audio
+            <input type="checkbox" checked={keepLines} onChange={(e) => setKeepLines(e.target.checked)} />
+            Download the same video again (keeps the lines)
           </label>
-          {replace && !isDirectMediaUrl(url) && <p className="muted">{SAME_LINK_REPLACE_NOTE}</p>}
+          {again && (
+            <p className="muted" data-testid="url-keep-lines">
+              {KEEP_LINES_NOTE}
+            </p>
+          )}
+          {!again && (
+            <label>
+              <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
+              Replace the current audio
+            </label>
+          )}
+          {(again || replace) && !isDirectMediaUrl(url) && <p className="muted">{SAME_LINK_REPLACE_NOTE}</p>}
           {audioOnlyResult && hasSourceVideo && (
             <p className="muted" data-testid="url-sets-video-aside">
               {URL_SETS_VIDEO_ASIDE}

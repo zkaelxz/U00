@@ -118,7 +118,7 @@ test('a finished run shows as Last run after a fresh visit, and Retry starts it 
 test('Retry on Last run starts nothing while the engine cannot run, and says why', async ({ page }) => {
   const t = Math.floor(Date.now() / 1000)
   const failed = {
-    ...job('translate_1', 'error'), progress: 1, error: 'rate limited', started_at: t - 700, finished_at: t - 600, updated_at: t - 600,
+    ...job('translate_1', 'error'), progress: 1, error: 'RuntimeError: rate limited', started_at: t - 700, finished_at: t - 600, updated_at: t - 600,
     drama_id: 1, kind: 'translate',
   }
   const starts: unknown[] = []
@@ -142,6 +142,8 @@ test('Retry on Last run starts nothing while the engine cannot run, and says why
 
   const run = page.getByRole('region', { name: 'Translate run' })
   await expect(run.getByTestId('engine-gate')).toContainText('Claude has no API key')
+  // The Python class name is not for people.
+  await expect(page.getByTestId('last-run').getByTestId('last-run-text')).toHaveText('rate limited')
   await page.getByTestId('last-run').getByRole('button', { name: 'Retry' }).click()
   await expect(run.getByRole('alert').filter({ hasText: 'has no API key yet' })).toBeVisible()
   expect(starts).toEqual([])

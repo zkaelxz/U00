@@ -27,7 +27,7 @@ from services import library_service, novel_files_service, voice_clone_service
 router = APIRouter(prefix="/api/library", tags=["library"])
 
 _SUMMARY_FIELDS = tuple(f for f in DramaSummary.model_fields
-                        if f not in ("custom_tags", "is_private", "owned_by_me", "line_count", "translated_count", "page_count",
+                        if f not in ("custom_tags", "is_private", "owned_by_me", "has_cover_art", "line_count", "translated_count", "page_count",
                                     "pages_translated", "new_chapters"))
 _DETAIL_FIELDS = tuple(f for f in DramaDetail.model_fields
                        if f not in ("custom_tags", "is_private", "owned_by_me", "has_audio", "has_novel_reference",
@@ -41,6 +41,7 @@ def _to_summary(drama: dict) -> DramaSummary:
     return DramaSummary(**fields,
                         is_private=drama.get("sharing_private"),
                         owned_by_me=drama.get("sharing_owned"),
+                        has_cover_art=bool(drama.get("cover_art_filename")),
                         line_count=drama.get("line_count") or 0,
                         translated_count=drama.get("translated_count") or 0,
                         page_count=drama.get("page_count") or 0,
@@ -167,8 +168,8 @@ def rename_preset(body: LibraryRename, preset_id: int = Path(ge=1, le=2**31 - 1)
 
 @router.get("/voice-bank", dependencies=[require_permission("library.read")], response_model=LibraryVoiceBankResponse,
             summary="Voice bank entries (no file paths)")
-def get_voice_bank():
-    return {"items": library_service.list_voice_bank()}
+def get_voice_bank(request: Request):
+    return {"items": library_service.list_voice_bank(principal=request.state.principal)}
 
 
 @router.post("/voice-bank", dependencies=[local_only()], response_model=LibraryVoice,
@@ -184,18 +185,19 @@ def add_voice(file: UploadFile = File(...), name: str = Form(..., min_length=1, 
 
 @router.post("/voice-bank/{entry_id}/rename", dependencies=[require_permission("admin.library")], response_model=LibraryVoice,
              responses=_ERR_WRITE, summary="Rename a voice bank entry")
-def rename_voice(body: LibraryRename, entry_id: int = Path(ge=1, le=2**31 - 1)):
-    return library_service.rename_voice_bank_entry(entry_id, body.name)
+def rename_voice(body: LibraryRename, request: Request, entry_id: int = Path(ge=1, le=2**31 - 1)):
+    return library_service.rename_voice_bank_entry(entry_id, body.name, principal=request.state.principal)
 
 
 @router.post("/voice-bank/{entry_id}/details", dependencies=[require_permission("admin.library")],
              response_model=LibraryVoice, responses=_ERR_WRITE,
              summary="Edit a voice bank entry's notes, transcript and language")
-def edit_voice_details(body: LibraryVoiceDetails, entry_id: int = Path(ge=1, le=2**31 - 1)):
-    return library_service.update_voice_bank_details(entry_id, body.notes, body.ref_text, body.language)
+def edit_voice_details(body: LibraryVoiceDetails, request: Request, entry_id: int = Path(ge=1, le=2**31 - 1)):
+    return library_service.update_voice_bank_details(entry_id, body.notes, body.ref_text, body.language,
+                                                     principal=request.state.principal)
 
 
 @router.post("/voice-bank/{entry_id}/clip", dependencies=[local_only()], response_model=LibraryVoice,
              responses=error_responses(404, 422, 503), summary="Replace a voice bank entry's clip")
-def replace_voice_clip(file: UploadFile = File(...), entry_id: int = Path(ge=1, le=2**31 - 1)):
-    return voice_clone_service.replace_voice_bank_clip(entry_id, file.filename, file.file)
+def replace_voice_clip(request: Request, file: UploadFile = File(...), entry_id: int = Path(ge=1, le=2**31 - 1)):
+    return voice_clone_service.replace_voice_bank_clip(entry_id, file.filename, file.file, principal=request.state.principal)

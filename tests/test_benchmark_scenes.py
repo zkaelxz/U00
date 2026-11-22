@@ -230,17 +230,30 @@ class TestSceneRun:
         with pytest.raises(UnsupportedOperationError):
             lab.start_run("translation", [{"engine": "claude", "options": {}}])
 
-    def test_the_run_stops_at_the_cap_mid_scene(self, isolated_db, engine, monkeypatch):
-        _scene("T", 6)
+    def _capped_run(self, monkeypatch, max_cost_usd):
         monkeypatch.setattr(lab.settings_service, "get_monthly_cap_usd", lambda: 100.0)
         monkeypatch.setattr(lab, "estimate", lambda *a, **k: {"monthly_refusal": None, "estimate_above_cap": False,
                                                               "estimated_cost_usd": 0})
         started = lab.start_run("translation", [{"engine": "claude", "options": {"batch_size": 1}}],
-                                max_cost_usd=0.0001)
+                                max_cost_usd=max_cost_usd)
         wait_for_job(lab.JOB_ID, timeout=15)
-        run = lab.get_run(started["session_ids"][0])["run"]
-        assert run["status"] == "stopped_cap"
-        assert len(engine.batches) < 6
+        sid = started["session_ids"][0]
+        return lab.get_run(sid)["run"], lab.get_run(sid)["results"]
+
+    def test_the_run_stops_at_the_cap_mid_scene(self, isolated_db, engine, monkeypatch):
+        _scene("T", 6)
+        # Room for two of the six one-line batches, each billed like SceneEngine's 1000 + 1000 tokens.
+        batch = pricing.estimate_cost_for_engine(SceneEngine(), 1000, 1000)
+        run, results = self._capped_run(monkeypatch, batch * 2.5)
+        assert run["status"] == "stopped_cap" and run["note"] == "Stopped at the spending cap."
+        assert 0 < len(engine.batches) < 6
+        assert len(results) == len(engine.batches) and all(not r["error"] for r in results)
+
+    def test_a_cap_too_small_for_the_first_batch_stops_the_run_at_the_cap(self, isolated_db, engine, monkeypatch):
+        _scene("T", 6)
+        run, results = self._capped_run(monkeypatch, 0.0000001)
+        assert run["status"] == "stopped_cap" and run["note"] == "Stopped at the spending cap."
+        assert engine.batches == [] and results == []
 
     def test_the_cap_counts_a_scene_when_it_is_translated_not_as_its_cases_are_read(self, isolated_db, engine, monkeypatch):
         # Cases of three titles interleaved by id: reading A1 pays for all of A, so the cap must already be

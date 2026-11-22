@@ -39,6 +39,7 @@ log = logging.getLogger(__name__)
 # --------------------------------------------------------------------------
 
 _BAD_ZIP = "This file is not a valid Baihe library backup."
+_CRC_CHUNK = 1024 * 1024
 _BUSY = ("A background job is running -- wait for it to finish or cancel it before "
          "restoring.")
 
@@ -93,7 +94,8 @@ def validate_backup_zip(zip_bytes) -> None:
     _validate_zip(io.BytesIO(zip_bytes), len(zip_bytes), check_disk=True)
 
 
-def validate_backup_file(path: str, check_disk: bool = True, check_limits: bool = True) -> None:
+def validate_backup_file(path: str, check_disk: bool = True, check_limits: bool = True,
+                         on_read=None) -> None:
     """validate_backup_zip for a zip on disk (read in place, never loaded
     whole into memory). check_disk=False skips the free-space check, for
     a backup that was just written rather than one about to be restored
@@ -101,16 +103,34 @@ def validate_backup_file(path: str, check_disk: bool = True, check_limits: bool 
     count, per-member and expanded-total size) for the app's own snapshot,
     which can legitimately be larger than any upload; the structural
     checks (library.db present, no unsafe/symlink/encrypted member, CRCs)
-    always run, and a caller extracting members must cap what it extracts."""
+    always run, and a caller extracting members must cap what it extracts.
+    `on_read(done_bytes, total_bytes)`, if given, is called as the CRC pass
+    reads the members, and may raise to stop it (a cancelled job)."""
     try:
         size = os.path.getsize(path)
         with open(path, "rb") as fh:
-            _validate_zip(fh, size, check_disk=check_disk, check_limits=check_limits)
+            _validate_zip(fh, size, check_disk=check_disk, check_limits=check_limits,
+                          on_read=on_read)
     except OSError:
         raise InvalidInputError(_BAD_ZIP) from None
 
 
-def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True) -> None:
+def _read_every_member(zf: zipfile.ZipFile, infos, on_read) -> None:
+    """What zf.testzip() checks (each member's CRC, which a read verifies),
+    reporting as it goes: a full backup can be many GB, and testzip can't be
+    followed or stopped. Raises BadZipFile on a bad CRC."""
+    total = sum(i.file_size for i in infos)
+    done = 0
+    for info in infos:
+        on_read(done, total)
+        with zf.open(info) as fh:
+            while chunk := fh.read(_CRC_CHUNK):
+                done += len(chunk)
+                on_read(done, total)
+
+
+def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True,
+                  on_read=None) -> None:
     try:
         with zipfile.ZipFile(source) as zf:
             infos = zf.infolist()
@@ -141,7 +161,9 @@ def _validate_zip(source, size: int, check_disk: bool, check_limits: bool = True
             if check_disk and not has_disk_room(os.path.dirname(os.path.abspath(db.LIBRARY_DIR)),
                                                  total + rebuild):
                 raise InvalidInputError("Not enough free disk space to restore this backup.")
-            if zf.testzip() is not None:
+            if on_read is not None:
+                _read_every_member(zf, infos, on_read)
+            elif zf.testzip() is not None:
                 raise InvalidInputError("The backup zip is corrupted.")
     except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, ValueError, NotImplementedError,
             RuntimeError, zlib.error):

@@ -50,6 +50,14 @@ that like any import's (drama_service.set_source_url_once: cleaned form,
 raw form kept apart, never over a link the title already has).
 Audio-only clears an older source_video_filename and moves that video there too.
 
+"Download again, keep the lines" (`keep_lines`): the same video at another
+quality for a title that already has media. The link defaults to the title's
+own (source_url_full, else source_url); a part can't be chosen. Before
+anything is installed the new audio's length is compared with the current
+media's, and a clearly different length (or one that can't be measured) fails
+the job with the title unchanged. Lines are never touched by a download, so
+they stay either way; this check is what makes them still fit.
+
 Errors are fixed strings: never the URL, a path or yt-dlp's raw text.
 """
 
@@ -69,6 +77,7 @@ import applog
 import background_jobs
 from jobs import job_launch
 import db
+import media_inspect
 import storage
 from engine_backends import shared
 import video_export
@@ -130,6 +139,15 @@ _NOW_BUSY = "This title now has audio or video. Start again and confirm replacin
 _PART_NO_COOKIES = ("Downloading only part of a video can't use your saved cookie login. Turn "
                     "cookie login off in Settings, or download the whole video.")
 _EXTRACT_FAILED = "Could not read audio from the downloaded video."
+_NOTHING_TO_REDOWNLOAD = "This title has no audio or video yet, so there is nothing to download again."
+_NO_LINK_TO_REDOWNLOAD = "This title has no link to download from. Paste the video's link."
+_REDOWNLOAD_PART = "Download again keeps the lines for the whole video only, not a part."
+_UNMEASURED = ("Couldn't measure the length of the current or the new file, so the lines were kept "
+               "and the new file was not used.")
+# The same video at another quality differs by container padding only; a
+# different cut or upload is minutes off.
+SAME_VIDEO_TOLERANCE_SECONDS = 2.0
+SAME_VIDEO_TOLERANCE_RATIO = 0.002
 _WEB_PAGE = "That link opens a web page, not an audio or video file."
 _start_lock = threading.Lock()
 _slots = threading.Condition()
@@ -411,6 +429,35 @@ def _hm(seconds) -> str:
     if h:
         return f"{h} h" if not m else f"{h} h {m} m"
     return f"{m} m" if seconds >= 60 else f"{seconds} s"
+
+
+def _clock_text(seconds) -> str:
+    seconds = int(round(seconds))
+    h, m, sec = seconds // 3600, seconds % 3600 // 60, seconds % 60
+    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+
+
+def _current_media_path(drama: dict, drama_id: int):
+    ddir = db.drama_dir(drama_id)
+    for field in ("audio_filename", "source_video_filename"):
+        name = drama.get(field)
+        if name and os.path.isfile(os.path.join(ddir, name)):
+            return os.path.join(ddir, name)
+    return None
+
+
+def _check_same_video(drama_id: int, new_path: str) -> None:
+    """Refuses a download again whose length doesn't match the title's
+    current media: the lines' times would no longer fit it."""
+    old_path = _current_media_path(db.get_drama(drama_id) or {}, drama_id)
+    old = media_inspect.duration_seconds(old_path) if old_path else None
+    new = media_inspect.duration_seconds(new_path)
+    if old is None or new is None:
+        raise RuntimeError(_UNMEASURED)
+    if abs(new - old) > max(SAME_VIDEO_TOLERANCE_SECONDS, SAME_VIDEO_TOLERANCE_RATIO * old):
+        raise RuntimeError(f"This looks like a different video ({_clock_text(new)} vs "
+                           f"{_clock_text(old)}), so the lines were kept and the new file "
+                           "was not used.")
 
 
 def _size(nbytes) -> str:
@@ -760,11 +807,14 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
             _extract_audio(job_id, path, audio, tmp)
             new_files = {"source_video_filename": (path, "source", ext),
                          "audio_filename": (audio, "audio", ".flac")}
+        options = options or {}
+        if options.get("keep_lines"):
+            background_jobs.update_progress(job_id, 0.9, "Checking it is the same video...")
+            _check_same_video(drama_id, new_files["audio_filename"][0])
         fields = {}
         drama = db.get_drama(drama_id) or {}  # re-read just before writing
         # A part is not recorded as this link's download: the same link
         # later may be another part, and the cut can't be fetched again as it was.
-        options = options or {}
         whole = options.get("part_start") is None and options.get("part_end") is None
         origin = url if not direct_ext and whole else None
         if title and not (drama.get("title_en") or drama.get("title_zh")):
@@ -789,8 +839,10 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
         filled = link_details_service.fill_after_download(drama_id, link) if link is not None else []
         background_jobs.set_result(job_id, {"kind": "url_media", "audio_only": bool(audio_only),
                                             "title_filled": "title_zh" in fields,
-                                            "details_filled": filled})
-        background_jobs.update_progress(job_id, 1.0, "Downloaded.")
+                                            "details_filled": filled,
+                                            "kept_lines": bool(options.get("keep_lines"))})
+        background_jobs.update_progress(job_id, 1.0, "Downloaded again. The lines were kept."
+                                        if options.get("keep_lines") else "Downloaded.")
 
 
 _CLOCK_RE = re.compile(r"^\d{1,3}(:\d{1,2}){0,2}$")
@@ -812,8 +864,14 @@ def parse_clock(text, label: str):
     return seconds
 
 
+def _title_link(drama_id) -> str:
+    drama = ownership_service.require_drama(drama_id)
+    return (drama.get("source_url_full") or drama.get("source_url") or "").strip()
+
+
 def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, allow_long=False,
-                       part_start=None, part_end=None, exact_cuts=False, max_height=None) -> dict:
+                       part_start=None, part_end=None, exact_cuts=False, max_height=None,
+                       keep_lines=False) -> dict:
     """Starts `urlmedia_<drama_id>`; poll GET /api/jobs/{job_id}. The job
     waits in line when MAX_PARALLEL_DOWNLOADS are running or the last start
     was under START_SPACING_SECONDS ago. 422 bad or private URL, wrong
@@ -824,11 +882,25 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
     allow_long raises the 6 h cap to 12 h for this download only;
     part_start/part_end (h:mm:ss) download just that section. max_height
     (one of ytdlp_child.VIDEO_HEIGHTS) keeps a video no taller than that;
-    it means nothing for audio only or a direct file link."""
-    flags = (audio_only, confirm_replace_audio, allow_long, exact_cuts)
+    it means nothing for audio only or a direct file link. keep_lines
+    downloads the title's video again (module docstring): it replaces the
+    media without confirm_replace_audio, and an empty url means the title's
+    own link."""
+    flags = (audio_only, confirm_replace_audio, allow_long, exact_cuts, keep_lines)
     if not all(isinstance(f, bool) for f in flags):
-        raise InvalidInputError("audio_only, confirm_replace_audio, allow_long and exact_cuts "
-                                "must be true or false.")
+        raise InvalidInputError("audio_only, confirm_replace_audio, allow_long, exact_cuts and "
+                                "keep_lines must be true or false.")
+    if keep_lines:
+        drama = ownership_service.require_drama(drama_id)
+        if not media_upload_service.has_media(drama, drama_id):
+            raise InvalidInputError(_NOTHING_TO_REDOWNLOAD)
+        if part_start is not None or part_end is not None or exact_cuts:
+            raise InvalidInputError(_REDOWNLOAD_PART)
+        if not (url or "").strip():
+            url = _title_link(drama_id)
+            if not url:
+                raise InvalidInputError(_NO_LINK_TO_REDOWNLOAD)
+        confirm_replace_audio = True
     if max_height is not None and (isinstance(max_height, bool)
                                    or max_height not in ytdlp_child.VIDEO_HEIGHTS):
         raise InvalidInputError("Unknown video quality.",
@@ -850,7 +922,7 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
             raise InvalidInputError(_PART_NO_COOKIES)
     options = {"allow_long": allow_long, "part_start": start if ranged else None,
                "part_end": end, "exact_cuts": exact_cuts if ranged else None,
-               "max_height": None if audio_only else max_height}
+               "max_height": None if audio_only else max_height, "keep_lines": keep_lines}
     with media_upload_service.claims_lock:
         if drama_id in media_upload_service.claimed:
             raise ConflictError("Another upload is in progress for this title.")

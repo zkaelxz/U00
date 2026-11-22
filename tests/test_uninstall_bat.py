@@ -188,6 +188,10 @@ def test_baihe_scratch_items_in_temp_go_by_name_and_junctions_are_not_followed()
     assert "tmp*'" not in removal.replace("baihe_tmp_*'", "")
     assert "ReparsePoint" in removal and ".Delete()" in removal
     assert "$env:TEMP" in removal
+    # Renamed before deleting: a folder another running copy uses can't be, so it is kept whole.
+    sweep = removal[removal.index("'baihe_*'"):removal.index("'baihe_page_*'")]
+    assert sweep.index("[IO.Directory]::Move($d.FullName, $g)") < sweep.index("Remove-Item -LiteralPath $g")
+    assert "Remove-Item -LiteralPath $d.FullName" not in sweep
     assert "Temp folder" in bat.split("It will NOT touch")[0]
 
 
