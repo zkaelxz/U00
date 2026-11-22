@@ -16,6 +16,7 @@ import queue
 import re
 import sys
 import types
+import weakref
 
 import pytest
 
@@ -23,9 +24,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from voice import dub
 from voice import dub_narration
-from .voice_helpers import speak_with
+from .voice_helpers import speak_with, use_fake_ffmpeg
 from memory_headroom import HeadroomError
 from core import Line
+
+
+@pytest.fixture(autouse=True)
+def ffmpeg(monkeypatch):
+    """No real ffmpeg: the narration track is fed to a fake that keeps what it was given."""
+    return use_fake_ffmpeg(monkeypatch)
 
 
 class FakeAudioSegment:
@@ -178,6 +185,14 @@ class TestFallbackVoices:
         assert out["A"]["instruct"] == dub.DEFAULT_VOICE_DESCRIPTIONS[0]
         assert out["B"]["instruct"] == dub.DEFAULT_VOICE_DESCRIPTIONS[1]
 
+    def test_a_remembered_voice_another_speaker_here_uses_is_not_shared(self):
+        d = dub.DEFAULT_VOICE_DESCRIPTIONS
+        chars = [{"speaker_label": "A", "voice_design": d[0]},
+                 {"speaker_label": "B", "series_voice_design": d[0]},
+                 {"speaker_label": "C", "series_voice_design": d[2]}]
+        picks = dub.default_voice_designs(chars, ["A", "B", "C"])
+        assert picks["C"] == d[2] and picks["B"] not in (d[0], d[2])
+
     def test_the_pool_wraps_when_there_are_more_speakers_than_voices(self, tmp_path):
         labels = [f"S{i}" for i in range(len(dub.DEFAULT_VOICE_DESCRIPTIONS) + 1)]
         out = dub.clone_map_from_characters([], str(tmp_path), speaker_labels=labels)
@@ -245,105 +260,259 @@ class TestBuildNarrationTrack:
 
     def test_a_failed_line_still_advances_the_timeline_with_a_silent_gap(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
-        speak_with(monkeypatch, lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+        speak_with(monkeypatch, _fake_omnivoice(fail_on="fails"))
 
-        lines = [Line(idx=0, start=0, end=0, zh="x", en="fails")]
+        lines = [Line(idx=0, start=0, end=0, zh="x", en="fails", speaker="A"),
+                 Line(idx=1, start=0, end=0, zh="y", en="speaks", speaker="B")]
         out_path, errors = dub_narration.build_narration_track(lines, str(tmp_path), ALL)
 
         assert len(errors) == 1
         assert lines[0].end == pytest.approx(0.35)
+        assert lines[1].start == pytest.approx(0.35)
 
 
-class _Track:
-    raw_data = b"\x01\x02\x03\x04\x05\x06"
-    sample_width, frame_rate, channels = 2, 24000, 1
+class _PcmClip:
+    """A clip with real sample bytes: 1000 frames a second, so a frame is a millisecond.
+    Every clip made is kept in `alive` (weakly), to see how many are in memory at once."""
+    alive = weakref.WeakSet()
+    frame_rate, channels, sample_width = 1000, 1, 2
 
-    def __init__(self):
-        self.exported = []
+    def __init__(self, raw_data, frame_rate=1000):
+        self.raw_data, self.frame_rate = raw_data, frame_rate
+        _PcmClip.alive.add(self)
 
-    def export(self, path, format="wav"):
-        self.exported.append((path, format))
+    @classmethod
+    def from_file(cls, path):
+        with open(path, "rb") as f:
+            data = f.read()
+        if data.startswith(b"RATE2000"):
+            return cls(data[8:], frame_rate=2000)
+        return cls(data)
 
+    def set_frame_rate(self, rate):
+        # Keeps every other frame: enough to see the clip was brought to the track's rate.
+        step = self.frame_rate // rate
+        frames = [self.raw_data[i:i + 2] for i in range(0, len(self.raw_data), 2)]
+        return _PcmClip(b"".join(frames[::step]), frame_rate=rate)
 
-class _FakeFfmpeg:
-    def __init__(self, returncode=0, stderr=b"", stop_after=None):
-        self.returncode, self.stderr_text, self.stop_after = returncode, stderr, stop_after
-        self.cmd, self.fed = None, bytearray()
+    def get_array_of_samples(self):
+        return []
 
-    def __call__(self, cmd, stdin=None, stdout=None, stderr=None):
-        self.cmd = cmd
-        stderr.write(self.stderr_text)
-        outer = self
-
-        class _Stdin:
-            def write(self, chunk):
-                if outer.stop_after is not None and len(outer.fed) >= outer.stop_after:
-                    raise BrokenPipeError(32, "Broken pipe")
-                outer.fed.extend(chunk)
-
-            def close(self):
-                pass
-
-        proc = types.SimpleNamespace(stdin=_Stdin(), returncode=None, kill=lambda: None)
-        proc.wait = lambda timeout=None: setattr(proc, "returncode", outer.returncode)
-        return proc
+    def __len__(self):
+        return round(1000 * len(self.raw_data) / 2 / self.frame_rate)
 
 
-class TestLongNarrationTrack:
-    """A WAV holds under 4 GB, about 24 h of narration: pydub's FLAC export goes through
-    one, so a longer book used to fail at the join, after every clip was spoken."""
+def _pcm_pydub(monkeypatch):
+    module = types.ModuleType("pydub")
+    module.AudioSegment = _PcmClip
+    monkeypatch.setitem(sys.modules, "pydub", module)
 
-    def test_a_track_that_fits_a_wav_uses_the_normal_export(self, monkeypatch, tmp_path):
-        track = _Track()
-        monkeypatch.setattr(dub_narration.subprocess, "Popen", lambda *a, **k: pytest.fail("no ffmpeg pipe"))
-        dub_narration._export_flac(track, str(tmp_path / "t.flac"))
-        assert track.exported == [(str(tmp_path / "t.flac"), "flac")]
 
-    def test_a_longer_track_is_piped_to_ffmpeg_as_raw_samples(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(dub_narration, "WAV_MAX_DATA_BYTES", 4)
-        monkeypatch.setattr(dub_narration, "_PIPE_CHUNK_BYTES", 4)
-        track, ffmpeg = _Track(), _FakeFfmpeg()
-        monkeypatch.setattr(dub_narration.subprocess, "Popen", ffmpeg)
-        dub_narration._export_flac(track, str(tmp_path / "t.flac"))
-        assert not track.exported and bytes(ffmpeg.fed) == track.raw_data
+def _speak_bytes(monkeypatch, by_text, fail_on=()):
+    """Each line's clip holds by_text[text]; a text in fail_on fails."""
+    def synth(text, out_path, **kwargs):
+        if text in fail_on:
+            raise RuntimeError("TTS down")
+        with open(out_path, "wb") as f:
+            f.write(by_text[text])
+    speak_with(monkeypatch, synth)
+
+
+class TestStreamedNarrationTrack:
+    """Every track is fed to ffmpeg one clip at a time, whatever the book's length: joining it
+    in memory first needed about three times the audio (some 12 GB for a 24-hour book), and
+    pydub's export left a WAV of up to 4 GB in the system temp folder when it failed."""
+
+    def _lines(self, *texts):
+        return [Line(idx=i, start=0, end=0, zh="x", en=t, speaker=f"S{i}") for i, t in enumerate(texts)]
+
+    def _voices(self, n):
+        return {f"S{i}": dict(VOICE) for i in range(n)}
+
+    def test_clips_and_gaps_go_to_ffmpeg_as_raw_samples_in_order(self, monkeypatch, tmp_path, ffmpeg):
+        _pcm_pydub(monkeypatch)
+        one, two = b"\x01\x00" * 100, b"\x02\x00" * 50  # 100 ms and 50 ms
+        _speak_bytes(monkeypatch, {"One.": one, "Two.": two})
+        lines = self._lines("One.", "Two.")
+        out, errors = dub_narration.build_narration_track(lines, str(tmp_path), self._voices(2))
+        gap = b"\x00\x00" * dub_narration.CLIP_GAP_MS
+        assert errors == [] and bytes(ffmpeg.fed) == one + gap + two + gap
         cmd = ffmpeg.cmd
-        assert cmd[cmd.index("-f") + 1] == "s16le" and cmd[cmd.index("-ar") + 1] == "24000"
-        assert cmd[cmd.index("-ac") + 1] == "1" and cmd[-1] == str(tmp_path / "t.flac")
+        assert cmd[cmd.index("-f") + 1] == "s16le" and cmd[cmd.index("-ar") + 1] == "1000"
+        assert cmd[cmd.index("-ac") + 1] == "1" and cmd[cmd.index("-i") + 1] == "pipe:0"
+        assert "-af" not in cmd and cmd[-1] == str(tmp_path / "narration_track.flac.part")
+        assert open(out, "rb").read() == b"fLaC" and not os.path.exists(cmd[-1])
+        assert [(ln.start, ln.end) for ln in lines] == [(0.0, 0.1), (0.45, 0.5)]
 
-    def test_a_slower_pace_goes_through_ffmpeg_atempo_even_when_it_fits_a_wav(self, monkeypatch, tmp_path):
-        track, ffmpeg = _Track(), _FakeFfmpeg()
-        monkeypatch.setattr(dub_narration.subprocess, "Popen", ffmpeg)
-        dub_narration._export_flac(track, str(tmp_path / "t.flac"), pace=0.92)
-        assert not track.exported and bytes(ffmpeg.fed) == track.raw_data
+    def test_memory_holds_one_clip_at_a_time(self, monkeypatch, tmp_path):
+        _pcm_pydub(monkeypatch)
+        texts = [f"Line {i}." for i in range(30)]
+        _speak_bytes(monkeypatch, {t: bytes([i + 1, 0]) * 40 for i, t in enumerate(texts)})
+        most = []
+        use_fake_ffmpeg(monkeypatch, on_write=lambda chunk: most.append(len(_PcmClip.alive)))
+        _PcmClip.alive.clear()
+        dub_narration.build_narration_track(self._lines(*texts), str(tmp_path), self._voices(30))
+        assert most and max(most) <= 1
+
+    def test_a_clip_in_another_format_is_brought_to_the_tracks(self, monkeypatch, tmp_path, ffmpeg):
+        _pcm_pydub(monkeypatch)
+        one = b"\x01\x00" * 10
+        other = b"RATE2000" + b"\x02\x00\x03\x00" * 10  # 2000 frames a second
+        _speak_bytes(monkeypatch, {"One.": one, "Two.": other})
+        dub_narration.build_narration_track(self._lines("One.", "Two."), str(tmp_path), self._voices(2))
+        gap = b"\x00\x00" * dub_narration.CLIP_GAP_MS
+        assert bytes(ffmpeg.fed) == one + gap + b"\x02\x00" * 10 + gap
+
+    def test_a_slower_pace_is_ffmpegs_atempo(self, monkeypatch, tmp_path, ffmpeg):
+        _pcm_pydub(monkeypatch)
+        _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 10})
+        dub_narration.build_narration_track(self._lines("One."), str(tmp_path), self._voices(1), pace=0.92)
         assert ffmpeg.cmd[ffmpeg.cmd.index("-af") + 1] == "atempo=0.9200"
 
-    def test_an_ffmpeg_failure_says_what_ffmpeg_said(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(dub_narration, "WAV_MAX_DATA_BYTES", 4)
-        monkeypatch.setattr(dub_narration.subprocess, "Popen", _FakeFfmpeg(1, b"disk full"))
-        with pytest.raises(RuntimeError, match="disk full"):
-            dub_narration._export_flac(_Track(), str(tmp_path / "t.flac"))
-
-    def test_ffmpeg_quitting_mid_stream_reports_ffmpegs_reason_without_the_path(self, monkeypatch, tmp_path):
-        out = str(tmp_path / "t.flac.part")
-        monkeypatch.setattr(dub_narration, "WAV_MAX_DATA_BYTES", 4)
-        monkeypatch.setattr(dub_narration, "_PIPE_CHUNK_BYTES", 2)
-        said = f"{out}: No space left on device".encode()
-        monkeypatch.setattr(dub_narration.subprocess, "Popen", _FakeFfmpeg(1, said, stop_after=2))
+    def test_an_ffmpeg_failure_says_what_ffmpeg_said_and_keeps_the_old_track(self, monkeypatch, tmp_path):
+        _pcm_pydub(monkeypatch)
+        _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 10})
+        (tmp_path / "narration_track.flac").write_bytes(b"old")
+        part = str(tmp_path / "narration_track.flac.part")
+        ffmpeg = use_fake_ffmpeg(monkeypatch, returncode=1, stderr=f"{part}: No space left on device".encode())
         with pytest.raises(RuntimeError) as caught:
-            dub_narration._export_flac(_Track(), out)
-        assert "t.flac.part: No space left on device" in str(caught.value)
+            dub_narration.build_narration_track(self._lines("One."), str(tmp_path), self._voices(1))
+        assert "narration_track.flac.part: No space left on device" in str(caught.value)
         assert str(tmp_path) not in str(caught.value)
+        assert (tmp_path / "narration_track.flac").read_bytes() == b"old"
+        assert not os.path.exists(part) and ffmpeg.proc.returncode is not None
+
+    def test_ffmpeg_that_stops_reading_ends_the_run_with_its_reason(self, monkeypatch, tmp_path):
+        _pcm_pydub(monkeypatch)
+        texts = [f"Line {i}." for i in range(5)]
+        _speak_bytes(monkeypatch, {t: b"\x01\x00" * 10 for t in texts})
+        ffmpeg = use_fake_ffmpeg(monkeypatch, returncode=1, stderr=b"disk full", stop_after=20)
+        with pytest.raises(RuntimeError, match="disk full"):
+            dub_narration.build_narration_track(self._lines(*texts), str(tmp_path), self._voices(5))
+        assert len(ffmpeg.fed) == 20 and ffmpeg.proc.killed
+        assert not os.path.exists(tmp_path / "narration_track.flac.part")
 
     def test_a_cut_short_stream_is_an_error_even_if_ffmpeg_exits_0(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(dub_narration, "WAV_MAX_DATA_BYTES", 4)
-        monkeypatch.setattr(dub_narration, "_PIPE_CHUNK_BYTES", 2)
-        monkeypatch.setattr(dub_narration.subprocess, "Popen", _FakeFfmpeg(0, b"", stop_after=2))
+        _pcm_pydub(monkeypatch)
+        _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 10})
+        use_fake_ffmpeg(monkeypatch, stop_after=4)
         with pytest.raises(RuntimeError, match="could not write"):
-            dub_narration._export_flac(_Track(), str(tmp_path / "t.flac"))
+            dub_narration.build_narration_track(self._lines("One."), str(tmp_path), self._voices(1))
+        assert not os.path.exists(tmp_path / "narration_track.flac")
 
-    def test_the_limit_is_the_largest_wav_data_size(self):
-        # RIFF stores 36 + the data size in 32 bits.
-        assert dub_narration.WAV_MAX_DATA_BYTES + 36 == 2 ** 32 - 1
+    def test_a_stop_mid_stream_kills_ffmpeg_and_leaves_no_part_file(self, monkeypatch, tmp_path, ffmpeg):
+        _pcm_pydub(monkeypatch)
+        texts = [f"Line {i}." for i in range(3)]
+        _speak_bytes(monkeypatch, {t: b"\x01\x00" * 10 for t in texts})
+        real_level = dub_narration.level_clip
+        calls = []
+
+        def killed_on_the_second_clip(clip):
+            calls.append(clip)
+            if len(calls) == 2:
+                open(tmp_path / "narration_track.flac.part", "wb").write(b"half")
+                raise _Killed()
+            return real_level(clip)
+        monkeypatch.setattr(dub_narration, "level_clip", killed_on_the_second_clip)
+        with pytest.raises(_Killed):
+            dub_narration.build_narration_track(self._lines(*texts), str(tmp_path), self._voices(3))
+        assert ffmpeg.proc.killed and ffmpeg.proc.returncode is not None
+        assert not os.path.exists(tmp_path / "narration_track.flac.part")
+
+    def test_a_part_file_left_by_a_killed_run_is_removed_by_the_next(self, monkeypatch, tmp_path):
+        _pcm_pydub(monkeypatch)
+        (tmp_path / "narration_track.flac.part").write_bytes(b"half of a long book")
+        _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 10})
+        seen = []
+        use_fake_ffmpeg(monkeypatch, on_write=lambda c: seen.append(
+            os.path.exists(tmp_path / "narration_track.flac.part")))
+        dub_narration.build_narration_track(self._lines("One."), str(tmp_path), self._voices(1))
+        assert seen and not any(seen)
+
+    def test_nothing_is_written_to_the_system_temp_folder(self, monkeypatch, tmp_path):
+        _pcm_pydub(monkeypatch)
+        _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 10})
+        dirs = []
+        real = dub_narration.tempfile.TemporaryFile
+
+        def temporary_file(*args, **kwargs):
+            dirs.append(kwargs.get("dir"))
+            return real(*args, **kwargs)
+        monkeypatch.setattr(dub_narration.tempfile, "TemporaryFile", temporary_file)
+        dub_narration.build_narration_track(self._lines("One."), str(tmp_path), self._voices(1))
+        assert dirs == [str(tmp_path)]
+
+    def test_a_hung_ffmpeg_is_stopped_after_the_time_limit(self, monkeypatch, tmp_path):
+        import threading
+        unblocked = threading.Event()
+
+        class _Hung:
+            returncode = None
+
+            class stdin:
+                @staticmethod
+                def write(chunk):
+                    unblocked.wait(5)
+                    raise BrokenPipeError(32, "Broken pipe")
+
+                @staticmethod
+                def close():
+                    pass
+
+            def kill(self):
+                unblocked.set()
+
+            def wait(self, timeout=None):
+                self.returncode = -9
+                return -9
+        monkeypatch.setattr(dub_narration, "_start_ffmpeg", lambda cmd, stderr: _Hung())
+        stream = dub_narration._FlacStream(str(tmp_path / "t.flac"), 1.0, str(tmp_path), timeout=0.05)
+        with pytest.raises(RuntimeError, match="took more than"):
+            stream.add(_PcmClip(b"\x01\x00" * 10), 0)
+        assert unblocked.is_set()
+
+
+class TestMostlyFailedNarration:
+    """A run where most lines fail (an engine that would not start) keeps the title's track,
+    rather than replacing a good narration with one that is mostly silence."""
+
+    def _lines(self, n):
+        return [Line(idx=i, start=0, end=0, zh="x", en=f"Line {i}.", speaker=f"S{i}") for i in range(n)]
+
+    def test_more_than_half_failed_keeps_the_previous_track_and_says_how_many(self, monkeypatch, tmp_path, ffmpeg):
+        _install_fake_pydub(monkeypatch)
+        speak_with(monkeypatch, lambda text, out_path, **kw: (_ for _ in ()).throw(RuntimeError("down"))
+                   if text != "Line 0." else open(out_path, "w").close())
+        (tmp_path / "narration_track.flac").write_bytes(b"old")
+        lines = self._lines(3)
+        with pytest.raises(RuntimeError) as caught:
+            dub_narration.build_narration_track(lines, str(tmp_path), {f"S{i}": dict(VOICE) for i in range(3)})
+        assert str(caught.value) == ("Narration failed on 2 of 3 lines, so the previous track was kept. "
+                                     + dub.VENV_LINE_FAILED)
+        assert (tmp_path / "narration_track.flac").read_bytes() == b"old" and ffmpeg.cmd is None
+
+    def test_with_no_track_yet_it_says_none_was_made(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        with pytest.raises(RuntimeError, match=r"^Narration failed on 400 of 400 lines, so no track was made\."):
+            dub_narration.build_narration_track(self._lines(400), str(tmp_path), {})
+
+    def test_half_failed_still_makes_the_track(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        speak_with(monkeypatch, _fake_omnivoice(fail_on="Line 1."))
+        _, errors = dub_narration.build_narration_track(
+            self._lines(2), str(tmp_path), {f"S{i}": dict(VOICE) for i in range(2)})
+        assert len(errors) == 1 and (tmp_path / "narration_track.flac").exists()
+
+    def test_the_job_result_counts_every_failed_line(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        speak_with(monkeypatch, _fake_omnivoice(fail_on="Line 0."))
+        lines = self._lines(1) + [Line(idx=i, start=0, end=0, zh="x", en=f"Line {i}.", speaker="T")
+                                  for i in range(1, 50)]
+        q = queue.Queue()
+        dub_narration.build_narration_subprocess_worker(
+            lines, str(tmp_path), {"S0": dict(VOICE), "T": dict(VOICE)}, q)
+        kind, result = _final_item(q)
+        assert kind == "ok" and result["failed_count"] == len(result["errors"]) == 1
 
 
 class TestNarrateOriginalLanguage:
@@ -607,6 +776,29 @@ class TestClipCacheFollowsTheText:
         dub_narration.build_narration_track(lines, str(tmp_path), {"A": {**VOICE, "instruct": "female, low pitch"}})
         dub_narration.build_narration_track(lines, str(tmp_path), {"A": {**VOICE, "instruct": "male, high pitch"}})
         assert len(timed.synth) == 2
+
+    def test_a_replaced_reference_clip_re_voices_their_lines(self, timed, tmp_path):
+        # "Replace clip" in the voice bank, then applying it again, writes the new clip under
+        # the same file name with the same transcript.
+        ref = tmp_path / "voicebank_3_A.wav"
+        ref.write_bytes(b"old voice")
+        voices = {"A": {"engine": "omnivoice", "ref_audio": str(ref), "ref_text": "嗯"}}
+        lines = [_line(0, "Hello there")]
+        dub_narration.build_narration_track(lines, str(tmp_path), voices)
+        ref.write_bytes(b"the new voice")
+        dub_narration.build_narration_track(lines, str(tmp_path), voices)
+        assert timed.synth == ["Hello there", "Hello there"]
+
+    def test_the_same_clip_in_another_folder_reuses_the_clips(self, tmp_path):
+        # A restored title has a new folder; its clips need not be spoken again.
+        (tmp_path / "one").mkdir()
+        (tmp_path / "two").mkdir()
+        for folder in ("one", "two"):
+            (tmp_path / folder / "ref.wav").write_bytes(b"same voice")
+        signatures = {dub.clip_signature("Hi.", dub._voice_for_signature(
+            {"engine": "omnivoice", "ref_audio": str(tmp_path / folder / "ref.wav"), "ref_text": ""}))
+            for folder in ("one", "two")}
+        assert len(signatures) == 1
 
     def test_a_cancelled_run_still_resumes_from_its_finished_clips(self, timed, monkeypatch, tmp_path):
         # One speaker per line: lines of the same speaker share one narration unit.
@@ -951,8 +1143,10 @@ class TestVenvEngineEdges:
             real(src, dst)
         monkeypatch.setattr(dub_narration.os, "replace", locked)
         lines = [Line(idx=0, start=0, end=0, zh="", en="One.", speaker="A")]
-        _, errors = self._narrate(monkeypatch, tmp_path, [], {"A": dict(self.QWEN)}, lines)
-        assert errors == [{"line_idx": 0, "error": dub.VENV_LINE_FAILED}]
+        with pytest.raises(RuntimeError) as caught:
+            self._narrate(monkeypatch, tmp_path, [], {"A": dict(self.QWEN)}, lines)
+        assert str(caught.value).endswith(f"lines, so no track was made. {dub.VENV_LINE_FAILED}")
+        assert "WinError" not in str(caught.value)
 
     def test_a_spec_left_by_a_cancelled_run_is_removed(self, monkeypatch, tmp_path):
         clips = tmp_path / "dub_clips"

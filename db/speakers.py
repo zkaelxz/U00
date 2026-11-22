@@ -696,7 +696,7 @@ def list_characters_with_series_names(drama_id: int):
     with contextlib.closing(db.get_conn()) as conn:
         rows = conn.execute("""
             SELECT c.*, sc.character_name AS series_character_name,
-                   sc.gender AS series_pronouns
+                   sc.gender AS series_pronouns, sc.voice_design AS series_voice_design
             FROM characters c
             LEFT JOIN series_characters sc ON sc.id = c.series_character_id
             WHERE c.drama_id = ?
@@ -805,6 +805,14 @@ def set_series_character_voice(series_character_id: int, entry_id: int | None):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("UPDATE series_characters SET voice_bank_id = ? WHERE id = ?",
                      (entry_id, series_character_id))
+        conn.commit()
+
+
+def remember_series_character_voice_design(series_character_id: int, design: str) -> None:
+    """Sets the character's default voice description unless it already has one."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE series_characters SET voice_design = ? "
+                     "WHERE id = ? AND COALESCE(voice_design, '') = ''", (design, series_character_id))
         conn.commit()
 
 

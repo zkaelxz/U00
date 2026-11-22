@@ -89,7 +89,7 @@ def get_listen_config(drama_id: int) -> dict:
 
     ddir = _drama_path(drama_id)
     lines = db.load_line_objects(drama_id)
-    chars = db.list_characters(drama_id)
+    chars = db.list_characters_with_series_names(drama_id)
     speaker_labels = sorted({ln.speaker for ln in lines if ln.speaker})
     clone_map = dub.clone_map_from_characters(chars, ddir, speaker_labels=speaker_labels)
 
@@ -266,7 +266,7 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
     if narration_language is None:
         narration_language = _narration_language(drama)
     narrate_original = narration_language == "original"
-    chars = db.list_characters(drama_id)
+    chars = db.list_characters_with_series_names(drama_id)
     source_lang = drama.get("source_language") or "zh"
     require_can_generate(tts_engine, chars, narrate_original, source_lang)
     lines = db.load_line_objects(drama_id)
@@ -287,8 +287,11 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
         raise InvalidInputError(_no_voice_message(voiceless, tts_engine))
 
     ddir = db.drama_dir(drama_id)
+    speaker_labels = {ln.speaker or None for ln in lines}
+    if tts_engine == "omnivoice" and _keep_default_voices(drama_id, chars, speaker_labels):
+        chars = db.list_characters_with_series_names(drama_id)
     clone_map = dub.clone_map_from_characters(
-        chars, ddir, default_engine=tts_engine, speaker_labels={ln.speaker or None for ln in lines})
+        chars, ddir, default_engine=tts_engine, speaker_labels=speaker_labels)
     # Keyword-bound so background_jobs' trailing result_queue lands on the
     # worker's result_queue parameter (declared before these options).
     worker = functools.partial(dub_narration.build_narration_subprocess_worker,
@@ -300,10 +303,26 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
         description=f"Dub generation (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn",
         on_done=lambda _jid, result: apply_narration_result(drama_id, result),
+        # A cancel kills the worker before it can remove its half-written track.
+        on_finish=lambda _jid: dub_narration.remove_partial_track(ddir),
         line_fields=("dub_filename", "start", "end"))
     if not started:
         raise ConflictError(f"A dub job is already running for title {drama_id}.")
     return {"job_id": job_id}
+
+
+def _keep_default_voices(drama_id: int, chars, speaker_labels) -> bool:
+    """Saves the voice OmniVoice picks for each speaker with none, on the title's character
+    and on its linked series character, so it stays the same in later chapters and titles.
+    Lines with no speaker have no character to keep it on. Whether anything was saved."""
+    linked = {c["speaker_label"]: c.get("series_character_id") for c in chars}
+    picks = {label: design for label, design in dub.default_voice_designs(chars, speaker_labels).items()
+             if label}
+    for label, design in picks.items():
+        db.upsert_character(drama_id, label, voice_design=design)
+        if linked.get(label):
+            db.remember_series_character_voice_design(linked[label], design)
+    return bool(picks)
 
 
 def start_test_voice(drama_id: int, speaker_label: str, tts_engine: str, narration_language=None) -> dict:
@@ -318,7 +337,7 @@ def start_test_voice(drama_id: int, speaker_label: str, tts_engine: str, narrati
         raise InvalidInputError("Unknown narration language.")
     narrate_original = (narration_language or _narration_language(drama)) == "original"
     source_lang = drama.get("source_language") or "zh"
-    chars = db.list_characters(drama_id)
+    chars = db.list_characters_with_series_names(drama_id)
     require_can_generate(tts_engine, chars, narrate_original, source_lang)
 
     text_field = "zh" if narrate_original else "en"
