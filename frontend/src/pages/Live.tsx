@@ -21,7 +21,7 @@ import { useEffect, useId, useState } from 'react'
 import { api, hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP,
-  advancedSummary, buildStartBody, checkLiveUrl, checkOllama, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, languageWhisperDefault, glossaryChoices, glossaryIds, glossaryValue,
+  advancedSummary, buildStartBody, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, languageWhisperDefault, glossaryChoices, glossaryIds, glossaryValue,
   isActive, lagLine, pickEngine, resolveModel, startLive, statusLine, statusTone, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
@@ -48,6 +48,8 @@ import { SaveSession } from './live/SaveSession'
 import { LiveChatSection, ReadChatField } from './live/LiveChat'
 import { DelayedPlayer } from './live/DelayedPlayer'
 import { useLiveSession } from './live/useLiveSession'
+import { OllamaNote } from './live/OllamaNote'
+import { useOllamaCheck } from './live/useOllamaCheck'
 import { StreamEmbed } from './live/StreamEmbed'
 import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, sessionStream, steadyDelay } from './live/embedLogic'
 import type { LiveCue } from '../types/live'
@@ -92,16 +94,6 @@ function CueFeed({ cues, lang, waiting }: { cues: LiveCue[]; lang: string; waiti
         </li>
       ))}
     </ol>
-  )
-}
-
-// A graphics-memory warning carries its own advice, and Start still goes ahead, so it is never an alert.
-function OllamaNote({ note, fitWarning, alert, onRecheck }: { note: string; fitWarning: boolean; alert: boolean; onRecheck: () => void }) {
-  return (
-    <p className={alert ? 'error' : 'muted'} role={alert ? 'alert' : undefined} data-testid="live-ollama-note">
-      {note} {fitWarning ? '' : 'Pick another engine or model above, or fix this and '}
-      <button type="button" className="link" onClick={onRecheck}>{fitWarning ? 'Check again' : 'check again'}</button>.
-    </p>
   )
 }
 
@@ -183,37 +175,25 @@ export default function LivePage() {
     ? "Couldn't load the model list; the engine's default model will be used."
     : fellBack ? "That model isn't offered any more; the engine's default model will be used." : null
 
+  const { readiness } = useReadiness()
+  const gpuReason = liveGpuReason(readiness)
+  // With no NVIDIA GPU the box shows unticked, so a remembered tick is not sent either.
+  const useGpu = form.use_gpu && !gpuReason
+  const startForm: LiveForm = { ...form, engine, model, ...glossary, use_gpu: useGpu }
   // Ollama is the default and runs on this PC: say plainly when it is not
   // there, instead of failing at Start. Nothing switches engine for the user.
-  // The answer is kept with the check it belongs to, so an old one is never shown for a new model.
-  const [ollamaAnswer, setOllamaAnswer] = useState<{ key: string; note: string | null; gpuFit: boolean } | null>(null)
-  const [recheck, setRecheck] = useState(0)
+  const ollama = useOllamaCheck(engine === 'ollama' ? model : null, useGpu ? form.whisper_size : null)
   // Until Start is pressed a missing Ollama is only information; it becomes an alert when it blocks a start.
   const [startPressed, setStartPressed] = useState(false)
   const developerMode = useDeveloperMode()
-  const checkModel = engine === 'ollama' ? model : null
-  const gpuCheck = form.use_gpu ? form.whisper_size : null, checkKey = `${checkModel}#${gpuCheck}#${recheck}`
-  const ollamaNote = checkModel !== null && ollamaAnswer?.key === checkKey ? ollamaAnswer.note : null
-  const fitWarning = ollamaNote !== null && ollamaAnswer?.gpuFit === true
-  useEffect(() => {
-    if (checkModel === null) return
-    let alive = true
-    checkOllama(checkModel, undefined, gpuCheck === null ? undefined : { whisperSize: gpuCheck, useGpu: true }).then(
-      (r) => { if (alive) setOllamaAnswer({ key: checkKey, note: r.ok ? null : (r.message ?? 'Ollama is not ready.'), gpuFit: r.gpu_fit === true }) },
-      () => {},
-    )
-    return () => { alive = false }
-  }, [checkModel, checkKey, gpuCheck])
 
   const status = session?.status?.status ?? (session ? 'queued' : null)
   const active = !!session && isActive(status)
   const urlReason = checkLiveUrl(url, opts.max_url_len)
   // While the engine list loads there is no engine to send; never start then
   // (a missing engine would fall back to the server default, a paid one).
-  const { readiness } = useReadiness()
   const needs = liveNeeds(readiness, { delayedPlayer: form.delayed_player })
   const needList = [...liveBlockers(needs), ...(needs.jsRuntime ? [needs.jsRuntime] : [])]
-  const gpuReason = liveGpuReason(readiness)
   const sizeReason = liveWhisperSize(readiness, form.whisper_size, pc !== 'remote').reason
   const blocker = urlReason ?? (engines === null
     ? 'Loading engines…'
@@ -221,14 +201,16 @@ export default function LivePage() {
       : liveBlockers(needs).length ? 'Still needed: what is listed under Start.'
         : sizeReason ? `Still needed: a Whisper model that is ready. ${sizeReason}` : null)
 
-  async function start(e: React.FormEvent) {
-    e.preventDefault()
+  async function start(e?: React.FormEvent, anyway = false) {
+    e?.preventDefault()
     setStartPressed(true)
     if (blocker || busy || active) return
+    if (anyway) ollama.accept()
+    else if (ollama.holdStart()) return
     setBusy(true)
     setError(null)
     try {
-      const body = buildStartBody({ ...form, engine, model, ...glossary }, opts)
+      const body = buildStartBody(startForm, opts)
       const { session_id } = await startLive(body)
       began(session_id, body.url)
     } catch (err) {
@@ -332,9 +314,9 @@ export default function LivePage() {
               ))}
             </select>
           </Field>
-          {ollamaNote && <OllamaNote note={ollamaNote} fitWarning={fitWarning} alert={startPressed && !fitWarning} onRecheck={() => setRecheck((n) => n + 1)} />}
+          {ollama.note && <OllamaNote check={ollama} alert={startPressed && !ollama.fitWarning} onStartAnyway={() => void start(undefined, true)} />}
           {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
-          <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(form, opts)}>
+          <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(startForm, opts)}>
             <div className="preset-note-row">
               <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active || busy}
                 onClick={() => setPrefs({ ...prefs, ...FAST_CAPTIONS })}>
@@ -387,7 +369,7 @@ export default function LivePage() {
               return reason ? <p key={w} className="muted" data-testid="live-whisper-reason">{w}: {reason}</p> : null
             })}
             <label className="live-check">
-              <input type="checkbox" checked={form.use_gpu && !gpuReason} disabled={active || busy || !!gpuReason} onChange={(e) => setOpt('use_gpu', e.target.checked)} />
+              <input type="checkbox" checked={useGpu} disabled={active || busy || !!gpuReason} onChange={(e) => setOpt('use_gpu', e.target.checked)} />
               Use GPU for Whisper
             </label>
             {gpuReason && <p className="muted" data-testid="live-gpu-note">{gpuReason}</p>}
@@ -439,7 +421,7 @@ export default function LivePage() {
             {error}
           </p>
         )}
-        <FollowedChannels liveOptions={followOptions(buildStartBody({ ...form, engine, model, ...glossary }, opts))} />
+        <FollowedChannels liveOptions={followOptions(buildStartBody(startForm, opts))} />
 
         {session && (
           <div className={videoLive ? (theater ? 'live-body has-video theater' : 'live-body has-video') : 'live-body'}>

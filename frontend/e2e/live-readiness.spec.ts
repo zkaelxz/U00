@@ -31,12 +31,19 @@ test('a PC with everything installed starts as before', async ({ page }) => {
   expect(m.unmocked).toEqual([])
 })
 
-test('the GPU box is off with a reason when no NVIDIA GPU is found', async ({ page }) => {
-  await mockLive(page, { readiness: { gpu_found: false } })
+test('the GPU box is off with a reason when no NVIDIA GPU is found, and Start sends it off', async ({ page }) => {
+  // Ticked on a PC that had a GPU: the box shows unticked here, so Start must not send it.
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ use_gpu: true })))
+  const m = await mockLive(page, { readiness: { gpu_found: false } })
   const live = await openLive(page)
   await live.getByText('Advanced').click()
   await expect(live.getByLabel('Use GPU for Whisper', { exact: true })).toBeDisabled()
+  await expect(live.getByLabel('Use GPU for Whisper', { exact: true })).not.toBeChecked()
   await expect(live.getByTestId('live-gpu-note')).toContainText('No NVIDIA GPU was found')
+  await live.getByLabel('Stream link', { exact: true }).fill(LINK)
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({ use_gpu: false })
 })
 
 test('away from the PC, a Whisper model that is not downloaded cannot be picked; at the PC it downloads on first use', async ({ page }) => {

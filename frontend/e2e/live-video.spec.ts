@@ -331,9 +331,9 @@ test('captions are not held while the player has not started', async ({ page }) 
 test('the automatic delay is the chunk plus the measured processing, and the slider overrides it', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('baihe.pref.live.videoDelayAuto', 'true'))
   const { m, live } = await startRunning(page)
-  // Before a chunk is measured: the 20 s chunk plus the stated 8 s guess.
-  await expect(live.getByTestId('live-delay-mode')).toHaveText('Video delay: auto (about 28 s)')
-  await expect(live.getByLabel('Video delay', { exact: true })).toHaveValue('28')
+  // Before a chunk is measured: the 10 s chunk plus the stated 8 s guess.
+  await expect(live.getByTestId('live-delay-mode')).toHaveText('Video delay: auto (about 18 s)')
+  await expect(live.getByLabel('Video delay', { exact: true })).toHaveValue('18')
   m.state.figures = { segment_seconds: 20, processing_seconds: 12.4, lag_seconds: 32.4, chunks_measured: 2, translations_skipped: 0 }
   m.state.cues = [cue(0), cue(1), cue(2)]
   await expect(live.getByTestId('live-delay-mode')).toHaveText('Video delay: auto (about 32 s)')
