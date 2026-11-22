@@ -159,6 +159,6 @@ export function blockerText(hasFile: boolean, blockers: PreflightRow[], engine: 
 export const percentText = (progress: number | null | undefined): string | null =>
   typeof progress === 'number' ? `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%` : null
 
-/** One row of the One-Click Translate settings, the engine named by its label. */
+/** One row of the One-click translate settings, the engine named by its label. */
 export const settingText = (r: { label: string; value: string; engine?: string | null }): string =>
   `${r.label}: ${r.engine ? `${engineLabel(r.engine)}, ` : ''}${r.value}`

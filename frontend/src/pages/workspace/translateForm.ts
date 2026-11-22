@@ -18,7 +18,7 @@ export const MAX_FALLBACKS = 2
 
 // Limits of the numeric fields; the field hints and the validation messages read them from here.
 const BATCH_SIZE_MIN = 1
-const BATCH_SIZE_MAX = 60
+const BATCH_SIZE_MAX = 90
 const CONTEXT_MIN = 0
 const CONTEXT_MAX = 100
 export const batchSizeRange = () => formatRange(BATCH_SIZE_MIN, BATCH_SIZE_MAX, 'lines')

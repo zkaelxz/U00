@@ -321,7 +321,7 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
         size = transcribe_options_service.stored_whisper_size(drama)
         vad_run = mode == "whisper" and backend in transcribe_pipeline.VAD_BACKENDS
         mixed_whisper_run = mixed and mode == "whisper" and backend == "whisper" and not use_groq
-        if drama.get("separate_vocals_first"):
+        if transcribe_options_service.effective_separate_vocals(drama):
             needs.append(_need(separation_ready))
         if vad_run:
             needs += _backend_needs(backend, asr_options_service.get_vad_refine_timing(), mixed)

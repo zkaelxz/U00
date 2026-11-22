@@ -354,13 +354,20 @@ def test_save_style_toggles_stores_translate_by_sentence_and_none_keeps_it(isola
     ("gemini", "gemini-flash-lite-latest", 30),
     ("gemini", None, 30),                         # default model is Flash-Lite
     ("openai", "gpt-6.1-sol", 30),                # not tested at 60 yet
-    ("deepseek", None, 30),
+    ("deepseek", None, 90),
+    ("deepseek", "deepseek-v4-flash", 90),
+    ("ollama", "gemma4:31b-cloud", 90),
+    ("ollama", "gemma4:31b", 30),                 # local 31b not tested at 90
     ("ollama", "translategemma:12b", 30),                   # local
     ("no-such-engine", "claude-sonnet-5-5", 30),  # unknown engine: safe default
     ("claude", "something-new", 30),              # unknown model: safe default
 ])
 def test_default_batch_size_by_engine_and_model(isolated_db, engine, model, expected):
     assert engine_registry.default_batch_size(engine, model) == expected
+
+
+def test_reflect_keeps_the_old_default_for_long_batch_models(isolated_db):
+    assert engine_registry.default_batch_size("deepseek", reflect=True) == 30
 
 
 def test_default_batch_size_accepts_an_engine_instance(isolated_db):
@@ -381,7 +388,7 @@ def test_config_offers_a_batch_default_per_engine_and_model(isolated_db):
 
 def test_config_default_follows_the_titles_engine(isolated_db):
     did = _drama(translation_engine="deepseek")
-    assert svc.get_translate_config(did)["defaults"]["batch_size"] == 30
+    assert svc.get_translate_config(did)["defaults"]["batch_size"] == 90
 
 
 def _batch_size_validated(monkeypatch, did, **kw):
@@ -460,3 +467,37 @@ def test_estimate_counts_the_pre_read_and_a_paid_summary(isolated_db, cap, monke
     patch_setting(monkeypatch, "episode_summary_engine", "claude")
     with_summary = svc.estimate_translate_cost(did, "claude")["estimated_usd"]
     assert with_summary > with_brief
+
+
+def test_estimate_prices_the_source_match_judge_apart_when_it_would_run(isolated_db, cap, monkeypatch):
+    from engine_backends import alignment_judge, pricing
+    cap(0)
+    did = _drama()
+    # 427 lines, the size of the owner's measured range; the one-character line is never checked.
+    _seed(did, [("你好世界你好", "")] * 427 + [("嗯", "")])
+    patch_setting(monkeypatch, "translate_alignment_check", True)
+    monkeypatch.setattr(settings_service, "source_match_model_present", lambda: True)
+    plain = svc.estimate_translate_cost(did, "claude", model="claude-sonnet-5-5")
+    assert plain["alignment_check_usd"] == pytest.approx(pricing.estimate_cost(
+        "claude-sonnet-5-5", *alignment_judge.estimate_tokens(427)))
+    assert plain["alignment_check_usd"] == pytest.approx(0.03, rel=0.1)
+    deepseek = svc.estimate_translate_cost(did, "deepseek")["alignment_check_usd"]
+    assert 0 < deepseek < plain["alignment_check_usd"]
+    # The translation's own figure leaves it out, so the run's cap check is unchanged.
+    patch_setting(monkeypatch, "translate_alignment_check", False)
+    off = svc.estimate_translate_cost(did, "claude", model="claude-sonnet-5-5")
+    assert off["alignment_check_usd"] is None
+    assert off["estimated_usd"] == pytest.approx(plain["estimated_usd"])
+
+
+def test_estimate_leaves_the_judge_out_when_it_would_not_run(isolated_db, cap, monkeypatch):
+    cap(0)
+    did = _drama()
+    _seed(did, [("你好世界你好", "")] * 20)
+    patch_setting(monkeypatch, "translate_alignment_check", True)
+    present = {"yes": True}
+    monkeypatch.setattr(settings_service, "source_match_model_present", lambda: present["yes"])
+    assert svc.estimate_translate_cost(did, "claude", bulk=True)["alignment_check_usd"] is None
+    assert svc.estimate_translate_cost(did, "ollama")["alignment_check_usd"] is None  # free on this PC
+    present["yes"] = False  # without bge-m3 the check stops before the judge
+    assert svc.estimate_translate_cost(did, "claude")["alignment_check_usd"] is None

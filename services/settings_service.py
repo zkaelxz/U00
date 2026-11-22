@@ -386,15 +386,34 @@ def reply_guard_override():
     return {"on": True, "off": False}.get(str(get("translate_reply_guard")))
 
 
-def alignment_embedder(should_stop=None):
+def alignment_embedder(should_stop=None, on_progress=None):
     """The embedding function for the source-match check, or None while the setting
     is off, so the root translate modules never read settings. `should_stop` ends it
-    between requests."""
+    between requests; on_progress(texts done, texts) is told before each one."""
     if not get("translate_alignment_check"):
         return None
     from engine_backends import alignment_check
     base_url = ollama_url()
-    return lambda texts: alignment_check.embed(base_url, texts, should_stop=should_stop)
+    return lambda texts: alignment_check.embed(base_url, texts, should_stop=should_stop,
+                                               on_progress=on_progress)
+
+
+_MODEL_CHECK_SECONDS = 30
+_model_check = {"at": -1e9, "url": "", "present": False}
+
+
+def source_match_model_present() -> bool:
+    """Whether bge-m3 is pulled on the configured Ollama server (False when it does not
+    answer). Cached for a short while: the queue asks under its lock on every tick and
+    poll, and the Translate form on every estimate; each uncached answer is a request."""
+    from engine_backends import alignment_check, ollama_server
+    url = ollama_url()
+    now = time.monotonic()
+    if _model_check["url"] != url or now - _model_check["at"] > _MODEL_CHECK_SECONDS:
+        present = (ollama_server.check_ollama_reachable(url)
+                   and ollama_server.model_pulled(url, alignment_check.EMBED_MODEL))
+        _model_check.update(at=now, url=url, present=present)
+    return _model_check["present"]
 
 
 def run_options() -> dict:

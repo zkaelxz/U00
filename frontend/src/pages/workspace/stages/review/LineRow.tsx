@@ -170,6 +170,17 @@ export function FlagNote({ text }: { text: string }) {
   )
 }
 
+// A flag's figures (similarity scores) mean little to a reader, so they wait behind a toggle.
+export function ReasonDetails({ details }: { details?: string }) {
+  if (!details) return null
+  return (
+    <details className="review-reason-details" data-testid="reason-details">
+      <summary>Details</summary>
+      {details}
+    </details>
+  )
+}
+
 // Phones show a flag's few words; a press reveals the whole sentence there,
 // where there is no hover and no room to show it inline.
 export function FlagToggle({ text, open, onToggle, controls, children }: {
@@ -648,6 +659,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       {/* Its own line under the top one, so the sentence never squeezes the number, time, speaker and More beside it. */}
       {reason && !isPhone && active && !linePanel && <p className="review-queue-reason review-queue-sentence" data-testid="queue-reason">{reason.text}</p>}
       {reason && isPhone && active && <p className="review-queue-why" data-testid="queue-reason">Why: {reason.text}</p>}
+      {reason && active && (isPhone || !linePanel) && <ReasonDetails details={reason.details} />}
       {isPhone && active && badgeReasons.length > 0 && (
         <p className="muted review-badge-reasons" data-testid="badge-reasons">{badgeReasons.join('. ')}.</p>
       )}
@@ -662,7 +674,10 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
         </div>
       )}
       {flagReason && flagOpen && (
-        <p id={flagNoteId} className="review-flag-open" role="note">{flagReason.text}</p>
+        <>
+          <p id={flagNoteId} className="review-flag-open" role="note">{flagReason.text}</p>
+          <ReasonDetails details={flagReason.details} />
+        </>
       )}
       {/* A closed queue card stays one glance; the open one carries the timing tools, with its Snap among the card's buttons. */}
       {line.flag === TIMING_UNCERTAIN_FLAG && (active || (!isPhone && !queue)) && (

@@ -167,6 +167,20 @@ test('a stale switch (409) shows the server sentence and reloads the list', asyn
   expect(unmocked).toEqual([])
 })
 
+test('with Developer Mode off a row offers no Compare in Benchmark Lab link', async ({ page }) => {
+  const unmocked = await guardWrites(page)
+  await page.route('**/api/assistant/settings', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ json: { developer_mode: false, engine: null, model: null, engine_choices: [] } })
+      : route.fallback())
+  await page.route('**/api/models/status', (r) => r.fulfill({ json: status() }))
+  await page.goto('/#/diagnostics?card=model-status')
+  const row = card(page).getByRole('list', { name: 'Models that need attention' }).locator(':scope > li', { hasText: 'Preset: Title A' })
+  await expect(row).toBeVisible()
+  await expect(row.getByRole('link', { name: /in Benchmark Lab$/ })).toHaveCount(0)
+  expect(unmocked).toEqual([])
+})
+
 test('Compare in Benchmark Lab sets up both models in the run form', async ({ page }) => {
   const unmocked = await guardWrites(page)
   // After the guard: the last route registered answers first.

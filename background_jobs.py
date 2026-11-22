@@ -194,6 +194,16 @@ def set_result(job_id: str, result, mirror: bool = False):
                 _emit_change(job_id)
 
 
+def set_stop_message(job_id: str, message: str):
+    """Called from inside the job's thread just before it raises JobCancelled: the
+    message the cancelled job keeps in place of the plain "Cancelled", for a stop
+    that still kept some of the work."""
+    with _lock:
+        if (job_id in _jobs and not job_force_stop.current_thread_abandoned()
+                and not _superseded_locked(job_id)):
+            _jobs[job_id]["stop_message"] = message
+
+
 def get_status(job_id: str | None):
     """Returns a snapshot dict, or None if no such job has ever run."""
     with _lock:

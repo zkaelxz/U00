@@ -18,14 +18,17 @@ test('with Developer Mode off the rail has no Benchmark Lab and its page is a no
   page.on('request', (r) => {
     if (r.url().includes('/api/benchmark')) benchmarkCalls.push(r.url())
   })
+  const devModeAnswer = page.waitForResponse((r) => r.url().includes('/api/assistant/settings'))
   await page.goto('/#/diagnostics?tab=models')
+  await devModeAnswer
   await openMenu(page)
   await expect(navLink(page, 'Diagnostics')).toBeVisible()
   await expect(navLink(page, 'Benchmark Lab')).toHaveCount(0)
 
-  // The Diagnostics link and a Model status compare link stay and land on the notice.
-  await page.getByRole('main').or(page.locator('.app-main')).getByRole('link', { name: 'Open Benchmark Lab' }).click()
-  await expect(page).toHaveURL(/#\/benchmark$/)
+  // Diagnostics offers no link to the Lab; a deep link (Model status compare) still lands on the notice.
+  await expect(page.getByRole('region', { name: 'Model status' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Open Benchmark Lab' })).toHaveCount(0)
+  await page.goto('/#/benchmark')
   await expect(page.getByRole('heading', { name: 'Benchmark Lab' })).toBeVisible()
   await expect(page.getByRole('status').filter({ hasText: 'Developer Mode is off.' })).toBeVisible()
   await page.goto('/#/benchmark?compare=claude:claude-sonnet-4-6,claude:claude-sonnet-5')

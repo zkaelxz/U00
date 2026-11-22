@@ -9,7 +9,7 @@ import { DRAMA_ID, mockMakeSubtitles } from './makeSubtitlesMocks'
 const box = (page: import('@playwright/test').Page) => page.getByRole('region', { name: 'Add' })
 const VIDEO = { name: 'ep1.mp4', mimeType: 'video/mp4', buffer: Buffer.from('abc') }
 
-test('a video link says what the probe found and starts One-Click Translate, whose run shows on the Add page', async ({ page }) => {
+test('a video link says what the probe found and starts One-click translate, whose run shows on the Add page', async ({ page }) => {
   const m = await mockAddLink(page, probeOf({ title: '第一回', platform: 'YouTube', channel: 'Studio', release_date: '2026-10-02' }))
   await page.goto('/')
   const b = box(page)
@@ -21,7 +21,7 @@ test('a video link says what the probe found and starts One-Click Translate, who
   await expect(make).toHaveAttribute('title', /Batch size: 30/)
   await b.getByText('Change options', { exact: true }).click()
   await expect(b.getByText('Profile: Fast')).toBeVisible()
-  await expect(b.getByRole('button', { name: 'Help: One-Click Translate settings' })).toBeVisible()
+  await expect(b.getByRole('button', { name: 'Help: One-click translate settings' })).toBeVisible()
   await b.getByRole('checkbox', { name: 'Watch once' }).check()
   await make.click()
   await expect(page).toHaveURL(/#\/make-subtitles$/)

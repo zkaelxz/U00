@@ -60,7 +60,27 @@ describe('the phone\'s main button', () => {
     browser(true)
     expect(phoneMain(render(AT.check, { openStep: 'translate' }))).toBe('page')
     expect(phoneMain(render(AT.check, { openStep: 'export' }))).toBe('page')
-    expect(phoneMain(render(AT.translate, { openStep: 'translate' }))).toBe('page')
+    expect(phoneMain(render(AT.translate, { openStep: 'export' }))).toBe('page')
+  })
+})
+
+describe('the main button on the current step\'s own page', () => {
+  it('is left out, on a phone and a desktop, since that page shows the step\'s own button', () => {
+    for (const phone of [true, false]) {
+      browser(phone)
+      expect(render(AT.translate, { openStep: 'translate' })).not.toContain('title-main-row')
+      expect(render(AT.add, { openStep: 'add' })).not.toContain('title-main-row')
+      expect(render({ ...AT.transcribe, lineCount: null }, { openStep: 'transcribe' })).not.toContain('title-main-row')
+      expect(render(AT.translate, { openStep: 'export' })).toContain('>Translate 1 line</a>')
+    }
+  })
+
+  it('stays for Check, which opens the queue in place, and for the one-button run, ready or under way', () => {
+    browser(false)
+    expect(render(AT.check, { openStep: 'check', onCheck: () => {} })).toMatch(/<button type="button" class="[^"]*">Check the 3 lines<\/button>/)
+    expect(render({ ...AT.transcribe, flowOn: true }, { openStep: 'transcribe' })).toContain('>Transcribe and build glossary</button>')
+    // Audio attached: the button is the run itself, and a stopped run's Continue and See details are on it.
+    expect(render(AT.transcribe, { openStep: 'transcribe' })).toContain('>Transcribe and build glossary</button>')
   })
 })
 

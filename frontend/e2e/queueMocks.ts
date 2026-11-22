@@ -168,7 +168,7 @@ export const TRANSLATE_FIELDS = [
   field('locale', 'English variant', 'select', 'en-US', {
     options: ['en-US', 'en-GB', 'en-AU'].map((v) => ({ value: v, label: v })),
   }),
-  field('batch_size', 'Batch size', 'number', 20, { min: 1, max: 60 }),
+  field('batch_size', 'Batch size', 'number', 20, { min: 1, max: 90 }),
 ]
 
 export const EXPORT_FIELDS = [

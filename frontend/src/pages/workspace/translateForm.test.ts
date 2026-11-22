@@ -73,7 +73,7 @@ describe('batch size default', () => {
     expect(validateRun(f, 'claude')).toBeNull()
     expect(buildRunBody(f)).not.toHaveProperty('batch_size')
     expect(buildRunBody({ ...f, batch_size: '25' })).toMatchObject({ batch_size: 25 })
-    expect(validateRun({ ...f, batch_size: '61' }, 'claude')).toMatch(/Batch size/)
+    expect(validateRun({ ...f, batch_size: '91' }, 'claude')).toMatch(/Batch size/)
   })
 })
 
@@ -598,7 +598,7 @@ describe('remembered run options', () => {
 
   it('clamps numbers to the field range', () => {
     save(1, { batch_size: '500', context_window: '0', context_window_ahead: '101' })
-    expect(restore(1).form).toMatchObject({ batch_size: '60', context_window: '0', context_window_ahead: '100' })
+    expect(restore(1).form).toMatchObject({ batch_size: '90', context_window: '0', context_window_ahead: '100' })
   })
 
   it("lets the title's saved engine win when it changed since", () => {
@@ -638,9 +638,9 @@ describe('batch size override', () => {
 
 describe('range hints', () => {
   it('reads the limits from the constants', () => {
-    expect(batchSizeRange()).toBe('1-60 lines')
+    expect(batchSizeRange()).toBe('1-90 lines')
     expect(contextRange()).toBe('0-100 lines')
-    expect(validateRun({ ...initialForm(config), batch_size: '61' }, 'claude')).toBe('Batch size must be a whole number, 1-60 lines.')
+    expect(validateRun({ ...initialForm(config), batch_size: '91' }, 'claude')).toBe('Batch size must be a whole number, 1-90 lines.')
   })
 })
 
@@ -688,7 +688,7 @@ describe('a profile left on the title (applyStartToForm)', () => {
     const f = applyStartToForm(initialForm(c), {
       style_preset: 'gone', engine_model: 'claude-z', batch_size: 999, fallback_engines: ['nope', 'claude'],
     }, c)
-    expect(f).toMatchObject({ style_preset: 'natural', model: '', batch_size: '60', fallbacks: [] })
+    expect(f).toMatchObject({ style_preset: 'natural', model: '', batch_size: '90', fallbacks: [] })
   })
 
   it('keeps Reflect only where it can run, and bulk only where it is supported', () => {

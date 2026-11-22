@@ -35,6 +35,9 @@ def create_drama(**fields) -> int:
     with contextlib.closing(db.get_conn()) as conn:
         fields.setdefault("status", "not started")
         fields.setdefault("hallucination_silence_sec", 0)  # older databases' column default is 2
+        # NULL means "never chosen" (transcribe_options_service.effective_separate_vocals); the
+        # column's own default of 0 would read as an explicit Off.
+        fields.setdefault("separate_vocals_first", None)
         now = clock.utcnow().isoformat()
         fields["created_at"] = now
         fields["updated_at"] = now

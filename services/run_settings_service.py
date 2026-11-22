@@ -138,10 +138,13 @@ def for_transcribe(drama, source_language, chinese_script, whisper_size, beam_si
     """build() for a transcription run: the values the run resolved, plus the
     drama's 0/1 toggle columns as booleans (an int would be dropped). `timing`:
     the Timing and splitting values that differ from the default."""
+    from services import transcribe_options_service  # imports this module at load
     toggles = ("separate_vocals_first", "realign_long_segments", "whisper_fast_mode",
                "use_groq", "whisper_repeat_guard", "split_by_sentences", "difficult_audio")
     return build(
-        {k: bool(drama.get(k)) for k in toggles}, timing or {}, source_language=source_language,
+        {**{k: bool(drama.get(k)) for k in toggles},
+         "separate_vocals_first": transcribe_options_service.effective_separate_vocals(drama)},
+        timing or {}, source_language=source_language,
         chinese_script=chinese_script, whisper_size=whisper_size, beam_size=beam_size,
         min_silence_ms=min_silence_ms, vad_threshold=vad_threshold, sensitivity_preset=preset,
         hallucination_silence_sec=hallucination_silence_sec, min_pause_sec=min_pause_sec,
