@@ -7,6 +7,18 @@ const POLL_MS = 3000
 
 export const flowActive = (run: TitleFlowRun | null) => run?.state === 'waiting' || run?.state === 'running'
 
+const STEP_NOUN: Record<string, string> = {
+  transcribe: 'Transcription',
+  names: 'Finding names',
+  import: 'Importing the chapters',
+  text: 'Preparing the text',
+  lines: 'Making lines',
+}
+
+// A job's worker process that died (a CUDA DLL, out of memory) leaves only the runner's own sentence about it,
+// which tells a person nothing; the job's log on the Jobs page has the cause.
+const WORKER_DIED = /exited unexpectedly \(exit code -?\d+\)/i
+
 /** The words beside the button for the run, with `steps` naming each step while it runs. */
 export function flowText(run: TitleFlowRun | null, steps: Record<string, string>): string {
   if (!run) return ''
@@ -14,10 +26,15 @@ export function flowText(run: TitleFlowRun | null, steps: Record<string, string>
     case 'waiting': return run.reason || 'Waiting for the item running in the queue'
     case 'running': return steps[run.step ?? ''] ?? 'Working'
     case 'review': return 'Ready for glossary review'
-    case 'stopped': return `Stopped: ${run.reason || 'a step did not finish.'}`
+    case 'stopped':
+      if (run.reason && WORKER_DIED.test(run.reason)) return `${STEP_NOUN[run.step ?? ''] ?? 'This step'} stopped unexpectedly.`
+      return `Stopped: ${run.reason || 'a step did not finish.'}`
     default: return ''
   }
 }
+
+/** The stopped step's job, for "See details" on the Jobs page; null while the run goes on or when no job started. */
+export const stoppedJob = (run: TitleFlowRun | null): string | null => (run?.state === 'stopped' ? run.job_id ?? null : null)
 
 /**
  * Reads the run on open and every few seconds while it is in line or running. `onMove` is told each

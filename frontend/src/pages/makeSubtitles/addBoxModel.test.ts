@@ -65,7 +65,7 @@ describe('Add box: the plan line', () => {
     expect(planForLink({ pc: 'local', source: false, loaded: true, profile: 'Fast', engine: 'deepseek' }))
       .toBe('Download it on this PC, transcribe it, then translate it with DeepSeek (profile “Fast”), through the Queue.')
     expect(planForLink({ pc: 'local', source: false, loaded: true, profile: null, engine: null }))
-      .toBe('Choose a One-Click Translate profile in Settings > Quick video translate first.')
+      .toBe('Choose a One-click translate profile in Settings first.')
     expect(planForLink({ pc: 'local', source: false, loaded: false, profile: null, engine: null }))
       .toBe('Download it on this PC, transcribe it, then translate it, through the Queue.')
     expect(planForLink({ pc: 'remote', source: false, loaded: false, profile: null, engine: null })).toMatch(/only on the main PC/)

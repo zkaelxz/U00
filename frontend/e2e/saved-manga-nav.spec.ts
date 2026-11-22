@@ -62,6 +62,8 @@ test('from another device Library tools does not show the save folder card', asy
   await page.route(/\/api\/meta$/, (route) =>
     route.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: false } }))
   await page.goto('/#/library-tools')
+  // Only the tab's first card opens itself, and the seeded library can hold a profile (One-click translate's Default) ahead of it.
+  await openFold(page, 'Saved manga')
   await expect(page.getByRole('region', { name: 'Saved manga' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Save folder' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Open folder' })).toHaveCount(0)

@@ -121,11 +121,14 @@ export function planForFile(o: { pc: PcMode; language: string; engine: string })
   return `Transcribe it as ${languageLabel(o.language)} speech ${where}${how}.`
 }
 
-/** The same for a link, from the One-Click Translate profile chosen in Settings. */
+/** Shown only when the profile was set to None in Settings: a fresh install has the Default one. The box links it to that card. */
+export const NO_PROFILE_PLAN = 'Choose a One-click translate profile in Settings first.'
+
+/** The same for a link, from the One-click translate profile chosen in Settings. */
 export function planForLink(o: { pc: PcMode; source: boolean; loaded: boolean; profile: string | null; engine: string | null }): string {
   if (o.pc === 'remote') return 'Making subtitles from a link runs only on the main PC. You can still add it as a title.'
   if (o.source) return 'This is a Sources page, not a video: add it as a title.'
-  if (o.loaded && !o.profile) return 'Choose a One-Click Translate profile in Settings > Quick video translate first.'
+  if (o.loaded && !o.profile) return NO_PROFILE_PLAN
   const engine = o.engine ? ` with ${engineLabel(o.engine)}` : ''
   const profile = o.profile ? ` (profile “${o.profile}”)` : ''
   return `Download it on this PC, transcribe it, then translate it${engine}${profile}, through the Queue.`

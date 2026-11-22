@@ -53,12 +53,52 @@ def test_the_profile_chosen_in_settings_is_used_when_none_is_given(jobs, started
     assert qv.get_settings()["profile_id"] == pid
 
 
-@pytest.mark.parametrize("make", ["none", "no_language"])
+@pytest.mark.parametrize("make", ["cleared", "no_language"])
 def test_a_missing_profile_or_language_creates_nothing(jobs, started_downloads, make):
     pid = db.save_preset("Bare", translation_engine="ollama") if make == "no_language" else None
+    if make == "cleared":
+        qv.set_profile(None)
     with pytest.raises(InvalidInputError):
         _start(pid)
     assert db.list_dramas() == [] and q.get_queue(None)["items"] == []
+
+
+def test_a_fresh_install_gets_a_default_profile_that_runs_a_link(jobs, started_downloads):
+    settings = qv.get_settings()
+    default = next(p for p in settings["profiles"] if p["id"] == settings["profile_id"])
+    assert default == {"id": settings["profile_id"], "name": "Default", "ready": True}
+    rows = {r["label"]: r["value"] for r in settings["summary"]}
+    assert rows["Source language"] == "Chinese" and rows["Export"] == "SRT, en"
+    assert rows["Speech recognizer"] == "The app's default for this language"
+    drama = db.get_drama(_start()["drama_id"])
+    assert drama["source_language"] == "zh"
+    assert [i["step"] for i in q.get_queue(None)["items"]] == ["download", "transcribe", "translate", "export"]
+    assert len(db.list_presets()) == 1 and qv.get_settings()["profile_id"] == settings["profile_id"]
+
+
+def test_a_deleted_choice_falls_back_to_default_only_while_default_exists(isolated_db):
+    default_id = qv.get_settings()["profile_id"]
+    pid = _profile()
+    qv.set_profile(pid)
+    db.delete_preset(pid)
+    assert qv.get_settings()["profile_id"] == default_id
+    # Deleting Default itself must not bring it back on the next read.
+    db.delete_preset(default_id)
+    assert qv.get_settings()["profile_id"] is None and db.list_presets() == []
+
+
+def test_a_cleared_choice_stays_cleared(isolated_db):
+    qv.get_settings()
+    qv.set_profile(None)
+    assert qv.get_settings()["profile_id"] is None
+
+
+def test_a_users_own_profile_named_default_is_never_overwritten(isolated_db):
+    pid = db.save_preset("Default", translation_engine="ollama", engine_model="mine")
+    assert qv.get_settings()["profile_id"] is None
+    assert db.list_presets()[0]["id"] == pid and db.list_presets()[0]["engine_model"] == "mine"
+    ready = _profile(name="Default")   # save_preset replaces by name: now it has a language
+    assert ready == pid and qv.get_settings()["profile_id"] == pid
 
 
 def test_a_paid_profile_is_refused_without_paid_permission_and_creates_nothing(jobs, started_downloads):
@@ -160,6 +200,7 @@ def test_settings_summary_shows_the_chosen_profiles_values_and_the_defaults_it_l
                          options_json=profile_service.dump_options(
                              {"quick_source_language": "ja", "quick_export_format": "vtt",
                               "quick_export_language": "bilingual", "context_window": 3}))
+    qv.set_profile(None)
     assert qv.get_settings()["summary"] == []
     qv.set_profile(pid)
     rows = {r["label"]: r for r in qv.get_settings()["summary"]}

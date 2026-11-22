@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test'
 import type { MediaLinkProbe } from '../src/api/linkDetails'
 import { json } from './mockHelpers'
 
-// The Add box's link side: the free link probe and One-Click Translate (settings, start, runs), all mocked.
+// The Add box's link side: the free link probe and One-click translate (settings, start, runs), all mocked.
 
 export const VIDEO_LINK = 'https://www.youtube.com/watch?v=abc123'
 

@@ -27,7 +27,8 @@ export type Route =
   // tab: "#/drama/3/source?tab=transcribe" opens that sub-tab of the Media stage;
   // "#/drama/3/translate?tab=glossary" that of the Translate stage.
   | { name: 'drama'; id: number; stage: string | null; focus?: DramaFocus; find?: string; tools?: ReviewToolsGroup; tab?: MediaTab | TranslateTab }
-  | { name: 'jobs' }
+  // job: "#/jobs?job=transcribe_3" opens that job's details and scrolls to it.
+  | { name: 'jobs'; job?: string }
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
   // card: "#/settings?card=display" does the same for any card id in the settings index; an unknown id is dropped.
   | { name: 'settings'; section?: 'developer-mode' | 'uploads'; card?: string }
@@ -71,6 +72,8 @@ export type Route =
 
 // A package key from diagnostics.OPTIONAL_DEPENDENCIES ("audio-separator", "pyannote.audio"): nothing else is read from a link.
 const PACKAGE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/
+// A job id as background_jobs makes them ("transcribe_3", "lines_glossary_12").
+const JOB_KEY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/
 
 export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare' | 'all' | 'estimate' | 'sourceLink' | 'voices'
 
@@ -88,7 +91,10 @@ export function parseRoute(hash: string): Route {
     const tab = new URLSearchParams(qs).get('tab')
     return isLibraryToolsTab(tab) ? { name: 'library-tools', tab } : { name: 'library-tools' }
   }
-  if (head === 'jobs' && parts.length === 1) return { name: 'jobs' }
+  if (head === 'jobs' && parts.length === 1) {
+    const job = new URLSearchParams(qs).get('job')
+    return job && JOB_KEY.test(job) ? { name: 'jobs', job } : { name: 'jobs' }
+  }
   if (head === 'settings' && parts.length === 1) {
     const q = new URLSearchParams(qs)
     const card = q.get('card')
@@ -219,6 +225,7 @@ export function routeHref(r: Route): string {
   }
   if (r.name === 'sources-manage') return manageHref(r.tab)
   if (r.name === 'sources' && r.tab) return sourcesHref(r.tab)
+  if (r.name === 'jobs' && r.job) return `#/jobs?job=${encodeURIComponent(r.job)}`
   if (r.name === 'admin' && r.card) return `#/admin?card=${r.card}`
   if (r.name === 'settings' && r.card) return `#/settings?card=${encodeURIComponent(r.card)}`
   if (r.name === 'settings' && r.section) return `#/settings?section=${r.section}`

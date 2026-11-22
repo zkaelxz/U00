@@ -31,11 +31,17 @@ MAX_RUNS = 30
 TEMPORARY_MAX_AGE_SECONDS = 48 * 3600
 _lock = threading.Lock()
 
-_NO_PROFILE = "Choose a translation profile for Quick video translate in Settings."
-_NO_LANGUAGE = "This profile has no source language. Set one in the profile's Quick video translate section."
+_NO_PROFILE = "Choose a profile for One-click translate in Settings."
+_NO_LANGUAGE = "This profile has no source language. Set one in the profile's One-click translate section."
 _NOT_TEMPORARY = "This title was not made as a watch-once title, so it is not removed here."
 _PAID = "This profile translates with a paid engine, which your account can't use."
 _RUN_STEPS = ("download", "transcribe", "translate", "export")
+# Made when no profile was ever chosen, so a pasted link works on first use. It sets only the source
+# language (the Add box's file side starts on Chinese too); everything else is left unset, so a run
+# uses the app's default recognizer, engine, model and export, as describe_profile shows.
+DEFAULT_PROFILE_NAME = "Default"
+_DEFAULT_OPTIONS = {"quick_source_language": "zh"}
+_NEVER_CHOSEN = object()
 
 
 def _presets() -> list:
@@ -84,10 +90,34 @@ def describe_profile(preset: dict) -> list:
     return [{"label": label, "value": str(value), "engine": eng} for label, value, eng in rows]
 
 
+def chosen_profile_id():
+    """The chosen profile's id. Never chosen, it becomes the Default profile (made when missing);
+    the chosen one deleted, it becomes Default only if that profile still exists. Cleared on
+    purpose in Settings (null), it stays None."""
+    with _lock:
+        chosen = db.get_app_setting(PROFILE_KEY, _NEVER_CHOSEN)
+        if chosen is None or (chosen is not _NEVER_CHOSEN and _preset(chosen) is not None):
+            return chosen
+        default = next((p for p in _presets() if p["name"] == DEFAULT_PROFILE_NAME), None)
+        if default is None and chosen is not _NEVER_CHOSEN:
+            # The chosen profile was deleted: making Default again would bring back a profile
+            # the person may just have deleted, so the choice is left empty instead.
+            return None
+        if default is None:
+            pid = db.save_preset(DEFAULT_PROFILE_NAME, options_json=profile_service.dump_options(_DEFAULT_OPTIONS))
+        elif profile_service.stored_options(default).get("quick_source_language"):
+            pid = default["id"]
+        else:
+            # Someone's own profile under that name: never overwritten, and without a language it can't run a link.
+            return None
+        db.set_app_setting(PROFILE_KEY, pid)
+        return pid
+
+
 def get_settings() -> dict:
-    """The saved profile choice and the profiles to pick from. A profile that was deleted reads as no choice."""
-    chosen = db.get_app_setting(PROFILE_KEY)
-    preset = _preset(chosen)
+    """The chosen profile (see chosen_profile_id) and the profiles to pick from."""
+    chosen = chosen_profile_id()
+    preset = _preset(chosen) if chosen is not None else None
     return {"profile_id": chosen if preset else None,
             "summary": describe_profile(preset) if preset else [],
             "profiles": [{"id": p["id"], "name": p["name"],

@@ -66,7 +66,9 @@ def _view(principal, drama_id: int, source: str) -> dict:
         return {"state": "running", "step": q.NAMES, "reason": None}
     stopped = next((i for i in chain if i["status"] in _STOPPED), None)
     if stopped is not None:
-        return {"state": "stopped", "step": stopped["step"], "reason": stopped["reason"] or None}
+        # The job, when the step got as far as starting one, is where the page sends the person for its log.
+        return {"state": "stopped", "step": stopped["step"], "reason": stopped["reason"] or None,
+                "job_id": stopped["job_id"]}
     return {"state": "idle", "step": None, "reason": None}
 
 
