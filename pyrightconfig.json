@@ -167,7 +167,10 @@
     "voice/__init__.py",
     "word_replacements.py",
     "scanlate/scanlate_sfx.py",
-    "scanlate/scanlate_tilt.py"
+    "scanlate/scanlate_tilt.py",
+    "voice/dub.py",
+    "voice/voice_venv.py",
+    "voice/voice_worker.py"
   ],
   "typeCheckingMode": "basic",
   "pythonVersion": "3.13",
