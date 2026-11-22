@@ -43,9 +43,12 @@ export function AppVersionLine() {
   const text = info ? appVersionText(info) : null
   const phone = typeof navigator === 'undefined' ? null : phoneAppText(navigator.userAgent)
   if (!text && !phone) return null
+  // Two lines in the phone app: joined, the two versions wrapped into four lines on a 360px screen.
   return (
     <p className="page-meta" data-testid="app-version-line">
-      {[text, phone].filter(Boolean).join(' · ')}
+      {text}
+      {text && phone ? <br /> : null}
+      {phone}
     </p>
   )
 }

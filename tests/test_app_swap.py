@@ -376,6 +376,26 @@ def test_a_full_disk_for_both_records_still_says_updated_and_opens_the_window(ro
     assert sw.read_result(root)["code"] == "updated_unrecorded"
 
 
+def test_a_full_disk_when_finishing_at_the_next_start_lets_the_new_version_start(root, monkeypatch):
+    # The DONE journal was written but manifest.json wasn't: "broken" would stop
+    # the launcher from starting the new version that is already in app\.
+    _crash_after(root, 2)
+    sw.write_journal(root, sw.DONE, OLD, NEW, OLD)
+    write = sw._atomic_write
+
+    def full_manifest(path, data):
+        if Path(path).name == "manifest.json":
+            raise OSError(28, "No space left on device")
+        write(path, data)
+    monkeypatch.setattr(sw, "_atomic_write", full_manifest)
+    assert sw.recover(root) == "updated_unrecorded"
+    assert _current(root) == NEW and _app_version(root) == OLD
+    assert sw.read_result(root)["code"] == "updated_unrecorded"
+    monkeypatch.setattr(sw, "_atomic_write", write)
+    assert sw.recover(root) == "updated"
+    assert _app_version(root) == NEW and sw.read_journal(root) is None
+
+
 def test_a_crash_after_the_manifest_was_written_still_rolls_back_cleanly(root):
     _crash_after(root, 2)
     sw.set_installed_version(root, NEW, OLD)

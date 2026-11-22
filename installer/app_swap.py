@@ -770,9 +770,16 @@ def recover(root, stop=None, sleep=time.sleep) -> str:
             if state == DONE:
                 try:
                     finish(root, journal)
-                except (OSError, SwapError):
-                    # manifest.json unreadable or unwritable: only Setup can repair that.
+                except SwapError:
+                    # manifest.json unreadable: only Setup can repair that.
                     return "broken"
+                except OSError:
+                    # A full disk: the new version is in app\ and runs, so
+                    # refusing to start would be worse than the old version
+                    # number. The journal stays, so a later start records it.
+                    with contextlib.suppress(OSError):
+                        write_result(root, "updated_unrecorded", old, new)
+                    return "updated_unrecorded"
                 return "updated"
             if stop is not None:
                 stop()

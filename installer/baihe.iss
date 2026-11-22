@@ -1437,13 +1437,17 @@ end;
 // Files is set). Returns how many. A folder is renamed first: Windows refuses
 // that while another running Baihe copy has a file open or works in it, and
 // such a folder is skipped whole instead of being half deleted. (An open file
-// can't be deleted either, so loose files need no such check.)
+// can't be deleted either, so loose files need no such check.) The folders are
+// listed before any is renamed: a renamed one still matches baihe_*, and the
+// search could meet it again and rename it once more.
 function DeleteTempMatches(const Pattern: String; Files: Boolean): Integer;
 var
   Temp: String;
   Rec: TFindRec;
   IsDir: Boolean;
   Moved: String;
+  Folders: array of String;
+  I: Integer;
 begin
   Result := 0;
   Temp := GetEnv('TEMP');
@@ -1455,9 +1459,8 @@ begin
       IsDir := (Rec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0;
       if IsDir and not Files then
       begin
-        Moved := AddBackslash(Temp) + Rec.Name + '.uninstall';
-        if RenameFile(AddBackslash(Temp) + Rec.Name, Moved) and DelTreeNoLinks(Moved) then
-          Result := Result + 1;
+        SetArrayLength(Folders, GetArrayLength(Folders) + 1);
+        Folders[GetArrayLength(Folders) - 1] := Rec.Name;
       end
       else if Files and not IsDir then
       begin
@@ -1467,6 +1470,12 @@ begin
     until not FindNext(Rec);
   finally
     FindClose(Rec);
+  end;
+  for I := 0 to GetArrayLength(Folders) - 1 do
+  begin
+    Moved := AddBackslash(Temp) + Folders[I] + '.uninstall';
+    if RenameFile(AddBackslash(Temp) + Folders[I], Moved) and DelTreeNoLinks(Moved) then
+      Result := Result + 1;
   end;
 end;
 
