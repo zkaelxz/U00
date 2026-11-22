@@ -82,3 +82,19 @@ test('no corrections: no replace switch; the time estimates show next to both bu
   await expect(page.getByTestId('transcribe-estimate')).toContainText('Rough estimate')
   await expect(page.getByTestId('transcribe-estimate')).toContainText(' on ')
 })
+
+test('Nemotron will run: the speaker count boxes give way to one line, and no count is sent', async ({ page }) => {
+  const urls = await mockSpeakers(page, { expected_speakers: 3 })
+  await page.route('**/api/setup/readiness', async (r) => {
+    const real = await r.fetch()
+    await r.fulfill({ json: { ...(await real.json()), speaker_token_needed: false, nemotron_transformers: true, librosa: true, torch: true } })
+  })
+  await openSpeakers(page)
+  await expect(page.getByTestId('speaker-count-ignored')).toHaveText('Nemotron finds the number of speakers itself.')
+  await expect(page.getByLabel('Expected speakers', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Min speakers', { exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Max speakers', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Detect speakers only' }).click()
+  await expect.poll(() => urls.length).toBe(1)
+  expect(new URL(urls[0]).searchParams.get('expected_speakers')).toBeNull()
+})

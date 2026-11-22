@@ -5,7 +5,7 @@ import type { SetupReadiness } from '../../types/setup'
 import {
   ankiNeed, cardAudioNeed, gpuSettingNote, audioToolNeed, gpuTorchNeed, libassNeed, liveBlockers, gpuOnText, liveGpuReason, liveNeeds, liveWhisperOptionNote, liveWhisperSize, senseVoiceNeed, wordSplitterNeed, ytDlpNeed, qwen3Need, qwen3Warning, qwenAlignNeed, realignNeed, runBlockers, separationNeed,
   browserTierNeed, mlDetectorNeed, notifyNeed, ollamaNeed, ocrBackendNeed, trafilaturaNeed,
-  scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, urlDownloadNeeds, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
+  nemotronWillRun, scanlateNeed, speakerNeeds, transcribeNeeds, unavailableBackends, urlDownloadNeeds, usesLocalWhisper, whisperNeed, type TranscribeNeedsForm,
 } from './needs'
 
 // A fresh GPU server: almost nothing optional is installed.
@@ -92,6 +92,14 @@ describe('a fresh install', () => {
     expect(rest).toEqual([])
     expect(speakerNeeds({ ...READY, speaker_token_needed: false, pyannote: false })).toEqual([])
     expect(speakerNeeds({ ...READY, speaker_token_needed: false, librosa: false, hf_token_configured: false })[0].packages).toEqual(['librosa'])
+  })
+
+  it('says Nemotron will run only when it is the chosen model and its packages are here', () => {
+    expect(nemotronWillRun({ ...READY, speaker_token_needed: false, pyannote: false })).toBe(true)
+    expect(nemotronWillRun({ ...READY, speaker_token_needed: true })).toBe(false)
+    expect(nemotronWillRun({ ...READY, speaker_token_needed: false, librosa: false })).toBe(false)
+    expect(nemotronWillRun({ ...READY, speaker_token_needed: false, nemotron_transformers: false })).toBe(false)
+    expect(nemotronWillRun(null)).toBe(false)
   })
 
   it('asks for nothing when only Nemotron is missing and pyannote can run in its place', () => {

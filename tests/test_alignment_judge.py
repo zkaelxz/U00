@@ -53,6 +53,20 @@ def test_the_judge_stops_asking_once_told_to_stop(monkeypatch):
     assert seen == []
 
 
+def test_the_judge_prices_each_request_before_sending_it(monkeypatch):
+    seen, prices = [], []
+    monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **k: seen.append(1) or "{}")
+    monkeypatch.setattr(alignment_judge, "JUDGE_BATCH", 1)
+
+    class Paid(_Engine):
+        model = "claude-sonnet-5-5"
+    items = [{"id": 0, "zh": "a", "en": "b"}, {"id": 1, "zh": "c", "en": "d"}, {"id": 2, "zh": "e", "en": "f"}]
+    fits = lambda usd: prices.append(usd) or len(prices) < 2
+    alignment_judge.judge_for(Paid(), fits_budget=fits)(items)
+    assert seen == [1]
+    assert len(prices) == 2 and all(p > 0 for p in prices)
+
+
 def test_verdict_keys_and_case_are_read_leniently():
     assert alignment_judge.parse_verdicts('{"[3]": "OK", "x": "ok"}', [3]) == {3: "ok"}
 

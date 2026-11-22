@@ -3,7 +3,7 @@
 import json
 import logging
 
-from . import llm_tasks
+from . import llm_tasks, pricing
 from .line_text import extract_first_json_value, language_name
 from .paid_calls import TranslateRunStopped
 from .shared import redact_secrets
@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 
 # Lines per request: each brings its two neighbours, so a request holds about 45 lines of text.
 JUDGE_BATCH = 15
+JUDGE_MAX_TOKENS = 600
 VERDICTS = ("ok", "shifted", "wrong")
 
 
@@ -49,10 +50,12 @@ def parse_verdicts(text: str, ids) -> dict:
     return out
 
 
-def judge_for(engine, usage_cb=None, source_language=None, should_stop=None):
+def judge_for(engine, usage_cb=None, source_language=None, should_stop=None, fits_budget=None):
     """A function items -> {id: verdict} that asks `engine`, or None when it cannot take
     such a request (a plain machine-translation engine). A request that fails leaves its
-    items without a verdict, so the caller falls back to the embedding score for them."""
+    items without a verdict, so the caller falls back to the embedding score for them.
+    fits_budget(usd) is asked with each request's price before it is sent (its prompt plus
+    a full reply); False ends the asking, so a cap is never passed by a judge request."""
     if not getattr(engine, "supports_reference", False):
         return None
 
@@ -62,9 +65,13 @@ def judge_for(engine, usage_cb=None, source_language=None, should_stop=None):
             if should_stop and should_stop():
                 break
             batch = items[start:start + JUDGE_BATCH]
+            prompt = build_judge_prompt(batch, source_language)
+            if fits_budget and not fits_budget(pricing.estimate_cost_for_engine(
+                    engine, int(pricing.estimate_text_tokens(prompt)), JUDGE_MAX_TOKENS)):
+                break
             try:
                 text = llm_tasks.call_llm_json(
-                    engine, build_judge_prompt(batch, source_language), max_tokens=600,
+                    engine, prompt, max_tokens=JUDGE_MAX_TOKENS,
                     fallback="{}", usage_cb=usage_cb, expect="json_object")
             except TranslateRunStopped:
                 break

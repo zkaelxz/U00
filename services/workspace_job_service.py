@@ -273,7 +273,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                 engine, frac, base=message)),
         save_cb=_save,
         cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
-        usage_cb=_usage_logger(drama_id, engine, engine_choice),
+        usage_cb=_logged_and_counted(_usage_logger(drama_id, engine, engine_choice), engine, (judge_budget := _JudgeBudget()).spend.append),
     )
 
     job_timing.mark_stage(job_id, "Finish (glossary checks, version)")
@@ -290,7 +290,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             line_scoped=target_ids is not None,
             enforce_ids=(set(target_ids) if own_lines_only and target_ids is not None
                          else {ln.id for ln in lines if getattr(ln, "id", None) is not None}),
-            flags_needing_recheck=recheck, **_alignment_args(drama_id, engine, engine_choice, job_id, cap_reached), sentence_parts=sentence_parts, stage_cb=lambda stage: job_timing.mark_stage(job_id, stage)):
+            flags_needing_recheck=recheck, **_alignment_args(drama_id, engine, engine_choice, job_id, cap_reached, cost_cap_usd, judge_budget), sentence_parts=sentence_parts, stage_cb=lambda stage: job_timing.mark_stage(job_id, stage)):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
                                             **_fallback_result(engine)})
@@ -306,7 +306,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         background_jobs.set_result(job_id, _run_result(errors, cap_reached.get("spent"),
                                                        summary_skip_reason, recheck, kept_edits,
                                                        engine, lines, en_before, _retranslated_ids(
-                                                           force_retranslate and not cancelled, cap_reached, lines, target_ids)))
+                                                           force_retranslate and not cancelled, cap_reached, lines, target_ids), judge_budget.capped))
     if cancelled:
         # The engine stops between batches and returns normally, keeping the
         # lines already translated; returning here would end the job done at
@@ -384,7 +384,7 @@ def _retranslated_ids(forced_and_not_cancelled: bool, cap_reached, lines, target
 
 
 def _run_result(errors, cap_spent, summary_skip_reason, recheck, kept_edits, engine, lines,
-                en_before, retranslated_ids=()) -> dict:
+                en_before, retranslated_ids=(), judge_capped=False) -> dict:
     failed = {i for e in errors if isinstance(e, dict) for i in (e.get("line_ids") or [])}
     written = sum(1 for ln in lines if ln.en and (ln.en != en_before.get(ln.id)
                                                   or (ln.id in retranslated_ids
@@ -393,6 +393,7 @@ def _run_result(errors, cap_spent, summary_skip_reason, recheck, kept_edits, eng
             **({"summary_skipped": summary_skip_reason} if summary_skip_reason else {}),
             **({"flags_needing_recheck": sorted(recheck)} if recheck else {}),
             **({"kept_your_edit": sorted(kept_edits)} if kept_edits else {}),
+            **({"judge_skipped": JUDGE_CAP_SKIPPED} if judge_capped else {}),
             **_fallback_result(engine)}
 
 
@@ -416,24 +417,54 @@ def _speaker_names(drama_id) -> dict:
         db.list_series_characters(series_id) if series_id else [])
 
 
-def _alignment_args(drama_id, engine, engine_choice, job_id, cap_reached) -> dict:
+JUDGE_CAP_SKIPPED = "The engine check in Source match was skipped because the cost cap was reached."
+
+
+class _JudgeBudget:
+    """What a translate run's paid calls cost after its episode brief, and whether a cap stopped
+    the source-match judge. The judge runs after the batches, outside their cost scope, so it
+    prices each request against what they left."""
+
+    def __init__(self):
+        self.spend = []
+        self.capped = False
+
+
+def _alignment_args(drama_id, engine, engine_choice, job_id, cap_reached, cost_cap_usd=None,
+                    budget=None) -> dict:
     """The source-match check's embedder and its judge (the run's own engine confirms the
     lines the embeddings doubt, billed like the translation), both left out while the
-    setting is off."""
+    setting is off. cost_cap_usd is what the run's batches were given. A judge request that
+    a cap stops, or that would pass the run's or the month's cap, ends the asking and sets
+    budget.capped."""
     embed = settings_service.alignment_embedder(lambda: background_jobs.is_cancel_requested(job_id))
     if embed is None:
         return {}
     # The judge's calls sit outside the translation's cost scope, so a stop or a reached
     # cap has to end them here or they would keep spending after the user said stop.
     month_cap_hit = _month_cap_check(engine_choice, engine)
+    month_left = _month_cap_left(engine_choice, engine)
+    budget = budget if budget is not None else _JudgeBudget()
 
     def stopped():
-        return (background_jobs.is_cancel_requested(job_id) or cap_reached.get("spent") is not None
-                or bool(month_cap_hit and month_cap_hit()))
+        if background_jobs.is_cancel_requested(job_id):
+            return True
+        if cap_reached.get("spent") is not None or (month_cap_hit and month_cap_hit()):
+            budget.capped = True
+        return budget.capped
+
+    def fits(usd):
+        lefts = (None if cost_cap_usd is None else cost_cap_usd - sum(budget.spend),
+                 month_left() if month_left else None)
+        if any(left is not None and usd > left for left in lefts):
+            budget.capped = True
+        return not budget.capped
 
     return {"embed_texts": embed,
             "judge": alignment_judge.judge_for(
-                engine, _usage_logger(drama_id, engine, engine_choice), should_stop=stopped)}
+                engine, _logged_and_counted(_usage_logger(drama_id, engine, engine_choice), engine,
+                                            budget.spend.append),
+                should_stop=stopped, fits_budget=fits)}
 
 
 def _usage_logger(drama_id, engine, engine_choice):
