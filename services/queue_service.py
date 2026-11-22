@@ -921,10 +921,21 @@ def _local_ollama_after_batches(engine: str) -> bool:
     return str(settings_service.get("episode_summary_engine")) == "ollama" and engine != "ollama"
 
 
+_MODEL_CHECK_SECONDS = 30
+_model_check = {"at": -1e9, "url": "", "present": False}
+
+
 def _source_match_model_present() -> bool:
+    """Cached for a short while: this runs under the queue's lock on every tick and on every
+    poll of the queue, and each uncached answer is a request to Ollama."""
     from engine_backends import alignment_check, ollama_server
     url = settings_service.ollama_url()
-    return ollama_server.check_ollama_reachable(url) and ollama_server.model_pulled(url, alignment_check.EMBED_MODEL)
+    now = time.monotonic()
+    if _model_check["url"] != url or now - _model_check["at"] > _MODEL_CHECK_SECONDS:
+        present = (ollama_server.check_ollama_reachable(url)
+                   and ollama_server.model_pulled(url, alignment_check.EMBED_MODEL))
+        _model_check.update(at=now, url=url, present=present)
+    return _model_check["present"]
 
 
 def _overlap_note(doc: dict) -> Optional[str]:
