@@ -28,7 +28,7 @@ const saved: SettingsPreferences = {
   novel_parallel_chapters: 3,
   claude_reasoning: 'default',
   openai_reasoning: 'default',
-  translate_alignment_check: false,
+  translate_alignment_check: true,
   episode_summary_engine: 'ollama',
   max_upload_mb: 20480,
   monthly_cap_usd: null,
