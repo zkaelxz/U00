@@ -123,6 +123,26 @@ class TestGetReaderPage:
         reader_service.get_reader_page(did, page=1, chapter_size=20)
         assert calls[-1]["paragraph_ends"] is None
 
+    def test_text_moved_from_one_line_to_the_next_is_matched_again(self, isolated_db, monkeypatch):
+        """Same count, ids and total length: only where the text sits changed, and the old
+        paragraph ends would join the wrong lines."""
+        import novel_text
+        calls = _stub_render(monkeypatch)
+        did = _drama(isolated_db, title_en="N", content_mode="novel_narration")
+        paragraphs = ["甲乙丙。", "丁戊。", "己庚。"]
+        isolated_db.save_lines(did, [Line(idx=i, start=float(i), end=float(i + 1), zh=p, en=f"P{i}")
+                                     for i, p in enumerate(paragraphs)])
+        with open(os.path.join(isolated_db.drama_dir(did), novel_text.NOVEL_SOURCE_FILENAME), "w",
+                  encoding="utf-8") as f:
+            f.write("\n".join(paragraphs))
+        reader_service.get_reader_page(did, page=1, chapter_size=20)
+        assert calls[-1]["paragraph_ends"] == {0, 1, 2}
+        lines = isolated_db.load_line_objects(did)
+        lines[0].zh, lines[1].zh = "甲乙", "丙。丁戊。"
+        isolated_db.save_lines(did, lines)
+        reader_service.get_reader_page(did, page=1, chapter_size=20)
+        assert calls[-1]["paragraph_ends"] is None   # read again: line 0 no longer ends a paragraph
+
     def test_unknown_drama_raises_not_found(self, isolated_db):
         with pytest.raises(NotFoundError):
             reader_service.get_reader_page(999999, page=1)

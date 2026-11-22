@@ -346,6 +346,14 @@ class TestJob:
         assert {c["speaker_label"] for c in isolated_db.list_characters(did)} >= {"Ann Lee", long[:100]}
         assert [narration_service._tagged_label(v) for v in ("\u202e\t", 42, None, "")] == ["Narrator"] * 4
 
+    def test_a_tagged_label_passes_the_rules_a_typed_name_does(self):
+        """The voice bank refuses a speaker whose name has a slash or "..", so one the model
+        wrote that way could never get a saved voice."""
+        from services import characters_service
+        for raw, want in (("Mei/Lin", "Mei Lin"), ("..\\..\\x", "\u2026 \u2026 x"), ("Ann...", "Ann\u2026")):
+            label = narration_service._tagged_label(raw)
+            assert label == want and characters_service._clean_label("name", label) == label
+
     def test_failure_redacts_secret_in_job_error(self, isolated_db, monkeypatch, key):
         did = _drama(isolated_db)
         from engine_backends import llm_tasks, engine_registry

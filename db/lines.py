@@ -675,10 +675,12 @@ def line_reading_stats(drama_id: int) -> tuple:
 def line_text_stamp(drama_id: int) -> tuple:
     """A value that changes when a title's lines are added, removed, re-split
     or their source text changes length, read without fetching the text: the
-    key for caches built from every line's source text."""
+    key for caches built from every line's source text. The length weighted by
+    position changes when text moves from one line to the next."""
     with contextlib.closing(db.get_conn()) as conn:
         return tuple(conn.execute(
-            "SELECT COUNT(*), MAX(id), MAX(idx), TOTAL(LENGTH(zh)) FROM lines WHERE drama_id = ?",
+            "SELECT COUNT(*), MAX(id), MAX(idx), TOTAL(LENGTH(zh)), TOTAL(LENGTH(zh) * (idx + 1))"
+            " FROM lines WHERE drama_id = ?",
             (drama_id,)).fetchone())
 
 

@@ -21,6 +21,7 @@ No FastAPI import.
 """
 import copy
 import os
+import re
 import unicodedata
 from types import SimpleNamespace
 from typing import Optional
@@ -383,13 +384,15 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
 
 
 def _tagged_label(raw) -> str:
-    """The model's label as a speaker label: invisible and control characters dropped,
-    spaces collapsed and cut to MAX_SPEAKER_LABEL_LEN, as a name typed in Review would be.
-    "Narrator" when nothing is left."""
+    """The model's label as a speaker label that passes the rules a name typed in Review
+    must: invisible and control characters dropped, slashes made spaces and ".." one
+    ellipsis (else the voice bank would refuse the speaker), spaces collapsed and cut to
+    MAX_SPEAKER_LABEL_LEN. "Narrator" when nothing is left."""
     if not isinstance(raw, str):
         return "Narrator"
-    kept = "".join(" " if ch.isspace() else ch for ch in raw
+    kept = "".join(" " if ch.isspace() or ch in "/\\" else ch for ch in raw
                    if ch.isspace() or not unicodedata.category(ch).startswith(("C", "Zl", "Zp")))
+    kept = re.sub(r"\.{2,}", "\u2026", kept)
     return " ".join(kept.split())[:MAX_SPEAKER_LABEL_LEN].strip() or "Narrator"
 
 

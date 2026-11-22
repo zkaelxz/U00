@@ -47,20 +47,57 @@ def _chapter_line_id_lists(drama_id) -> list:
     """Each chapter's line ids, chapters numbered from the title's saved novel text as
     Chunk & tag numbers them, so a title chunked from chapter 50 on has its lines in
     chapter 50, not chapter 1. Lines that no longer match that text (edited or merged in
-    Review, or not made by Chunk & tag) are numbered by their own headings instead."""
+    Review) are cut at their own headings, and each piece goes to the chapter of the text
+    with the same heading. Without saved text, the lines' own headings number them."""
     import novel_text
     from services import narration_service
     lines = db.load_line_objects(drama_id)
+    own = [lines[a:b + 1] for a, b in novel_text.chapter_line_ranges([ln.zh or "" for ln in lines])]
     source = narration_service._read_novel(drama_id)
-    if source.strip():
-        try:
-            by_chapter = narration_service._align_chapters(narration_service._chapter_chunks(source), lines)
-        except ConflictError:
-            by_chapter = None
-        if by_chapter is not None:
-            return [[ln.id for ln in chapter] for chapter in by_chapter]
-    ranges = novel_text.chapter_line_ranges([ln.zh or "" for ln in lines])
-    return [[ln.id for ln in lines[a:b + 1]] for a, b in ranges]
+    if not source.strip():
+        return [[ln.id for ln in chapter] for chapter in own]
+    try:
+        by_chapter = narration_service._align_chapters(narration_service._chapter_chunks(source), lines)
+    except ConflictError:
+        by_chapter = _placed_by_heading(source, own)
+    if by_chapter is None:
+        # Numbering by the lines' own headings would pick other chapters than the ones asked for.
+        raise InvalidInputError("A chapter heading was edited in Review, so the lines no longer match the "
+                                "novel's chapters. Translate all chapters instead.")
+    return [[ln.id for ln in chapter] for chapter in by_chapter]
+
+
+def _squashed(text) -> str:
+    return "".join((text or "").split())
+
+
+def _placed_by_heading(source: str, pieces: list):
+    """The pieces (lines cut at their own headings, in order) at the chapter of `source`
+    whose opening heading each starts with; the lines before the first heading go to the
+    text's untitled opening. None when a piece matches no chapter after the previous one."""
+    import novel_text
+    heads = []
+    for a, b in novel_text.chapter_spans(source):
+        opening = []
+        for row in source[a:b].splitlines():
+            if not row.strip():
+                continue
+            if not novel_text.is_heading_text(row):
+                break
+            opening.append(_squashed(row))
+        heads.append(opening)
+    out, pos = [[] for _ in heads], 0
+    for n, piece in enumerate(pieces):
+        if not piece:
+            continue
+        first = _squashed(piece[0].zh)
+        found = next((k for k in range(pos, len(heads)) if first in heads[k]), None)
+        if found is None and n == 0 and heads and not heads[0] and not novel_text.is_heading_text(piece[0].zh):
+            found = 0
+        if found is None:
+            return None
+        out[found], pos = piece, found + 1
+    return out
 
 
 def check_mode_options(engine_name, gemini_free_tier, reflect, bulk, fallback_chain,

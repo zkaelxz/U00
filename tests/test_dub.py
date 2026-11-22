@@ -582,6 +582,30 @@ class TestRemoveUnusedClips:
     def test_no_clips_folder_is_nothing_to_do(self, tmp_path):
         assert dub_narration.remove_unused_clips(str(tmp_path), []) == 0
 
+    def test_a_linked_clips_folder_or_clip_is_never_followed(self, tmp_path):
+        """Only the title's own folder is cleaned: a dub_clips that leads elsewhere, or a clip
+        that is a link, is left with what it points at."""
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "line_0000_aaaaaaaaaa.wav").write_bytes(b"x")
+        title = tmp_path / "title"
+        title.mkdir()
+        try:
+            os.symlink(elsewhere, title / "dub_clips", target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("this system can't make symlinks")
+        assert dub_narration.remove_unused_clips(str(title), []) == 0
+        assert os.listdir(elsewhere) == ["line_0000_aaaaaaaaaa.wav"]
+
+        other = tmp_path / "other"
+        other.mkdir()
+        clips = other / "dub_clips"
+        clips.mkdir()
+        os.symlink(elsewhere / "line_0000_aaaaaaaaaa.wav", clips / "line_0001_bbbbbbbbbb.wav")
+        assert dub_narration.remove_unused_clips(str(other), []) == 0
+        assert os.path.islink(clips / "line_0001_bbbbbbbbbb.wav")
+        assert os.listdir(elsewhere) == ["line_0000_aaaaaaaaaa.wav"]
+
 
 class TestMostlyFailedNarration:
     """A run where most lines fail (an engine that would not start) keeps the title's track,

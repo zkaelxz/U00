@@ -366,6 +366,10 @@ def remove_unused_clips(drama_dir: str, used) -> int:
     (the lines' dub_filename values) names. Returns how many were deleted; a file that
     can't be deleted is left for the next run."""
     clips_dir = os.path.join(drama_dir, "dub_clips")
+    # A dub_clips that is a symlink or junction leads out of the title's folder: nothing there is ours.
+    inside = os.path.join(os.path.realpath(drama_dir), "dub_clips")
+    if os.path.normcase(os.path.realpath(clips_dir)) != os.path.normcase(inside):
+        return 0
     keep = {re.split(r"[\\/]", name)[-1] for name in used if name}
     try:
         entries = list(os.scandir(clips_dir))
