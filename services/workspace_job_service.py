@@ -242,7 +242,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     en_before = {ln.id: ln.en for ln in lines}
     cap_reached = {}
     _bill_failed_attempts(drama_id, engine)
-    character_names = _speaker_names(drama_id)
+    character_names = speaker_names(drama_id)
     scene_aware = settings_service.get("scene_aware_batches")
     # What produced each line, and per-stage timing.
     provenance = line_provenance_service.translate_run_tracker(
@@ -287,7 +287,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             drama_id, lines, engine, engine_choice, style_preset, glossary_terms, errors,
             cancelled=cancelled,
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
-            summary_monthly_cap_usd=summary_monthly_cap_usd,
+            summary_monthly_cap_usd=summary_monthly_cap_usd, character_names=character_names,
             line_scoped=target_ids is not None,
             enforce_ids=(set(target_ids) if own_lines_only and target_ids is not None
                          else {ln.id for ln in lines if getattr(ln, "id", None) is not None}),
@@ -422,7 +422,7 @@ def _bill_failed_attempts(drama_id, engine):
                          cache_read_tokens=cache_read)
 
 
-def _speaker_names(drama_id) -> dict:
+def speaker_names(drama_id) -> dict:
     """{speaker_label: "Name (pronouns)"}, named characters only: an unnamed
     speaker is shown with no name, never the raw diarization label."""
     series_id = (db.get_drama(drama_id) or {}).get("series_id")
@@ -557,7 +557,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     the caller named one for the whole batch), else the defaults.
     """
     summary_engine, summary_choice, default_style_note = _bulk_summary_setup(
-        ollama_base_url, allow_paid_summary, monthly_cap)
+        allow_paid_summary, monthly_cap)
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
                "errors": {}, "partial": {}, "cancelled": False}
@@ -612,13 +612,12 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     background_jobs.set_result(job_id, results)
 
 
-def _bulk_summary_setup(ollama_base_url, allow_paid_summary, monthly_cap):
+def _bulk_summary_setup(allow_paid_summary, monthly_cap):
     # Imported here: translate_run_service imports this module.
     from services import settings_service, translate_run_service
     # Same Settings episode-summary engine as a single run (None if it
     # can't be built), at this job's own Ollama URL.
-    summary_engine, summary_choice = translate_run_service.pick_summary_engine(
-        ollama_base_url, allow_paid=allow_paid_summary)
+    summary_engine, summary_choice = translate_run_service.pick_summary_engine(allow_paid=allow_paid_summary)
     # The Settings default the single-title form starts from, so a title
     # translated in bulk matches one translated alone.
     default_style_note = settings_service.get("default_style_note") or ""

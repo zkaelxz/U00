@@ -29,7 +29,7 @@ const saved: SettingsPreferences = {
   claude_reasoning: 'default',
   openai_reasoning: 'default',
   translate_alignment_check: true,
-  episode_summary_engine: 'ollama',
+  episode_summary_engine: 'claude',
   narration_pace: 0.9,
   max_upload_mb: 20480,
   monthly_cap_usd: null,

@@ -200,7 +200,7 @@ SETTINGS = (
     _pref("translate_alignment_check", "bool", True, label="Flag translations that don't match their source",
           help="After a translation, compares each line's English with its source using the bge-m3 model on your Ollama server and flags lines that look shifted, skipped or about something else. With an AI translation engine, the few lines it doubts are also shown to that engine, billed like the translation. Needs `ollama pull bge-m3`; without it the check is skipped. No text is changed. On by default.",
           tab="translation", section="Translation style"),
-    _pref("episode_summary_engine", "choice", "ollama", choices="summary_engines",
+    _pref("episode_summary_engine", "choice", "claude", choices="summary_engines",
           label="Episode summary engine", tab="translation", section="Defaults for new dramas"),
     _pref("monthly_cap_usd", "float", None, min=0, max=_MONTHLY_CAP_MAX,
           label="Monthly cap", unit="USD",

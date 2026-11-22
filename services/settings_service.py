@@ -317,7 +317,7 @@ _PREF_PREFIX = "pref."
 # or endpoint write forgets it, so a stale "working" never outlives the key.
 ENGINE_TEST_PREFIX = "engine_test."
 LOCALE_CHOICES = ("en-US", "en-GB", "en-AU")
-SUMMARY_ENGINE_CHOICES = ("ollama", "claude", "deepseek", "gemini", "openai")
+SUMMARY_ENGINE_CHOICES = ("claude", "deepseek", "gemini", "openai")
 
 
 def _engine_choices() -> tuple:

@@ -647,7 +647,11 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, ca
     return issues, failed_batches, total_batches
 
 
-def generate_episode_summary(lines, engine, usage_cb=None) -> str:
+# Sonnet's JSON reply for a long episode ran past 500 tokens and was cut off, which left no summary.
+EPISODE_SUMMARY_MAX_TOKENS = 1400
+
+
+def generate_episode_summary(lines, engine, usage_cb=None, character_names=None) -> str:
     """One LLM call per finished episode (never once per
     translation batch) producing a short running summary for cross-
     episode narrative continuity -- distinct from glossary/translation
@@ -666,9 +670,9 @@ def generate_episode_summary(lines, engine, usage_cb=None) -> str:
     translated = [ln for ln in lines if (ln.en or "").strip()]
     if not translated:
         return ""
-    prompt = build_episode_summary_prompt(translated)
+    prompt = build_episode_summary_prompt(translated, character_names)
     try:
-        text = call_llm_json(engine, prompt, max_tokens=500, fallback=None, usage_cb=usage_cb)
+        text = call_llm_json(engine, prompt, max_tokens=EPISODE_SUMMARY_MAX_TOKENS, fallback=None, usage_cb=usage_cb)
         if text is None:
             return ""
     except Exception as e:

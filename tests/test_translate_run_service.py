@@ -109,7 +109,9 @@ def test_no_secret_leak_and_cap_from_resolved(isolated_db, monkeypatch):
     assert "claude" in cfg["bulk_supported_engines"]
 
 
-def test_estimate_relationships(isolated_db, cap):
+def test_estimate_relationships(isolated_db, cap, monkeypatch):
+    # A free summary engine, so the ratios below are the translation's alone.
+    patch_setting(monkeypatch, "episode_summary_engine", "ollama")
     cap(0)
     did = _drama()
     _seed(did, [("你好世界" * 50, ""), ("再见" * 50, "bye")])
@@ -137,6 +139,7 @@ def test_estimate_uses_the_runs_own_batch_size(isolated_db, cap):
 
 def test_free_engines(isolated_db, cap, monkeypatch):
     patch_setting(monkeypatch, "gemini_free_tier", True)  # a request alone can't grant the free tier
+    patch_setting(monkeypatch, "episode_summary_engine", "ollama")  # the default Claude summary is paid
     cap(0)
     did = _drama()
     _seed(did, [("你好" * 20, "")])

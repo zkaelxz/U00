@@ -83,22 +83,33 @@ def _summary_source(body: str) -> str:
     return body[:_EPISODE_SUMMARY_HEAD_CHARS] + _CUT_MARK + body[-tail:]
 
 
-def build_episode_summary_prompt(lines) -> str:
+def build_episode_summary_prompt(lines, character_names=None) -> str:
     """The per-episode running-summary prompt -- one call over the
     WHOLE finished episode's English text, not a per-batch window (unlike
     build_consistency_prompt above), since the point is a fixed, once-per-
     episode artifact that the next episode's translation can afford to
-    read. A very long episode is cut to its opening and ending (see above)."""
-    body = _summary_source("\n".join(ln.en.strip() for ln in lines if (ln.en or "").strip()))
+    read. A very long episode is cut to its opening and ending (see above).
+    character_names maps a speaker label to a name; a line with a known speaker
+    starts with [Name], because without it the engine mixes up who did what."""
+    names = character_names or {}
+    rows = []
+    for ln in lines:
+        text = (ln.en or "").strip()
+        if text:
+            speaker = names.get(ln.speaker) if ln.speaker else None
+            rows.append(f"[{speaker}] {text}" if speaker else text)
+    body = _summary_source("\n".join(rows))
     return (
         "Below is the complete English translation of one finished episode from an "
         "ongoing series. Write a short running summary for continuity into the NEXT "
-        "episode of the same series: key events, any unresolved plot threads or "
+        "episode of the same series (a speaker's name in [brackets] starts a line when "
+        "it is known): key events, any unresolved plot threads or "
         "questions, and each named character's state at the end of this episode "
         "(relationships, secrets revealed or still hidden, where they ended up). A "
         "few sentences of plain prose -- no preamble, no episode-by-episode recap of "
         "earlier episodes, just what a translator picking up the next episode cold "
-        "would need to resolve a callback or an ambiguous reference correctly.\n\n"
+        "would need to resolve a callback or an ambiguous reference correctly. Be "
+        "concise: say each thing once and do not pad.\n\n"
         'Return ONLY a JSON object: {"summary": "..."}. No markdown fences, no other '
         "keys.\n\n" + body
     )

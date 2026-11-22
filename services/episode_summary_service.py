@@ -1,7 +1,7 @@
 """Why a translate run wrote no episode summary, and writing one on demand.
 
 The run writes the summary last, with the Settings "episode summary engine"
-(default local Ollama), and never fails the translation over it. That used to
+(default Claude), and never fails the translation over it. That used to
 leave an empty summary with no hint why; skip_reason() and
 missing_after_run_reason() give the plain-words reason for the job result, and
 generate() fills the summary later with an engine the person picks.
@@ -10,6 +10,7 @@ import db
 from engine_backends import engine_registry
 from engine_backends import llm_tasks, paid_calls
 from services import (engine_failure_service, line_ai_service, ownership_service, settings_service, translate_run_service,
+                      workspace_job_service,
                       translate_service)
 from lib.errors import DependencyUnavailableError, ServiceError, UnsupportedOperationError
 
@@ -70,7 +71,8 @@ def generate(drama_id: int, engine_name: str, model: str | None = None) -> dict:
         raise UnsupportedOperationError("Translate some lines first; there is nothing to summarize yet.")
     try:
         with paid_calls.logged_calls(engine, "episode_summary", drama_id=drama_id):
-            text = llm_tasks.generate_episode_summary(lines, engine)
+            text = llm_tasks.generate_episode_summary(
+                lines, engine, character_names=workspace_job_service.speaker_names(drama_id))
     except ServiceError:
         raise
     except Exception as exc:

@@ -26,7 +26,7 @@ const PREFS = {
   claude_reasoning: 'default',
   openai_reasoning: 'default',
   translate_alignment_check: true,
-  episode_summary_engine: 'ollama',
+  episode_summary_engine: 'claude',
   monthly_cap_usd: null as number | null,
   narration_pace: 0.9,
   max_upload_mb: 20480,
@@ -73,7 +73,7 @@ function overview() {
     choices: {
       engines: ['claude', 'deepseek', 'gemini', 'ollama'],
       locales: ['en-US', 'en-GB', 'en-AU'],
-      summary_engines: ['ollama', 'claude', 'deepseek', 'gemini'],
+      summary_engines: ['claude', 'deepseek', 'gemini'],
       ocr_backends: ['auto', 'manga_ocr', 'paddle', 'paddle_vl_manga', 'tesseract'],
       cookie_browsers: ['chrome', 'firefox', 'edge'],
     },
