@@ -292,9 +292,10 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     left untranslated.
 
     `page_image` ({"data", "mime", "scale"}, optionally "engine" and "usage_cb" for
-    a picture engine other than `engine`) sends the page with its regions first,
-    as a Scanlate run does; any failure of that request falls back to the text
-    alone, so a picture can only add to the translation."""
+    a picture engine other than `engine`, or "readers", a list of such
+    {"engine", "usage_cb", optional "on_failure"(exc)} tried in order) sends the page with its regions first,
+    as a Scanlate run does; when no reader answers, the page goes as text alone,
+    so a picture can only add to the translation."""
     eligible = [b for b in bubbles
                 if not b.get("skip") and not region_excluded_from_auto(b)
                 and (b.get("source_text") or "").strip()]
@@ -312,14 +313,22 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
                     "box": {n: round(b[n] * scale) for n in ("x", "y", "w", "h")},
                     **({"sound_effect": True} if b.get("kind") == "sfx" else {})}
                    for k, b in by_key.items()]
-        try:
-            result, new_context = translate_regions_with_image(
-                regions, page_image["data"], page_image["mime"],
-                page_image.get("engine") or engine, drama_meta, previous_context=previous_context,
-                usage_cb=page_image.get("usage_cb") or usage_cb, glossary_terms=glossary_terms,
-                character_notes=character_notes)
-        except Exception:
-            result, new_context = None, previous_context
+        readers = page_image.get("readers") or [
+            {"engine": page_image.get("engine"), "usage_cb": page_image.get("usage_cb")}]
+        for reader in readers:
+            try:
+                result, new_context = translate_regions_with_image(
+                    regions, page_image["data"], page_image["mime"],
+                    reader.get("engine") or engine, drama_meta, previous_context=previous_context,
+                    usage_cb=reader.get("usage_cb") or usage_cb, glossary_terms=glossary_terms,
+                    character_notes=character_notes)
+            except Exception as exc:
+                on_failure = reader.get("on_failure")
+                if on_failure is not None:
+                    on_failure(exc)
+                result, new_context = None, previous_context
+            if result is not None:
+                break
     if result is None:
         result, new_context = translate_regions_by_id(
             {k: b["source_text"] for k, b in by_key.items()}, engine, drama_meta,
