@@ -154,14 +154,21 @@ class TestNuxtStateDecoderBounds:
         with pytest.raises(kuaikan.LayoutChanged):
             kuaikan._extract_nuxt_state(_state_page("a", body, "1"))
 
+    # Refused at the decoder's own depth bound, never by running into
+    # Python's recursion limit (where a finaliser the GC runs fails too).
     def test_deep_nesting_is_a_layout_error(self):
         body = "return {x:" + "[" * 100_000 + "]" * 100_000 + "}"
-        with pytest.raises(kuaikan.LayoutChanged):
+        with pytest.raises(kuaikan.LayoutChanged, match="sensible depth"):
             kuaikan._extract_nuxt_state(_state_page("a", body, "1"))
 
     def test_arguments_referring_to_each_other_are_a_layout_error(self):
-        with pytest.raises(kuaikan.LayoutChanged):
+        with pytest.raises(kuaikan.LayoutChanged, match="sensible depth"):
             kuaikan._extract_nuxt_state(_state_page("a,b", "return {x:a}", "b,a"))
+
+    def test_nesting_up_to_the_bound_still_decodes(self):
+        depth = kuaikan._MAX_DEPTH - 1
+        state = kuaikan._extract_nuxt_state(_state_page("a", "return {x:" + "[" * depth + "]" * depth + "}", "1"))
+        assert isinstance(state["x"], list)
 
     @pytest.mark.parametrize("params,body,args", [
         ("a", "return {x:a}", "1" * 5000),

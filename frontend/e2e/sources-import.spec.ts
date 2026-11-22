@@ -174,7 +174,7 @@ test('video link: download into an audio drama (PC only), and the remote 403', a
   await card.getByRole('checkbox', { name: 'Replace the current audio' }).check()
   await download.click()
   await expect.poll(() => posted(s, '/api/media/dramas/14/download-url')[0]?.body).toEqual({
-    url: 'https://video.example/watch?v=1', audio_only: false, confirm_replace_audio: true,
+    url: 'https://video.example/watch?v=1', audio_only: false, confirm_replace_audio: true, max_height: 1080,
   })
   await expect(card.getByTestId('job-status')).toContainText('Done')
   await expect(card.getByRole('link', { name: 'Open Stream VOD in the workspace' })).toHaveAttribute('href', '#/drama/14/source')

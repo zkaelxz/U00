@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 
 import { UrlDownload } from './UrlDownload'
 
-const render = (url: string) =>
-  renderToStaticMarkup(<UrlDownload dramaId={1} hasAudio={false} url={url} onStarted={() => {}} />)
+const render = (url: string, hasAudio = false) =>
+  renderToStaticMarkup(<UrlDownload dramaId={1} hasAudio={hasAudio} url={url} onStarted={() => {}} />)
 
 describe('UrlDownload Audio only default', () => {
   it('starts off for a video page or streamer VOD link', () => {
@@ -23,8 +23,20 @@ describe('UrlDownload Video quality', () => {
     expect(html).toContain('Best available')
     expect(html).toContain('720p')
   })
+  it('starts at 1080p, with Best available and 4K still offered', () => {
+    const html = render('https://www.youtube.com/watch?v=abc')
+    expect(html).toMatch(/<option value="1080" selected="">1080p<\/option>/)
+    expect(html).toContain('4K (2160p)')
+  })
   it('is not shown for a direct file link, which has one quality', () => {
     expect(render('https://a.example/x/ep.mp3')).not.toContain('Video quality')
     expect(render('https://a.example/x/ep.mp4')).not.toContain('Video quality')
+  })
+})
+
+describe('UrlDownload download again', () => {
+  it('offers downloading the same video again only when the title has media', () => {
+    expect(render('https://www.youtube.com/watch?v=abc', true)).toContain('Download the same video again (keeps the lines)')
+    expect(render('https://www.youtube.com/watch?v=abc', false)).not.toContain('Download the same video again')
   })
 })

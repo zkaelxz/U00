@@ -144,7 +144,8 @@ def test_the_recheck_respects_the_cost_cap(monkeypatch):
     monkeypatch.setattr("engine_backends.translate_pipeline.estimate_cost_for_engine",
                         lambda *a, **k: 1.0)
     lines = _lines("他来了")
-    _run(engine, lines, ON, cost_cap_usd=0.5)
+    # Batch 1 is priced at the whole cap, so it is sent and its spend leaves nothing for the recheck.
+    _run(engine, lines, ON, cost_cap_usd=1.0)
     assert len(engine.calls) == 1 and lines[0].flag == "pronoun_check"
 
 

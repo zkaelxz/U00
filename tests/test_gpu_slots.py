@@ -205,7 +205,10 @@ class TestTwoProcesses:
         job_settings.set_gpu_max_parallel(2)
         assert gpu_slots.acquire("ui:third", "x") is False
         job_settings.set_gpu_max_parallel(3)
-        assert gpu_slots.acquire("ui:third", "x") is True
+        # This once returned False in CI with only the two rows above written; the cause is not
+        # known, so a failure names the rows and threads that were there.
+        assert gpu_slots.acquire("ui:third", "x") is True, (
+            _holders(), sorted(t.name for t in threading.enumerate()))
         assert gpu_slots.acquire("ui:fourth", "x") is False
         assert gpu_slots.holder_count() == 3
 

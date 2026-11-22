@@ -277,24 +277,55 @@ _VOICE_FIELDS = ("id", "name", "language", "clone_engine", "source_drama", "sour
                  "notes", "ref_text", "created_at")
 
 
-def list_voice_bank() -> list:
+def _voice_source_shown(principal):
+    """Whether a voice bank entry's source title and transcript may be shown
+    to `principal`. The bank is household-wide by design, but an admin may
+    have saved the voice from a member's private title, so its name and a line
+    from it show only to someone who can see that title. Entries keep the
+    title as text (voice_clone_service), so it is matched by name, and any
+    match the caller can't see hides it: a duplicate or a deleted title fails
+    closed."""
+    visible_to = ownership_service.visible_to_filter(principal)
+    if visible_to is None:
+        return lambda source: True
+
+    def names(d):
+        return {d.get("title_en"), d.get("title_zh"), f"title #{d['id']}"} - {None, ""}
+
+    seen = {d["id"] for d in db.list_dramas(visible_to=visible_to)}
+    by_name = {}
+    for d in db.list_dramas():
+        for name in names(d):
+            by_name.setdefault(name, set()).add(d["id"])
+    return lambda source: not source or (source in by_name and by_name[source] <= seen)
+
+
+def list_voice_bank(principal=None) -> list:
     """Entries without the clip filename/path; `clip_available` says
-    whether the clip file still exists."""
-    return [{**{k: e.get(k) for k in _VOICE_FIELDS},
-             "clip_available": os.path.exists(os.path.join(db.VOICE_BANK_DIR, e["clip_filename"]))}
-            for e in db.list_voice_bank_entries()]
+    whether the clip file still exists. The source title and transcript
+    the principal may not see are left out (`source_hidden`)."""
+    shown = _voice_source_shown(principal)
+    out = []
+    for e in db.list_voice_bank_entries():
+        entry = {**{k: e.get(k) for k in _VOICE_FIELDS},
+                 "clip_available": os.path.exists(os.path.join(db.VOICE_BANK_DIR, e["clip_filename"])),
+                 "source_hidden": False}
+        if not shown(e.get("source_drama")):
+            entry.update(source_drama=None, ref_text=None, source_hidden=True)
+        out.append(entry)
+    return out
 
 
-def rename_voice_bank_entry(entry_id: int, name: str) -> dict:
+def rename_voice_bank_entry(entry_id: int, name: str, principal=None) -> dict:
     entry_id = lib_ids.check_id_of("voice bank entry", entry_id)
     name = _clean_name(name)
     if db.get_voice_bank_entry(entry_id) is None:
         raise NotFoundError(f"No voice bank entry with id {entry_id}.")
     db.rename_voice_bank_entry(entry_id, name)
-    return next(e for e in list_voice_bank() if e["id"] == entry_id)
+    return next(e for e in list_voice_bank(principal) if e["id"] == entry_id)
 
 
-def update_voice_bank_details(entry_id: int, notes: str, ref_text: str, language) -> dict:
+def update_voice_bank_details(entry_id: int, notes: str, ref_text: str, language, principal=None) -> dict:
     """Edits what an entry says about its clip: notes, what the clip says
     (the transcript the clone matches against), and its language."""
     entry_id = lib_ids.check_id_of("voice bank entry", entry_id)
@@ -305,4 +336,4 @@ def update_voice_bank_details(entry_id: int, notes: str, ref_text: str, language
     if language and language not in LINE_LANGUAGES:
         raise InvalidInputError(f"Language must be one of {', '.join(LINE_LANGUAGES)}.")
     db.update_voice_bank_details(entry_id, notes.strip(), ref_text.strip(), language or None)
-    return next(e for e in list_voice_bank() if e["id"] == entry_id)
+    return next(e for e in list_voice_bank(principal) if e["id"] == entry_id)

@@ -1647,6 +1647,26 @@ def test_imported_titles_bring_their_spend_with_them(local_client):
     assert db.get_usage_summary()["estimated_cost_usd"] == pytest.approx(0.75)
 
 
+def test_spend_imported_this_month_counts_toward_the_cap_and_is_shown_apart(local_client):
+    from lib import clock
+    from services import settings_service
+    a, b, g = _world()
+    now = clock.utcnow().isoformat()
+    with _conn() as c:
+        _usage(c, a, now, 0.25)
+        c.commit()
+    data = _manual_zip()
+    with _conn() as c:
+        c.execute("DELETE FROM usage_log")
+        _usage(c, b, now, 1.0, input_tokens=7)   # a call made here
+        c.commit()
+    assert _post_import(local_client, data, [a]).status_code == 200
+    status = settings_service.month_spend_status()
+    assert status["month_spend_usd"] == pytest.approx(1.25)
+    assert status["month_spend_counted_usd"] == pytest.approx(1.25)
+    assert status["month_spend_imported_usd"] == pytest.approx(0.25)
+
+
 def test_reimporting_into_the_same_library_does_not_count_spend_twice(local_client):
     a, b, g = _world()
     with _conn() as c:

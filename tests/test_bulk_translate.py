@@ -831,6 +831,29 @@ class TestSpokenLanguage:
         bulk_poll.run_scheduled_job(jid, Engine())
         assert contexts and all(contexts)
 
+    def test_offpeak_run_reads_the_novel_reference_from_the_title_when_it_runs(self, isolated_db):
+        did = _mixed_drama(isolated_db)
+        folder = os.path.join(isolated_db.DRAMAS_DIR, str(did))
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "novel_reference.txt"), "w", encoding="utf-8") as f:
+            f.write("THE BOOK")
+        isolated_db.update_drama(did, novel_reference_filename="novel_reference.txt")
+        jid = bulk_translate.schedule_offpeak_translation(
+            did, isolated_db.load_line_objects(did), "deepseek", "m", {"novel_reference": "THE BOOK"})
+        assert "THE BOOK" not in json.dumps(isolated_db.get_bulk_job(jid)["translate_args"])
+        seen = []
+
+        class Engine:
+            model = "m"
+            supports_reference = True
+
+            def translate_batch(self, zh_lines, context):
+                seen.append(context.get("novel_reference"))
+                return [f"EN:{z}" for z in zh_lines]
+
+        bulk_poll.run_scheduled_job(jid, Engine())
+        assert seen and all(ref == "THE BOOK" for ref in seen)
+
     def test_offpeak_run_stops_when_the_month_spend_reaches_the_monthly_cap(self, isolated_db):
         did = _mixed_drama(isolated_db)
         jid = bulk_translate.schedule_offpeak_translation(

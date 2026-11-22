@@ -50,6 +50,9 @@ class TestRegistry:
 
     @pytest.mark.parametrize("drama,gpu,sep_ready,expected", [
         ({"separate_vocals_first": None}, True, True, True),
+        # The model file is in the user's home, so it can be there without the pack.
+        ({"separate_vocals_first": None, "pack": False}, True, True, False),
+        ({"separate_vocals_first": 1, "pack": False}, True, True, True),
         ({"separate_vocals_first": 0}, True, True, False),
         ({"separate_vocals_first": 1, "whisper_size": "large-v3"}, True, True, True),
         ({"separate_vocals_first": None, "whisper_size": "large-v3"}, True, True, False),
@@ -63,6 +66,8 @@ class TestRegistry:
         monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
         monkeypatch.setattr(settings_service, "get", lambda key, *a: gpu if key == "use_gpu" else None)
         monkeypatch.setattr(model_readiness_service, "separation_ready", lambda: sep_ready)
+        pack = drama.pop("pack", True)
+        monkeypatch.setattr(transcribe_options_service, "separation_pack_installed", lambda: pack)
         assert transcribe_options_service.effective_separate_vocals({"source_language": "zh", **drama}) is expected
 
     def test_saving_the_shown_default_does_not_make_it_a_choice(self, isolated_db, monkeypatch):
@@ -71,6 +76,7 @@ class TestRegistry:
         real_get = settings_service.get
         monkeypatch.setattr(settings_service, "get", lambda key, *a: True if key == "use_gpu" else real_get(key, *a))
         monkeypatch.setattr(model_readiness_service, "separation_ready", lambda: True)
+        monkeypatch.setattr(transcribe_options_service, "separation_pack_installed", lambda: True)
         did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size="large-v3")
         # The form shows Off on large-v3; the user picks Breeze and saves without touching the switch.
         transcribe_service.update_transcribe_config(did, whisper_size=KEY, separate_vocals_first=False)

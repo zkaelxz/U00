@@ -353,8 +353,8 @@ def _default_capabilities(client: SourceClient):
 
 
 def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str | None = None,
-               authenticated_fetch=None, allow_signed_in: bool = True,
-               allow_browser: bool = True, record: bool = True):
+               authenticated_fetch=None, allow_signed_in: bool = False,
+               allow_browser: bool = False, record: bool = True):
     """Runs the ladder for one URL: static HTTP, then a real browser if
     that failed (unless a challenge stopped everything). With `user_html`
     -- the page source the person saved after completing a verification
@@ -368,7 +368,8 @@ def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str | None
 
     `allow_signed_in=False` never uses the saved signed-in profile and
     `allow_browser=False` never starts a browser (static HTTP only): the
-    API turns both off for a request that isn't from this PC. `record=False`
+    API turns both off for a request that isn't from this PC. Both default
+    to off, so a caller that forgets to say opens neither. `record=False`
     leaves the source's capability record alone (page source pasted from
     another device must not rewrite it)."""
     client = http_client(client, url)
@@ -513,8 +514,8 @@ def filter_candidates(candidates, page_url: str, remember: bool = True,
 
 
 def import_comic_page(url: str, client=None, rendered_fetch=None, user_html: str | None = None,
-                      remember: bool = True, allow_signed_in: bool = True,
-                      allow_browser: bool = True) -> ComicImportResult:
+                      remember: bool = True, allow_signed_in: bool = False,
+                      allow_browser: bool = False) -> ComicImportResult:
     """Fetches a chapter URL and returns its page images, filtered.
     `allow_signed_in`/`allow_browser`: see fetch_page. Raises
     NoContentFound (with the ladder's per-tier lines in the message) when

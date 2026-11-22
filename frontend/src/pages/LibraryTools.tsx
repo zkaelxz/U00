@@ -392,7 +392,8 @@ function VoiceBankList({ pc, voices, onChanged }: { pc: PcMode; voices: LibraryV
         extra={(id, name) => (
           <>
             {voices.find((v) => v.id === id)?.clip_available && <ClipPlayButton src={voiceBankAudioUrl(id)} name={name} />}
-            {canEdit && (
+            {/* A hidden transcript would come back blank and overwrite the real one. */}
+            {canEdit && !voices.find((v) => v.id === id)?.source_hidden && (
               <button type="button" className={buttonClass('ghost', 'sm')} aria-label={`Details of ${name}`}
                 onClick={() => setOpenId(openId === id ? null : id)}>Details</button>
             )}

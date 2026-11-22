@@ -40,6 +40,10 @@ public class MainActivity extends Activity {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
+        // The shell has no menu of its own: Baihe's Settings and Diagnostics read this build and its
+        // date from here and show them beside Baihe's version.
+        s.setUserAgentString(s.getUserAgentString() + " BaiheAndroid/" + BuildConfig.VERSION_CODE
+                + " (" + BuildConfig.BUILD_DATE + ")");
         // Only Baihe's own origin loads here. Google blocks sign-in inside an embedded WebView and
         // credentials must not be typed into a view this app controls, so Google addresses
         // and sign-in redirects open in the system browser; other sites open in Baihe Grab.
