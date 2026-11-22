@@ -147,7 +147,7 @@ _ASSISTANT: dict[str, Any] = dict(scope="developer", dev_only=True, tab="system"
 SETTINGS = (
     # --- Engines and keys
     _pref("default_engine", "choice", "claude", choices="engines", label="Default engine",
-          help="The engine a new translation starts on. The Translate form can still pick another for a run.",
+          help="The translation engine a new title is set to. Titles you already have keep theirs, and the Translate form can still pick another engine for a run.",
           tab="translation", section="Defaults for new dramas"),
     _pref("default_locale", "choice", "en-US", choices="locales", label="English variant",
           help="Spelling for new translations. Pre-fills the Translate form.",
@@ -203,7 +203,7 @@ SETTINGS = (
           tab="translation", section="Translation style"),
     _pref("episode_summary_engine", "choice", "ollama", choices="summary_engines",
           label="Episode summary engine",
-          help="The engine that writes each episode's short summary, which gives the next episode its context. The default, Ollama, runs on this PC and costs nothing; a paid engine bills each summary like any other request. If the engine can't be reached or has no key, the summary is skipped and the translation goes ahead without it.",
+          help="The engine that writes a title's short summary once all its lines are translated; the next episode in its series gets that summary as context. The default, Ollama, runs on your Ollama server and costs nothing; a paid engine bills each summary like any other request. If the engine can't be reached or has no key, the summary is skipped and the translation is still saved.",
           tab="translation", section="Defaults for new dramas"),
     _pref("monthly_cap_usd", "float", None, min=0, max=_MONTHLY_CAP_MAX,
           label="Monthly cap", unit="USD",
@@ -211,7 +211,7 @@ SETTINGS = (
     _own("gemini_free_tier", "bool", False, label="My Gemini key is free-tier",
          tab="translation", section="Keys"),
     _own("offer_provider_models", "bool", False, label="Offer models the app doesn't know yet",
-         help="Adds models your providers list that this app has no price for to the model pickers. Their cost is estimated at the provider's highest rate until the app is updated, and the list comes from your last \"Check providers now\".",
+         help="Adds models your providers list that this app doesn't offer yet to the model pickers. One without a known price is estimated at the provider's highest rate until the app is updated. The list comes from your last \"Check providers now\" in Diagnostics.",
          tab="translation", section="Keys"),
     _env("claude", "BAIHE_CLAUDE_KEY", label="Claude key"),
     _env("deepseek", "BAIHE_DEEPSEEK_KEY", label="DeepSeek key"),
@@ -262,7 +262,7 @@ SETTINGS = (
 
     # --- System
     _own("use_gpu", "bool", True, label="Use the GPU",
-         help="Transcribe on the GPU when there is one (faster). Off runs everything on the processor.",
+         help="Transcription, speaker detection and comic text removal run on the GPU when there is one (much faster). Off runs them on the processor, and a transcription set to separate vocals first stops, since that step cannot be kept off the GPU. Voice cloning and Ollama models are not affected.",
          tab="system", section="Performance"),
     _own("gpu_limit_enabled", "bool", True, label="Limit GPU jobs",
          help="Jobs beyond \"GPU jobs at once\" wait in line, so the GPU does not run out of memory. Off lets every GPU job start at once.",
@@ -337,10 +337,10 @@ SETTINGS = (
     _own("qwen_asr_batch_size", "int", 1, min=1, max=16, clamp=True,
          label="Qwen3-ASR batch size", tab="system", section="Transcription experiments"),
     _own("qwen_vad_refine_timing", "bool", False, label="Refine timing with the forced aligner",
-         help="For the experimental Qwen3 ASR with speech detection engine only; Whisper ignores it. Tightens each line's start and end inside its speech span. Slower; lines with estimated timing are flagged.",
+         help="For the experimental Qwen3 ASR with speech detection engine only; Whisper ignores it, and Qwen3 ASR on long windows always does it. Tightens each line's start and end inside its speech span. Slower; lines whose timing stays uncertain are flagged. Ignored while \"Detect the language of each speech span\" is on.",
          tab="system", section="Transcription experiments"),
     _own("mixed_languages", "bool", False, label="Detect the language of each speech span",
-         help="For videos with more than one spoken language. Detects each stretch's language and marks lines that differ from the title's language in Review. Slower. Off transcribes everything in the title's language.",
+         help="For titles where more than one language is spoken. Detects each stretch's language and marks lines that differ from the title's language in Review. Works with Whisper on this PC and the Qwen3 ASR engines that need no Whisper; Groq ignores it, and it turns the Qwen3 forced aligner off. Slower. Off transcribes everything in the title's language.",
          tab="system", section="Transcription experiments"),
     # The default repeats whisper_hallucination.BLOCKED_PHRASES_DEFAULT (lib may not import it);
     # tests/test_blocked_phrases.py fails if they drift apart.
@@ -349,7 +349,7 @@ SETTINGS = (
          help="One phrase per line. A subtitle line that contains one is removed when a title is transcribed, even next to real speech (for the stock lines Whisper invents, such as 'please like, share and subscribe'). Case, spaces and punctuation are ignored; a phrase needs at least 4 letters. Clear the box to block nothing. Applies to transcriptions that start afterwards.",
          tab="system", section="Transcription experiments"),
     _own("voice_detector", "choice", "auto", choices="voice_detectors", label="Voice detector",
-         help="Finds where speech is before Qwen3-ASR transcribes it (Whisper uses its own). The ASMR detector is tuned for Japanese ASMR and has not been checked on Chinese; Standard stays available.",
+         help="Which speech detector the Qwen3 ASR engines that need no Whisper use; Whisper uses its own. Auto picks the ASMR detector for a Japanese ASMR title once its model is downloaded, and Standard otherwise. The ASMR detector is trained on Japanese ASMR; without its model a run uses Standard and says so.",
          tab="system", section="Transcription experiments"),
     _own("transcribe_speed", "json", {}),
     _own("inbox", "json", {}),

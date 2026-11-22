@@ -537,7 +537,7 @@ def test_the_alignment_judge_is_told_the_titles_source_language(monkeypatch):
     monkeypatch.setattr(wjs, "_month_cap_check", lambda choice, engine: None)
     monkeypatch.setattr(wjs, "_month_cap_left", lambda choice, engine: None)
     monkeypatch.setattr(wjs.background_jobs, "is_cancel_requested", lambda job_id: False)
-    wjs._alignment_args(1, object(), "claude", "job1", {}, {}, source_language="ko")
+    wjs._alignment_args(1, object(), "claude", "job1", {}, {}, drama_meta={"source_language": "ko"})
     assert got["lang"] == "ko"
 
 
@@ -564,11 +564,13 @@ def test_a_translate_run_says_when_the_source_match_check_could_not_run(
     monkeypatch.setattr(wjs.settings_service, "alignment_embedder",
                         lambda should_stop=None, on_progress=None:
                         (lambda texts: [[1.0]] if embedder_answers else None))
-    monkeypatch.setattr(wjs.alignment_judge, "judge_for", lambda *a, **k: None)
+    monkeypatch.setattr(wjs.alignment_judge, "judge_for",
+                        lambda *a, source_language=None, **k: results.update(language=source_language))
     monkeypatch.setattr(wjs, "_month_cap_left", lambda choice, engine: None)
     monkeypatch.setattr(wjs.translate_pipeline, "translate_lines_with_engine", fake_translate)
     monkeypatch.setattr(wjs.translation_finish, "finish_translation_run", fake_finish)
     monkeypatch.setattr(wjs.background_jobs, "set_result", lambda job_id, result, **k: results.update(result=result))
-    wjs.run_translate_job("translate_no_bge", did, lines, Engine(), {}, "", "", False, "en-US",
-                          [], "", "claude", "default")
+    wjs.run_translate_job("translate_no_bge", did, lines, Engine(), {"source_language": "ja"}, "", "", False,
+                          "en-US", [], "", "claude", "default")
     assert ("source_match_skipped" in results["result"]) is said
+    assert results["language"] == "ja"

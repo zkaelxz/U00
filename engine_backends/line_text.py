@@ -108,7 +108,7 @@ def build_numbered_lines(ids: list, zh_lines: list, speaker_names: list | None =
         prefix = f"[{name}] " if name else ""
         tag = spoken_language_tag(languages[idx]) if languages else ""
         # A break inside a source line would start a row that reads as another line's number.
-        out.append(f"{i}. {prefix}{tag}{' '.join(part.strip() for part in zh.splitlines() if part.strip())}")
+        out.append(f"{i}. {prefix}{tag}{' '.join(part.strip() for part in (zh or '').splitlines() if part.strip())}")
     return "\n".join(out)
 
 

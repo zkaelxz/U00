@@ -291,8 +291,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             line_scoped=target_ids is not None,
             enforce_ids=(set(target_ids) if own_lines_only and target_ids is not None
                          else {ln.id for ln in lines if getattr(ln, "id", None) is not None}),
-            flags_needing_recheck=recheck, **_alignment_args(drama_id, engine, engine_choice, job_id, cap_reached, check, cost_cap_usd, judge_budget,
-                                                  source_language=(drama_meta or {}).get("source_language", "zh")),
+            flags_needing_recheck=recheck, **_alignment_args(drama_id, engine, engine_choice, job_id, cap_reached, check, cost_cap_usd, judge_budget, drama_meta),
             sentence_parts=sentence_parts, stage_cb=lambda stage: job_timing.mark_stage(job_id, stage),
             cancel_check=lambda: bool(check.get("cancelled"))):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
@@ -437,8 +436,8 @@ def _speaker_names(drama_id) -> dict:
 CHECK_STOPPED_MESSAGE = ("Cancelled. The translation was saved; the Source match check "
                          "did not finish.")
 SOURCE_MATCH_UNAVAILABLE = ("The Source match check was skipped because Ollama did not answer or bge-m3 "
-                            "is not installed on it. The translation is complete; run ollama pull bge-m3 "
-                            "and translate again to check it.")
+                            "is not installed on it. The translation is complete but unchecked; start Ollama "
+                            "or run ollama pull bge-m3 so later translations are checked.")
 JUDGE_CAP_SKIPPED = "The engine check in Source match was skipped because the cost cap was reached."
 
 
@@ -453,7 +452,7 @@ class _JudgeBudget:
 
 
 def _alignment_args(drama_id, engine, engine_choice, job_id, cap_reached, check, cost_cap_usd=None,
-                    budget=None, source_language=None) -> dict:
+                    budget=None, drama_meta=None) -> dict:
     """The source-match check's embedder and its judge (the run's own engine confirms the
     lines the embeddings doubt, billed like the translation), both left out while the
     setting is off. A cancel that stops either sets check["cancelled"]. cost_cap_usd is what
@@ -507,7 +506,7 @@ def _alignment_args(drama_id, engine, engine_choice, job_id, cap_reached, check,
             "judge": alignment_judge.judge_for(
                 engine, _logged_and_counted(_usage_logger(drama_id, engine, engine_choice), engine,
                                             budget.spend.append),
-                source_language=source_language, should_stop=stopped,
+                source_language=(drama_meta or {}).get("source_language", "zh"), should_stop=stopped,
                 on_progress=progress("judge"), fits_budget=fits)}
 
 

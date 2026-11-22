@@ -21,8 +21,8 @@ from .llm_tasks import (bounded_llm_calls, call_batch_bounded,
 from .local import is_ollama_cloud_model, scrub_error_text
 from .pricing import estimate_cost_for_engine, estimate_run_tokens
 from .run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
-from .prompts import (MALE_PRONOUN_WORD, is_male_speaker_label, known_male_names,
-                      pronoun_default_active, pronoun_neutral_texts)
+from .prompts import (MALE_PRONOUN_WORD, build_stable_system_text, is_male_speaker_label,
+                      known_male_names, pronoun_default_active, pronoun_neutral_texts)
 from .reflect_pass import REFLECT_PASSES, reflect_translate_batch
 from .thinking import title_thinking
 from .translation_guard import FLAG_NOTE as MERGE_SHIFT_FLAG_NOTE
@@ -404,8 +404,12 @@ class _TranslateRun:
         if not batches or (a.cost_cap_usd is None and not a.month_cap_left_cb):
             return
         zh = [ln.zh or "" for ln in target_lines]
-        inp, out, _ = estimate_run_tokens(zh, self.size, context_lines=(a.context_window, a.context_window_ahead))
-        total = estimate_cost_for_engine(self.engine, inp, out)
+        # The title's real prompt (glossary, style guide, novel excerpt): the bare instructions
+        # alone leave a long glossary unpriced. A copy, since building it records the excerpt.
+        stable = build_stable_system_text(dict(self.context, drama_meta=self.context.get("drama_meta") or {}))
+        inp, out, _ = estimate_run_tokens(zh, self.size, stable,
+                                          context_lines=(a.context_window, a.context_window_ahead))
+        total = estimate_cost_for_engine(self.engine, inp, out) * (len(REFLECT_PASSES) if a.reflect else 1)
         chars = sum(self._batch_chars(b) for b in batches)
         self._first_batch_estimate = (total / len(batches), max(1, chars // len(batches)))
 
