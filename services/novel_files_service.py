@@ -61,7 +61,7 @@ REFERENCE_FILENAME = "novel_reference.txt"
 RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # sources/pipeline.py
 REFERENCE_EXTENSIONS = (".txt", ".md")
 RAW_NOVEL_EXTENSIONS = (".txt", ".md", ".epub")
-MAX_TEXT_BYTES = 32 * 1024 * 1024
+MAX_TEXT_BYTES = novel_text.MAX_REFERENCE_BYTES
 MAX_TEXT_CHARS = 10_000_000
 _BOMS = ((codecs.BOM_UTF8, "utf-8-sig"), (codecs.BOM_UTF16_LE, "utf-16"),
          (codecs.BOM_UTF16_BE, "utf-16"))
@@ -101,11 +101,7 @@ def read_stored_text(drama_id: int, filename, capped: bool = True) -> Optional[s
     this text goes to the translation engine. The raw novel is read uncapped:
     Sources chapter imports append to it with no total limit, and treating a
     long one as absent would make glossary extraction use the other file."""
-    path = _readable_path(drama_id, filename, capped)
-    if path is None:
-        return None
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+    return novel_text.read_title_text_file(_folder(drama_id), filename, MAX_TEXT_BYTES if capped else None)
 
 
 def has_reference(drama_id: int, drama: dict) -> bool:

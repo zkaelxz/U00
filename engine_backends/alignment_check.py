@@ -22,6 +22,8 @@ MIN_SOURCE_CHARS = 3
 EMBED_BATCH = 32
 # The first request can load the model into memory, so it gets longer than a chat tick.
 EMBED_TIMEOUT = 120
+# A switched-off PC at the Ollama address must not hold Finish for the whole read timeout.
+EMBED_CONNECT_TIMEOUT = 5
 
 
 # Ollama 0.24 answers HTTP 500 "unsupported value: NaN" for bge-m3 on a text of about 60
@@ -34,7 +36,7 @@ _PIECE_BREAKS = "。！？!?.；;，,、 \n"
 
 def _post_embed(base_url: str, model: str, chunk: list):
     """(status, vectors) for one /api/embed request; raises http.FetchError or ValueError."""
-    resp = http.post(f"{base_url}/api/embed", timeout=EMBED_TIMEOUT,
+    resp = http.post(f"{base_url}/api/embed", timeout=(EMBED_CONNECT_TIMEOUT, EMBED_TIMEOUT),
                      max_bytes=PROVIDER_RESPONSE_MAX_BYTES, guard=None,
                      deadline=2 * EMBED_TIMEOUT, json={"model": model, "input": chunk})
     if not resp.ok:

@@ -526,3 +526,49 @@ def test_a_translate_run_whose_cap_stops_the_judge_says_so_when_it_finishes(isol
                           [], "", "claude", "default", cost_cap_usd=0.10)
     assert sent == [] and results["verdicts"] == {}
     assert results["result"]["judge_skipped"] == wjs.JUDGE_CAP_SKIPPED
+
+
+def test_the_alignment_judge_is_told_the_titles_source_language(monkeypatch):
+    got = {}
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder", lambda should_stop=None, on_progress=None: (lambda texts: None))
+    monkeypatch.setattr(wjs.alignment_judge, "judge_for",
+                        lambda engine, usage_cb=None, source_language=None, **kw: got.update(lang=source_language))
+    monkeypatch.setattr(wjs, "_usage_logger", lambda *a: None)
+    monkeypatch.setattr(wjs, "_month_cap_check", lambda choice, engine: None)
+    monkeypatch.setattr(wjs, "_month_cap_left", lambda choice, engine: None)
+    monkeypatch.setattr(wjs.background_jobs, "is_cancel_requested", lambda job_id: False)
+    wjs._alignment_args(1, object(), "claude", "job1", {}, {}, source_language="ko")
+    assert got["lang"] == "ko"
+
+
+@pytest.mark.parametrize("embedder_answers, said", [(False, True), (True, False)])
+def test_a_translate_run_says_when_the_source_match_check_could_not_run(
+        isolated_db, monkeypatch, embedder_answers, said):
+    did = isolated_db.create_drama(title_en="No bge-m3")
+    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
+    lines = isolated_db.load_line_objects(did)
+    results = {}
+
+    class Engine:
+        supports_reference = True
+        model = "fake-model"
+
+    def fake_translate(ls, engine, **kw):
+        ls[0].en = "hello"
+        return ls, []
+
+    def fake_finish(*a, embed_texts=None, **k):
+        embed_texts(["你好"])
+        return True
+
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder",
+                        lambda should_stop=None, on_progress=None:
+                        (lambda texts: [[1.0]] if embedder_answers else None))
+    monkeypatch.setattr(wjs.alignment_judge, "judge_for", lambda *a, **k: None)
+    monkeypatch.setattr(wjs, "_month_cap_left", lambda choice, engine: None)
+    monkeypatch.setattr(wjs.translate_pipeline, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(wjs.translation_finish, "finish_translation_run", fake_finish)
+    monkeypatch.setattr(wjs.background_jobs, "set_result", lambda job_id, result, **k: results.update(result=result))
+    wjs.run_translate_job("translate_no_bge", did, lines, Engine(), {}, "", "", False, "en-US",
+                          [], "", "claude", "default")
+    assert ("source_match_skipped" in results["result"]) is said

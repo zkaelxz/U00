@@ -409,6 +409,13 @@ class TestCostCap:
         assert seen == [pytest.approx(2.0)]
         assert errors == []
 
+    def test_the_first_batch_is_priced_from_the_estimate_before_it_is_sent(self):
+        lines, engine, seen = self._lines(), _PricedEngine(), []
+        # The bare instructions alone cost more than this, so even batch one does not fit.
+        _, errors = translate_pipeline.translate_lines_with_engine(
+            lines, engine, {}, batch_size=2, cost_cap_usd=0.0001, cap_cb=seen.append)
+        assert engine.calls == 0 and seen == [0.0] and errors == []
+
     def test_no_cap_runs_everything(self):
         lines, engine = self._lines(), _PricedEngine()
         translate_pipeline.translate_lines_with_engine(lines, engine, {}, batch_size=2)
