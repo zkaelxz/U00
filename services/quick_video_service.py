@@ -91,13 +91,18 @@ def describe_profile(preset: dict) -> list:
 
 
 def chosen_profile_id():
-    """The chosen profile's id. Never chosen, or the chosen one deleted, it becomes the Default
-    profile (made when missing). Cleared on purpose in Settings (null), it stays None."""
+    """The chosen profile's id. Never chosen, it becomes the Default profile (made when missing);
+    the chosen one deleted, it becomes Default only if that profile still exists. Cleared on
+    purpose in Settings (null), it stays None."""
     with _lock:
         chosen = db.get_app_setting(PROFILE_KEY, _NEVER_CHOSEN)
         if chosen is None or (chosen is not _NEVER_CHOSEN and _preset(chosen) is not None):
             return chosen
         default = next((p for p in _presets() if p["name"] == DEFAULT_PROFILE_NAME), None)
+        if default is None and chosen is not _NEVER_CHOSEN:
+            # The chosen profile was deleted: making Default again would bring back a profile
+            # the person may just have deleted, so the choice is left empty instead.
+            return None
         if default is None:
             pid = db.save_preset(DEFAULT_PROFILE_NAME, options_json=profile_service.dump_options(_DEFAULT_OPTIONS))
         elif profile_service.stored_options(default).get("quick_source_language"):

@@ -76,11 +76,19 @@ def test_a_fresh_install_gets_a_default_profile_that_runs_a_link(jobs, started_d
     assert len(db.list_presets()) == 1 and qv.get_settings()["profile_id"] == settings["profile_id"]
 
 
-def test_a_deleted_choice_falls_back_to_default_but_a_cleared_one_stays_cleared(isolated_db):
+def test_a_deleted_choice_falls_back_to_default_only_while_default_exists(isolated_db):
+    default_id = qv.get_settings()["profile_id"]
     pid = _profile()
     qv.set_profile(pid)
     db.delete_preset(pid)
-    assert [p["name"] for p in qv.get_settings()["profiles"]] == ["Default"]
+    assert qv.get_settings()["profile_id"] == default_id
+    # Deleting Default itself must not bring it back on the next read.
+    db.delete_preset(default_id)
+    assert qv.get_settings()["profile_id"] is None and db.list_presets() == []
+
+
+def test_a_cleared_choice_stays_cleared(isolated_db):
+    qv.get_settings()
     qv.set_profile(None)
     assert qv.get_settings()["profile_id"] is None
 
