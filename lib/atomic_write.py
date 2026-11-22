@@ -17,9 +17,20 @@ def replace_file(src: str, dst: str) -> None:
     """os.replace(src, dst), waiting up to about a second while Windows
     reports `dst` as held by another handle. The last error is raised when it
     stays held, and every other error at once."""
+    _while_held(os.replace, src, dst)
+
+
+def remove_file(path: str) -> None:
+    """os.remove(path), waiting up to about a second while Windows reports it
+    as held (a killed process that has not closed it yet). Raises as
+    replace_file does."""
+    _while_held(os.remove, path)
+
+
+def _while_held(action, *paths) -> None:
     for attempt in range(_REPLACE_ATTEMPTS):
         try:
-            os.replace(src, dst)
+            action(*paths)
             return
         except PermissionError as exc:
             held = _ON_WINDOWS and getattr(exc, "winerror", None) in _HELD_WINERRORS

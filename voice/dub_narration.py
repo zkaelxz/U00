@@ -10,8 +10,10 @@ import re
 import subprocess
 import tempfile
 import threading
+import time
+import uuid
 import video_export
-from lib.atomic_write import replace_file
+from lib.atomic_write import remove_file, replace_file
 from novel_text import (  # noqa: F401 (re-exported)
     NARRATION_TRACK_NAMES, NOVEL_SOURCE_FILENAME, find_narration_track, heading_title,
     is_chapter_heading, narration_paragraph_ends)
@@ -163,13 +165,17 @@ class _FlacStream:
     """ffmpeg encoding the track to FLAC from raw samples fed one clip at a time, so a book's
     narration never sits in memory or in a temporary WAV (pydub's export writes one to the
     system temp folder and leaves it there when it fails). Silence is written as zeros up to
-    each clip's start, so the audio stays on the line times. ffmpeg is killed once it has run
-    for `timeout` seconds (a hung ffmpeg would block a write for ever) and on any failure."""
+    each clip's start, so the audio stays on the line times. ffmpeg is killed once the run has
+    waited on it for `timeout` seconds in all (a hung ffmpeg would block a write for ever) and
+    on any failure; time spent reading the clips does not count. `track_format` (rate,
+    channels, sample width) is the track's; without it the first clip's is used."""
 
-    def __init__(self, path: str, pace: float, workdir: str, timeout: float = M4B_ENCODE_TIMEOUT_SECONDS):
+    def __init__(self, path: str, pace: float, workdir: str, timeout: float = M4B_ENCODE_TIMEOUT_SECONDS,
+                 track_format=None):
         self.path, self.pace, self.workdir, self.timeout = path, pace, workdir, timeout
-        self.proc = self.err = self.timer = self.format = None
-        self.frames, self.timed_out = 0, False
+        self.proc = self.err = self.timer = None
+        self.track_format, self.format = track_format, None
+        self.frames, self.timed_out, self.time_left = 0, False, timeout
 
     def _open(self, frame_rate: int, channels: int, sample_width: int) -> None:
         self.format = (frame_rate, channels, sample_width)
@@ -184,20 +190,31 @@ class _FlacStream:
         except BaseException:
             self.err.close()
             raise
-        self.timer = threading.Timer(self.timeout, self._time_out)
-        self.timer.daemon = True
-        self.timer.start()
 
     def _time_out(self) -> None:
         self.timed_out = True
         with contextlib.suppress(OSError):
             self.proc.kill()
 
+    @contextlib.contextmanager
+    def _waiting_on_ffmpeg(self):
+        """Counts the time inside against the timeout, and kills ffmpeg when it runs out."""
+        self.timer = threading.Timer(max(self.time_left, 0.0), self._time_out)
+        self.timer.daemon = True
+        began = time.monotonic()
+        self.timer.start()
+        try:
+            yield
+        finally:
+            self.timer.cancel()
+            self.time_left -= time.monotonic() - began
+
     def _write(self, data) -> None:
         view = memoryview(data)
         try:
-            for i in range(0, len(view), _PIPE_CHUNK_BYTES):
-                self.proc.stdin.write(view[i:i + _PIPE_CHUNK_BYTES])
+            with self._waiting_on_ffmpeg():
+                for i in range(0, len(view), _PIPE_CHUNK_BYTES):
+                    self.proc.stdin.write(view[i:i + _PIPE_CHUNK_BYTES])
         except OSError:
             # ffmpeg stopped reading (a full disk, say): its own message says why.
             self._fail()
@@ -219,7 +236,7 @@ class _FlacStream:
         """Writes `clip` starting at `at_ms` into the track; returns the clip as written (in the
         track's format), whose len() is its length in ms."""
         if self.proc is None:
-            self._open(clip.frame_rate, clip.channels, clip.sample_width)
+            self._open(*(self.track_format or (clip.frame_rate, clip.channels, clip.sample_width)))
         rate, channels, width = self.format
         if clip.frame_rate != rate:
             clip = clip.set_frame_rate(rate)
@@ -235,13 +252,14 @@ class _FlacStream:
 
     def finish(self, end_ms: float) -> None:
         if self.proc is None:
-            self._open(*_DEFAULT_FORMAT)
+            self._open(*(self.track_format or _DEFAULT_FORMAT))
         self._pad_to(end_ms)
         try:
-            self.proc.stdin.close()
+            with self._waiting_on_ffmpeg():
+                self.proc.stdin.close()
+                self.proc.wait()
         except OSError:
             self._fail()
-        self.proc.wait()
         if self.proc.returncode or self.timed_out:
             self._fail()
         self.abort()
@@ -260,7 +278,8 @@ class _FlacStream:
         raise RuntimeError(message)
 
     def _stop(self) -> None:
-        self.timer.cancel()
+        if self.timer is not None:
+            self.timer.cancel()
         with contextlib.suppress(OSError):
             self.proc.stdin.close()
         if self.proc.returncode is None:
@@ -280,10 +299,88 @@ def partial_track_path(drama_dir: str) -> str:
     return os.path.join(drama_dir, NARRATION_TRACK_NAMES[0]) + ".part"
 
 
+# A part name of its own is used while Windows still holds the usual one (below).
+_PART_NAME = re.compile(re.escape(NARRATION_TRACK_NAMES[0]) + r"(?:\.[0-9a-f]{8})?\.part")
+
+
 def remove_partial_track(drama_dir: str) -> None:
-    """For a run that was killed (a cancel) before it could remove its half-written track."""
-    with contextlib.suppress(OSError):
-        os.remove(partial_track_path(drama_dir))
+    """For a run that was killed (a cancel) before it could remove its half-written track.
+    A killed ffmpeg can hold the file for a moment on Windows, so each removal waits a little."""
+    try:
+        names = [e.name for e in os.scandir(drama_dir) if _PART_NAME.fullmatch(e.name)]
+    except OSError:
+        return
+    for name in names:
+        with contextlib.suppress(OSError):
+            remove_file(os.path.join(drama_dir, name))
+
+
+def _new_partial_track(drama_dir: str) -> str:
+    """This run's part path, with any left by a killed run removed. When one can't be removed
+    (an ffmpeg that is still being killed holds it), this run writes beside it under a name of
+    its own rather than failing on ffmpeg's open; the next run removes the old one."""
+    remove_partial_track(drama_dir)
+    path = partial_track_path(drama_dir)
+    if not os.path.exists(path):
+        return path
+    return f"{path[:-len('.part')]}.{uuid.uuid4().hex[:8]}.part"
+
+
+def _wav_format(path: str):
+    """(rate, channels, sample width) from a WAV clip's header, or None when it has no
+    readable one: read without decoding the clip."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4096)
+    except OSError:
+        return None
+    if head[:4] != b"RIFF" or head[8:12] != b"WAVE":
+        return None
+    pos = 12
+    while pos + 8 <= len(head):
+        size = int.from_bytes(head[pos + 4:pos + 8], "little")
+        if head[pos:pos + 4] == b"fmt " and pos + 24 <= len(head):
+            channels = int.from_bytes(head[pos + 10:pos + 12], "little")
+            rate = int.from_bytes(head[pos + 12:pos + 16], "little")
+            width = int.from_bytes(head[pos + 22:pos + 24], "little") // 8
+            return (rate, channels, width) if rate and channels and width in _PCM_FORMATS else None
+        pos += 8 + size + (size & 1)
+    return None
+
+
+def _track_format(clip_paths):
+    """The highest rate, channel count and sample width among the clips, so no clip loses
+    quality to another's lower format; None when no clip says."""
+    formats = [f for f in map(_wav_format, clip_paths) if f]
+    if not formats:
+        return None
+    return tuple(max(f[i] for f in formats) for i in range(3))
+
+
+# Only names build_narration_track writes: anything else in the folder is left alone.
+_CLIP_NAME = re.compile(r"line_\d{4,}(?:-\d{4,})?_[0-9a-f]{10}\.wav")
+
+
+def remove_unused_clips(drama_dir: str, used) -> int:
+    """Deletes the narration clips in drama_dir's dub_clips folder that no entry of `used`
+    (the lines' dub_filename values) names. Returns how many were deleted; a file that
+    can't be deleted is left for the next run."""
+    clips_dir = os.path.join(drama_dir, "dub_clips")
+    keep = {re.split(r"[\\/]", name)[-1] for name in used if name}
+    try:
+        entries = list(os.scandir(clips_dir))
+    except OSError:
+        return 0
+    removed = 0
+    for entry in entries:
+        if entry.name in keep or not _CLIP_NAME.fullmatch(entry.name):
+            continue
+        if not entry.is_file(follow_symlinks=False):
+            continue
+        with contextlib.suppress(OSError):
+            os.remove(entry.path)
+            removed += 1
+    return removed
 
 
 def _check_pace(pace: float) -> None:
@@ -375,8 +472,9 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
     out_path = os.path.join(drama_dir, NARRATION_TRACK_NAMES[0])
     # Written beside the final name and renamed, so a kill mid-export can't leave a
     # truncated track that the Reader would serve as complete.
-    part_path = partial_track_path(drama_dir)
-    stream = _FlacStream(part_path, pace, drama_dir)
+    part_path = _new_partial_track(drama_dir)
+    stream = _FlacStream(part_path, pace, drama_dir,
+                         track_format=_track_format(u["clip_path"] for u in units if not u["error"]))
     try:
         cursor_ms = 0
         for kind, item in steps:

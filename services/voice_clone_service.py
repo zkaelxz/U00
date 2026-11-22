@@ -66,7 +66,7 @@ import db
 from jobs import job_store
 from voice import dub
 import video_export
-from core import SOURCE_LANGUAGES
+from core import LINE_LANGUAGES
 from lib.atomic_write import atomic_write
 from services import characters_service, library_service
 from services.media_upload_service import AUDIO_EXTENSIONS
@@ -788,8 +788,8 @@ def upload_to_voice_bank(name, client_filename, fileobj, ref_text: str = "",
     characters_service.check_len("ref_text", ref_text or "", characters_service.MAX_REF_TEXT_LEN)
     if clone_engine and clone_engine not in dub.CLONE_ENGINES:
         raise InvalidInputError("Pick one of the listed voice engines.")
-    if language and language not in SOURCE_LANGUAGES:
-        raise InvalidInputError(f"Language must be one of {', '.join(SOURCE_LANGUAGES)}.")
+    if language and language not in LINE_LANGUAGES:
+        raise InvalidInputError(f"Language must be one of {', '.join(LINE_LANGUAGES)}.")
     ext = _clip_extension(client_filename)
     os.makedirs(db.VOICE_BANK_DIR, exist_ok=True)
     # The probe needs a real file; a temp copy keeps a rejected upload out of the bank folder.

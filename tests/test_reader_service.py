@@ -90,6 +90,39 @@ class TestGetReaderPage:
         assert [ln.en for ln in calls[0]["lines"]] == [f"Hello {i}" for i in range(80, 120)]
         assert all(ln.id is not None for ln in calls[0]["lines"])
 
+    def test_a_narrated_novels_page_turn_reads_only_that_page(self, isolated_db, monkeypatch):
+        """A narrated novel read every line, and the whole source text, on each page turn to
+        find where its paragraphs end."""
+        import novel_text
+        calls = _stub_render(monkeypatch)
+        did = _drama(isolated_db, title_en="N", content_mode="novel_narration")
+        paragraphs = [f"第{i}段。" for i in range(60)]
+        isolated_db.save_lines(did, [Line(idx=i, start=float(i), end=float(i + 1), zh=p, en=f"P{i}")
+                                     for i, p in enumerate(paragraphs)])
+        folder = isolated_db.drama_dir(did)
+        with open(os.path.join(folder, novel_text.NOVEL_SOURCE_FILENAME), "w", encoding="utf-8") as f:
+            f.write("\n".join(paragraphs))
+
+        reader_service.get_reader_page(did, page=1, chapter_size=20)
+        assert calls[-1]["paragraph_ends"] == set(range(60))
+        reads = []
+        real = novel_text.narration_paragraph_ends
+        monkeypatch.setattr(novel_text, "narration_paragraph_ends", lambda *a: reads.append(1) or real(*a))
+
+        def boom(*a, **k):
+            raise AssertionError("a page turn loaded the whole title")
+        monkeypatch.setattr(isolated_db, "load_lines", boom)
+        reader_service.get_reader_page(did, page=2, chapter_size=20)
+        assert reads == [] and calls[-1]["paragraph_ends"] == set(range(60))
+
+        # Lines that change are matched again.
+        monkeypatch.undo()
+        calls = _stub_render(monkeypatch)
+        isolated_db.save_lines(did, [*isolated_db.load_line_objects(did),
+                                     Line(idx=60, start=60.0, end=61.0, zh="多余", en="")])
+        reader_service.get_reader_page(did, page=1, chapter_size=20)
+        assert calls[-1]["paragraph_ends"] is None
+
     def test_unknown_drama_raises_not_found(self, isolated_db):
         with pytest.raises(NotFoundError):
             reader_service.get_reader_page(999999, page=1)
@@ -359,6 +392,27 @@ class TestProgressNotes:
         assert ov["last_page"] == 2 and ov["percent_complete"] == 80.0 and ov["line_count"] == 50
         with pytest.raises(InvalidInputError):
             reader_service.save_reading_position(did, page=4, chapter_size=20)
+
+    def test_progress_and_overview_never_load_every_line(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db, media_type="audio_drama")
+        isolated_db.save_lines(did, [Line(idx=i, start=60.0 * i, end=60.0 * (i + 1), zh="你", en="hi")
+                                     for i in range(45)])
+
+        def boom(*a, **k):
+            raise AssertionError("loaded the whole title")
+        monkeypatch.setattr(isolated_db, "load_lines", boom)
+        saved = reader_service.save_reading_position(did, page=3, chapter_size=20)
+        assert saved["last_line_idx"] == 44 and saved["percent_complete"] == 100.0
+        ov = reader_service.get_reading_overview(did)
+        assert ov["line_count"] == 45 and ov["length_display"] == "45m" and ov["last_page"] == 3
+
+    def test_a_text_titles_length_counts_the_english_words(self, isolated_db):
+        did = _drama(isolated_db, media_type="novel")
+        isolated_db.save_lines(did, [Line(idx=i, start=0.0, end=0.0, zh="你", en="one two  three\nfour" if i else "")
+                                     for i in range(111)])
+        assert reader_service.get_reading_overview(did)["length_display"] == "2m"   # 440 words at 220 wpm
+        empty = _drama(isolated_db)
+        assert reader_service.get_reading_overview(empty)["line_count"] == 0
 
     def test_notes_round_trip_and_validation(self, isolated_db):
         did = _drama(isolated_db)

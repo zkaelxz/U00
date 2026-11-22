@@ -31,15 +31,36 @@ def chapter_line_ids(drama_id, chapter_from, chapter_to, line_ids=None):
         return line_ids
     if line_ids is not None:
         raise InvalidInputError("Choose chapters or lines, not both.")
-    import novel_text
-    lines = db.load_lines(drama_id)
-    ranges = novel_text.chapter_line_ranges([(ln.get("zh") or "") for ln in lines])
-    first, last = chapter_from or 1, chapter_to or len(ranges)
-    if not 1 <= first <= last <= len(ranges):
-        raise InvalidInputError(f"Choose chapters from 1 to {len(ranges)} (this title has {len(ranges)}).")
-    if (first, last) == (1, len(ranges)):
+    chapters = _chapter_line_id_lists(drama_id)
+    first, last = chapter_from or 1, chapter_to or len(chapters)
+    if not 1 <= first <= last <= len(chapters):
+        raise InvalidInputError(f"Choose chapters from 1 to {len(chapters)} (this title has {len(chapters)}).")
+    if (first, last) == (1, len(chapters)):
         return None
-    return [ln["id"] for ln in lines[ranges[first - 1][0]:ranges[last - 1][1] + 1]]
+    picked = [i for ids in chapters[first - 1:last] for i in ids]
+    if not picked:
+        raise InvalidInputError("Those chapters have no lines yet. Make their lines with Chunk & tag first.")
+    return picked
+
+
+def _chapter_line_id_lists(drama_id) -> list:
+    """Each chapter's line ids, chapters numbered from the title's saved novel text as
+    Chunk & tag numbers them, so a title chunked from chapter 50 on has its lines in
+    chapter 50, not chapter 1. Lines that no longer match that text (edited or merged in
+    Review, or not made by Chunk & tag) are numbered by their own headings instead."""
+    import novel_text
+    from services import narration_service
+    lines = db.load_line_objects(drama_id)
+    source = narration_service._read_novel(drama_id)
+    if source.strip():
+        try:
+            by_chapter = narration_service._align_chapters(narration_service._chapter_chunks(source), lines)
+        except ConflictError:
+            by_chapter = None
+        if by_chapter is not None:
+            return [[ln.id for ln in chapter] for chapter in by_chapter]
+    ranges = novel_text.chapter_line_ranges([ln.zh or "" for ln in lines])
+    return [[ln.id for ln in lines[a:b + 1]] for a, b in ranges]
 
 
 def check_mode_options(engine_name, gemini_free_tier, reflect, bulk, fallback_chain,
