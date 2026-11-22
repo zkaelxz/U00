@@ -697,6 +697,7 @@ def test_ollama_default_model_goes_by_graphics_memory(live, monkeypatch, total_g
     from engine_backends import local as engine_local
     monkeypatch.setattr(memory_headroom, "total_mb",
                         lambda memory: None if total_gb is None else total_gb * 1024)
+    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda base: ["translategemma:12b", "translategemma:27b"])
     seen = _capture_engine(live, monkeypatch)
     checked = []
     monkeypatch.setattr(engine_local, "check_ollama_model_installed",
@@ -706,6 +707,18 @@ def test_ollama_default_model_goes_by_graphics_memory(live, monkeypatch, total_g
     assert checked == [expected]
     assert seen["engine"].model == expected
     assert live_service.form_options()["default_model"] == expected
+
+
+@pytest.mark.parametrize("pulled,expected", [
+    (["translategemma:27b"], "translategemma:27b"),
+    (["translategemma:27b", "translategemma:12b"], "translategemma:12b"),
+    ([], "translategemma:12b")])
+def test_a_small_card_keeps_27b_when_only_27b_is_pulled(live, monkeypatch, pulled, expected):
+    import memory_headroom
+    from engine_backends import local as engine_local
+    monkeypatch.setattr(memory_headroom, "total_mb", lambda memory: 8 * 1024)
+    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda base: pulled)
+    assert live_service.live_default_model("ollama") == expected
 
 
 def test_a_model_picked_in_settings_beats_the_graphics_memory_default(live, monkeypatch):

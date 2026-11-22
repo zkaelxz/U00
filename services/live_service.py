@@ -172,12 +172,18 @@ def _require_offered_model(engine_name: str, model: Optional[str]):
 def live_default_model(engine_name: str = LIVE_DEFAULT_ENGINE):
     """The model Live runs when none is chosen. For Ollama with no model picked
     in Settings it goes by the card's graphics memory; an unreadable card gets
-    the small model, since 27B on the CPU cannot keep up with a stream."""
+    the small model, since 27B on the CPU cannot keep up with a stream. A PC
+    that has only 27B pulled keeps it: a slow stream beats one that won't start."""
     if engine_name != "ollama" or engine_registry.model_override_for_default("ollama"):
         return engine_registry.effective_default_model(engine_name)
     import memory_headroom
     total = memory_headroom.total_mb("vram")
-    return LIVE_LARGE_CARD_MODEL if total is not None and total >= LARGE_CARD_MB else LIVE_SMALL_CARD_MODEL
+    if total is not None and total >= LARGE_CARD_MB:
+        return LIVE_LARGE_CARD_MODEL
+    pulled = engine_local.pulled_ollama_models(settings_service.ollama_url())
+    if LIVE_LARGE_CARD_MODEL in pulled and LIVE_SMALL_CARD_MODEL not in pulled:
+        return LIVE_LARGE_CARD_MODEL
+    return LIVE_SMALL_CARD_MODEL
 
 
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
