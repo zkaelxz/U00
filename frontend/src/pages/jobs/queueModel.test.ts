@@ -11,7 +11,7 @@ const item = (p: Partial<QueueItem> = {}): QueueItem => ({
   engine: 'claude', paid: true, changed_settings: [], mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
 })
 const queue = (p: Partial<QueueState> = {}): QueueState => ({
-  version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, notice: null, max_items: 200,
+  version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, overlap_note: null, schedule: null, notice: null, max_items: 200,
   can_control: true, monthly_cap_usd: 0, items: [], ...p,
 })
 
