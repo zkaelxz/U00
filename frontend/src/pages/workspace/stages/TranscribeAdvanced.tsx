@@ -296,7 +296,7 @@ export function TranscribeAdvanced(p: Props) {
       toggle(
         'Separate vocals first',
         'separate_vocals_first',
-        'Removes background music before transcribing. Skip it unless the background is music alone: it hurt with noise and did nothing on clean audio. Fast on a GPU; on the CPU it adds a long wait (often many times the clip length).',
+        'Removes background music before transcribing. On by default for titles that use Breeze-ASR-25 (it scored better with it); off with every other model, where it hurt large-v3. It makes a run 1.5 to 5 times slower. Fast on a GPU; on the CPU it adds a long wait (often many times the clip length).',
         undefined,
         p.needs?.separation,
       ),

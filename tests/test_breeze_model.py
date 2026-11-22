@@ -48,6 +48,27 @@ class TestRegistry:
             {"source_language": "zh", "whisper_size": "large-v3"}) == "large-v3"
         assert transcribe_options_service.stored_whisper_size({"source_language": "ko"}) == "large-v3"
 
+    @pytest.mark.parametrize("drama,gpu,sep_ready,expected", [
+        ({"separate_vocals_first": None}, True, True, True),
+        ({"separate_vocals_first": 0}, True, True, False),
+        ({"separate_vocals_first": 1, "whisper_size": "large-v3"}, True, True, True),
+        ({"separate_vocals_first": None, "whisper_size": "large-v3"}, True, True, False),
+        ({"separate_vocals_first": None}, False, True, False),
+        ({"separate_vocals_first": None}, True, False, False),
+        ({"separate_vocals_first": None, "use_groq": 1}, True, True, False),
+        ({"separate_vocals_first": None, "asr_backend_choice": "qwen3_asr"}, True, True, False),
+    ])
+    def test_vocal_separation_defaults_on_for_breeze_only(self, monkeypatch, drama, gpu, sep_ready, expected):
+        from services import model_readiness_service, settings_service
+        monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
+        monkeypatch.setattr(settings_service, "get", lambda key, *a: gpu if key == "use_gpu" else None)
+        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda: sep_ready)
+        assert transcribe_options_service.effective_separate_vocals({"source_language": "zh", **drama}) is expected
+
+    def test_a_new_title_has_the_switch_unset(self, isolated_db):
+        did = isolated_db.create_drama(title_zh="t")
+        assert isolated_db.get_drama(did)["separate_vocals_first"] is None
+
     def test_live_starts_chinese_on_it_only_when_downloaded(self, monkeypatch):
         from services import live_service
         monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: size == KEY)

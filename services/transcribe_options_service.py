@@ -50,6 +50,25 @@ _DEFAULT_TUNING = {
 ASR_BACKEND_CHOICES = asr_options_service.ASR_BACKEND_CHOICES
 
 
+def effective_separate_vocals(drama: dict) -> bool:
+    """Whether this title's run separates vocals first. A saved 0/1 always wins; a title
+    that never saved the switch (NULL) gets it only on Breeze, where it measured better
+    (docs/asr-experiments.md; it hurt large-v3). The default also needs the local Whisper
+    path, the GPU on and the separation model already downloaded, so it never starts a
+    download or fails a run that did not ask for it."""
+    saved = drama.get("separate_vocals_first")
+    if saved is not None:
+        return bool(saved)
+    if drama.get("use_groq") or not settings_service.get("use_gpu"):
+        return False
+    if asr_options_service.stored_asr_backend(drama) != "whisper":
+        return False
+    if stored_whisper_size(drama) != whisper_models.BREEZE_KEY:
+        return False
+    from services import model_readiness_service  # imports this module at load
+    return model_readiness_service.separation_ready()
+
+
 def rehear_row(drama: dict) -> dict:
     """The title's row as hearing one line again sees it. A full run uses the
     Sensitive preset for a Difficult audio title, so a line heard again must too
@@ -63,7 +82,7 @@ def rehear_audio_path(drama: dict, audio_path: str) -> str:
     itself. A vocals file older than the audio is from media since replaced; the
     audio's creation/change time counts as well as its modified time, because a
     copy that keeps the old modified time is still a new file."""
-    if not drama.get("separate_vocals_first"):
+    if not effective_separate_vocals(drama):
         return audio_path
     vocals = os.path.join(os.path.dirname(audio_path), "vocals.wav")
     try:

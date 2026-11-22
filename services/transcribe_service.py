@@ -71,7 +71,7 @@ from services.transcribe_options_service import (
     _DEFAULT_TUNING, _check_run_request, apply_run_overrides,
     check_run_start, check_transcribe_fields, run_start,
     check_whisper_size_for_language, selectable_whisper_sizes, stored_hallucination_silence_sec,
-    stored_min_pause_sec, stored_whisper_size, whisper_size_notice)
+    effective_separate_vocals, stored_min_pause_sec, stored_whisper_size, whisper_size_notice)
 from services.transcribe_speed_service import (
     measured_diarize_runs, measured_diarize_speed, measured_stage_seconds,
     measured_transcribe_runs, measured_transcribe_speed, record_transcribe_speed)
@@ -181,7 +181,7 @@ def get_transcribe_config(drama_id: int) -> dict:
             presets.difficult_audio_view(drama)),
         "hallucination_silence_sec": stored_hallucination_silence_sec(drama),
         "min_pause_sec": stored_min_pause_sec(drama),
-        "separate_vocals_first": bool(drama.get("separate_vocals_first")),
+        "separate_vocals_first": effective_separate_vocals(drama),
         "separation_backend": drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"],
         "realign_long_segments": bool(drama.get("realign_long_segments")),
         "whisper_fast_mode": bool(drama.get("whisper_fast_mode")),
@@ -407,7 +407,7 @@ def _start_hardsub_job(job_id, drama_id, drama, run, tesseract_cmd) -> bool:
         job_id, _run_transcribe_and_apply_job, job_id, drama_id, run.audio_path,
         run.transcript_mode, run.transcript_text, run.source_language, run.chinese_script,
         run.whisper_size, run.beam_size, run.min_silence_ms, run.vad_threshold,
-        bool(drama.get("separate_vocals_first")), run.separation_backend,
+        effective_separate_vocals(drama), run.separation_backend,
         bool(drama.get("realign_long_segments")), bool(drama.get("whisper_fast_mode")),
         bool(drama.get("use_groq")), run.groq_api_key, run.hf_token, run.expected_speakers,
         run.prompt, run.video_path,
@@ -425,7 +425,7 @@ def _start_hardsub_job(job_id, drama_id, drama, run, tesseract_cmd) -> bool:
 def _worker_args(drama, run, scratch_dir, use_gpu, checkpoint=None) -> tuple:
     return (run.audio_path, run.transcript_mode, run.transcript_text, run.source_language,
             run.chinese_script, run.whisper_size, run.beam_size, run.min_silence_ms,
-            run.vad_threshold, bool(drama.get("separate_vocals_first")),
+            run.vad_threshold, effective_separate_vocals(drama),
             run.separation_backend, bool(drama.get("realign_long_segments")),
             bool(drama.get("whisper_fast_mode")), bool(drama.get("use_groq")), run.prompt,
             use_gpu, run.asr_backend_choice, run.alignment_method,
@@ -436,7 +436,7 @@ def _worker_args(drama, run, scratch_dir, use_gpu, checkpoint=None) -> tuple:
             run.hallucination_silence_sec, run.min_pause_sec,
             bool(drama.get("whisper_repeat_guard")),
             bool(drama.get("split_by_sentences")), run.preset, run.voice_detector,
-            run.qwen_prompt, difficult.mark(run.timing, drama), checkpoint, scratch_dir)
+            run.qwen_prompt, difficult.mark(run.timing, {**drama, "separate_vocals_first": effective_separate_vocals(drama)}), checkpoint, scratch_dir)
 
 
 def _cpu_retry_args(drama, run, scratch_dir, checkpoint=None):
