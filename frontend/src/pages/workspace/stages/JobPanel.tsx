@@ -243,7 +243,7 @@ function LastRunCard({ dramaId, ids, retryFor }: LastRunProps) {
   const outcome = jobOutcomeText(job)
   // Server text goes through safeDetail, as the live panel does with job.error.
   const text = status === 'failed' && job.error
-    ? (safeDetail(job.error) ?? <>The job failed. <FailureHelp /></>)
+    ? (safeDetail(withoutExceptionNames(job.error)) ?? <>The job failed. <FailureHelp /></>)
     : outcome
       ? (safeDetail(outcome) ?? jobOutcomeText({ outcome: job.outcome }))
       : stripStallNote(job.message)

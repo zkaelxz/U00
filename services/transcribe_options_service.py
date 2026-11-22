@@ -50,12 +50,18 @@ _DEFAULT_TUNING = {
 ASR_BACKEND_CHOICES = asr_options_service.ASR_BACKEND_CHOICES
 
 
+def separation_pack_installed() -> bool:
+    return importlib.util.find_spec("audio_separator") is not None
+
+
 def effective_separate_vocals(drama: dict) -> bool:
     """Whether this title's run separates vocals first. A saved 0/1 always wins; a title
     that never saved the switch (NULL) gets it only on Breeze, where it measured better
     (docs/asr-experiments.md; it hurt large-v3). The default also needs the local Whisper
-    path, the GPU on and the separation model already downloaded, so it never starts a
-    download or fails a run that did not ask for it."""
+    path, the GPU on, the separation pack installed and its model already downloaded, so it
+    never starts a download or fails a run that did not ask for it. The model folder is in
+    the user's home and outlives the pack (or is shared with another copy), so the file
+    alone does not mean the pack is there."""
     saved = drama.get("separate_vocals_first")
     if saved is not None:
         return bool(saved)
@@ -64,6 +70,8 @@ def effective_separate_vocals(drama: dict) -> bool:
     if asr_options_service.stored_asr_backend(drama) != "whisper":
         return False
     if stored_whisper_size(drama) != whisper_models.BREEZE_KEY:
+        return False
+    if not separation_pack_installed():
         return False
     from services import model_readiness_service  # imports this module at load
     return model_readiness_service.separation_ready()
