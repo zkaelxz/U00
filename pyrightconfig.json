@@ -165,7 +165,9 @@
     "scanlate/__init__.py",
     "scanlate/scanlate_condense.py",
     "voice/__init__.py",
-    "word_replacements.py"
+    "word_replacements.py",
+    "scanlate/scanlate_sfx.py",
+    "scanlate/scanlate_tilt.py"
   ],
   "typeCheckingMode": "basic",
   "pythonVersion": "3.13",
