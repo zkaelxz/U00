@@ -112,6 +112,11 @@ LayoutChanged = layout_changed_class("Kuaikan")
 # small ones in a row the same way.
 _MAX_ARRAY_LEN = 10_000
 _MAX_ARRAY_CELLS = 1_000_000
+# Real states nest a handful of levels. Hostile nesting, or arguments that
+# refer to each other in a cycle, would otherwise recurse until Python's own
+# limit, where whatever the garbage collector finalises at that depth fails
+# too (an unclosed event loop's __del__ did, in CI).
+_MAX_DEPTH = 100
 
 _IDENT_RE = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 _NUMBER_RE = re.compile(r"-?\d+(\.\d+)?([eE][+-]?\d+)?")
@@ -138,6 +143,13 @@ class _LiteralParser:
         self.i += 1
 
     def parse_value(self, env):
+        env.enter()
+        try:
+            return self._parse_value(env)
+        finally:
+            env.depth -= 1
+
+    def _parse_value(self, env):
         self.skip_ws()
         c = self.peek()
         if c == "{":
@@ -285,6 +297,12 @@ class _LazyEnv(dict):
         self._index = {name: i for i, name in enumerate(params)}
         self._arg_texts = arg_texts
         self._array_cells = 0
+        self.depth = 0
+
+    def enter(self):
+        if self.depth >= _MAX_DEPTH:
+            raise LayoutChanged("an embedded state of a sensible depth")
+        self.depth += 1
 
     def __contains__(self, name):
         return name in self._index
@@ -419,9 +437,10 @@ def _extract_nuxt_state(html: str):
     try:
         return _decode_nuxt_state(html[m.start():end])
     except (RecursionError, ValueError, IndexError, TypeError):
-        # Deep nesting, arguments that refer to each other in a cycle, a
-        # malformed number or escape, or a prelude assignment that doesn't
-        # fit its target. LayoutChanged is none of these, so it passes.
+        # A malformed number or escape, a prelude assignment that doesn't
+        # fit its target, or (past _MAX_DEPTH's bound, on a thread already
+        # deep in its stack) recursion. LayoutChanged is none of these, so
+        # it passes.
         raise LayoutChanged("a well-formed embedded state") from None
 
 
