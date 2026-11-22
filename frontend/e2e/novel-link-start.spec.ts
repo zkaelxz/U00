@@ -63,7 +63,7 @@ test('a run that stopped says why and offers Continue', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toHaveCount(0)
 })
 
-test('a refused start shows its error and offers Continue', async ({ page }) => {
+test('a refused start shows its error and keeps Import from link, not Continue', async ({ page }) => {
   await mockServer(page)
   await page.route('**/api/queue/novel-flow/2', (r) => r.request().method() === 'POST'
     ? r.fulfill({ status: 403, json: { detail: 'Preparing the imported chapters as the text works only at the PC.' } })
@@ -72,7 +72,9 @@ test('a refused start shows its error and offers Continue', async ({ page }) => 
   await page.getByLabel('Link to the novel').fill('https://example.com/book/1')
   await page.getByRole('button', { name: 'Import from link' }).click()
   await expect(page.getByRole('alert')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled()
+  // Nothing ran, so there is no step to continue from; the banner says why it was refused.
+  await expect(page.getByRole('button', { name: 'Import from link' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Continue' })).toHaveCount(0)
 })
 
 test('opening the title mid-run shows the run, not a button to start it again', async ({ page }) => {
