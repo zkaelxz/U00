@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { guardWrites, status } from './modelHealthMocks'
 import { hitHeight, installHitArea } from './hitArea'
+import { enableDeveloperMode } from './sourceHelpers'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -21,6 +22,8 @@ test.beforeEach(async ({ page }) => {
 
 test('phone: the card fits, targets are 44px, and a switch asks twice', async ({ page }) => {
   const unmocked = await guardWrites(page)
+  // The Compare in Benchmark Lab links show only with Developer Mode on, and they are targets to measure too.
+  await enableDeveloperMode(page)
   await page.route('**/api/models/status', (r) => r.fulfill({ json: status() }))
   let posted = 0
   await page.route('**/api/models/presets/*/switch', (r) => {
