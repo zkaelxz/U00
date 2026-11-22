@@ -4,10 +4,11 @@ import { useEffect, useState } from 'react'
 import { checkOllama } from '../../api/live'
 
 /**
- * `model` is null when the engine is not Ollama; `gpuWhisper` is the Whisper size when Whisper runs on
+ * `model` is null when the engine is not Ollama, and empty while the model list loads (nothing to check yet); `gpuWhisper` is the Whisper size when Whisper runs on
  * the GPU too. The answer is kept with the check it belongs to, so an old one is never shown for a new model.
  */
-export function useOllamaCheck(model: string | null, gpuWhisper: string | null) {
+export function useOllamaCheck(picked: string | null, gpuWhisper: string | null) {
+  const model = picked || null
   const [answer, setAnswer] = useState<{ key: string; note: string | null; gpuFit: boolean } | null>(null)
   const [recheck, setRecheck] = useState(0)
   // A fit warning does not block Start, but a model that does not fit can fail every line,
