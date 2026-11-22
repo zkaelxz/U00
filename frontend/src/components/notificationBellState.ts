@@ -54,8 +54,9 @@ export function seenAfter(items: NotificationItem[], prev: Seen): Seen {
   }
 }
 
+// No brackets round the count: label-in-name matching ignores bracketed text, so the visible number would not be in the name.
 export function bellLabel(unread: number): string {
-  return unread > 0 ? `Alerts (${unread} new)` : 'Alerts'
+  return unread > 0 ? `Alerts, ${unread} new` : 'Alerts'
 }
 
 const KIND_BADGE: Record<NotificationKind, { tone: BadgeTone; label: string }> = {

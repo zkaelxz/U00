@@ -586,8 +586,9 @@ details.section[open] > summary::before { content: '\25BE'; }
   .toggle-list .field-item { display: flex; }
   .field-help-btn { width: 24px; height: 24px; }
   .field-help-btn::after { inset: -12px; }
-  /* Vertical padding on an inline link widens its tap area to 32px without changing the line it sits in. */
-  a.touch-link { padding-block: 8px; }
+  /* Vertical padding on an inline link widens its tap area to 32px without changing the line it sits in; positioned, so the
+     text painted after it does not cover the padding and take the taps. */
+  a.touch-link { position: relative; padding-block: 8px; }
 }
 /* Header controls are icon-only (their old words are the aria-label and tooltip). .header-end is a size container so that "Connected"
    shows only where the row has room; the min-widths below are the icons' natural widths plus gaps, in rem so a larger text size moves them.

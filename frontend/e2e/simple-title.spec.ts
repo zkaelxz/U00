@@ -317,6 +317,20 @@ test('Simple Review keeps the checks, Fix flagged lines, flags and Mark episode 
   await expect(page.getByLabel('Go to line number')).toBeVisible()
 })
 
+test('at 1440px All tools keeps Finish on the same row as the other three Review tool tabs', async ({ page }) => {
+  seedLines(3)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/#/drama/3/review')
+  const tabs = page.getByRole('tablist', { name: 'Review tools' }).getByRole('tab')
+  await expect(tabs).toHaveText(['Look for problems', 'Change many lines', 'Records', 'Finish'])
+  // Each one selected in turn, since the selected tab is bold and so wider.
+  for (let n = 0; n < 4; n++) {
+    await tabs.nth(n).click()
+    const tops = await tabs.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))
+    expect(new Set(tops).size, `one row with tab ${n + 1} selected: ${tops}`).toBe(1)
+  }
+})
+
 test('Simple Transcribe leaves the Advanced options out and Full keeps them', async ({ page }) => {
   await page.goto('/#/drama/1')
   await page.getByRole('radio', { name: 'Guided', exact: true }).check({ force: true })
@@ -1576,7 +1590,7 @@ test.describe('the check queue', () => {
       const s = getComputedStyle(el)
       return { padding: `${s.paddingTop} ${s.paddingRight}`, radius: s.borderTopLeftRadius, weight: s.fontWeight, underline: s.borderBottomWidth, bg: s.backgroundColor }
     })
-    expect(await pill('This line')).toMatchObject({ padding: '5px 5px', radius: '6px', weight: '600', underline: '0px' })
+    expect(await pill('This line')).toMatchObject({ padding: '5px 4px', radius: '6px', weight: '600', underline: '0px' })
     expect((await pill('This line')).bg, 'the selected tab is filled').not.toBe('rgba(0, 0, 0, 0)')
     // Retried: the tab that was selected before the open card's This line took over fades out for a moment.
     await expect(page.getByRole('tab', { name: 'Look for problems' }), 'the others are not').toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
@@ -1620,7 +1634,7 @@ test.describe('the check queue', () => {
     expect(await tab.evaluate((el) => {
       const s = getComputedStyle(el)
       return { padding: `${s.paddingTop} ${s.paddingRight}`, radius: s.borderTopLeftRadius, underline: s.borderBottomWidth }
-    })).toEqual({ padding: '5px 5px', radius: '6px', underline: '0px' })
+    })).toEqual({ padding: '5px 4px', radius: '6px', underline: '0px' })
     await expectNoSidewaysScroll(page)
   })
 })

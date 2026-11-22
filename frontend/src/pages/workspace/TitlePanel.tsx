@@ -60,7 +60,7 @@ export function TitlePanel({ id, episodes }: { id: number; episodes: ReactNode |
       ))}
       {panel('details', (
         <>
-          <p className="title-panel-note">The title's name, source link and notes.</p>
+          <p className="title-panel-note">The title's name, language, series, summary and source link.</p>
           <div className="actions"><ButtonLink href={routeHref({ name: 'drama', id, stage: 'source', tab: 'details' })}>Open details</ButtonLink></div>
           {active === 'details' && <SettingSources id={id} />}
         </>

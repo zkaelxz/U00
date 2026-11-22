@@ -272,13 +272,12 @@ export default function SourceStage() {
         >
           <input
             ref={mediaInput}
-            type="file" className="visually-hidden" tabIndex={-1}
-            id={mediaFileInputId(dramaId)} aria-label="Audio or video file"
+            type="file" className="visually-hidden" tabIndex={-1} aria-label="Audio or video file"
             accept={UPLOAD_EXTENSIONS.join(',')}
             disabled={!media}
             onChange={(e) => pick(e.target.files?.[0] ?? null)}
           />
-          <button type="button" className={buttonClass('secondary')} disabled={!media} onClick={() => mediaInput.current?.click()}>Choose a file</button>
+          <button type="button" id={mediaFileInputId(dramaId)} className={buttonClass('secondary')} disabled={!media} onClick={() => mediaInput.current?.click()}>Choose a file</button>
           <span className="source-file-name muted">{file ? file.name : 'No file chosen'}</span>
           <button
             type="button"
