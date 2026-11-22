@@ -722,7 +722,10 @@ def _start_translate(principal, drama: dict, settings: Optional[dict] = None,
     if settings and not _holds(principal, "lines.edit"):
         raise ForbiddenError("This item changes the step's settings, which needs permission to edit lines.")
     saved = _queued_model_and_batch(drama, args["engine"])
-    paid = args["engine"] not in engine_registry.FREE_ENGINES
+    run_model = settings.get("model", saved[0]) or engine_registry.effective_default_model(args["engine"])
+    # An Ollama cloud tag is billed like a paid engine, so the series ceiling covers it too.
+    paid = args["engine"] not in engine_registry.FREE_ENGINES or (
+        args["engine"] == "ollama" and engine_local.is_ollama_cloud_model(run_model))
     # Raises when the series switch is off or its ceiling is spent. The run gets what is left as its own
     # per-job cap: 0 would mean "no cap" to the cost resolver, which ceiling_left never returns.
     left = series_auto_service.ceiling_left(auto_series) if auto_series is not None and paid else None

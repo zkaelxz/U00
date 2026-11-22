@@ -174,6 +174,21 @@ def test_a_paid_translate_runs_without_a_monthly_cap_under_the_series_ceiling(jo
     assert 0 < cap <= 2.0
 
 
+def test_an_ollama_cloud_translate_runs_under_the_series_ceiling(jobs, monkeypatch):
+    """A cloud tag is billed like a paid engine, so it gets the ceiling as its cap too."""
+    from engine_backends import engine_registry
+    monkeypatch.setattr(engine_registry, "effective_default_model",
+                        lambda name: "gpt-oss:120b-cloud" if name == "ollama" else None)
+    sid, (e1, *_rest) = _series(1, engine="ollama")
+    db.save_lines(e1, [Line(idx=0, start=0, end=1, zh="你好", en="")])
+    _on(sid, ceiling=2.0)
+    q._append_items(None, e1, [("translate", {})], True, auto_series=sid)
+    q.start(None)
+    q.tick()
+    assert jobs.started == [f"translate_{e1}"]
+    assert 0 < jobs.translate_kwargs[0]["job_cost_cap_usd"] <= 2.0
+
+
 def test_a_paid_translate_whose_estimate_exceeds_the_ceiling_is_skipped(jobs, monkeypatch):
     monkeypatch.setattr(translate_run_service.translate_service, "resolve_api_key", lambda name: "k")
     sid, (e1, *_rest) = _series(1, engine="claude")

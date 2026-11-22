@@ -228,9 +228,18 @@ def start_file_run(principal, drama_id: int, job_id: str, engine: str, locale: O
 
 # --- starting one step, for the queue's runner ------------------------------------
 
-def _require_free_or_paid(principal, engine: str, what: str) -> None:
+def _require_free_or_paid(principal, engine: str, model, what: str) -> None:
     # Checked again at start, as for Translate: the adder's permission and the title's engine may have changed.
-    if engine not in engine_registry.FREE_ENGINES and not q._holds(principal, "engines.paid"):
+    # Ollama is free, but its cloud tags are billed, so they need engines.paid too, or the
+    # adder's own Ollama key, which the queue start sends them with (require_cloud_model_allowed).
+    from services import member_key_service
+    from services.translate_run_service import engine_cap_applies
+    if q._holds(principal, "engines.paid"):
+        return
+    cloud = engine in engine_registry.FREE_ENGINES and engine_cap_applies(
+        engine, False, model or engine_registry.effective_default_model(engine))
+    if engine not in engine_registry.FREE_ENGINES or (
+            cloud and not member_key_service.has_usable_key((principal or {}).get("user_id"))):
         raise ForbiddenError(f"This title {what} with a paid engine, which the account that added it can't use.")
 
 
@@ -239,7 +248,7 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
     drama_id = drama["id"]
     if step == q.NAMES:
         engine = glossary_extract_service.novel_glossary_engine(drama_id)
-        _require_free_or_paid(principal, engine, "finds names")
+        _require_free_or_paid(principal, engine, None, "finds names")
         start = (glossary_extract_service.start_novel_glossary_run if settings.get("source") == _NOVEL
                  else glossary_extract_service.start_lines_glossary_run)
         return start(drama_id, engine_name=engine)["job_id"]
@@ -263,7 +272,8 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
     if step == q.RUN_TRANSLATE:
         from services import translate_run_service, translate_thinking_service
         engine = settings.get("engine") or ""
-        _require_free_or_paid(principal, engine, "translates")
+        model = translate_run_service.run_model_and_batch_size(drama_id, engine)[0] if engine == "ollama" else None
+        _require_free_or_paid(principal, engine, model, "translates")
         paid = q._holds(principal, "engines.paid")
         return translate_thinking_service.start_with_thinking(
             translate_run_service.start_translate_run, drama_id, None, False, engine_name=engine,
@@ -272,7 +282,7 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
     lines = lines_choice(drama_id, settings)
     first, last = lines.get("chapter_from"), lines.get("chapter_to")
     if not lines["one_narrator"]:
-        _require_free_or_paid(principal, lines["engine"], "makes lines")
+        _require_free_or_paid(principal, lines["engine"], lines.get("model"), "makes lines")
         if not lines["cost_accepted"]:
             # Priced here, not when added: before the text step has run there is no text to price.
             cost = narration_service.estimate_tag_cost(drama_id, lines["engine"], lines.get("model"), first, last)
