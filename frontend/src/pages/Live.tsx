@@ -94,6 +94,25 @@ function CueFeed({ cues, lang, waiting }: { cues: LiveCue[]; lang: string; waiti
   )
 }
 
+// A graphics-memory warning carries its own advice, and Start still goes ahead, so it is never an alert.
+function OllamaNote({ note, fitWarning, alert, onRecheck }: { note: string; fitWarning: boolean; alert: boolean; onRecheck: () => void }) {
+  return (
+    <p className={alert ? 'error' : 'muted'} role={alert ? 'alert' : undefined} data-testid="live-ollama-note">
+      {note} {fitWarning ? '' : 'Pick another engine or model above, or fix this and '}
+      <button type="button" className="link" onClick={onRecheck}>{fitWarning ? 'Check again' : 'check again'}</button>.
+    </p>
+  )
+}
+
+function SpendLimitField({ range, value, disabled, onChange }: { range: readonly number[]; value: number; disabled: boolean; onChange: (v: number) => void }) {
+  return (
+    <Field label="Spend limit" unit="$" help="The most this session may spend on the paid engine. Once its translations cost this much, the session stops; the lines so far are kept. A monthly cap in Settings replaces this limit.">
+      <input type="number" inputMode="decimal" min={range[0]} max={range[1]} step={0.5}
+        data-testid="live-spend-limit" value={value} disabled={disabled} onChange={(e) => onChange(e.target.valueAsNumber)} />
+    </Field>
+  )
+}
+
 export default function LivePage() {
   const pc = usePcOnly()
   // Only the options this browser changed, so the rest follow the server's defaults.
@@ -174,7 +193,6 @@ export default function LivePage() {
   const checkModel = engine === 'ollama' ? model : null
   const gpuCheck = form.use_gpu ? form.whisper_size : null, checkKey = `${checkModel}#${gpuCheck}#${recheck}`
   const ollamaNote = checkModel !== null && ollamaAnswer?.key === checkKey ? ollamaAnswer.note : null
-  // A graphics-memory warning carries its own advice, and Start still goes ahead.
   const fitWarning = ollamaNote !== null && ollamaAnswer?.gpuFit === true
   useEffect(() => {
     if (checkModel === null) return
@@ -283,11 +301,7 @@ export default function LivePage() {
               </select>
             </Field>
             {engineEntry && !engineEntry.free && !opts.monthly_cap_set && (
-              <Field label="Spend limit" unit="$" help="The most this session may spend on the paid engine. Once its translations cost this much, the session stops; the lines so far are kept. A monthly cap in Settings replaces this limit.">
-                <input type="number" inputMode="decimal" min={opts.spend_limit_range[0]} max={opts.spend_limit_range[1]} step={0.5}
-                  data-testid="live-spend-limit" value={form.spend_limit_usd} disabled={active || busy}
-                  onChange={(e) => setOpt('spend_limit_usd', e.target.valueAsNumber)} />
-              </Field>
+              <SpendLimitField range={opts.spend_limit_range} value={form.spend_limit_usd} disabled={active || busy} onChange={(v) => setOpt('spend_limit_usd', v)} />
             )}
             <ModelSelect engine={engineEntry} value={model} disabled={active || busy} onChange={(m) => setOpt('model', m)}
               defaultModel={engine === opts.default_engine ? opts.default_model ?? undefined : undefined}
@@ -317,12 +331,7 @@ export default function LivePage() {
               ))}
             </select>
           </Field>
-          {ollamaNote && (
-            <p className={startPressed && !fitWarning ? 'error' : 'muted'} role={startPressed && !fitWarning ? 'alert' : undefined} data-testid="live-ollama-note">
-              {ollamaNote} {fitWarning ? '' : 'Pick another engine or model above, or fix this and '}
-              <button type="button" className="link" onClick={() => setRecheck((n) => n + 1)}>{fitWarning ? 'Check again' : 'check again'}</button>.
-            </p>
-          )}
+          {ollamaNote && <OllamaNote note={ollamaNote} fitWarning={fitWarning} alert={startPressed && !fitWarning} onRecheck={() => setRecheck((n) => n + 1)} />}
           {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
           <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(form, opts)}>
             <div className="preset-note-row">
