@@ -94,6 +94,25 @@ function CueFeed({ cues, lang, waiting }: { cues: LiveCue[]; lang: string; waiti
   )
 }
 
+// A graphics-memory warning carries its own advice, and Start still goes ahead, so it is never an alert.
+function OllamaNote({ note, fitWarning, alert, onRecheck }: { note: string; fitWarning: boolean; alert: boolean; onRecheck: () => void }) {
+  return (
+    <p className={alert ? 'error' : 'muted'} role={alert ? 'alert' : undefined} data-testid="live-ollama-note">
+      {note} {fitWarning ? '' : 'Pick another engine or model above, or fix this and '}
+      <button type="button" className="link" onClick={onRecheck}>{fitWarning ? 'Check again' : 'check again'}</button>.
+    </p>
+  )
+}
+
+function SpendLimitField({ range, value, disabled, onChange }: { range: readonly number[]; value: number; disabled: boolean; onChange: (v: number) => void }) {
+  return (
+    <Field label="Spend limit" unit="$" help="The most this session may spend on the paid engine. Once its translations cost this much, the session stops; the lines so far are kept. A monthly cap in Settings replaces this limit.">
+      <input type="number" inputMode="decimal" min={range[0]} max={range[1]} step={0.5}
+        data-testid="live-spend-limit" value={value} disabled={disabled} onChange={(e) => onChange(e.target.valueAsNumber)} />
+    </Field>
+  )
+}
+
 export default function LivePage() {
   const pc = usePcOnly()
   // Only the options this browser changed, so the rest follow the server's defaults.
@@ -166,7 +185,7 @@ export default function LivePage() {
   // Ollama is the default and runs on this PC: say plainly when it is not
   // there, instead of failing at Start. Nothing switches engine for the user.
   // The answer is kept with the check it belongs to, so an old one is never shown for a new model.
-  const [ollamaAnswer, setOllamaAnswer] = useState<{ key: string; note: string | null } | null>(null)
+  const [ollamaAnswer, setOllamaAnswer] = useState<{ key: string; note: string | null; gpuFit: boolean } | null>(null)
   const [recheck, setRecheck] = useState(0)
   // Until Start is pressed a missing Ollama is only information; it becomes an alert when it blocks a start.
   const [startPressed, setStartPressed] = useState(false)
@@ -174,11 +193,12 @@ export default function LivePage() {
   const checkModel = engine === 'ollama' ? model : null
   const gpuCheck = form.use_gpu ? form.whisper_size : null, checkKey = `${checkModel}#${gpuCheck}#${recheck}`
   const ollamaNote = checkModel !== null && ollamaAnswer?.key === checkKey ? ollamaAnswer.note : null
+  const fitWarning = ollamaNote !== null && ollamaAnswer?.gpuFit === true
   useEffect(() => {
     if (checkModel === null) return
     let alive = true
     checkOllama(checkModel, undefined, gpuCheck === null ? undefined : { whisperSize: gpuCheck, useGpu: true }).then(
-      (r) => { if (alive) setOllamaAnswer({ key: checkKey, note: r.ok ? null : (r.message ?? 'Ollama is not ready.') }) },
+      (r) => { if (alive) setOllamaAnswer({ key: checkKey, note: r.ok ? null : (r.message ?? 'Ollama is not ready.'), gpuFit: r.gpu_fit === true }) },
       () => {},
     )
     return () => { alive = false }
@@ -221,7 +241,8 @@ export default function LivePage() {
   // The picture exists only while the session runs and Stop has not been
   // pressed: leaving it mounted would keep the stream's audio playing.
   // What the running session records, not the form. Its files are served to the PC only.
-  const ownPlayer = session?.status?.delayed_player === true && pc !== 'remote'
+  // A player that stopped with a stream break and could not start again gives way to the site's embed.
+  const ownPlayer = session?.status?.delayed_player === true && session.status.player_stopped !== true && pc !== 'remote'
   const videoLive = !!session && status === 'running' && !stopping && (!!session.url || !!session.status?.stream || ownPlayer)
   const streamRef = videoLive ? sessionStream(session?.url, session?.status?.stream) : null
   const feed = session ? feedCues(session.cues) : []
@@ -279,6 +300,9 @@ export default function LivePage() {
                 ))}
               </select>
             </Field>
+            {engineEntry && !engineEntry.free && !opts.monthly_cap_set && (
+              <SpendLimitField range={opts.spend_limit_range} value={form.spend_limit_usd} disabled={active || busy} onChange={(v) => setOpt('spend_limit_usd', v)} />
+            )}
             <ModelSelect engine={engineEntry} value={model} disabled={active || busy} onChange={(m) => setOpt('model', m)}
               defaultModel={engine === opts.default_engine ? opts.default_model ?? undefined : undefined}
               help={engine === opts.default_engine
@@ -307,12 +331,7 @@ export default function LivePage() {
               ))}
             </select>
           </Field>
-          {ollamaNote && (
-            <p className={startPressed ? 'error' : 'muted'} role={startPressed ? 'alert' : undefined} data-testid="live-ollama-note">
-              {ollamaNote} Pick another engine or model above, or fix this and{' '}
-              <button type="button" className="link" onClick={() => setRecheck((n) => n + 1)}>check again</button>.
-            </p>
-          )}
+          {ollamaNote && <OllamaNote note={ollamaNote} fitWarning={fitWarning} alert={startPressed && !fitWarning} onRecheck={() => setRecheck((n) => n + 1)} />}
           {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
           <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(form, opts)}>
             <div className="preset-note-row">

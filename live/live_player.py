@@ -152,6 +152,7 @@ def served_file(out_dir: str, name: str):
 
 UNAVAILABLE_NOTE = "Delayed player unavailable: no separate video stream could be recorded."
 STOPPED_NOTE = "The delayed player stopped; captions continue."
+RESTARTED_NOTE = "The delayed player started again after the reconnect."
 
 
 def start_if_possible(height, url, audio_url, out_dir, note, should_stop, stream_url_check=None, proxy=None,
@@ -196,10 +197,29 @@ def ready(out_dir) -> bool:
     return True
 
 
-def watch(player, note):
-    """`player` while its recorders run; after one fails, stops both, says so and returns None."""
+def clear(out_dir) -> None:
+    """Removes the recorded copy, so ready() is False until a new recording has segments."""
+    folder = player_dir(out_dir)
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return
+    for name in names:
+        if SERVED_NAME.fullmatch(name):
+            try:
+                os.remove(os.path.join(folder, name))
+            except OSError:
+                pass
+
+
+def watch(player, note, out_dir=None):
+    """`player` while its recorders run; after one fails, stops both, says so and
+    returns None. With `out_dir` the stale copy is cleared too: its playlists
+    would otherwise keep reading as ready while nothing is added to them."""
     if player is not None and player.failure():
         player.stop(kill=True)
+        if out_dir:
+            clear(out_dir)
         note(STOPPED_NOTE, "player")
         return None
     return player

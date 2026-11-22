@@ -234,3 +234,83 @@ class TestUnusableRepliesAreNotSuccesses:
         t = CueTranslator(engine, "zh", spend_guard=_guard(engine, guard_env))
         assert t.translate_chunk(["c", "d"]) == {}
         assert len(_usage_rows()) == 1
+
+
+class TestSessionSpendLimit:
+    """Without a monthly cap a paid session had no ceiling at all; it now stops
+    once its own translations cost the limit set on the Live screen."""
+
+    @pytest.fixture
+    def no_cap(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.0)
+        return []
+
+    def _guard(self, engine, stops, limit):
+        from services import live_spend_service
+        budget = live_spend_service.session_budget(engine, "claude", limit)
+        return live_spend_service.LiveSpendGuard(
+            engine, "claude", lambda reason, label: stops.append((reason, label)), budget)
+
+    def test_requests_stop_once_the_session_has_spent_its_limit(self, no_cap):
+        from services import live_spend_service
+        engine = _PaidEngine()
+        t = CueTranslator(engine, "zh", spend_guard=self._guard(engine, no_cap, 0.02))
+        t.translate("a")
+        cost = _usage_rows()[0]["estimated_cost_usd"]
+        assert 0 < cost < 0.02
+        with pytest.raises(background_jobs.JobCancelled):
+            for text in "bcdefghijklmnopqrstuvwxyz":
+                t.translate(text)
+        # The request that crossed the limit was the last one sent.
+        assert (engine.calls - 1) * cost < 0.02 <= engine.calls * cost
+        assert len(no_cap) == 1
+        reason, label = no_cap[0]
+        assert label == live_spend_service.SESSION_LIMIT_LABEL and "$0.02" in reason
+
+    def test_the_retry_for_a_kept_name_counts_toward_the_limit(self, no_cap):
+        from engine_backends.translation_guard import LEFTOVER_SOURCE
+        from services import live_spend_service
+
+        class KeepsTheName(_PaidEngine):
+            def translate_batch(self, texts, context):
+                out = super().translate_batch(texts, context)
+                if context.get("check_replies", True):
+                    self.last_rejected = {context["line_ids"][0]: LEFTOVER_SOURCE}
+                    return [""]
+                self.last_rejected = {}
+                return out
+        engine = KeepsTheName()
+        budget = live_spend_service.session_budget(engine, "claude", 1.0)
+        guard = live_spend_service.LiveSpendGuard(engine, "claude", lambda *a: None, budget)
+        CueTranslator(engine, "zh", spend_guard=guard).translate("a")
+        assert engine.calls == 2
+        rows = _usage_rows()
+        assert len(rows) == 2 and rows[1]["estimated_cost_usd"] > 0
+        assert budget._spent == pytest.approx(sum(r["estimated_cost_usd"] for r in rows))
+
+    def test_no_session_limit_with_a_monthly_cap_or_a_free_engine(self, isolated_db, monkeypatch):
+        from services import live_spend_service
+        monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
+        assert live_spend_service.session_budget(_PaidEngine(), "claude", 2.0) is None
+        monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.0)
+        local_engine = _PaidEngine()
+        local_engine.model = "translategemma:12b"
+        assert live_spend_service.session_budget(local_engine, "ollama", 2.0) is None
+        assert live_spend_service.session_budget(_PaidEngine(), "claude", 2.0).limit_usd == 2.0
+
+    def test_start_hands_the_limit_to_the_guard(self, live, monkeypatch):
+        from engine_backends import engine_registry
+        monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.0)
+        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: _PaidEngine())
+        seen = {}
+        monkeypatch.setattr(live_translate, "run_live_job",
+                            lambda *a, spend_guard=None, **k: seen.update(guard=spend_guard))
+        model = next(iter(translate_service.ENGINE_MODEL_DICTS["claude"]))
+        assert _terminal(_start(engine="claude", model=model, spend_limit_usd=0.5))
+        assert seen["guard"]._budget.limit_usd == 0.5
+        assert _terminal(_start(engine="claude", model=model))
+        assert seen["guard"]._budget.limit_usd == 2.0
+        assert _terminal(_start(engine="claude", model=model, spend_limit_usd=10 ** 6))
+        assert seen["guard"]._budget.limit_usd == 100.0
+        options = live_service.form_options()
+        assert options["defaults"]["spend_limit_usd"] == 2.0 and options["monthly_cap_set"] is False
