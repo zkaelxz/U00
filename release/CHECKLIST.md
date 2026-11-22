@@ -10,6 +10,7 @@ Run order is cheapest and most likely to fail first. Flows 1 to 4 are the instal
 - If anything under `extension/` changed, `extension/manifest.json` has a new version.
 - The tag needs the owner's typed yes.
 - Right after tagging, set `SOURCE_VERSION` in `portable.py` to the next version with `-dev` (after v0.1.5, `0.1.6-dev`, since the next release is 0.1.6). It is what a library made by a source checkout records, so the release you just tagged refuses checkout libraries made after it.
+- Right after tagging, while `baihe-subtitler`'s head is still the tag commit, dispatch Android APK (`android-apk.yml`) on `baihe-subtitler` (Actions -> "Android APK" -> Run workflow, or `gh workflow run android-apk.yml --ref baihe-subtitler`). Only a manual run on that branch publishes, and "Get the newest phone app" serves whatever it last published, so without this the phone app lags the release. Check the run's commit is the tag's.
 
 ## The flows
 
