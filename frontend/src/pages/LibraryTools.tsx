@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 
 import {
-  clearReadingHistory, getCosts, getHistory, getPresets, getSeries, getStats, getVoiceBank, renamePreset,
+  clearReadingHistory, getCosts, getHistory, getAllSeries, getPresets, getStats, getVoiceBank, renamePreset,
   addVoiceBankEntry, editVoiceBankDetails, renameVoiceBankEntry, replaceVoiceBankClip,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
@@ -24,6 +24,7 @@ import { useLoad } from '../hooks/useLoad'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { CardFoldContext } from '../components/cardFold'
 import { SaveFolderCard } from './manga/SaveFolder'
+import { isComicType } from './comic/comicLogic'
 import { usePcOnly, usePcPendingNote, type PcMode } from '../hooks/usePcOnly'
 import { engineLabel, languageLabel } from '../labels'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
@@ -406,7 +407,10 @@ export default function LibraryToolsPage() {
   const [reloadKey, setReloadKey] = useState(0)
   const pc = usePcOnly()
   const stats = useLoad(getStats, reloadKey)
-  const series = useLoad(getSeries, reloadKey)
+  // The library has no per-title translated count here, so any comic title counts; the job itself skips comics with no translations.
+  const hasComic = Object.entries(stats.data?.by_media_type ?? {}).some(([type, n]) => n > 0 && isComicType(type))
+  // Every series with a title, one-title ones too, so the count matches the Library's Series link and the Series page.
+  const series = useLoad(getAllSeries, reloadKey)
   const costs = useLoad(getCosts, reloadKey)
   const history = useLoad(getHistory, reloadKey)
   const presets = useLoad(getPresets, reloadKey)
@@ -531,7 +535,7 @@ export default function LibraryToolsPage() {
             <ExportBlock exportable={exportableCount(stats.data?.by_status)} job={exporter} />
           </div>
         )}
-        {pc !== 'remote' && (
+        {pc !== 'remote' && hasComic && (
           <div className="tools-export">
             <h2 className="tools-group-title">Typeset all comics again</h2>
             <TypesetComicsCard />

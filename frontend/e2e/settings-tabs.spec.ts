@@ -51,7 +51,7 @@ test('a card remembers whether it is open after a reload, and shows its value wh
   await tab(page, 'Connections').click()
   await expect(fold(page, 'Notifications')).toHaveAttribute('open', '')
   await fold(page, 'Notifications').locator('> summary').click()
-  await expect(fold(page, 'Notifications').locator('> summary .section-summary')).toHaveText(/^Notify when a job finishes: (On|Off)$/)
+  await expect(fold(page, 'Notifications').locator('> summary .section-summary')).toHaveText(/^(On|Off)(: .+)?$/)
   await fold(page, 'Jellyfin').locator('> summary').click()
   // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
   await page.waitForFunction(() => Object.keys(window.localStorage).filter((k) => k.startsWith('baihe.section.settings.card.')).length >= 2)
@@ -107,7 +107,7 @@ test('a search hit on a card the person closed opens it again, on its own tab', 
   // While searching, a tab's name carries its hit count.
   await expect(page.getByRole('tab', { name: /^Connections/ })).toHaveAttribute('aria-selected', 'true')
   await expect(fold(page, 'Notifications')).toHaveAttribute('open', '')
-  await expect(page.getByRole('switch', { name: /Notify when a job finishes/ })).toBeVisible()
+  await expect(page.getByRole('switch', { name: /Pop-up on this PC when a job finishes/ })).toBeVisible()
 })
 
 test('a search with no hits says so', async ({ page }) => {

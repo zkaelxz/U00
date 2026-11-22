@@ -282,6 +282,8 @@ html[data-text='larger'] { font-size: 118.75%; }
 :lang(ko) { font-family: var(--font-ko), var(--font-sans); line-height: var(--leading-cjk); }
 body {
   margin: 0 auto;
+  /* The frost wash is painted on body, which is only as tall as its content: without this a short page shows a flat band under the wash. */
+  min-height: 100dvh;
   max-width: var(--content-max);
   padding: var(--space-4);
   background: var(--bg);
@@ -1047,6 +1049,8 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .drama-tile[class*='tile-h'], .continue-tile[class*='tile-h'] { background: var(--tile); color: var(--on-tile); }
 .drama-card-main { display: flex; flex-direction: column; gap: var(--space-1); flex: 1 1 auto; min-width: 0; padding: var(--space-3) var(--space-4) var(--space-2) var(--space-3); }
 @media (min-width: 1024px) { .drama-tile { flex-basis: 64px; width: 64px; height: 86px; } }
+.drama-tile { overflow: hidden; }
+.drama-tile img { width: 100%; height: 100%; object-fit: cover; }
 .drama-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--text); font-family: var(--font-heading); font-weight: var(--weight-bold); line-height: 1.35; text-decoration: none; }
 /* Stretched link: the title link's ::after covers the whole card (.drama-card is position: relative), so the card is
    one hit area; the foot controls sit above it at z-index 1. The link's own focus outline is hidden and the card
@@ -1196,4 +1200,9 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
 @media (max-width: 640px) {
   /* The sheet scrolls, so Create and Cancel stay in reach however long the form is. */
   .create-form .sheet-actions { position: sticky; bottom: 0; z-index: 1; padding-block: var(--space-2); background: var(--bg); border-top: 1px solid var(--border); }
+}
+
+/* The header's icon buttons share one width, so the row doesn't look ragged. */
+@media (min-width: 641px) and (pointer: fine) {
+  .header-end.has-room :is(button.palette-btn, button.report-btn, button.jobs-menu-btn, button.notify-bell-btn, button.theme-menu-btn, button.keys-btn) { min-width: 38px; justify-content: center; }
 }

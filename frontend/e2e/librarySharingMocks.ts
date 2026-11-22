@@ -35,7 +35,7 @@ export async function mockLibrarySharing(page: Page, me: MeBody): Promise<Sharin
   const s = (await mockAuth(page, me)) as SharingMock
   s.posts = []
   await page.route('**/api/library/dramas', (route) => route.fulfill({ json: { items: DRAMAS, count: DRAMAS.length } }))
-  await page.route('**/api/library/series', (route) => route.fulfill({ json: { items: SERIES } }))
+  await page.route((u) => u.pathname === '/api/library/series', (route) => route.fulfill({ json: { items: SERIES } }))
   await page.route('**/api/series', (route) => route.fulfill({
     json: { items: SERIES.map(({ id, name, is_private, owned_by_me, glossary_term_count, dramas }) => ({ id, name, is_private, owned_by_me, glossary_term_count, title_count: dramas.length })) },
   }))

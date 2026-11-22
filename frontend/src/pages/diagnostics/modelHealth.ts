@@ -68,7 +68,8 @@ export function healthBadge(status: Pick<ModelStatus, 'items' | 'warnings'>): { 
 /** Where the model is set, in plain words ("Claude: built-in default", "Preset: Drama A"). */
 export function whereLabel(item: Pick<ModelStatusItem, 'kind' | 'engine' | 'where'>): string {
   if (item.kind === 'default') return `${humanize('engine', item.engine)}: built-in default`
-  return item.where
+  // The registry writes " -- " in tier names; show a real dash.
+  return item.where.replace(/ -- /g, ' – ')
 }
 
 /** Defaults and workflow tiers can be replaced from the card (a preset is switched, not replaced). */
@@ -82,11 +83,12 @@ export function overrideLine(item: Pick<ModelStatusItem, 'model' | 'builtin_mode
 
 /** Why there is nothing to pick from yet: no provider check, or a check that listed nothing else. */
 export function noCandidatesLine(item: Pick<ModelStatusItem, 'candidates'>, checkedAt: string | null | undefined): string | null {
-  if ((item.candidates ?? []).length > 0) return null
-  return checkedAt
-    ? 'The last check listed no other model to choose.'
-    : 'Press "Check providers now" first to load the models your provider lists.'
+  if ((item.candidates ?? []).length > 0 || !checkedAt) return null
+  return 'The last check listed no other model to choose.'
 }
+
+/** Shown once above the list, not under every model, while no provider check has run. */
+export const CHECK_FIRST_HINT = 'Press "Check providers now" first to load the models your provider lists.'
 
 /** What the user can do about a row that isn't switched from here. */
 export function kindHelp(item: Pick<ModelStatusItem, 'kind' | 'can_switch' | 'replacement'>): string | null {
@@ -125,9 +127,9 @@ export function lastCheckedLine(checkedAt: string | null | undefined): string {
   return when ? `Providers last checked ${when}` : 'Providers not checked yet'
 }
 
-export const OFFER_MODELS_LABEL = "Also offer models Claude, Gemini and DeepSeek list that this app doesn't know yet"
+export const OFFER_MODELS_LABEL = "Offer models the app doesn't know yet"
 export const OFFER_MODELS_HELP =
-  'Their cost is estimated at the provider\'s highest rate until the app is updated. Uses the list from your last "Check providers now".'
+  'Also offers models Claude, Gemini and DeepSeek list that this app doesn\'t know yet. Their cost is estimated at the provider\'s highest rate until the app is updated. Uses the list from your last "Check providers now".'
 
 /** The line under the opt-in: what it adds now, or what to do first. */
 export function offerModelsNote(status: Pick<ModelStatus, 'checked_at' | 'offer_provider_models' | 'extra_models'>): string | null {

@@ -62,16 +62,16 @@ test('signed out: after signing in elsewhere, coming back to this tab shows the 
   expect(s.unmocked).toEqual([])
 })
 
-test('signed out: "I\'ve signed in" says "Still not signed in" until the recheck succeeds', async ({ page }) => {
+test('signed out: "Check again" says "Still not signed in" until the recheck succeeds', async ({ page }) => {
   const s = await mockAuth(page, ME.signedOut)
   await page.goto('/#/library')
   const link = page.getByRole('link', { name: 'Sign in with Google' })
   await expect(link).toHaveAttribute('href', /\/api\/auth\/login\?return_to=/)
-  await page.getByRole('button', { name: "I've signed in" }).click()
+  await page.getByRole('button', { name: "Check again" }).click()
   await expect(page.getByText('Still not signed in')).toBeVisible()
   await expect(link).toBeVisible()
   s.me = ME.signedIn
-  await page.getByRole('button', { name: "I've signed in" }).click()
+  await page.getByRole('button', { name: "Check again" }).click()
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   expect(s.unmocked).toEqual([])
 })

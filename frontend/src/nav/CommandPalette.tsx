@@ -74,6 +74,7 @@ export function CommandPalette({ route, context }: { route: Route; context: NavC
         <svg className="hb-icon" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5" />
         </svg>
+        <kbd className="palette-key" aria-hidden="true">{SHORTCUT_LABEL}</kbd>
       </button>
       <dialog
         ref={dialog}
