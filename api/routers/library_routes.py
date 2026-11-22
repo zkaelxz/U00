@@ -185,7 +185,7 @@ def add_voice(file: UploadFile = File(...), name: str = Form(..., min_length=1, 
 @router.post("/voice-bank/{entry_id}/rename", dependencies=[require_permission("admin.library")], response_model=LibraryVoice,
              responses=_ERR_WRITE, summary="Rename a voice bank entry")
 def rename_voice(body: LibraryRename, request: Request, entry_id: int = Path(ge=1, le=2**31 - 1)):
-    return library_service.rename_voice_bank_entry(entry_id, body.name, request.state.principal)
+    return library_service.rename_voice_bank_entry(entry_id, body.name, principal=request.state.principal)
 
 
 @router.post("/voice-bank/{entry_id}/details", dependencies=[require_permission("admin.library")],
@@ -193,10 +193,10 @@ def rename_voice(body: LibraryRename, request: Request, entry_id: int = Path(ge=
              summary="Edit a voice bank entry's notes, transcript and language")
 def edit_voice_details(body: LibraryVoiceDetails, request: Request, entry_id: int = Path(ge=1, le=2**31 - 1)):
     return library_service.update_voice_bank_details(entry_id, body.notes, body.ref_text, body.language,
-                                                     request.state.principal)
+                                                     principal=request.state.principal)
 
 
 @router.post("/voice-bank/{entry_id}/clip", dependencies=[local_only()], response_model=LibraryVoice,
              responses=error_responses(404, 422, 503), summary="Replace a voice bank entry's clip")
 def replace_voice_clip(request: Request, file: UploadFile = File(...), entry_id: int = Path(ge=1, le=2**31 - 1)):
-    return voice_clone_service.replace_voice_bank_clip(entry_id, file.filename, file.file, request.state.principal)
+    return voice_clone_service.replace_voice_bank_clip(entry_id, file.filename, file.file, principal=request.state.principal)
