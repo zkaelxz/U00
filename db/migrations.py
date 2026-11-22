@@ -315,6 +315,9 @@ def _migrate_series_and_character_columns(conn):
         # Not a foreign key: a deleted bank entry clears it in delete_voice_bank_entry, and a
         # restored library may hold an id whose entry is gone, which readers treat as unset.
         db._safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_bank_id INTEGER")
+    if "voice_design" not in sc_cols:
+        # The default voice a narration picked for this character, so later titles keep it.
+        db._safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_design TEXT")
 
 
 def _migrate_scanlate_columns(conn):

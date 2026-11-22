@@ -41,3 +41,10 @@ export function skippedLines(job: { result?: { [key: string]: unknown } | null }
   const errors = job?.result?.errors
   return Array.isArray(errors) ? errors.filter((e): e is string => typeof e === 'string') : []
 }
+
+// How many lines were left silent: the result lists only the first few of them.
+export function skippedCount(job: { result?: { [key: string]: unknown } | null } | null): number {
+  const count = job?.result?.failed_count
+  const listed = skippedLines(job).length
+  return typeof count === 'number' && count > listed ? count : listed
+}
