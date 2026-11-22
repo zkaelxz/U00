@@ -737,7 +737,7 @@ class TestStreamBreaks:
         assert starts[2] == pytest.approx(16.1, abs=0.6)
         assert not any("to catch up" in n for n in b.start.notes)
 
-    def test_each_break_keeps_its_own_reconnected_note(self, breaks, monkeypatch):
+    def test_several_breaks_share_one_reconnected_note(self, breaks, monkeypatch):
         b = breaks
         _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
         b.stream.add(2)
@@ -747,9 +747,128 @@ class TestStreamBreaks:
             b.start.proc.error = "The stream stopped sending audio."
             assert _wait(lambda: len(b.captures) == n + 1)
             b.stream.add(2)
-            assert _wait(lambda: sum(t.startswith("Reconnected after") for t in b.start.notes) == n)
-        reconnected = [k for t, k in zip(b.start.notes, b.start.keys) if t.startswith("Reconnected after")]
-        assert len(set(reconnected)) == 2
+            assert _wait(lambda: sum(t.startswith("Reconnected") for t in b.start.notes) == n)
+        reconnected = [t for t in b.start.notes if t.startswith("Reconnected")]
+        assert reconnected[0].startswith("Reconnected after")
+        assert reconnected[1].startswith("Reconnected 2 times (last after")
+        keys = {k for t, k in zip(b.start.notes, b.start.keys)
+                if t.startswith(("Reconnected", "Stream broke off"))}
+        assert keys == {lt.RECONNECT_NOTE_KEY}
+
+    def test_a_failed_address_lookup_on_reconnect_is_retried(self, breaks, monkeypatch):
+        from lib.errors import DependencyUnavailableError
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        checks = []
+
+        def check(url):
+            checks.append(url)
+            if url == "http://stream2" and checks.count(url) == 1:
+                raise DependencyUnavailableError("The address could not be resolved.")
+        b.resolve_outcomes[:] = ["http://stream", "http://stream2", "http://stream2"]
+        b.stream.add(2)
+        assert b.start("live_dns", Gate(), stream_url_check=check)
+        assert _wait(lambda: len(_result("live_dns")) == 1)
+        b.start.proc.code = 1   # ffmpeg exits with an error once the stream has worked
+        assert _wait(lambda: len(b.captures) == 2)
+        assert checks == ["http://stream", "http://stream2", "http://stream2"]
+        assert background_jobs.get_status("live_dns")["status"] == "running"
+        assert "Stream broke off: ffmpeg stopped reading the stream. Reconnecting; the captions " \
+               "so far are kept." in b.start.notes
+
+    def test_stop_during_the_reconnect_lookup_ends_at_once_without_a_new_capture(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        looking, release = threading.Event(), threading.Event()
+        b.stream.add(2)
+        assert b.start("live_lookup", Gate())
+        assert _wait(lambda: len(_result("live_lookup")) == 1)
+
+        def slow_resolve(url, **kw):
+            looking.set()
+            release.wait(30)
+            return "http://stream2"
+        monkeypatch.setattr(lt, "resolve_stream_url", slow_resolve)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert looking.wait(8)
+        began = time.monotonic()
+        assert live_pipeline.request_finish("live_lookup")
+        assert _ended("live_lookup", PROMPT)
+        assert time.monotonic() - began < PROMPT
+        release.set()
+        assert background_jobs.get_status("live_lookup")["status"] == "done"
+        assert len(b.captures) == 1
+        assert _wait(lambda: b.start.stats[-1]["reconnect_attempt"] == 0)
+
+    def test_the_lookup_returning_as_stop_is_pressed_starts_no_capture(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(2)
+        assert b.start("live_late", Gate())
+        assert _wait(lambda: len(_result("live_late")) == 1)
+
+        def resolve_then_stop(url, **kw):
+            live_pipeline.request_finish("live_late")
+            return "http://stream2"
+        monkeypatch.setattr(lt, "resolve_stream_url", resolve_then_stop)
+        # A poll longer than the fake lookup, so the lookup ends before Stop is noticed.
+        monkeypatch.setattr(lt, "_run_abortable", lambda fn, should_stop, poll=0.25: fn())
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _ended("live_late")
+        assert background_jobs.get_status("live_late")["status"] == "done"
+        assert len(b.captures) == 1
+
+    def test_a_lookup_that_outlasts_the_reconnect_window_gives_up_at_its_end(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        monkeypatch.setattr(lt, "RECONNECT_GIVE_UP_SECONDS", 0.5)
+        release = threading.Event()
+        b.stream.add(2)
+        assert b.start("live_slowdns", Gate())
+        assert _wait(lambda: len(_result("live_slowdns")) == 1)
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: release.wait(30) and "http://stream2")
+        b.start.proc.error = "The stream stopped sending audio."
+        began = time.monotonic()
+        assert _ended("live_slowdns", PROMPT)
+        assert time.monotonic() - began < PROMPT
+        release.set()
+        assert background_jobs.get_status("live_slowdns")["status"] == "done"
+        assert any("could not be reconnected" in n for n in b.start.notes)
+        assert len(b.captures) == 1
+
+    def test_stop_during_the_reconnect_address_check_ends_at_once(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        checking, release = threading.Event(), threading.Event()
+
+        def check(url):
+            if url == "http://stream2":
+                checking.set()
+                release.wait(30)
+        b.resolve_outcomes[:] = ["http://stream", "http://stream2"]
+        b.stream.add(2)
+        assert b.start("live_slowcheck", Gate(), stream_url_check=check)
+        assert _wait(lambda: len(_result("live_slowcheck")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert checking.wait(8)
+        began = time.monotonic()
+        assert live_pipeline.request_finish("live_slowcheck")
+        assert _ended("live_slowcheck", PROMPT)
+        assert time.monotonic() - began < PROMPT
+        release.set()
+        assert background_jobs.get_status("live_slowcheck")["status"] == "done"
+        assert len(b.captures) == 1
+
+    def test_a_finished_run_drops_its_generation(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(2)
+        assert b.start("live_gen", Gate())
+        assert _wait(lambda: len(_result("live_gen")) == 1)
+        assert "live_gen" in lt._generations
+        assert live_pipeline.request_finish("live_gen")
+        assert _ended("live_gen")
+        assert _wait(lambda: "live_gen" not in lt._generations)
 
     # The delayed player's recorders fetch the same expiring URLs as the capture, so a
     # break stops them; after the reconnect they start again on the new URL, or the

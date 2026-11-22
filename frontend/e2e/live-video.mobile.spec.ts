@@ -5,7 +5,7 @@ import { mockEmbedHosts, ytHtml } from './liveVideoMocks'
 
 // Phone project (390x844, touch): the video sits above the lines, 16:9,
 // no sideways scroll, 44px controls. The delay is the automatic one: before a
-// chunk is measured, the 20 s chunk plus the 8 s processing guess.
+// chunk is measured, the 10 s chunk plus the 8 s processing guess.
 
 test('video above the lines on a phone', async ({ page }) => {
   const m = await mockLive(page)
@@ -56,7 +56,7 @@ test('Larger video is a desktop control: on a phone the layout is the same eithe
   const listBox = (await live.getByRole('list', { name: 'Live lines, newest first' }).boundingBox())!
   expect(frameBox.y + frameBox.height).toBeLessThanOrEqual(listBox.y)
   expect(frameBox.width).toBeGreaterThan(280)
-  await expect(live.getByTestId('live-video-note')).toHaveText('Playing about 28 s behind live.')
+  await expect(live.getByTestId('live-video-note')).toHaveText('Playing about 18 s behind live.')
   const { scroll, client } = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
   expect(scroll).toBeLessThanOrEqual(client)
@@ -75,7 +75,7 @@ test('the Unmute control after a muted start is a 44px target', async ({ page })
   const unmute = live.getByTestId('live-video-muted').getByRole('button', { name: 'Unmute' })
   await expect(unmute).toBeVisible({ timeout: 10_000 })
   expect((await unmute.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-  await expect(live.getByTestId('live-video-note')).toHaveText('Playing about 28 s behind live.', { timeout: 10_000 })
+  await expect(live.getByTestId('live-video-note')).toHaveText('Playing about 18 s behind live.', { timeout: 10_000 })
 })
 
 test("with captions on, full screen keeps them: the player's own button is hidden and an upright phone turns sideways", async ({ page }) => {
