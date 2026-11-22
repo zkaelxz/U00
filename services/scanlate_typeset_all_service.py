@@ -47,7 +47,11 @@ def _typeset_title(drama_id: int, cancel) -> tuple:
     result = job.get("result") or {}
     if job.get("status") != "done":
         return "failed", 0, 0
-    return "done", int(result.get("rendered", 0)), int(result.get("failed", 0))
+    rendered, failed = int(result.get("rendered", 0)), int(result.get("failed", 0))
+    if rendered == 0 and failed == 0:
+        # Regions read but none with English: the render job drew nothing.
+        return "no_text", 0, 0
+    return "done", rendered, failed
 
 
 def _summary(counts: dict) -> str:

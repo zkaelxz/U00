@@ -133,6 +133,15 @@ def test_a_failed_download_skips_the_later_steps_and_a_good_run_finishes(jobs, s
     assert [r["state"] for r in qv.runs(None)] == ["done", "stopped"]
 
 
+def test_the_download_keeps_a_video_no_taller_than_1080p(monkeypatch):
+    """The From a URL picker's default: Quick video must not fetch Best available (4K) instead."""
+    seen = []
+    monkeypatch.setattr(url_media_service, "start_url_download",
+                        lambda drama_id, url, audio_only, *a, **kw: seen.append((a, kw)) or {"job_id": "j"})
+    assert qv.start_download({"id": 7}, URL) == "j"
+    assert seen == [((), {"max_height": 1080})]
+
+
 def _statuses(drama_id):
     return [i["status"] for i in q.get_queue(None)["items"] if i["drama_id"] == drama_id]
 

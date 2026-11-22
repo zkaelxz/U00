@@ -29,6 +29,9 @@ from tests.sources_helpers import ScriptedTransport, classify_comic_html, make_c
 
 SESSION_SECRET = "SESSDATA-9f8e7d6c5b4a-SECRET"
 TOKEN_SECRET = "tok-3c2b1a0f-SECRET"
+# The fetch helpers default to no browser and no signed-in profile; these
+# tests stand for work asked for at this PC, which opts into both.
+AT_THIS_PC = {"allow_signed_in": True, "allow_browser": True}
 SIGNED_IN_FILE = "Cookies"   # what the fake "Chromium" writes when the person signs in
 
 LOGIN_PAGE = ("<html><head><title>Sign in</title></head><body><form>"
@@ -199,7 +202,7 @@ class TestPersistentProfiles:
 
         t = ScriptedTransport({})
         for _ in range(2):
-            lr = generic_import.fetch_page(self.URL, client=make_client("generic", t))
+            lr = generic_import.fetch_page(self.URL, client=make_client("generic", t), **AT_THIS_PC)
             assert lr.ok and lr.tier == AccessTier.AUTHENTICATED_BROWSER.value
             assert "reader" in lr.html and "Please log in" not in lr.html
         assert len(launcher.headed) == 1                # never asked to sign in again
@@ -238,7 +241,7 @@ class TestPersistentProfiles:
         launcher = fake_browser(gated(comic_page))
         t = ScriptedTransport({})
         lr = generic_import.fetch_page(self.URL, client=make_client("generic", t),
-                                       rendered_fetch=lambda u: (LOGIN_PAGE, ""))
+                                       rendered_fetch=lambda u: (LOGIN_PAGE, ""), **AT_THIS_PC)
         assert [a.tier for a in lr.attempts] == ["STATIC_HTTP", "RENDERED_BROWSER"]
         assert launcher.launches == []
         assert lr.reasons and FailureReason.AUTHENTICATION_REQUIRED in lr.reasons
@@ -451,7 +454,8 @@ class TestProtectedResources:
         fake_browser(lambda url, signed_in: DRM_PAGE)
         auth_browser.manual_login(self.URL)
         with pytest.raises(generic_import.NoContentFound) as e:
-            adaptive.import_comic(self.URL, client=make_client("generic", ScriptedTransport({})))
+            adaptive.import_comic(self.URL, client=make_client("generic", ScriptedTransport({})),
+                                  **AT_THIS_PC)
         msg = str(e.value)
         assert msg.startswith("Protected resource could not be processed without bypassing a "
                               "technical control (DRM")
@@ -502,7 +506,8 @@ class TestFullResourceSet:
         url = "https://mixed.site.invalid/ch/1"
         fake_browser(lambda u, signed_in: MIXED_PAGE if signed_in else LOGIN_PAGE)
         assert auth_browser.manual_login(url).ok
-        lr = generic_import.fetch_page(url, client=make_client("generic", ScriptedTransport({})))
+        lr = generic_import.fetch_page(url, client=make_client("generic", ScriptedTransport({})),
+                                       **AT_THIS_PC)
         assert set(lr.resource_types) >= {"TEXT", "IMAGES", "VIDEO", "SUBTITLES"}
         assert lr.content_access == "MIXED"
         cands = axc.comic_candidates(lr.html, url)
@@ -642,7 +647,8 @@ class TestPromptNeverCarriesSession:
         url = "https://tokens.site.invalid/ch/1"
         fake_browser(gated(comic_page))
         assert auth_browser.manual_login(url).ok
-        lr = generic_import.fetch_page(url, client=make_client("generic", ScriptedTransport({})))
+        lr = generic_import.fetch_page(url, client=make_client("generic", ScriptedTransport({})),
+                                       **AT_THIS_PC)
         assert TOKEN_SECRET in lr.html                  # the page really carries them
         data, report = classify_comic_html(lr.html, url, Engine(), use_cache=False)
         assert report.llm_calls == 1 and prompts
