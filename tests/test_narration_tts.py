@@ -307,25 +307,10 @@ class TestNarrationTTSUnits:
         assert not any(f.endswith(".partial.wav") for f in os.listdir(tmp_path / "dub_clips"))
 
 
-class TestNarrationPauses:
+class TestNarrationHeadingsAndPace:
     @pytest.fixture(autouse=True)
     def _speak(self, monkeypatch):
         speak_with(monkeypatch, lambda text, out_path, **kw: open(out_path, "w").close())
-
-    def test_the_pause_is_longer_at_a_paragraph_end_and_longest_around_a_chapter(self, fake_pydub, tmp_path):
-        (tmp_path / dub_narration.NOVEL_SOURCE_FILENAME).write_text(
-            "前文。\n\n又一段。\n\n第二章 雨夜\n\n正文。后半。", encoding="utf-8")
-        lines = [Line(idx=0, start=0, end=0, zh="前文。", en="Before.", speaker="A"),
-                 Line(idx=1, start=0, end=0, zh="又一段。", en="Another.", speaker="N"),
-                 Line(idx=2, start=0, end=0, zh="第二章 雨夜", en="Chapter 2: A Rainy Night", speaker="N"),
-                 Line(idx=3, start=0, end=0, zh="正文。", en="After.", speaker="A"),
-                 Line(idx=4, start=0, end=0, zh="后半。", en="More.", speaker="N")]
-        dub_narration.build_narration_track(lines, str(tmp_path), NARRATORS)
-        gaps = [round(b.start - a.end, 3) for a, b in zip(lines, lines[1:])]
-        # Every clip is 1 s: a paragraph, then a chapter heading on both sides, then a
-        # speaker change inside one paragraph.
-        assert gaps == [dub_narration.PARAGRAPH_PAUSE_MS / 1000, dub_narration.CHAPTER_PAUSE_MS / 1000,
-                        dub_narration.CHAPTER_PAUSE_MS / 1000, dub_narration.SENTENCE_PAUSE_MS / 1000]
 
     def test_a_chapter_title_given_twice_in_a_row_is_read_once(self, fake_pydub, tmp_path, monkeypatch):
         spoken = []

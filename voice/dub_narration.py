@@ -25,11 +25,9 @@ from voice.dub import (NO_VOICE_ERROR, engine_refusal, M4B_ENCODE_TIMEOUT_SECOND
 # better cross-sentence prosody than one call per subtitle-sized line.
 NARRATION_TTS_MAX_CHARS = 500
 
-# One even gap after every clip read like a list, with no breath between paragraphs and
-# nothing to mark a new chapter (Kae, 2026-11-22), so the gap grows with the break.
-SENTENCE_PAUSE_MS = 350
-PARAGRAPH_PAUSE_MS = 800
-CHAPTER_PAUSE_MS = 2000
+# One even gap: longer pauses at paragraph ends put a stop after every line of a novel
+# written one paragraph per line, which Kae found worse (2026-11-22).
+CLIP_GAP_MS = 350
 PACE_MIN, PACE_MAX = 0.75, 1.25
 
 
@@ -207,17 +205,6 @@ def _export_flac(track, path: str, pace: float = 1.0) -> None:
             raise RuntimeError(f"ffmpeg could not write the narration track: {said.strip()}")
 
 
-def _pause_after(unit, following, paragraph_ends) -> int:
-    """The silence after `unit` (`following` is the next unit, or None): longest around a
-    chapter heading, then at a paragraph end, else the gap between sentences."""
-    if is_chapter_heading(unit["lines"][0]) or (
-            following is not None and is_chapter_heading(following["lines"][0])):
-        return CHAPTER_PAUSE_MS
-    if paragraph_ends is not None and unit["lines"][-1].idx in paragraph_ends:
-        return PARAGRAPH_PAUSE_MS
-    return SENTENCE_PAUSE_MS
-
-
 def _check_pace(pace: float) -> None:
     if not PACE_MIN <= pace <= PACE_MAX:
         raise ValueError(f"Narration pace must be between {PACE_MIN} and {PACE_MAX}.")
@@ -271,8 +258,8 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
     errors = []
 
     _check_pace(pace)
-    paragraph_ends = narration_paragraph_ends(lines, drama_dir)
-    steps = _narration_steps(lines, character_clone_map, paragraph_ends, narrate_original=narrate_original)
+    steps = _narration_steps(lines, character_clone_map,
+                             narration_paragraph_ends(lines, drama_dir), narrate_original=narrate_original)
     units = [unit for kind, unit in steps if kind == "unit"]
     for unit in units:
         first, last = unit["lines"][0].idx, unit["lines"][-1].idx
@@ -300,7 +287,6 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
 
     pieces = [AudioSegment.silent(duration=0)]
     cursor_ms = 0
-    following = dict(zip(map(id, units), units[1:]))
     for kind, item in steps:
         if kind == "blank":
             item.start = item.end = cursor_ms / 1000.0
@@ -311,9 +297,9 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
             for ln in item["lines"]:
                 errors.append({"line_idx": ln.idx, "error": item["error"]})
                 ln.start = cursor_ms / 1000.0
-                cursor_ms += SENTENCE_PAUSE_MS
+                cursor_ms += CLIP_GAP_MS
                 ln.end = cursor_ms / 1000.0
-                pieces.append(AudioSegment.silent(duration=SENTENCE_PAUSE_MS))
+                pieces.append(AudioSegment.silent(duration=CLIP_GAP_MS))
             continue
 
         # Levelled here, not in the clip file, so a cached clip and its clip_signature stay valid.
@@ -333,9 +319,8 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
             ln.end = edges[k + 1] / 1000.0
         pieces.append(clip)
         cursor_ms = end_ms
-        pause = _pause_after(item, following.get(id(item)), paragraph_ends)
-        pieces.append(AudioSegment.silent(duration=pause))
-        cursor_ms += pause
+        pieces.append(AudioSegment.silent(duration=CLIP_GAP_MS))
+        cursor_ms += CLIP_GAP_MS
 
     _stretch_times(lines, pace)
 
