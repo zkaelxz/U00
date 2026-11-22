@@ -10,7 +10,7 @@ import { usePersistedState } from '../../hooks/usePersistedState'
 import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
 import { routeHref } from '../../router'
-import { flowActive, flowText, useFlowRun } from './flowRun'
+import { flowActive, flowText, stoppedJob, useFlowRun } from './flowRun'
 import { translateWithoutReview } from './novelLinkActions'
 import { TagChoices } from './stages/TagChoices'
 import { EMPTY_TAG_CHOICE, tagChoiceProblem, tagRunBody, type TagChoice } from './stages/tagChoice'
@@ -102,7 +102,9 @@ export function NovelLinkStart({ id, chapters, translating, defaultUrl, hasSerie
     e.preventDefault()
     if (!running && (resuming || url.trim())) start()
   }
-  const stopped = !!error || run?.state === 'stopped'
+  // A refused start is not a stopped run: pressing again would only be refused again, and the banner says why.
+  const stopped = !error && run?.state === 'stopped'
+  const job = stoppedJob(run)
   return (
     <form className="panel" aria-label="Import from a link" aria-busy={running} onSubmit={submit}>
       {!resuming && !finished && (
@@ -130,6 +132,7 @@ export function NovelLinkStart({ id, chapters, translating, defaultUrl, hasSerie
           </button>
         )}
         <span className="muted" role="status" aria-live="polite">{started ? 'Translation started' : flowText(run, STEP_TEXT)}</span>
+        {!started && job && <a href={routeHref({ name: 'jobs', job })}>See details</a>}
       </div>
       {resuming && !finished && !started && cfg && (
         <TagChoices

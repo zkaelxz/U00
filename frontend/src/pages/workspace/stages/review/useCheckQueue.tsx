@@ -66,6 +66,9 @@ export function useCheckQueue(d: Deps) {
   const markedOn = d.simple && d.filter === 'marked' && !d.searching
   const [checked, setChecked] = useUndoOffer<ReviewLine>('checked', dramaId)
   const [undoing, setUndoing] = useState(false)
+  // The title page opens on All while Translate is the current step, and the header's Translate button is the next action
+  // then: a second primary under it would read as a second "next".
+  const translateLeads = useLinesOnAll()
 
   // Simple's Check button, pressed on this page: open the queue on its first card.
   const signal = useCheckSignal()
@@ -179,7 +182,7 @@ export function useCheckQueue(d: Deps) {
   const backToQueue = d.isPhone && !on ? checkActionLabel(counts?.risk ?? null) : null
   const phoneLead: ReactNode = backToQueue || checked ? (
     <>
-      {backToQueue && <button type="button" className={buttonClass('primary')} onClick={() => void toView(QUEUE_FILTER)}>{backToQueue}</button>}
+      {backToQueue && <button type="button" className={buttonClass(translateLeads ? 'secondary' : 'primary')} onClick={() => void toView(QUEUE_FILTER)}>{backToQueue}</button>}
       {checked && <CheckedUndo line={checked} busy={undoing} onUndo={() => void undo()} onDismiss={() => setChecked(null)} />}
     </>
   ) : undefined

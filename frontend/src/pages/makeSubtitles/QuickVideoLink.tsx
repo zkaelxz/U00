@@ -1,5 +1,5 @@
 /*
- * Add > a video link: one button (One-Click Translate) that downloads the video, transcribes, translates
+ * Add > a video link: one button (One-click translate) that downloads the video, transcribes, translates
  * and exports it with the profile chosen in Settings, through the Queue. "Watch once" removes the title
  * again when the person is done watching. PC only, like the download it runs.
  */
@@ -18,7 +18,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
 import type { QuickVideoRun, QuickVideoSettings, QuickVideoStep } from '../../types/quickVideo'
-import { foundForLink, linkCanRun, planForLink, type LinkProbeState } from './addBoxModel'
+import { foundForLink, linkCanRun, NO_PROFILE_PLAN, planForLink, type LinkProbeState } from './addBoxModel'
 import { settingText } from './makeSubtitlesFlow'
 
 const POLL_MS = 3000
@@ -43,7 +43,7 @@ export const visibleRuns = (runs: QuickVideoRun[], all: boolean): QuickVideoRun[
 export const canDeleteWatched = (run: QuickVideoRun): boolean => run.watch_once && run.state === 'done'
 
 /**
- * A pasted link in the Add box: what the free link probe found, what One-Click Translate will do,
+ * A pasted link in the Add box: what the free link probe found, what One-click translate will do,
  * and its choices under Change options. Starting it creates the title; `onStarted` then shows its run.
  */
 export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
@@ -77,6 +77,10 @@ export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
   const summaryText = summary.map(settingText).join('\n')
   const probeShown: LinkProbeState = pc === 'remote' ? { state: 'off' } : probe
   const canRun = linkCanRun(pc, probeShown)
+  const plan = planForLink({
+    pc, source: !canRun && pc !== 'remote', loaded: settings !== null,
+    profile: profile?.name ?? null, engine: summary.find((r) => r.engine)?.engine ?? null,
+  })
 
   const go = () => {
     setBusy(true)
@@ -92,10 +96,7 @@ export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
       <div className="add-box-found">
         <p data-testid="add-found"><strong>Found:</strong> {foundForLink(url, probeShown)}</p>
         <p data-testid="add-plan">
-          {planForLink({
-            pc, source: !canRun && pc !== 'remote', loaded: settings !== null,
-            profile: profile?.name ?? null, engine: summary.find((r) => r.engine)?.engine ?? null,
-          })}
+          {plan === NO_PROFILE_PLAN ? <a href={routeHref({ name: 'settings', card: 'quick-video' })}>{plan}</a> : plan}
         </p>
       </div>
       {canRun && (
@@ -122,12 +123,12 @@ export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
           <div className="actions">
             {profile && <p className="muted">Profile: {profile.name}</p>}
             {summary.length > 0 && (
-              <HelpTip label="One-Click Translate settings" id="quick-video-settings">
+              <HelpTip label="One-click translate settings" id="quick-video-settings">
                 <strong>Uses profile {profile?.name}:</strong>
                 <ul style={{ margin: '0.25rem 0', paddingLeft: '1.1rem', lineHeight: 1.35 }}>
                   {summary.map((row) => <li key={row.label}>{settingText(row)}</li>)}
                 </ul>
-                Change these in Settings &gt; Quick video translate.
+                Change these in Settings &gt; One-click translate.
               </HelpTip>
             )}
           </div>

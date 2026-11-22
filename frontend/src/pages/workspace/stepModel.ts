@@ -85,6 +85,16 @@ export function mainInStepsPanel(openStep: StepKey | null, current: StepKey | nu
   return riskCount !== 0 && (openStep === 'check' || (titlePage && current === 'check'))
 }
 
+/**
+ * Whether the main button would only link to the step page already open, which shows that step's own button: two
+ * identical primaries, one doing nothing. Check is the exception, as its button opens the check queue in place, and so is the
+ * one-button run (audio attached on Transcribe, or a run under way): it is not a link, and a stopped run's Continue and
+ * See details live on it.
+ */
+export function mainLinksHere(openStep: StepKey | null, current: StepKey | null, mainIsRun: boolean): boolean {
+  return !mainIsRun && openStep !== null && openStep === current && current !== 'check'
+}
+
 /** Whether the title page opens the lines on All: on the Translate step some lines have no English, and the check queue never lists those. */
 export const linesOpenOnAll = (titlePage: boolean, i: StepInput): boolean =>
   titlePage && titleSteps(i).find((s) => s.state === 'current')?.key === 'translate'

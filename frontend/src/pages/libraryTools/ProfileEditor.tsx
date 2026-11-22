@@ -51,7 +51,7 @@ function TitleOption({ spec, value, onChange }: { spec: ProfileField; value: str
 const EXPORT_FORMATS = [['srt', 'SRT'], ['vtt', 'VTT'], ['lrc', 'LRC (lyrics)']]
 const EXPORT_LANGUAGES = [['en', 'English'], ['zh', 'Source language'], ['bilingual', 'Both']]
 
-// What Quick video translate needs beyond the translation settings. Never applied to an existing title.
+// What One-click translate needs beyond the translation settings. Never applied to an existing title.
 function QuickVideoSection({ quick, onChange }: { quick: ProfileForm['quick']; onChange: (q: ProfileForm['quick']) => void }) {
   const [packs, setPacks] = useState<{ id: string; title: string; language: string }[]>([])
   useEffect(() => {
@@ -62,7 +62,7 @@ function QuickVideoSection({ quick, onChange }: { quick: ProfileForm['quick']; o
   const shown = packs.filter((p) => p.language === quick.source_language)
   const set = (patch: Partial<ProfileForm['quick']>) => onChange({ ...quick, ...patch })
   return (
-    <Section title="Quick video translate" summary="Source language, export and language packs">
+    <Section title="One-click translate" summary="Source language, export and language packs">
       <div className="field-row">
         <Field label="Source language">
           <select value={quick.source_language} onChange={(e) => set({ source_language: e.target.value, packs: [] })}>
@@ -106,7 +106,7 @@ function QuickVideoSection({ quick, onChange }: { quick: ProfileForm['quick']; o
 /**
  * Create or edit one translation profile: every field of the Translate form that carries over,
  * plus the transcribe options. Applied to a title it never changes the source language, the English variant
- * or a glossary; the Quick video translate section only feeds that button. Editing replaces all fields (PC only); a new profile is saved under a new name.
+ * or a glossary; the One-click translate section only feeds that button. Editing replaces all fields (PC only); a new profile is saved under a new name.
  */
 export function ProfileEditor({ data, initial, existing, onSaved, onCancel }: {
   data: ProfileEditorData

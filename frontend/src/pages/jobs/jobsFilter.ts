@@ -143,6 +143,13 @@ export function sortJobs(jobs: JobRecord[], key: SortKey, dir: SortDir, nowSec: 
   return [...jobs].sort((a, b) => rank(a) - rank(b) || within(a, b))
 }
 
+/** The shown jobs plus the one a link named, put first when the filters or the page size left it out: the link came for that job. */
+export function withLinkedJob(shown: JobRecord[], all: JobRecord[], linked: string | null): JobRecord[] {
+  if (!linked || shown.some((j) => j.job_id === linked)) return shown
+  const job = all.find((j) => j.job_id === linked)
+  return job ? [job, ...shown] : shown
+}
+
 const STAGE_BY_KIND: Partial<Record<JobKind, StageId>> = {
   transcribe: 'source',
   import: 'source',
