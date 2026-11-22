@@ -39,21 +39,54 @@ _STAMP_LINE = re.compile(r"^(?:뉴토끼?|미[리\d]{1,3}보[기\d]?)$")
 
 # OCR reads the one 뉴토끼 stamp many ways ("뉴로끼", "구을검식뉴토끼", "기빠문 미리보기"),
 # so a whole line close enough to one of its parts counts. Each form is compared only with
-# lines of nearly its own length and at least three characters, which keeps real short
-# words ("토끼", rabbit) out.
+# lines of nearly its own length. Ordinary words share syllables with the stamp (토끼 is
+# "rabbit", 미리 보기 is "preview"), so two kinds of near match are left out: a line that is
+# only a few of the form's own syllables with nothing misread ("미리 보기", "웹툰 보기"), and
+# a three-syllable line that has lost the name's rare first syllable ("토끼야!", "산토끼").
 _STAMP_FORMS = ("구글검색뉴토끼", "구글검색", "뉴토끼", "빠른웹툰미리보기", "가장빠른웹툰미리보기", "웹툰미리보기")
 _STAMP_SIMILARITY = 0.66
 _STAMP_MIN_CHARS = 3
 _STAMP_LENGTH_SLACK = 2
+# A run of the ad's own syllables this short can be a real phrase; a longer one is the ad.
+_MAX_WORDLIKE_FRAGMENT = 4
+_SHORT_NAME = "뉴토끼"
+_HANGUL_FIRST, _HANGUL_VOWEL_SPAN, _HANGUL_FINAL_SPAN = 0xAC00, 588, 28
+_VOWEL_YU = 17  # ㅠ, the vowel of 뉴: OCR misreads its consonant (뮤, 듀) but keeps the vowel
+
+
+def _vowel(syllable: str):
+    code = ord(syllable) - _HANGUL_FIRST
+    if not 0 <= code < 19 * _HANGUL_VOWEL_SPAN:
+        return None
+    return code % _HANGUL_VOWEL_SPAN // _HANGUL_FINAL_SPAN
+
+
+def _misread_short_name(text: str) -> bool:
+    """A three-syllable line is the bare site name only when it keeps 뉴 or its vowel:
+    "뉴로끼" and "뮤토끼" are misreads, "산토끼" (hare) and "토끼야" are words."""
+    if len(text) != len(_SHORT_NAME) or sum(a != b for a, b in zip(text, _SHORT_NAME)) != 1:
+        return False
+    return text[0] == _SHORT_NAME[0] or _vowel(text[0]) == _VOWEL_YU
+
+
+def _close_to_form(text: str, form: str) -> bool:
+    if abs(len(form) - len(text)) > _STAMP_LENGTH_SLACK:
+        return False
+    matcher = difflib.SequenceMatcher(None, text, form)
+    if matcher.ratio() < _STAMP_SIMILARITY:
+        return False
+    kept = sum(block.size for block in matcher.get_matching_blocks())
+    return not (kept == len(text) and len(text) <= _MAX_WORDLIKE_FRAGMENT)
 
 
 def _resembles_stamp(line: str) -> bool:
     text = _normal(line)
     if len(text) < _STAMP_MIN_CHARS:
         return False
-    return any(abs(len(form) - len(text)) <= _STAMP_LENGTH_SLACK
-               and difflib.SequenceMatcher(None, text, form).ratio() >= _STAMP_SIMILARITY
-               for form in _STAMP_FORMS)
+    if text in _STAMP_FORMS:
+        return True
+    return any(_misread_short_name(text) if form == _SHORT_NAME and len(text) == len(form)
+               else _close_to_form(text, form) for form in _STAMP_FORMS)
 
 
 # A repeat counts as one stamp only while it stays in the same spot. The
