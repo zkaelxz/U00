@@ -354,7 +354,10 @@ def test_save_style_toggles_stores_translate_by_sentence_and_none_keeps_it(isola
     ("gemini", "gemini-flash-lite-latest", 30),
     ("gemini", None, 30),                         # default model is Flash-Lite
     ("openai", "gpt-6.1-sol", 30),                # not tested at 60 yet
-    ("deepseek", None, 30),
+    ("deepseek", None, 90),
+    ("deepseek", "deepseek-v4-flash", 90),
+    ("ollama", "gemma4:31b-cloud", 90),
+    ("ollama", "gemma4:31b", 30),                 # local 31b not tested at 90
     ("ollama", "translategemma:12b", 30),                   # local
     ("no-such-engine", "claude-sonnet-5-5", 30),  # unknown engine: safe default
     ("claude", "something-new", 30),              # unknown model: safe default
@@ -381,7 +384,7 @@ def test_config_offers_a_batch_default_per_engine_and_model(isolated_db):
 
 def test_config_default_follows_the_titles_engine(isolated_db):
     did = _drama(translation_engine="deepseek")
-    assert svc.get_translate_config(did)["defaults"]["batch_size"] == 30
+    assert svc.get_translate_config(did)["defaults"]["batch_size"] == 90
 
 
 def _batch_size_validated(monkeypatch, did, **kw):

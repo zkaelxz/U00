@@ -239,9 +239,10 @@ def effective_default_model(engine_name: str):
 # Default lines per translate request. Requests run one after another, so a
 # larger batch cuts wall time and repeats the prompt overhead less often, but a
 # weaker model is likelier to drop or mis-number ids as the batch grows. The
-# ceiling (translate_run_service.MAX_BATCH_SIZE) stays 60: Claude's reply cap.
+# ceiling is translate_run_service.MAX_BATCH_SIZE.
 DEFAULT_BATCH_SIZE = 30
 STRONG_ENGINE_BATCH_SIZE = 60
+LONG_BATCH_SIZE = 90
 PLAIN_STREAM_BATCH_SIZE = 10
 
 # (engine, model-name fragments) pairs whose models hold up at the larger batch.
@@ -254,6 +255,16 @@ _STRONG_BATCH_MODELS = (
     # Pro tier only: Flash and Flash-Lite are the cheap tiers, "pro" never
     # appears in their names.
     ("gemini", ("pro",)),
+)
+
+
+# Models that held every id at 60, 90 and 120 lines in repeat tests, so they start at 90.
+# Kept apart from _STRONG_BATCH_MODELS because that table also switches the reply guard
+# off, and these models were not tested for that. Local gemma4:31b was not tested at 90,
+# so only the cloud-served model is listed.
+_LONG_BATCH_MODELS = (
+    ("deepseek", ()),
+    ("ollama", ("gemma4:31b-cloud",)),
 )
 
 
@@ -278,6 +289,9 @@ def default_batch_size(engine, model: str | None = None) -> int:
     instance); `model` None means the instance's model, else the engine's
     effective default model."""
     engine_name, name = _engine_and_model_name(engine, model)
+    if any(e == engine_name and (not frags or any(f in name for f in frags))
+           for e, frags in _LONG_BATCH_MODELS):
+        return LONG_BATCH_SIZE
     return STRONG_ENGINE_BATCH_SIZE if _is_strong_model(engine_name, name) else DEFAULT_BATCH_SIZE
 
 

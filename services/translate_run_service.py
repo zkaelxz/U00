@@ -92,8 +92,9 @@ def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool, model) -> No
 
 
 # Claude replies are capped at 4000 output tokens; past this the JSON reply risks
-# being cut off and the batch coming back empty.
-MAX_BATCH_SIZE = 60
+# being cut off and the batch coming back empty. Raised from 60 so DeepSeek and
+# gemma4:31b-cloud can default to 90; Claude's own default stays 30.
+MAX_BATCH_SIZE = 90
 
 
 # Serialises writes to dramas.last_translate_errors: the dismiss route and a
