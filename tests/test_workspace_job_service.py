@@ -130,7 +130,7 @@ def test_bulk_cap_engines_match_translate_run(isolated_db, monkeypatch, engine):
     seen, _ = _capture_bulk_start(isolated_db, monkeypatch, engine, "audio_drama")
     assert seen["kwargs"]["cost_cap_usd"] == pytest.approx(5.0)
     # Claude lost lines at 60 per request, so both engines keep 30.
-    assert seen["args"][13] == 10 and seen["kwargs"]["batch_size"] == 30
+    assert seen["args"][13] == 10 and seen["kwargs"]["batch_size"] == (90 if engine == "deepseek" else 30)
 
 
 # A local tag: the Library batch never picks up a remembered cloud tag.
@@ -409,7 +409,7 @@ def test_the_alignment_judge_stops_once_the_monthly_cap_is_reached(monkeypatch):
     asked = {}
     monkeypatch.setattr(wjs.settings_service, "alignment_embedder", lambda should_stop=None: (lambda texts: None))
     monkeypatch.setattr(wjs.alignment_judge, "judge_for",
-                        lambda engine, usage_cb=None, should_stop=None: asked.setdefault("stop", should_stop))
+                        lambda engine, usage_cb=None, should_stop=None, **kw: asked.setdefault("stop", should_stop))
     monkeypatch.setattr(wjs, "_usage_logger", lambda *a: None)
     month_cap = {"hit": False}
     monkeypatch.setattr(wjs, "_month_cap_check", lambda choice, engine: lambda: month_cap["hit"])
@@ -418,3 +418,84 @@ def test_the_alignment_judge_stops_once_the_monthly_cap_is_reached(monkeypatch):
     assert asked["stop"]() is False
     month_cap["hit"] = True
     assert asked["stop"]() is True
+
+
+def _judge_args(monkeypatch, cost_cap_usd, run_spend, month_left=None):
+    """_alignment_args with the judge_for arguments captured and no database."""
+    asked = {}
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder", lambda should_stop=None: (lambda texts: None))
+    monkeypatch.setattr(wjs.alignment_judge, "judge_for",
+                        lambda engine, usage_cb=None, should_stop=None, fits_budget=None:
+                        asked.update(usage=usage_cb, stop=should_stop, fits=fits_budget))
+    monkeypatch.setattr(wjs, "_usage_logger", lambda *a: (lambda *args: None))
+    monkeypatch.setattr(wjs, "_month_cap_check", lambda choice, engine: None)
+    monkeypatch.setattr(wjs, "_month_cap_left", lambda choice, engine: month_left)
+    monkeypatch.setattr(wjs.background_jobs, "is_cancel_requested", lambda job_id: False)
+    budget = wjs._JudgeBudget()
+    budget.spend = run_spend
+    wjs._alignment_args(1, object(), "claude", "job1", {}, cost_cap_usd, budget)
+    return asked, budget
+
+
+def test_the_alignment_judge_sends_no_request_that_would_pass_the_runs_own_cap(monkeypatch):
+    asked, budget = _judge_args(monkeypatch, cost_cap_usd=0.10, run_spend=[0.06])
+    assert asked["fits"](0.03) is True and not budget.capped
+    assert asked["fits"](0.05) is False
+    assert budget.capped is True
+    # Once stopped by the cap it stays stopped, and the finished job is told.
+    assert asked["fits"](0.0) is False and asked["stop"]() is True
+
+
+def test_the_alignment_judges_own_spend_counts_against_the_runs_cap(monkeypatch):
+    spend = [0.05]
+    monkeypatch.setattr(wjs.pricing, "estimate_cost_for_engine", lambda engine, inp, out, *a: inp / 1000)
+    asked, budget = _judge_args(monkeypatch, cost_cap_usd=0.10, run_spend=spend)
+    asked["usage"](40, 0)
+    assert spend == [0.05, 0.04]
+    assert asked["fits"](0.02) is False and budget.capped
+
+
+def test_the_alignment_judge_also_prices_against_whats_left_of_the_month(monkeypatch):
+    asked, budget = _judge_args(monkeypatch, cost_cap_usd=None, run_spend=[], month_left=lambda: 0.01)
+    assert asked["fits"](0.005) is True
+    assert asked["fits"](0.02) is False and budget.capped
+
+
+def test_without_a_cap_the_alignment_judge_is_never_priced_out(monkeypatch):
+    asked, budget = _judge_args(monkeypatch, cost_cap_usd=None, run_spend=[])
+    assert asked["fits"](99.0) is True and not budget.capped
+
+
+def test_a_translate_run_whose_cap_stops_the_judge_says_so_when_it_finishes(isolated_db, monkeypatch):
+    """The batches spend 9 of the run's 10 cents; a judge request priced at 2 cents is not sent."""
+    did = isolated_db.create_drama(title_en="Judge cap")
+    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
+    lines = isolated_db.load_line_objects(did)
+    sent, results = [], {}
+
+    class Engine:
+        supports_reference = True
+        model = "fake-model"
+
+    def fake_translate(ls, engine, **kw):
+        ls[0].en = "hello"
+        kw["usage_cb"](900, 0)
+        return ls, []
+
+    def fake_finish(*a, judge=None, **k):
+        results["verdicts"] = judge([{"id": 0, "zh": "你好", "en": "hello"}])
+        return True
+
+    # The batch's usage has no output tokens here; a judge request is priced with a full reply.
+    monkeypatch.setattr(wjs.pricing, "estimate_cost_for_engine",
+                        lambda engine, inp, out, *rest: 0.09 if out == 0 else 0.02)
+    monkeypatch.setattr(wjs.alignment_judge.llm_tasks, "call_llm_json", lambda *a, **k: sent.append(1) or "{}")
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder", lambda should_stop=None: (lambda texts: None))
+    monkeypatch.setattr(wjs, "_month_cap_left", lambda choice, engine: None)
+    monkeypatch.setattr(wjs.translate_pipeline, "translate_lines_with_engine", fake_translate)
+    monkeypatch.setattr(wjs.translation_finish, "finish_translation_run", fake_finish)
+    monkeypatch.setattr(wjs.background_jobs, "set_result", lambda job_id, result, **k: results.update(result=result))
+    wjs.run_translate_job("translate_judge_cap", did, lines, Engine(), {}, "", "", False, "en-US",
+                          [], "", "claude", "default", cost_cap_usd=0.10)
+    assert sent == [] and results["verdicts"] == {}
+    assert results["result"]["judge_skipped"] == wjs.JUDGE_CAP_SKIPPED

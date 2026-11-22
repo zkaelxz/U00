@@ -1288,6 +1288,19 @@ class TestInitDbSchema:
         finally:
             conn.close()
 
+    def test_saved_off_separation_is_reset_to_unset_once(self, isolated_db):
+        did = isolated_db.create_drama(title_en="A", separate_vocals_first=0)
+        did_on = isolated_db.create_drama(title_en="B", separate_vocals_first=1)
+        with contextlib.closing(sqlite3.connect(isolated_db.DB_PATH)) as conn:
+            conn.execute("DELETE FROM app_settings WHERE key = 'migrations.separate_vocals_unset'")
+            conn.commit()
+        isolated_db.init_db()
+        assert isolated_db.get_drama(did)["separate_vocals_first"] is None
+        assert isolated_db.get_drama(did_on)["separate_vocals_first"] == 1
+        isolated_db.update_drama(did, separate_vocals_first=0)   # a later choice of Off
+        isolated_db.init_db()
+        assert isolated_db.get_drama(did)["separate_vocals_first"] == 0
+
     def test_library_read_holders_get_lines_read_once_for_the_reader_page(self, isolated_db):
         from services import auth_service
         reader = auth_service.add_user("reader@example.com")["id"]

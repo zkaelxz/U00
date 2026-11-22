@@ -173,7 +173,7 @@ def test_translate_and_export_fields_start_at_what_the_run_uses(isolated_db):
     did = _drama(translate_start_json='{"batch_size": 12, "style_preset": "novel", "locale": "en-GB"}')
     fields = _fields(q.step_settings(None, did, "translate", holds_paid=True))
     assert list(fields) == ["model", "style_preset", "locale", "batch_size"]
-    assert fields["batch_size"]["value"] == 12 and (fields["batch_size"]["min"], fields["batch_size"]["max"]) == (1, 60)
+    assert fields["batch_size"]["value"] == 12 and (fields["batch_size"]["min"], fields["batch_size"]["max"]) == (1, 90)
     assert fields["style_preset"]["value"] == "novel" and fields["locale"]["value"] == "en-GB"
     assert [o["value"] for o in fields["locale"]["options"]] == ["en-US", "en-GB", "en-AU"]
     export = _fields(q.step_settings(None, did, "export"))

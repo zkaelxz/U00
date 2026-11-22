@@ -58,6 +58,19 @@ export function sharingStatusLabel(item: SharingItem): 'Shared' | 'Private' {
   return isShared(item) ? 'Shared' : 'Private'
 }
 
+/** Shared items first, then private ones, each in list order; a series' titles share its status, so they stay under it. */
+export function groupBySharing(items: SharingItem[]): { label: 'Shared' | 'Private'; items: SharingItem[] }[] {
+  return [
+    { label: 'Shared' as const, items: items.filter(isShared) },
+    { label: 'Private' as const, items: items.filter((i) => !isShared(i)) },
+  ].filter((g) => g.items.length > 0)
+}
+
+/** The owner picker is only worth showing when there is someone besides the PC owner to choose. */
+export function showOwnerPicker(item: SharingItem, people: readonly unknown[]): boolean {
+  return people.length > 0 || item.owner_user_id != null
+}
+
 export function itemTitle(item: SharingItem): string {
   // The Library names a title with no text by its number, so this list does too.
   return item.title.trim() || (item.kind === 'series' ? 'Untitled series' : `#${item.id}`)
@@ -78,7 +91,7 @@ export function applyFlip(items: SharingItem[], r: SetPrivateResult): SharingIte
 }
 
 export const PC_ITEMS_NOTE =
-  'Items made at the PC or while sign-in was off have no owner and are private. ' +
+  'Items made at the PC or while sign-in was off belong to the PC owner and start private. ' +
   'After sign-in is turned on, others will not see them until an admin shares them here.'
 
 /** "Created at the PC" items the household can't see yet: the ones to review before sign-in. */
