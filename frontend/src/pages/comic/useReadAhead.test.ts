@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ComicPageInfo } from '../../types/comic'
-import { needsReadAhead } from './useReadAhead'
+import { ApiError } from '../../api/client'
+import { needsReadAhead, nothingToReadAhead } from './useReadAhead'
 
 const page = (id: number, has_regions: boolean, has_rendered = true) => ({ id, has_regions, has_rendered }) as ComicPageInfo
 
@@ -21,5 +22,14 @@ describe('needsReadAhead', () => {
   })
   it('is false at the end of the chapter', () => {
     expect(needsReadAhead([], new Set())).toBe(false)
+  })
+})
+
+describe('nothingToReadAhead', () => {
+  it('is true only for the server saying the pages ahead have nothing to do', () => {
+    const err = (details: unknown) => new ApiError(400, { code: 'unsupported_operation', message: 'x', details })
+    expect(nothingToReadAhead(err({ reason: 'NOTHING_TO_READ_AHEAD' }))).toBe(true)
+    expect(nothingToReadAhead(err({ reason: 'no_key' }))).toBe(false)
+    expect(nothingToReadAhead(new Error('x'))).toBe(false)
   })
 })

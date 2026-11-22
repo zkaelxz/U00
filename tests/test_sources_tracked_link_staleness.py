@@ -423,3 +423,73 @@ def test_a_held_drama_keeps_its_new_chapters_for_retry_and_the_cycle_goes_on(env
     assert [(r["chapter_id"], r["status"]) for r in waiting] == [("c2", "not_attempted"),
                                                                   ("c3", "not_attempted")]
     assert "being deleted" in _row("alpha")["last_check_error"]
+
+
+# ---------------------------------------------------------------------------
+# The browser's signed-in profile is the PC owner's: work for a member's
+# series never gets the browser, even in a cycle that allows it
+# ---------------------------------------------------------------------------
+
+def _recording(name, comic=False):
+    """_make's adapter, also recording `allow_browser` at each chapter fetch."""
+    Base = _make(name, comic)
+    seen = []
+
+    class Rec(Base):
+        if comic:
+            def get_pages(self, ch):
+                seen.append(self.allow_browser)
+                return Base.get_pages(self, ch)
+        else:
+            def get_chapter_text(self, ch):
+                seen.append(self.allow_browser)
+                return Base.get_chapter_text(self, ch)
+    Rec.seen = seen
+    return Rec
+
+
+def test_member_linked_series_imports_without_the_browser(shared_link, env):
+    env["alpha"] = _recording("alpha")
+    _a, b, did = shared_link
+    assert _row("alpha")["linked_by_user_id"] == b
+    summary = chapter_check_service.run_check_cycle(allow_browser=True)
+    wait_for_job(pipeline.import_job_id(did), missing_ok=True)
+    assert summary["queued"] == ["Series T"]
+    assert env["alpha"].seen and set(env["alpha"].seen) == {False}
+
+
+def test_owner_linked_series_keeps_the_browser(env):
+    env["alpha"] = _recording("alpha")
+    did = db.create_drama(title_en="Owner's novel", media_type="novel",
+                          content_mode="novel_narration")
+    _track("alpha")
+    tracking.set_tracked_drama("alpha", SERIES, did, principal=None)
+    assert _row("alpha")["linked_by_user_id"] is None
+    summary = chapter_check_service.run_check_cycle(allow_browser=True)
+    wait_for_job(pipeline.import_job_id(did), missing_ok=True)
+    assert summary["queued"] == ["Series T"]
+    assert env["alpha"].seen and set(env["alpha"].seen) == {True}
+
+
+@pytest.mark.parametrize("saver", ["member", "owner"])
+def test_cbz_save_uses_the_browser_only_for_the_pc_owner(env, saver, tmp_path):
+    db.set_app_setting("comic_save", {"folder": str(tmp_path)})
+    env["alpha"] = _recording("alpha", comic=True)
+    b = _user("b@example.com")
+    _track("alpha")
+    store.set_tracked_save("alpha", SERIES, True, by_user_id=b if saver == "member" else None)
+    summary = chapter_check_service.run_check_cycle(allow_browser=True)
+    assert summary["saved"] == ["Series T"]
+    assert env["alpha"].seen and set(env["alpha"].seen) == {saver == "owner"}
+
+
+def test_member_tracked_series_saved_by_the_owner_gets_no_browser(env, tmp_path):
+    db.set_app_setting("comic_save", {"folder": str(tmp_path)})
+    env["alpha"] = _recording("alpha", comic=True)
+    b = _user("b@example.com")
+    store.track_series("alpha", SERIES, "Series T", "", None,
+                       known_chapters=[c for c in _chapters("alpha") if c.chapter_id == "c1"],
+                       linked_by_user_id=b)
+    store.set_tracked_save("alpha", SERIES, True, by_user_id=None)
+    chapter_check_service.run_check_cycle(allow_browser=True)
+    assert env["alpha"].seen and set(env["alpha"].seen) == {False}

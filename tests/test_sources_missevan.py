@@ -15,6 +15,7 @@ Covers the roadmap's explicit exit conditions:
     paywall (success:true, soundurl/soundurl_128 both null, need_pay set).
 """
 import json
+from unittest import mock
 
 import pytest
 
@@ -225,9 +226,26 @@ class TestGetAudioUrl:
 
         a, t = _adapter({PAID_SOUND_URL: _json_resp(PAID_SOUND_JSON_LOCKED)},
                         rendered_fetch=rendered_fetch)
+        a.allow_browser = True
         ref = a.get_audio_url(_chapter(sound_id="1258656", title="第一集"))
         assert isinstance(ref, AudioRef)
         assert calls == [PAID_SOUND_URL]
+
+    def test_never_reads_through_the_signed_in_profile_without_the_browser(self, isolated_db):
+        """allow_browser False (a request not from this PC, or a member's
+        series) must not use the PC owner's sign-in, even when one exists."""
+        calls = []
+
+        def rendered_fetch(url):
+            calls.append(url)
+            return f"<pre>{json.dumps(PAID_SOUND_JSON_UNLOCKED)}</pre>", ""
+
+        a, t = _adapter({PAID_SOUND_URL: _json_resp(PAID_SOUND_JSON_LOCKED)},
+                        rendered_fetch=rendered_fetch)
+        with mock.patch.object(missevan.auth_browser, "has_profile", return_value=True):
+            with pytest.raises(ContentHidden):
+                a.get_audio_url(_chapter(sound_id="1258656"))
+        assert calls == []
 
     def test_still_raises_purchase_required_if_the_authenticated_profile_is_also_locked(
             self, isolated_db):
@@ -236,6 +254,7 @@ class TestGetAudioUrl:
 
         a, t = _adapter({PAID_SOUND_URL: _json_resp(PAID_SOUND_JSON_LOCKED)},
                         rendered_fetch=rendered_fetch)
+        a.allow_browser = True
         with pytest.raises(ContentHidden) as e:
             a.get_audio_url(_chapter(sound_id="1258656"))
         assert e.value.reason == FailureReason.PURCHASE_REQUIRED

@@ -105,6 +105,12 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
             continue
         summary["checked"] += 1
         summary["new"] += len(new)
+        # The browser's signed-in profile is the PC owner's. Pages and audio
+        # fetched for a series a member tracked, linked or saves are read as
+        # an anonymous visitor, so the owner's sign-in never reaches them.
+        owner_browser = (allow_browser and row.get("linked_by_user_id") is None
+                         and row.get("save_cbz_by_user_id") is None)
+        adapter.allow_browser = owner_browser
         if row.get("save_cbz"):
             _save_new(adapter, row, new, summary)
         if new and auto_queue and row.get("drama_id"):
@@ -115,7 +121,7 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
                 continue
             try:
                 queued = start_import(row["source"], row["series_id"], new, row["drama_id"],
-                                      series_url=row.get("url") or "", allow_browser=allow_browser)
+                                      series_url=row.get("url") or "", allow_browser=owner_browser)
             except ConflictError as e:
                 # The drama is being deleted or cleaned up right now. The new
                 # chapters are already known, so a later check won't offer
