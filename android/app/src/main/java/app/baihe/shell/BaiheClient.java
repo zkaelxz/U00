@@ -26,6 +26,9 @@ final class BaiheClient {
     private static final int MAX_ANSWER_BYTES = 12 * 1024 * 1024;
     private static final int MAX_LINE_BYTES = 6 * 1024 * 1024;
 
+    /** Names this client's page batches so the server can be told to stop working on them. */
+    volatile String runId;
+
     /** A refused or failed call; the message is the server's own text or a short fixed one. */
     static final class BridgeException extends Exception {
         final int status;
@@ -74,6 +77,15 @@ final class BaiheClient {
      */
     JSONObject readPages(String pageUrl, List<PageImage> batch) throws BridgeException {
         return post(pageUrl, batch, 0, false);
+    }
+
+    /** Tells the server to drop the pages of this run it has not started; the page in flight finishes. */
+    void cancelRun(String id) throws BridgeException {
+        try {
+            call("POST", "/cancel", new JSONObject().put("run_id", id));
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
     }
 
     /** Hears each finished page as the server sends it, instead of after the whole batch. */
@@ -170,7 +182,7 @@ final class BaiheClient {
         }
     }
 
-    private static JSONObject requestBody(String pageUrl, List<PageImage> batch, long dramaId, boolean store)
+    private JSONObject requestBody(String pageUrl, List<PageImage> batch, long dramaId, boolean store)
             throws JSONException {
         JSONArray images = new JSONArray();
         for (PageImage image : batch) {
@@ -185,6 +197,7 @@ final class BaiheClient {
                 .put("source_url", ServerAddress.publicSourceUrl(pageUrl))
                 .put("store", store)
                 .put("filter_pages", true);
+        if (runId != null) body.put("run_id", runId);
         if (store) body.put("drama_id", dramaId);
         else body.put("typeset", true);
         return body;

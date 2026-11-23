@@ -74,6 +74,7 @@ final class GrabUi {
         private final TextView label;
         private final Palette palette;
         private final boolean primary;
+        private GradientDrawable fill;
 
         BarButton(Context c, Palette p, int iconRes, String text, boolean primary) {
             super(c);
@@ -95,7 +96,8 @@ final class GrabUi {
                 LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 lp.leftMargin = dp(c, 8);
                 addView(label, lp);
-                setBackground(new RippleDrawable(ColorStateList.valueOf(0x33000000), box(c, p.accent, 0, 12, 0), null));
+                fill = box(c, p.accent, 0, 12, 0);
+                setBackground(new RippleDrawable(ColorStateList.valueOf(0x33000000), fill, null));
             } else {
                 setOrientation(VERTICAL);
                 label.setTextSize(12);
@@ -113,6 +115,11 @@ final class GrabUi {
             icon.setImageResource(iconRes);
             tint(color);
             setContentDescription(text);
+        }
+
+        /** The primary button turns red while it cancels a running grab. */
+        void setDanger(boolean danger) {
+            if (fill != null) fill.setColor(danger ? palette.bad : palette.accent);
         }
 
         void resetTint() {

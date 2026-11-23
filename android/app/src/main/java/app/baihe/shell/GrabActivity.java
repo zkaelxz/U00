@@ -171,7 +171,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         chapters = new GrabUi.BarButton(this, palette, R.drawable.ic_chapters, "Chapters", false);
         chapters.setOnClickListener(v -> toggleChapters());
         quick = new GrabUi.BarButton(this, palette, R.drawable.ic_quick, "Quick read", true);
-        quick.setOnClickListener(v -> startGrab(true));
+        quick.setOnClickListener(v -> {
+            if (grabbing && runId != null) cancelGrab();
+            else startGrab(true);
+        });
         ImageView more = new ImageView(this);
         more.setImageResource(R.drawable.ic_more);
         more.setImageTintList(android.content.res.ColorStateList.valueOf(palette.muted));
@@ -355,6 +358,41 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.show();
     }
 
+    /** While a grab runs the main button is its Cancel; Quick read comes back when it ends. */
+    private void showCancel(boolean running) {
+        runOnUiThread(() -> {
+            quick.setDanger(running);
+            if (running) quick.setLabel("Cancel", palette.onAccent, R.drawable.ic_stop);
+            else {
+                quick.setLabel("Quick read", palette.onAccent, R.drawable.ic_quick);
+                quick.setBusy(false);
+            }
+        });
+    }
+
+    /** Stops this grab on the phone and tells the server to drop the pages it has not started. */
+    private void cancelGrab() {
+        if (!grabbing) return;
+        cancelRequested = true;
+        chaptersLeft = 0;
+        loadingNext = false;
+        String id = runId;
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (id != null && uploading) {
+            new Thread(() -> {
+                try {
+                    new BaiheClient(server, token).cancelRun(id);
+                } catch (BaiheClient.BridgeException ignored) {
+                    // The phone side has already stopped; the server only finishes its page in flight.
+                }
+            }, "grab-cancel").start();
+        }
+        QuickReadSession.finish();
+        if (uploading) say("Cancelling...", GrabUi.Kind.BUSY);
+        else finishGrab("Cancelled.");
+    }
+
     private void showChapterState() {
         if (chaptersLeft > 0) chapters.setLabel("Stop (" + chaptersLeft + " left)", palette.bad, R.drawable.ic_stop);
         else {
@@ -491,8 +529,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
         grabbing = true;
         quickRead = readOnly;
+        runId = "grab-" + newNonce().substring(0, 16);
+        cancelRequested = false;
         grab.setBusy(true);
-        quick.setBusy(true);
+        showCancel(true);
         say("Reading pages");
         String nonce = newNonce();
         bridge.start(nonce);
@@ -583,7 +623,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String go = next;
         runOnUiThread(() -> {
             grab.setBusy(false);
-            quick.setBusy(false);
+            showCancel(false);
             showChapterState();
             chip.show(shown, GrabUi.kindOf(shown, sent));
             if (go != null) {
@@ -601,6 +641,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     private static final long GRAB_TIMEOUT_MS = 5 * 60 * 1000;
     private volatile String runningGrab = "";
+    // Names this grab's batches on the server so Cancel can stop the pages it has not started.
+    private volatile String runId;
+    private volatile boolean cancelRequested;
     // From the web view, not the page: a page can claim any address.
     private volatile String pageUrl = "";
     private volatile String pageAgent = "";
@@ -638,6 +681,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             long used = 0;
             long downloadDeadline = System.currentTimeMillis() + 5 * 60_000L;
             for (PageImage image : images) {
+                if (cancelRequested) {
+                    finishGrab("Cancelled.");
+                    return;
+                }
                 PageImage got = image;
                 if (image.needsDownload()) {
                     got = System.currentTimeMillis() > downloadDeadline ? null
@@ -658,6 +705,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 return;
             }
             BaiheClient client = new BaiheClient(server, token);
+            client.runId = runId;
             if (readOnly) read(client, url, ready, bad, cut);
             else upload(client, url, titles, chapterLinks, ready, bad, cut);
         });
@@ -670,6 +718,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
      */
     private void read(BaiheClient client, String url, List<PageImage> images, int unreadable, boolean truncated) {
         QuickReadSession.begin();
+        QuickReadSession.onCancel(this::cancelGrab);
         try {
             // A typeset answer is large, so the batch stays small however many the server allows.
             int max = Math.min(QUICK_READ_BATCH, client.health().optInt("max_images_per_request", 12));
@@ -679,7 +728,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             String[] firstError = {""};
             List<List<PageImage>> batches = Batches.plan(images, max);
             int sent = 0;
-            for (int i = 0; i < batches.size() && !QuickReadSession.isAbandoned(); i++) {
+            for (int i = 0; i < batches.size() && !cancelRequested && !QuickReadSession.isAbandoned(); i++) {
                 List<PageImage> batch = batches.get(i);
                 sent += batch.size();
                 say("Redrawing pages " + (shown[0] + 1) + "-" + sent + " of " + images.size());
@@ -727,13 +776,18 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
             }
             QuickReadSession.finish();
-            String message = QuickRead.summary(shown[0], images.size() + unreadable, firstError[0])
+            String message = cancelRequested && shown[0] == 0 ? "Cancelled."
+                    : (cancelRequested ? "Cancelled. " : "")
+                    + QuickRead.summary(shown[0], images.size() + unreadable, firstError[0])
                     + (truncated ? ". Some pages were left out." : "");
+            QuickReadSession.onCancel(null);
             finishGrab(message, false);
         } catch (BaiheClient.BridgeException e) {
+            QuickReadSession.onCancel(null);
             QuickReadSession.finish();
             finishGrab(e.getMessage());
         } catch (Exception e) {
+            QuickReadSession.onCancel(null);
             QuickReadSession.finish();
             finishGrab("Could not read the pages.");
         }
@@ -749,7 +803,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             int stored = 0;
             int failed = 0;
             String firstError = "";
-            for (int i = 0; i < batches.size(); i++) {
+            for (int i = 0; i < batches.size() && !cancelRequested; i++) {
                 say("Sending " + (i + 1) + " of " + batches.size());
                 try {
                     JSONObject answer = client.sendPages(dramaId, url, batches.get(i));
@@ -763,7 +817,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
             }
             failed += unreadable;
-            StringBuilder out = new StringBuilder("Sent " + stored + " pages to " + title.optString("title", "Baihe"));
+            StringBuilder out = new StringBuilder((cancelRequested ? "Cancelled. " : "") + "Sent " + stored + " pages to " + title.optString("title", "Baihe"));
             if (failed > 0 || truncated) out.append(". Not sent: ").append(failed + (truncated ? " or more" : ""));
             if (!firstError.isEmpty()) out.append(". ").append(firstError);
             // A chapter where every page was refused must not send the chain on to the next.

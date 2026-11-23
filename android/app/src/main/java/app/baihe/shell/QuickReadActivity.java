@@ -91,15 +91,22 @@ public class QuickReadActivity extends Activity {
         @Override
         public View getView(int position, View convert, ViewGroup parent) {
             if (position >= files.size()) {
+                android.widget.LinearLayout row = new android.widget.LinearLayout(QuickReadActivity.this);
+                row.setOrientation(android.widget.LinearLayout.VERTICAL);
+                row.setGravity(android.view.Gravity.CENTER);
+                int pad = (int) (24 * getResources().getDisplayMetrics().density);
+                row.setPadding(pad, pad, pad, pad);
                 android.widget.TextView more = new android.widget.TextView(QuickReadActivity.this);
                 more.setText("Redrawing more pages...");
                 more.setTextSize(16);
-                more.setGravity(android.view.Gravity.CENTER);
-                int pad = (int) (24 * getResources().getDisplayMetrics().density);
-                more.setPadding(pad, pad, pad, pad);
-                more.setLayoutParams(new ListView.LayoutParams(
+                row.addView(more);
+                android.widget.Button stop = new android.widget.Button(QuickReadActivity.this);
+                stop.setText("Cancel");
+                stop.setOnClickListener(v -> QuickReadSession.cancel());
+                row.addView(stop);
+                row.setLayoutParams(new ListView.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-                return more;
+                return row;
             }
             ImageView view = convert instanceof ImageView ? (ImageView) convert : new ImageView(QuickReadActivity.this);
             view.setAdjustViewBounds(true);

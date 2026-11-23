@@ -290,4 +290,18 @@ public class GrabLogicTest {
         assertTrue(QuickReadSession.isAbandoned());
         assertEquals(0, QuickReadSession.snapshot().size());
     }
+
+    @Test
+    public void cancellingKeepsReadPagesAndTellsTheGrabToStop() {
+        QuickReadSession.begin();
+        QuickReadSession.add("page-000.jpg");
+        boolean[] stopped = {false};
+        QuickReadSession.onCancel(() -> stopped[0] = true);
+        QuickReadSession.cancel();
+        assertTrue(stopped[0]);
+        assertTrue(QuickReadSession.isAbandoned());
+        assertTrue(QuickReadSession.isComplete());
+        assertEquals(1, QuickReadSession.snapshot().size());
+        QuickReadSession.onCancel(null);
+    }
 }

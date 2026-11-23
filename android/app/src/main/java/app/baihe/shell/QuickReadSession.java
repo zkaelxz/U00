@@ -8,6 +8,8 @@ final class QuickReadSession {
     private static final List<String> names = new ArrayList<>();
     private static boolean complete = true;
     private static boolean abandoned;
+    private static boolean cancelled;
+    private static Runnable cancelHook;
     private static Runnable listener;
 
     private QuickReadSession() {}
@@ -16,6 +18,24 @@ final class QuickReadSession {
         names.clear();
         complete = false;
         abandoned = false;
+        cancelled = false;
+    }
+
+    /** What stopping the grab does (tell the server, end the batches); set while the grab runs. */
+    static synchronized void onCancel(Runnable hook) {
+        cancelHook = hook;
+    }
+
+    /** Cancel from the reader: the pages already read stay on screen, the rest are not fetched. */
+    static void cancel() {
+        Runnable hook;
+        synchronized (QuickReadSession.class) {
+            cancelled = true;
+            complete = true;
+            hook = cancelHook;
+            notifyListener();
+        }
+        if (hook != null) hook.run();
     }
 
     static synchronized void add(String name) {
@@ -29,15 +49,21 @@ final class QuickReadSession {
     }
 
     /** The reader was closed: the grab stops asking the server for more pages. */
-    static synchronized void abandon() {
-        abandoned = true;
-        complete = true;
-        names.clear();
-        listener = null;
+    static void abandon() {
+        Runnable hook = null;
+        synchronized (QuickReadSession.class) {
+            // Closing the reader mid-grab also stops the server's work, as Cancel does.
+            if (!complete) hook = cancelHook;
+            abandoned = true;
+            complete = true;
+            names.clear();
+            listener = null;
+        }
+        if (hook != null) hook.run();
     }
 
     static synchronized boolean isAbandoned() {
-        return abandoned;
+        return abandoned || cancelled;
     }
 
     static synchronized boolean isComplete() {
