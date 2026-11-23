@@ -11,6 +11,7 @@ cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core
 
 from scanlate import scanlate
 from scanlate import scanlate_detect
+from scanlate import scanlate_inpaint
 from scanlate import scanlate_balloons
 from scanlate import scanlate_box_merge
 from scanlate import scanlate_page_decode
@@ -418,3 +419,36 @@ def test_a_balloon_without_hatching_is_erased_as_before(tmp_path, monkeypatch):
     gray = cv2.cvtColor(plain, cv2.COLOR_BGR2GRAY)
     keep = np.ones(gray.shape, bool)
     assert (scanlate_inpaint._without_hatching(gray, keep) == gray).all()
+
+
+class TestRimAndCaptionCleanup:
+    def test_a_ring_of_rim_shading_is_not_erased_but_a_joined_stroke_is(self):
+        keep = np.zeros((120, 120), bool)
+        cv2.circle(keep.view(np.uint8), (60, 60), 50, 1, -1)
+        mask = np.zeros((120, 120), np.uint8)
+        cv2.circle(mask, (60, 60), 50, 255, 3)           # the rim's shading as one ring
+        cv2.line(mask, (60, 12), (60, 50), 255, 4)        # a stroke joined to it
+        scanlate_inpaint._drop_rim_rings(mask, keep)
+        assert not mask[60, 8:14].any()                   # ring gone
+        assert mask[30:48, 58:62].any()                   # stroke kept
+
+    def test_white_lettering_on_mid_tone_art_is_masked_without_the_flat_art_round_it(self):
+        gray = np.full((120, 80), 150, np.uint8)
+        cv2.putText(gray, "H", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, 255, 5)
+        mask = scanlate_inpaint._bright_strokes(gray)
+        assert mask is not None and mask[50, 5] == 0 and mask.any() and (mask > 0).mean() < 0.5
+
+    def test_dark_lettering_on_paper_is_not_a_bright_stroke_case(self):
+        gray = np.full((120, 80), 245, np.uint8)
+        gray[30:44, 10:70] = 0
+        gray[60:74, 10:70] = 0
+        assert scanlate_inpaint._bright_strokes(gray) is None
+
+    def test_pale_art_spilled_over_by_the_balloon_mask_keeps_its_colour(self):
+        roi = np.full((60, 60, 3), 255, np.uint8)
+        roi[:, 30:] = (225, 215, 240)                      # pale pink art inside the mask
+        inside = np.ones((60, 60), bool)
+        mask = np.zeros((60, 60), np.uint8)
+        mask[5:10, 5:10] = 255                              # lettering far from the art
+        out = scanlate_inpaint._flatten_plain_paper(roi, roi.copy(), mask, inside)
+        assert (out[10:50, 40:55] == (225, 215, 240)).all()

@@ -348,4 +348,27 @@ public class GrabLogicTest {
         assertFalse(ImageShrink.worthShrinking(small));
         assertTrue(ImageShrink.forUpload(small) == small);
     }
+
+    @Test
+    public void onlyClearNonPagesAreLeftOutOfAnUpload() {
+        int[] w = {844, 844, 844, 844, 844, 300, 1600, 0};
+        int[] h = {1200, 1200, 1200, 1200, 1200, 420, 1200, 0};
+        boolean[] keep = PageFilter.keep(w, h);
+        assertTrue(keep[0] && keep[4]);
+        assertFalse(keep[5]);
+        assertTrue(keep[6]);
+        assertTrue(keep[7]);
+        boolean[] few = PageFilter.keep(new int[] {844, 300}, new int[] {1200, 420});
+        assertTrue(few[0] && few[1]);
+    }
+
+    @Test
+    public void theFirstRequestCarriesOnePicture() {
+        List<PageImage> images = new ArrayList<>();
+        for (int i = 0; i < 5; i++) images.add(new PageImage("k" + i, "u", "image/png", "AAAA"));
+        List<List<PageImage>> plan = Batches.plan(images, 2, 1);
+        assertEquals(1, plan.get(0).size());
+        assertEquals(2, plan.get(1).size());
+        assertEquals(5, plan.get(0).size() + plan.get(1).size() + plan.get(2).size());
+    }
 }
