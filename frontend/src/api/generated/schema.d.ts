@@ -28513,6 +28513,11 @@ export interface components {
              * @default default
              */
             claude_reasoning: string;
+            /**
+             * Comic Glossary Custom
+             * @default
+             */
+            comic_glossary_custom: string;
             /** Cookies Browser */
             cookies_browser: string | null;
             /** Cookies File */
@@ -28937,6 +28942,8 @@ export interface components {
             bulk_auto_resume?: boolean | null;
             /** Claude Reasoning */
             claude_reasoning?: string | null;
+            /** Comic Glossary Custom */
+            comic_glossary_custom?: string | null;
             /** Cookies Browser */
             cookies_browser?: string | null;
             /** Cookies File */

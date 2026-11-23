@@ -31,7 +31,7 @@ MAX_NOTE_LEN = 300
 MAX_PROMPT_ENTRIES = 60
 ANY_LANGUAGE = "any"
 LANGUAGES = ("zh", "ja", "ko", ANY_LANGUAGE)
-ENTRY_CATEGORIES = ("honorific", "kinship", "role", "phrase", "interjection", "streamer")
+ENTRY_CATEGORIES = ("honorific", "kinship", "role", "phrase", "interjection", "streamer", "term", "sfx")
 
 _log = logging.getLogger(__name__)
 _lock = threading.Lock()

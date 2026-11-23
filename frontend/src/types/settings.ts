@@ -64,6 +64,7 @@ export interface SettingsPreferences extends TimingPreferences {
   default_locale: string
   default_style_note: string
   scene_aware_batches: boolean // translate batches start at scene breaks
+  comic_glossary_custom: string // the person's own lines for the built-in comic glossary
   blocked_phrases: string // lines containing one of these are dropped from a new transcription
   stream_plain_prompt: boolean // translate stream titles with the short plain prompt
   ollama_cloud_default: boolean // a hosted Ollama model may be a default
