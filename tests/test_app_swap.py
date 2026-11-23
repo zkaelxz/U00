@@ -864,3 +864,36 @@ def test_an_automatic_update_opens_no_window(root):
     launcher = FakeLauncher([False, True])
     assert sw.apply(root, launcher, sleep=lambda s: None) == "rolled_back_health"
     assert "window" not in launcher.calls and launcher.calls[-1] == "quiet"
+
+
+def test_a_rollback_of_packages_reads_as_switching_while_it_runs(root, monkeypatch):
+    _setup_installed(root, V1)
+    _wheel_set(_stage(root) / sw.CARRIED_WHEELS_DIR, V2)
+    seen = []
+    real = sw.install_packages
+
+    def spy(r, wheels):
+        seen.append(sw.read_journal(r)["state"])
+        real(r, wheels)
+    monkeypatch.setattr(sw, "install_packages", spy)
+    assert sw.apply(root, FakeLauncher([False, True]), sleep=lambda s: None) == "rolled_back_health"
+    assert seen == [sw.SWITCHING, sw.SWITCHING]
+
+
+def test_a_record_naming_another_drive_or_garbage_does_not_stop_the_install(root):
+    site = _site(root)
+    _setup_installed(root, V1)
+    record = site / "demo-1.0.dist-info" / "RECORD"
+    record.write_text(record.read_text() + "D:/elsewhere.py,,\n//host/share/x,,\n\"unclosed\n")
+    sw.install_packages(root, _wheel_set(root / "new", V2))
+    assert _installed(root) == {"demo": "2.0"}
+
+
+def test_files_from_a_wheels_data_folder_are_removed_with_their_version(root):
+    site = _site(root)
+    data = ("demo", "1.0", {"demo/__init__.py": "v1", "demo-1.0.data/purelib/demo_extra.py": "e",
+                            "demo-1.0.data/scripts/demo.exe": "s"})
+    _setup_installed(root, data)
+    assert (site / "demo_extra.py").read_text() == "e" and not (site / "demo.exe").exists()
+    sw.install_packages(root, _wheel_set(root / "new", V2))
+    assert not (site / "demo_extra.py").exists()

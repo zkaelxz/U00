@@ -24,6 +24,7 @@ must not load anything from the folder it renames.
 
 import argparse
 import contextlib
+import csv
 import hashlib
 import json
 import os
@@ -586,17 +587,19 @@ def _installed_dists(site: Path) -> dict:
 
 def _inside(path: Path, folder: Path) -> bool:
     base = os.path.realpath(folder)
-    return os.path.commonpath([base, os.path.realpath(path)]) == base
+    try:
+        return os.path.commonpath([base, os.path.realpath(path)]) == base
+    except ValueError:      # another drive, or a name realpath can't take
+        return False
 
 
 def _remove_dist(site: Path, info: Path) -> None:
     """Deletes what an installed package's RECORD lists inside site-packages,
     then its .dist-info; never anything outside site-packages or a link."""
-    import csv
     try:
         with open(info / "RECORD", encoding="utf-8", newline="") as fh:
             listed = [row[0] for row in csv.reader(fh) if row]
-    except OSError:
+    except (OSError, UnicodeDecodeError, csv.Error):
         listed = []
     folders = set()
     for rel in listed:
@@ -632,7 +635,7 @@ def _wheel_target(name: str, data_dir: str):
 
 
 def _unpack_wheel(whl: Path, site: Path) -> None:
-    written = 0
+    written, moved, record = 0, [], None
     with zipfile.ZipFile(whl) as zf:
         data_dir = next((PurePosixPath(n).parts[0] for n in zf.namelist()
                          if PurePosixPath(n).parts[0].endswith(".data")), None)
@@ -640,6 +643,10 @@ def _unpack_wheel(whl: Path, site: Path) -> None:
             parts = _wheel_target(info.filename, data_dir)
             if parts is None or info.is_dir():
                 continue
+            if len(parts) == 2 and parts[0].endswith(".dist-info") and parts[1] == "RECORD":
+                record = site.joinpath(*parts)
+            if PurePosixPath(info.filename).parts[0] == data_dir:
+                moved.append("/".join(parts))
             target = site.joinpath(*parts)
             if not _inside(target, site):
                 raise SwapError("A Python package in the update holds a path outside "
@@ -651,6 +658,11 @@ def _unpack_wheel(whl: Path, site: Path) -> None:
                     if written > MAX_WHEEL_UNPACKED_BYTES:
                         raise SwapError("A Python package in the update is larger than allowed.")
                     out.write(chunk)
+    if moved and record is not None:
+        # The wheel's RECORD names these at their in-wheel .data paths, so
+        # the next removal of this version would miss where they went.
+        with open(record, "a", encoding="utf-8", newline="") as fh:
+            fh.writelines(f"{rel},,\n" for rel in moved)
 
 
 def install_packages(root, wheels) -> None:
@@ -674,7 +686,7 @@ def install_packages(root, wheels) -> None:
             if have is not None:
                 _remove_dist(site, have[1])
             _unpack_wheel(whl, site)
-    except (OSError, UnicodeDecodeError, zipfile.BadZipFile) as exc:
+    except (OSError, UnicodeDecodeError, ValueError, zipfile.BadZipFile) as exc:
         raise SwapError(f"the packages couldn't be written: {type(exc).__name__}") from None
 
 
@@ -775,6 +787,9 @@ def finish(root, journal) -> None:
 
 def roll_back(root, journal, sleep=time.sleep) -> None:
     if journal.get("packages"):
+        # Recorded as switching again so a Start-menu start waits these
+        # minutes out instead of loading half-replaced packages.
+        _record(root, journal, SWITCHING)
         # While app-<old> still has its name, so its carried set is found.
         install_packages(root, previous_wheels(root, journal["old"], journal["new"]))
     switch_back(root, journal, sleep)
