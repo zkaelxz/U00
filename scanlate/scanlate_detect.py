@@ -298,8 +298,7 @@ def detect_bubbles_ml(image_path: str, confidence: float | None = None, hf_token
     image = (_PILImage.fromarray(np.ascontiguousarray(image[:, :, ::-1])) if image is not None
              else _PILImage.open(image_path).convert("RGB"))
     inputs = processor(images=image, return_tensors="pt")
-    with torch.no_grad():
-        outputs = model(**inputs)
+    outputs = _detector_outputs(model, inputs, torch)
     # target_sizes takes (height, width); PIL's .size is (width, height).
     results = processor.post_process_object_detection(
         outputs, threshold=confidence, target_sizes=torch.tensor([image.size[::-1]])
@@ -317,6 +316,61 @@ def detect_bubbles_ml(image_path: str, confidence: float | None = None, hf_token
 
     boxes.sort(key=_reading_order)
     return boxes
+
+
+# The detector's copy on the GPU under "cuda", made on the first page when the GPU has room. The
+# CPU copy stays the master, as LaMa's does (scanlate_lama): a full GPU costs one page its speed,
+# a broken one goes back to the CPU for the process. Measured on the V100 PC (2026-11-23), the CPU
+# run was about 0.8 s of a page's 0.9 s of reading.
+_bubble_ml_gpu: dict = {}
+_bubble_ml_gpu_broken: list = []
+# The weights, CUDA's own share and one page's working memory, generous like LaMa's first load.
+_GPU_DETECTOR_MB = 800
+
+
+def _detector_on_gpu(model, torch):
+    """The GPU copy when Settings allows GPU use and it fits (or is already there), else None."""
+    cuda = getattr(torch, "cuda", None)
+    if _bubble_ml_gpu_broken or cuda is None or not cuda.is_available():
+        return None
+    import stored_settings
+    if not stored_settings.read("use_gpu"):
+        return None
+    if "cuda" not in _bubble_ml_gpu:
+        import vram
+        try:
+            # Also honours Settings > Keep free memory for the GPU.
+            vram.check_fits("Balloon detector", required_mb=_GPU_DETECTOR_MB)
+        except Exception:
+            return None
+        import copy
+        _bubble_ml_gpu["cuda"] = copy.deepcopy(model).to("cuda")
+    return _bubble_ml_gpu["cuda"]
+
+
+def _detector_outputs(model, inputs, torch):
+    """The model's outputs for `inputs`, run on the GPU when it can be, with the tensors the
+    post-processing reads on the CPU either way."""
+    with torch.no_grad():
+        try:
+            gpu = _detector_on_gpu(model, torch)
+            if gpu is not None:
+                outputs = gpu(**{key: value.to("cuda") for key, value in inputs.items()})
+                for key, value in outputs.items():
+                    if hasattr(value, "cpu"):
+                        outputs[key] = value.cpu()
+                return outputs
+        except Exception as exc:
+            # A GPU that filled up since (Ollama, a transcription) costs only this page; any
+            # other fault would repeat on every page, so the CPU is kept for the process.
+            if not isinstance(exc, getattr(torch.cuda, "OutOfMemoryError", ())):
+                _bubble_ml_gpu_broken.append(type(exc).__name__)
+                _bubble_ml_gpu.clear()
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+        return model(**inputs)
 
 
 def _reading_order(box: dict) -> tuple:
@@ -366,7 +420,8 @@ ML_FALLBACK_SENTENCE = "Falling back to the free heuristic for this page."
 
 
 def release_bubble_model() -> None:
-    """Drops the cached ML bubble detector; it reloads on the next ML page."""
+    """Drops the cached ML bubble detector and its GPU copy; it reloads on the next ML page."""
+    _bubble_ml_gpu.clear()
     globals().pop("_bubble_ml_model", None)
     globals().pop("_bubble_ml_processor", None)
 
