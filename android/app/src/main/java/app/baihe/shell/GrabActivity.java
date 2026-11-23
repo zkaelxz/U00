@@ -643,7 +643,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile String pageNext = "";
     private JSONArray pageChapters = new JSONArray();
 
-    private static final long GRAB_TIMEOUT_MS = 5 * 60 * 1000;
+    private static final long GRAB_TIMEOUT_MS = 9 * 60 * 1000;
     private volatile String runningGrab = "";
     // Names this grab's batches on the server so Cancel can stop the pages it has not started.
     private volatile String runId;

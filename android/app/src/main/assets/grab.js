@@ -134,7 +134,9 @@
   var lastHeight = -1;
   var box = scrollBox();
   var stale = 0;
-  for (var step = 0; step < 150; step++) {
+  // A long chapter is a hundred screens, so the walk is bounded by time as well as by steps.
+  var deadline = Date.now() + 6 * 60 * 1000;
+  for (var step = 0; step < 800 && Date.now() < deadline; step++) {
     if (step % 10 === 0) box = scrollBox();
     var topBefore = box.scrollTop;
     box.scrollTop += Math.max(400, box.clientHeight * 0.95);
@@ -162,7 +164,7 @@
       // The next pictures of a reader that adds them on reaching the end need a moment to come.
       await new Promise(function (r) { setTimeout(r, 600); });
       collect();
-      if (++stale >= 3) break;
+      if (++stale >= 4) break;
     }
     lastHeight = box.scrollHeight;
   }
