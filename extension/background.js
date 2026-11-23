@@ -217,8 +217,36 @@ async function call(path, { method = "GET", body = null, onPage = null } = {}) {
 }
 
 async function health() {
-  return call("/health");
+  const result = await call("/health");
+  if (result?.ok) await reloadIfUpdatedOnDisk(result.data?.extension_version);
+  return result;
 }
+
+function isNewerVersion(a, b) {
+  const pa = String(a).split(".").map(Number);
+  const pb = String(b).split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+// A copy loaded from Baihe's own install folder has its files replaced by every app
+// update, but the browser keeps running the old ones until the extension reloads. One
+// try per version: a copy in any other folder still has the old files after reloading.
+async function reloadIfUpdatedOnDisk(shipped) {
+  const mine = chrome.runtime.getManifest?.()?.version;
+  if (!shipped || !mine || !isNewerVersion(shipped, mine)) return;
+  const { reloadedFor } = await chrome.storage.local.get("reloadedFor");
+  if (reloadedFor === shipped) return;
+  await chrome.storage.local.set({ reloadedFor: shipped });
+  chrome.runtime.reload();
+}
+
+// The browser starting is the usual first chance after an overnight app update.
+chrome.runtime.onStartup?.addListener(() => { health().catch(() => {}); });
 
 // Text mode sends the app raw text instead of an image -- see
 // content.js's collectPageText. Same token, same server, no new auth.

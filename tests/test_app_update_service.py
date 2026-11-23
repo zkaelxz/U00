@@ -54,6 +54,8 @@ def _zip_bytes(tmp_path, manifest):
             if rel != app_swap.APP_MANIFEST_NAME:
                 zf.writestr(rel, f"# {rel}\n")
         zf.writestr(app_swap.APP_MANIFEST_NAME, json.dumps(manifest))
+        if manifest.get("carries_wheels"):
+            zf.writestr(f"{app_swap.CARRIED_WHEELS_DIR}/{app_swap.WHEEL_LOCK_NAME}", "set\n")
     return path.read_bytes()
 
 
@@ -92,11 +94,14 @@ def env(isolated_db, monkeypatch, tmp_path, keys):
                                             download_error=None))
     monkeypatch.setattr(aus, "_release", None)
     monkeypatch.setattr(aus, "_verified", None)
+    monkeypatch.setattr(aus, "_auto_tried", {})
     monkeypatch.setattr(shutdown_service, "_token", "t" * shutdown_service.MIN_TOKEN_LENGTH)
     monkeypatch.delenv(us.REPO_ENV, raising=False)
     monkeypatch.setattr(env_reader, "resolve_env_names", lambda names, env_path=None: None)
     started = []
     monkeypatch.setattr(aus.subprocess, "Popen", lambda cmd, **kw: started.append((cmd, kw)))
+    # The clicked flow; the automatic tests turn it back on.
+    aus.set_service_auto_apply(False)
     return {"root": root, "http": http, "started": started, "seed": keys[0], "tmp": tmp_path}
 
 
@@ -151,6 +156,17 @@ def test_needs_the_full_installer_when_wheels_or_caddy_differ(env):
     assert us.check()["app_update"] == "needs_full_installer"
     with pytest.raises(ConflictError, match="no app-only update"):
         aus.download()
+
+
+def test_other_wheels_are_offered_when_the_update_carries_them(env):
+    other = dict(app_swap.base_fingerprint(INSTALLED_MANIFEST), wheels_sha256="new")
+    _serve(env, manifest=_app_manifest(base=other))
+    assert us.check()["app_update"] == "needs_full_installer"
+    _serve(env, manifest=_app_manifest(base=other, carries_wheels=True,
+                                       db_schema_sha256=aus._library_schema()))
+    assert us.check()["app_update"] == "available"
+    _download(env)
+    assert aus.apply()["started"] is True
 
 
 def test_needs_the_full_installer_when_the_base_is_too_old(env):
@@ -277,7 +293,8 @@ def test_apply_unpacks_beside_the_app_and_hands_over(env, monkeypatch):
     assert (staged / "INSTALLED").read_text() == "D:\\Baihe\n"
     assert (root / "app" / "INSTALLED").is_file()       # the running app is untouched
     assert app_swap.read_journal(root) == {"state": "staged", "old": "0.1.0", "new": "0.2.0",
-                                           "base_version": "0.1.0", "port": 8611, "step": 0}
+                                           "base_version": "0.1.0", "port": 8611, "step": 0,
+                                           "packages": False, "quiet": False}
     assert (root / "app-update" / "app_swap.py").read_text() == "# helper\n"
     ((cmd, kw),) = env["started"]
     assert cmd[1:] == ["-I", str(root / "app-update" / "app_swap.py"), "apply", "--root", str(root)]
@@ -466,7 +483,7 @@ def test_full_setup_replaces_a_queued_app_update(env, monkeypatch):
     monkeypatch.setattr(us, "_setup", None)
     monkeypatch.setattr(us, "_verified", verified)
     started = []
-    monkeypatch.setattr(us, "_install", lambda v: started.append(v) or {"launched": True})
+    monkeypatch.setattr(us, "_install", lambda v, silent=False: started.append(v) or {"launched": True})
     app_swap.write_journal(env["root"], app_swap.QUEUED, "0.1.0", "0.2.0", "0.1.0")
     assert us.install() == {"launched": True}
     assert started == [verified]
@@ -843,6 +860,20 @@ def test_the_service_hands_a_verified_update_to_the_updater_and_unpacks_nothing(
     assert app_swap.read_journal(env["root"]) is None      # the helper writes it, not this server
 
 
+def test_an_older_helper_is_not_offered_an_update_with_other_wheels(service_env):
+    env = service_env
+    other = dict(app_swap.base_fingerprint(INSTALLED_MANIFEST), wheels_sha256="new")
+    _serve(env, manifest=_app_manifest(base=other, carries_wheels=True))
+    assert us.check()["app_update"] == "needs_full_installer"
+    helper = (env["tmp"] / "Program Files" / aus.ADMIN_FOLDER / "helper" / "lib" / "installer"
+              / app_swap.HELPER_NAME)
+    helper.parent.mkdir(parents=True)
+    helper.write_text("def old():\n    pass\n")
+    assert us.check()["app_update"] == "needs_full_installer"
+    helper.write_text((Path(app_swap.__file__)).read_text())
+    assert us.check()["app_update"] == "available"
+
+
 def test_the_service_refuses_while_a_job_runs_and_leaves_no_request(service_env, monkeypatch):
     env = service_env
     _serve(env)
@@ -885,7 +916,11 @@ def _settle_download():
         thread.join(10)
 
 
-def test_automatic_updates_are_off_unless_the_owner_turned_them_on(service_env):
+def test_automatic_updates_are_on_by_default(isolated_db):
+    assert aus.service_auto_apply() is True
+
+
+def test_off_a_check_downloads_nothing(service_env):
     env = service_env
     _serve(env)
     s = us.check()
@@ -893,7 +928,14 @@ def test_automatic_updates_are_off_unless_the_owner_turned_them_on(service_env):
     assert s["app_download"] == "idle" and env["sc"].calls == []
 
 
-def test_with_the_opt_in_a_check_downloads_and_applies(service_env):
+@pytest.fixture
+def quiet(monkeypatch):
+    hours = {"now": True}
+    monkeypatch.setattr(aus, "in_quiet_hours", lambda now=None: hours["now"])
+    return hours
+
+
+def test_a_check_downloads_and_applies_in_the_quiet_hours(service_env, quiet):
     env = service_env
     aus.set_service_auto_apply(True)
     _serve(env)
@@ -903,7 +945,35 @@ def test_with_the_opt_in_a_check_downloads_and_applies(service_env):
     assert (Path(us.updates_dir()) / aus.REQUEST_NAME).is_file()
 
 
-def test_with_the_opt_in_but_a_job_running_the_next_check_applies_it(service_env, monkeypatch):
+def test_outside_the_quiet_hours_a_verified_update_waits_for_them(service_env, quiet):
+    env = service_env
+    aus.set_service_auto_apply(True)
+    quiet["now"] = False
+    _serve(env)
+    us.check()
+    _settle_download()
+    assert env["sc"].calls == [] and us.status()["app_verified"] is True
+    aus.auto_apply_tick()
+    assert env["sc"].calls == []
+    quiet["now"] = True
+    aus.auto_apply_tick()
+    assert [c[1:] for c in env["sc"].calls] == [["start", "BaiheUpdate"]]
+
+
+def test_a_pc_off_in_the_quiet_hours_gets_the_update_after_a_day(service_env, quiet):
+    env = service_env
+    aus.set_service_auto_apply(True)
+    quiet["now"] = False
+    _serve(env)
+    us.check()
+    _settle_download()
+    aus.auto_apply_tick(now=aus._verified["at"] + aus.QUIET_WAIT_SECONDS - 60)
+    assert env["sc"].calls == []
+    aus.auto_apply_tick(now=aus._verified["at"] + aus.QUIET_WAIT_SECONDS)
+    assert [c[1:] for c in env["sc"].calls] == [["start", "BaiheUpdate"]]
+
+
+def test_with_a_job_running_a_later_tick_applies_it(service_env, quiet, monkeypatch):
     env = service_env
     aus.set_service_auto_apply(True)
     _serve(env)
@@ -912,13 +982,71 @@ def test_with_the_opt_in_but_a_job_running_the_next_check_applies_it(service_env
     _settle_download()
     assert env["sc"].calls == [] and us.status()["app_verified"] is True
     monkeypatch.setattr(aus.background_jobs, "active_job_ids", lambda: [])
-    us.check()
+    aus.auto_apply_tick()
     assert [c[1:] for c in env["sc"].calls] == [["start", "BaiheUpdate"]]
 
 
-def test_the_opt_in_does_nothing_for_a_launcher_started_server(env):
+def test_a_database_change_with_no_recent_backup_backs_up_first(service_env, quiet, monkeypatch):
+    env = service_env
+    aus.set_service_auto_apply(True)
+    from services import auto_backup_service
+    backups = []
+    monkeypatch.setattr(auto_backup_service, "start_now",
+                        lambda include_media=None: backups.append(include_media))
+    monkeypatch.setattr(aus, "_recent_backup", lambda now=None: False)
+    _serve(env, manifest=_app_manifest(db_schema_sha256="0" * 64))
+    us.check()
+    _settle_download()
+    assert backups == [False] and env["sc"].calls == []
+    monkeypatch.setattr(aus, "_recent_backup", lambda now=None: True)
+    aus.auto_apply_tick()
+    assert [c[1:] for c in env["sc"].calls] == [["start", "BaiheUpdate"]]
+
+
+def test_a_refused_automatic_apply_waits_a_day_not_a_tick(env, quiet, monkeypatch):
+    aus.set_service_auto_apply(True)
+    tries = []
+
+    def refuse(quiet=False):
+        tries.append(quiet)
+        raise ConflictError("disk full")
+    monkeypatch.setattr(aus, "apply", refuse)
+    _serve(env)
+    us.check()
+    _settle_download()
+    aus.auto_apply_tick()
+    assert tries == [True]
+    monkeypatch.setattr(aus, "_auto_tried", {"0.2.0": 0.0})
+    aus.auto_apply_tick()
+    assert tries == [True, True]
+
+
+def test_a_version_that_rolled_back_is_left_for_the_owners_click(env, quiet, monkeypatch):
+    aus.set_service_auto_apply(True)
+    app_swap.write_result(env["root"], "rolled_back_health", "0.1.0", "0.2.0")
+    _serve(env)
+    us.check()
+    _settle_download()
+    assert us.status()["app_download"] == "idle" and env["started"] == []
+
+
+def test_an_unsigned_update_is_never_applied_on_its_own(env, quiet, monkeypatch):
+    aus.set_service_auto_apply(True)
+    monkeypatch.setattr(us, "PUBLIC_KEY_PATH", str(env["tmp"] / "no-key.txt"))
+    _serve(env, signed=False)
+    us.check()
+    _settle_download()
+    assert us.status()["app_verified"] is True
+    aus.auto_apply_tick()
+    assert env["started"] == [] and app_swap.read_journal(env["root"]) is None
+
+
+def test_the_desktop_app_applies_quietly_too(env, quiet, monkeypatch):
+    monkeypatch.setenv("BAIHE_API_PORT", "8611")
     aus.set_service_auto_apply(True)
     _serve(env)
     us.check()
     _settle_download()
-    assert us.status()["app_download"] == "idle"
+    assert len(env["started"]) == 1
+    journal = app_swap.read_journal(env["root"])
+    assert journal["state"] == "staged" and journal["quiet"] is True

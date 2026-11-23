@@ -574,3 +574,32 @@ def test_a_translate_run_says_when_the_source_match_check_could_not_run(
                           "en-US", [], "", "claude", "default")
     assert ("source_match_skipped" in results["result"]) is said
     assert results["language"] == "ja"
+
+
+def test_the_source_match_embedding_waits_for_a_transcription_to_finish(monkeypatch):
+    got, order = {}, []
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder",
+                        lambda should_stop=None, on_progress=None: (lambda texts: order.append("embed") or [[1.0]]))
+    monkeypatch.setattr(wjs.alignment_judge, "judge_for", lambda *a, **kw: None)
+    monkeypatch.setattr(wjs, "_usage_logger", lambda *a: None)
+    monkeypatch.setattr(wjs, "_month_cap_check", lambda choice, engine: None)
+    monkeypatch.setattr(wjs.background_jobs, "is_cancel_requested", lambda job_id: False)
+    monkeypatch.setattr(wjs.gpu_slots, "wait_until_no_ui_job",
+                        lambda stop, exclude_holder=None, on_wait=None: order.append(("wait", exclude_holder)) or True)
+    args = wjs._alignment_args(1, object(), "claude", "job1", {}, {})
+    args["embed_texts"](["a"])
+    args["embed_texts"](["b"])
+    assert order == [("wait", "ui:job1"), "embed", "embed"]
+
+
+def test_a_cancel_while_waiting_for_the_transcription_ends_the_check_without_an_error(monkeypatch):
+    monkeypatch.setattr(wjs.settings_service, "alignment_embedder",
+                        lambda should_stop=None, on_progress=None: (lambda texts: [[1.0]]))
+    monkeypatch.setattr(wjs.alignment_judge, "judge_for", lambda *a, **kw: None)
+    monkeypatch.setattr(wjs, "_usage_logger", lambda *a: None)
+    monkeypatch.setattr(wjs, "_month_cap_check", lambda choice, engine: None)
+    monkeypatch.setattr(wjs.background_jobs, "is_cancel_requested", lambda job_id: True)
+    monkeypatch.setattr(wjs.gpu_slots, "wait_until_no_ui_job", lambda *a, **kw: False)
+    check = {}
+    assert wjs._alignment_args(1, object(), "claude", "job1", {}, check)["embed_texts"](["a"]) is None
+    assert "embed_unavailable" not in check

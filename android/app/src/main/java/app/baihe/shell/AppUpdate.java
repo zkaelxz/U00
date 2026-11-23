@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInstaller;
+import android.os.Build;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -98,14 +99,36 @@ final class AppUpdate {
     }
 
     /**
+     * Whether Android lets this app update itself with no prompt: from Android 12, once the
+     * app installed itself (the first install came from a browser or file manager, so the
+     * first update still asks).
+     */
+    static boolean canUpdateSilently(Context context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false;
+        try {
+            String by = context.getPackageManager()
+                    .getInstallSourceInfo(context.getPackageName()).getInstallingPackageName();
+            return context.getPackageName().equals(by);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
      * Hands the saved APK to Android's installer, which asks the user to confirm (and, the
-     * first time, to allow installs from Baihe). Returns false if the session could not start.
+     * first time, to allow installs from Baihe) unless it can update silently. Returns false
+     * if the session could not start.
      */
     static boolean install(Context context, File apk) {
         PackageInstaller installer = context.getPackageManager().getPackageInstaller();
         try {
-            int id = installer.createSession(
-                    new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL));
+            PackageInstaller.SessionParams params =
+                    new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Android still asks when it must (the first self-install); later ones go through.
+                params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+            }
+            int id = installer.createSession(params);
             try (PackageInstaller.Session session = installer.openSession(id);
                  InputStream in = new FileInputStream(apk);
                  OutputStream out = session.openWrite("baihe-shell", 0, apk.length())) {

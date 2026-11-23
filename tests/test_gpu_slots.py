@@ -528,3 +528,28 @@ class TestOnlyThisModuleTouchesTheTable:
             if self.NAMES.search(path.read_text(encoding="utf-8", errors="replace")):
                 offenders.append("/".join(rel))
         assert offenders == []
+
+
+class TestWaitUntilNoUiJob:
+    def test_waits_for_another_server_job_but_not_for_live_or_itself(self, isolated_db, monkeypatch):
+        _row(1, "live-whisper:1", pid=OTHER_PID, instance="x")
+        assert gpu_slots.wait_until_no_ui_job(lambda: False, poll=0) is True
+        _row(2, "ui:mine", pid=OTHER_PID, instance="x")
+        assert gpu_slots.wait_until_no_ui_job(lambda: False, exclude_holder="ui:mine", poll=0) is True
+
+    def test_returns_when_the_job_releases_and_false_when_stopped(self, isolated_db, monkeypatch):
+        _row(1, "ui:transcribe_9", pid=OTHER_PID, instance="x")
+        calls = []
+
+        def release_on_second_sleep(_):
+            calls.append(1)
+            if len(calls) == 2:
+                with contextlib.closing(db.get_conn()) as conn:
+                    conn.execute("DELETE FROM gpu_lock")
+                    conn.commit()
+        monkeypatch.setattr(gpu_slots.time, "sleep", release_on_second_sleep)
+        told = []
+        assert gpu_slots.wait_until_no_ui_job(lambda: False, on_wait=lambda: told.append(1)) is True
+        assert told == [1] and len(calls) == 2
+        _row(1, "ui:transcribe_9", pid=OTHER_PID, instance="x")
+        assert gpu_slots.wait_until_no_ui_job(lambda: True) is False

@@ -673,8 +673,12 @@ def test_aligner_backends_are_refused_without_the_language_tokeniser(monkeypatch
 
 def hung_hear(audio_path, windows, cfg, scratch_dir, result_queue):
     """gpu_process_job body for the real-process test: a Whisper call that never returns."""
-    with open(os.environ["COMPARE_TEST_MARKER"], "w") as f:
+    # Written beside and renamed into place: the test polls for the marker and
+    # would otherwise read it between create and write, as an empty pid.
+    marker = os.environ["COMPARE_TEST_MARKER"]
+    with open(marker + ".tmp", "w") as f:
         f.write(str(os.getpid()))
+    os.replace(marker + ".tmp", marker)
     time.sleep(600)
 
 

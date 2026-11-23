@@ -914,6 +914,22 @@ function streamedReply(lines, { tail = "", fail = false } = {}) {
   };
 }
 
+// The app ships `shipped`; this copy is `mine`; `reloadedFor` is what an earlier try stored.
+async function reloadAfterUpdate(scenarioJson) {
+  const { shipped, mine, reloadedFor } = JSON.parse(scenarioJson);
+  const stored = { token: "t", reloadedFor };
+  let reloads = 0;
+  let startup = null;
+  const { ask } = loadBackground({
+    granted: () => true, stored,
+    response: () => ({ ok: true, status: 200, json: async () => ({ ok: true, extension_version: shipped }) }),
+    chromeExtra: { runtime: { getManifest: () => ({ version: mine }), reload: () => { reloads += 1; },
+                              onStartup: { addListener: (fn) => { startup = fn; } } } },
+  });
+  const reply = await ask({ type: "health" });
+  return { ok: reply.ok, reloads, startupListener: typeof startup === "function" };
+}
+
 async function batching(scenarioJson) {
   const scenario = JSON.parse(scenarioJson);
   const requests = [];
@@ -965,6 +981,7 @@ const handlers = {
   popup_expression: async (e) => popupExpression(e),
   content_expression: async (e) => JSON.parse(await contentExpression(e)),
   batching,
+  reload_after_update: reloadAfterUpdate,
 };
 const result = await handlers[kind](scenario);
 process.stdout.write(JSON.stringify(result));
