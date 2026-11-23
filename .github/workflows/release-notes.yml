@@ -1,0 +1,48 @@
+name: Update Release Notes
+
+# Sets a published release's text to release/v<version>-notes.md from
+# baihe-subtitler, for notes corrected after the tag (the tag's run reads the
+# file at the tagged commit, which can't change). Only the text changes: the
+# files, hashes, signatures and pre-release state stay as they are. Pasting
+# into GitHub's release editor from a phone loses the Markdown.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release whose text to replace (e.g. v0.1.6)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Replace the release text with the notes file
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]{1,6}\.[0-9]{1,6}(\.[0-9]{1,6})?$'; then
+            echo "::error::$TAG is not a release tag such as v0.1.6."
+            exit 1
+          fi
+          notes="$(mktemp)"
+          # Read through the API rather than a checkout so the job runs nothing
+          # from the repository while it holds a write token.
+          if ! gh api -H "Accept: application/vnd.github.raw" \
+              "repos/$GITHUB_REPOSITORY/contents/release/$TAG-notes.md?ref=baihe-subtitler" \
+              > "$notes" || [ ! -s "$notes" ]; then
+            echo "::error::release/$TAG-notes.md is not on baihe-subtitler. Nothing was changed."
+            exit 1
+          fi
+          head -c 100000 "$notes" > "$notes.body"
+          # Same closing line the tag's release job adds.
+          printf '\nCheck the installer against its .sha256 file before you run it.\n' >> "$notes.body"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$notes.body"
+          echo "Replaced the text of $TAG with release/$TAG-notes.md from baihe-subtitler."
