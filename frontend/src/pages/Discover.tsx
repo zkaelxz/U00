@@ -135,7 +135,7 @@ export default function DiscoverPage() {
         <Tabs label="Discover tasks" idPrefix="discover" tabs={TABS} active={tab} onSelect={setTab} />
       )}
     >
-      <FindSwitch current="discover" />
+      <FindSwitch />
       {CATALOGUE_TAB_ENABLED && (
         <div role="tabpanel" id={tabPanelId('discover', 'catalogue')} aria-labelledby={tabButtonId('discover', 'catalogue')} hidden={tab !== 'catalogue'} className="discover-panel">
           <CatalogPanel pc={pc} reloadKey={catalogKey} />

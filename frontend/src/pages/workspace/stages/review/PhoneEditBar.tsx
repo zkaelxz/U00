@@ -44,7 +44,7 @@ export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCanc
             <button type="button" aria-label="Skip for now" title="Skip for now" onClick={queue.onSkip}>Skip</button>
           ) : (
             <>
-              <button type="button" aria-label="Previous line" onClick={() => onMove(-1)}>‹ Prev</button>
+              <button type="button" aria-label="Prev line" onClick={() => onMove(-1)}>‹ Prev</button>
               <button type="button" aria-label="Next line" onClick={() => onMove(1)}>Next ›</button>
             </>
           )}
