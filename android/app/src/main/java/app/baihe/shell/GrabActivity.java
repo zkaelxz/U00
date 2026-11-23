@@ -751,6 +751,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             }
             BaiheClient client = new BaiheClient(server, token);
             client.runId = runId;
+            client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
             if (readOnly) read(client, url, ready, bad, cut);
             else upload(client, url, titles, chapterLinks, ready, bad, cut);
         });
