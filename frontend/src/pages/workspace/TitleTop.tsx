@@ -166,7 +166,8 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
       <header className={phone ? 'workspace-header title-top-header is-phone' : 'workspace-header title-top-header'}>
         <ButtonLink href={back.href} variant="ghost" size="sm" className="ws-back" aria-label={back.label}>
           <span aria-hidden="true">‹</span>
-          <span className="ws-back-text" aria-hidden="true">{back.text}</span>
+          {/* Not aria-hidden: the visible words must sit inside the accessible name, or voice control and screen readers hear two names. */}
+          <span className="ws-back-text">{back.text}</span>
         </ButtonLink>
         <div className="title-top-name">
           <h1 data-testid="drama-title" title={title}>{title}</h1>

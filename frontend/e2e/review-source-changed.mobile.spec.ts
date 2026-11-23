@@ -56,7 +56,7 @@ db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh='这是一个
   expect(Math.abs(moreBox.y - rowBox.y - 4)).toBeLessThanOrEqual(1)
 
   // A tap in the middle of the right end of a row's first text line picks the row; it must not reach ⋯ and open the More sheet.
-  await page.getByRole('radio', { name: /^All/ }).check({ force: true })
+  await page.getByRole('radio', { name: /^All lines/ }).check({ force: true })
   const second = page.locator('.review-line').nth(1)
   const zh = second.locator('.review-zh')
   const zhBox = (await zh.boundingBox())!

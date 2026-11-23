@@ -694,7 +694,7 @@ export default function TranscribeStage({
                 {' · '}
                 {gpuUnavailable
                   ? <>Your graphics card isn't set up for Baihe, so this will be slow. {pc === 'remote' ? 'Ask the person who runs Baihe.' : <>Fix it in <a href="#/diagnostics">Diagnostics</a>.</>}</>
-                  : <>GPU {useGpu ? 'on' : 'off'} · change in <a href="#/settings">Settings</a></>}
+                  : <>GPU {useGpu ? 'on' : 'off'} · change in <a className="touch-link" href="#/settings">Settings</a></>}
               </span>
             )}
           </p>
