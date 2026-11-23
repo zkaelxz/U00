@@ -75,6 +75,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         bridge = new GrabBridge(this);
         // Pages left by a Quick read that was cut off (the app was killed) are not kept.
         QuickReadActivity.clear(this);
+        // Android 13 hides the "reading in the background" notice until this is allowed; the grab
+        // keeps running either way.
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);
+        }
 
         palette = GrabUi.Palette.of(this);
         LinearLayout root = new LinearLayout(this);
@@ -424,6 +430,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     @Override
     protected void onDestroy() {
+        GrabKeepAlive.stop(getApplicationContext());
         bridge.cancel();
         sender.shutdownNow();
         web.destroy();
@@ -543,6 +550,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             return;
         }
         grabbing = true;
+        GrabKeepAlive.start(getApplicationContext());
         quickRead = readOnly;
         grabStartedAt = System.currentTimeMillis();
         runId = "grab-" + newNonce().substring(0, 16);
@@ -644,6 +652,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             followingParts = false;
             partsContinuing = false;
         }
+        if (next == null) GrabKeepAlive.stop(getApplicationContext());
         String shown = message;
         String go = next;
         runOnUiThread(() -> {
