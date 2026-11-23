@@ -228,12 +228,16 @@ def start(principal, url, profile_id, watch_once, *, holds_paid: bool, at_pc: bo
         for step, settings in steps[1:]:   # the download item is checked by check_link and at its start
             queue_service._check_addable(principal, drama_id, step, holds_paid, at_pc,
                                          settings or None, True)
-        queue_service._append_items(principal, drama_id, steps, at_pc, chain=chain)
+        # Only the queue's owner may start the whole queue; anyone else's run starts on its own,
+        # like a one-button run on a page, so it never starts other people's waiting items.
+        owner = queue_service._overrides(principal)
+        queue_service._append_items(principal, drama_id, steps, at_pc, chain=chain, now=not owner)
     except BaseException:
         drama_service.hard_delete_drama(drama_id)
         raise
     _remember({"drama_id": drama_id, "chain": chain, "watch_once": watch_once, "created_at": time.time()})
-    queue_service.start(principal)
+    if owner:
+        queue_service.start(principal)
     return {"drama_id": drama_id, "watch_once": watch_once}
 
 

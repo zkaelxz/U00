@@ -2,7 +2,9 @@
 api/routers/quick_video_routes.py -- Quick video translate: a link and a saved profile in, a
 subtitled title out. Thin: see services/quick_video_service.py.
 
-Starting and removing are PC only like the yt-dlp download they run.
+Starting needs Import from a link plus Start jobs, from any device, like a Live start (owner
+decision 2026-11-23); the run itself is on the PC. Removing a watch-once title stays PC only, like
+every delete.
 """
 
 from fastapi import APIRouter, Path, Request
@@ -29,9 +31,10 @@ def set_settings(body: QuickVideoSettingsSet):
     return svc.set_profile(body.profile_id)
 
 
-@router.post("/start", dependencies=[local_only()], response_model=QuickVideoStarted,
+@router.post("/start", dependencies=[require_permission("media.import_url", "jobs.start")],
+             response_model=QuickVideoStarted,
              summary="Create a title for a video link and queue download, transcribe, translate and export",
-             description="PC only. A refused request creates nothing. Follow the run with GET /api/quick-video/runs.",
+             description="A refused request creates nothing. Follow the run with GET /api/quick-video/runs.",
              responses=error_responses(403, 409, 422, 503))
 def start(body: QuickVideoStart, request: Request):
     return svc.start(request.state.principal, body.url, body.profile_id, body.watch_once,

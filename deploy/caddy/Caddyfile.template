@@ -136,7 +136,8 @@
 		# The title's link as imported, query included: never leaves the PC.
 		path /api/dramas/*/source-link
 		# "Fill from link": each read fetches from the internet on the PC's connection.
-		path /api/media-link/probe /api/library/link-scan
+		# A pasted link's probe (/api/media-link/probe) is Import from a link and passes.
+		path /api/library/link-scan
 		path /api/dramas/*/link-details/probe /api/dramas/*/link-details/apply
 		# Merging titles and moving chapters rewrite files on the PC.
 		path /api/dramas/*/restructure /api/dramas/*/restructure/preview
@@ -178,7 +179,7 @@
 		method POST
 		path /api/dramas/*/folder/open
 		path /api/media/dramas/*/download-url /api/media/dramas/*/remove
-		path /api/quick-video/start /api/quick-video/*/delete
+		path /api/quick-video/*/delete
 		path /api/novel/dramas/*/attach-from-sources /api/novel/dramas/*/add-chapters-from-sources /api/novel/dramas/*/ocr-chapter
 		path /api/novel/dramas/*/lncrawl
 		path /api/novel/dramas/*/raw-novel/remove

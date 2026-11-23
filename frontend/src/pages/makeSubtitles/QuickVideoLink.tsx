@@ -1,7 +1,8 @@
 /*
  * Add > a video link: one button (One-click translate) that downloads the video, transcribes, translates
  * and exports it with the profile chosen in Settings, through the Queue. "Watch once" removes the title
- * again when the person is done watching. PC only, like the download it runs.
+ * again when the person is done watching. Any device whose account holds Import from a link and Start
+ * jobs may start it; the run is on the PC, and removing a title stays at the PC like every delete.
  */
 import { useCallback, useEffect, useState } from 'react'
 
@@ -14,6 +15,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { HelpTip } from '../../components/HelpTip'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
+import { useHolds } from '../../hooks/useHolds'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
 import type { QuickVideoRun, QuickVideoSettings } from '../../types/quickVideo'
@@ -29,10 +31,13 @@ const POLL_MS = 3000
 export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
   url: string
   onStarted: () => void
-  onOnlyAdd: () => void
+  onOnlyAdd?: () => void
   onClear: () => void
 }) {
   const pc = usePcOnly()
+  const holdsImport = useHolds('media.import_url')
+  const holdsJobs = useHolds('jobs.start')
+  const allowed = holdsImport && holdsJobs
   const [watchOnce, setWatchOnce] = useState(false)
   const [settings, setSettings] = useState<QuickVideoSettings | null>(null)
   const [probe, setProbe] = useState<LinkProbeState>({ state: 'reading' })
@@ -40,25 +45,25 @@ export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
   const [error, setError] = useState<unknown>(null)
 
   useEffect(() => {
-    if (pc === 'remote') return undefined
+    if (!allowed) return undefined
     getQuickVideoSettings().then(setSettings, () => undefined)
     return undefined
-  }, [pc])
+  }, [allowed])
   useEffect(() => {
-    if (pc === 'remote') return undefined
+    if (!allowed) return undefined
     // The box keys this by the link, so a new link starts again from "reading".
     let live = true
     probeLink(url).then((p) => live && setProbe({ state: 'read', probe: p }), () => live && setProbe({ state: 'failed' }))
     return () => { live = false }
-  }, [pc, url])
+  }, [allowed, url])
   const profile = settings?.profiles.find((p) => p.id === settings.profile_id) ?? null
   const summary = settings?.summary ?? []
   // The native tooltip on the button itself; the (i) under Change options is the same text for touch and keyboard.
   const summaryText = summary.map(settingText).join('\n')
-  const probeShown: LinkProbeState = pc === 'remote' ? { state: 'off' } : probe
-  const canRun = linkCanRun(pc, probeShown)
+  const probeShown: LinkProbeState = allowed ? probe : { state: 'off' }
+  const canRun = linkCanRun(allowed, probeShown)
   const plan = planForLink({
-    pc, source: !canRun && pc !== 'remote', loaded: settings !== null,
+    pc, allowed, source: !canRun && allowed, loaded: settings !== null,
     profile: profile?.name ?? null, engine: summary.find((r) => r.engine)?.engine ?? null,
     capNeeded: settings?.cap_needed === true,
   })
@@ -117,26 +122,27 @@ export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
         </Section>
       )}
       <div className="actions">
-        <button type="button" className={buttonClass(canRun ? 'ghost' : 'primary')} onClick={onOnlyAdd}>Add only</button>
+        {onOnlyAdd && <button type="button" className={buttonClass(canRun ? 'ghost' : 'primary')} onClick={onOnlyAdd}>Add only</button>}
         <button type="button" className={buttonClass('ghost')} onClick={onClear}>Clear</button>
       </div>
     </div>
   )
 }
 
-/** The Add page's recent link runs, polled while one is running. PC only, like the download they run. */
+/** The Add page's recent link runs, polled while one is running. Removing a watch-once title is at the PC only. */
 export function QuickVideoRuns({ refreshKey }: { refreshKey: number }) {
   const pc = usePcOnly()
+  const holdsJobs = useHolds('jobs.start')
   const [runs, setRuns] = useState<QuickVideoRun[]>([])
   const [error, setError] = useState<unknown>(null)
   const [allRuns, setAllRuns] = useState(false)
 
   const refresh = useCallback(() => getQuickVideoRuns().then(setRuns, () => undefined), [])
   useEffect(() => {
-    if (pc === 'remote') return undefined
+    if (!holdsJobs) return undefined
     void refresh()
     return undefined
-  }, [pc, refresh, refreshKey])
+  }, [holdsJobs, refresh, refreshKey])
   const running = runs.some((r) => r.state === 'running')
   useEffect(() => {
     if (!running) return undefined
@@ -144,7 +150,7 @@ export function QuickVideoRuns({ refreshKey }: { refreshKey: number }) {
     return () => clearInterval(t)
   }, [running, refresh])
 
-  if (pc === 'remote' || (!runs.length && !error)) return null
+  if (!holdsJobs || (!runs.length && !error)) return null
   const shownRuns = visibleRuns(runs, allRuns)
   const remove = (run: QuickVideoRun) => {
     setError(null)
@@ -162,7 +168,7 @@ export function QuickVideoRuns({ refreshKey }: { refreshKey: number }) {
               <ButtonLink size="sm" variant="ghost" href={routeHref({ name: 'drama', id: run.drama_id, stage: run.state === 'done' ? 'review' : null })}>
                 Open
               </ButtonLink>
-              {canDeleteWatched(run) && (
+              {pc !== 'remote' && canDeleteWatched(run) && (
                 <ConfirmButton name={run.title} label="Done watching, delete…" confirmLabel="Confirm delete" onConfirm={() => remove(run)} />
               )}
             </div>

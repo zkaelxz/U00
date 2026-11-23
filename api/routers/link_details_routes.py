@@ -2,13 +2,14 @@
 api/routers/link_details_routes.py -- "Fill from link"
 (services/link_details_service.py): read what a link says about a title,
 fill only the blank fields the owner ticks, and the read-only scan of old
-titles that have a link. All PC-only (local_only): each read fetches from
-the internet on this PC's connection, and the stored link may carry a token.
+titles that have a link. A pasted link's probe is Import from a link, so the
+Add box can read it from any device (it backs One-click translate there); the
+rest is PC-only (local_only): the stored link may carry a token.
 """
 
 from fastapi import APIRouter, Path, Request
 
-from api.auth import local_only
+from api.auth import local_only, require_permission
 from api.schemas import (LinkDetailsApplyRequest, LinkDetailsApplyResult,
                          LinkScanResult, LinkScanStarted, MediaLinkProbe, MediaLinkProbeRequest,
                          TitleLinkProbe, error_responses)
@@ -19,8 +20,9 @@ router = APIRouter(tags=["link details"])
 _ERRORS = error_responses(404, 409, 422, 503)
 
 
-@router.post("/api/media-link/probe", dependencies=[local_only()], response_model=MediaLinkProbe,
-             summary="What a link says about a title: title, channel, stream date (PC only)",
+@router.post("/api/media-link/probe", dependencies=[require_permission("media.import_url")],
+             response_model=MediaLinkProbe,
+             summary="What a link says about a title: title, channel, stream date",
              description="Nothing is downloaded or saved. A video or stream link is read with "
                          "yt-dlp (metadata only), a supported Sources link with that source's own "
                          "data; any other page returns kind \"page\" without being fetched. 422 a "

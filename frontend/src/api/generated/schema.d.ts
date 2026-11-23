@@ -6270,7 +6270,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * What a link says about a title: title, channel, stream date (PC only)
+         * What a link says about a title: title, channel, stream date
          * @description Nothing is downloaded or saved. A video or stream link is read with yt-dlp (metadata only), a supported Sources link with that source's own data; any other page returns kind "page" without being fetched. 422 a bad or private address, 503 the read failed or yt-dlp is missing.
          */
         post: operations["post_media_link_probe_api_media_link_probe_post"];
@@ -7707,7 +7707,7 @@ export interface paths {
         put?: never;
         /**
          * Create a title for a video link and queue download, transcribe, translate and export
-         * @description PC only. A refused request creates nothing. Follow the run with GET /api/quick-video/runs.
+         * @description A refused request creates nothing. Follow the run with GET /api/quick-video/runs.
          */
         post: operations["start_api_quick_video_start_post"];
         delete?: never;

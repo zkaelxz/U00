@@ -41,6 +41,39 @@ test('a paid profile with no monthly cap says so before anything starts, and lin
   expect(m.started).toEqual([])
 })
 
+test('a member away from the PC with Import from a link starts One-click translate on the main PC; without it the box says who can give it', async ({ page }) => {
+  const m = await mockAddLink(page, probeOf({ title: '第一回', platform: 'YouTube' }))
+  let permissions = ['library.read', 'lines.read', 'lines.edit', 'jobs.start', 'jobs.cancel', 'review.use', 'media.import_url']
+  await page.route('**/api/meta', (r) => r.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }))
+  await page.route('**/api/auth/me', (r) => r.fulfill({ json: {
+    auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet',
+    user: { id: 5, email: 'kim@example.com', display_name: 'Kim', is_admin: false, is_local_owner: false }, permissions,
+  } }))
+  await page.goto('/')
+  let b = box(page)
+  await b.getByRole('textbox', { name: 'Paste a link' }).fill(VIDEO_LINK)
+  await expect(b.getByTestId('add-found')).toHaveText('Found: a video on YouTube: “第一回”.')
+  await expect(b.getByTestId('add-plan')).toHaveText('Download it on the main PC, transcribe it, then translate it with DeepSeek (profile “Fast”), through the Queue.')
+  // Making a title by hand stays an admin's.
+  await expect(b.getByRole('button', { name: 'Add only' })).toHaveCount(0)
+  await b.getByRole('button', { name: 'Make English subtitles' }).click()
+  await expect(page).toHaveURL(/#\/make-subtitles$/)
+  expect(m.started).toEqual([{ url: VIDEO_LINK, watch_once: false }])
+  const runs = page.getByRole('region', { name: 'From a link' })
+  await expect(runs).toContainText('Episode 1 · Downloading')
+
+  permissions = permissions.filter((p) => p !== 'media.import_url')
+  await page.goto('/')
+  await expect(page.getByTestId('drama-count')).toBeVisible()
+  await expect(box(page)).toHaveCount(0)
+  await page.goto('/#/make-subtitles')
+  b = box(page)
+  await b.getByRole('textbox', { name: 'Paste a link' }).fill(VIDEO_LINK)
+  await expect(b.getByTestId('add-plan')).toHaveText('Making subtitles from a link needs the Import from a link right, which an admin can give you in People and access.')
+  await expect(b.getByRole('button', { name: 'Make English subtitles' })).toHaveCount(0)
+  expect(m.probed, 'the link is not read without the right').toEqual([VIDEO_LINK])
+})
+
 test('a typed address is read once, after the typing stops; Clear empties the box', async ({ page }) => {
   const m = await mockAddLink(page, probeOf({ title: 'Ep', platform: 'YouTube' }))
   await page.goto('/')

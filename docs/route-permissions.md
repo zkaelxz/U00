@@ -414,7 +414,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/live/sessions/{session_id}` | library.read |
 | `GET /api/live/sessions/{session_id}/chat` | library.read |
 | `POST /api/live/sessions/{session_id}/stop` | jobs.cancel |
-| `POST /api/media-link/probe` | local_only() |
+| `POST /api/media-link/probe` | media.import_url |
 | `GET /api/media/dramas/{drama_id}/audio` | media.stream |
 | `HEAD /api/media/dramas/{drama_id}/audio` | media.stream |
 | `POST /api/media/dramas/{drama_id}/download-url` | local_only() |
@@ -506,7 +506,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/quick-video/runs` | jobs.start |
 | `GET /api/quick-video/settings` | library.read |
 | `POST /api/quick-video/settings` | admin.library |
-| `POST /api/quick-video/start` | local_only() |
+| `POST /api/quick-video/start` | media.import_url + jobs.start |
 | `POST /api/quick-video/{drama_id}/delete` | local_only() |
 | `POST /api/reader/dramas/{drama_id}/ask` | jobs.start |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |

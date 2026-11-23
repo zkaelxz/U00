@@ -241,3 +241,34 @@ def test_a_paid_profile_without_a_monthly_cap_is_refused_up_front_and_creates_no
     settings_service.set_settings({"monthly_cap_usd": 0})
     qv.set_profile(_profile(name="Free"))
     assert qv.get_settings()["cap_needed"] is False
+
+
+
+def _away_member(monkeypatch):
+    from services import auth_service, model_readiness_service
+    # Away from the PC the run needs its models already downloaded; that check has its own tests.
+    monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **kw: None)
+    u = auth_service.add_user("m@example.com")
+    auth_service.grant_permission(u["id"], "media.import_url")
+    return u, {"user_id": u["id"], "is_admin": False, "admin_override": False,
+               "permissions": auth_service.working_permissions(u["id"])}
+
+
+def test_a_run_started_away_downloads_without_starting_the_whole_queue(jobs, started_downloads, monkeypatch):
+    u, member = _away_member(monkeypatch)
+    other = q.add_item(None, db.create_drama(title_en="Waiting"), "transcribe", True, at_pc=True)["items"][0]
+    did = qv.start(member, URL, _profile(), False, holds_paid=False, at_pc=False)["drama_id"]
+    assert db.get_drama(did)["owner_user_id"] == u["id"]
+    q.tick()
+    assert started_downloads == [(did, URL, False)]
+    assert q.get_queue(None)["state"] != "running"
+    assert next(i for i in q._load()["items"] if i["id"] == other["id"])["status"] == "waiting"
+
+
+def test_losing_import_from_a_link_stops_a_waiting_download(jobs, started_downloads, monkeypatch):
+    from services import auth_service
+    u, member = _away_member(monkeypatch)
+    did = qv.start(member, URL, _profile(), False, holds_paid=False, at_pc=False)["drama_id"]
+    auth_service.revoke_permission(u["id"], "media.import_url")
+    q.tick()
+    assert _statuses(did)[0] == "skipped" and started_downloads == []

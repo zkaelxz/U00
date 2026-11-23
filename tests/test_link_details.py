@@ -254,7 +254,26 @@ def test_a_sources_link_uses_the_adapters_own_data(client, env, monkeypatch):
 
 # --- PC only ---------------------------------------------------------------
 
-def test_every_route_is_refused_from_another_device(env):
+def test_a_pasted_link_is_read_from_another_device_only_with_import_from_a_link(env):
+    remote = TestClient(create_app(ApiSettings(auth_mode="on")),
+                        base_url="https://baihe.example.com", raise_server_exceptions=False)
+
+    def member(email, *perms):
+        u = auth_service.add_user(email)
+        for p in perms:
+            auth_service.grant_permission(u["id"], p)
+        s = auth_service.create_session(u["id"])
+        return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}", api_auth.CSRF_HEADER: s["csrf_token"]}
+
+    assert remote.post("/api/media-link/probe", json={"url": VIDEO},
+                       headers=member("kid@example.com")).status_code == 403
+    assert FakeYDL.calls == []
+    r = remote.post("/api/media-link/probe", json={"url": VIDEO},
+                    headers=member("ok@example.com", "media.import_url"))
+    assert r.status_code == 200 and r.json()["kind"] == "video" and SECRET not in r.text
+
+
+def test_every_title_route_is_refused_from_another_device(env):
     did = db.create_drama(title_en="x", source_url="https://www.youtube.com/watch")
     remote = TestClient(create_app(ApiSettings(auth_mode="on")),
                         base_url="https://baihe.example.com", raise_server_exceptions=False)
@@ -263,7 +282,6 @@ def test_every_route_is_refused_from_another_device(env):
     h = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
          api_auth.CSRF_HEADER: s["csrf_token"]}
     for method, path, body in (
-            ("post", "/api/media-link/probe", {"url": VIDEO}),
             ("post", f"/api/dramas/{did}/link-details/probe", None),
             ("post", f"/api/dramas/{did}/link-details/apply", {"author": "a"}),
             ("post", "/api/library/link-scan", None),

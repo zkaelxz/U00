@@ -761,8 +761,8 @@ def _start_item(item: dict) -> Optional[str]:
     principal = _run_principal(item)
     if not _owns_title(principal, item["drama_id"]):
         raise ForbiddenError("The account that added this item no longer owns the title.")
-    needed = "lines.read" if item["step"] == "export" else "jobs.start"
-    if not _holds(principal, needed):
+    needed = {"export": ("lines.read",), DOWNLOAD: ("jobs.start", "media.import_url")}.get(item["step"], ("jobs.start",))
+    if not all(_holds(principal, p) for p in needed):
         raise ForbiddenError("The account that added this item can no longer do this step.")
     if item.get("auto_series") is not None:
         series_auto_service.require_on(item["auto_series"])
