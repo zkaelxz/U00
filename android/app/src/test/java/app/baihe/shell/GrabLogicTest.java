@@ -313,4 +313,18 @@ public class GrabLogicTest {
         assertEquals(2, ServerAddress.partOf(java.util.Arrays.asList("第5話（2／3）"))[0]);
         assertNull(ServerAddress.partOf(java.util.Arrays.asList("Chapter 5", "Title 2024/05")));
     }
+
+    @Test
+    public void onlyWidePicturesAreScaledDownBeforeAnUpload() {
+        assertEquals(ImageShrink.MAX_WIDTH, ImageShrink.targetWidth(3000));
+        assertEquals(0, ImageShrink.targetWidth(ImageShrink.MAX_WIDTH));
+        assertEquals(0, ImageShrink.targetWidth(900));
+    }
+
+    @Test
+    public void smallPicturesAreSentAsTheyAre() {
+        PageImage small = new PageImage("k", "u", "image/png", "AAAA");
+        assertFalse(ImageShrink.worthShrinking(small));
+        assertTrue(ImageShrink.forUpload(small) == small);
+    }
 }
