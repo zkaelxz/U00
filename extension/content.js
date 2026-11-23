@@ -106,6 +106,52 @@
            Number(style.opacity || "1") > 0.05;
   }
 
+  function mediaInHiddenRoots() {
+    const out = [];
+    const roots = [document];
+    for (let seen = 0; roots.length && seen < 40; seen += 1) {
+      const root = roots.shift();
+      const all = root.querySelectorAll("*");
+      for (let n = 0; n < all.length && n < 6000; n += 1) {
+        const el = all[n];
+        if (el.shadowRoot) {
+          roots.push(el.shadowRoot);
+          out.push(...el.shadowRoot.querySelectorAll("img, canvas"));
+        } else if (el.tagName === "IFRAME") {
+          try {
+            if (el.contentDocument) {
+              roots.push(el.contentDocument);
+              out.push(...el.contentDocument.querySelectorAll("img, canvas"));
+            }
+          } catch (e) { /* another site's frame */ }
+        }
+      }
+    }
+    return out;
+  }
+
+  // For a reader that ignores a changed scrollTop (it listens for wheel or key presses, or
+  // scrolls itself to a picture): the last picture is brought into view and a wheel and a key
+  // press are sent to what is in the middle of the screen.
+  function nudgeReader() {
+    const media = candidateElements();
+    const last = media[media.length - 1];
+    if (last) { try { last.scrollIntoView({ block: "end" }); } catch (e) { /* detached */ } }
+    const step = Math.max(400, window.innerHeight * 0.9);
+    try { window.scrollBy(0, step); } catch (e) { /* ignore */ }
+    let target = null;
+    try { target = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2); } catch (e) { /* ignore */ }
+    target = target || document.body;
+    try {
+      target.dispatchEvent(new WheelEvent("wheel", { deltaY: step, bubbles: true, cancelable: true }));
+    } catch (e) { /* ignore */ }
+    for (const key of ["ArrowDown", "PageDown"]) {
+      try {
+        target.dispatchEvent(new KeyboardEvent("keydown", { key, code: key, bubbles: true, cancelable: true }));
+      } catch (e) { /* ignore */ }
+    }
+  }
+
   function candidateElements() {
     const found = [];
     for (const img of document.images) {
@@ -121,6 +167,15 @@
     for (const canvas of document.querySelectorAll("canvas")) {
       if (canvas.width >= MIN_WIDTH && canvas.height >= MIN_HEIGHT && isVisible(canvas)) {
         found.push(canvas);
+      }
+    }
+    // Pages some readers draw in open shadow roots or same-site frames, where document.images
+    // does not reach: only looked for when the page itself gave almost nothing.
+    if (found.length < 3) {
+      for (const el of mediaInHiddenRoots()) {
+        const w = el.naturalWidth || el.width;
+        const h = el.naturalHeight || el.height;
+        if (w >= MIN_WIDTH && h >= MIN_HEIGHT && isVisible(el)) found.push(el);
       }
     }
     // Reading order on screen: top to bottom, then left to right. The
@@ -1875,6 +1930,7 @@
     let lastMoved = true;
     let expected = 0;
     let patientTries = 0;
+    let nudges = 0;
     while (!reason) {
       if (run.cancelled) { reason = "cancelled"; break; }
       if (looksLikeChallengePage()) {
@@ -1900,6 +1956,15 @@
         if (run.cancelled) { reason = "cancelled"; break; }
       }
       const atBottom = scroller.top() >= scroller.max() - 4;
+      // A page that cannot be moved by scrollTop (or stopped short of its end) may still answer
+      // the reader's own wheel and key handling; a few tries, so a real end costs nothing extra.
+      if (!found && !capHit && nudges < 8 && (scroller.max() < 50 || (!lastMoved && !atBottom))) {
+        nudges += 1;
+        nudgeReader();
+        await sleep(stepDelay());
+        lastMoved = true;
+        continue;
+      }
       if (capHit) reason = "cap";
       else if (!found && (atBottom || !lastMoved)) reason = "end";
       else if (stalls >= CAPTURE_STALL_STEPS || steps >= CAPTURE_MAX_STEPS) reason = "stalled";
