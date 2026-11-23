@@ -21,6 +21,8 @@ No FastAPI import.
 """
 import copy
 import os
+import re
+import unicodedata
 from types import SimpleNamespace
 from typing import Optional
 
@@ -40,6 +42,7 @@ from services import (
     paid_job_service,
     settings_service,
 )
+from services.characters_service import MAX_SPEAKER_LABEL_LEN
 from lib.errors import (
     ConflictError,
     InvalidInputError,
@@ -375,9 +378,22 @@ def _run_narration_job(job_id, drama_id, text, engine_name, api_key, model, fres
         raise RuntimeError(f"{str(stop).rstrip('.')}. Chunks already tagged are kept; run it again to continue.") from None
     _raise_if_cancelled(job_id)
     for ln in lines:
-        ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
+        ln.speaker = _tagged_label(by_idx.get(ln.idx))
 
     _finish(job_id, drama_id, lines, append, chapters, whole_text)
+
+
+def _tagged_label(raw) -> str:
+    """The model's label as a speaker label that passes the rules a name typed in Review
+    must: invisible and control characters dropped, slashes made spaces and ".." one
+    ellipsis (else the voice bank would refuse the speaker), spaces collapsed and cut to
+    MAX_SPEAKER_LABEL_LEN. "Narrator" when nothing is left."""
+    if not isinstance(raw, str):
+        return "Narrator"
+    kept = "".join(" " if ch.isspace() or ch in "/\\" else ch for ch in raw
+                   if ch.isspace() or not unicodedata.category(ch).startswith(("C", "Zl", "Zp")))
+    kept = re.sub(r"\.{2,}", "\u2026", kept)
+    return " ".join(kept.split())[:MAX_SPEAKER_LABEL_LEN].strip() or "Narrator"
 
 
 def _finish(job_id, drama_id, lines, append, chapters, whole_text, notice=None):

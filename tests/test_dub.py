@@ -290,10 +290,11 @@ class _PcmClip:
         return cls(data)
 
     def set_frame_rate(self, rate):
-        # Keeps every other frame: enough to see the clip was brought to the track's rate.
-        step = self.frame_rate // rate
+        # Keeps every other frame, or doubles each: enough to see the clip was brought to the track's rate.
         frames = [self.raw_data[i:i + 2] for i in range(0, len(self.raw_data), 2)]
-        return _PcmClip(b"".join(frames[::step]), frame_rate=rate)
+        if rate > self.frame_rate:
+            return _PcmClip(b"".join(f * (rate // self.frame_rate) for f in frames), frame_rate=rate)
+        return _PcmClip(b"".join(frames[::self.frame_rate // rate]), frame_rate=rate)
 
     def get_array_of_samples(self):
         return []
@@ -470,6 +471,140 @@ class TestStreamedNarrationTrack:
         with pytest.raises(RuntimeError, match="took more than"):
             stream.add(_PcmClip(b"\x01\x00" * 10), 0)
         assert unblocked.is_set()
+
+
+    def test_time_spent_reading_the_clips_does_not_count_toward_the_limit(self, ffmpeg, tmp_path):
+        """The limit is for a hung ffmpeg; a long book's clips take hours to read on their own."""
+        import time
+        stream = dub_narration._FlacStream(str(tmp_path / "t.flac"), 1.0, str(tmp_path), timeout=0.2)
+        at = 0
+        for _ in range(3):
+            time.sleep(0.12)  # reading and levelling the next clip
+            at += len(stream.add(_PcmClip(b"\x01\x00" * 10), at))
+        stream.finish(at)
+        assert not ffmpeg.proc.killed and (tmp_path / "t.flac").read_bytes() == b"fLaC"
+
+    def test_the_track_takes_the_highest_format_of_its_clips(self, monkeypatch, tmp_path, ffmpeg):
+        """The first clip's format used to set the track's, so a better later clip lost quality."""
+        _pcm_pydub(monkeypatch)
+        one, other = b"\x01\x00" * 10, b"RATE2000" + b"\x02\x00" * 20
+        _speak_bytes(monkeypatch, {"One.": one, "Two.": other})
+        monkeypatch.setattr(dub_narration, "_wav_format",
+                            lambda path: (2000, 1, 2) if "line_0001" in path else (1000, 1, 2))
+        dub_narration.build_narration_track(self._lines("One.", "Two."), str(tmp_path), self._voices(2))
+        gap = b"\x00\x00" * (2 * dub_narration.CLIP_GAP_MS)
+        assert ffmpeg.cmd[ffmpeg.cmd.index("-ar") + 1] == "2000"
+        assert bytes(ffmpeg.fed) == b"\x01\x00\x01\x00" * 10 + gap + b"\x02\x00" * 20 + gap
+
+    def test_a_part_file_a_killed_ffmpeg_still_holds_is_removed_once_it_lets_go(self, monkeypatch, tmp_path):
+        from lib import atomic_write
+        part = tmp_path / "narration_track.flac.part"
+        part.write_bytes(b"half")
+        real_remove, tries = os.remove, []
+
+        def held_twice(path):
+            tries.append(path)
+            if len(tries) <= 2:
+                err = PermissionError(13, "in use")
+                err.winerror = 32
+                raise err
+            real_remove(path)
+        monkeypatch.setattr(atomic_write, "_ON_WINDOWS", True)
+        monkeypatch.setattr(atomic_write.os, "remove", held_twice)
+        dub_narration.remove_partial_track(str(tmp_path))
+        assert not part.exists() and len(tries) == 3
+
+    def test_a_part_file_that_stays_held_does_not_stop_the_next_run(self, monkeypatch, tmp_path, ffmpeg):
+        _pcm_pydub(monkeypatch)
+        _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 10})
+        held = tmp_path / "narration_track.flac.part"
+        held.write_bytes(b"half")
+        real = dub_narration.remove_file
+
+        def still_held(path):
+            if path == str(held):
+                raise PermissionError(13, "in use")
+            real(path)
+        monkeypatch.setattr(dub_narration, "remove_file", still_held)
+        out, errors = dub_narration.build_narration_track(self._lines("One."), str(tmp_path), self._voices(1))
+        assert errors == [] and open(out, "rb").read() == b"fLaC"
+        assert re.fullmatch(r"narration_track\.flac\.[0-9a-f]{8}\.part", os.path.basename(ffmpeg.cmd[-1]))
+        assert sorted(os.listdir(tmp_path)) == ["dub_clips", "narration_track.flac", "narration_track.flac.part"]
+        monkeypatch.setattr(dub_narration, "remove_file", real)
+        dub_narration.remove_partial_track(str(tmp_path))
+        assert not held.exists()
+
+    def test_only_the_tracks_own_part_files_are_removed(self, tmp_path):
+        for name in ("narration_track.flac.part", "narration_track.flac.0123abcd.part", "notes.part",
+                     "narration_track.flac", "narration_track.flac.ZZZ.part"):
+            (tmp_path / name).write_bytes(b"x")
+        dub_narration.remove_partial_track(str(tmp_path))
+        assert sorted(os.listdir(tmp_path)) == ["narration_track.flac", "narration_track.flac.ZZZ.part", "notes.part"]
+
+
+class TestTrackFormat:
+    def _wav(self, path, rate, channels, width):
+        import wave
+        with wave.open(str(path), "wb") as w:
+            w.setnchannels(channels)
+            w.setsampwidth(width)
+            w.setframerate(rate)
+            w.writeframes(b"\x00" * (channels * width * 10))
+        return str(path)
+
+    def test_the_highest_rate_channels_and_width_are_taken_from_the_headers(self, tmp_path):
+        paths = [self._wav(tmp_path / "a.wav", 24000, 1, 2), self._wav(tmp_path / "b.wav", 44100, 1, 2),
+                 self._wav(tmp_path / "c.wav", 22050, 2, 3)]
+        (tmp_path / "d.wav").write_bytes(b"not a wav")
+        assert dub_narration._track_format([*paths, str(tmp_path / "d.wav"), str(tmp_path / "gone.wav")]) == (44100, 2, 3)
+
+    def test_no_readable_header_leaves_it_to_the_first_clip(self, tmp_path):
+        (tmp_path / "d.wav").write_bytes(b"RIFF\x00\x00\x00\x00WAVEjunk")
+        assert dub_narration._track_format([str(tmp_path / "d.wav")]) is None
+
+
+class TestRemoveUnusedClips:
+    def test_keeps_named_clips_in_either_slash_and_everything_not_a_line_clip(self, tmp_path):
+        clips = tmp_path / "dub_clips"
+        clips.mkdir()
+        names = ["line_0000_aaaaaaaaaa.wav", "line_0001-0003_bbbbbbbbbb.wav", "line_0004_cccccccccc.wav",
+                 "line_0005_dddddddddd.wav", "voice_spec_x.json", "line_0006_eeeeeeeeee.partial.wav", "mine.wav"]
+        for n in names:
+            (clips / n).write_bytes(b"x")
+        (clips / "line_0007_ffffffffff.wav").mkdir()
+        removed = dub_narration.remove_unused_clips(str(tmp_path), [
+            "dub_clips/line_0000_aaaaaaaaaa.wav", "dub_clips\\line_0001-0003_bbbbbbbbbb.wav", None, ""])
+        assert removed == 2
+        assert sorted(os.listdir(clips)) == sorted([
+            "line_0000_aaaaaaaaaa.wav", "line_0001-0003_bbbbbbbbbb.wav", "voice_spec_x.json",
+            "line_0006_eeeeeeeeee.partial.wav", "mine.wav", "line_0007_ffffffffff.wav"])
+
+    def test_no_clips_folder_is_nothing_to_do(self, tmp_path):
+        assert dub_narration.remove_unused_clips(str(tmp_path), []) == 0
+
+    def test_a_linked_clips_folder_or_clip_is_never_followed(self, tmp_path):
+        """Only the title's own folder is cleaned: a dub_clips that leads elsewhere, or a clip
+        that is a link, is left with what it points at."""
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "line_0000_aaaaaaaaaa.wav").write_bytes(b"x")
+        title = tmp_path / "title"
+        title.mkdir()
+        try:
+            os.symlink(elsewhere, title / "dub_clips", target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("this system can't make symlinks")
+        assert dub_narration.remove_unused_clips(str(title), []) == 0
+        assert os.listdir(elsewhere) == ["line_0000_aaaaaaaaaa.wav"]
+
+        other = tmp_path / "other"
+        other.mkdir()
+        clips = other / "dub_clips"
+        clips.mkdir()
+        os.symlink(elsewhere / "line_0000_aaaaaaaaaa.wav", clips / "line_0001_bbbbbbbbbb.wav")
+        assert dub_narration.remove_unused_clips(str(other), []) == 0
+        assert os.path.islink(clips / "line_0001_bbbbbbbbbb.wav")
+        assert os.listdir(elsewhere) == ["line_0000_aaaaaaaaaa.wav"]
 
 
 class TestMostlyFailedNarration:

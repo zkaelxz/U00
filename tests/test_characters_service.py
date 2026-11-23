@@ -1,4 +1,5 @@
 import os
+import re
 
 import pytest
 
@@ -159,6 +160,31 @@ class TestVoiceBank:
         assert ".wav" not in repr(out)
         assert os.path.exists(os.path.join(isolated_db.drama_dir(d1), f"voicebank_{eid}_A.wav"))
         assert _by_label(cs.list_characters(d2), "A")["has_ref_audio"] is False
+
+    @pytest.mark.parametrize("label", ["../../escape", "a:b", "C:\\x", "名字?", "x" * 90])
+    def test_a_remembered_voice_never_lands_outside_the_title_folder(self, isolated_db, tmp_path, label):
+        """Chunk & tag labels are the model's text; the copy's file name is built from the label."""
+        clip = tmp_path / "clip.wav"
+        clip.write_bytes(b"RIFF")
+        eid = isolated_db.save_voice_bank_entry("V", str(clip), ref_text="hi", clone_engine="omnivoice")
+        sid = isolated_db.get_or_create_series("S")
+        sc = isolated_db.insert_series_character(sid, "Lin")
+        isolated_db.set_series_character_voice(sc, eid)
+        did = _drama(isolated_db, speakers=(label,), series_id=sid)
+        isolated_db.upsert_character(did, label, series_character_id=sc)
+        assert cs.apply_series_voice(did, label) is True
+        ref = next(c for c in isolated_db.list_characters(did) if c["speaker_label"] == label)["ref_audio_filename"]
+        assert re.fullmatch(rf"voicebank_{eid}_h[0-9a-f]{{12}}\.wav", ref)
+        assert sorted(os.listdir(tmp_path)) == ["clip.wav"]
+        assert os.path.isfile(os.path.join(isolated_db.drama_dir(did), ref))
+
+    def test_a_plain_label_keeps_its_readable_file_name(self, isolated_db, tmp_path):
+        clip = tmp_path / "clip.wav"
+        clip.write_bytes(b"RIFF")
+        eid = isolated_db.save_voice_bank_entry("V", str(clip), clone_engine="omnivoice")
+        did = _drama(isolated_db, speakers=("林 Lin-2",))
+        assert isolated_db.apply_voice_bank_entry(eid, isolated_db.drama_dir(did), did, "林 Lin-2") == \
+            f"voicebank_{eid}_林 Lin-2.wav"
 
     def test_apply_not_found(self, isolated_db, tmp_path):
         eid = self._entry(isolated_db, tmp_path)

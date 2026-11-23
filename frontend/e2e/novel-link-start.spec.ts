@@ -34,8 +34,8 @@ async function mockServer(page: Page, start: Partial<Server> = {}, end: Run = { 
     return r.fulfill({ json: s.run })
   })
   await page.route('**/api/narration/dramas/2/config', (r) => r.fulfill({ json: {
-    drama_id: 2, is_narration: true, has_novel_source: true, engines: [{ key: 'gemini', key_configured: true }],
-    default_engine: 'gemini', max_chunk_chars: 1000, existing_line_count: 0, replaces_existing_lines: false, job_running: false, chapter_count: 5 } }))
+    drama_id: 2, is_narration: true, has_novel_source: s.text, engines: [{ key: 'gemini', key_configured: true }, { key: 'claude', key_configured: true }],
+    default_engine: 'claude', max_chunk_chars: 1000, existing_line_count: 0, replaces_existing_lines: false, job_running: false, chapter_count: s.text ? 5 : 0 } }))
   await page.route('**/api/narration/dramas/2/estimate*', (r) => r.fulfill({ json: {
     engine: 'gemini', model: 'm', chunk_count: 40, chapters: 5, estimated_usd: 0, has_key: true, cap_applies: false,
     monthly_cap_set: false, effective_cap_usd: null, monthly_refusal: false, estimate_above_cap: false } }))
@@ -49,8 +49,20 @@ test('the link starts the run, which stops at the glossary review', async ({ pag
   await page.getByRole('button', { name: 'Import from link' }).click()
   const review = page.getByRole('link', { name: 'Review glossary and translate' })
   await expect(review).toHaveAttribute('href', '#/drama/2/translate?tab=translate')
-  // Before the text exists there is no engine to show, so the server's default makes the lines.
-  expect(s.posts).toEqual([{ url: 'https://example.com/book/1', cost_accepted: false }])
+  // The engine shown before the import is the one the lines step is told to use.
+  expect(s.posts).toEqual([{ url: 'https://example.com/book/1', engine: 'claude', cost_accepted: false }])
+})
+
+test('One narrator and the engine are chosen before the first import', async ({ page }) => {
+  const s = await mockServer(page)
+  await page.goto('/#/drama/2')
+  await expect(page.getByRole('spinbutton', { name: 'First chapter' })).toHaveCount(0)
+  await page.getByLabel('AI engine', { exact: true }).selectOption('gemini')
+  await page.getByRole('switch', { name: 'One narrator, skip speaker tagging' }).click()
+  await page.getByLabel('Link to the novel').fill('https://example.com/book/1')
+  await page.getByRole('button', { name: 'Import from link' }).click()
+  await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toBeVisible()
+  expect(s.posts).toEqual([{ url: 'https://example.com/book/1', engine: 'gemini', one_narrator: true, cost_accepted: false }])
 })
 
 test('a run that stopped says why and offers Continue', async ({ page }) => {
@@ -93,7 +105,7 @@ test('with chapters saved, Continue starts the run without a link', async ({ pag
   await page.getByRole('button', { name: 'Continue' }).click()
   await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toBeVisible()
   // The engine shown in the options is the one the lines step is told to use.
-  expect(s.posts).toEqual([{ url: '', engine: 'gemini', chapter_from: 2, cost_accepted: false }])
+  expect(s.posts).toEqual([{ url: '', engine: 'claude', chapter_from: 2, cost_accepted: false }])
 })
 
 test('Translate on a novel with chapters and no lines starts the run to the glossary review', async ({ page }) => {
@@ -111,7 +123,7 @@ test('Enter in the link box starts the run', async ({ page }) => {
   await page.getByLabel('Link to the novel').fill('https://example.com/book/1')
   await page.getByLabel('Link to the novel').press('Enter')
   await expect(page.getByRole('link', { name: 'Review glossary and translate' })).toBeVisible()
-  expect(s.posts[0]).toEqual({ url: 'https://example.com/book/1', cost_accepted: false })
+  expect(s.posts[0]).toEqual({ url: 'https://example.com/book/1', engine: 'claude', cost_accepted: false })
 })
 
 test('Import from link stays disabled until a link is typed', async ({ page }) => {

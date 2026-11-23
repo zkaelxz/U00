@@ -69,8 +69,8 @@ export function NovelLinkStart({ id, chapters, translating, defaultUrl, hasSerie
   const finished = run?.state === 'review' && !started
 
   // Read again as the run moves on: the text only exists once it is prepared, and the estimate needs it.
+  // Read before the first import too, so One narrator and the engine are chosen before any line is tagged.
   useEffect(() => {
-    if (!resuming) return
     let cancelled = false
     narrationApi.config(id).then((c) => !cancelled && setCfg(c), () => undefined)
     return () => { cancelled = true }
@@ -84,7 +84,6 @@ export function NovelLinkStart({ id, chapters, translating, defaultUrl, hasSerie
     }
     setStarting(true)
     setError(null)
-    // Before the text exists there is no choice to show, and the server's default engine makes the lines.
     const { engine, ...choice } = tagRunBody(tag, cfg?.default_engine ?? '')
     const lines = { ...choice, ...(engine ? { engine } : {}), cost_accepted: costAccepted.current }
     startNovelFlow(id, resuming ? '' : url.trim(), lines).then((r) => { setRun(r); again() }, (e: unknown) => setError(e))
@@ -134,12 +133,13 @@ export function NovelLinkStart({ id, chapters, translating, defaultUrl, hasSerie
         <span className="muted" role="status" aria-live="polite">{started ? 'Translation started' : flowText(run, STEP_TEXT)}</span>
         {!started && job && <a href={routeHref({ name: 'jobs', job })}>See details</a>}
       </div>
-      {resuming && !finished && !started && cfg && (
+      {!finished && !started && cfg && (
         <TagChoices
           dramaId={id}
           cfg={cfg}
           value={tag}
           disabled={running}
+          forNewChapters={!resuming}
           onChange={(next) => {
             setSaved({ engine: next.engine, model: next.model, oneNarrator: next.oneNarrator })
             setRange({ from: next.from, to: next.to })
