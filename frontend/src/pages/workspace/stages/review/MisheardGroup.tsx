@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { applyMisheard, keepMisheard, rememberMisheard, showKeptMisheard } from '../../../../api/misheard'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { HelpTip } from '../../../../components/HelpTip'
 import { buttonClass } from '../../../../components/uiClasses'
 import { lineNumber } from '../../../../lineNumber'
 import type { MisheardSuggestion } from '../../../../types/misheard'
@@ -14,6 +15,17 @@ interface GroupProps {
   // Plays the line's audio; absent when the title has no audio or video loaded.
   onListen?: (line: { id: number; idx: number; start: number; end: number }) => void
   onChanged: () => void
+}
+
+// A count of 0 is the usual case for a glossary or name spelling (it was typed, not heard), so the count would read
+// as evidence against the suggestion; say where the spelling comes from instead.
+const ZERO_COUNT_SOURCE: Record<string, string> = {
+  glossary: "It's in your glossary.", name: "It's a character name.", title: "It's in the title.",
+}
+
+function evidence(s: MisheardSuggestion): string {
+  if (s.suggested_count === 0 && ZERO_COUNT_SOURCE[s.source]) return `. ${ZERO_COUNT_SOURCE[s.source]}`
+  return `; the suggested spelling appears ${s.suggested_count} ${s.suggested_count === 1 ? 'time' : 'times'}.`
 }
 
 // The heard spelling underlined inside the line, so the part in question is easy to find.
@@ -58,8 +70,10 @@ export function MisheardGroup({ dramaId, items, kept = 0, onGoTo, onListen, onCh
     <div className="review-misheard" role="group" aria-label="May be mis-heard">
       <strong>May be mis-heard</strong>
       <p className="muted">
-        These sound like a word the title already uses, spelled another way. Check by ear before using one;
-        Use here and Use everywhere change the source text only (Use everywhere leaves a longer word alone), and a translated line is then flagged Source changed. Keep as heard hides a suggestion for this title.
+        These sound like a word the title already uses, spelled another way: check by ear before using one.
+        <HelpTip label="What the buttons do" id="misheard-help">
+          Use here and Use everywhere change the source text only (Use everywhere leaves a longer word alone), and a translated line is then flagged Source changed. Keep as heard hides a suggestion for this title.
+        </HelpTip>
       </p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {items.length === 0 && <p className="muted">No suggestions left.</p>}
@@ -68,8 +82,7 @@ export function MisheardGroup({ dramaId, items, kept = 0, onGoTo, onListen, onCh
           <li key={`${s.heard}>${s.suggested}`} data-testid="misheard-item">
             <span>
               Maybe <strong>{s.suggested}</strong>? Heard as <u>{s.heard}</u> on {s.line_count}{' '}
-              {s.line_count === 1 ? 'line' : 'lines'}; the suggested spelling appears {s.suggested_count}{' '}
-              {s.suggested_count === 1 ? 'time' : 'times'}.
+              {s.line_count === 1 ? 'line' : 'lines'}{evidence(s)}
             </span>
             {s.lines.map((l) =>
               l.line_id == null ? null : (

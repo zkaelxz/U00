@@ -76,6 +76,19 @@ def opencc_t2s():
     return _opencc_t2s
 
 
+_opencc_s2t = None
+
+
+def opencc_s2t():
+    """The shared OpenCC Simplified-to-Traditional converter (characters only, no regional
+    phrasing); ImportError when opencc-python-reimplemented isn't installed."""
+    global _opencc_s2t
+    if _opencc_s2t is None:
+        import opencc
+        _opencc_s2t = opencc.OpenCC("s2t")
+    return _opencc_s2t
+
+
 def _cut_traditional(text: str):
     """Word-boundary lengths come from segmenting the Simplified conversion
     (jieba's own dictionary); the actual words returned are sliced from the

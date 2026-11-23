@@ -346,7 +346,7 @@ SETTINGS = (
     # tests/test_blocked_phrases.py fails if they drift apart.
     _pref("blocked_phrases", "text", _BLOCKED_PHRASES_DEFAULT, multiline=True, max_len=4000,
          label="Blocked phrases",
-         help="One phrase per line. A subtitle line that contains one is removed when a title is transcribed, even next to real speech (for the stock lines Whisper invents, such as 'please like, share and subscribe'). Case, spaces and punctuation are ignored; a phrase needs at least 4 letters. Clear the box to block nothing. Applies to transcriptions that start afterwards.",
+         help="One phrase per line. A subtitle line that contains one is removed when a title is transcribed only if Whisper made it up (the stock lines it invents, such as 'please like, share and subscribe'): the voice detector hears no speech under it. Where it hears a voice, the line is kept. Without the detector (or with Difficult audio on), only the phrase alone in silence is removed. Case, spaces and punctuation are ignored; a phrase needs at least 4 letters. Clear the box to block nothing. Applies to transcriptions that start afterwards.",
          tab="system", section="Transcription experiments"),
     _own("voice_detector", "choice", "auto", choices="voice_detectors", label="Voice detector",
          help="Which speech detector the Qwen3 ASR engines that need no Whisper use; Whisper uses its own. Auto picks the ASMR detector for a Japanese ASMR title once its model is downloaded, and Standard otherwise. The ASMR detector is trained on Japanese ASMR; without its model a run uses Standard and says so.",

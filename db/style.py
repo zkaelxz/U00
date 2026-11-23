@@ -60,6 +60,15 @@ def record_source_edits(drama_id: int, rows) -> int:
     return len(values)
 
 
+def clear_deleted_title_source_edits() -> int:
+    """Removes the source-text edit history that outlived deleted titles (delete_drama detaches
+    it so the corrections report keeps counting it). Returns how many rows went."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute("DELETE FROM source_edits WHERE drama_id IS NULL AND deleted_drama_id IS NOT NULL")
+        conn.commit()
+    return cur.rowcount
+
+
 def list_source_edits(drama_id: int | None = None, limit: int = 100):
     """Newest first; limit -1 for every row."""
     with contextlib.closing(db.get_conn()) as conn:
