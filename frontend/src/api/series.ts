@@ -11,6 +11,8 @@ export interface SeriesListItem {
   owned_by_me: boolean
   title_count: number
   glossary_term_count: number
+  // The streamer the Library files it under; null: none.
+  streamer?: string | null
   // A visible title with cover art: /api/dramas/{id}/cover is the folder picture.
   cover_title_id?: number | null
 }
@@ -39,6 +41,7 @@ export interface SeriesPageData {
   glossary_term_count: number
   character_count: number
   speaker_mode: SpeakerMode
+  streamer?: string | null
   titles: SeriesTitle[]
 }
 
@@ -91,6 +94,10 @@ export const renameSeries = (id: number, name: string, f?: Fetch) =>
 
 export const setSeriesSpeakerMode = (id: number, mode: SpeakerMode, f?: Fetch) =>
   postJson<{ series_id: number; speaker_mode: SpeakerMode }>(`/api/series/${id}/speaker-mode`, { mode }, f)
+
+// An empty name clears it; a name matching one already in use (ignoring case) comes back in that spelling.
+export const setSeriesStreamer = (id: number, streamer: string, f?: Fetch) =>
+  postJson<{ series_id: number; streamer: string | null }>(`/api/series/${id}/streamer`, { streamer }, f)
 
 export const getSeriesDeletePreview = (id: number, f?: Fetch) =>
   getJson<SeriesDeletePreview>(`/api/series/${id}/delete-preview`, f)

@@ -382,7 +382,7 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | Non
             style_name, name = sfx_name, ""
         else:
             style_name = style_for.get(ln.speaker, default_name)
-            name = _ass_field((speaker_names or {}).get(ln.speaker) or ln.speaker or "") if ln.speaker else ""
+            name = _ass_field((speaker_names or {}).get(ln.speaker) or "") if ln.speaker else ""
         if record is None:
             text = _ass_escape(_fit_cjk_rows(plain, row_limit, language, chinese_script))
             events.append(f"Dialogue: 0,{start},{end},{style_name},{name},0,0,0,,{text}")

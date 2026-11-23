@@ -9644,6 +9644,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/series/{series_id}/streamer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** File a series under a streamer in the Library (empty name clears it) */
+        post: operations["set_streamer_api_series__series_id__streamer_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/series/{series_id}/translation-memory.tmx": {
         parameters: {
             query?: never;
@@ -28080,6 +28097,11 @@ export interface components {
              * @description The signed-in viewer created it.
              */
             owned_by_me: boolean;
+            /**
+             * Streamer
+             * @description The streamer the Library files it under; null: none.
+             */
+            streamer: string | null;
             /** Title Count */
             title_count: number;
         };
@@ -28115,6 +28137,8 @@ export interface components {
              * @enum {string}
              */
             speaker_mode: "auto" | "solo";
+            /** Streamer */
+            streamer: string | null;
             /** Titles */
             titles: components["schemas"]["SeriesTitle"][];
         };
@@ -28206,6 +28230,21 @@ export interface components {
              * @enum {string}
              */
             speaker_mode: "auto" | "solo";
+        };
+        /** SeriesStreamerRequest */
+        SeriesStreamerRequest: {
+            /**
+             * Streamer
+             * @description Empty clears it.
+             */
+            streamer: string;
+        };
+        /** SeriesStreamerResult */
+        SeriesStreamerResult: {
+            /** Series Id */
+            series_id: number;
+            /** Streamer */
+            streamer: string | null;
         };
         /** SeriesTitle */
         SeriesTitle: {
@@ -62356,6 +62395,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SeriesSpeakerModeResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_streamer_api_series__series_id__streamer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SeriesStreamerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesStreamerResult"];
                 };
             };
             /** @description Forbidden */

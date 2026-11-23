@@ -6,6 +6,7 @@ services/series_service.py.
     GET  /api/series/{series_id}                        library.read  titles and counts
     POST /api/series/{series_id}/rename                 lines.edit    editable series
     POST /api/series/{series_id}/speaker-mode           lines.edit    editable series
+    POST /api/series/{series_id}/streamer               lines.edit    editable series; empty clears
     GET  /api/series/{series_id}/delete-preview         library.read  owner or admin
     POST /api/series/{series_id}/delete                 PC only       owner or admin
     GET  /api/series/{series_id}/copy-terms-preview     library.read  editable series
@@ -45,6 +46,7 @@ from api.schemas import (SeriesAutoRunCeiling, SeriesAutoRunOn, SeriesAutoRunSta
                          SeriesListResponse, SeriesPage, SeriesRenameRequest, SeriesRenameResult,
                          SeriesSharedGlossary, SeriesSharedGlossaryRequest,
                          SeriesSpeakerModeRequest, SeriesSpeakerModeResult,
+                         SeriesStreamerRequest, SeriesStreamerResult,
                          SeriesTmxImportRequest, SeriesTmxImportResult, error_responses)
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
@@ -100,6 +102,13 @@ def rename_series(body: SeriesRenameRequest, request: Request, series_id: int = 
              summary="Set how speaker detection treats the series (auto or solo)")
 def set_speaker_mode(body: SeriesSpeakerModeRequest, request: Request, series_id: int = _id()):
     return svc.set_speaker_mode(request.state.principal, series_id, body.mode)
+
+
+@router.post("/{series_id}/streamer", dependencies=[require_permission("lines.edit")],
+             response_model=SeriesStreamerResult, responses=_ERRS,
+             summary="File a series under a streamer in the Library (empty name clears it)")
+def set_streamer(body: SeriesStreamerRequest, request: Request, series_id: int = _id()):
+    return svc.set_streamer(request.state.principal, series_id, body.streamer)
 
 
 @router.get("/{series_id}/delete-preview", dependencies=[require_permission("library.read")],

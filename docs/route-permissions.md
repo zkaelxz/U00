@@ -631,6 +631,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/series/{series_id}/shared-glossary` | library.read |
 | `POST /api/series/{series_id}/shared-glossary` | lines.edit |
 | `POST /api/series/{series_id}/speaker-mode` | lines.edit |
+| `POST /api/series/{series_id}/streamer` | lines.edit |
 | `GET /api/series/{series_id}/translation-memory.tmx` | library.read |
 | `POST /api/series/{series_id}/translation-memory/import` | lines.edit |
 | `GET /api/settings` | admin.settings |
