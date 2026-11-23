@@ -33,6 +33,24 @@ final class QuickRead {
         return out;
     }
 
+    /**
+     * The picture the phone itself sent under `key`, shown for a page the PC returned without a
+     * redraw (no text to translate, or the redraw failed), so the chapter has no holes.
+     */
+    static byte[] original(List<PageImage> batch, String key) {
+        if (key == null || key.isEmpty()) return null;
+        for (PageImage image : batch) {
+            if (!key.equals(image.key) || image.base64.isEmpty()) continue;
+            try {
+                byte[] bytes = Base64.getMimeDecoder().decode(image.base64);
+                return bytes.length == 0 ? null : bytes;
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     /** Only the server's own jpeg data: URL is accepted; anything else is ignored, never written. */
     static byte[] decode(String dataUrl) {
         if (dataUrl == null || !dataUrl.startsWith(JPEG_PREFIX)) return null;

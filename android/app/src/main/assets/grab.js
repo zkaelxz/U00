@@ -131,6 +131,9 @@
       } catch (e) { /* ignore */ }
     });
   }
+  // Everything already in the page (loaded or with a lazy address) is taken before the walk, so
+  // it is not lost if the page stops loading when the app is put away mid-walk.
+  collect();
   var lastHeight = -1;
   var box = scrollBox();
   var stale = 0;
@@ -139,7 +142,10 @@
   for (var step = 0; step < 800 && Date.now() < deadline; step++) {
     if (step % 10 === 0) box = scrollBox();
     var topBefore = box.scrollTop;
-    box.scrollTop += Math.max(400, box.clientHeight * 0.95);
+    // A page with CSS smooth scrolling would glide for half a second per step and look stuck
+    // (scrollTop has not moved yet), so the jump is made instant.
+    var nextTop = box.scrollTop + Math.max(400, box.clientHeight * 0.95);
+    try { box.scrollTo({ top: nextTop, behavior: "instant" }); } catch (e) { box.scrollTop = nextTop; }
     await new Promise(function (r) { setTimeout(r, 90); });
     var room = box.scrollHeight - box.clientHeight;
     // A box that cannot be scrolled by scrollTop (or did not move) may still be driven by its

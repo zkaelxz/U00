@@ -159,6 +159,19 @@ class TestStructuredRegions:
         assert b["translated_text"] == "" and b["skip"] is False and b["include_sfx"] is False
         assert {"kind", "orientation", "panel_id", "confidence", "reading_order"} <= set(b)
 
+    @pytest.mark.parametrize("limit,expected_reads", [(None, 1), (1, 1), (0, 0)])
+    def test_art_caption_pass_is_skipped_on_pages_with_more_balloons_than_the_limit(
+            self, bubble_page, monkeypatch, limit, expected_reads):
+        monkeypatch.setattr(scanlate, "detect_bubbles",
+                            lambda path, backend="auto", **kw: [{"x": 100, "y": 80, "w": 300, "h": 140}])
+        monkeypatch.setattr(scanlate, "ocr_box_region", lambda *a, **kw: "こんにちは")
+        reads = []
+        monkeypatch.setattr(scanlate, "_art_caption_regions",
+                            lambda *a, **kw: reads.append(1) or [])
+        scanlate.detect_and_ocr_page(bubble_page, "zh", art_captions=True,
+                                     art_captions_max_regions=limit)
+        assert len(reads) == expected_reads
+
 
 class TestRegionFieldsPersist:
     def test_save_and_load_round_trip_every_region_field(self, isolated_db):

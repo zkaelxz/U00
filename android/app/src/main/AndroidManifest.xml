@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:allowBackup="false"
@@ -41,6 +45,10 @@
             android:exported="false" />
         <!-- No launcher entry of its own, so the phone shows one icon; it is reached from the
              Baihe icon's long-press shortcut, a link to another site, or Android's Share. -->
+        <service
+            android:name=".GrabKeepAlive"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <activity
             android:name=".QuickReadActivity"
             android:label="Quick read"
