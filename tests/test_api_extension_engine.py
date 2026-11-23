@@ -312,3 +312,10 @@ def test_the_extension_download_is_pc_only(env):
 def test_download_says_so_when_the_extension_files_are_missing(env, monkeypatch, tmp_path):
     monkeypatch.setattr(extension_service, "_EXTENSION_DIR", str(tmp_path / "nope"))
     assert _client().get("/api/extension/download").status_code == 404
+
+
+@pytest.mark.parametrize("language,backend,expected", [
+    ("zh", "rapidocr", True), ("ko", "paddle", True), ("ja", "manga_ocr", False)])
+def test_quick_read_looks_for_lettering_on_the_art_only_when_the_ocr_can(
+        language, backend, expected):
+    assert page_server._reads_art_captions(language, backend) is expected
