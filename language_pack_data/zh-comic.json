@@ -1,0 +1,303 @@
+{
+ "id": "zh-comic",
+ "version": 1,
+ "language": "zh",
+ "title": "Chinese comic terms and sound effects",
+ "description": "Starter pack, review it. For manhua: Court and sect titles, cultivation realms, transmigration and system words, and common sound effects. Used by Quick read and Scanlate for every comic without turning anything on.",
+ "entries": [
+  {
+   "source": "道友",
+   "en": "fellow Daoist",
+   "category": "honorific",
+   "context": "one cultivator to another"
+  },
+  {
+   "source": "公子",
+   "en": "young master",
+   "category": "honorific",
+   "context": "to a noble or well-bred young man"
+  },
+  {
+   "source": "少爷",
+   "en": "young master",
+   "category": "honorific",
+   "context": "servant to the son of the house"
+  },
+  {
+   "source": "小姐",
+   "en": "miss",
+   "category": "honorific",
+   "context": "to a young lady"
+  },
+  {
+   "source": "夫人",
+   "en": "madam",
+   "category": "honorific"
+  },
+  {
+   "source": "老爷",
+   "en": "master",
+   "category": "honorific",
+   "context": "servant to the head of the house"
+  },
+  {
+   "source": "大人",
+   "en": "my lord",
+   "category": "honorific",
+   "context": "to an official"
+  },
+  {
+   "source": "陛下",
+   "en": "Your Majesty",
+   "category": "honorific",
+   "context": "the emperor or empress"
+  },
+  {
+   "source": "殿下",
+   "en": "Your Highness",
+   "category": "honorific",
+   "context": "a prince or princess"
+  },
+  {
+   "source": "王爷",
+   "en": "Prince",
+   "category": "honorific"
+  },
+  {
+   "source": "皇上",
+   "en": "the Emperor",
+   "category": "honorific"
+  },
+  {
+   "source": "太子",
+   "en": "Crown Prince",
+   "category": "term"
+  },
+  {
+   "source": "皇后",
+   "en": "Empress",
+   "category": "term"
+  },
+  {
+   "source": "贵妃",
+   "en": "Noble Consort",
+   "category": "term"
+  },
+  {
+   "source": "本座",
+   "en": "this seat",
+   "category": "honorific",
+   "note": "A powerful speaker referring to himself."
+  },
+  {
+   "source": "本宫",
+   "en": "this palace",
+   "category": "honorific",
+   "note": "A consort or princess referring to herself."
+  },
+  {
+   "source": "本王",
+   "en": "this prince",
+   "category": "honorific"
+  },
+  {
+   "source": "在下",
+   "en": "this humble one",
+   "category": "honorific"
+  },
+  {
+   "source": "宗主",
+   "en": "sect leader",
+   "category": "term"
+  },
+  {
+   "source": "掌门",
+   "en": "sect head",
+   "category": "term"
+  },
+  {
+   "source": "长老",
+   "en": "elder",
+   "category": "term"
+  },
+  {
+   "source": "宗门",
+   "en": "sect",
+   "category": "term"
+  },
+  {
+   "source": "修炼",
+   "en": "cultivation",
+   "category": "term"
+  },
+  {
+   "source": "灵气",
+   "en": "spiritual energy",
+   "category": "term"
+  },
+  {
+   "source": "丹田",
+   "en": "dantian",
+   "category": "term",
+   "note": "Keep 'dantian'."
+  },
+  {
+   "source": "炼气",
+   "en": "Qi Condensation",
+   "category": "term"
+  },
+  {
+   "source": "筑基",
+   "en": "Foundation Establishment",
+   "category": "term"
+  },
+  {
+   "source": "金丹",
+   "en": "Golden Core",
+   "category": "term"
+  },
+  {
+   "source": "元婴",
+   "en": "Nascent Soul",
+   "category": "term"
+  },
+  {
+   "source": "化神",
+   "en": "Deity Transformation",
+   "category": "term"
+  },
+  {
+   "source": "渡劫",
+   "en": "Tribulation",
+   "category": "term"
+  },
+  {
+   "source": "飞升",
+   "en": "ascension",
+   "category": "term"
+  },
+  {
+   "source": "仙",
+   "en": "immortal",
+   "category": "term"
+  },
+  {
+   "source": "妖兽",
+   "en": "demon beast",
+   "category": "term"
+  },
+  {
+   "source": "武林",
+   "en": "martial world",
+   "category": "term"
+  },
+  {
+   "source": "江湖",
+   "en": "jianghu",
+   "category": "term",
+   "note": "Keep 'jianghu'."
+  },
+  {
+   "source": "内力",
+   "en": "inner force",
+   "category": "term"
+  },
+  {
+   "source": "真气",
+   "en": "true qi",
+   "category": "term"
+  },
+  {
+   "source": "重生",
+   "en": "rebirth",
+   "category": "term",
+   "note": "Coming back to life in the past."
+  },
+  {
+   "source": "穿越",
+   "en": "transmigration",
+   "category": "term"
+  },
+  {
+   "source": "系统",
+   "en": "System",
+   "category": "term",
+   "note": "A game-like helper in the hero's mind."
+  },
+  {
+   "source": "女主",
+   "en": "female lead",
+   "category": "term"
+  },
+  {
+   "source": "男主",
+   "en": "male lead",
+   "category": "term"
+  },
+  {
+   "source": "反派",
+   "en": "villain",
+   "category": "term"
+  },
+  {
+   "source": "炮灰",
+   "en": "cannon fodder",
+   "category": "term"
+  },
+  {
+   "source": "总裁",
+   "en": "CEO",
+   "category": "term"
+  },
+  {
+   "source": "咚",
+   "en": "thud",
+   "category": "sfx"
+  },
+  {
+   "source": "砰",
+   "en": "bang",
+   "category": "sfx"
+  },
+  {
+   "source": "轰",
+   "en": "boom",
+   "category": "sfx"
+  },
+  {
+   "source": "哗",
+   "en": "splash",
+   "category": "sfx"
+  },
+  {
+   "source": "啪",
+   "en": "slap",
+   "category": "sfx"
+  },
+  {
+   "source": "嗖",
+   "en": "whoosh",
+   "category": "sfx"
+  },
+  {
+   "source": "叮",
+   "en": "ding",
+   "category": "sfx"
+  },
+  {
+   "source": "咔嚓",
+   "en": "crack",
+   "category": "sfx"
+  },
+  {
+   "source": "哐当",
+   "en": "clang",
+   "category": "sfx"
+  },
+  {
+   "source": "咕咚",
+   "en": "gulp",
+   "category": "sfx"
+  }
+ ]
+}

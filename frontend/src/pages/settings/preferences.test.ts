@@ -15,7 +15,7 @@ const saved: SettingsPreferences = {
   default_engine: 'claude',
   default_locale: 'en-US',
   default_style_note: '',
-  scene_aware_batches: true, blocked_phrases: "",
+  scene_aware_batches: true, blocked_phrases: "", comic_glossary_custom: "",
   scanlate_chapter_brief: true,
   scanlate_page_image: true,
   scanlate_sfx_gloss: false,

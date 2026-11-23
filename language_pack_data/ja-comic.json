@@ -1,0 +1,298 @@
+{
+ "id": "ja-comic",
+ "version": 1,
+ "language": "ja",
+ "title": "Japanese comic terms and sound effects",
+ "description": "Starter pack, review it. For comics: Titles and ranks of fantasy, isekai and court stories, game-system words, and common sound effects. Used by Quick read and Scanlate for every comic without turning anything on.",
+ "entries": [
+  {
+   "source": "殿",
+   "en": "-dono",
+   "category": "honorific",
+   "note": "Archaic samurai or court address; keep the suffix."
+  },
+  {
+   "source": "殿下",
+   "en": "Your Highness",
+   "category": "honorific",
+   "context": "royalty"
+  },
+  {
+   "source": "陛下",
+   "en": "Your Majesty",
+   "category": "honorific",
+   "context": "king, queen or emperor"
+  },
+  {
+   "source": "閣下",
+   "en": "Your Excellency",
+   "category": "honorific",
+   "context": "a high official or noble"
+  },
+  {
+   "source": "姫",
+   "en": "Princess",
+   "category": "term",
+   "note": "Keep 'Hime' only when it is part of a name."
+  },
+  {
+   "source": "王子",
+   "en": "Prince",
+   "category": "term"
+  },
+  {
+   "source": "国王",
+   "en": "the King",
+   "category": "term"
+  },
+  {
+   "source": "皇帝",
+   "en": "Emperor",
+   "category": "term"
+  },
+  {
+   "source": "勇者",
+   "en": "Hero",
+   "category": "term",
+   "note": "The chosen fighter of an isekai or fantasy story."
+  },
+  {
+   "source": "魔王",
+   "en": "Demon Lord",
+   "category": "term"
+  },
+  {
+   "source": "魔法使い",
+   "en": "mage",
+   "category": "term"
+  },
+  {
+   "source": "魔術師",
+   "en": "magician",
+   "category": "term"
+  },
+  {
+   "source": "冒険者",
+   "en": "adventurer",
+   "category": "term"
+  },
+  {
+   "source": "ギルド",
+   "en": "guild",
+   "category": "term"
+  },
+  {
+   "source": "聖女",
+   "en": "Saintess",
+   "category": "term"
+  },
+  {
+   "source": "騎士",
+   "en": "knight",
+   "category": "term"
+  },
+  {
+   "source": "悪役令嬢",
+   "en": "villainess",
+   "category": "term"
+  },
+  {
+   "source": "令嬢",
+   "en": "young lady",
+   "category": "term",
+   "note": "A noble daughter."
+  },
+  {
+   "source": "公爵",
+   "en": "duke",
+   "category": "term"
+  },
+  {
+   "source": "侯爵",
+   "en": "marquis",
+   "category": "term"
+  },
+  {
+   "source": "伯爵",
+   "en": "count",
+   "category": "term"
+  },
+  {
+   "source": "子爵",
+   "en": "viscount",
+   "category": "term"
+  },
+  {
+   "source": "男爵",
+   "en": "baron",
+   "category": "term"
+  },
+  {
+   "source": "異世界",
+   "en": "another world",
+   "category": "term"
+  },
+  {
+   "source": "転移",
+   "en": "transported to another world",
+   "category": "term"
+  },
+  {
+   "source": "召喚",
+   "en": "summoning",
+   "category": "term"
+  },
+  {
+   "source": "スキル",
+   "en": "skill",
+   "category": "term"
+  },
+  {
+   "source": "ステータス",
+   "en": "status",
+   "category": "term"
+  },
+  {
+   "source": "レベル",
+   "en": "level",
+   "category": "term"
+  },
+  {
+   "source": "ダンジョン",
+   "en": "dungeon",
+   "category": "term"
+  },
+  {
+   "source": "ランク",
+   "en": "rank",
+   "category": "term"
+  },
+  {
+   "source": "魔力",
+   "en": "mana",
+   "category": "term"
+  },
+  {
+   "source": "固有スキル",
+   "en": "unique skill",
+   "category": "term"
+  },
+  {
+   "source": "忍者",
+   "en": "ninja",
+   "category": "term"
+  },
+  {
+   "source": "妖怪",
+   "en": "yokai",
+   "category": "term",
+   "note": "Keep 'yokai'."
+  },
+  {
+   "source": "陰陽師",
+   "en": "onmyoji",
+   "category": "term",
+   "note": "Keep 'onmyoji'."
+  },
+  {
+   "source": "組長",
+   "en": "boss",
+   "category": "term",
+   "note": "Head of a yakuza clan or a gang."
+  },
+  {
+   "source": "ドン",
+   "en": "thud",
+   "category": "sfx",
+   "note": "Keep it short; a heavy impact or a drum."
+  },
+  {
+   "source": "ドキドキ",
+   "en": "thump thump",
+   "category": "sfx",
+   "note": "A pounding heart."
+  },
+  {
+   "source": "ゴゴゴ",
+   "en": "rumble",
+   "category": "sfx",
+   "note": "A menacing presence or a tremor."
+  },
+  {
+   "source": "ザワザワ",
+   "en": "murmur",
+   "category": "sfx",
+   "note": "A crowd unsettled."
+  },
+  {
+   "source": "ガタガタ",
+   "en": "rattle",
+   "category": "sfx"
+  },
+  {
+   "source": "ガシャン",
+   "en": "crash",
+   "category": "sfx"
+  },
+  {
+   "source": "バキ",
+   "en": "crack",
+   "category": "sfx"
+  },
+  {
+   "source": "ドカ",
+   "en": "wham",
+   "category": "sfx"
+  },
+  {
+   "source": "シーン",
+   "en": "silence",
+   "category": "sfx"
+  },
+  {
+   "source": "ピタ",
+   "en": "stop",
+   "category": "sfx"
+  },
+  {
+   "source": "ギュッ",
+   "en": "squeeze",
+   "category": "sfx"
+  },
+  {
+   "source": "ふわ",
+   "en": "soft",
+   "category": "sfx"
+  },
+  {
+   "source": "ズキズキ",
+   "en": "throb",
+   "category": "sfx"
+  },
+  {
+   "source": "ゴクリ",
+   "en": "gulp",
+   "category": "sfx"
+  },
+  {
+   "source": "ビクッ",
+   "en": "flinch",
+   "category": "sfx"
+  },
+  {
+   "source": "ニヤリ",
+   "en": "smirk",
+   "category": "sfx"
+  },
+  {
+   "source": "ハッ",
+   "en": "gasp",
+   "category": "sfx"
+  },
+  {
+   "source": "キラキラ",
+   "en": "sparkle",
+   "category": "sfx"
+  }
+ ]
+}
