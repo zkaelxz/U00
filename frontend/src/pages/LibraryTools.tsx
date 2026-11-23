@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 
 import {
-  clearReadingHistory, getCosts, getHistory, getPresets, getSeries, getStats, getVoiceBank, renamePreset,
+  clearReadingHistory, getCosts, getHistory, getAllSeries, getPresets, getStats, getVoiceBank, renamePreset,
   addVoiceBankEntry, editVoiceBankDetails, renameVoiceBankEntry, replaceVoiceBankClip,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
@@ -24,6 +24,7 @@ import { useLoad } from '../hooks/useLoad'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { CardFoldContext } from '../components/cardFold'
 import { SaveFolderCard } from './manga/SaveFolder'
+import { isComicType } from './comic/comicLogic'
 import { usePcOnly, usePcPendingNote, type PcMode } from '../hooks/usePcOnly'
 import { engineLabel, languageLabel } from '../labels'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
@@ -137,6 +138,9 @@ const BANK_ENGINES: [string, string][] = [
   ['omnivoice', 'OmniVoice'], ['qwen3_tts', 'Qwen3-TTS'], ['chatterbox', 'Chatterbox'],
 ]
 
+// A clip's spoken language: narration speaks the English translation as well as the source.
+const BANK_LANGUAGES = ['zh', 'ja', 'ko', 'en']
+
 function AddVoiceForm({ pc, onAdded }: { pc: PcMode; onAdded: () => void }) {
   // Uploads are PC only, like a speaker's reference clip.
   const canAdd = pc !== 'remote'
@@ -193,7 +197,7 @@ function AddVoiceForm({ pc, onAdded }: { pc: PcMode; onAdded: () => void }) {
       </Field>
       <Field label="Language">
         <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-          {['zh', 'ja', 'ko'].map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
+          {BANK_LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
         </select>
       </Field>
       <Field label="Notes (optional)">
@@ -300,30 +304,31 @@ function ClearHistory({ pc, onCleared }: { pc: PcMode; onCleared: () => void }) 
 }
 
 // The open voice's details: what its clip says, notes and language, and a new clip.
-function VoiceDetails({ voice, onChanged, onClose }: { voice: LibraryVoice; onChanged: () => void; onClose: () => void }) {
+function VoiceDetails({ pc, voice, onChanged, onClose }: { pc: PcMode; voice: LibraryVoice; onChanged: () => void; onClose: () => void }) {
+  const refTextInput = useRef<HTMLInputElement>(null)
   const [refText, setRefText] = useState(voice.ref_text ?? '')
   const [notes, setNotes] = useState(voice.notes ?? '')
   const [language, setLanguage] = useState(voice.language ?? 'zh')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [saved, setSaved] = useState<string | null>(null)
-  const run = (job: Promise<unknown>, done: string) => {
+  const run = (job: Promise<unknown>, done: string, after?: () => void) => {
     setPending(true)
     setError(null)
     setSaved(null)
-    job.then(() => { setPending(false); setSaved(done); onChanged() }, (e: unknown) => { setPending(false); setError(e) })
+    job.then(() => { setPending(false); setSaved(done); onChanged(); after?.() }, (e: unknown) => { setPending(false); setError(e) })
   }
   return (
     <div className="rename-form" role="group" aria-label={`Details of ${voice.name}`}>
       <Field label="What the clip says">
-        <input value={refText} maxLength={5000} onChange={(e) => setRefText(e.target.value)} />
+        <input ref={refTextInput} value={refText} maxLength={5000} onChange={(e) => setRefText(e.target.value)} />
       </Field>
       <Field label="Notes">
         <input value={notes} maxLength={1000} onChange={(e) => setNotes(e.target.value)} />
       </Field>
       <Field label="Language">
         <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-          {['zh', 'ja', 'ko'].map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
+          {BANK_LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
         </select>
       </Field>
       <div className="actions">
@@ -332,13 +337,17 @@ function VoiceDetails({ voice, onChanged, onClose }: { voice: LibraryVoice; onCh
         <button type="button" className={buttonClass('ghost', 'sm')} disabled={pending} onClick={onClose}>Close</button>
         {saved && <span className="muted" role="status">{saved}</span>}
       </div>
-      <Field label="Replace the clip (PC only; titles that already used this voice keep their copy)">
-        <input type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg" disabled={pending}
-          onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f) run(replaceVoiceBankClip(voice.id, f, pcOnlyFetch()), 'Clip replaced.')
-          }} />
-      </Field>
+      {pc !== 'remote' && (
+        <Field label="Replace the clip (titles that already used this voice keep their copy)">
+          <input type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg" disabled={pending}
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              // The old transcript no longer matches the new clip, so it is the next thing to fix.
+              if (f) run(replaceVoiceBankClip(voice.id, f, pcOnlyFetch()), 'Clip replaced. Check what the new clip says.',
+                () => { refTextInput.current?.focus(); refTextInput.current?.select() })
+            }} />
+        </Field>
+      )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
     </div>
   )
@@ -366,7 +375,7 @@ function VoiceBankList({ pc, voices, onChanged }: { pc: PcMode; voices: LibraryV
           <Field label="Language">
             <select value={lang} onChange={(e) => setLang(e.target.value)}>
               <option value="">All</option>
-              {['zh', 'ja', 'ko'].map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
+              {BANK_LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
             </select>
           </Field>
         </div>
@@ -393,7 +402,7 @@ function VoiceBankList({ pc, voices, onChanged }: { pc: PcMode; voices: LibraryV
         )}
       />
       {voices.length > 0 && shown.length === 0 && <p className="muted">No voice matches.</p>}
-      {open && <VoiceDetails key={open.id} voice={open} onChanged={onChanged} onClose={() => setOpenId(null)} />}
+      {open && <VoiceDetails key={open.id} pc={pc} voice={open} onChanged={onChanged} onClose={() => setOpenId(null)} />}
     </>
   )
 }
@@ -406,7 +415,10 @@ export default function LibraryToolsPage() {
   const [reloadKey, setReloadKey] = useState(0)
   const pc = usePcOnly()
   const stats = useLoad(getStats, reloadKey)
-  const series = useLoad(getSeries, reloadKey)
+  // The library has no per-title translated count here, so any comic title counts; the job itself skips comics with no translations.
+  const hasComic = Object.entries(stats.data?.by_media_type ?? {}).some(([type, n]) => n > 0 && isComicType(type))
+  // Every series with a title, one-title ones too, so the count matches the Library's Series link and the Series page.
+  const series = useLoad(getAllSeries, reloadKey)
   const costs = useLoad(getCosts, reloadKey)
   const history = useLoad(getHistory, reloadKey)
   const presets = useLoad(getPresets, reloadKey)
@@ -531,7 +543,7 @@ export default function LibraryToolsPage() {
             <ExportBlock exportable={exportableCount(stats.data?.by_status)} job={exporter} />
           </div>
         )}
-        {pc !== 'remote' && (
+        {pc !== 'remote' && hasComic && (
           <div className="tools-export">
             <h2 className="tools-group-title">Typeset all comics again</h2>
             <TypesetComicsCard />

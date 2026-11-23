@@ -9,7 +9,7 @@ test('the Find switch moves between Discover and Sources and the rail entry stay
   await expect(find.getByRole('link', { name: 'Discover' })).toHaveAttribute('aria-current', 'page')
   await find.getByRole('link', { name: 'Sources' }).click()
   await expect(page).toHaveURL(/#\/sources$/)
-  await expect(page.getByRole('heading', { level: 1, name: 'Sources' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'Find' })).toBeVisible()
   await expect(rail.getByRole('link', { name: 'Find' })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('navigation', { name: 'Find', exact: true }).getByRole('link', { name: 'Sources' })).toHaveAttribute('aria-current', 'page')
 })

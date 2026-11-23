@@ -1,4 +1,5 @@
 import { artifactDownloadUrl } from '../../api/libraryAdmin'
+import { SettingsMentions } from '../../components/SettingLink'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { safeDetail } from '../../components/errorMessages'
 import { jobFailed } from '../../types/jobs'
@@ -34,7 +35,7 @@ export function AdminJobLine({ job, busyText, artifact, showLink = true }: {
         <p className="error" role="alert">
           {j.status === 'cancelled'
             ? 'Cancelled.'
-            : (j.error && safeDetail(j.error)) || 'The job failed. Details are in the app log.'}
+            : <SettingsMentions text={(j.error && safeDetail(j.error)) || 'The job failed. Details are in the app log.'} />}
         </p>
       )}
       <ErrorBanner error={job.pollError} />

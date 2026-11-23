@@ -66,7 +66,7 @@ test('Alerts: the name with and without new rows, and the panel heading', async 
   await page.route((u) => u.pathname === '/api/notifications', (r) => json(r, { items }))
   await page.goto('/#/library')
   const bell = page.getByRole('button', { name: /^Alerts/ })
-  await expect(bell).toHaveAccessibleName('Alerts (2 new)')
+  await expect(bell).toHaveAccessibleName('Alerts, 2 new')
   await expect(page.getByTestId('notify-count')).toHaveText('2')
   await bell.click()
   await expect(page.getByRole('region', { name: 'Recent alerts' })).toBeVisible()

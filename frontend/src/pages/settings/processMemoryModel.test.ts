@@ -13,7 +13,7 @@ const base: ProcessMemory = {
 
 describe('process memory model', () => {
   it('says when Windows gives no per-process graphics memory', () => {
-    expect(vramCell(row({}))).toBe("Windows doesn't say")
+    expect(vramCell(row({}))).toBe('Not reported')
     expect(vramCell(row({ vram_bytes: 4_400_000_000 }))).toBe('4.4 GB')
   })
   it('says None when Windows listed its counters and the process is not in them', () => {

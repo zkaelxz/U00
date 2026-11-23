@@ -95,13 +95,15 @@ test('set a Discord webhook, send a test, then clear it; the address is never sh
   const bodies = await mockNotifications(page, OFF)
   const section = await open(page)
 
-  await expect(section.locator('.card-meta')).toHaveText('Off')
+  await expect(section.locator('.card-meta')).toHaveText('On: Pop-up on this PC')
   await expect(section.getByTestId('notify-discord')).toHaveText('Missing')
   await expect(section.getByRole('button', { name: 'Send test' })).toBeDisabled()
   await expect(section.getByText('Set up Discord or ntfy first to send a test.')).toBeVisible()
-  await expect(section.getByTestId('ntfy-local-note')).toContainText('BAIHE_NTFY_ALLOW_LOCAL=1')
 
   await expect(section.getByRole('textbox', { name: /address/ })).toHaveCount(0) // forms open one row at a time
+  await expect(section.getByTestId('ntfy-local-note')).toHaveCount(0)
+  await section.getByRole('button', { name: 'Set up ntfy' }).click()
+  await expect(section.getByTestId('ntfy-local-note')).toContainText('BAIHE_NTFY_ALLOW_LOCAL=1')
   await section.getByRole('button', { name: 'Set up Discord' }).click()
 
   const input = section.getByRole('textbox', { name: 'Discord webhook address' })
@@ -110,7 +112,7 @@ test('set a Discord webhook, send a test, then clear it; the address is never sh
   await section.getByRole('button', { name: 'Save Discord address' }).click()
   await section.getByRole('button', { name: 'Confirm save Discord address' }).click()
   await expect(section.getByTestId('notify-discord')).toHaveText('Set')
-  await expect(section.locator('.card-meta')).toHaveText('On: Discord')
+  await expect(section.locator('.card-meta')).toHaveText('On: Pop-up on this PC, Discord')
   await expect(input).toHaveValue('')
   await expect(section.getByText('Saved.')).toBeVisible()
   expect(bodies[0]).toEqual({ url: '/api/settings/notifications/discord', body: { value: SECRET, confirm: true } })
@@ -135,8 +137,8 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   await mockNotifications(page, { ...OFF, ntfy_configured: true, ntfy_allow_local: true }, { saveStatus: 403 })
   const section = await open(page)
   await expect(section.getByTestId('notify-ntfy')).toHaveText('Set')
-  await expect(section.getByTestId('ntfy-local-note')).toContainText('is allowed')
   await section.getByRole('button', { name: 'Replace ntfy' }).click()
+  await expect(section.getByTestId('ntfy-local-note')).toContainText('is allowed')
   const input = section.getByRole('textbox', { name: 'ntfy topic address' })
   await input.fill('https://ntfy.sh/secret-topic-name')
   await section.getByRole('button', { name: 'Save ntfy address' }).click()
@@ -240,7 +242,7 @@ test('header bell: unread count, the list, and opening marks them seen', async (
     { id: 1, at: now - 4 * 3600, kind: 'job_done', text: 'Transcribe finished: Signal' },
   ])
   await page.goto('/#/library')
-  const button = page.getByRole('button', { name: 'Alerts (3 new)' })
+  const button = page.getByRole('button', { name: 'Alerts, 3 new' })
   await expect(button).toBeVisible()
   await expect(page.getByTestId('notify-count')).toHaveText('3')
 
@@ -287,7 +289,7 @@ test('header bell: unread count, the list, and opening marks them seen', async (
   bell.items = [{ id: 4, at: NOW(), kind: 'job_done', text: 'Export finished: Signal' }, ...bell.items]
   const before = bell.calls
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-  await expect(page.getByRole('button', { name: 'Alerts (1 new)' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Alerts, 1 new' })).toBeVisible()
   expect(bell.calls).toBeGreaterThan(before)
   expect(unmocked).toEqual([])
 })

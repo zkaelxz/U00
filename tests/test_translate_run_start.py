@@ -1,5 +1,6 @@
 """Tests for start_translate_run + POST /api/translate-run/dramas/{id}/run
 (Migration Slice 40). Fully mocked: the offline test engine, no network."""
+import os
 import time
 
 import pytest
@@ -351,6 +352,55 @@ def test_a_chapter_run_translates_only_that_chapter_and_estimates_only_it(isolat
     assert nxt["target_line_count"] == 2
     assert wait_for_job(nxt["job_id"])["status"] == "done"
     assert all(r["en"] for r in db.load_lines(did) if r["zh"] not in ("第1章 开始", "他说：你好。"))
+
+
+def _save_source(did, text):
+    import novel_text
+    folder = os.path.join(db.DRAMAS_DIR, str(did))
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, novel_text.NOVEL_SOURCE_FILENAME), "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def test_chapters_are_numbered_from_the_novel_text_as_chunk_and_tag_numbers_them(isolated_db):
+    """A title chunked from chapter 3 on called that chapter 1 in Translate."""
+    did = _seed(CHAPTERS[5:])
+    _save_source(did, "\n".join(zh for zh, _ in CHAPTERS))
+    out = svc.start_translate_run(did, engine_name="fake", chapter_from=3, chapter_to=3)
+    assert wait_for_job(out["job_id"])["status"] == "done"
+    assert all(r["en"] for r in db.load_lines(did))
+    with pytest.raises(InvalidInputError, match="no lines yet"):
+        svc.start_translate_run(did, engine_name="fake", chapter_from=1, chapter_to=2)
+    with pytest.raises(InvalidInputError, match="this title has 3"):
+        svc.start_translate_run(did, engine_name="fake", chapter_from=4)
+
+
+def test_lines_that_no_longer_match_the_novel_text_use_their_own_headings(isolated_db):
+    did = _seed(CHAPTERS)
+    # As if a line of chapter 2 were edited in Review after Chunk & tag.
+    _save_source(did, "\n".join(zh for zh, _ in CHAPTERS).replace("风很大。", "风很小。"))
+    one = svc.estimate_translate_cost(did, "claude", chapter_from=2, chapter_to=2)
+    assert one["target_line_count"] == 3
+
+
+def test_edited_lines_of_a_title_chunked_from_a_later_chapter_keep_the_novels_numbers(isolated_db):
+    """Numbering edited lines by their own headings called chapter 2 "chapter 1", so a run
+    of chapter 1 translated it."""
+    did = _seed(CHAPTERS[2:])
+    _save_source(did, "\n".join(zh for zh, _ in CHAPTERS).replace("风很大。", "风很小。"))
+    counts = [svc.estimate_translate_cost(did, "claude", chapter_from=n, chapter_to=n)["target_line_count"]
+              for n in (2, 3)]
+    assert counts == [3, 2]
+    with pytest.raises(InvalidInputError, match="no lines yet"):
+        svc.estimate_translate_cost(did, "claude", chapter_from=1, chapter_to=1)
+
+
+def test_an_edited_heading_refuses_a_chapter_run_rather_than_guess(isolated_db):
+    did = _seed(CHAPTERS[2:])
+    _save_source(did, "\n".join(zh for zh, _ in CHAPTERS).replace("第3章 结束", "第3章 终章"))
+    with pytest.raises(InvalidInputError, match="heading was edited"):
+        svc.estimate_translate_cost(did, "claude", chapter_from=2, chapter_to=2)
+    assert svc.estimate_translate_cost(did, "claude")["target_line_count"] == 5
 
 
 def test_chapter_range_must_fit_and_not_mix_with_line_ids(isolated_db):

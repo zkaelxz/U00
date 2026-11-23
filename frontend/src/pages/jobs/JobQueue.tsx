@@ -14,6 +14,7 @@ import {
 } from '../../api/queue'
 import { getTranslateConfig } from '../../api/translateStage'
 import { Badge } from '../../components/Badge'
+import { SettingsMentions } from '../../components/SettingLink'
 import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -153,7 +154,7 @@ export function JobQueue({ titles }: Props) {
       title={
         <button type="button" className="queue-fold" aria-expanded={open} aria-disabled={active || undefined}
           onClick={() => { if (!active) setFolded(!folded) }}>
-          <span aria-hidden="true">{open ? '▾' : '▸'}</span> Queue
+          <span className="queue-fold-arrow" aria-hidden="true">{open ? '▾' : '▸'}</span>Queue
         </button>
       }
       meta={runStateText(queue)} className="queue-card" aria-label="Queue"
@@ -227,7 +228,7 @@ export function JobQueue({ titles }: Props) {
         </button>
       </div>
       <p className="muted queue-help" data-testid="queue-step-help">
-        {STEP_HELP[step]}{(step === 'translate' || step === 'all') && costNote ? ` ${costNote}` : ''}
+        {STEP_HELP[step]}{(step === 'translate' || step === 'all') && costNote ? <> <SettingsMentions text={costNote} /></> : null}
       </p>
       {Number(dramaId) > 0 && step !== 'all' && (
         <SavedSettings
@@ -456,7 +457,7 @@ export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove
         </p>
       )}
       {item.step === 'translate' && item.engine && item.status === 'waiting' && (
-        <p className="muted">{translateCostNote(humanize('engine', item.engine), item.paid, monthlyCap)}</p>
+        <p className="muted"><SettingsMentions text={translateCostNote(humanize('engine', item.engine), item.paid, monthlyCap)} /></p>
       )}
       {item.step === 'export' && item.status === 'done' && (
         <p><a href={`/api/artifacts/dramas/${item.drama_id}/subtitle`} download>Download subtitles</a></p>

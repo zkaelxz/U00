@@ -11,7 +11,7 @@ import pytest
 from core import Line
 from services import listen_service
 from voice import dub
-from lib.errors import DependencyUnavailableError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError
 
 # A GPT-SoVITS address left in .env by an older version.
 FAKE_URL = "http://secret-host.example:9999"
@@ -329,6 +329,110 @@ class TestSteadyDefaultVoices:
         open(part, "wb").close()
         runs[0][1]["on_finish"](f"dub_{did}")
         assert not os.path.exists(part)
+
+
+class TestARefusedStartChangesNothing:
+    """A start that is refused must leave the title as it was: its Voice language and the
+    voices OmniVoice would pick are saved only once the job has really started."""
+
+    @pytest.fixture(autouse=True)
+    def _engines_installed(self, monkeypatch):
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ffmpeg")
+        monkeypatch.setattr(listen_service, "_engine_install_problem", lambda engine: None)
+
+    def test_a_speaker_without_a_voice_keeps_the_voice_language(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A")])
+        with pytest.raises(InvalidInputError):
+            listen_service.start_listen(did, "qwen3_tts", narration_language="original")
+        assert isolated_db.get_drama(did).get("narration_language") in (None, "", "translation")
+
+    def test_a_start_the_job_table_refuses_saves_neither_language_nor_voices(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db, [_line(0, "A")])
+        monkeypatch.setattr(listen_service.job_launch, "start_process_job", lambda *a, **k: False)
+        with pytest.raises(ConflictError, match="A narration is already running for this title."):
+            listen_service.start_listen(did, "omnivoice", narration_language="original")
+        assert isolated_db.get_drama(did).get("narration_language") in (None, "", "translation")
+        assert isolated_db.list_characters(did) == []
+
+    def test_a_started_run_saves_both(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db, [_line(0, "A")])
+        monkeypatch.setattr(listen_service.job_launch, "start_process_job", lambda *a, **k: True)
+        listen_service.start_listen(did, "omnivoice", narration_language="original")
+        assert isolated_db.get_drama(did)["narration_language"] == "original"
+        assert [c["voice_design"] for c in isolated_db.list_characters(did)] == [dub.DEFAULT_VOICE_DESCRIPTIONS[0]]
+
+
+class TestUnusedClipsAfterARun:
+    """Each voice or text change left the old clips behind (about 170 MB per narrated hour).
+    After a run's lines are saved, only clips no line of the title names are deleted, and
+    only the clip files the narration itself writes."""
+
+    def _clip(self, db, did, name):
+        folder = os.path.join(db.drama_dir(did), "dub_clips")
+        os.makedirs(folder, exist_ok=True)
+        open(os.path.join(folder, name), "wb").close()
+        return name
+
+    def _left(self, db, did):
+        return sorted(os.listdir(os.path.join(db.drama_dir(did), "dub_clips")))
+
+    def _produced(self, db, did, names):
+        out = []
+        for ln in db.load_line_objects(did):
+            if ln.idx in names:
+                ln.dub_filename = os.path.join("dub_clips", names[ln.idx])
+                out.append(ln)
+        return out
+
+    def test_old_clips_go_and_clips_any_line_names_stay(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A"), _line(1, "A"), _line(2, "B", en="")])
+        new0 = self._clip(isolated_db, did, "line_0000_aaaaaaaaaa.wav")
+        old0 = self._clip(isolated_db, did, "line_0000_bbbbbbbbbb.wav")
+        joined = self._clip(isolated_db, did, "line_0001-0002_cccccccccc.wav")
+        mine = [self._clip(isolated_db, did, n) for n in (
+            "voice_spec_1.json", "line_0003_dddddddddd.partial.wav", "notes.wav", "line_0004_DDDDDDDDDD.wav")]
+        # Line 2 is not in this run but still names a clip from an earlier one.
+        lines = isolated_db.load_line_objects(did)
+        lines[2].dub_filename = os.path.join("dub_clips", joined)
+        isolated_db.save_lines(did, lines, fields=("dub_filename",))
+        listen_service.apply_narration_result(did, {"lines": self._produced(isolated_db, did, {0: new0, 1: new0}),
+                                                    "errors": []})
+        assert self._left(isolated_db, did) == sorted([new0, joined, *mine])
+        assert old0 not in self._left(isolated_db, did)
+
+    def test_nothing_is_deleted_when_nothing_was_narrated(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A")])
+        old = self._clip(isolated_db, did, "line_0000_bbbbbbbbbb.wav")
+        produced = self._produced(isolated_db, did, {})
+        for ln in isolated_db.load_line_objects(did):
+            produced.append(ln)
+        listen_service.apply_narration_result(did, {"lines": produced, "errors": [{"line_idx": 0, "error": "x"}]})
+        assert self._left(isolated_db, did) == [old]
+
+    def test_a_failed_save_deletes_nothing(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db, [_line(0, "A")])
+        old = self._clip(isolated_db, did, "line_0000_bbbbbbbbbb.wav")
+        new = self._clip(isolated_db, did, "line_0000_aaaaaaaaaa.wav")
+
+        def refuse(*a, **k):
+            raise ConflictError("changed")
+        monkeypatch.setattr(isolated_db, "save_lines", refuse)
+        with pytest.raises(ConflictError):
+            listen_service.apply_narration_result(did, {"lines": self._produced(isolated_db, did, {0: new}),
+                                                        "errors": []})
+        assert self._left(isolated_db, did) == sorted([old, new])
+
+    def test_a_clip_that_cannot_be_deleted_does_not_fail_the_run(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db, [_line(0, "A")])
+        self._clip(isolated_db, did, "line_0000_bbbbbbbbbb.wav")
+        new = self._clip(isolated_db, did, "line_0000_aaaaaaaaaa.wav")
+
+        def held(path):
+            raise PermissionError(13, "in use")
+        monkeypatch.setattr(os, "remove", held)
+        listen_service.apply_narration_result(did, {"lines": self._produced(isolated_db, did, {0: new}),
+                                                    "errors": []})
+        assert isolated_db.get_drama(did)["status"] == "dubbed"
 
 
 class TestEngineInstallChecks:

@@ -553,18 +553,9 @@ export default function LibraryPage() {
       />
 
       {!!allSeries.data?.items.length && (
-        <details className="library-series-links" data-testid="library-series-links">
-          <summary>Series ({allSeries.data.items.length})</summary>
-          <p><a href={routeHref({ name: 'series-list' })}>Browse all series as folders</a></p>
-          <ul>
-            {allSeries.data.items.map((s) => (
-              <li key={s.id}>
-                <a href={routeHref({ name: 'series', id: s.id })}>{s.name}</a>
-                <span className="muted"> · {s.title_count === 1 ? '1 title' : `${s.title_count} titles`}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
+        <p className="library-series-links" data-testid="library-series-links">
+          <a href={routeHref({ name: 'series-list' })}>Series ({allSeries.data.items.length})</a>
+        </p>
       )}
 
       {!phone && bar}

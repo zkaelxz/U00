@@ -32,6 +32,29 @@ def test_editable_page_gives_each_line_its_own_edit_button():
     assert 'class="edit-btn"' not in reader.build_reader_html(lines, "zh", {})
 
 
+def _contrast(a, b):
+    def lum(h):
+        c = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        c = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def test_readings_stay_readable_on_the_page_and_on_a_highlighted_word():
+    from types import SimpleNamespace as L
+    import re
+    import reader
+    lines = [L(idx=0, start=0, end=1, zh="你好", en="Hi", id=1)]
+    for name, t in reader.THEMES.items():
+        page = reader.build_reader_html(lines, "zh", {}, theme=name)
+        highlighted = re.search(r"ruby\.word:hover rt, ruby\.word\.active rt \{ color: (#[0-9a-fA-F]{6}); \}", page)
+        assert highlighted, name
+        assert _contrast(t["rt"], t["bg"]) >= 4.5, name
+        for bg in (t["hover"], t["active"]):
+            assert _contrast(highlighted.group(1), bg) >= 4.5, (name, bg)
+
+
 def _term_page(en, terms, editable=True):
     from types import SimpleNamespace as L
     import reader
