@@ -345,13 +345,14 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         server.setText(prefs().getString(KEY_SERVER, ""));
         EditText token = new EditText(this);
         // The saved token is never shown again; an empty field keeps the one already saved.
-        token.setHint("Token");
+        token.setHint("Token (starts with baihe_dt_)");
         token.setSingleLine(true);
         token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         form.addView(server);
         form.addView(token);
         new AlertDialog.Builder(this)
                 .setTitle("Settings")
+                .setMessage("Make the token at the PC in Baihe: Settings > Extension tokens per computer.")
                 .setView(form)
                 .setPositiveButton("Save", (d, w) -> {
                     String origin = ServerAddress.normalizeServer(server.getText().toString());
@@ -397,6 +398,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
+            say("Set up Grab first: enter your server address and a phone token.");
             showSettings();
             return;
         }
