@@ -30,7 +30,10 @@ public class MainActivity extends Activity {
     private static final String SIGN_IN_STARTED = "sign_in_started";
 
     private WebView web;
-    private boolean updateChecked;
+    /** When the server was last asked for a newer build; 0 before the first ask. */
+    private static final long UPDATE_RECHECK_MS = 60_000;
+    private long updateCheckedAt;
+    private boolean updateOffered;
     // A silently downloaded update, installed once the app goes to the background so
     // Android's restart of the app doesn't land in the middle of reading.
     private volatile File pendingUpdate;
@@ -238,8 +241,11 @@ public class MainActivity extends Activity {
      * whether it holds a newer build. A server that offers none, or a signed-out one, is silent.
      */
     private void checkForUpdate(String address) {
-        if (updateChecked) return;
-        updateChecked = true;
+        // Reopening the app resumes the same process and WebView, so no page load fires again;
+        // onResume asks again, at most once a minute, so a build fetched meanwhile is offered.
+        long now = System.currentTimeMillis();
+        if (updateOffered || pendingUpdate != null || now - updateCheckedAt < UPDATE_RECHECK_MS) return;
+        updateCheckedAt = now;
         String cookie = CookieManager.getInstance().getCookie(address);
         new Thread(() -> {
             long offered = AppUpdate.check(address, cookie);
@@ -267,6 +273,7 @@ public class MainActivity extends Activity {
 
     private void offerUpdate(String address, String cookie) {
         if (isFinishing() || isDestroyed()) return;
+        updateOffered = true;
         new AlertDialog.Builder(this)
                 .setTitle("Update Available")
                 .setPositiveButton("Install update", (d, w) -> new Thread(() -> {
@@ -274,7 +281,16 @@ public class MainActivity extends Activity {
                     if (AppUpdate.download(address, cookie, apk)) AppUpdate.install(getApplicationContext(), apk);
                 }).start())
                 .setNegativeButton(android.R.string.cancel, null)
+                .setOnDismissListener(d -> updateOffered = false)
                 .show();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        String address = savedAddress();
+        String shown = web.getUrl();
+        if (address != null && shown != null && ServerAddress.sameOrigin(address, shown)) checkForUpdate(address);
     }
 
     private File updateFile() {
