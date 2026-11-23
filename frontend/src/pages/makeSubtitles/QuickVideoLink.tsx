@@ -12,36 +12,16 @@ import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { HelpTip } from '../../components/HelpTip'
-import { withoutExceptionNames } from '../../components/errorMessages'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
-import type { QuickVideoRun, QuickVideoSettings, QuickVideoStep } from '../../types/quickVideo'
+import type { QuickVideoRun, QuickVideoSettings } from '../../types/quickVideo'
 import { foundForLink, linkCanRun, NO_PROFILE_PLAN, planForLink, type LinkProbeState } from './addBoxModel'
 import { settingText } from './makeSubtitlesFlow'
+import { canDeleteWatched, runText, visibleRuns } from './quickVideoRuns'
 
 const POLL_MS = 3000
-// Eight finished runs pushed the form nearly two screens down on a phone.
-const SHOWN_RUNS = 3
-const STEP_NOW: Record<QuickVideoStep, string> = {
-  download: 'Downloading', transcribe: 'Transcribing', translate: 'Translating', export: 'Exporting',
-}
-const STEP_NAME: Record<QuickVideoStep, string> = {
-  download: 'Download', transcribe: 'Transcribe', translate: 'Translate', export: 'Export',
-}
-
-export const runText = (run: QuickVideoRun): string =>
-  run.state === 'done' ? 'Done'
-    : run.state === 'stopped' ? `${STEP_NAME[run.step]} stopped${run.reason ? `: ${withoutExceptionNames(run.reason)}` : ''}`
-      : STEP_NOW[run.step]
-
-export const visibleRuns = (runs: QuickVideoRun[], all: boolean): QuickVideoRun[] =>
-  all ? runs : runs.filter((r, i) => i < SHOWN_RUNS || r.state === 'running')
-
-// A failed or stopped run has nothing to finish watching.
-export const canDeleteWatched = (run: QuickVideoRun): boolean => run.watch_once && run.state === 'done'
-
 /**
  * A pasted link in the Add box: what the free link probe found, what One-click translate will do,
  * and its choices under Change options. Starting it creates the title; `onStarted` then shows its run.

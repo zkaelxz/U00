@@ -121,12 +121,18 @@ export default function SettingsPage() {
   const loaded = settings !== null
   // Every target is a card of a tab that only exists once the settings load.
   useEffect(() => {
-    if (!loaded || !wantedCard) return
-    setStoredTab(tabOfCard(wantedCard)!)
-    if (wantsUploads) setUploadsSignal((n) => n + 1)
-    setOpens((cur) => ({ ...cur, [wantedCard]: (cur[wantedCard] ?? 0) + 1 }))
-    setJumpTo((cur) => ({ id: wantedCard, n: (cur?.n ?? 0) + 1 }))
+    if (loaded && wantedCard) setStoredTab(tabOfCard(wantedCard)!)
   }, [wantedCard, wantsUploads, loaded, setStoredTab])
+  // Compared during render (null: nothing seen yet) so each change of target bumps its signals once.
+  const [seenTarget, setSeenTarget] = useState<{ card: string | undefined; uploads: boolean; loaded: boolean } | null>(null)
+  if (seenTarget === null || seenTarget.card !== wantedCard || seenTarget.uploads !== wantsUploads || seenTarget.loaded !== loaded) {
+    setSeenTarget({ card: wantedCard, uploads: wantsUploads, loaded })
+    if (loaded && wantedCard) {
+      if (wantsUploads) setUploadsSignal((n) => n + 1)
+      setOpens((cur) => ({ ...cur, [wantedCard]: (cur[wantedCard] ?? 0) + 1 }))
+      setJumpTo((cur) => ({ id: wantedCard, n: (cur?.n ?? 0) + 1 }))
+    }
+  }
   useEffect(() => {
     if (!jumpTo) return
     const el = document.getElementById(`settings-card-${jumpTo.id}`)
@@ -153,12 +159,17 @@ export default function SettingsPage() {
   const session = useSession()
   const sessionPending = session.status === 'loading'
   const readsSettings = canReadSettings(session)
+  // A new attempt drops the last failure up front; compared during render (null: nothing seen yet).
+  const [seenLoad, setSeenLoad] = useState<{ pending: boolean; reads: boolean; attempt: number } | null>(null)
+  if (seenLoad === null || seenLoad.pending !== sessionPending || seenLoad.reads !== readsSettings || seenLoad.attempt !== loadTry) {
+    setSeenLoad({ pending: sessionPending, reads: readsSettings, attempt: loadTry })
+    if (!sessionPending && readsSettings) setLoadError(null)
+  }
   useEffect(() => {
     // Not an admin here (a member, or an admin on the household address, which has no admin
     // settings): the admin cards stay hidden and Sharing below still shows, so ask for nothing.
     if (sessionPending || !readsSettings) return
     // A 403 from an older server means the same.
-    setLoadError(null)
     getSettings().then(setSettings, (e: unknown) => {
       if (hasStatus(e, 403)) setSettingsRefused(true)
       else setLoadError(e)
@@ -249,13 +260,17 @@ export default function SettingsPage() {
     ? (visibleTabs.find((t) => match.counts[t.id] > 0)?.id ?? stored)
     : stored
   const searchHitsAdvanced = searching && match.cardIds.has('advanced')
-  useEffect(() => {
+  const [seenSearch, setSeenSearch] = useState<{ advanced: boolean; query: string } | null>(null)
+  if (seenSearch === null || seenSearch.advanced !== searchHitsAdvanced || seenSearch.query !== query) {
+    setSeenSearch({ advanced: searchHitsAdvanced, query })
     if (searchHitsAdvanced) setAdvancedSignal((n) => n + 1)
-  }, [searchHitsAdvanced, query])
+  }
   // A hit opens its card, even one the person closed before.
-  useEffect(() => {
+  const [seenMatch, setSeenMatch] = useState<{ match: typeof match; searching: boolean } | null>(null)
+  if (seenMatch === null || seenMatch.match !== match || seenMatch.searching !== searching) {
+    setSeenMatch({ match, searching })
     if (searching) openCards(match.cardIds)
-  }, [match, searching])
+  }
   const foldAll = (what: 'expand' | 'collapse') =>
     setBulk((cur) => ({ ...cur, [active]: { ...cur[active], [what]: cur[active][what] + 1 } }))
   const signals = useMemo(() => ({ opens, bulk }), [opens, bulk])

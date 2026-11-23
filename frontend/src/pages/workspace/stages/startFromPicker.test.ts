@@ -6,7 +6,7 @@ vi.mock('../../../api/translateStage', () => ({
 }))
 
 import { applyTranslatePreset, applyWorkflowTier } from '../../../api/translateStage'
-import { applyStart, parseStartValue, startOptions } from './StartFromPicker'
+import { applyStart, parseStartValue, startOptions } from './startFrom'
 
 const tiers = [{ key: 'draft', label: 'Draft' }, { key: 'standard', label: 'Standard' }] as never
 const presets = [{ id: 7, name: 'Wuxia' }] as never

@@ -1,6 +1,6 @@
 import { ChapterScope } from './ChapterScope'
 import { ScanAllChapters } from './ScanAllChapters'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { hasStatus } from '../../../api/client'
 import { dismissGlossaryTerms, getGlossaryDismissals, restoreGlossaryTerms } from '../../../api/autotuneGlossary'
@@ -101,14 +101,17 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
   // The series' ignore list (null while unread or if the read failed).
   const [ignored, setIgnored] = useState<string[] | null>(null)
   const [showIgnored, setShowIgnored] = useState(false)
-  const readIgnored = () =>
-    getGlossaryDismissals(dramaId).then(
-      (r) => setIgnored(r.dismissals.map((d) => d.term)),
-      () => setIgnored(null),
-    )
+  const readIgnored = useCallback(
+    () =>
+      getGlossaryDismissals(dramaId).then(
+        (r) => setIgnored(r.dismissals.map((d) => d.term)),
+        () => setIgnored(null),
+      ),
+    [dramaId],
+  )
   useEffect(() => {
     readIgnored()
-  }, [dramaId])
+  }, [readIgnored])
 
   const active = isActiveStatus(status?.status)
   const proposals: NovelGlossaryProposal[] = status?.status === 'done' ? status.proposals ?? [] : []

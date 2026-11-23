@@ -121,10 +121,14 @@ function ReviewBody({ source, engine, onStart, onCancel, resume }: Props & { sou
   const catalogues = useGlossaryCatalogues(proposals.length > 0)
   // The scan is one call with no progress, so a ticking clock shows it is alive.
   const [elapsed, setElapsed] = useState<number | null>(null)
+  const [wasActive, setWasActive] = useState(false)
+  if (active !== wasActive) {
+    setWasActive(active)
+    setElapsed(active ? 0 : null)
+  }
   useEffect(() => {
-    if (!active) return setElapsed(null)
+    if (!active) return
     const t0 = Date.now()
-    setElapsed(0)
     const id = window.setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000)
     return () => window.clearInterval(id)
   }, [active])

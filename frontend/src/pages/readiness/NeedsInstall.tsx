@@ -9,13 +9,10 @@ import { refreshReadiness } from '../../hooks/useReadiness'
 import { routeHref } from '../../router'
 import { InstallProgress } from '../diagnostics/InstallProgress'
 import type { Need } from './needs'
+import { packagesHref } from './packagesHref'
 import { useNeedInstall } from './useNeedInstall'
 
 export const ASK_OWNER = 'Ask the PC owner to set this up.'
-
-/** Where Diagnostics > Packages opens with the first missing package already picked. */
-export const packagesHref = (need: Pick<Need, 'packages'>) =>
-  routeHref({ name: 'diagnostics', card: 'packages', ...(need.packages[0] ? { pkg: need.packages[0] } : {}) })
 
 /**
  * A missing need: why a control is off, and the way to fix it. The action installs in place only where

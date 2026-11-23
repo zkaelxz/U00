@@ -156,7 +156,7 @@ export function LibraryList({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [titleSearch, status, quickFilter, more, reloadKey])
+  }, [titleSearch, status, quickFilter, more, reloadKey, onItemsRef, onLoadErrorRef])
 
   const groups = items ? groupTitles(items, groupBy, sort, series ?? []) : []
   // Select all, the bulk-action count and delete only ever see what is on screen: a collapsed group's titles are not.

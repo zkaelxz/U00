@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { UndoNotice } from './UndoNotice'
 import { bulkControlName, isUndoKey, splitAnnouncement } from './reviewLogic'
-import { caretToEnd } from './LineRow'
+import { caretToEnd } from './caretToEnd'
 
 describe('UndoNotice', () => {
   const html = renderToStaticMarkup(<UndoNotice message="Split #3 into #3–#4." busy={false} onUndo={() => {}} onDismiss={() => {}} />)

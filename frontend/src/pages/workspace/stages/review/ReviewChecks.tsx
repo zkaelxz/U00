@@ -71,12 +71,18 @@ export function ReviewChecks({ dramaId, reloads, onGoTo, onChanged, jobRunning, 
   const [error, setError] = useState<unknown>(null)
   const [shortened, setShortened] = useState<ShortenResult | null>(null)
 
-  useEffect(() => {
+  // Drop what was shown the moment the checks are switched off.
+  const [wasEnabled, setWasEnabled] = useState(enabled)
+  if (wasEnabled !== enabled) {
+    setWasEnabled(enabled)
     if (!enabled) {
       setChecks(EMPTY)
       setError(null)
-      return
     }
+  }
+
+  useEffect(() => {
+    if (!enabled) return
     let cancelled = false
     void Promise.allSettled([
       getCoverage(dramaId),

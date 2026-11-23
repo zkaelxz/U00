@@ -9,5 +9,7 @@ export function useCancellableEffect(run: (cancelled: () => boolean) => void, de
     return () => {
       done = true
     }
+    // The caller's list is the dependency list, so it can't be written as a literal here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
 }

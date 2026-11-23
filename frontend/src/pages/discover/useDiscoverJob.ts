@@ -57,7 +57,7 @@ export function useDiscoverJob<R>(jobId: string, fetchResult: () => Promise<Sour
         onIdle: () => !muted.current && setState(IDLE),
         onError: (error) => !muted.current && setState((s) => ({ ...s, status: 'error', error })),
       }),
-    [jobId, pollKey],
+    [jobId, pollKey, fetchRef],
   )
 
   const start = useCallback((post: () => Promise<DiscoverJobStarted>) => {

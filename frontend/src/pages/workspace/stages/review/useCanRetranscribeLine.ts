@@ -4,17 +4,17 @@ import { getTranscribeConfig } from '../../../../api/workspace'
 import { canRetranscribe } from './retranscribeLogic'
 
 export function useCanRetranscribeLine(dramaId: number) {
-  const [can, setCan] = useState(false)
+  // Keyed by title so another title reads false until its own answer arrives.
+  const [answer, setAnswer] = useState<{ dramaId: number; can: boolean } | null>(null)
   useEffect(() => {
     let cancelled = false
-    setCan(false)
     getTranscribeConfig(dramaId).then(
-      (cfg) => !cancelled && setCan(canRetranscribe(cfg)),
+      (cfg) => !cancelled && setAnswer({ dramaId, can: canRetranscribe(cfg) }),
       () => {},
     )
     return () => {
       cancelled = true
     }
   }, [dramaId])
-  return can
+  return answer?.dramaId === dramaId && answer.can
 }

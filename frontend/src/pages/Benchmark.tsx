@@ -67,9 +67,14 @@ function BenchmarkContent({ compare }: { compare?: string }) {
     setTabState(t)
     setStoredTab(t)
   }, [setStoredTab])
+  const [seenLinkTab, setSeenLinkTab] = useState(linkTab)
+  if (linkTab !== seenLinkTab) {
+    setSeenLinkTab(linkTab)
+    if (linkTab) setTabState(linkTab)
+  }
   useEffect(() => {
-    if (linkTab) selectTab(linkTab)
-  }, [linkTab, selectTab])
+    if (linkTab) setStoredTab(linkTab)
+  }, [linkTab, setStoredTab])
   // Hidden, not unmounted, so form entries and a run's polling survive a tab change.
   const panel = (id: BenchmarkTab, children: ReactNode) => (
     <div key={id} id={tabPanelId('benchmark', id)} role="tabpanel" aria-labelledby={tabButtonId('benchmark', id)} hidden={tab !== id}>

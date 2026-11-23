@@ -78,9 +78,11 @@ export function useStageFocus(target: DramaFocus, elementId: string, ready = tru
   // `ready`: the content above the panel has loaded, so the scroll does not land before it shifts the panel down.
   const wanted = ready && route.name === 'drama' && route.focus === target
   const [signal, setSignal] = useState(0)
-  useEffect(() => {
+  const [wasWanted, setWasWanted] = useState(false)
+  if (wanted !== wasWanted) {
+    setWasWanted(wanted)
     if (wanted) setSignal((n) => n + 1)
-  }, [wanted])
+  }
   useEffect(() => {
     if (signal > 0) document.getElementById(elementId)?.scrollIntoView({ block: 'start' })
   }, [signal, elementId])

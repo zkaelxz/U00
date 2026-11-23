@@ -61,10 +61,15 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
   const set = <K extends keyof AssForm>(k: K, v: AssForm[K]) => setForm({ ...form, [k]: v })
 
   // A response for the old format or language must not appear (or download) under the new selection.
+  const selection = `${fmt}|${form.field}`
+  const [pendingSelection, setPendingSelection] = useState(selection)
+  if (pendingSelection !== selection) {
+    setPendingSelection(selection)
+    setPending(false)
+  }
   useEffect(() => {
     latest.current += 1
-    setPending(false)
-  }, [fmt, form.field])
+  }, [selection])
 
   const fetchText = (): Promise<SubtitleFile> | null => {
     if (fmt === 'ass') {

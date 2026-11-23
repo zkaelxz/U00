@@ -16,7 +16,8 @@ import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { parseRoute, routeHref } from '../../router'
 import { isComicType } from '../comic/comicLogic'
 import type { WorkflowProgress } from '../../types/workspace'
-import { COMIC_STAGE_TITLE, ComicStageNotice, isLineStageForComic } from './ComicStageNotice'
+import { ComicStageNotice } from './ComicStageNotice'
+import { COMIC_STAGE_TITLE, isLineStageForComic } from './comicStage'
 import { STAGE_COMPONENTS } from './stageRegistry'
 import { STAGE_IDS, STAGE_STATE_WORDS, stageLabel, type StageId, stageCount, nextAction, stageStates, startStage, isCastTab } from './stages'
 import { OpenInWindowButton } from '../../nav/OpenInWindowButton'
@@ -62,11 +63,11 @@ const COUNTED_STAGES: readonly string[] = ['translate', 'review']
 function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const { drama, error, refetch } = useDrama(id)
   // A load that never answers must end in Retry, not an endless skeleton.
-  const [slow, setSlow] = useState(false)
+  const [slowAt, setSlowAt] = useState<{ id: number; drama: typeof drama; error: typeof error } | null>(null)
+  const slow = slowAt !== null && slowAt.id === id && slowAt.drama === drama && slowAt.error === error
   useEffect(() => {
-    setSlow(false)
     if (drama || error) return
-    const t = setTimeout(() => setSlow(true), SLOW_LOAD_MS)
+    const t = setTimeout(() => setSlowAt({ id, drama, error }), SLOW_LOAD_MS)
     return () => clearTimeout(t)
   }, [id, drama, error])
   const { progress, opened } = useProgress(id, drama)

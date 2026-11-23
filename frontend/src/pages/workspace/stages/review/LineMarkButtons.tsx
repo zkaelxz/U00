@@ -3,7 +3,7 @@ import { Badge } from '../../../../components/Badge'
 import { buttonClass } from '../../../../components/uiClasses'
 import type { LineMark, ReviewLine } from '../../../../types/review'
 
-export const MARK_LABEL: Record<LineMark, string> = { wrong: 'Wrong', mixed: 'Mixed' }
+const MARK_LABEL: Record<LineMark, string> = { wrong: 'Wrong', mixed: 'Mixed' }
 const MARK_GLYPH: Record<LineMark, string> = { wrong: '✗', mixed: '〰' }
 const MARK_HELP: Record<LineMark, string> = {
   wrong: 'Mark this English wrong. It stays marked until you clear it, check the line or change the English.',

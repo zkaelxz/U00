@@ -38,11 +38,15 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
   const [error, setError] = useState<unknown>(null)
   const [unavailable, setUnavailable] = useState(false)
   const [using, setUsing] = useState(false)
-  const [busy, setBusy] = useState(true)
+  const [settledKey, setSettledKey] = useState<string | null>(null)
   // Alternatives and Grammar need engines.paid only for a paid engine.
   const picker = useLineAiPick(dramaId)
   const pickRef = useRef(picker.pick)
   const gated = picker.gate !== null
+  // Busy until the request for the current inputs settles; a changed input makes the old answer stale without a reset.
+  const requestKey = `${dramaId}:${line.id}:${mode}:${attempt}:${picker.ready}:${gated}`
+  // The note under the picker says why a gated engine is not asked, so nothing is pending then.
+  const busy = settledKey !== requestKey && !gated
   // Declared before the request effect, so it holds the latest pick when that runs.
   useEffect(() => {
     pickRef.current = picker.pick
@@ -51,17 +55,13 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
   // Asks once the engine list has answered; a later pick takes effect on "Ask again".
   useEffect(() => {
     if (!picker.ready) return
-    // The note under the picker says why; asking would only fail.
-    if (gated) {
-      setBusy(false)
-      return
-    }
-    setBusy(true)
+    // Asking a gated engine would only fail.
+    if (gated) return
     const ctl = new AbortController()
     const f = withSignal(ctl.signal)
     const fail = (e: unknown) => {
       if (ctl.signal.aborted) return
-      setBusy(false)
+      setSettledKey(requestKey)
       if (hasStatus(e, 503)) setUnavailable(true)
       else setError(e)
     }
@@ -71,14 +71,13 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
         : lineGrammar(dramaId, line.id, toApiPick(pickRef.current), f).then((data) => ({ kind: 'grammar' as const, data }))
     req.then((r) => {
       if (ctl.signal.aborted) return
-      setBusy(false)
+      setSettledKey(requestKey)
       setResult(r)
     }, fail)
     return () => ctl.abort()
-  }, [dramaId, line.id, mode, attempt, picker.ready, gated])
+  }, [dramaId, line.id, mode, picker.ready, gated, requestKey])
 
   const retry = () => {
-    setBusy(true)
     setResult(null)
     setError(null)
     setUnavailable(false)

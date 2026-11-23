@@ -1,0 +1,39 @@
+// The Review stage's keyboard shortcut lists, shared by its sheet and the global shortcuts help.
+
+// Every shortcut also has a visible control; this sheet is the list.
+export const REVIEW_KEYS: [string, string][] = [
+  ['↓ or J / ↑ or K', 'Next / previous line (crosses pages)'],
+  ['Alt+↓ / Alt+↑', 'Next / previous flagged line'],
+  ['N / Shift+N', 'Next / previous line with no speaker'],
+  ['1 / 2 / 3', 'Give a line with no speaker its 1st / 2nd / 3rd suggested speaker, then go to the next one'],
+  ['] / [', 'Next / previous page'],
+  ['Enter or E', 'Edit the translation'],
+  ['D', 'Edit details (timing, speaker, source)'],
+  ['/', 'Search'],
+  ['F', 'Dismiss flag'],
+  ['R', 'Mark the line checked / unchecked'],
+  ['I / W', 'Re-write / Why this? (AI)'],
+  ['M', 'Merge with next line'],
+  ['A', 'Add a line after'],
+  ['Shift+Delete', 'Delete line (asks to confirm)'],
+  ['Space', 'Play or stop the line (with audio)'],
+  ['Alt+Space', 'Play or pause'],
+  ['← / → (video focused)', 'Seek the video 5 s back / forward (Shift: 1 s)'],
+  ['Space (video focused)', 'Play or pause the video'],
+  ['F (video focused)', 'Full screen on or off (also double-click the picture)'],
+  ['L', 'Loop line on or off'],
+  ['S / T', 'Set the line’s start / end to the playhead (with audio)'],
+  ['Z / X', 'Nudge the start 0.1 s earlier / later (Shift: 0.5 s)'],
+  ['C / V', 'Nudge the end 0.1 s earlier / later (Shift: 0.5 s)'],
+  [', / .', 'Previous / next shot change (after Find shot changes)'],
+  ['← / → (on a line edge)', 'Nudge the edge 0.05 s earlier / later (Shift: 0.5 s)'],
+  ['?', 'This list'],
+]
+
+export const REVIEW_EDITING_KEYS: [string, string][] = [
+  ['Enter', 'Save and edit the next line'],
+  ['Ctrl/⌘+S', 'Save and keep editing'],
+  ['Shift+Enter', 'New line in the text'],
+  ['Alt+Enter', 'Split the line at the cursor'],
+  ['Esc', 'Cancel'],
+]

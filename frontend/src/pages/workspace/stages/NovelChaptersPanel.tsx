@@ -61,7 +61,7 @@ export function NovelChaptersPanel() {
   const [movingTo, setMovingTo] = useState<number | null>(null)
   const [moveBusy, setMoveBusy] = useState(false)
   // A message to show once the reload that follows a move has cleared the old notice.
-  const afterReload = useRef<string | null>(null)
+  const [afterReload, setAfterReload] = useState<string | null>(null)
 
   // Bumped by every first-page load, so a "Show more" page fetched for the old list is dropped.
   const listLoad = useRef(0)
@@ -88,12 +88,17 @@ export function NovelChaptersPanel() {
   }, [dramaId, reloads, filesVersion])
 
   // A different file (replaced, removed) makes an open preview stale.
-  useEffect(() => {
-    requestId.current += 1
+  const reloadKey = `${dramaId}|${reloads}|${filesVersion}`
+  const [seenReloadKey, setSeenReloadKey] = useState(reloadKey)
+  if (seenReloadKey !== reloadKey) {
+    setSeenReloadKey(reloadKey)
     setPreview(null)
     setMovingTo(null)
-    setNotice(afterReload.current)
-    afterReload.current = null
+    setNotice(afterReload)
+    setAfterReload(null)
+  }
+  useEffect(() => {
+    requestId.current += 1
   }, [dramaId, reloads, filesVersion])
 
   const more = useCallback(() => {
@@ -165,9 +170,9 @@ export function NovelChaptersPanel() {
     setMoveBusy(true)
     try {
       const done = await moveRawChapter(dramaId, preview.number, movingTo)
-      afterReload.current = done.translation_text_stale
+      setAfterReload(done.translation_text_stale
         ? 'Moved. The translation text was not changed because it is not a copy of the saved chapters, so splitting it into lines again would bring the old order back.'
-        : 'Moved.'
+        : 'Moved.')
       setReloads((n) => n + 1)
     } catch (e) {
       setError(e)

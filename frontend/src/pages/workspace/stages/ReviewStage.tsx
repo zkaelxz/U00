@@ -91,9 +91,11 @@ export default function ReviewStage() {
   // the tools; asking for it like the selection bar does brings it in, so the link does not land without it.
   const route = useRoute()
   const linkedCompare = route.name === 'drama' && route.id === dramaId && route.focus === 'compare'
-  useEffect(() => {
+  const [seenLinkedCompare, setSeenLinkedCompare] = useState(false)
+  if (linkedCompare !== seenLinkedCompare) {
+    setSeenLinkedCompare(linkedCompare)
     if (linkedCompare) showTool('compareTranscription')
-  }, [linkedCompare, showTool])
+  }
   // Review's messages point to Records → Line history; their button opens it, also in Simple, which leaves Records out.
   const [historySignal, setHistorySignal] = useState(0)
   const openHistory = useCallback(() => {

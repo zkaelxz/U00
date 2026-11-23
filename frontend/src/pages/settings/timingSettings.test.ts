@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { SettingsOverview, SettingsSchemaRow } from '../../types/settings'
-import { toSavedValue } from './SchemaCard'
+import { toSavedValue } from './schemaValues'
 import { defaultLine, draftText, formatValue, isDefault, resetPatch, savedNumber, timingGroups } from './timingSettings'
 
 const row = (over: Partial<SettingsSchemaRow>): SettingsSchemaRow => ({

@@ -1,6 +1,6 @@
 import type { BenchmarkEngineOption } from '../../types/benchmark'
 import { ButtonLink } from '../../components/Button'
-import { packagesHref } from '../readiness/NeedsInstall'
+import { packagesHref } from '../readiness/packagesHref'
 import { routeHref } from '../../router'
 import { engineOptionLabel } from '../translatePage'
 import { engineBlock } from './benchmarkForm'

@@ -18,13 +18,13 @@ export function useDelayedSave<T>(value: T | null, delayMs: number, save: (value
       saveRef.current(value, false)
     }, delayMs)
     return () => clearTimeout(t)
-  }, [value, delayMs])
+  }, [value, delayMs, saveRef])
   useEffect(
     () => () => {
       const v = waiting.current
       waiting.current = null
       if (v !== null) saveRef.current(v, true)
     },
-    [],
+    [saveRef],
   )
 }

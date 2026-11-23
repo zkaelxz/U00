@@ -82,8 +82,12 @@ export function JobQueue({ titles }: Props) {
   }, [load])
 
   // Before adding a Translate item, say which engine it will use and whether it costs money.
-  useEffect(() => {
+  const [seenCost, setSeenCost] = useState({ dramaId, step })
+  if (seenCost.dramaId !== dramaId || seenCost.step !== step) {
+    setSeenCost({ dramaId, step })
     setCostNote(null)
+  }
+  useEffect(() => {
     const id = Number(dramaId)
     if ((step !== 'translate' && step !== 'all') || !id) return
     let live = true
@@ -323,9 +327,14 @@ function SavedSettings({ dramaId, step, edits, onFields, onEdit, onReset }: Save
   const [data, setData] = useState<QueueStepSettings | null>(null)
   const [error, setError] = useState<unknown>(null)
 
-  useEffect(() => {
+  const [seenKey, setSeenKey] = useState({ open, dramaId, step, onFields })
+  if (seenKey.open !== open || seenKey.dramaId !== dramaId || seenKey.step !== step || seenKey.onFields !== onFields) {
+    setSeenKey({ open, dramaId, step, onFields })
     setData(null)
     setError(null)
+  }
+  useEffect(() => {
+    // The parent's setter, so it stays out of the render-time reset above.
     onFields([])
     if (!open) return
     let live = true

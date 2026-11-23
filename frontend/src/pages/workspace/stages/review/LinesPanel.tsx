@@ -1,3 +1,6 @@
+// The controller and builders below take ref objects and read them only later, in event handlers, which react/refs
+// cannot tell from a read during render.
+/* oxlint-disable react/refs */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -13,7 +16,7 @@ import type { ReviewLine } from '../../../../types/review'
 import { FindReplacePanel } from './FindReplacePanel'
 import { HiddenEditBanner } from './HiddenEditBanner'
 import { LineActionsSheet, type SheetState } from './LineActionsSheet'
-import { useLineSelectionContext } from './LineSelectionContext'
+import { useLineSelectionContext } from './useLineSelectionContext'
 import { SelectionBar } from './SelectionBar'
 import { selectionContext } from './selectionActions'
 import { useSimple } from '../../StageContext'
@@ -189,7 +192,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   useEffect(() => {
     const t = setTimeout(() => setTerm(input.trim()), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(t)
-  }, [input])
+  }, [input, setTerm])
 
   useClearAfter(status, () => setStatus(null), STATUS_MS)
 
@@ -226,7 +229,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         setData, setFound, setIssue, setEdit, setStatus, setActiveId, setPage, setFilter,
         setError, setSheet, setStructError, setAi, setRetranscribeFocusId, setSpeakerUndo: fill.setUndo,
       }),
-    [dramaId],
+    [dramaId, setData, setFound, setPage, setFilter, setError, fill.setUndo],
   )
 
   const { actions } = ctl

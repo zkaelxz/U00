@@ -1,28 +1,8 @@
-import { mediaKind } from '../detailsForm'
-import { useStage } from '../StageContext'
-import { stageLabel } from '../stages'
-import { titleKind } from '../titleKind'
 import { GlossaryExtract } from './GlossaryExtractPanel'
-import {
-  SOURCE_TEXT,
-  defaultSuggestSource,
-  suggestBlockers,
-  type GlossarySource,
-} from './glossaryExtract'
-import { useHasLines, useHasNovel } from './useGlossaryRun'
+import { type GlossarySource, SOURCE_TEXT } from './glossaryExtract'
+import type { useSuggestSources } from './useSuggestSources'
 
 const SOURCES: GlossarySource[] = ['lines', 'novel']
-
-// What the title can be read from and which source to start on, shared by
-// the bar and the empty-state card so both name the same default.
-export function useSuggestSources() {
-  const { dramaId, drama } = useStage()
-  const hasNovel = useHasNovel(dramaId, drama)
-  const hasLines = useHasLines(dramaId)
-  const blockers = suggestBlockers(dramaId, hasNovel, hasLines, stageLabel('source', titleKind(drama.media_type, drama.content_mode)))
-  const defaultSource = defaultSuggestSource(blockers, mediaKind(drama.media_type) !== 'audio')
-  return { blockers, defaultSource, ready: hasNovel !== null && hasLines !== null }
-}
 
 type Sources = ReturnType<typeof useSuggestSources>
 

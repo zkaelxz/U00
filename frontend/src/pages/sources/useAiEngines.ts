@@ -18,9 +18,7 @@ export function useAiEngines(enabled: boolean) {
   const [state, setState] = useState<TranslateEngine[] | null>(null)
   const [asked, setAsked] = useState(false)
   const { readiness } = useReadiness()
-  useEffect(() => {
-    if (enabled) setAsked(true)
-  }, [enabled])
+  if (enabled && !asked) setAsked(true)
   // Keyed on `asked` alone: when it was keyed on `engines`, the names list
   // answering first re-ran the effect, whose cleanup dropped the engine list
   // still on its way, so no engine ever showed why it cannot run.

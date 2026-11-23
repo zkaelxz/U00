@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { adviceRequestFromRun, engineThatRan, RunSettings, runSettingRows } from './RunSettings'
+import { RunSettings } from './RunSettings'
+import { adviceRequestFromRun, engineThatRan, runSettingRows } from './runSettingsData'
 
 describe('RunSettings', () => {
   it('lists each setting with toggles as on/off', () => {

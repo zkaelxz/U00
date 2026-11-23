@@ -56,7 +56,7 @@ export function SweepCard({ sets, pc, job, running, onStarted, onStop, onCompare
       if (n === seq.current) setSweep(r.sweep)
     }, (e: unknown) => setError(plainError(e)))
     getSweepDecisions().then((r) => setDecisions(r.decisions), () => setDecisions([]))
-  }, [])
+  }, [setSweep])
   // On open, and again when the Lab's job ends.
   useEffect(() => {
     if (!running) load()

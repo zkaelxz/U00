@@ -178,7 +178,7 @@ test('with Whisper and the CUDA runtime missing the run line says it runs on the
 test('Whisper fast mode explains that it is off by default and what it costs', async ({ page }) => {
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
-  const advanced = await openAdvanced(page)
+  await openAdvanced(page)
   await page.getByRole('button', { name: 'Help: Whisper fast mode' }).focus()
   await expect(page.getByText('Off by default. Decodes several chunks of speech at once')).toBeVisible()
 })

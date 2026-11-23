@@ -74,9 +74,13 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
       const n = clampPage(routePage, count)
       setPicked(n)
       requestJump(n)
-      markMoved()
+      setMoved(true)
     }
   }
+  // Mirrored from state after commit: the observer's canObserve reads it, never render.
+  useEffect(() => {
+    if (moved) movedRef.current = true
+  }, [moved])
 
   // Put the start page in the hash. In-reader moves replace the history
   // entry, so Back leaves the chapter instead of stepping through its pages.

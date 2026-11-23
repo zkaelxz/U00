@@ -58,7 +58,11 @@ export function CommandPalette({ route, context }: { route: Route; context: NavC
 
   // The drawer and other links change the hash from underneath; a stale dialog must not stay over the new page.
   const routeKey = JSON.stringify(route)
-  useEffect(() => setOpen(false), [routeKey])
+  const [seenRouteKey, setSeenRouteKey] = useState(routeKey)
+  if (routeKey !== seenRouteKey) {
+    setSeenRouteKey(routeKey)
+    setOpen(false)
+  }
 
   return (
     <>
