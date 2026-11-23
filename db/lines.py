@@ -659,6 +659,31 @@ def load_line_page(drama_id: int, offset: int, limit: int):
     return total, [dict(r) for r in rows]
 
 
+def line_reading_stats(drama_id: int) -> tuple:
+    """(line count, latest line end, word count of the English) for the
+    Reader's overview, streamed from the cursor rather than built into Lines."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.cursor()
+        cur.row_factory = None
+        count, last_end = cur.execute(
+            "SELECT COUNT(*), MAX(end) FROM lines WHERE drama_id = ?", (drama_id,)).fetchone()
+        words = sum(len(en.split()) for (en,) in cur.execute(
+            "SELECT en FROM lines WHERE drama_id = ? AND en IS NOT NULL AND en != ''", (drama_id,)))
+    return count, last_end or 0.0, words
+
+
+def line_text_stamp(drama_id: int) -> tuple:
+    """A value that changes when a title's lines are added, removed, re-split
+    or their source text changes length, read without fetching the text: the
+    key for caches built from every line's source text. The length weighted by
+    position changes when text moves from one line to the next."""
+    with contextlib.closing(db.get_conn()) as conn:
+        return tuple(conn.execute(
+            "SELECT COUNT(*), MAX(id), MAX(idx), TOTAL(LENGTH(zh)), TOTAL(LENGTH(zh) * (idx + 1))"
+            " FROM lines WHERE drama_id = ?",
+            (drama_id,)).fetchone())
+
+
 def load_line_objects(drama_id: int, with_words: bool = False, ids=None):
     """db.load_lines as core.Line objects (id and `orig` set) -- the shared
     loader every caller that edits and re-saves lines should use."""

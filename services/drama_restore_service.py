@@ -293,11 +293,11 @@ def _samples(value) -> int:
 
 def _merge_character(dst, live: dict, incoming: dict):
     """Blends the incoming voice print into the live one, weighted by sample
-    count (the same running mean db.speakers keeps), and fills blank aliases
-    and notes. Prints of different lengths come from different embedding
+    count (the same running mean db.speakers keeps), and fills blank aliases,
+    notes and remembered voice description. Prints of different lengths come from different embedding
     models, so the live one is kept rather than averaging them."""
     updates = {}
-    for col in ("aliases", "notes"):
+    for col in ("aliases", "notes", "voice_design"):
         if not (live.get(col) or "").strip() and (incoming.get(col) or "").strip():
             updates[col] = incoming[col]
     new_fp = _fingerprint(incoming.get("voice_fingerprint"))

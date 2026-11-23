@@ -748,6 +748,15 @@ class TestUploadToBank:
         assert applied.status_code == 200 and applied.json()["has_ref_audio"] is True
         assert os.listdir(db.VOICE_BANK_DIR) == [stored["clip_filename"]]
 
+    def test_an_english_clip_can_be_added_and_set(self, client, isolated_db, tools):
+        """Narration speaks the English translation by default, so an English voice is common."""
+        e = self._post(client, language="en").json()
+        assert e["language"] == "en"
+        r = client.post(f"{self.URL}/{e['id']}/details", json={"notes": "", "ref_text": "", "language": "ja"})
+        assert r.status_code == 200 and r.json()["language"] == "ja"
+        r = client.post(f"{self.URL}/{e['id']}/details", json={"notes": "", "ref_text": "", "language": "en"})
+        assert r.status_code == 200 and r.json()["language"] == "en"
+
     @pytest.mark.parametrize("extra,name", [
         ({}, "x.exe"), ({"clone_engine": "nope"}, "v.wav"), ({"language": "xx"}, "v.wav")])
     def test_bad_input_422_and_nothing_stored(self, client, isolated_db, tools, extra, name):
