@@ -774,30 +774,16 @@ def test_transcription_starts_beside_an_online_translation_when_switched_on(jobs
     assert [i["status"] for i in _items()] == ["done", "done"]
 
 
-def _source_match_on(cap, monkeypatch, model_present):
+def test_the_source_match_check_no_longer_keeps_the_overlap_off(jobs, cap, monkeypatch):
     _paid_ready(cap, monkeypatch)
     real = settings_service.get
     monkeypatch.setattr(settings_service, "get",
                         lambda k, *a, **kw: True if k == "translate_alignment_check" else real(k, *a, **kw))
-    monkeypatch.setattr(settings_service, "source_match_model_present", lambda: model_present)
-
-
-def test_the_source_match_check_keeps_the_overlap_off_only_while_its_model_is_there(jobs, cap, monkeypatch):
-    _source_match_on(cap, monkeypatch, model_present=False)
+    monkeypatch.setattr(settings_service, "source_match_model_present", lambda: True)
     a, b = _overlap_queue("claude", True)
     q.tick()
     q.tick()
     assert jobs.started == [f"translate_{a}", f"transcribe_{b}"]
-    assert q.get_queue(None)["overlap_note"] is None
-
-
-def test_the_jobs_page_says_why_a_transcription_waits_when_the_check_has_its_model(jobs, cap, monkeypatch):
-    _source_match_on(cap, monkeypatch, model_present=True)
-    a, _b = _overlap_queue("claude", True)
-    q.tick()
-    q.tick()
-    assert jobs.started == [f"translate_{a}"]
-    assert "Source match" in q.get_queue(None)["overlap_note"]
 
 
 def test_overlap_is_off_by_default(jobs, cap, monkeypatch):
@@ -834,17 +820,3 @@ def test_a_policy_call_changes_only_what_it_sends(jobs):
     assert state["stop_on_failure"] and state["overlap_online_translate"]
     q.set_policy(None, stop_on_failure=False)
     assert q.get_queue(None)["overlap_online_translate"] is True
-
-
-
-
-def test_the_source_match_check_blocks_the_overlap(jobs, cap, monkeypatch):
-    _paid_ready(cap, monkeypatch)
-    monkeypatch.setattr(settings_service, "source_match_model_present", lambda: True)
-    patched = settings_service.get
-    monkeypatch.setattr(settings_service, "get",
-                        lambda k, *a, **kw: True if k == "translate_alignment_check" else patched(k, *a, **kw))
-    a, _b = _overlap_queue("claude", True)
-    q.tick()
-    q.tick()
-    assert jobs.started == [f"translate_{a}"]

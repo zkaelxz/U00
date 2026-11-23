@@ -17,7 +17,7 @@ import time
 import adaptive_style
 import db
 import background_jobs
-from jobs import job_launch
+from jobs import gpu_slots, job_launch
 from engine_backends import translate_pipeline, fallback, pricing, engine_registry, llm_tasks, paid_calls
 from engine_backends import gemini as engine_gemini
 from engine_backends import shared as engine_shared
@@ -476,7 +476,18 @@ def _alignment_args(drama_id, engine, engine_choice, job_id, cap_reached, check,
     if raw_embed is None:
         return {}
 
+    waited = []
+
     def embed(texts):
+        # An online translation may run beside a transcription (the Jobs switch); bge-m3 on this
+        # PC's Ollama then waits for the transcription's GPU slot rather than loading beside it.
+        if not waited:
+            waited.append(True)
+            if not gpu_slots.wait_until_no_ui_job(
+                    cancel_seen, exclude_holder=gpu_slots.UI_PREFIX + job_id,
+                    on_wait=lambda: background_jobs.update_progress(
+                        job_id, 1.0, "Waiting for a transcription to finish before checking source match")):
+                return None
         vectors = raw_embed(texts)
         # None is also what a stop returns; only an unstopped None means Ollama or bge-m3 is unusable.
         if vectors is None and not cancel_seen():
