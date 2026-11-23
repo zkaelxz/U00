@@ -81,6 +81,10 @@ final class GrabBridge {
     @JavascriptInterface
     public synchronized void image(String given, String key, String url, String type, String base64) {
         if (!accepts(given) || !begun || base64 == null || base64.isEmpty()) return;
+        if (key == null || key.length() > 64) {
+            unreadable++;
+            return;
+        }
         if (Batches.tooLarge(base64)) {
             unreadable++;
             return;
@@ -92,6 +96,28 @@ final class GrabBridge {
         String safeType = type != null && type.matches("image/[A-Za-z0-9.+-]{1,20}") ? type : "image/jpeg";
         images.add(new PageImage(key, url == null ? "" : url, safeType, base64));
         totalChars += base64.length();
+    }
+
+    /**
+     * A picture the page would not let the script read. Only its address is kept, in page order
+     * (an empty body marks it); the app downloads it itself with the page's cookies.
+     */
+    @JavascriptInterface
+    public synchronized void pending(String given, String key, String url) {
+        if (!accepts(given) || !begun || url == null) return;
+        if (key == null || key.length() > 64) {
+            unreadable++;
+            return;
+        }
+        if (!(url.startsWith("https://") || url.startsWith("http://")) || url.length() > 2000) {
+            unreadable++;
+            return;
+        }
+        if (images.size() >= MAX_IMAGES) {
+            truncated = true;
+            return;
+        }
+        images.add(new PageImage(key, url, "image/jpeg", ""));
     }
 
     @JavascriptInterface

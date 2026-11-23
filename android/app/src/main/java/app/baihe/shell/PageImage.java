@@ -13,4 +13,9 @@ final class PageImage {
         this.contentType = contentType;
         this.base64 = base64;
     }
+
+    /** True for a picture the page would not hand over: only its address is known. */
+    boolean needsDownload() {
+        return base64.isEmpty() && !url.isEmpty();
+    }
 }

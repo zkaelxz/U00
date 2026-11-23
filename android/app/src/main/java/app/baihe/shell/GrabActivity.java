@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -75,13 +76,29 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
         address = new EditText(this);
         address.setSingleLine(true);
+        address.setHint("Enter a comic site address");
         address.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
         address.setImeOptions(EditorInfo.IME_ACTION_GO);
         address.setOnEditorActionListener((v, actionId, event) -> {
             go();
             return true;
         });
-        root.addView(address, new LinearLayout.LayoutParams(
+        // A light box with dark text and a Go button, so the way in is visible on any theme.
+        GradientDrawable outline = new GradientDrawable();
+        outline.setColor(0xFFFFFFFF);
+        address.setTextColor(0xFF000000);
+        address.setHintTextColor(0xFF666666);
+        outline.setStroke((int) (2 * getResources().getDisplayMetrics().density), 0xFF888888);
+        outline.setCornerRadius(8 * getResources().getDisplayMetrics().density);
+        address.setBackground(outline);
+        int inset = (int) (10 * getResources().getDisplayMetrics().density);
+        address.setPadding(inset, inset, inset, inset);
+        LinearLayout addressRow = new LinearLayout(this);
+        addressRow.setOrientation(LinearLayout.HORIZONTAL);
+        addressRow.addView(address, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        addressRow.addView(button("Go", v -> go()), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(addressRow, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         web = new WebView(this);
@@ -143,7 +160,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         setContentView(root);
         root.setFitsSystemWindows(true);
         if (state != null) web.restoreState(state);
-        else handleShare(getIntent());
+        else {
+            say(OPEN_FIRST);
+            handleShare(getIntent());
+        }
     }
 
     @Override
@@ -345,13 +365,14 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         server.setText(prefs().getString(KEY_SERVER, ""));
         EditText token = new EditText(this);
         // The saved token is never shown again; an empty field keeps the one already saved.
-        token.setHint("Token");
+        token.setHint("Token (starts with baihe_dt_)");
         token.setSingleLine(true);
         token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         form.addView(server);
         form.addView(token);
         new AlertDialog.Builder(this)
                 .setTitle("Settings")
+                .setMessage("Make the token at the PC in Baihe: Settings > Extension tokens per computer.")
                 .setView(form)
                 .setPositiveButton("Save", (d, w) -> {
                     String origin = ServerAddress.normalizeServer(server.getText().toString());
@@ -397,10 +418,16 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
+            say("Set up Grab first: enter your server address and a phone token.");
             showSettings();
             return;
         }
         if (grabbing) return;
+        String current = web.getUrl();
+        if (current == null || current.isEmpty() || current.startsWith("about:")) {
+            say(OPEN_FIRST);
+            return;
+        }
         grabbing = true;
         quickRead = readOnly;
         grab.setEnabled(false);
@@ -409,6 +436,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String nonce = newNonce();
         bridge.start(nonce);
         pageUrl = web.getUrl() == null ? "" : web.getUrl();
+        pageAgent = web.getSettings().getUserAgentString();
         runningGrab = nonce;
         web.postDelayed(() -> {
             if (grabbing && !uploading && nonce.equals(runningGrab)) finishGrab("The page did not finish.");
@@ -502,6 +530,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private static final int MAX_CHAPTERS = 20;
+    private static final String OPEN_FIRST = "Open a comic chapter first: enter its site address above and tap Go.";
     private static final int QUICK_READ_BATCH = 4;
     private volatile String pageNext = "";
     private JSONArray pageChapters = new JSONArray();
@@ -510,6 +539,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile String runningGrab = "";
     // From the web view, not the page: a page can claim any address.
     private volatile String pageUrl = "";
+    private volatile String pageAgent = "";
     private List<String> pageTitles = new ArrayList<>();
 
     @Override
@@ -523,20 +553,50 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     @Override
     public void onDone(List<PageImage> images, int unreadable, boolean truncated) {
         if (images.isEmpty()) {
-            finishGrab("No page images were found on this page.");
+            finishGrab(unreadable > 0
+                    ? "Found " + unreadable + " pictures but the site would not let Baihe read them."
+                    : "No page images were found on this page.");
             return;
         }
         String url = pageUrl;
+        String agent = pageAgent;
         List<String> titles = pageTitles;
         JSONArray chapterLinks = pageChapters;
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
-        if (quickRead) {
-            sender.execute(() -> read(new BaiheClient(server, token), url, images, unreadable, truncated));
-            return;
-        }
-        sender.execute(() -> upload(new BaiheClient(server, token), url, titles, chapterLinks, images, unreadable, truncated));
+        boolean readOnly = quickRead;
+        sender.execute(() -> {
+            // Pictures the page would not hand over are downloaded here, in page order.
+            List<PageImage> ready = new ArrayList<>();
+            int bad = unreadable;
+            boolean cut = truncated;
+            long used = 0;
+            long downloadDeadline = System.currentTimeMillis() + 5 * 60_000L;
+            for (PageImage image : images) {
+                PageImage got = image;
+                if (image.needsDownload()) {
+                    got = System.currentTimeMillis() > downloadDeadline ? null
+                            : ImageFetch.download(image, url, android.webkit.CookieManager.getInstance()::getCookie, agent);
+                }
+                if (got == null) {
+                    bad++;
+                } else if (!SharedImages.fitsTotal(used, got.base64.length())) {
+                    cut = true;
+                    break;
+                } else {
+                    used += got.base64.length();
+                    ready.add(got);
+                }
+            }
+            if (ready.isEmpty()) {
+                finishGrab("Found " + bad + " pictures but the site would not let Baihe read them.");
+                return;
+            }
+            BaiheClient client = new BaiheClient(server, token);
+            if (readOnly) read(client, url, ready, bad, cut);
+            else upload(client, url, titles, chapterLinks, ready, bad, cut);
+        });
     }
 
     /** Quick read: send the pages without saving, write what comes back to the cache and open it. */
@@ -559,6 +619,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                             out.write(jpeg);
                         }
                         names.add(name);
+                    }
+                    if (firstError.isEmpty() && QuickRead.typesetPages(answer).isEmpty()) {
+                        firstError = QuickRead.firstWarning(answer);
                     }
                     JSONArray failed = answer.optJSONArray("failed");
                     if (firstError.isEmpty() && failed != null && failed.length() > 0) {
