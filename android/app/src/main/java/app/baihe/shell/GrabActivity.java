@@ -663,51 +663,78 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         });
     }
 
-    /** Quick read: send the pages without saving, write what comes back to the cache and open it. */
+    /**
+     * Quick read: send the pages without saving. The reader opens on the first finished page and
+     * the rest are added to it as the server sends them, so reading starts after one page's time
+     * rather than the whole chapter's.
+     */
     private void read(BaiheClient client, String url, List<PageImage> images, int unreadable, boolean truncated) {
+        QuickReadSession.begin();
         try {
             // A typeset answer is large, so the batch stays small however many the server allows.
             int max = Math.min(QUICK_READ_BATCH, client.health().optInt("max_images_per_request", 12));
             QuickReadActivity.clear(this);
-            List<String> names = new ArrayList<>();
-            String firstError = "";
+            int[] shown = {0};
+            boolean[] opened = {false};
+            String[] firstError = {""};
             List<List<PageImage>> batches = Batches.plan(images, max);
-            for (int i = 0; i < batches.size(); i++) {
-                say("Redrawing " + (i + 1) + " of " + batches.size());
+            int sent = 0;
+            for (int i = 0; i < batches.size() && !QuickReadSession.isAbandoned(); i++) {
+                List<PageImage> batch = batches.get(i);
+                sent += batch.size();
+                say("Redrawing pages " + (shown[0] + 1) + "-" + sent + " of " + images.size());
                 try {
-                    JSONObject answer = client.readPages(url, batches.get(i));
-                    for (byte[] jpeg : QuickRead.typesetPages(answer)) {
-                        String name = String.format(java.util.Locale.ROOT, "page-%03d.jpg", names.size());
-                        try (java.io.FileOutputStream out = new java.io.FileOutputStream(
-                                new java.io.File(QuickReadActivity.quickReadDir(this), name))) {
-                            out.write(jpeg);
+                    JSONObject done = client.streamPages(url, batch, page -> {
+                        JSONObject wrapped;
+                        try {
+                            wrapped = new JSONObject().put("pages", new JSONArray().put(page));
+                        } catch (org.json.JSONException e) {
+                            return;
                         }
-                        names.add(name);
+                        List<byte[]> jpegs = QuickRead.typesetPages(wrapped);
+                        if (jpegs.isEmpty()) {
+                            if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
+                            return;
+                        }
+                        for (byte[] jpeg : jpegs) {
+                            String name = String.format(java.util.Locale.ROOT, "page-%03d.jpg", shown[0]);
+                            try (java.io.FileOutputStream out = new java.io.FileOutputStream(
+                                    new java.io.File(QuickReadActivity.quickReadDir(this), name))) {
+                                out.write(jpeg);
+                            }
+                            shown[0]++;
+                            QuickReadSession.add(name);
+                        }
+                        if (!opened[0]) {
+                            opened[0] = true;
+                            Intent open = new Intent(this, QuickReadActivity.class);
+                            runOnUiThread(() -> startActivity(open));
+                        }
+                    });
+                    JSONArray failed = done.optJSONArray("failed");
+                    if (firstError[0].isEmpty() && failed != null && failed.length() > 0) {
+                        firstError[0] = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
                     }
-                    if (firstError.isEmpty() && QuickRead.typesetPages(answer).isEmpty()) {
-                        firstError = QuickRead.firstWarning(answer);
-                    }
-                    JSONArray failed = answer.optJSONArray("failed");
-                    if (firstError.isEmpty() && failed != null && failed.length() > 0) {
-                        firstError = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
+                    JSONArray skipped = done.optJSONArray("skipped");
+                    if (firstError[0].isEmpty() && skipped != null && skipped.length() > 0) {
+                        firstError[0] = skipped.length() + " pictures were not pages ("
+                                + (skipped.optJSONObject(0) == null ? "" : skipped.optJSONObject(0).optString("reason", "")) + ")";
                     }
                 } catch (BaiheClient.BridgeException e) {
-                    if (firstError.isEmpty()) firstError = e.getMessage();
+                    if (firstError[0].isEmpty()) firstError[0] = e.getMessage();
                     // A token the server refused, or a spent limit, would refuse every later batch too.
                     if (e.status == 401 || e.status == 403 || e.status == 429) break;
                 }
             }
-            String message = QuickRead.summary(names.size(), images.size() + unreadable, firstError)
+            QuickReadSession.finish();
+            String message = QuickRead.summary(shown[0], images.size() + unreadable, firstError[0])
                     + (truncated ? ". Some pages were left out." : "");
             finishGrab(message, false);
-            if (!names.isEmpty()) {
-                Intent open = new Intent(this, QuickReadActivity.class)
-                        .putExtra(QuickReadActivity.EXTRA_FILES, names.toArray(new String[0]));
-                runOnUiThread(() -> startActivity(open));
-            }
         } catch (BaiheClient.BridgeException e) {
+            QuickReadSession.finish();
             finishGrab(e.getMessage());
         } catch (Exception e) {
+            QuickReadSession.finish();
             finishGrab("Could not read the pages.");
         }
     }
