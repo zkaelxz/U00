@@ -97,6 +97,25 @@ class TestRename:
         assert r.status_code == 404
 
 
+class TestStreamer:
+    def test_set_shows_on_list_and_page_and_never_borrows_a_hidden_spelling(self, world):
+        c = _remote(_app())
+        db.set_series_streamer(world["secret"], "Chion")
+        r = c.post(f"/api/series/{world['saga']}/streamer", headers=world["a"], json={"streamer": "chion"})
+        assert r.status_code == 200, r.text
+        assert r.json() == {"series_id": world["saga"], "streamer": "chion"}
+        items = {s["name"]: s["streamer"] for s in c.get("/api/series", headers=world["a"]).json()["items"]}
+        assert items["Saga"] == "chion" and items["Other"] is None
+        assert c.get(f"/api/series/{world['saga']}", headers=world["a"]).json()["streamer"] == "chion"
+
+    def test_other_users_private_series_is_404_and_extra_fields_422(self, world):
+        c = _remote(_app())
+        assert c.post(f"/api/series/{world['secret']}/streamer", headers=world["a"],
+                      json={"streamer": "Mine"}).status_code == 404
+        assert c.post(f"/api/series/{world['saga']}/streamer", headers=world["a"],
+                      json={"streamer": "x", "series_id": 9}).status_code == 422
+
+
 class TestDelete:
     def test_remote_delete_is_refused(self, world):
         c = _remote(_app())
