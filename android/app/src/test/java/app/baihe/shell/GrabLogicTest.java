@@ -334,4 +334,18 @@ public class GrabLogicTest {
         stats.add(2L * 1048576, 10_000, 8_000);
         assertEquals("sent 4.0 MB in 2 requests at 205 KB/s each, PC first answer 6 s after", stats.describe());
     }
+
+    @Test
+    public void onlyWidePicturesAreScaledDownBeforeAnUpload() {
+        assertEquals(ImageShrink.MAX_WIDTH, ImageShrink.targetWidth(3000));
+        assertEquals(0, ImageShrink.targetWidth(ImageShrink.MAX_WIDTH));
+        assertEquals(0, ImageShrink.targetWidth(900));
+    }
+
+    @Test
+    public void smallPicturesAreSentAsTheyAre() {
+        PageImage small = new PageImage("k", "u", "image/png", "AAAA");
+        assertFalse(ImageShrink.worthShrinking(small));
+        assertTrue(ImageShrink.forUpload(small) == small);
+    }
 }
