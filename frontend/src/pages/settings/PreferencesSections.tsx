@@ -66,6 +66,15 @@ export function DefaultsCard({ schema, settings, onSettings }: Props) {
         title="Translation style"
         summary={`${humanize('locale', p.default_locale)}${p.default_style_note ? ' · style note' : ''}`}
       />
+      <SchemaCard
+        schema={schema}
+        settings={settings}
+        onSettings={onSettings}
+        section="Comic glossary"
+        as="card"
+        title="Comic glossary"
+        summary={p.comic_glossary_custom ? 'Built in, with your lines' : 'Built in'}
+      />
       <SourceMatchModel />
     </>
   )
