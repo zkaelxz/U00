@@ -243,4 +243,14 @@ public class GrabLogicTest {
         assertFalse(new PageImage("p1", "https://cdn.example/2.jpg", "image/jpeg", "AAAA").needsDownload());
         assertFalse(new PageImage("p2", "", "image/png", "").needsDownload());
     }
+
+    @Test
+    public void quickReadNamesTheFirstWarningOfAPageWithNothingToShow() throws Exception {
+        org.json.JSONObject answer = new org.json.JSONObject().put("pages", new org.json.JSONArray()
+                .put(new org.json.JSONObject().put("notes", new org.json.JSONArray()
+                        .put(new org.json.JSONArray().put("info").put("fine"))
+                        .put(new org.json.JSONArray().put("warning").put("no translation engine is set")))));
+        assertEquals("no translation engine is set", QuickRead.firstWarning(answer));
+        assertEquals("", QuickRead.firstWarning(new org.json.JSONObject()));
+    }
 }

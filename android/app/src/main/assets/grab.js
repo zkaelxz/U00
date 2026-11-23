@@ -23,12 +23,25 @@
     }
     return best;
   }
+  // Waits briefly after each step, and longer only while a picture on screen is still loading,
+  // so a fast connection is not held back and a slow one is not skipped past.
+  function stillLoading() {
+    var list = document.images;
+    for (var k = 0; k < list.length; k++) {
+      var r = list[k].getBoundingClientRect();
+      if (!list[k].complete && r.bottom > 0 && r.top < window.innerHeight * 2) return true;
+    }
+    return false;
+  }
   var lastHeight = -1;
   var box = scrollBox();
-  for (var step = 0; step < 60; step++) {
+  for (var step = 0; step < 150; step++) {
     if (step % 10 === 0) box = scrollBox();
-    box.scrollTop += Math.max(400, box.clientHeight * 0.9);
-    await new Promise(function (r) { setTimeout(r, 250); });
+    box.scrollTop += Math.max(400, box.clientHeight * 0.95);
+    await new Promise(function (r) { setTimeout(r, 90); });
+    for (var waited = 0; waited < 800 && stillLoading(); waited += 100) {
+      await new Promise(function (r) { setTimeout(r, 100); });
+    }
     var atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
     if (atEnd && box.scrollHeight === lastHeight) break;
     lastHeight = box.scrollHeight;
@@ -85,6 +98,8 @@
       items.push({ kind: "img", el: el });
     } else if (el.naturalWidth < MIN_SIDE) {
       var later = lazyAddress(el);
+      if (!later && !el.complete && /^https?:/.test(el.currentSrc || el.src || "") &&
+          !(el.width > 0 && el.width < MIN_SIDE)) later = el.currentSrc || el.src;
       if (later) items.push({ kind: "url", url: later });
     }
   });

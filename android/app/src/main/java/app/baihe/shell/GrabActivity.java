@@ -619,6 +619,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         }
                         names.add(name);
                     }
+                    if (firstError.isEmpty() && QuickRead.typesetPages(answer).isEmpty()) {
+                        firstError = QuickRead.firstWarning(answer);
+                    }
                     JSONArray failed = answer.optJSONArray("failed");
                     if (firstError.isEmpty() && failed != null && failed.length() > 0) {
                         firstError = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
