@@ -635,7 +635,8 @@ from db.reading import (  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 
 from db.translation_versions import (  # noqa: E402,F401
-    delete_translation_version, get_translation_version, list_translation_versions,
+    PLAIN_VERSIONS, delete_translation_version, get_translation_version, list_translation_versions,
+    pack_old_translation_versions,
     save_translation_version, set_active_translation_version)
 
 

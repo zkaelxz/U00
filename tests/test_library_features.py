@@ -4,6 +4,8 @@ progress tracking, reading history, translation versions, custom tags,
 storage management, and time estimates.
 """
 
+import contextlib
+import json
 import sys
 import os
 import io
@@ -287,6 +289,43 @@ class TestTranslationVersions:
             did, [Line(idx=0, start=0, end=1, zh="a", en="b")], "A")
         isolated_db.delete_translation_version(v)
         assert isolated_db.list_translation_versions(did) == []
+
+    def _kinds(self, db, did):
+        with contextlib.closing(db.get_conn()) as conn:
+            return [r[0] for r in conn.execute(
+                "SELECT typeof(lines_json) FROM translation_versions WHERE drama_id = ? ORDER BY id",
+                (did,))]
+
+    def test_old_copies_are_compressed_never_dropped(self, isolated_db):
+        did = isolated_db.create_drama(title_en="T")
+        other = isolated_db.create_drama(title_en="Other")
+        isolated_db.save_translation_version(other, [Line(idx=0, start=0, end=1, zh="x", en="o")], "O")
+        first = isolated_db.save_translation_version(
+            did, [Line(idx=0, start=0, end=1, zh="原", en="run 0")], "R0", make_active=True)
+        for n in range(1, isolated_db.PLAIN_VERSIONS + 2):
+            isolated_db.save_translation_version(
+                did, [Line(idx=0, start=0, end=1, zh="原", en=f"run {n}")], f"R{n}")
+        assert len(isolated_db.list_translation_versions(did)) == isolated_db.PLAIN_VERSIONS + 2
+        assert self._kinds(isolated_db, did) == ["blob"] * 2 + ["text"] * isolated_db.PLAIN_VERSIONS
+        assert self._kinds(isolated_db, other) == ["text"]
+        # The active copy reads back like any other, compressed or not.
+        v = isolated_db.get_translation_version(first)
+        assert v["is_active"] == 1 and v["lines"][0]["en"] == "run 0"
+        assert isinstance(v["lines_json"], str)
+
+    def test_startup_pass_compresses_copies_stored_before_compression(self, isolated_db):
+        did = isolated_db.create_drama(title_en="T")
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            for n in range(isolated_db.PLAIN_VERSIONS + 1):
+                conn.execute(
+                    "INSERT INTO translation_versions (drama_id, label, is_active, lines_json, created_at) "
+                    "VALUES (?, ?, 0, ?, 'x')", (did, f"R{n}", json.dumps([{"idx": 0, "en": f"run {n}"}])))
+            conn.commit()
+        assert isolated_db.pack_old_translation_versions() == 1
+        assert isolated_db.pack_old_translation_versions() == 0
+        assert self._kinds(isolated_db, did) == ["blob"] + ["text"] * isolated_db.PLAIN_VERSIONS
+        oldest = min(v["id"] for v in isolated_db.list_translation_versions(did))
+        assert isolated_db.get_translation_version(oldest)["lines"] == [{"idx": 0, "en": "run 0"}]
 
 
 class TestCustomTagsAndMetadata:
