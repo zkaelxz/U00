@@ -660,9 +660,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     private static final int MAX_CHAPTERS = 20;
     private static final String OPEN_FIRST = "Open a comic chapter first: enter its site address above and tap Go.";
-    private static final int QUICK_READ_BATCH = 4;
+    private static final int QUICK_READ_BATCH = 2;
     // Batches in flight at once: the PC reads two pages at a time, so one stream leaves it waiting on uploads.
-    private static final int QUICK_READ_STREAMS = 2;
+    private static final int QUICK_READ_STREAMS = 3;
     private volatile String pageNext = "";
     private JSONArray pageChapters = new JSONArray();
 
@@ -789,6 +789,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
                 shown[0]++;
                 QuickReadSession.add(name);
+                say("Redrawing " + images.size() + " pictures: " + shown[0] + " ready");
                 if (!opened[0]) {
                     opened[0] = true;
                     firstPageAt[0] = System.currentTimeMillis();
@@ -810,7 +811,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     }
                     say("Redrawing " + images.size() + " pictures: " + shown[0] + " ready");
                     try {
-                        JSONObject done = client.streamPages(url, batches.get(index), page -> {
+                        JSONObject done = client.streamPages(url, ImageShrink.forUpload(batches.get(index)), page -> {
                             JSONObject wrapped;
                             try {
                                 wrapped = new JSONObject().put("pages", new JSONArray().put(page));
