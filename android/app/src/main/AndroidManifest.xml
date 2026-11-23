@@ -42,6 +42,10 @@
         <!-- No launcher entry of its own, so the phone shows one icon; it is reached from the
              Baihe icon's long-press shortcut, a link to another site, or Android's Share. -->
         <activity
+            android:name=".QuickReadActivity"
+            android:label="Quick read"
+            android:exported="false" />
+        <activity
             android:name=".GrabActivity"
             android:label="Baihe Grab"
             android:exported="true"
