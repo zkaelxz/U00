@@ -450,9 +450,8 @@ def _translate_one(image: dict, job: dict, turn):
 PAGES_AT_ONCE = 2
 # Quick read translates pages without waiting for the page before (nothing is saved, so speed
 # wins over the tighter story link), so more pages can be at the model at once. Reading still
-# takes turns, so this adds model calls in flight, not GPU work. Past 6 the redraw (LaMa on the
-# GPU, one page at a time) becomes the limit and more pages only queue behind it.
-QUICK_READ_PAGES_AT_ONCE = 6
+# takes turns, so this adds model calls in flight, not GPU work.
+QUICK_READ_PAGES_AT_ONCE = 4
 
 
 def _translate_all(decoded: list, job: dict, on_page=None) -> list:
