@@ -1064,6 +1064,21 @@ class TestFinishAppUpdate:
         assert spawned == [] and sw.DEFER_ENV not in os.environ
         assert sw.read_journal(root)["state"] == sw.QUEUED
 
+    @pytest.mark.parametrize("state,refused", [("switching", True), ("checking", False)])
+    def test_a_start_while_the_helper_works_waits_only_until_its_own_start(self, root,
+                                                                           monkeypatch, state,
+                                                                           refused):
+        # While the helper replaces the packages a server must not load them;
+        # from "checking" on, the start asking is the helper's own.
+        root, sw, _ = root
+        sw.write_journal(root, state, "0.1.0", "0.2.0", "0.1.0", step=2, packages=True)
+        monkeypatch.setattr(sw, "recover", lambda root, stop=None: "busy")
+        if refused:
+            with pytest.raises(launcher.LaunchError, match="installing an update"):
+                launcher.finish_app_update(headless=False)
+        else:
+            assert launcher.finish_app_update(headless=False) is False
+
     def test_an_interrupted_check_is_rolled_back_after_stopping_the_server(self, root):
         root, sw, _ = root
         os.rename(root / "app", root / "app-0.1.0")

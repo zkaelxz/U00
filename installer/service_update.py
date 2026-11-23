@@ -45,6 +45,8 @@ OUTCOMES = {
     "not_started": "The update didn't start; the current version kept running.",
     "rolled_back_health": "The new version didn't start, so the previous version was put back.",
     "rolled_back_switch": "The app folder couldn't be switched; the previous version was kept.",
+    "rolled_back_packages": ("The new version's Python packages couldn't be installed, so the "
+                             "previous version was put back."),
     "broken": "The update couldn't be finished or undone. Run Setup again to repair it.",
 }
 
@@ -174,6 +176,9 @@ class ServiceLauncher:
             return False
         return wait_until(lambda: self.health(self.port), HEALTH_WAIT_SECONDS, sleep=self.sleep)
 
+    def start_quietly(self, defer=False) -> None:
+        self.open_window(defer)
+
     def open_window(self, defer=False) -> None:
         """Called wherever the old version should be running again."""
         try:
@@ -198,9 +203,9 @@ def _check_zip(copy: Path, installed, version: str, key: bytes, sha: str, name: 
         raise ServiceError(str(exc)) from None
     minimum = version_key(manifest.get("min_base_version"))
     base = app_swap.base_version(installed)
-    if (manifest.get("version") != version or manifest.get("base") != app_swap.base_fingerprint(installed)
+    if (manifest.get("version") != version or not app_swap.base_accepts(manifest, installed)
             or minimum is None or version_key(base) is None or version_key(base) < minimum):
-        raise ServiceError("This update was built for a different Python, packages or Caddy "
+        raise ServiceError("This update was built for a different Python, WinSW or Caddy "
                            "than this install has. Use the full installer.")
     return manifest
 
