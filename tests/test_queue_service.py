@@ -836,3 +836,15 @@ def test_a_policy_call_changes_only_what_it_sends(jobs):
     assert q.get_queue(None)["overlap_online_translate"] is True
 
 
+
+
+def test_the_source_match_check_blocks_the_overlap(jobs, cap, monkeypatch):
+    _paid_ready(cap, monkeypatch)
+    monkeypatch.setattr(settings_service, "source_match_model_present", lambda: True)
+    patched = settings_service.get
+    monkeypatch.setattr(settings_service, "get",
+                        lambda k, *a, **kw: True if k == "translate_alignment_check" else patched(k, *a, **kw))
+    a, _b = _overlap_queue("claude", True)
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"translate_{a}"]
