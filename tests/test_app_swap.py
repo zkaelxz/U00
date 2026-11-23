@@ -671,28 +671,52 @@ def test_stop_gives_up_when_the_old_server_keeps_answering(root, monkeypatch):
 
 # --- carried Python packages ----------------------------------------------------
 
-def _wheels(folder, tag, name=sw.CARRIED_WHEELS_DIR):
-    wheels = folder / name
-    wheels.mkdir(parents=True)
-    (wheels / sw.WHEEL_LOCK_NAME).write_text(tag)
-    return wheels
+def _wheel(folder, name, version, files):
+    """A real wheel file: `files` {path: text} plus its dist-info and RECORD."""
+    folder.mkdir(parents=True, exist_ok=True)
+    info = f"{name}-{version}.dist-info"
+    entries = dict(files)
+    entries[f"{info}/METADATA"] = f"Name: {name}\nVersion: {version}\n"
+    entries[f"{info}/RECORD"] = "".join(f"{p},,\n" for p in entries) + f"{info}/RECORD,,\n"
+    path = folder / f"{name}-{version}-py3-none-any.whl"
+    with zipfile.ZipFile(path, "w") as zf:
+        for rel, text in entries.items():
+            zf.writestr(rel, text)
+    return path
 
 
-class FakePip:
-    """Records which wheel set each pip run installed (by its lock's text)."""
+def _wheel_set(folder, *wheels, lock_extra=""):
+    """A carried set: each (name, version, files) as a wheel, pinned in the lock."""
+    import hashlib
+    lines = []
+    for name, version, files in wheels:
+        whl = _wheel(folder, name, version, files)
+        lines.append(f"{name}=={version} \\\n    --hash=sha256:{hashlib.sha256(whl.read_bytes()).hexdigest()}")
+    (folder / sw.WHEEL_LOCK_NAME).write_text("# lock\n" + "\n".join(lines) + "\n" + lock_extra)
+    return folder
 
-    def __init__(self, fail_on=()):
-        self.installed, self.fail_on = [], set(fail_on)
 
-    def __call__(self, cmd, **kw):
-        lock = Path(cmd[cmd.index("-r") + 1]).read_text()
-        self.installed.append(lock)
-        assert cmd[1:4] == ["-I", "-m", "pip"] and "--require-hashes" in cmd and "--no-deps" in cmd
-        assert kw["env"]["PIP_CONFIG_FILE"] == os.devnull and kw["timeout"]
+def _site(root):
+    site = sw.site_packages(root)
+    site.mkdir(parents=True, exist_ok=True)
+    return site
 
-        class Done:
-            returncode = 1 if lock in self.fail_on else 0
-        return Done()
+
+def _installed(root):
+    return {k: v[0] for k, v in sw._installed_dists(sw.site_packages(root)).items()}
+
+
+V1 = ("demo", "1.0", {"demo/__init__.py": "v1", "demo/old_only.py": "gone in 2"})
+V2 = ("demo", "2.0", {"demo/__init__.py": "v2"})
+EXTRA = ("extra_pkg", "1.0", {"extra_pkg/__init__.py": "x"})
+
+
+def _setup_installed(root, *wheels):
+    """site-packages as Setup left it, and the same set in <install>\\wheels."""
+    _site(root)
+    base = _wheel_set(root / sw.BASE_WHEELS_DIR, *wheels)
+    sw.install_packages(root, base)
+    return base
 
 
 def test_base_accepts_other_wheels_only_from_a_layer_that_carries_its_own():
@@ -721,60 +745,109 @@ def test_a_layer_claiming_wheels_it_doesnt_hold_is_refused(tmp_path):
         assert sw.read_manifest(zf)["carries_wheels"] is True
 
 
+def test_install_packages_replaces_changed_ones_and_keeps_others(root):
+    site = _site(root)
+    _setup_installed(root, V1)
+    (site / "torch").mkdir()            # added through Diagnostics
+    (site / "torch" / "__init__.py").write_text("t")
+    sw.install_packages(root, _wheel_set(root / "new", V2, EXTRA))
+    assert _installed(root) == {"demo": "2.0", "extra-pkg": "1.0"}
+    assert (site / "demo" / "__init__.py").read_text() == "v2"
+    assert not (site / "demo" / "old_only.py").exists()
+    assert (site / "torch" / "__init__.py").read_text() == "t"
+
+
+@pytest.mark.parametrize("problem", ["hash", "unpinned", "missing"])
+def test_a_wheel_set_that_doesnt_match_its_lock_is_refused(root, problem):
+    _site(root)
+    wheels = _wheel_set(root / "new", V2)
+    if problem == "hash":
+        _wheel(wheels, "demo", "2.0", {"demo/__init__.py": "tampered"})
+    elif problem == "unpinned":
+        _wheel(wheels, "other", "1.0", {"other/__init__.py": "x"})
+    else:
+        (wheels / sw.WHEEL_LOCK_NAME).write_text(
+            (wheels / sw.WHEEL_LOCK_NAME).read_text() + "absent==1.0 \\\n    --hash=sha256:" + "0" * 64 + "\n")
+    with pytest.raises(sw.SwapError):
+        sw.install_packages(root, wheels)
+    assert _installed(root) == {}
+
+
+def test_a_wheel_path_outside_site_packages_is_refused(root):
+    _site(root)
+    wheels = _wheel_set(root / "new", ("evil", "1.0", {"../../escape.py": "x"}))
+    with pytest.raises(sw.SwapError, match="unusable path"):
+        sw.install_packages(root, wheels)
+    assert not (root / "python" / "escape.py").exists()
+
+
+def test_a_record_line_outside_site_packages_is_not_deleted(root):
+    site = _site(root)
+    _setup_installed(root, V1)
+    keep = root / "python" / "keep.txt"
+    keep.write_text("k")
+    record = site / "demo-1.0.dist-info" / "RECORD"
+    record.write_text(record.read_text() + "../keep.txt,,\n")
+    sw.install_packages(root, _wheel_set(root / "new", V2))
+    assert keep.read_text() == "k"
+
+
 def test_the_switch_installs_the_new_versions_packages(root):
-    _wheels(_stage(root), "new")
-    pip, launcher = FakePip(), FakeLauncher([True])
-    assert sw.apply(root, launcher, sleep=lambda s: None, run=pip) == "updated"
-    assert pip.installed == ["new"] and _current(root) == NEW
+    _setup_installed(root, V1)
+    _wheel_set(_stage(root) / sw.CARRIED_WHEELS_DIR, V2)
+    assert sw.apply(root, FakeLauncher([True]), sleep=lambda s: None) == "updated"
+    assert _installed(root) == {"demo": "2.0"} and _current(root) == NEW
 
 
 def test_a_layer_without_wheels_leaves_the_packages_alone(root):
+    _setup_installed(root, V1)
     _stage(root)
-    pip = FakePip()
-    assert sw.apply(root, FakeLauncher([True]), sleep=lambda s: None, run=pip) == "updated"
-    assert pip.installed == []
+    assert sw.apply(root, FakeLauncher([True]), sleep=lambda s: None) == "updated"
+    assert _installed(root) == {"demo": "1.0"}
 
 
 def test_packages_that_dont_install_put_the_old_set_and_version_back(root):
-    _wheels(root, "setup", sw.BASE_WHEELS_DIR)      # what Setup installed
-    _wheels(_stage(root), "new")
-    pip, launcher = FakePip(fail_on={"new"}), FakeLauncher()
-    assert sw.apply(root, launcher, sleep=lambda s: None, run=pip) == "rolled_back_packages"
-    assert pip.installed == ["new", "setup"]
+    _setup_installed(root, V1)
+    wheels = _wheel_set(_stage(root) / sw.CARRIED_WHEELS_DIR, V2)
+    (wheels / sw.WHEEL_LOCK_NAME).write_text("demo==2.0 \\\n    --hash=sha256:" + "0" * 64 + "\n")
+    launcher = FakeLauncher()
+    assert sw.apply(root, launcher, sleep=lambda s: None) == "rolled_back_packages"
+    assert _installed(root) == {"demo": "1.0"}
     assert _current(root) == OLD and _app_version(root) == OLD
     assert sw.read_journal(root) is None
+    assert sw.read_result(root)["code"] == "rolled_back_packages"
     assert launcher.calls == ["stop", "window"]
 
 
 def test_a_failed_health_check_reinstalls_the_previous_versions_own_set(root):
-    _wheels(root / "app", "old-carried")
-    _wheels(root, "setup", sw.BASE_WHEELS_DIR)
-    _wheels(_stage(root), "new")
-    pip = FakePip()
-    assert sw.apply(root, FakeLauncher([False, True]), sleep=lambda s: None,
-                    run=pip) == "rolled_back_health"
-    assert pip.installed == ["new", "old-carried"] and _current(root) == OLD
+    _setup_installed(root, V1)
+    _wheel_set(root / "app" / sw.CARRIED_WHEELS_DIR,
+               ("demo", "1.5", {"demo/__init__.py": "v1.5"}))
+    sw.install_packages(root, root / "app" / sw.CARRIED_WHEELS_DIR)
+    _wheel_set(_stage(root) / sw.CARRIED_WHEELS_DIR, V2)
+    assert sw.apply(root, FakeLauncher([False, True]), sleep=lambda s: None) == "rolled_back_health"
+    assert _installed(root) == {"demo": "1.5"} and _current(root) == OLD
 
 
 def test_old_packages_that_wont_go_back_are_reported_broken(root):
-    _wheels(root, "setup", sw.BASE_WHEELS_DIR)
-    _wheels(_stage(root), "new")
-    pip, shown = FakePip(fail_on={"new", "setup"}), []
-    assert sw.apply(root, FakeLauncher(), sleep=lambda s: None, run=pip,
+    _setup_installed(root, V1)
+    (root / sw.BASE_WHEELS_DIR / sw.WHEEL_LOCK_NAME).write_text("demo==1.0 \\\n    --hash=sha256:" + "0" * 64 + "\n")
+    _wheel_set(_stage(root) / sw.CARRIED_WHEELS_DIR, V2)
+    shown = []
+    assert sw.apply(root, FakeLauncher([False]), sleep=lambda s: None,
                     notify=shown.append) == "broken"
     assert shown == [sw.BROKEN_MESSAGE]
 
 
-def test_a_crash_while_packages_installed_recovers_both(root, monkeypatch):
-    _wheels(root, "setup", sw.BASE_WHEELS_DIR)
-    _wheels(_stage(root), "new")
+def test_a_crash_while_packages_installed_recovers_both(root):
+    _setup_installed(root, V1)
+    _wheel_set(_stage(root) / sw.CARRIED_WHEELS_DIR, V2)
     os.rename(root / "app", root / "app-0.1.0")
     os.rename(root / "app-0.2.0", root / "app")
     sw.write_journal(root, sw.SWITCHING, OLD, NEW, OLD, step=2, packages=True)
-    pip = FakePip()
-    monkeypatch.setattr(sw.subprocess, "run", pip)
+    sw.install_packages(root, root / "app" / sw.CARRIED_WHEELS_DIR)
     assert sw.recover(root, sleep=lambda s: None) == "recovered"
-    assert pip.installed == ["setup"] and _current(root) == OLD
+    assert _installed(root) == {"demo": "1.0"} and _current(root) == OLD
 
 
 def test_a_journal_from_before_packages_still_reads(root):

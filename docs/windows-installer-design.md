@@ -443,14 +443,17 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   set and lock under `core-wheels\` and says `carries_wheels` in its
   manifest, so a release that only changed wheels is still app-only: the
   offer then needs the same Python, WinSW and Caddy, not the same wheels
-  (`app_swap.base_accepts`). Right after the two renames the helper runs the
-  install's own `python -I -m pip install --no-index --require-hashes
-  --no-deps -r core-wheels\wheels.lock.txt` (pip only changes what the lock
-  pins differently; Diagnostics' packages stay), with `packages` set in the
-  journal first. Any rollback from then on, including recovery after a
+  (`app_swap.base_accepts`). Right after the two renames the helper checks each
+  wheel's name, version and SHA-256 against `core-wheels\wheels.lock.txt`,
+  and for each package whose installed version differs deletes what its
+  RECORD lists inside site-packages and unpacks the pinned wheel (its
+  purelib/platlib only; console scripts, headers and data files are left
+  out). Packages the lock doesn't name (Diagnostics') stay. `packages` is
+  set in the journal first. While it runs, a Start-menu start is refused
+  with "installing an update" rather than loading half-replaced packages. Any rollback from then on, including recovery after a
   crash, installs the previous version's set again: `app-<old>\core-wheels`,
   or Setup's `<install>\wheels` while app\ is still what Setup installed.
-  pip failing either way leaves the result `rolled_back_packages` or
+  A failure going forward ends as `rolled_back_packages`; one going back as
   `broken`. The boot service's helper is code from Setup, so it takes such
   an update only once the full installer of a version with this has run;
   until then the offer says the full installer is needed.
@@ -459,6 +462,16 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   background tick between 03:00 and 06:00 local time, or once it has waited
   a day, when no job runs; a database change first starts a backup. The
   journal's `quiet` makes the helper start the app without opening a window.
+  A version whose apply was refused waits a day before the next automatic
+  try, and one that ended rolled back (or broken) is left for the owner's
+  click. A release that needs the full installer runs Setup with
+  `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /RESTARTAPP=1`, once per version,
+  only for the Start-menu app on a PC without the background service (whose
+  service step would stop at an administrator prompt); Setup's
+  `RestartAfterSilentUpdate` [Run] entry starts the app again with
+  `--no-browser`. That restart has Setup's environment, so `*_KEY`
+  variables set only for the old server are missing until the next
+  Start-menu start.
 - **Locked files and crashes.** A rename Windows refuses for 30 s (a file
   in use) is undone and queued: the old version starts again, and the next
   start from the Start menu runs the switch before anything loads from
@@ -553,9 +566,11 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   Not covered: the library-database backup rule is checked by the server only
   (a compromised server could skip it; the cost is an unreliable rollback, not
   code execution); a crash in the milliseconds between the two renames leaves
-  no `app\` until Setup repairs it. The opt-in "Install app updates
-  automatically" (`update.service_auto_apply`, off by default) makes each check
-  download and apply, retrying at the next check while a job runs.
+  no `app\` until Setup repairs it. "Install app updates automatically"
+  (`update.service_auto_apply`, on by default) works here as on the desktop
+  (see "Automatic" above). The carried packages are unpacked by app_swap
+  itself, never by pip: pip would run the per-user install's Python and its
+  site-packages (`.pth` files, pip's own code) as LocalSystem.
 
 ## 8. Uninstall
 

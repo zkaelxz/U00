@@ -13,7 +13,8 @@ updates").
 - Download: on the user's click, size-capped, SHA-256 checked and, with a
   release key, signature checked exactly as the installer is
   (update_service.fetch_verified; the `.sig` is fetched first).
-- Apply: on the user's click (or, with the opt-in setting, after a check),
+- Apply: on the user's click, or by itself (the on-by-default setting) in
+  the quiet hours after a check,
   only on Windows, and never while a job runs. A server the Start-menu
   launcher started switches itself, as below. The boot service's account can't
   write the install folder or stop its own service, so there the zip and its
@@ -77,6 +78,7 @@ SERVICE_AUTO_APPLY_KEY = "update.service_auto_apply"
 # 03:00 to 06:00 local: the app restarts for an automatic update only then.
 QUIET_HOURS = (3, 6)
 QUIET_WAIT_SECONDS = 24 * 3600
+KEPT_CODES = ("updated", "updated_unrecorded", "queued")
 
 RESULT_MESSAGES = {
     "updated": "Updated to {new}.",
@@ -117,6 +119,7 @@ _release = None     # internal: the release's "app" record plus "version"
 _offer_schema = None
 _verified = None    # internal: {"version", "name", "path", "sha256", "signature"}
 _download_thread = None
+_auto_tried = {}    # version -> when the automatic update last started applying it
 _applying = False   # one apply at a time: a second would delete the first's staged folder
 
 
@@ -466,10 +469,10 @@ def _auto_apply_step(after_check=False, now=None) -> None:
     if not (service_auto_apply() and us._is_windows() and can_switch_here()):
         return
     with _lock:
-        offered = _release is not None
+        release = _release
         state, held = _state["download"], _verified
         schema = _offer_schema
-    if not offered:
+    if release is None or _auto_gave_up(release["version"]):
         return
     try:
         if after_check and state in ("idle", "failed") and held is None:
@@ -480,11 +483,24 @@ def _auto_apply_step(after_check=False, now=None) -> None:
                 from services import auto_backup_service
                 auto_backup_service.start_now(include_media=False)
                 return
+            _auto_tried[held["version"]] = time.time()
             apply(quiet=True)
     except ServiceError as exc:
         app_swap.log(install_root(), f"automatic update waits: {type(exc).__name__}")
     except (OSError, sqlite3.Error):
         pass
+
+
+def _auto_gave_up(version) -> bool:
+    """A version the automatic update already tried: one whose apply was
+    refused here waits a day (it would otherwise be copied and checked again
+    on every tick), and one that ended without being kept is left for the
+    owner's click instead of being retried every night."""
+    tried = _auto_tried.get(version)
+    if tried is not None and time.time() - tried < QUIET_WAIT_SECONDS:
+        return True
+    result = app_swap.read_result(install_root()) if us._is_installed() else None
+    return bool(result and result["new"] == version and result["code"] not in KEPT_CODES)
 
 
 def _needs_backup(schema, version) -> bool:

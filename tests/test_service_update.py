@@ -7,7 +7,6 @@ nothing starts. Windows can't run here: what these pin is the decisions
 """
 
 import base64
-from pathlib import Path
 import json
 import os
 import zipfile
@@ -150,7 +149,15 @@ def _release(layout, key, version=NEW, base=None, signer=None, tamper=False, req
         "base": base if base is not None else sw.base_fingerprint(sw.installed_manifest(layout.root)),
         "carries_wheels": wheels, "db_schema_sha256": "d"})
     if wheels:
-        entries[f"{sw.CARRIED_WHEELS_DIR}/{sw.WHEEL_LOCK_NAME}"] = "new set"
+        import hashlib
+        import io
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as whl:
+            whl.writestr("demo/__init__.py", "v2")
+            whl.writestr("demo-2.0.dist-info/RECORD", "demo/__init__.py,,\n")
+        entries[f"{sw.CARRIED_WHEELS_DIR}/demo-2.0-py3-none-any.whl"] = buf.getvalue()
+        entries[f"{sw.CARRIED_WHEELS_DIR}/{sw.WHEEL_LOCK_NAME}"] = (
+            f"demo==2.0 \\\n    --hash=sha256:{hashlib.sha256(buf.getvalue()).hexdigest()}\n")
     with zipfile.ZipFile(updates / name, "w") as zf:
         for entry, data in entries.items():
             zf.writestr(entry, data)
@@ -268,17 +275,14 @@ def test_a_base_the_install_does_not_have_needs_the_full_installer(env, key):
 
 def test_an_update_carrying_other_packages_installs_them_as_it_switches(env, key, monkeypatch):
     layout, svc, _ = env
+    site = sw.site_packages(layout.root)
+    site.mkdir(parents=True)
     base = dict(sw.base_fingerprint(sw.installed_manifest(layout.root)), wheels_sha256="other")
     _release(layout, key, base=base, wheels=True)
-    runs = []
-
-    class Done:
-        returncode = 0
-    monkeypatch.setattr(sw.subprocess, "run", lambda cmd, **kw: runs.append(cmd) or Done())
+    # Nothing in the per-user install folder runs as LocalSystem.
+    monkeypatch.setattr(sw.subprocess, "run", lambda *a, **kw: pytest.fail("ran a process"))
     assert "0.1.0 to 0.2.0" in _apply(layout, svc)
-    ((cmd),) = runs
-    assert cmd[0] == str(layout.root / "python" / "python.exe")
-    assert Path(cmd[cmd.index("-r") + 1]) == layout.root / "app" / sw.CARRIED_WHEELS_DIR / sw.WHEEL_LOCK_NAME
+    assert (site / "demo" / "__init__.py").read_text() == "v2"
 
 
 def test_other_packages_without_carried_wheels_need_the_full_installer(env, key):

@@ -94,6 +94,7 @@ def env(isolated_db, monkeypatch, tmp_path, keys):
                                             download_error=None))
     monkeypatch.setattr(aus, "_release", None)
     monkeypatch.setattr(aus, "_verified", None)
+    monkeypatch.setattr(aus, "_auto_tried", {})
     monkeypatch.setattr(shutdown_service, "_token", "t" * shutdown_service.MIN_TOKEN_LENGTH)
     monkeypatch.delenv(us.REPO_ENV, raising=False)
     monkeypatch.setattr(env_reader, "resolve_env_names", lambda names, env_path=None: None)
@@ -1000,6 +1001,33 @@ def test_a_database_change_with_no_recent_backup_backs_up_first(service_env, qui
     monkeypatch.setattr(aus, "_recent_backup", lambda now=None: True)
     aus.auto_apply_tick()
     assert [c[1:] for c in env["sc"].calls] == [["start", "BaiheUpdate"]]
+
+
+def test_a_refused_automatic_apply_waits_a_day_not_a_tick(env, quiet, monkeypatch):
+    aus.set_service_auto_apply(True)
+    tries = []
+
+    def refuse(quiet=False):
+        tries.append(quiet)
+        raise ConflictError("disk full")
+    monkeypatch.setattr(aus, "apply", refuse)
+    _serve(env)
+    us.check()
+    _settle_download()
+    aus.auto_apply_tick()
+    assert tries == [True]
+    monkeypatch.setattr(aus, "_auto_tried", {"0.2.0": 0.0})
+    aus.auto_apply_tick()
+    assert tries == [True, True]
+
+
+def test_a_version_that_rolled_back_is_left_for_the_owners_click(env, quiet, monkeypatch):
+    aus.set_service_auto_apply(True)
+    app_swap.write_result(env["root"], "rolled_back_health", "0.1.0", "0.2.0")
+    _serve(env)
+    us.check()
+    _settle_download()
+    assert us.status()["app_download"] == "idle" and env["started"] == []
 
 
 def test_an_unsigned_update_is_never_applied_on_its_own(env, quiet, monkeypatch):

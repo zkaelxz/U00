@@ -1372,6 +1372,13 @@ def test_a_database_change_backs_up_before_silent_setup(signed, auto_setup, monk
     assert backups == [False] and FakePopen.calls == []
 
 
+def test_silent_setup_runs_once_per_version(signed, auto_setup):
+    _check_and_settle()
+    us.auto_install_tick()
+    us.auto_install_tick()
+    assert len(FakePopen.calls) == 1
+
+
 def test_no_silent_setup_on_a_pc_with_the_background_service(signed, auto_setup):
     from services import app_update_service as aus
     (auto_setup / "Program Files" / aus.ADMIN_FOLDER).mkdir(parents=True)

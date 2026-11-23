@@ -608,6 +608,11 @@ def finish_app_update(headless: bool, stop=None) -> bool:
     outcome = app_swap.recover(root, stop=stop or stop_server)
     if outcome == "broken":
         raise LaunchError(app_swap.BROKEN_MESSAGE)
+    if outcome == "busy" and (app_swap.read_journal(root) or {}).get("state") == app_swap.SWITCHING:
+        # The helper is renaming app\ or replacing the Python packages (which
+        # can take minutes): a server started now would load half of them.
+        # From "checking" on, the start is the helper's own.
+        raise LaunchError(app_swap.SWITCHING_MESSAGE)
     if outcome == "queued" and not defer and not headless:
         # The helper renames app\, which an open Setup is replacing; the switch
         # stays queued and the next start after Setup finds the journal gone.

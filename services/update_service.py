@@ -71,6 +71,7 @@ from lib.errors import (ConflictError, DependencyUnavailableError, ServiceError,
 REPO_ENV = "BAIHE_UPDATE_REPO"
 DEFAULT_REPO = "zkaelxz/U00"
 AUTO_CHECK_KEY = "update.auto_check"
+AUTO_SETUP_TRIED_KEY = "update.auto_setup_tried"
 LAST_CHECK_KEY = "update.last_check_at"
 INCLUDE_PRERELEASES_KEY = "update.include_prereleases"
 AUTO_CHECK_SECONDS = 24 * 3600
@@ -542,12 +543,15 @@ def auto_install_tick(after_check=False, now=None) -> None:
         if (state != "verified" or held is None or held["signature"] is None
                 or not aus._apply_time(held, now) or background_jobs.active_job_ids()):
             return
+        if db.get_app_setting(AUTO_SETUP_TRIED_KEY, "") == held["version"]:
+            return      # one silent try per version; a failed Setup waits for the owner
         try:
             aus.check_database_before_setup(held["version"])
         except ConflictError:
             from services import auto_backup_service
             auto_backup_service.start_now(include_media=False)
             return
+        db.set_app_setting(AUTO_SETUP_TRIED_KEY, held["version"])
         install(silent=True)
     except (ServiceError, OSError):
         pass
