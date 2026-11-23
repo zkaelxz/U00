@@ -283,7 +283,9 @@ def set_streamer(principal, series_id, streamer) -> dict:
     """Files a series under a streamer name, or clears it with an empty one.
     A name that matches one already on a series the caller can see (ignoring
     case and width) takes that spelling, so "chion" and "Chion" stay one
-    folder in the Library; a hidden series' spelling is never revealed."""
+    folder in the Library; a hidden series' spelling is never revealed.
+    Re-spelling a series' own streamer (only case or width changes) is
+    stored as typed, or a shared streamer's spelling could never change."""
     ownership_service.require_editable(principal, "series", series_id)
     if not isinstance(streamer, str):
         raise InvalidInputError("A streamer name must be text.")
@@ -292,9 +294,10 @@ def set_streamer(principal, series_id, streamer) -> dict:
         raise InvalidInputError(f"A streamer name is at most {MAX_STREAMER_LEN} characters.")
     if any(unicodedata.category(ch) in _BAD_NAME_CATEGORIES for ch in streamer):
         raise InvalidInputError("A streamer name can't contain control or invisible characters.")
-    if streamer:
+    visible = db.list_series(visible_to=ownership_service.visible_to_filter(principal))
+    current = next((s.get("streamer") for s in visible if s["id"] == series_id), None)
+    if streamer and term_key(streamer) != term_key(current):
         key = term_key(streamer)
-        visible = db.list_series(visible_to=ownership_service.visible_to_filter(principal))
         streamer = next((s["streamer"] for s in visible
                          if s["id"] != series_id and s.get("streamer") and term_key(s["streamer"]) == key),
                         streamer)

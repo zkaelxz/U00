@@ -145,7 +145,7 @@ export function parseRoute(hash: string): Route {
   if (head === 'assistant' && parts.length === 1) return { name: 'assistant' }
   if (head === 'series' && parts.length === 1) {
     const streamer = new URLSearchParams(qs).get('streamer')
-    return streamer === null || streamer.length > 100 ? { name: 'series-list' } : { name: 'series-list', streamer }
+    return streamer === null || [...streamer].length > 1000 ? { name: 'series-list' } : { name: 'series-list', streamer }
   }
   if (head === 'series' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
     const tab = new URLSearchParams(qs).get('tab')

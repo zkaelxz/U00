@@ -149,6 +149,7 @@ class TestStreamer:
         second = db.create_series("HS", owner_user_id=people["a_id"])
         svc.set_streamer(people["a"], first, "Chion")
         assert svc.set_streamer(people["a"], second, "ｃｈｉｏｎ")["streamer"] == "Chion"
+        assert svc.set_streamer(people["a"], first, "CHION")["streamer"] == "CHION"  # its own, re-spelt
 
     def test_rejects_too_long_or_invisible_characters(self, people):
         s = db.create_series("Saga", owner_user_id=people["a_id"])

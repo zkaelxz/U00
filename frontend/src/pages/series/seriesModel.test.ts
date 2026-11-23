@@ -140,6 +140,9 @@ describe('streamer folders', () => {
     expect(filterStreamers(streamerFolders(items), 'chi').map((f) => f.name)).toEqual(['Chion'])
     expect(filterStreamers(streamerFolders(items), 'no str').map((f) => f.name)).toEqual([null])
     expect(seriesOfStreamer(items, 'Chion').map((s) => s.name)).toEqual(['Anok00', 'HS'])
+    const respelt = [...items, { name: 'Late', streamer: 'CHION', title_count: 2 }]
+    expect(streamerFolders(respelt).find((f) => f.name === 'Chion')?.seriesCount).toBe(3)
+    expect(seriesOfStreamer(respelt, 'chion').map((s) => s.name)).toEqual(['Anok00', 'HS', 'Late'])
     expect(seriesOfStreamer(items, '').map((s) => s.name)).toEqual(['Loose', 'Old'])
   })
 })
