@@ -956,3 +956,13 @@ def test_setup_names_the_same_boot_service_as_service_py(iss):
     # stopping the service and then hit files it holds open.
     from installer import service_layout
     assert f"AppServiceName = '{service_layout.APP_SERVICE}';" in iss
+
+
+def test_a_silent_automatic_update_starts_the_app_again_without_a_window(iss):
+    from services import update_service
+    assert "/RESTARTAPP=1" in update_service.SILENT_SETUP_ARGS
+    restart = [e for e in _entries(iss, "Run") if "RestartAfterSilentUpdate" in e]
+    assert len(restart) == 1 and "--no-browser" in restart[0] and "runhidden" in restart[0]
+    assert re.search(r"function RestartAfterSilentUpdate\(\): Boolean;\s*begin\s*Result := "
+                     r"WizardSilent\(\) and \(ExpandConstant\('\{param:RESTARTAPP\|0\}'\) = '1'\)"
+                     r" and PackagesInstalled\(\);", iss)

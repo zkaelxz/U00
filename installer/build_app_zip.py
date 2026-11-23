@@ -7,7 +7,8 @@ layer an installed copy can update to without the full installer
                                       [--out build/installer/output]
 
 Run after build_installer.py has staged and checked the payload: the zip is
-exactly payload\\app plus `app-manifest.json`, and the manifest's `base` is
+payload\\app, the payload's pinned wheels under `core-wheels\\` and
+`app-manifest.json`, and the manifest's `base` is
 taken from the same payload's manifest.json, so an installed copy can tell
 whether its Python, wheels, WinSW and Caddy are the ones this app was built
 against. Writes the zip and a copy of its manifest
@@ -78,7 +79,7 @@ def app_manifest(version, payload_dir, schema_sha256) -> dict:
     if base is None:
         raise BuildError("The payload's manifest.json doesn't list the base layer.")
     return {"product": swap.PRODUCT, "layer": "app", "version": version,
-            "min_base_version": MIN_BASE_VERSION, "base": base,
+            "min_base_version": MIN_BASE_VERSION, "base": base, "carries_wheels": True,
             "db_schema_sha256": schema_sha256}
 
 
@@ -87,8 +88,11 @@ def build_zip(version, payload_dir=DEFAULT_PAYLOAD, out_dir=DEFAULT_OUT, schema_
     if not swap.valid_version(version):
         raise BuildError("--version may only use letters, digits, '.', '+' and '-'.")
     app_dir = Path(payload_dir) / "app"
+    wheels_dir = Path(payload_dir) / "wheels"
     if not (app_dir / "installer" / "launcher.py").is_file():
         raise BuildError(f"{app_dir} isn't a staged app; run build_installer.py first.")
+    if not (wheels_dir / swap.WHEEL_LOCK_NAME).is_file():
+        raise BuildError(f"{wheels_dir} has no {swap.WHEEL_LOCK_NAME}; run build_installer.py first.")
     if schema_sha256 is None:
         schema_sha256 = fresh_schema_fingerprint(app_dir)
     manifest = app_manifest(version, payload_dir, schema_sha256)
@@ -100,6 +104,12 @@ def build_zip(version, payload_dir=DEFAULT_PAYLOAD, out_dir=DEFAULT_OUT, schema_
             if path.is_symlink() or not path.is_file() or "__pycache__" in path.parts:
                 continue
             zf.write(path, path.relative_to(app_dir).as_posix())
+        # The whole pinned set, not just what changed: the zip can't know
+        # which earlier version it lands on.
+        for path in sorted(wheels_dir.iterdir()):
+            if path.is_file() and not path.is_symlink() and (
+                    path.suffix == ".whl" or path.name == swap.WHEEL_LOCK_NAME):
+                zf.write(path, f"{swap.CARRIED_WHEELS_DIR}/{path.name}")
         zf.writestr(swap.APP_MANIFEST_NAME, json.dumps(manifest, indent=2) + "\n")
     # The installed app refuses what this check refuses; fail here instead.
     try:
