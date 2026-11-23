@@ -752,6 +752,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             BaiheClient client = new BaiheClient(server, token);
             client.runId = runId;
             client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+            client.stats = new UploadStats();
             if (readOnly) read(client, url, ready, bad, cut);
             else upload(client, url, titles, chapterLinks, ready, bad, cut);
         });
@@ -881,6 +882,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             String timing = firstPageAt[0] == 0 ? "" : String.format(java.util.Locale.ROOT,
                     " (found %d s, first page %d s, all %d s)", (readStarted - grabStartedAt) / 1000,
                     (firstPageAt[0] - readStarted) / 1000, (ended - readStarted) / 1000);
+            String link = client.stats == null ? "" : client.stats.describe();
+            if (!link.isEmpty()) timing = timing.isEmpty() ? " (" + link + ")" : timing.substring(0, timing.length() - 1) + "; " + link + ")";
             String message = cancelRequested && thisPart == 0 ? "Cancelled."
                     : (cancelRequested ? "Cancelled. " : "")
                     + QuickRead.summary(thisPart, images.size() + unreadable, firstError[0])

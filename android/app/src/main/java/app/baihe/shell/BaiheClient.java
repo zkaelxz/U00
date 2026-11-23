@@ -30,6 +30,8 @@ final class BaiheClient {
     volatile String runId;
     /** Quick read only: the screen width, so the PC need not send back pictures wider than it can show. 0 sends none. */
     volatile int typesetMaxWidth;
+    /** Quick read only: where the requests' time went. */
+    volatile UploadStats stats;
 
     /** A refused or failed call; the message is the server's own text or a short fixed one. */
     static final class BridgeException extends Exception {
@@ -130,10 +132,14 @@ final class BaiheClient {
             conn.setDoOutput(true);
             conn.setFixedLengthStreamingMode(bytes.length);
             conn.setRequestProperty("Content-Type", "application/json");
+            long sendStart = System.currentTimeMillis();
             try (OutputStream out = conn.getOutputStream()) {
                 out.write(bytes);
             }
+            long sent = System.currentTimeMillis();
             int status = conn.getResponseCode();
+            UploadStats record = stats;
+            if (record != null) record.add(bytes.length, sent - sendStart, System.currentTimeMillis() - sent);
             if (status >= 300) {
                 InputStream err = conn.getErrorStream();
                 throw new BridgeException(status, refusalText(status, err == null ? "" : readCapped(err)));

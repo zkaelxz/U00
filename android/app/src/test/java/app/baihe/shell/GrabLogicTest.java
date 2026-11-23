@@ -325,4 +325,13 @@ public class GrabLogicTest {
         assertNull(QuickRead.original(batch, "missing"));
         assertNull(QuickRead.original(batch, ""));
     }
+
+    @Test
+    public void theClosingLineSaysWhatTheLinkCost() {
+        UploadStats stats = new UploadStats();
+        assertEquals("", stats.describe());
+        stats.add(2L * 1048576, 10_000, 4_000);
+        stats.add(2L * 1048576, 10_000, 8_000);
+        assertEquals("sent 4.0 MB in 2 requests at 205 KB/s each, PC first answer 6 s after", stats.describe());
+    }
 }
