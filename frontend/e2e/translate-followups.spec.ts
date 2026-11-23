@@ -108,6 +108,7 @@ test('without a stronger engine the glossary notice points to Settings and has n
   await gotoTranslate(page, 'translate')
   const notice = page.getByRole('region', { name: 'Glossary check' })
   await expect(notice).toContainText('Pick a stronger engine in Settings')
+  await expect(notice.getByRole('link', { name: 'Settings > Which engine does what' })).toHaveAttribute('href', '#/settings?card=engine-routing')
   await expect(notice.getByRole('button')).toHaveCount(0)
 })
 
