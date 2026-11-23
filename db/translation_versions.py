@@ -50,39 +50,55 @@ def save_translation_version(drama_id: int, lines, label: str, engine: str = "",
     return new_id
 
 
-def _pack_old(conn, drama_id=None) -> int:
-    """Compresses the plain copies past each title's newest PLAIN_VERSIONS (by
-    id, so a clock set back can't make the copy just written look old). A copy
-    is replaced only once its packed form reads back identical."""
+def _old_plain_ids(conn, drama_id=None) -> list:
+    """The plain copies past each title's newest PLAIN_VERSIONS, by id so a
+    clock set back can't make the copy just written look old."""
     where, args = ("WHERE drama_id = ?", (drama_id,)) if drama_id is not None else ("", ())
-    ids = conn.execute(
+    return [r[0] for r in conn.execute(
         "SELECT id FROM (SELECT id, typeof(lines_json) AS kind, ROW_NUMBER() OVER "
         f"(PARTITION BY drama_id ORDER BY id DESC) AS n FROM translation_versions {where}) "
-        "WHERE n > ? AND kind = 'text'", (*args, db.PLAIN_VERSIONS)).fetchall()
-    packed_n = 0
-    for (version_id,) in ids:
-        text = conn.execute("SELECT lines_json FROM translation_versions WHERE id = ?",
-                            (version_id,)).fetchone()[0]
-        packed = gzip_text.pack(text)
-        if gzip_text.unpack(packed) == text:
-            conn.execute("UPDATE translation_versions SET lines_json = ? WHERE id = ?",
-                         (packed, version_id))
-            packed_n += 1
-    return packed_n
+        "WHERE n > ? AND kind = 'text'", (*args, db.PLAIN_VERSIONS)).fetchall()]
+
+
+def _pack_one(conn, version_id) -> bool:
+    """Packs one copy if it is still plain text, replacing it only once the
+    packed form reads back identical."""
+    row = conn.execute("SELECT lines_json FROM translation_versions WHERE id = ? "
+                       "AND typeof(lines_json) = 'text'", (version_id,)).fetchone()
+    if row is None:
+        return False
+    text = row[0]
+    packed = gzip_text.pack(text)
+    if gzip_text.unpack(packed) != text:
+        return False
+    conn.execute("UPDATE translation_versions SET lines_json = ? WHERE id = ?", (packed, version_id))
+    return True
+
+
+def _pack_old(conn, drama_id) -> int:
+    return sum(_pack_one(conn, i) for i in _old_plain_ids(conn, drama_id))
 
 
 def pack_old_translation_versions() -> int:
     """Compresses the old copies every title already has (they were stored plain
-    before compression existed). Runs at startup, so it never raises: a busy
-    library just stays as it is until the next start. Returns how many were packed."""
+    before compression existed). Runs at startup, so it never raises, and packs
+    one copy per short write so a server already running on the same library
+    never waits long for the lock; a busy library is finished on a later start.
+    Returns how many were packed."""
+    packed_n = 0
     try:
         with contextlib.closing(db.get_conn()) as conn:
-            n = _pack_old(conn)
-            conn.commit()
-        return n
+            for version_id in _old_plain_ids(conn):
+                conn.execute("BEGIN IMMEDIATE")
+                try:
+                    packed_n += _pack_one(conn, version_id)
+                    conn.commit()
+                except BaseException:
+                    conn.rollback()
+                    raise
     except sqlite3.Error:
         log.warning("Could not compress old translation versions", exc_info=True)
-        return 0
+    return packed_n
 
 
 def list_translation_versions(drama_id: int):
