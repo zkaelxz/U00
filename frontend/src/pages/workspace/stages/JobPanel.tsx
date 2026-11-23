@@ -97,12 +97,14 @@ function useLiveProgress(job: JobRecord | null, enabled: boolean, expectedSecond
       clearInterval(id)
     }
   }, [running])
-  // Sampled when a reading or the clock changes, stamped with the clock state so render stays pure.
+  // Sampled when a reading or the clock changes, stamped with the clock state so render stays pure. No sample
+  // before the first tick of this run (firstSeen unset): the clock is still from before the job and would
+  // date the first reading too early, which inflates every later estimate.
   const sampleKey = `${running}|${progress}|${message}|${now}`
   const [seenSampleKey, setSeenSampleKey] = useState(sampleKey)
   if (seenSampleKey !== sampleKey) {
     setSeenSampleKey(sampleKey)
-    if (running) {
+    if (running && firstSeen !== null) {
       const stage = etaStage(message)
       const list = samples.stage === stage ? samples.list : []
       const last = list[list.length - 1]
