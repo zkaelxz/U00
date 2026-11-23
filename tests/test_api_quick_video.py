@@ -73,3 +73,18 @@ def test_from_another_device_a_start_needs_import_from_a_link(client, monkeypatc
     # Removing a watch-once title stays PC only, like every delete.
     assert away.post("/api/quick-video/1/delete", json={"confirm": True},
                      headers=_away("media.import_url", email="del@example.com")).status_code == 403
+
+
+def test_from_another_device_a_member_at_the_title_limit_gets_409_and_nothing_is_made(client):
+    from api.api_config import ApiSettings
+    from services import auth_service, quick_video_service
+    away = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com",
+                      raise_server_exceptions=False)
+    h = _away("media.import_url", email="full@example.com")
+    uid = auth_service.find_user_by_email("full@example.com")["id"]
+    for n in range(quick_video_service.MEMBER_TITLE_LIMIT):
+        db.create_drama(title_en=f"T{n}", owner_user_id=uid)
+    r = away.post("/api/quick-video/start", json={"url": "https://example.com/v", "profile_id": _profile(quick_source_language="ja")},
+                  headers=h)
+    assert r.status_code == 409 and "100 titles" in r.json()["error"]["message"]
+    assert len(db.list_dramas()) == quick_video_service.MEMBER_TITLE_LIMIT

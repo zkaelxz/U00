@@ -35,7 +35,7 @@ from api.auth import is_at_pc, local_only, require_permission
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaFolderOpened, DramaMetadataUpdate,
-                         DramaSeriesUpdate, TitleSettingSources,
+                         DramaSeriesUpdate, OwnTitleDelete, TitleSettingSources,
                          DramaSourceLink, TitleRestructureApplyRequest, TitleRestructureInfo,
                          TitleRestructurePreview, TitleRestructureRequest, TitleRestructureResult,
                          error_responses)
@@ -180,6 +180,16 @@ def get_cover(drama_id: int = Path(ge=1)):
 def delete_drama(drama_id: int = Path(ge=1), confirm: bool = Query(False),
                  confirm_text: str = Query("")):
     return drama_service.delete_drama(drama_id, confirm=confirm, confirm_text=confirm_text)
+
+
+@router.post("/{drama_id}/delete-mine", dependencies=[require_permission("lines.edit")],
+             response_model=DramaDeleteResult, response_model_exclude_none=True,
+             summary="Permanently delete a title you made, from any device (confirm=true and confirm_text=DELETE)",
+             description="403 for a title made at the PC or by someone else; those are deleted at the PC.",
+             responses=error_responses(403, 404, 409, 422))
+def delete_own_drama(body: OwnTitleDelete, request: Request, drama_id: int = Path(ge=1)):
+    return drama_service.delete_own_drama(request.state.principal, drama_id,
+                                          confirm=body.confirm, confirm_text=body.confirm_text)
 
 
 @router.get("/{drama_id}/restructure", dependencies=[local_only()], response_model=TitleRestructureInfo,

@@ -54,7 +54,8 @@ def _world(owner=None):
         ids = []
         for title, series in (("Alpha", sid), ("Beta", sid), ("Gamma", None)):
             did = _ins(c, "dramas", title_en=title, title_zh=title + "中", media_type="audio",
-                       series_id=series, owner_user_id=owner, is_private=0, created_at="x",
+                       series_id=series, owner_user_id=owner, created_by_user_id=owner,
+                       is_private=0, created_at="x",
                        updated_at="x", notion_page_id="page-" + title)
             for i in range(3):
                 _ins(c, "lines", drama_id=did, idx=i, start=float(i), end=i + .5,
@@ -236,6 +237,9 @@ def test_owner_and_privacy_forced_and_series_never_merged(isolated_db):
         for did in new.values():
             assert c.execute("SELECT owner_user_id FROM dramas WHERE id = ?", (did,)
                              ).fetchone()[0] == me
+            # The file's creator id names an account of another library.
+            assert c.execute("SELECT created_by_user_id FROM dramas WHERE id = ?", (did,)
+                             ).fetchone()[0] is None
         # no series: private (share_by_default is off)
         assert c.execute("SELECT is_private FROM dramas WHERE id = ?", (new[g],)).fetchone()[0] == 1
         sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (new[a],)).fetchone()[0]

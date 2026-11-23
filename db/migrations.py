@@ -215,7 +215,7 @@ def _migrate_drama_columns(conn):
                           # detection, speaker counts, extra names, prompt override).
                           ("transcribe_start_json", "TEXT"),
                           # JSON: an imported ASS file's styles and canvas, for ASS export.
-                          ("ass_styles", "TEXT"), ("episode_brief", "TEXT")]:
+                          ("ass_styles", "TEXT"), ("episode_brief", "TEXT"), ("created_by_user_id", "INTEGER")]:
         if col not in drama_cols:
             db._safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     # Here, not with the other indexes: an old library gets these columns
