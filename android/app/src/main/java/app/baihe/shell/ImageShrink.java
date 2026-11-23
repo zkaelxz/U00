@@ -13,11 +13,11 @@ import java.util.List;
  * request has arrived, so on a slow link the upload, not the PC, sets how soon a page shows.
  */
 final class ImageShrink {
-    /** OCR and lettering stay accurate at this width, and a page this wide is a few hundred KB as JPEG. */
-    static final int MAX_WIDTH = 1600;
-    /** A picture already this small as base64 text is sent as it is. */
-    static final int SMALL_BASE64_CHARS = 500_000;
-    private static final int JPEG_QUALITY = 85;
+    /** OCR and lettering stay accurate at this width, and a page this wide is about 100 to 150 KB as JPEG, which a slow link can carry. */
+    static final int MAX_WIDTH = 1000;
+    /** A picture already about this small (150 KB) is sent as it is. */
+    static final int SMALL_BASE64_CHARS = 200_000;
+    private static final int JPEG_QUALITY = 65;
 
     private ImageShrink() {}
 
