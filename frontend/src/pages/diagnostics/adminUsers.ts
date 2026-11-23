@@ -72,7 +72,7 @@ const RIGHTS: Record<string, { name: string; about: string }> = {
   'jobs.start': { name: 'Start jobs', about: 'Start transcription, translation, export and other jobs on the PC.' },
   'jobs.cancel': { name: 'Stop jobs', about: 'Stop their own jobs and jobs on titles they own.' },
   'review.use': { name: 'Use Review', about: 'Use the Review tools: line history, notes, versions and checks.' },
-  'media.import_url': { name: 'Import from a link', about: 'Add media from a web link, and start Live from a stream link.' },
+  'media.import_url': { name: 'Import from a link', about: 'Add media from a web link, start Live from a stream link, and make subtitles from a video link with One-click translate. These run on the PC; a paid engine also needs Paid engines and stays under the monthly cap and their own limit.' },
   'sources.import': { name: 'Import from sources', about: 'Add chapters from novel and comic sites, and follow series for new chapters.' },
   'engines.paid': { name: 'Paid engines', about: 'Use engines that cost money, such as Claude, Gemini, OpenAI, DeepSeek or Ollama cloud models.' },
   'extension.send': { name: 'Browser extension', about: 'Connect the browser extension and send pages to Baihe from their own browser.' },

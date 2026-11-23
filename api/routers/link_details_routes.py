@@ -2,13 +2,17 @@
 api/routers/link_details_routes.py -- "Fill from link"
 (services/link_details_service.py): read what a link says about a title,
 fill only the blank fields the owner ticks, and the read-only scan of old
-titles that have a link. All PC-only (local_only): each read fetches from
-the internet on this PC's connection, and the stored link may carry a token.
+titles that have a link. A pasted link's probe is Import from a link, so the
+Add box can read it from any device (it backs One-click translate there); the
+rest is PC-only (local_only): the stored link may carry a token.
 """
+
+from contextlib import nullcontext
 
 from fastapi import APIRouter, Path, Request
 
-from api.auth import local_only
+from api.auth import is_at_pc, local_only, require_permission
+from api.llm_slots import llm_slot
 from api.schemas import (LinkDetailsApplyRequest, LinkDetailsApplyResult,
                          LinkScanResult, LinkScanStarted, MediaLinkProbe, MediaLinkProbeRequest,
                          TitleLinkProbe, error_responses)
@@ -17,17 +21,23 @@ from services import link_details_service
 router = APIRouter(tags=["link details"])
 
 _ERRORS = error_responses(404, 409, 422, 503)
+_PROBE_BUSY = "Baihe is busy reading another link or running an AI tool. Try again in a moment."
 
 
-@router.post("/api/media-link/probe", dependencies=[local_only()], response_model=MediaLinkProbe,
-             summary="What a link says about a title: title, channel, stream date (PC only)",
+@router.post("/api/media-link/probe", dependencies=[require_permission("media.import_url")],
+             response_model=MediaLinkProbe,
+             summary="What a link says about a title: title, channel, stream date",
              description="Nothing is downloaded or saved. A video or stream link is read with "
                          "yt-dlp (metadata only), a supported Sources link with that source's own "
                          "data; any other page returns kind \"page\" without being fetched. 422 a "
-                         "bad or private address, 503 the read failed or yt-dlp is missing.",
-             responses=_ERRORS)
-def post_media_link_probe(body: MediaLinkProbeRequest):
-    return link_details_service.read_link(body.url)
+                         "bad or private address, 503 the read failed or yt-dlp is missing, 429 "
+                         "away from the PC while the caller or the server already has one running.",
+             responses=error_responses(404, 409, 422, 429, 503))
+def post_media_link_probe(body: MediaLinkProbeRequest, request: Request):
+    # Each read holds a worker and a yt-dlp process for up to 45 s and hits the site from the PC's
+    # address, so a caller away from the PC takes a slot from the shared cap (one each).
+    with nullcontext() if is_at_pc(request) else llm_slot(request, _PROBE_BUSY):
+        return link_details_service.read_link(body.url)
 
 
 @router.post("/api/dramas/{drama_id}/link-details/probe", dependencies=[local_only()],

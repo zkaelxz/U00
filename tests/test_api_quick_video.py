@@ -44,3 +44,32 @@ def test_a_title_that_was_not_made_watch_once_cannot_be_removed(client):
     did = db.create_drama(title_en="Keep")
     r = client.post(f"/api/quick-video/{did}/delete", json={"confirm": True}, headers=JSON)
     assert r.status_code == 422 and db.get_drama(did) is not None
+
+
+def _away(*perms, email="kid@example.com"):
+    from api import auth as api_auth
+    from services import auth_service
+    u = auth_service.add_user(email)
+    for p in perms:
+        auth_service.grant_permission(u["id"], p)
+    s = auth_service.create_session(u["id"])
+    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}", api_auth.CSRF_HEADER: s["csrf_token"]}
+
+
+def test_from_another_device_a_start_needs_import_from_a_link(client, monkeypatch):
+    from api.api_config import ApiSettings
+    from services import quick_video_service
+    started = []
+    monkeypatch.setattr(quick_video_service, "start",
+                        lambda principal, url, *a, **kw: started.append((principal["user_id"], kw["at_pc"])) or
+                        {"drama_id": 1, "watch_once": False})
+    away = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com",
+                      raise_server_exceptions=False)
+    body = {"url": "https://example.com/v"}
+    assert away.post("/api/quick-video/start", json=body, headers=_away()).status_code == 403
+    assert away.post("/api/quick-video/start", json=body,
+                     headers=_away("media.import_url", email="ok@example.com")).status_code == 200
+    assert len(started) == 1 and started[0][1] is False
+    # Removing a watch-once title stays PC only, like every delete.
+    assert away.post("/api/quick-video/1/delete", json={"confirm": True},
+                     headers=_away("media.import_url", email="del@example.com")).status_code == 403

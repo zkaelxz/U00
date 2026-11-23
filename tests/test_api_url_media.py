@@ -1294,6 +1294,17 @@ def test_a_part_is_refused_while_cookie_login_is_on(client, env, monkeypatch):
     assert _run(client, did)["status"] == "done"   # the whole video still works with cookies
 
 
+
+@pytest.mark.parametrize("saved", [True, False])
+def test_the_saved_cookie_login_is_used_only_when_asked(client, env, monkeypatch, saved):
+    """One-click translate from another device passes use_saved_cookies=False: the login is the PC owner's."""
+    monkeypatch.setattr(svc.settings_service, "get_cookie_settings",
+                        lambda: {"cookies_browser": "firefox", "cookies_file": None})
+    did = _drama()
+    svc.start_url_download(did, URL, True, use_saved_cookies=saved)
+    assert wait_for_job(f"urlmedia_{did}", missing_ok=True)["status"] == "done"
+    assert ("cookiesfrombrowser" in FakeYDL.last_opts) is saved
+
 def test_cookies_turned_on_while_a_part_waits_stop_it_at_start(client, env, monkeypatch):
     monkeypatch.setattr(svc, "MAX_PARALLEL_DOWNLOADS", 1)
     gate = Gate()

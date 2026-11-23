@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { buttonClass } from '../../components/uiClasses'
+import { useHolds } from '../../hooks/useHolds'
 import { routeHref } from '../../router'
 import { MAX_URL_LEN } from '../libraryForm'
 import { UPLOAD_EXTENSIONS } from '../workspace/sourceForm'
@@ -26,6 +27,8 @@ export function AddBox({ place, onNewTitle, request = null }: {
   request?: FileRunRequest | null
 }) {
   const onPage = place === 'page'
+  // A member given only Import from a link can run a link but not make a title by hand.
+  const canCreate = useHolds('library.create')
   const run = useFileRun({ runs: onPage, request })
   const [text, setText] = useState('')
   const [dragging, setDragging] = useState(false)
@@ -111,13 +114,13 @@ export function AddBox({ place, onNewTitle, request = null }: {
                 accept={UPLOAD_EXTENSIONS.join(',')} onChange={(e) => pickFile(e.target.files?.[0])} />
             </div>
             {link ? (
-              <QuickVideoLinkPlan key={link} url={link} onStarted={linkStarted} onOnlyAdd={() => newTitle({ link })} onClear={clearLink} />
+              <QuickVideoLinkPlan key={link} url={link} onStarted={linkStarted} onOnlyAdd={canCreate ? () => newTitle({ link }) : undefined} onClear={clearLink} />
             ) : run.file || run.flow.phase === 'error' ? (
               <FilePlan run={run} onChooseFile={chooseFile} onMake={makeElsewhere} onClear={clearFile}
                 onOnlyAdd={() => run.file && newTitle({ fileName: run.file.name })} />
             ) : (
               <div className="add-box-quiet">
-                <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => newTitle(null)}>Add a title by hand</button>
+                {canCreate && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => newTitle(null)}>Add a title by hand</button>}
                 <p className="muted">Just want to translate some pasted text? <a href={routeHref({ name: 'translate' })}>Open Text</a></p>
               </div>
             )}

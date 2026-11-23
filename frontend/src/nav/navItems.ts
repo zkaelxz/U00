@@ -39,6 +39,8 @@ interface NavItem {
   requires: string | null
   /** Hide the item from callers without `requires`. Off where the page still shows something useful or the owner hasn't decided. */
   hideWithoutPermission: boolean
+  /** A second permission that also shows a hidden-without-permission item, for a page with two uses. */
+  orRequires: string | null
   /** Shown only on the main PC. */
   pcOnly: boolean
   /** Shown only while Developer Mode is on. */
@@ -56,9 +58,9 @@ interface NavItem {
 function item(
   label: string,
   target: Route,
-  over: Partial<Pick<NavItem, 'requires' | 'hideWithoutPermission' | 'pcOnly' | 'developerMode' | 'advanced' | 'rail' | 'badge' | 'feature'>> = {},
+  over: Partial<Pick<NavItem, 'requires' | 'hideWithoutPermission' | 'orRequires' | 'pcOnly' | 'developerMode' | 'advanced' | 'rail' | 'badge' | 'feature'>> = {},
 ): NavItem {
-  return { label, target, requires: null, hideWithoutPermission: false, pcOnly: false, developerMode: false, advanced: false, rail: null, badge: null, feature: null, ...over }
+  return { label, target, requires: null, hideWithoutPermission: false, orRequires: null, pcOnly: false, developerMode: false, advanced: false, rail: null, badge: null, feature: null, ...over }
 }
 
 // Order is the on-screen order within each rail group.
@@ -72,10 +74,12 @@ export const NAV_ITEMS: NavItem[] = [
     advanced: true,
     rail: { group: 'library', active: ['library-tools', 'manga', 'manga-series', 'manga-read'] },
   }),
-  // Every way in creates a title, so the item needs the permission the Library's Add box needs.
+  // Every way in creates a title, so the item needs the permission the Library's Add box needs:
+  // making a title by hand, or One-click translate from a link.
   item('Add', { name: 'make-subtitles' }, {
     requires: 'library.create',
     hideWithoutPermission: true,
+    orRequires: 'media.import_url',
     rail: { group: 'find', active: ['make-subtitles'] },
   }),
   item('Text', { name: 'translate' }, {
@@ -140,7 +144,9 @@ function isHiddenByChoice(i: NavItem, ctx: NavContext): boolean {
 }
 
 function isAllowed(i: NavItem, ctx: NavContext): boolean {
-  if (i.hideWithoutPermission && i.requires && !holds(ctx.session, i.requires)) return false
+  if (i.hideWithoutPermission && i.requires && !holds(ctx.session, i.requires)
+      // Only a /me that lists it: an unknown session would show the item to every member.
+      && !(i.orRequires && ctx.session.status === 'ready' && holds(ctx.session, i.orRequires))) return false
   // 'unknown' hides PC-only items: they wait for /api/meta rather than showing optimistically.
   if (i.pcOnly && ctx.pcMode !== 'local') return false
   if (i.developerMode && !ctx.developerMode) return false
