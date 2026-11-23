@@ -775,7 +775,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             // A typeset answer is large, so the batch stays small however many the server allows.
             int max = Math.min(QUICK_READ_BATCH, client.health().optInt("max_images_per_request", 12));
             if (!continuing) QuickReadActivity.clear(this);
-            List<List<PageImage>> batches = Batches.plan(images, max);
+            // Clear non-pages stay home: on a slow link each one costs real time to upload.
+            List<PageImage> pages = PageFilter.pagesOnly(images);
+            List<List<PageImage>> batches = Batches.plan(pages, max, 1);
             int n = batches.size();
             Object lock = new Object();
             List<List<byte[]>> held = new ArrayList<>();
@@ -800,7 +802,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
                 shown[0]++;
                 QuickReadSession.add(name);
-                say("Redrawing " + images.size() + " pictures: " + shown[0] + " ready");
+                say("Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
                 if (!opened[0]) {
                     opened[0] = true;
                     firstPageAt[0] = System.currentTimeMillis();
@@ -820,7 +822,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         }
                         return;
                     }
-                    say("Redrawing " + images.size() + " pictures: " + shown[0] + " ready");
+                    say("Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
                     try {
                         JSONObject done = client.streamPages(url, ImageShrink.forUpload(batches.get(index)), page -> {
                             JSONObject wrapped;
@@ -886,7 +888,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             if (!link.isEmpty()) timing = timing.isEmpty() ? " (" + link + ")" : timing.substring(0, timing.length() - 1) + "; " + link + ")";
             String message = cancelRequested && thisPart == 0 ? "Cancelled."
                     : (cancelRequested ? "Cancelled. " : "")
-                    + QuickRead.summary(thisPart, images.size() + unreadable, firstError[0])
+                    + QuickRead.summary(thisPart, pages.size() + unreadable, firstError[0])
                     + (truncated ? ". Some pages were left out." : "") + timing;
             if (!carryOn) QuickReadSession.finish(message);
             if (!carryOn) QuickReadSession.onCancel(null);
