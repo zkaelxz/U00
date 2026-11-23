@@ -18,7 +18,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -48,13 +48,14 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     private WebView web;
     private EditText address;
-    private TextView status;
-    private Button grab;
+    private GrabUi.Chip chip;
+    private GrabUi.BarButton grab;
     private GrabBridge bridge;
     private final ExecutorService sender = Executors.newSingleThreadExecutor();
     private final SecureRandom random = new SecureRandom();
-    private Button chapters;
-    private Button quick;
+    private GrabUi.BarButton chapters;
+    private GrabUi.BarButton quick;
+    private GrabUi.Palette palette;
     // This grab is a Quick read: the pages come back typeset and nothing is saved.
     private volatile boolean quickRead;
     private volatile boolean grabbing;
@@ -71,35 +72,50 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         // Pages left by a Quick read that was cut off (the app was killed) are not kept.
         QuickReadActivity.clear(this);
 
+        palette = GrabUi.Palette.of(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(palette.bg);
+        getWindow().setStatusBarColor(palette.surface);
+        getWindow().setNavigationBarColor(palette.surface);
+        if (!palette.dark) {
+            getWindow().getDecorView().setSystemUiVisibility(android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                    | android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        }
 
         address = new EditText(this);
         address.setSingleLine(true);
         address.setHint("Enter a comic site address");
-        address.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
+        address.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         address.setImeOptions(EditorInfo.IME_ACTION_GO);
+        address.setSelectAllOnFocus(true);
         address.setOnEditorActionListener((v, actionId, event) -> {
             go();
             return true;
         });
-        // A light box with dark text and a Go button, so the way in is visible on any theme.
-        GradientDrawable outline = new GradientDrawable();
-        outline.setColor(0xFFFFFFFF);
-        address.setTextColor(0xFF000000);
-        address.setHintTextColor(0xFF666666);
-        outline.setStroke((int) (2 * getResources().getDisplayMetrics().density), 0xFF888888);
-        outline.setCornerRadius(8 * getResources().getDisplayMetrics().density);
-        address.setBackground(outline);
-        int inset = (int) (10 * getResources().getDisplayMetrics().density);
-        address.setPadding(inset, inset, inset, inset);
+        address.setTextColor(palette.text);
+        address.setHintTextColor(palette.muted);
+        address.setTextSize(16);
+        address.setBackground(GrabUi.box(this, palette.field, palette.fieldEdge, 8, 1));
+        int inset = GrabUi.dp(this, 12);
+        address.setPadding(inset, 0, inset, 0);
+        ImageView go = new ImageView(this);
+        go.setImageResource(R.drawable.ic_go);
+        go.setImageTintList(android.content.res.ColorStateList.valueOf(palette.accent));
+        go.setScaleType(ImageView.ScaleType.CENTER);
+        go.setContentDescription("Go");
+        go.setOnClickListener(v -> go());
         LinearLayout addressRow = new LinearLayout(this);
         addressRow.setOrientation(LinearLayout.HORIZONTAL);
-        addressRow.addView(address, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        addressRow.addView(button("Go", v -> go()), new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        addressRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        addressRow.setBackgroundColor(palette.surface);
+        int gap = GrabUi.dp(this, 8);
+        addressRow.setPadding(gap, gap, gap, gap);
+        addressRow.addView(address, new LinearLayout.LayoutParams(0, GrabUi.dp(this, 48), 1f));
+        addressRow.addView(go, new LinearLayout.LayoutParams(GrabUi.dp(this, 48), GrabUi.dp(this, 48)));
         root.addView(addressRow, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(divider(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, GrabUi.dp(this, 1)));
 
         web = new WebView(this);
         WebSettings settings = web.getSettings();
@@ -138,24 +154,39 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         root.addView(web, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        status = new TextView(this);
-        root.addView(status, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        chip = new GrabUi.Chip(this, palette);
+        LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        chipParams.setMargins(gap, gap, gap, gap);
+        root.addView(chip, chipParams);
 
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        grab = button("Grab", v -> startGrab());
-        buttons.addView(grab, weighted());
-        chapters = button("Chapters", v -> toggleChapters());
-        buttons.addView(chapters, weighted());
-        buttons.addView(button("Open Baihe", v -> openBaihe()), weighted());
-        buttons.addView(button("Settings", v -> showSettings()), weighted());
-        root.addView(buttons);
-        LinearLayout second = new LinearLayout(this);
-        second.setOrientation(LinearLayout.HORIZONTAL);
-        quick = button("Quick read", v -> startGrab(true));
-        second.addView(quick, weighted());
-        root.addView(second);
+        root.addView(divider(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, GrabUi.dp(this, 1)));
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        bar.setBackgroundColor(palette.surface);
+        bar.setPadding(gap, gap, gap, gap);
+        grab = new GrabUi.BarButton(this, palette, R.drawable.ic_grab, "Grab", false);
+        grab.setOnClickListener(v -> startGrab());
+        chapters = new GrabUi.BarButton(this, palette, R.drawable.ic_chapters, "Chapters", false);
+        chapters.setOnClickListener(v -> toggleChapters());
+        quick = new GrabUi.BarButton(this, palette, R.drawable.ic_quick, "Quick read", true);
+        quick.setOnClickListener(v -> startGrab(true));
+        ImageView more = new ImageView(this);
+        more.setImageResource(R.drawable.ic_more);
+        more.setImageTintList(android.content.res.ColorStateList.valueOf(palette.muted));
+        more.setScaleType(ImageView.ScaleType.CENTER);
+        more.setContentDescription("More");
+        more.setOnClickListener(v -> showMore(v));
+        int tall = GrabUi.dp(this, 48);
+        bar.addView(grab, new LinearLayout.LayoutParams(0, GrabUi.dp(this, 56), 1f));
+        bar.addView(chapters, new LinearLayout.LayoutParams(0, GrabUi.dp(this, 56), 1f));
+        LinearLayout.LayoutParams quickParams = new LinearLayout.LayoutParams(0, tall, 1.6f);
+        quickParams.setMargins(gap, 0, gap, 0);
+        bar.addView(quick, quickParams);
+        bar.addView(more, new LinearLayout.LayoutParams(tall, tall));
+        root.addView(bar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         setContentView(root);
         root.setFitsSystemWindows(true);
@@ -252,7 +283,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void sendShared(List<Uri> uris, String title, boolean cut, String server, String token) {
         grabbing = true;
         uploading = true;
-        runOnUiThread(() -> grab.setEnabled(false));
+        runOnUiThread(() -> {
+            grab.setBusy(true);
+            quick.setBusy(true);
+        });
         say("Reading shared images");
         sender.execute(() -> {
             List<PageImage> images = new ArrayList<>();
@@ -302,15 +336,31 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
     }
 
-    private Button button(String label, android.view.View.OnClickListener click) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setOnClickListener(click);
-        return b;
+    private android.view.View divider() {
+        android.view.View line = new android.view.View(this);
+        line.setBackgroundColor(palette.border);
+        return line;
     }
 
-    private LinearLayout.LayoutParams weighted() {
-        return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+    /** Open Baihe and Settings are rarely needed mid-grab, so they sit behind one button. */
+    private void showMore(android.view.View anchor) {
+        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
+        menu.getMenu().add("Open Baihe");
+        menu.getMenu().add("Settings");
+        menu.setOnMenuItemClickListener(item -> {
+            if ("Settings".contentEquals(item.getTitle())) showSettings();
+            else openBaihe();
+            return true;
+        });
+        menu.show();
+    }
+
+    private void showChapterState() {
+        if (chaptersLeft > 0) chapters.setLabel("Stop (" + chaptersLeft + " left)", palette.bad, R.drawable.ic_stop);
+        else {
+            chapters.setLabel("Chapters", palette.muted, R.drawable.ic_chapters);
+            chapters.resetTint();
+        }
     }
 
     @Override
@@ -346,7 +396,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void say(String text) {
-        runOnUiThread(() -> status.setText(text));
+        boolean busy = text.startsWith("Reading ") || text.startsWith("Redrawing ") || text.startsWith("Sending ");
+        say(text, busy ? GrabUi.Kind.BUSY : GrabUi.Kind.INFO);
+    }
+
+    private void say(String text, GrabUi.Kind kind) {
+        runOnUiThread(() -> chip.show(text, kind));
     }
 
     private void openBaihe() {
@@ -413,8 +468,15 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void startGrab(boolean readOnly) {
+        if (grabbing) {
+            say("Wait for the current grab to finish.");
+            return;
+        }
         // Following chapters saves each one, so a Quick read never starts inside that run.
-        if (readOnly && chaptersLeft > 0) return;
+        if (readOnly && chaptersLeft > 0) {
+            say("Stop following chapters first.");
+            return;
+        }
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
@@ -422,7 +484,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             showSettings();
             return;
         }
-        if (grabbing) return;
         String current = web.getUrl();
         if (current == null || current.isEmpty() || current.startsWith("about:")) {
             say(OPEN_FIRST);
@@ -430,8 +491,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
         grabbing = true;
         quickRead = readOnly;
-        grab.setEnabled(false);
-        quick.setEnabled(false);
+        grab.setBusy(true);
+        quick.setBusy(true);
         say("Reading pages");
         String nonce = newNonce();
         bridge.start(nonce);
@@ -466,11 +527,14 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         if (chaptersLeft > 0) {
             chaptersLeft = 0;
             loadingNext = false;
-            runOnUiThread(() -> chapters.setText("Chapters"));
+            runOnUiThread(this::showChapterState);
             say("Stopped after this chapter.");
             return;
         }
-        if (grabbing) return;
+        if (grabbing) {
+            say("Wait for the current grab to finish.");
+            return;
+        }
         EditText count = new EditText(this);
         count.setInputType(InputType.TYPE_CLASS_NUMBER);
         count.setText("3");
@@ -490,7 +554,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         return;
                     }
                     chaptersLeft = n;
-                    chapters.setText("Stop");
+                    showChapterState();
                     startGrab();
                 })
                 .setNegativeButton("Cancel", null)
@@ -518,10 +582,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String shown = message;
         String go = next;
         runOnUiThread(() -> {
-            grab.setEnabled(true);
-            quick.setEnabled(true);
-            chapters.setText(chaptersLeft > 0 ? "Stop" : "Chapters");
-            status.setText(shown);
+            grab.setBusy(false);
+            quick.setBusy(false);
+            showChapterState();
+            chip.show(shown, GrabUi.kindOf(shown, sent));
             if (go != null) {
                 loadingNext = true;
                 web.loadUrl(go);

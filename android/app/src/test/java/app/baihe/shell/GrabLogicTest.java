@@ -267,4 +267,12 @@ public class GrabLogicTest {
         assertEquals("https://www.site.com/", ImageFetch.refererFor(page, new java.net.URL("https://cdn.other.net/a.jpg")));
         assertNull(ImageFetch.refererFor(page, new java.net.URL("http://cdn.other.net/a.jpg")));
     }
+
+    @Test
+    public void onlyACleanSuccessFadesAndFailuresStayOnScreen() {
+        assertEquals(GrabUi.Kind.OK, GrabUi.kindOf("Sent 12 pages", true));
+        assertEquals(GrabUi.Kind.OK, GrabUi.kindOf("Opened 5 of 5 pages", false));
+        assertEquals(GrabUi.Kind.INFO, GrabUi.kindOf("Sent 9 pages. Not sent: 3", true));
+        assertEquals(GrabUi.Kind.BAD, GrabUi.kindOf("Could not read the pages.", false));
+    }
 }
