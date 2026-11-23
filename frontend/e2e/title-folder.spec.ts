@@ -43,7 +43,7 @@ test('under a background service Open folder shows the folder path to copy, in t
   await expect(page.getByRole('button', { name: 'Copied' })).toBeVisible()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('D:\\Baihe\\library\\dramas\\3')
 
-  await page.getByRole('radio', { name: 'Simple', exact: true }).check({ force: true })
+  await page.getByRole('radio', { name: 'Guided', exact: true }).check({ force: true })
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
   // In Simple, Open folder is under the header's More.
   await page.locator('.workspace-header').getByRole('button', { name: 'More', exact: true }).click()

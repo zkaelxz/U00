@@ -118,7 +118,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
   // The title page and Review are where a title opens, so both lead back to the Library; the other steps lead back to them.
   const back = home || stage === 'review'
     ? { href: routeHref({ name: 'library' }), label: 'Back to Library', text: 'Library' }
-    : { href: routeHref({ name: 'drama', id, stage: null }), label: 'Back to title page', text: title }
+    : { href: routeHref({ name: 'drama', id, stage: null }), label: 'Back to title page', text: 'Title page' }
   return (
     <section className="workspace novel-title" aria-label={`Title ${id} workspace`} aria-busy={waiting || undefined}>
       {simple ? (
@@ -144,7 +144,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
           <header className="workspace-header">
             <ButtonLink href={routeHref({ name: 'drama', id, stage: null })} variant="ghost" size="sm" className="ws-back" aria-label="Back to title page">
               <span aria-hidden="true">‹</span>
-              <span className="ws-back-text" aria-hidden="true">{title}</span>
+              <span className="ws-back-text">Title page</span>
             </ButtonLink>
             <h1 data-testid="drama-title" title={title}>{title}</h1>
             <JobPill dramaId={id} onFinished={refetch} />
@@ -164,7 +164,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
       </StageContext.Provider>
       {home && !waiting && !Stage && (
         <div className="title-studio">
-          <TitlePanel id={id} episodes={<EpisodesList id={id} drama={drama} lineCount={lineCount} translatedCount={translatedCount} />} />
+          <TitlePanel id={id} episodes={seriesId != null ? <EpisodesList id={id} drama={drama} lineCount={lineCount} translatedCount={translatedCount} /> : null} />
         </div>
       )}
     </section>

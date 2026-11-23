@@ -242,7 +242,7 @@ test('header bell: unread count, the list, and opening marks them seen', async (
     { id: 1, at: now - 4 * 3600, kind: 'job_done', text: 'Transcribe finished: Signal' },
   ])
   await page.goto('/#/library')
-  const button = page.getByRole('button', { name: 'Alerts (3 new)' })
+  const button = page.getByRole('button', { name: 'Alerts, 3 new' })
   await expect(button).toBeVisible()
   await expect(page.getByTestId('notify-count')).toHaveText('3')
 
@@ -289,7 +289,7 @@ test('header bell: unread count, the list, and opening marks them seen', async (
   bell.items = [{ id: 4, at: NOW(), kind: 'job_done', text: 'Export finished: Signal' }, ...bell.items]
   const before = bell.calls
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
-  await expect(page.getByRole('button', { name: 'Alerts (1 new)' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Alerts, 1 new' })).toBeVisible()
   expect(bell.calls).toBeGreaterThan(before)
   expect(unmocked).toEqual([])
 })

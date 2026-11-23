@@ -363,6 +363,8 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
   .review-player-row .review-player-toggle { margin-left: auto; }
   /* Without the total, Hide player and Pop out stay on the play row at 390 px instead of Pop out dropping to a line of its own. */
   .review-player-row .review-duration { display: none; }
+  /* "Hide player" is spelled out in full now, so the readout gives up its width to keep Pop out on this row; the opened player shows the time. */
+  .review-player-row .review-time { display: none; }
   .review-player-row { gap: var(--space-1); }
   .review-player-row .btn-sm { padding-inline: var(--space-2); }
   .review-page-label { min-width: 2.5em; }
@@ -460,6 +462,11 @@ button.review-en:focus-visible { background: none; outline: 1px dashed var(--bor
 .review-toolbox .ui-tabs .ui-tab[aria-selected="true"]:hover:not(:disabled) { background: var(--highlight); color: var(--text); font-weight: var(--weight-bold); }
 @media (pointer: coarse), (max-width: 640px) {
   .review-toolbox .ui-tabs .ui-tab { min-height: 44px; }
+}
+@media (min-width: 1100px) {
+  /* Measured in the 24.8rem column at 1440px: the four tabs need 4px each side to keep Finish on the row (5px left it 3px short).
+     More tabs, or the 20rem laptop column, still wrap; growing them fills the second row instead of leaving one tab alone on it. */
+  .review-toolbox .ui-tabs .ui-tab { padding-inline: 4px; flex: 1 1 auto; }
 }
 @media (min-width: 641px) {
   /* Each panel is one white card, the way This line's three are; the toolbox itself is only the stack of them. */

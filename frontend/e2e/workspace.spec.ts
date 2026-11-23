@@ -100,6 +100,25 @@ test('rejects an unsupported upload before sending it', async ({ page }) => {
   expect(uploads).toEqual([])
 })
 
+test('Transcribe\'s Choose a file opens Add media with focus on its Choose a file button, which shows the picked file\'s name', async ({ page }) => {
+  await page.route('**/api/media/dramas/1/status', (route) =>
+    route.fulfill({ json: { drama_id: 1, has_audio: false, has_source_video: false, upload_max_mb: 500 } }),
+  )
+  // Transcribing from the audio, so what is still needed is a file (with a pasted transcript it would be the text).
+  await page.route('**/api/transcribe/dramas/1/config', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const resp = await route.fetch()
+    return route.fulfill({ response: resp, json: { ...(await resp.json()), transcript_mode: 'whisper' } })
+  })
+  await page.goto('/#/drama/1/source?tab=transcribe')
+  await page.getByRole('note').filter({ hasText: 'Still needed' }).getByRole('button', { name: 'Choose a file' }).click()
+  const choose = page.locator('.source-drop').getByRole('button', { name: 'Choose a file' })
+  await expect(choose).toBeFocused()
+  await expect(page.locator('.source-drop')).toContainText('No file chosen')
+  await page.getByLabel('Audio or video file').setInputFiles({ name: 'clip.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('abc') })
+  await expect(page.locator('.source-drop')).toContainText('clip.mp3')
+})
+
 test('replacing existing audio needs the replace box, which is sent with the upload', async ({ page }) => {
   await page.route('**/api/media/dramas/1/status', (route) =>
     route.fulfill({ json: { drama_id: 1, has_audio: true, has_source_video: false, upload_max_mb: 500 } }),
