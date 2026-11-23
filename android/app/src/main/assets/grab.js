@@ -91,8 +91,16 @@
     return "";
   }
   var items = [];
-  Array.prototype.slice.call(document.querySelectorAll("img, canvas")).forEach(function (el) {
-    if (el.tagName === "CANVAS") {
+  var seenUrls = {};
+  // img, canvas and amp-img: some readers (baozimh mirrors) use amp-img elements, whose address
+  // is in src and which hold no img until the AMP runtime loads.
+  Array.prototype.slice.call(document.querySelectorAll("img, canvas, amp-img")).forEach(function (el) {
+    if (el.tagName === "AMP-IMG") {
+      var ampUrl = lazyAddress(el) || (function () {
+        try { var u = new URL(el.getAttribute("src") || "", location.href); return /^https?:$/.test(u.protocol) ? u.href : ""; } catch (e) { return ""; }
+      })();
+      if (ampUrl && !seenUrls[ampUrl] && !el.querySelector("img")) { seenUrls[ampUrl] = true; items.push({ kind: "url", url: ampUrl }); }
+    } else if (el.tagName === "CANVAS") {
       if (el.width >= MIN_SIDE && el.height >= MIN_SIDE) items.push({ kind: "canvas", el: el });
     } else if (el.naturalWidth >= MIN_SIDE && el.naturalHeight >= MIN_SIDE) {
       items.push({ kind: "img", el: el });
