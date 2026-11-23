@@ -123,12 +123,15 @@ export function planForFile(o: { pc: PcMode; language: string; engine: string })
 
 /** Shown only when the profile was set to None in Settings: a fresh install has the Default one. The box links it to that card. */
 export const NO_PROFILE_PLAN = 'Choose a One-click translate profile in Settings first.'
+// The queue runs paid translation only under a monthly cap, so without one the run would stop at Translate.
+export const NO_CAP_PLAN = 'Set a monthly spending cap in Settings > Spending first: this profile translates with a paid engine.'
 
 /** The same for a link, from the One-click translate profile chosen in Settings. */
-export function planForLink(o: { pc: PcMode; source: boolean; loaded: boolean; profile: string | null; engine: string | null }): string {
+export function planForLink(o: { pc: PcMode; source: boolean; loaded: boolean; profile: string | null; engine: string | null; capNeeded?: boolean }): string {
   if (o.pc === 'remote') return 'Making subtitles from a link runs only on the main PC. You can still add it as a title.'
   if (o.source) return 'This is a Sources page, not a video: add it as a title.'
   if (o.loaded && !o.profile) return NO_PROFILE_PLAN
+  if (o.capNeeded) return NO_CAP_PLAN
   const engine = o.engine ? ` with ${engineLabel(o.engine)}` : ''
   const profile = o.profile ? ` (profile “${o.profile}”)` : ''
   return `Download it on this PC, transcribe it, then translate it${engine}${profile}, through the Queue.`

@@ -70,6 +70,10 @@ def test_a_fresh_install_gets_a_default_profile_that_runs_a_link(jobs, started_d
     rows = {r["label"]: r["value"] for r in settings["summary"]}
     assert rows["Source language"] == "Chinese" and rows["Export"] == "SRT, en"
     assert rows["Speech recognizer"] == "The app's default for this language"
+    # The app's default engine is paid, and the queue translates with it only under a monthly cap.
+    from services import settings_service
+    assert settings["cap_needed"] is (rows["Cost"] != "Free")
+    settings_service.set_settings({"monthly_cap_usd": 5})
     drama = db.get_drama(_start()["drama_id"])
     assert drama["source_language"] == "zh"
     assert [i["step"] for i in q.get_queue(None)["items"]] == ["download", "transcribe", "translate", "export"]
@@ -219,3 +223,21 @@ def test_settings_summary_shows_the_chosen_profiles_values_and_the_defaults_it_l
     assert rows["Context lines (before, after)"]["value"] == "3, 6"
     assert rows["Export"]["value"] == "VTT, bilingual"
     assert rows["Cost"]["value"] == "Free"
+
+
+def test_a_paid_profile_without_a_monthly_cap_is_refused_up_front_and_creates_nothing(jobs, started_downloads):
+    from services import settings_service
+    pid = _profile(engine="claude")
+    qv.set_profile(pid)
+    settings_service.set_settings({"monthly_cap_usd": 0})
+    assert qv.get_settings()["cap_needed"] is True
+    with pytest.raises(InvalidInputError, match="Settings > Spending"):
+        _start(pid)
+    assert db.list_dramas() == [] and q.get_queue(None)["items"] == []
+    settings_service.set_settings({"monthly_cap_usd": 5})
+    assert qv.get_settings()["cap_needed"] is False
+    assert _start(pid)["drama_id"]
+    # A free engine never needs one.
+    settings_service.set_settings({"monthly_cap_usd": 0})
+    qv.set_profile(_profile(name="Free"))
+    assert qv.get_settings()["cap_needed"] is False

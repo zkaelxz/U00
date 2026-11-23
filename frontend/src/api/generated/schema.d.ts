@@ -24997,6 +24997,11 @@ export interface components {
         };
         /** QuickVideoSettings */
         QuickVideoSettings: {
+            /**
+             * Cap Needed
+             * @default false
+             */
+            cap_needed: boolean;
             /** Profile Id */
             profile_id: number | null;
             /** Profiles */

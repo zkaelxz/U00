@@ -35,6 +35,10 @@ _NO_PROFILE = "Choose a profile for One-click translate in Settings."
 _NO_LANGUAGE = "This profile has no source language. Set one in the profile's One-click translate section."
 _NOT_TEMPORARY = "This title was not made as a watch-once title, so it is not removed here."
 _PAID = "This profile translates with a paid engine, which your account can't use."
+# The queue refuses paid translation without a monthly cap; said here so the run doesn't stop after
+# the download and transcription.
+_NO_CAP = ("Set a monthly spending cap in Settings > Spending first: this profile translates with a "
+           "paid engine, which the queue runs only under a cap.")
 _RUN_STEPS = ("download", "transcribe", "translate", "export")
 # The From a URL picker's default (Kae, 2026-11-22): a taller picture costs disk and download
 # time and is not needed to watch with subtitles.
@@ -55,15 +59,27 @@ def _preset(profile_id) -> Optional[dict]:
     return next((p for p in _presets() if p["id"] == profile_id), None)
 
 
+def _run_engine(preset: dict) -> str:
+    from services import engine_routing_service
+    engine = preset.get("translation_engine")
+    if engine not in engine_registry.ENGINES:
+        engine = engine_routing_service.resolve_capability("translation.cheap")
+    return engine
+
+
+def cap_needed(preset: dict) -> bool:
+    """Whether a run with this profile would stop at Translate for want of a monthly cap."""
+    from services import settings_service
+    return (_run_engine(preset) not in engine_registry.FREE_ENGINES
+            and settings_service.get_monthly_cap_usd() <= 0)
+
+
 def describe_profile(preset: dict) -> list:
     """The settings a run with this profile uses, as {label, value, engine} rows. Values the profile leaves
     unset show what the run falls back to, resolved by the same functions the run calls."""
     import translation_guide
-    from services import engine_routing_service
     options = profile_service.stored_options(preset)
-    engine = preset.get("translation_engine")
-    if engine not in engine_registry.ENGINES:
-        engine = engine_routing_service.resolve_capability("translation.cheap")
+    engine = _run_engine(preset)
     model = preset.get("engine_model")
     # A run that was handed no model picks up an Ollama cloud tag (paid work its own gate cannot see) only when hosted defaults are allowed.
     if not model or engine_registry.hosted_default_blocked(engine, model) or preset.get("translation_engine") != engine:
@@ -123,6 +139,7 @@ def get_settings() -> dict:
     preset = _preset(chosen) if chosen is not None else None
     return {"profile_id": chosen if preset else None,
             "summary": describe_profile(preset) if preset else [],
+            "cap_needed": cap_needed(preset) if preset else False,
             "profiles": [{"id": p["id"], "name": p["name"],
                           "ready": bool(profile_service.stored_options(p).get("quick_source_language"))}
                          for p in _presets()]}
@@ -189,6 +206,8 @@ def start(principal, url, profile_id, watch_once, *, holds_paid: bool, at_pc: bo
     engine = preset.get("translation_engine")
     if engine and engine not in engine_registry.FREE_ENGINES and not holds_paid:
         raise ForbiddenError(_PAID)
+    if cap_needed(preset):
+        raise InvalidInputError(_NO_CAP)
 
     created = drama_service.create_drama(source_language=language, media_type="video_drama",
                                          preset_id=preset["id"], principal=principal)

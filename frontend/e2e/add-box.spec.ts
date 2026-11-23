@@ -29,6 +29,18 @@ test('a video link says what the probe found and starts One-click translate, who
   await expect(page.getByRole('region', { name: 'From a link' })).toContainText('Episode 1 · Downloading')
 })
 
+test('a paid profile with no monthly cap says so before anything starts, and links to Spending', async ({ page }) => {
+  const m = await mockAddLink(page, probeOf({ title: '第一回', platform: 'YouTube' }), { capNeeded: true })
+  await page.goto('/')
+  const b = box(page)
+  await b.getByRole('textbox', { name: 'Paste a link' }).fill(VIDEO_LINK)
+  const plan = b.getByTestId('add-plan')
+  await expect(plan).toHaveText('Set a monthly spending cap in Settings > Spending first: this profile translates with a paid engine.')
+  await expect(plan.getByRole('link')).toHaveAttribute('href', /settings.*spending/)
+  await expect(b.getByRole('button', { name: 'Make English subtitles' })).toBeDisabled()
+  expect(m.started).toEqual([])
+})
+
 test('a typed address is read once, after the typing stops; Clear empties the box', async ({ page }) => {
   const m = await mockAddLink(page, probeOf({ title: 'Ep', platform: 'YouTube' }))
   await page.goto('/')
