@@ -842,6 +842,7 @@ from db.auth import (  # noqa: F401
     rename_series, series_content_counts, delete_series, copy_series_terms,
     update_series_instructions, set_series_defaults,
     get_series_auto_pipeline, set_series_auto_pipeline, list_series_auto_pipelines, set_series_speaker_mode, get_series_speaker_mode,
+    set_series_streamer,
     apply_series_settings, get_series_speaker_colours, set_series_speaker_colours,
     list_item_sharing,
     auth_get_user,

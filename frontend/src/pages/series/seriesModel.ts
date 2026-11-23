@@ -139,6 +139,41 @@ export function defaultsPreviewText(p: SeriesDefaultsPreview): string {
 }
 
 /** Series whose name contains the typed text, in name order so the folder list reads like a file explorer. */
+export const MAX_STREAMER_NAME = 100
+
+export interface StreamerFolder {
+  // null: the series with no streamer.
+  name: string | null
+  seriesCount: number
+  titleCount: number
+}
+
+// The Library's Streamer level: one folder per streamer, by name, then "No streamer" last.
+export function streamerFolders(items: readonly Pick<SeriesListItem, 'streamer' | 'title_count'>[]): StreamerFolder[] {
+  const byName = new Map<string | null, StreamerFolder>()
+  for (const s of items) {
+    const name = s.streamer || null
+    const f = byName.get(name) ?? { name, seriesCount: 0, titleCount: 0 }
+    f.seriesCount += 1
+    f.titleCount += s.title_count
+    byName.set(name, f)
+  }
+  const named = [...byName.values()].filter((f) => f.name !== null)
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base', numeric: true }))
+  const none = byName.get(null)
+  return none ? [...named, none] : named
+}
+
+export function filterStreamers(folders: readonly StreamerFolder[], query: string): StreamerFolder[] {
+  const q = query.trim().toLowerCase()
+  return q ? folders.filter((f) => (f.name ?? 'no streamer').toLowerCase().includes(q)) : [...folders]
+}
+
+// streamer "" is the series with none.
+export function seriesOfStreamer<T extends Pick<SeriesListItem, 'streamer'>>(items: readonly T[], streamer: string): T[] {
+  return items.filter((s) => (s.streamer || '') === streamer)
+}
+
 export function filterSeries<T extends Pick<SeriesListItem, 'name'>>(items: readonly T[], query: string): T[] {
   const q = query.trim().toLowerCase()
   return items

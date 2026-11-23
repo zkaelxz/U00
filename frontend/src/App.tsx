@@ -358,7 +358,7 @@ export default function App() {
       {route.name === 'watch' && <WatchPage key={route.id} id={route.id} />}
       {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
       {route.name === 'comic-edit' && <ComicEditor key={route.id} id={route.id} page={route.page} />}
-      {route.name === 'series-list' && <SeriesListPage />}
+      {route.name === 'series-list' && <SeriesListPage key={route.streamer ?? '-'} streamer={route.streamer} />}
       {route.name === 'series' && <SeriesPage key={route.id} id={route.id} tab={route.tab} />}
       {route.name === 'manga' && <SavedMangaPage />}
       {route.name === 'manga-series' && (
