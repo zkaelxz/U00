@@ -2,6 +2,7 @@ package app.baihe.shell;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.webkit.CookieManager;
@@ -30,6 +31,9 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private boolean updateChecked;
+    // A silently downloaded update, installed once the app goes to the background so
+    // Android's restart of the app doesn't land in the middle of reading.
+    private volatile File pendingUpdate;
     private View customView;
     private WebChromeClient.CustomViewCallback customViewCallback;
 
@@ -239,7 +243,11 @@ public class MainActivity extends Activity {
         String cookie = CookieManager.getInstance().getCookie(address);
         new Thread(() -> {
             long offered = AppUpdate.check(address, cookie);
-            if (offered > 0 && AppUpdate.isNewer(installedVersion(), offered)) {
+            if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered)) return;
+            if (AppUpdate.canUpdateSilently(getApplicationContext())) {
+                File apk = updateFile();
+                if (AppUpdate.download(address, cookie, apk)) pendingUpdate = apk;
+            } else {
                 runOnUiThread(() -> offerUpdate(address, cookie));
             }
         }).start();
@@ -262,13 +270,27 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("Update Available")
                 .setPositiveButton("Install update", (d, w) -> new Thread(() -> {
-                    File dir = new File(getCacheDir(), "updates");
-                    dir.mkdirs();
-                    File apk = new File(dir, "baihe-shell.apk");
+                    File apk = updateFile();
                     if (AppUpdate.download(address, cookie, apk)) AppUpdate.install(getApplicationContext(), apk);
                 }).start())
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+    }
+
+    private File updateFile() {
+        File dir = new File(getCacheDir(), "updates");
+        dir.mkdirs();
+        return new File(dir, "baihe-shell.apk");
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        File apk = pendingUpdate;
+        if (apk == null) return;
+        pendingUpdate = null;
+        Context app = getApplicationContext();
+        new Thread(() -> AppUpdate.install(app, apk)).start();
     }
 
     private SharedPreferences prefs() {
