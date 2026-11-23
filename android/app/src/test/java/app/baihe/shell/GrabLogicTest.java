@@ -95,7 +95,11 @@ public class GrabLogicTest {
     @Test
     public void refusalShowsTheServersTextNotTheRawBody() {
         assertEquals("no such drama", BaiheClient.refusalText(404, "{\"error\":\"no such drama\"}"));
-        assertEquals("Baihe did not accept the token.", BaiheClient.refusalText(401, "<html>secret</html>"));
+        assertEquals(BaiheClient.TOKEN_HELP, BaiheClient.refusalText(401, "<html>secret</html>"));
+        assertEquals(BaiheClient.TOKEN_HELP, BaiheClient.refusalText(401,
+                "{\"error\":{\"code\":\"unauthenticated\",\"message\":\"Authentication required.\"}}"));
+        assertEquals("Not allowed.", BaiheClient.refusalText(403,
+                "{\"error\":{\"code\":\"forbidden\",\"message\":\"Not allowed.\"}}"));
         assertEquals("Baihe refused the request (500).", BaiheClient.refusalText(500, ""));
     }
 

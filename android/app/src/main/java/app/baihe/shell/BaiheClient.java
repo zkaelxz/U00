@@ -149,14 +149,25 @@ final class BaiheClient {
         }
     }
 
-    /** The server's own {"error": text} when it sent one (never the raw body), else a fixed line. */
+    /** Shown for a refused token, because the server's own text ("Authentication required.") says nothing to do. */
+    static final String TOKEN_HELP = "Baihe did not accept the token. Make a phone token at the PC in Baihe: "
+            + "Settings > Extension tokens per computer, then paste it in Grab > Settings.";
+
+    /**
+     * What to show for a refused call: a fixed line for a refused token, else the server's own text.
+     * The server sends {"error": "text"} from the bridge and {"error": {"code", "message"}} from the
+     * rest of the API; never the raw body.
+     */
     static String refusalText(int status, String body) {
+        if (status == 401) return TOKEN_HELP;
         try {
-            String error = new JSONObject(body).optString("error", "");
-            if (!error.isEmpty()) return error.length() > 300 ? error.substring(0, 300) : error;
+            Object error = new JSONObject(body).opt("error");
+            String text = error instanceof JSONObject ? ((JSONObject) error).optString("message", "")
+                    : error instanceof String ? (String) error : "";
+            if (!text.isEmpty()) return text.length() > 300 ? text.substring(0, 300) : text;
         } catch (JSONException ignored) {
             // Fall through to the fixed text.
         }
-        return status == 401 ? "Baihe did not accept the token." : "Baihe refused the request (" + status + ").";
+        return "Baihe refused the request (" + status + ").";
     }
 }
