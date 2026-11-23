@@ -275,4 +275,5 @@ public class GrabLogicTest {
         assertEquals(GrabUi.Kind.INFO, GrabUi.kindOf("Sent 9 pages. Not sent: 3", true));
         assertEquals(GrabUi.Kind.BAD, GrabUi.kindOf("Could not read the pages.", false));
     }
+
 }
