@@ -935,11 +935,19 @@ class TestSpeakerNamesInSubtitles:
         text = export_service.generate_subtitle_text(did, fmt, "en")
         assert "Wei" not in text and "SPEAKER_01" not in text
 
-    def test_srt_prefix_uses_character_name_then_label(self, did):
+    def test_srt_prefix_uses_the_character_name_and_leaves_an_unnamed_label_off(self, did):
         text = export_service.generate_subtitle_text(did, "srt", "en", speaker_names=True)
         assert "Wei: Hello" in text
-        assert "SPEAKER_01: Bye" in text
+        assert "SPEAKER_01" not in text and "\nBye\n" in text
         assert "\nOkay\n" in text
+
+    def test_srt_name_counts_toward_the_wrap_width(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=4.0, zh="", en="one two three four", speaker="S0")])
+        isolated_db.upsert_character(did, "S0", character_name="Wei")
+        text = export_service.generate_subtitle_text(did, "srt", "en", speaker_names=True, wrap_chars_en=12)
+        assert all(len(row) <= 12 for row in text.split("\n")[2:4])
+        assert text.split("\n")[2].startswith("Wei:")
 
     def test_srt_bilingual_prefixes_first_line(self, did):
         text = export_service.generate_subtitle_text(did, "srt", "bilingual", speaker_names=True)
@@ -948,7 +956,7 @@ class TestSpeakerNamesInSubtitles:
     def test_vtt_uses_voice_tag(self, did):
         text = export_service.generate_subtitle_text(did, "vtt", "en", speaker_names=True)
         assert "<v Wei>Hello</v>" in text
-        assert "<v SPEAKER_01>Bye</v>" in text
+        assert "SPEAKER_01" not in text and "\nBye\n" in text
         assert "\nOkay\n" in text
 
     def test_lrc_prefix(self, did):

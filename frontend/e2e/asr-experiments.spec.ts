@@ -5,7 +5,7 @@ import { openTranscribeOptions, openAdvanced } from './sourceHelpers'
 // Steps 101/103: Settings > Transcription and jobs > Advanced transcription and the "where did speaker detection run" note.
 // Settings hit the real (seeded) API; every change is restored at the end.
 
-// The batch size is a Developer Mode field; the seeded library has the mode off, so the read says it is on.
+// The card is a Developer Mode one; the seeded library has the mode off, so the read says it is on.
 async function developerModeOn(page: Page) {
   await page.route('**/api/assistant/settings', async (route) => {
     const resp = await route.fetch()
@@ -13,12 +13,10 @@ async function developerModeOn(page: Page) {
   })
 }
 
-test('the batch size is hidden until Developer Mode is on', async ({ page }) => {
+test('the Advanced transcription card is hidden until Developer Mode is on', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Transcription and jobs')
-  const card = page.getByRole('region', { name: 'Advanced transcription' })
-  await expect(card.getByLabel('Mixed languages', { exact: true })).toBeVisible()
-  await expect(card.getByLabel('Qwen3-ASR batch size', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Advanced transcription' })).toHaveCount(0)
 })
 
 test('advanced transcription saves, and MOSS is not offered', async ({ page }) => {

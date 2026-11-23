@@ -300,12 +300,12 @@ def _srt_text(text: str) -> str:
 
 def cue_speaker_name(ln, speaker_names: dict | None) -> str:
     """The name a cue is attributed to, or "" for none. speaker_names None
-    means the option is off; a dict maps speaker labels to character names
-    (a label with no entry is shown as it is). SFX cues are not speech, so
-    they carry no name."""
+    means the option is off; a dict maps speaker labels to character names.
+    A label with no name is left off, not written as "SPEAKER_00:", which
+    tells the viewer nothing. SFX cues are not speech, so they carry no name."""
     if speaker_names is None or getattr(ln, "sfx", False) or not getattr(ln, "speaker", ""):
         return ""
-    return " ".join((speaker_names.get(ln.speaker) or ln.speaker).split())
+    return " ".join((speaker_names.get(ln.speaker) or "").split())
 
 
 def lines_to_srt(lines, field="en", notes_by_idx: dict | None = None,

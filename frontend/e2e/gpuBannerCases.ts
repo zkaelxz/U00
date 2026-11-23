@@ -49,28 +49,28 @@ export function registerGpuBannerCases(prefix: string) {
     const { saved, sent } = await open(page, { useGpu: false })
     const banner = page.getByTestId('gpu-banner')
     await expect(banner).toContainText('GPU PyTorch is installed')
-    await expect(page.getByTestId('gpu-note')).toContainText('GPU: off')
+    await expect(page.getByTestId('gpu-note')).toContainText('GPU off')
     await page.getByTestId('before-you-run').locator('summary').click()
     await banner.getByRole('button', { name: 'Turn on GPU' }).click()
     await expect(banner).toHaveCount(0)
     expect(saved).toEqual([{ use_gpu: true }])
-    await expect(page.getByTestId('gpu-note')).toContainText('GPU: on')
+    await expect(page.getByTestId('gpu-note')).toContainText('GPU on')
     expect(sent).toEqual([])
   })
 
   test(`${prefix}Transcribe: no banner when the GPU is already on`, async ({ page }) => {
     await open(page, { useGpu: true })
-    await expect(page.getByTestId('gpu-note')).toContainText('GPU: on')
+    await expect(page.getByTestId('gpu-note')).toContainText('GPU on')
     await expect(page.getByTestId('gpu-banner')).toHaveCount(0)
   })
 
   test(`${prefix}Transcribe: no banner for CPU-only torch or without an NVIDIA GPU`, async ({ page }) => {
     await open(page, { useGpu: false, torch: torchStatus({ build: 'cpu' }) })
-    await expect(page.getByTestId('gpu-note')).toContainText('GPU: off')
+    await expect(page.getByTestId('gpu-note')).toContainText('GPU off')
     await expect(page.getByTestId('gpu-banner')).toHaveCount(0)
     await page.unrouteAll({ behavior: 'ignoreErrors' })
     await open(page, { useGpu: false, torch: torchStatus({ found: false }) })
-    await expect(page.getByTestId('gpu-note')).toContainText('GPU: off')
+    await expect(page.getByTestId('gpu-note')).toContainText('GPU off')
     await expect(page.getByTestId('gpu-banner')).toHaveCount(0)
   })
 

@@ -21,8 +21,14 @@ test('Settings tabs keep every word whole', async ({ page }) => {
 })
 
 test('closed Settings cards are one row tall, not 60px taller', async ({ page }) => {
+  // Advanced transcription is a Developer Mode card; with it shown the tab has two closed cards to measure.
+  await page.route('**/api/assistant/settings', async (route) => {
+    const resp = await route.fetch()
+    return route.fulfill({ response: resp, json: { ...(await resp.json()), developer_mode: true } })
+  })
   await page.goto('/#/settings')
   await page.getByRole('tab', { name: 'Transcription and jobs' }).click()
+  await expect(page.getByRole('region', { name: 'Advanced transcription' })).toHaveCount(1)
   const heights = await page.evaluate(() =>
     [...document.querySelectorAll('.settings-panel:not([hidden]) > .settings-card')].slice(1).map((c) => c.getBoundingClientRect().height),
   )

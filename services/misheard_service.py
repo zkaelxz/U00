@@ -72,6 +72,22 @@ def _text_tools(drama: dict):
     return cut, canon
 
 
+def _script_display(drama: dict):
+    """How a typed word is written into this title: a Traditional title takes a Simplified
+    glossary term in Traditional, or Use here would mix scripts into its transcript."""
+    if (drama.get("chinese_script") or "simplified") != "traditional":
+        return lambda w: w
+    try:
+        return segment.opencc_s2t().convert
+    except ImportError:
+        return lambda w: w
+
+
+def _canon_of(drama: dict):
+    tools = _text_tools(drama)
+    return tools[1] if tools else (lambda w: w)
+
+
 def _replace(text: str, heard: str, suggested: str, tools, known=()) -> str:
     """Replace `heard` everywhere in `text` except inside a longer ordinary word (達羅 must not
     change inside 達羅斯) or a longer spelling the person typed, such as an alias (楊若 inside
@@ -103,11 +119,16 @@ def _replace(text: str, heard: str, suggested: str, tools, known=()) -> str:
     return "".join(out)
 
 
-def _glossary_term_id(terms: list, suggested: str):
+def _is_spelling_of(term: dict, suggested: str, canon) -> bool:
+    """`suggested` is the term's text or an alias, in either script (see _script_display)."""
+    return canon(suggested) in {canon(w) for w in (term["term_original"], *term["aliases"])}
+
+
+def _glossary_term_id(terms: list, suggested: str, canon):
     """The series glossary term whose text (or alias) is `suggested`; only a series term can
     take a remembered spelling."""
     for term in terms:
-        if suggested == term["term_original"] or suggested in term["aliases"]:
+        if _is_spelling_of(term, suggested, canon):
             return term["id"]
     return None
 
@@ -132,7 +153,7 @@ def find_for_title(drama_id: int) -> dict:
     lines = [(ln.idx, ln.id, ln.zh.strip()) for ln in everything
              if (ln.zh or "").strip() and not ln.sfx][:SCAN_MAX_LINES]
     kept = set(db.list_misheard_keeps(drama_id))
-    result = find_misheard(lines, _trusted(drama, cut), cut, canon,
+    result = find_misheard(lines, _trusted(drama, cut), cut, canon, _script_display(drama),
                            lambda w: _in_dictionary(canon(w)), skip=kept)
     by_idx = {ln.idx: ln for ln in everything}
     series_terms = glossary_service.list_glossary_terms(drama_id)
@@ -146,7 +167,7 @@ def find_for_title(drama_id: int) -> dict:
             not ln.sfx and item["heard"] in (ln.zh or "")
             and _replace(ln.zh, item["heard"], item["suggested"], tools, known) != ln.zh
             for ln in everything)
-        item["term_id"] = (_glossary_term_id(series_terms, item["suggested"])
+        item["term_id"] = (_glossary_term_id(series_terms, item["suggested"], canon)
                            if item["source"] == "glossary" else None)
     return {"available": True, "reason": "", "lines_scanned": len(lines),
             "kept_count": _kept_still_present(kept, everything), **result}
@@ -224,11 +245,11 @@ def remember_spelling(drama_id: int, heard: str, suggested: str, term_id: int) -
     alone) AND save the heard spelling as an alias of the term, so later transcriptions in the
     series fix it by themselves. The term must be the one the suggestion named; nothing is
     written when it is not."""
-    ownership_service.require_drama(drama_id)
+    drama = ownership_service.require_drama(drama_id)
     heard, suggested = heard.strip(), suggested.strip()
     terms = {t["id"]: t for t in glossary_service.list_glossary_terms(drama_id)}
     term = terms.get(term_id)
-    if term is None or suggested not in (term["term_original"], *term["aliases"]):
+    if term is None or not _is_spelling_of(term, suggested, _canon_of(drama)):
         raise InvalidInputError("That glossary term is not the one suggested.")
     if not (name_fix_service.MIN_SPELLING_LEN <= len(heard) <= MAX_TERM_LEN) or heard == suggested:
         raise InvalidInputError("A spelling must be 2 to %d characters." % MAX_TERM_LEN)

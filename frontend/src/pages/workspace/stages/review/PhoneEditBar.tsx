@@ -54,7 +54,7 @@ export function PhoneEditBar({ active, editing, discardWarning, hasMedia, onCanc
             </button>
           )}
           {queue && !active.reviewed && (
-            <button type="button" className={buttonClass('ok', 'md', 'review-queue-done')} disabled={!active.en} aria-label="Looks right, next" title="Looks right, next (R)" onClick={queue.onLooksRight}>Next</button>
+            <button type="button" className={buttonClass('ok', 'md', 'review-queue-done')} disabled={!active.en} aria-label="Looks right, next" title="Looks right, next (R)" onClick={queue.onLooksRight}>Looks right ›</button>
           )}
         </>
       )}

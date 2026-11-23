@@ -280,3 +280,18 @@ class TestSafeEverywhere:
         with pytest.raises(InvalidInputError):
             misheard_service.remember_spelling(did, "達羅赫", "達洛赫", other["id"])
         assert db.load_line_objects(did)[0].zh == "達羅赫來了" and db.list_line_history(did) == []
+
+
+def test_a_simplified_glossary_term_is_suggested_in_a_traditional_titles_script(isolated_db):
+    pytest.importorskip("jieba")
+    pytest.importorskip("opencc")
+    sid = db.get_or_create_series("S")
+    did = db.create_drama(title_en="T", series_id=sid, source_language="zh", chinese_script="traditional")
+    db.upsert_glossary_term(sid, "达洛赫", "Yasoch", aliases="")
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="達羅赫來了", en=""),
+                        Line(idx=1, start=1, end=2, zh="達羅赫說話", en="")])
+    [item] = misheard_service.find_for_title(did)["suggestions"]
+    assert item["suggested"] == "達洛赫" and item["term_id"] is not None
+    out = misheard_service.remember_spelling(did, item["heard"], item["suggested"], item["term_id"])
+    assert out["applied"] == 2
+    assert [ln.zh for ln in db.load_line_objects(did)] == ["達洛赫來了", "達洛赫說話"]

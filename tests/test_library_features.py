@@ -331,6 +331,42 @@ class TestStorage:
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_an_old_narration_wav_is_cleaned_only_beside_the_flac_that_replaced_it(self):
+        d = self._make_dir()
+        try:
+            wav = os.path.join(d, "narration_track.wav")
+            with open(wav, "wb") as f:
+                f.write(b"w" * 900)
+            # Alone it is the title's only narration.
+            assert stg.scan_drama_storage(d)["categories"]["stale_narration_wav"] == 0
+            stg.clean_drama_storage(d, stg.categories_for_preset("archival"))
+            assert os.path.exists(wav)
+            with open(os.path.join(d, "narration_track.flac"), "wb") as f:
+                f.write(b"f")
+            assert stg.scan_drama_storage(d)["categories"]["stale_narration_wav"] == 900
+            stg.clean_drama_storage(d, stg.categories_for_preset("archival"))
+            assert os.path.exists(wav)
+            stg.clean_drama_storage(d, stg.categories_for_preset("balanced"))
+            assert not os.path.exists(wav) and os.path.exists(os.path.join(d, "narration_track.flac"))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_a_linked_flac_does_not_make_the_narration_wav_spare(self):
+        d = self._make_dir()
+        try:
+            with open(os.path.join(d, "narration_track.wav"), "wb") as f:
+                f.write(b"w" * 900)
+            elsewhere = os.path.join(d, "other.flac")
+            with open(elsewhere, "wb") as f:
+                f.write(b"f")
+            try:
+                os.symlink(elsewhere, os.path.join(d, "narration_track.flac"))
+            except (OSError, NotImplementedError):
+                pytest.skip("this system cannot make symlinks")
+            assert stg.scan_drama_storage(d)["categories"]["stale_narration_wav"] == 0
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
     def test_separated_vocals_are_cleaned_by_every_preset_but_archival(self):
         d = self._make_dir()
         try:

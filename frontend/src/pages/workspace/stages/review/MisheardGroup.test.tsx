@@ -24,6 +24,14 @@ describe('the May be mis-heard group', () => {
     expect(html).toContain('<u>達羅赫</u>來了')
   })
 
+  it('says where a never-heard spelling comes from instead of counting it as 0 times', () => {
+    const glossary = render([suggestion({ suggested_count: 0 })])
+    expect(glossary).toContain('on 2 lines. It&#x27;s in your glossary.')
+    expect(glossary).not.toContain('0 times')
+    expect(render([suggestion({ suggested_count: 0, source: 'name' })])).toContain('It&#x27;s a character name.')
+    expect(render([suggestion({ suggested_count: 1 })])).toContain('appears 1 time.')
+  })
+
   it('offers Use here per line and Use everywhere only when more than one line holds the spelling', () => {
     const many = render([suggestion()])
     expect(many.match(/>Use here<\/button>/g)).toHaveLength(2)
