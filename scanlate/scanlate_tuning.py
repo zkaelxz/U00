@@ -159,14 +159,17 @@ OCR_DENOISE_MIN_NOISE = 3.0
 LETTERING_RUN_OF_LARGEST = 0.6
 # The English starts at the source lettering's size (column width or line
 # height) times this, kept within START_MIN..START_MAX, and shrinks until it
-# fits, down to SMALLEST; DEFAULT when the lettering can't be measured.
-TYPESET_FONT_PER_SOURCE_PX = 1.0
+# fits, down to SMALLEST; DEFAULT when the lettering can't be measured. The
+# render only shrinks, so a start below what the balloon holds leaves small
+# words floating in it: 1.6 lets the text fill a roomy balloon, and the fit
+# plus the sibling rule below keep a cramped one from outgrowing its neighbours.
+TYPESET_FONT_PER_SOURCE_PX = 1.6
 TYPESET_DEFAULT_FONT_PX = 18
 # With no measurable lettering the start size is this share of the box's short
 # side (never below DEFAULT), so a big balloon starts big.
 TYPESET_UNMEASURED_PER_BOX_SIDE = 0.11
 TYPESET_START_MIN_PX = 12
-TYPESET_START_MAX_PX = 40
+TYPESET_START_MAX_PX = 64
 # Lettering whose block takes less than GROW_BELOW_FILL of its box starts the
 # English larger, by up to GROW_MAX times, so a short line fills its balloon.
 TYPESET_GROW_BELOW_FILL = 0.25
