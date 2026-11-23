@@ -313,4 +313,16 @@ public class GrabLogicTest {
         assertEquals(2, ServerAddress.partOf(java.util.Arrays.asList("第5話（2／3）"))[0]);
         assertNull(ServerAddress.partOf(java.util.Arrays.asList("Chapter 5", "Title 2024/05")));
     }
+
+    @Test
+    public void aPageWithNoRedrawFallsBackToThePictureThePhoneSent() {
+        String data = java.util.Base64.getEncoder().encodeToString(new byte[] {1, 2, 3});
+        List<PageImage> batch = new ArrayList<>();
+        batch.add(new PageImage("a", "u1", "image/png", data));
+        batch.add(new PageImage("b", "u2", "image/png", ""));
+        assertEquals(3, QuickRead.original(batch, "a").length);
+        assertNull(QuickRead.original(batch, "b"));
+        assertNull(QuickRead.original(batch, "missing"));
+        assertNull(QuickRead.original(batch, ""));
+    }
 }

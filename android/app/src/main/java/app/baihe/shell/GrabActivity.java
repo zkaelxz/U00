@@ -831,7 +831,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                             synchronized (lock) {
                                 if (jpegs.isEmpty()) {
                                     if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
-                                    return;
+                                    byte[] original = QuickRead.original(batches.get(index), page.optString("key", ""));
+                                    if (original == null) return;
+                                    jpegs = java.util.Collections.singletonList(original);
                                 }
                                 for (byte[] jpeg : jpegs) {
                                     if (index == frontier[0]) show.accept(jpeg);
