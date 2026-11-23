@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -75,13 +76,29 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
         address = new EditText(this);
         address.setSingleLine(true);
+        address.setHint("Enter a comic site address");
         address.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
         address.setImeOptions(EditorInfo.IME_ACTION_GO);
         address.setOnEditorActionListener((v, actionId, event) -> {
             go();
             return true;
         });
-        root.addView(address, new LinearLayout.LayoutParams(
+        // A light box with dark text and a Go button, so the way in is visible on any theme.
+        GradientDrawable outline = new GradientDrawable();
+        outline.setColor(0xFFFFFFFF);
+        address.setTextColor(0xFF000000);
+        address.setHintTextColor(0xFF666666);
+        outline.setStroke((int) (2 * getResources().getDisplayMetrics().density), 0xFF888888);
+        outline.setCornerRadius(8 * getResources().getDisplayMetrics().density);
+        address.setBackground(outline);
+        int inset = (int) (10 * getResources().getDisplayMetrics().density);
+        address.setPadding(inset, inset, inset, inset);
+        LinearLayout addressRow = new LinearLayout(this);
+        addressRow.setOrientation(LinearLayout.HORIZONTAL);
+        addressRow.addView(address, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        addressRow.addView(button("Go", v -> go()), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(addressRow, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         web = new WebView(this);
@@ -143,7 +160,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         setContentView(root);
         root.setFitsSystemWindows(true);
         if (state != null) web.restoreState(state);
-        else handleShare(getIntent());
+        else {
+            say(OPEN_FIRST);
+            handleShare(getIntent());
+        }
     }
 
     @Override
@@ -403,6 +423,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             return;
         }
         if (grabbing) return;
+        String current = web.getUrl();
+        if (current == null || current.isEmpty() || current.startsWith("about:")) {
+            say(OPEN_FIRST);
+            return;
+        }
         grabbing = true;
         quickRead = readOnly;
         grab.setEnabled(false);
@@ -504,6 +529,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private static final int MAX_CHAPTERS = 20;
+    private static final String OPEN_FIRST = "Open a comic chapter first: enter its site address above and tap Go.";
     private static final int QUICK_READ_BATCH = 4;
     private volatile String pageNext = "";
     private JSONArray pageChapters = new JSONArray();
