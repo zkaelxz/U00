@@ -6,7 +6,7 @@ Run order is cheapest and most likely to fail first. Flows 1 to 4 are the instal
 
 ## Before the tag (not a flow, a gate)
 - CI is green at the exact commit to be tagged (the Tests workflow on that commit, not an older one).
-- `release/vX.Y.Z-notes.md` exists. It is a short user-facing changelog (New, Changed, Fixed, Security): no site or source names, no hardware, no test details or known-limits lists (Kae, 2026-11-15). What was not run for real goes in the release thread.
+- `release/vX.Y.Z-notes.md` exists. It is a short user-facing changelog (New, Changed, Fixed, Security): no site or source names, no hardware, no test details or known-limits lists (Kae, 2026-11-15). Keep it to about 50 bullets and 5 KB, like v0.1.5 (Kae, 2026-11-23: 0.1.6's first notes ran to 18 KB): one short line per feature, related changes in one line, small fixes grouped ("Many smaller comic and Live fixes"), and no defaults, prices or setting paths unless the user must act on them. The App updates card shows this text. The PRs keep the detail. What was not run for real goes in the release thread.
 - If anything under `extension/` changed, `extension/manifest.json` has a new version.
 - The tag needs the owner's typed yes.
 - Right after tagging, set `SOURCE_VERSION` in `portable.py` to the next version with `-dev` (after v0.1.5, `0.1.6-dev`, since the next release is 0.1.6). It is what a library made by a source checkout records, so the release you just tagged refuses checkout libraries made after it.
