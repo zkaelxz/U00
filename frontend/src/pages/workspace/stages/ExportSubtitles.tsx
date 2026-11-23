@@ -133,7 +133,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
           </select>
         </Field>
         {fmt !== 'ass' && (
-          <Field label="Speaker names" help="Start each cue with its speaker's name: Name: in SRT and LRC, a voice tag in VTT. Lines with no speaker are unchanged.">
+          <Field label="Speaker names" help="Start each cue with its speaker's name: Name: in SRT and LRC, a voice tag in VTT. Lines with no speaker, or a speaker you haven't named, are unchanged.">
             <Toggle checked={form.speakerNames} onChange={(v) => set('speakerNames', v)} />
           </Field>
         )}

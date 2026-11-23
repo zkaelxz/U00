@@ -30,6 +30,10 @@ FIXED_WINDOWS = "difficult_audio_fixed_windows"
 # 8 s heard the quiet lines and timed them better than 15 s on the one clip measured
 # (docs/asr-experiments.md); the forced aligner then places the words inside each window.
 FIXED_WINDOW_S = 8.0
+# Kept in the timing values of every run of a title with the option on, whichever parts apply:
+# its audio is the kind the detector scores as silence, so a "no speech here" from it must not
+# delete a line (the blocked-phrase check reads it).
+DETECTOR_UNTRUSTED = "difficult_audio_detector_untrusted"
 
 
 @dataclass
@@ -69,7 +73,8 @@ def prepare(rep, audio_path, scratch_dir, transcript_mode, asr_backend_choice, u
     prepared = Prepared(audio_path, timing)
     if not (timing or {}).get(FLAG):
         return prepared
-    prepared.timing = {k: v for k, v in timing.items() if k not in (FLAG, NO_LEVELLING)}
+    prepared.timing = {**{k: v for k, v in timing.items() if k not in (FLAG, NO_LEVELLING)},
+                       DETECTOR_UNTRUSTED: True}
     if transcript_mode != "whisper" or use_groq:
         prepared.notes.append(
             "Difficult audio only applies when the app transcribes the audio itself "
@@ -90,7 +95,7 @@ def prepare(rep, audio_path, scratch_dir, transcript_mode, asr_backend_choice, u
             "Difficult audio levelled the sound and used the sensitive detector, but Whisper's "
             "skip rule is unchanged while per-span language detection is on.")
     else:
-        prepared.timing = timing
+        prepared.timing = {**timing, DETECTOR_UNTRUSTED: True}
     if timing.get(NO_LEVELLING):
         prepared.notes.append(
             "Difficult audio did not level the sound because Separate vocals first is on "

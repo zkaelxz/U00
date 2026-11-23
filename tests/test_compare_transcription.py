@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_runner, job_table
 import audio_extract
+import vad_segments
 import whisper_transcribe
 import whisper_models
 import db
@@ -156,10 +157,23 @@ class TestLineLanguage:
         did, _ = _drama(2)
         monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda path, *a, **kw: [
             {"start": 0.0, "end": 1.0, "text": "订阅我们的频道"},
-            {"start": 1.0, "end": 2.0, "text": "你好"}])
+            {"start": 3.5, "end": 4.5, "text": "你好"}])
+        # The detector hears speech only under 你好: the phrase is made up.
+        monkeypatch.setattr(vad_segments, "speech_spans_in_file", lambda path, windows=None: [(3.5, 4.5)])
         _run(did)
         proposals = svc.get_compare_result(did)["proposals"]
         assert [p["candidate_zh"] for p in proposals] == ["你好", "你好"]
+
+    def test_a_difficult_audio_title_keeps_a_phrase_the_detector_calls_silence(self, _env, monkeypatch):
+        did, _ = _drama(2, difficult_audio=1)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda path, *a, **kw: [
+            {"start": 0.0, "end": 1.0, "text": "订阅我们的频道"},
+            {"start": 3.5, "end": 4.5, "text": "你好"}])
+        asked = []
+        monkeypatch.setattr(vad_segments, "speech_spans_in_file", lambda path, windows=None: asked.append(1) or [])
+        _run(did)
+        assert asked == []
+        assert [p["candidate_zh"] for p in svc.get_compare_result(did)["proposals"]] == ["订阅我们的频道你好"] * 2
 
     def test_single_language_title_is_unchanged(self, _env):
         did, _ = _drama(3)
@@ -872,3 +886,11 @@ class TestSecondHearing:
         finally:
             with job_table._lock:
                 job_table._jobs.pop(f"transcribe_{did}", None)
+
+
+def test_the_result_route_says_null_when_nothing_finished_and_still_404s_an_unknown_title():
+    did, _ = _drama(2)
+    client = TestClient(create_app(ApiSettings()))
+    res = client.get(f"/api/transcribe/dramas/{did}/compare-transcription/result")
+    assert res.status_code == 200 and res.json() is None
+    assert client.get("/api/transcribe/dramas/99999/compare-transcription/result").status_code == 404

@@ -95,7 +95,7 @@ test('with Whisper the model is pickable, only large-v3 and turbo are listed, an
   const card = transcribeCard(page)
   const model = card.getByLabel('Accuracy and speed', { exact: true })
   await expect(model).toBeEnabled()
-  await expect(model.locator('option')).toHaveText(['Most accurate (recommended)', 'Faster'])
+  await expect(model.locator('option')).toHaveText(['Most accurate', 'Faster'])
   await expect(card.getByTestId('run-line')).toContainText('This run will use: Whisper · Whisper large-v3 · GPU')
   await expect(card.getByTestId('transcribe-advisor')).toContainText('Whisper large-v3 with Separate vocals first off')
   await expect(card.getByTestId('transcribe-advisor').getByRole('button')).toHaveCount(0)

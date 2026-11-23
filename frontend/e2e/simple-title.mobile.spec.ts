@@ -243,7 +243,7 @@ test.describe(() => {
     leaveSeries()
   })
 
-  test('Wrong and Mixed sit in the open card, are tall enough to tap at 320px, mark the line and clear it', async ({ page }) => {
+  test('Wrong and Partly sit in the open card, are tall enough to tap at 320px, mark the line and clear it', async ({ page }) => {
     seedCheckLines()
     await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
     await page.goto('/#/drama/3/review')
@@ -251,11 +251,11 @@ test.describe(() => {
     await expect(card.locator('.review-idx')).toHaveText('Line 24')
     for (const width of [390, 320] as const) {
       await page.setViewportSize({ width, height: 844 })
-      for (const name of [/Wrong/, /Mixed/]) await expectTall(card.getByRole('button', { name }), `${name} at ${width}px`)
+      for (const name of [/Wrong/, /Partly/]) await expectTall(card.getByRole('button', { name }), `${name} at ${width}px`)
       // The two are one choice: they wrap together, and the card's menu ends their row.
-      const [wrong, mixed, more] = await Promise.all([/Wrong/, /Mixed/, 'More actions for line 24'].map(async (name) => (await card.getByRole('button', { name }).boundingBox())!))
-      expect(mixed.y, `Wrong and Mixed share a row at ${width}px`).toBe(wrong.y)
-      expect(mixed.x, `Mixed follows Wrong at ${width}px`).toBeGreaterThan(wrong.x + wrong.width)
+      const [wrong, mixed, more] = await Promise.all([/Wrong/, /Partly/, 'More actions for line 24'].map(async (name) => (await card.getByRole('button', { name }).boundingBox())!))
+      expect(mixed.y, `Wrong and Partly share a row at ${width}px`).toBe(wrong.y)
+      expect(mixed.x, `Partly follows Wrong at ${width}px`).toBeGreaterThan(wrong.x + wrong.width)
       // With the words Glossary and Re-write ahead of them the menu may wrap to the next row, but it stays inside the card.
       const box = (await card.boundingBox())!
       expect(more.x, `the menu is inside the card at ${width}px`).toBeGreaterThanOrEqual(box.x)
@@ -302,7 +302,7 @@ test.describe(() => {
     await expect(cards.getByRole('link', { name: 'Glossary', exact: true })).toBeVisible()
     for (const target of [cards.getByRole('button', { name: 'In context' }), cards.getByRole('link', { name: 'Glossary', exact: true }),
       cards.getByRole('button', { name: 'Re-write' }), cards.getByTestId('line-en')]) await expectTall(target, (await target.textContent()) ?? '')
-    await expect(bar.getByRole('button')).toHaveText(['Skip', 'Next'])
+    await expect(bar.getByRole('button')).toHaveText(['Skip', 'Looks right ›'])
     const fill = await bar.getByRole('button', { name: 'Looks right, next' }).evaluate((el) => {
       const probe = document.createElement('span')
       probe.style.color = 'var(--ok)'
@@ -390,7 +390,7 @@ test.describe(() => {
       const top = await cards.evaluate((el) => el.getBoundingClientRect().top + window.scrollY)
       expect(top, `the first card's top at ${width}px`).toBeLessThanOrEqual(cardTopAtMost[width])
       // Play is on the card, so the bar has the two buttons only, as tall as each other and the green one twice as wide.
-      await expect(barButtons).toHaveText(['Skip', 'Next'])
+      await expect(barButtons).toHaveText(['Skip', 'Looks right ›'])
       const boxes = await barButtons.evaluateAll((els) => els.map((el) => { const r = el.getBoundingClientRect(); return { w: r.width, h: Math.round(r.height) } }))
       expect(new Set(boxes.map((b) => b.h)).size, `the bar's buttons are one height at ${width}px`).toBe(1)
       expect(boxes[0].h, `the bar's buttons are tall enough at ${width}px`).toBeGreaterThanOrEqual(44)

@@ -301,11 +301,11 @@ def post_compare_run(payload: CompareRunRequest, request: Request, drama_id: int
 
 
 @router.get("/dramas/{drama_id}/compare-transcription/result",
-            dependencies=[require_permission("lines.read")], response_model=CompareResult,
-            summary="The finished comparison's proposals (raw line text)",
+            dependencies=[require_permission("lines.read")], response_model=Optional[CompareResult],
+            summary="The finished comparison's proposals (raw line text), or null when there is none",
             responses=error_responses(404))
 def get_compare_result(drama_id: int = Path(ge=1)):
-    return compare_transcription_service.get_compare_result(drama_id)
+    return compare_transcription_service.get_compare_result_or_none(drama_id)
 
 
 @router.post("/dramas/{drama_id}/compare-transcription/apply",

@@ -45,7 +45,7 @@ import { useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
 import { SourceSuspectPanel } from './SourceSuspect'
-import { useSourceSuspects } from './useSourceSuspects'
+import { useOpensSourcePanel, useSourceSuspects } from './useSourceSuspects'
 import { ShortcutSheet } from './ShortcutSheet'
 import { useStrongerOffers } from './useStrongerOffers'
 import { buildStructureEdits, type UndoOffer } from './structureEdits'
@@ -118,8 +118,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const isWide = useMediaQuery(WIDE) // tablets and wider: a source video gets its own sticky card beside the lines
   const isShort = useMediaQuery(SHORT)
   const collapsed = useScrollCollapse(isPhone)
-  const suspects = useSourceSuspects(dramaId, reloads)
-  const [suspectOpen, setSuspectOpen] = useState(false)
+  const [suspectOpen, setSuspectOpen] = useState(useOpensSourcePanel(dramaId))
+  const suspects = useSourceSuspects(dramaId, reloads, suspectOpen)
   const selection = useLineSelectionContext()
   const pending = useRef<Pending | null>(null)
   const { filter, setFilter, page, setPage, place } = useReviewPlace(dramaId, simple, pending)

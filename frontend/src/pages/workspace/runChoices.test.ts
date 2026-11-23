@@ -98,7 +98,7 @@ describe('runSettingsLine', () => {
 
   it('lists the choices that change a long run', () => {
     expect(runSettingsLine(base)).toBe(
-      'Japanese · voice detection normal · beam 5 · vocals first off · speakers off')
+      'voice detection normal · beam 5 · vocals first off · speakers off')
   })
 
   it('names the script on Chinese, the speaker count and the extras', () => {
@@ -106,7 +106,7 @@ describe('runSettingsLine', () => {
       ...base, language: 'zh', titleScript: 'traditional', separateVocals: true, runDiarize: true, speakers: '3',
       extraNames: '白鹤', useGroq: true,
     })
-    expect(line).toContain('Chinese (traditional script)')
+    expect(line).toContain('traditional script')
     expect(line).toContain('vocals first on')
     expect(line).toContain('speakers on, 3')
     expect(line).toContain('extra names added')

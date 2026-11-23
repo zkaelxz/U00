@@ -147,7 +147,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
         )}
         {onDeleted && confirming && (
           <div className="delete-confirm">
-            <p>This permanently deletes the title and all its lines. Type DELETE to confirm.</p>
+            <p>This permanently deletes the title and all its lines. A record of your source-text corrections is kept for the corrections report until you empty Trash in Storage cleanup. Type DELETE to confirm.</p>
             <input
               aria-label="Type DELETE to confirm"
               value={typed}

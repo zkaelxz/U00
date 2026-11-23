@@ -206,7 +206,8 @@ def _regenerable(parts: tuple, is_dir: bool):
     name = low[-1] if low else ""
     in_drama = len(low) >= 3 and low[0] == lib_name and low[1] == "dramas"
     for cfg in storage.CLEANABLE_CATEGORIES.values():
-        if not cfg.get("regenerable"):
+        # Whether the file is spare depends on a sibling this name-only lookup cannot see.
+        if not cfg.get("regenerable") or cfg.get("only_beside"):
             continue
         meta = {"label": cfg["label"], "note": cfg["note"]}
         if is_dir:

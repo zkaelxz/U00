@@ -161,7 +161,7 @@ export function CompareTranscription({
   }, [dramaId])
 
   // The server keeps the last finished result for the title (until it restarts), so a result
-  // the viewer left the page without applying is still there. "none" is a 404, not an error.
+  // the viewer left the page without applying is still there. "none" is a null answer, not an error.
   useEffect(() => {
     let cancelled = false
     void Promise.allSettled([getCompareResult(dramaId), probeJob(compareJobId(dramaId))]).then(([res, job]) => {
@@ -169,6 +169,7 @@ export function CompareTranscription({
         if (!cancelled && res.status === 'rejected' && !(res.reason instanceof ApiError && res.reason.status === 404)) setError(res.reason)
         return
       }
+      if (!res.value) return
       const at = job.status === 'fulfilled' ? job.value?.finished_at ?? null : null
       if (at !== null && readPref(browserStorage(), clearedKey(dramaId), 0) === at) return
       // A run started here meanwhile owns the panel.
@@ -227,6 +228,7 @@ export function CompareTranscription({
         return
       }
       getCompareResult(dramaId).then((r) => {
+        if (!r) return
         setResult(r)
         setFinishedAt(j.finished_at)
         setEnglish({})

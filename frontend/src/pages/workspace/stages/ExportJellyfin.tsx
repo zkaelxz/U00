@@ -12,6 +12,7 @@ import { getJellyfinConfig, scanJellyfin, sendToJellyfin } from '../../../api/je
 import { getPcMode, loadPcMode } from '../../../api/pcOnly'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { SettingLink } from '../../../components/SettingLink'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
 import type { AssExportRequest } from '../../../types/export'
@@ -120,7 +121,7 @@ export function ExportJellyfin({ field, inputs, assRequest }: {
       <Section storageKey="export.jellyfin" title="Send to Jellyfin" summary="Put the subtitles in your Jellyfin library">
         <div className="source-panel">
           {!readyToSend(cfg) && (
-            <p className="muted">Finish the Jellyfin setup in Settings (address, API key and library folder).</p>
+            <p className="muted">Finish the Jellyfin setup in <SettingLink card="jellyfin">Settings &gt; Jellyfin</SettingLink> (address, API key and library folder).</p>
           )}
           <Field label="Where" help="Next to a video Jellyfin already has, or as a new title folder in the library.">
             <select value={target} onChange={(e) => setTarget(e.target.value as Target)}>

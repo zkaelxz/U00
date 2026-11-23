@@ -434,7 +434,7 @@ test.describe('the check queue', () => {
     expect(await box.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('solid')
     // Edit details and Dismiss flag are in the card's More sheet (and on D and F), not its row.
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
-      .toHaveText(['Glossary', 'Re-write', 'In context', '✗', '〰', '✓ Next'])
+      .toHaveText(['Glossary', 'Re-write', 'In context', '✗ Wrong', '〰 Partly', '✓ Next'])
     await card(page, 24).getByRole('button', { name: 'More actions for line 24' }).click()
     for (const name of ['Edit details', 'Dismiss flag']) await expect(page.getByRole('dialog').getByRole('button', { name, exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
@@ -752,7 +752,7 @@ test.describe('the check queue', () => {
     await expect(card(page, 24).locator('.review-select')).toBeHidden()
     await expect(card(page, 24).getByTestId('queue-reason')).toHaveText('The English does not use the glossary name for 夷陵老祖')
     await expect(card(page, 24).getByRole('toolbar').getByRole('button').or(card(page, 24).getByRole('toolbar').getByRole('link')))
-      .toHaveText(['Play line', 'Glossary', 'Re-write', '✗', '〰', '✓ Next'])
+      .toHaveText(['Play line', 'Glossary', 'Re-write', '✗ Wrong', '〰 Partly', '✓ Next'])
 
     // This line is the open tab, with the sound, the reason and the lines around it.
     const lineTab = page.getByRole('tab', { name: 'This line' })

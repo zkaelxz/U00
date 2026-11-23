@@ -233,7 +233,7 @@ export const estimateCompare = (id: number, req: CompareEstimateRequest, f?: Fet
 export const startCompare = (id: number, req: CompareRunRequest, f?: Fetch) =>
   postJson<CompareRunResult>(`${compareBase(id)}/run`, req, f)
 
-export const getCompareResult = (id: number, f?: Fetch) => getJson<CompareResult>(`${compareBase(id)}/result`, f)
+export const getCompareResult = (id: number, f?: Fetch) => getJson<CompareResult | null>(`${compareBase(id)}/result`, f)
 
 export const flagCompareDisagreements = (id: number, jobId: string, f?: Fetch) =>
   postJson<CompareFlagResult>(`${compareBase(id)}/flag-disagreements`, { job_id: jobId }, f)
