@@ -94,8 +94,16 @@ jobs:
           # so its key is the release key, not one planted beside forged files.
           signed=("$setup")
           if grep -Fqx "$app" <<<"$names"; then signed+=("$app" "$manifest"); fi
-          # tags/ so a branch with the same name can't stand in for the tag.
-          commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/tags/$TAG" --jq .sha)"
+          # git/ref/tags/ so a branch with the same name can't stand in for the tag.
+          # An annotated tag's ref names a tag object, which commits/ refuses
+          # (HTTP 422), so it is peeled to the commit it points at.
+          read -r type commit < <(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" \
+            --jq '.object.type + " " + .object.sha') || true
+          if [ "${type:-}" = "tag" ]; then
+            read -r type commit < <(gh api "repos/$GITHUB_REPOSITORY/git/tags/$commit" \
+              --jq '.object.type + " " + .object.sha') || true
+          fi
+          if [ "${type:-}" != "commit" ]; then commit=""; fi
           if ! printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$'; then
             echo "::error::Couldn't read the commit $TAG points at. Nothing was promoted."
             exit 1

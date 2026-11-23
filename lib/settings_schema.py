@@ -242,13 +242,15 @@ SETTINGS = (
     _own("update.auto_check", "bool", True, label="Check for updates automatically",
          tab="preferences", section="App updates"),
     _own("update.last_check_at", "float", 0.0, min=0),
+    # The version the automatic update last ran Setup silently for: one try each.
+    _own("update.auto_setup_tried", "text", ""),
     # Shown by the App updates card, which saves it through /api/system/update/settings.
     _own("update.include_prereleases", "bool", False, label="Include pre-releases in app updates",
          tab="preferences", section="App updates"),
-    # Shown by the App updates card (only on the boot service, once the BaiheUpdate helper is
-    # installed), which saves it through /api/system/update/settings.
-    _own("update.service_auto_apply", "bool", False,
-         label="Install app updates automatically on the boot service",
+    # Shown by the App updates card wherever an app update can be applied, which saves it
+    # through /api/system/update/settings. The key predates the desktop app taking it too.
+    _own("update.service_auto_apply", "bool", True,
+         label="Install app updates automatically",
          tab="preferences", section="App updates"),
     _own("household.share_by_default", "bool", False, label="Share new items with the household",
          tab="preferences", section="Sharing"),

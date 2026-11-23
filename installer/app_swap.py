@@ -24,6 +24,7 @@ must not load anything from the folder it renames.
 
 import argparse
 import contextlib
+import csv
 import hashlib
 import json
 import os
@@ -63,6 +64,16 @@ STOP_SECONDS = 120
 # Diagnostics (its own limit is an hour and five minutes), then waits 90 s
 # for /api/health.
 TRIAL_SECONDS = 3600 + 300 + 90 + 120
+# An app layer whose manifest says carries_wheels holds the release's whole
+# pinned wheel set here; the switch installs it into the shared site-packages
+# and a rollback installs the previous version's set again.
+CARRIED_WHEELS_DIR = "core-wheels"
+WHEEL_LOCK_NAME = "wheels.lock.txt"
+# The full installer's copy of its wheels (<install dir>\\wheels), the
+# rollback set while app\\ still is what Setup installed.
+BASE_WHEELS_DIR = "wheels"
+MAX_WHEEL_UNPACKED_BYTES = 1024 * 1024 * 1024
+_HASH_RE = re.compile(r"--hash=sha256:([0-9a-f]{64})")
 
 # The files every app layer must carry: without them the swapped-in app
 # couldn't start, find its data, stop, or check the next update.
@@ -90,7 +101,7 @@ STAGED, STOPPING, SWITCHING, CHECKING, DONE, QUEUED = (
 STATES = (STAGED, STOPPING, SWITCHING, CHECKING, DONE, QUEUED)
 # result codes the server turns into plain words
 RESULT_CODES = ("updated", "updated_unrecorded", "queued", "not_started", "rolled_back_health",
-                "rolled_back_switch", "recovered", "broken")
+                "rolled_back_switch", "rolled_back_packages", "recovered", "broken")
 
 # Set for the start right after a switch was queued (Launcher.open_window).
 DEFER_ENV = "BAIHE_APP_UPDATE_DEFER"
@@ -200,6 +211,21 @@ def base_fingerprint(manifest) -> dict:
                 "winsw_sha256": str(manifest["services"]["winsw"]["sha256"])}
     except (KeyError, TypeError, AttributeError):
         return None
+
+
+def base_accepts(app_manifest, installed) -> bool:
+    """Whether an app layer can go onto this install's base. A layer that
+    carries its wheels only needs the same Python, WinSW and Caddy: the
+    switch brings site-packages in line with its own pinned set."""
+    mine = base_fingerprint(installed) if isinstance(installed, dict) else None
+    theirs = app_manifest.get("base") if isinstance(app_manifest, dict) else None
+    if mine is None or not isinstance(theirs, dict):
+        return False
+    if theirs == mine:
+        return True
+    if app_manifest.get("carries_wheels") is not True:
+        return False
+    return all(theirs.get(k) == mine[k] for k in ("python_sha256", "caddy_sha256", "winsw_sha256"))
 
 
 def installed_manifest(root):
@@ -316,6 +342,9 @@ def read_manifest(zf: zipfile.ZipFile) -> dict:
             or manifest.get("layer") != "app" or not valid_version(manifest.get("version"))
             or not isinstance(manifest.get("base"), dict)):
         raise SwapError("The update's manifest isn't a Baihe Studio app update.")
+    if manifest.get("carries_wheels") is True and \
+            f"{CARRIED_WHEELS_DIR}/{WHEEL_LOCK_NAME}" not in zf.namelist():
+        raise SwapError("The update says it carries its Python packages but doesn't.")
     return manifest
 
 
@@ -371,28 +400,39 @@ def read_journal(root):
     doc = _read_json(path)
     port = doc.get("port") if doc else None
     step = doc.get("step", 0) if doc else None
+    packages = doc.get("packages", False) if doc else None
+    quiet = doc.get("quiet", False) if doc else None
     if (doc is None or doc.get("state") not in STATES or not valid_version(doc.get("old"))
             or not valid_version(doc.get("new")) or doc["old"] == doc["new"]
             or not valid_version(doc.get("base_version"))
             or not (type(step) is int and 0 <= step <= 2)
-            or not (port is None or (type(port) is int and 1 <= port <= 65535))):
+            or not (port is None or (type(port) is int and 1 <= port <= 65535))
+            or type(packages) is not bool or type(quiet) is not bool):
         return {"state": None}
     return {"state": doc["state"], "old": doc["old"], "new": doc["new"],
-            "base_version": doc["base_version"], "port": port, "step": step}
+            "base_version": doc["base_version"], "port": port, "step": step,
+            "packages": packages, "quiet": quiet}
 
 
-def write_journal(root, state, old, new, base, port=None, step=0) -> None:
+def write_journal(root, state, old, new, base, port=None, step=0, packages=False,
+                  quiet=False) -> None:
     """`port`: the running server's, so the helper can tell it has really
-    stopped. `step`: how many of the switch's two renames were done."""
+    stopped. `step`: how many of the switch's two renames were done.
+    `packages`: site-packages may already hold the new version's wheels, so
+    a rollback must put the old set back. `quiet`: an automatic update, which
+    opens no browser window."""
     _atomic_write(work_dir(root) / JOURNAL_NAME,
                   {"state": state, "old": old, "new": new, "base_version": base,
-                   "port": port, "step": step})
+                   "port": port, "step": step, "packages": packages, "quiet": quiet})
 
 
-def _record(root, journal, state, step=None) -> None:
+def _record(root, journal, state, step=None, packages=None) -> None:
     journal.update(state=state, step=journal.get("step", 0) if step is None else step)
+    if packages is not None:
+        journal["packages"] = packages
     write_journal(root, state, journal["old"], journal["new"], journal["base_version"],
-                  journal.get("port"), journal["step"])
+                  journal.get("port"), journal["step"], journal.get("packages", False),
+                  journal.get("quiet", False))
 
 
 def clear_journal(root) -> None:
@@ -467,6 +507,187 @@ def unregister_recovery() -> None:
     with contextlib.suppress(OSError), winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUNONCE_KEY, 0,
                                                      winreg.KEY_SET_VALUE) as key:
         winreg.DeleteValue(key, RUNONCE_VALUE)
+
+
+# --- the shared Python packages --------------------------------------------------
+
+def carried_wheels(folder):
+    """The wheel set an app folder carries, or None for one Setup installed."""
+    wheels = Path(folder) / CARRIED_WHEELS_DIR
+    return wheels if (wheels / WHEEL_LOCK_NAME).is_file() and not is_link(wheels) else None
+
+
+def previous_wheels(root, old, new) -> Path:
+    """The set the version being replaced ran on: the one its app folder
+    carried, else the full installer's own copy."""
+    carried = carried_wheels(app_folder(root, old))
+    if carried is None and not app_folder(root, old).exists() and app_folder(root, new).is_dir():
+        carried = carried_wheels(app_dir(root))     # a rollback already renamed it back
+    return carried or Path(root) / BASE_WHEELS_DIR
+
+
+def _canonical(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _lock_pins(text: str) -> dict:
+    """{canonical name: (version, {sha256, ...})} from a wheels.lock.txt."""
+    pins = {}
+    for entry in re.sub(r"\\\s*\n", " ", text).splitlines():
+        entry = entry.split("#", 1)[0].strip()
+        if not entry:
+            continue
+        name, sep, version = entry.split()[0].partition("==")
+        if not sep or not version:
+            raise SwapError("The update's package list can't be read.")
+        pins[_canonical(name)] = (version, set(_HASH_RE.findall(entry)))
+    if not pins:
+        raise SwapError("The update's package list is empty.")
+    return pins
+
+
+def _sha256(path) -> str:
+    sha = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(CHUNK), b""):
+            sha.update(chunk)
+    return sha.hexdigest()
+
+
+def _checked_wheels(wheels: Path) -> list:
+    """[(canonical name, version, path)], each wheel pinned by the lock with
+    its hash and every pin present."""
+    pins = _lock_pins((wheels / WHEEL_LOCK_NAME).read_text(encoding="utf-8"))
+    found = []
+    for whl in sorted(wheels.glob("*.whl")):
+        parts = whl.name.split("-")
+        name, version = (_canonical(parts[0]), parts[1]) if len(parts) >= 5 else (None, None)
+        pin = pins.get(name)
+        if is_link(whl) or pin is None or pin[0] != version or _sha256(whl) not in pin[1]:
+            raise SwapError("A Python package in the update doesn't match its pinned list.")
+        found.append((name, version, whl))
+    if {f[0] for f in found} != set(pins):
+        raise SwapError("The update's Python packages are incomplete.")
+    return found
+
+
+def site_packages(root) -> Path:
+    return Path(root) / "python" / "Lib" / "site-packages"
+
+
+def _installed_dists(site: Path) -> dict:
+    """{canonical name: (version, its .dist-info folder)}."""
+    found = {}
+    for info in site.glob("*.dist-info"):
+        name, _, version = info.name[:-len(".dist-info")].partition("-")
+        if info.is_dir() and not is_link(info):
+            found[_canonical(name)] = (version, info)
+    return found
+
+
+def _inside(path: Path, folder: Path) -> bool:
+    base = os.path.realpath(folder)
+    try:
+        return os.path.commonpath([base, os.path.realpath(path)]) == base
+    except ValueError:      # another drive, or a name realpath can't take
+        return False
+
+
+def _remove_dist(site: Path, info: Path) -> None:
+    """Deletes what an installed package's RECORD lists inside site-packages,
+    then its .dist-info; never anything outside site-packages or a link."""
+    try:
+        with open(info / "RECORD", encoding="utf-8", newline="") as fh:
+            listed = [row[0] for row in csv.reader(fh) if row]
+    except (OSError, UnicodeDecodeError, csv.Error):
+        listed = []
+    folders = set()
+    for rel in listed:
+        target = site.joinpath(*PurePosixPath(rel).parts)
+        if ".." in PurePosixPath(rel).parts or not _inside(target, site) or is_link(target):
+            continue
+        if target.is_file():
+            os.remove(target)
+            folders.add(target.parent)
+    shutil.rmtree(info)
+    for folder in sorted(folders, key=lambda f: len(f.parts), reverse=True):
+        with contextlib.suppress(OSError):
+            pycache = folder / "__pycache__"
+            if pycache.is_dir() and not is_link(pycache):
+                shutil.rmtree(pycache)
+            while folder != site and _inside(folder, site) and not any(folder.iterdir()):
+                folder.rmdir()
+                folder = folder.parent
+
+
+def _wheel_target(name: str, data_dir: str):
+    """Where a wheel entry goes, relative to site-packages, or None for the
+    parts the app never uses (console scripts, C headers, data files)."""
+    parts = PurePosixPath(name).parts
+    if (not name or name.startswith("/") or "\\" in name or ":" in name or "\x00" in name
+            or any(p in ("", ".", "..") for p in parts)):
+        raise SwapError("A Python package in the update holds an unusable path.")
+    if parts[0] == data_dir:
+        if len(parts) < 3 or parts[1] not in ("purelib", "platlib"):
+            return None
+        parts = parts[2:]
+    return parts
+
+
+def _unpack_wheel(whl: Path, site: Path) -> None:
+    written, moved, record = 0, [], None
+    with zipfile.ZipFile(whl) as zf:
+        data_dir = next((PurePosixPath(n).parts[0] for n in zf.namelist()
+                         if PurePosixPath(n).parts[0].endswith(".data")), None)
+        for info in zf.infolist():
+            parts = _wheel_target(info.filename, data_dir)
+            if parts is None or info.is_dir():
+                continue
+            if len(parts) == 2 and parts[0].endswith(".dist-info") and parts[1] == "RECORD":
+                record = site.joinpath(*parts)
+            if PurePosixPath(info.filename).parts[0] == data_dir:
+                moved.append("/".join(parts))
+            target = site.joinpath(*parts)
+            if not _inside(target, site):
+                raise SwapError("A Python package in the update holds a path outside "
+                                "site-packages.")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(info) as src, open(target, "wb") as out:
+                while chunk := src.read(CHUNK):
+                    written += len(chunk)
+                    if written > MAX_WHEEL_UNPACKED_BYTES:
+                        raise SwapError("A Python package in the update is larger than allowed.")
+                    out.write(chunk)
+    if moved and record is not None:
+        # The wheel's RECORD names these at their in-wheel .data paths, so
+        # the next removal of this version would miss where they went.
+        with open(record, "a", encoding="utf-8", newline="") as fh:
+            fh.writelines(f"{rel},,\n" for rel in moved)
+
+
+def install_packages(root, wheels) -> None:
+    """Brings the install's site-packages in line with one pinned wheel set:
+    each package whose installed version differs is removed and the pinned
+    wheel unpacked in its place; packages the set doesn't name (Diagnostics')
+    stay. Unpacking only, never pip: under the boot service this runs as
+    LocalSystem, and nothing in the per-user install folder may run with
+    that account. Raises SwapError."""
+    wheels, site = Path(wheels), site_packages(root)
+    if not (wheels / WHEEL_LOCK_NAME).is_file() or is_link(wheels) or not site.is_dir():
+        raise SwapError("The Python packages to install are missing.")
+    log(root, f"installing Python packages from {wheels.parent.name}")
+    try:
+        checked = _checked_wheels(wheels)
+        installed = _installed_dists(site)
+        for name, version, whl in checked:
+            have = installed.get(name)
+            if have is not None and have[0] == version:
+                continue
+            if have is not None:
+                _remove_dist(site, have[1])
+            _unpack_wheel(whl, site)
+    except (OSError, UnicodeDecodeError, ValueError, zipfile.BadZipFile) as exc:
+        raise SwapError(f"the packages couldn't be written: {type(exc).__name__}") from None
 
 
 # --- switching --------------------------------------------------------------------
@@ -565,6 +786,12 @@ def finish(root, journal) -> None:
 
 
 def roll_back(root, journal, sleep=time.sleep) -> None:
+    if journal.get("packages"):
+        # Recorded as switching again so a Start-menu start waits these
+        # minutes out instead of loading half-replaced packages.
+        _record(root, journal, SWITCHING)
+        # While app-<old> still has its name, so its carried set is found.
+        install_packages(root, previous_wheels(root, journal["old"], journal["new"]))
     switch_back(root, journal, sleep)
     set_installed_version(root, journal["old"], journal["base_version"])
     clear_journal(root)
@@ -584,8 +811,8 @@ class Launcher:
     def _script(self) -> str:
         return str(app_dir(self.root) / "installer" / "launcher.py")
 
-    def _run(self, flag, timeout) -> bool:
-        kwargs = {"cwd": str(work_dir(self.root)), "timeout": timeout,
+    def _run(self, flag, timeout, env=None) -> bool:
+        kwargs = {"cwd": str(work_dir(self.root)), "timeout": timeout, "env": env,
                   "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -613,17 +840,26 @@ class Launcher:
         --no-browser exits 0 only once it answers)."""
         return self._run("--no-browser", TRIAL_SECONDS)
 
+    def start_quietly(self, defer=False) -> None:
+        """Starts the app (if needed) without opening a window."""
+        self._run("--no-browser", TRIAL_SECONDS, _start_env(defer))
+
     def open_window(self, defer=False) -> None:
         """Starts the app (if needed) and opens its window. `defer`: this
         start leaves a queued switch for the next one, which would otherwise
         run it straight away and find the same file still in use."""
-        env = dict(os.environ)
-        env.pop(DEFER_ENV, None)
-        if defer:
-            env[DEFER_ENV] = "1"
+        env = _start_env(defer)
         with contextlib.suppress(OSError):
             subprocess.Popen([_python(self.root, windowed=True), "-s", self._script()],
                              cwd=str(work_dir(self.root)), env=env, close_fds=True)
+
+
+def _start_env(defer) -> dict:
+    env = dict(os.environ)
+    env.pop(DEFER_ENV, None)
+    if defer:
+        env[DEFER_ENV] = "1"
+    return env
 
 
 def _health_answers(port) -> bool:
@@ -644,8 +880,44 @@ def _message(text: str) -> None:
             ctypes.windll.user32.MessageBoxW(None, text, "Baihe Studio", 0x10)
 
 
+SWITCHING_MESSAGE = ("Baihe Studio is installing an update. Try again in a few minutes; it "
+                     "starts by itself when the update is done.")
 BROKEN_MESSAGE = ("Baihe Studio couldn't finish or undo an app update. Run the Baihe Studio "
                   "installer again to repair it; your library and settings are kept.")
+
+
+def _resume(launcher, journal, defer=False) -> None:
+    """Gets the version now in app\\ running again. An automatic update
+    started it without a window and opens none."""
+    if journal.get("quiet"):
+        launcher.start_quietly(defer)
+    else:
+        launcher.open_window(defer)
+
+
+def _install_new_packages(root, journal, launcher, sleep, notify):
+    """After the switch, before the new version starts: its carried wheel
+    set goes into site-packages. None when that worked or there is none;
+    otherwise everything is put back and the result code is returned."""
+    wheels = carried_wheels(app_dir(root))
+    if wheels is None:
+        return None
+    old, new = journal["old"], journal["new"]
+    _record(root, journal, SWITCHING, 2, packages=True)
+    try:
+        install_packages(root, wheels)
+        return None
+    except SwapError as exc:
+        log(root, f"{new}'s Python packages didn't install ({exc}); going back to {old}")
+    try:
+        roll_back(root, journal, sleep)
+    except (OSError, Locked, SwapError):
+        write_result(root, "broken", old, new)
+        notify(BROKEN_MESSAGE)
+        return "broken"
+    write_result(root, "rolled_back_packages", old, new)
+    _resume(launcher, journal)
+    return "rolled_back_packages"
 
 
 def apply(root, launcher=None, sleep=time.sleep, notify=None, recovery=True) -> str:
@@ -669,7 +941,7 @@ def apply(root, launcher=None, sleep=time.sleep, notify=None, recovery=True) -> 
             log(root, "the running app didn't stop")
             clear_journal(root)
             write_result(root, "not_started", old, new)
-            launcher.open_window()
+            _resume(launcher, journal)
             return "not_started"
         try:
             previous = app_folder(root, old)
@@ -678,7 +950,7 @@ def apply(root, launcher=None, sleep=time.sleep, notify=None, recovery=True) -> 
         except (OSError, SwapError):
             clear_journal(root)
             write_result(root, "rolled_back_switch", old, new)
-            launcher.open_window()
+            _resume(launcher, journal)
             return "rolled_back_switch"
         _record(root, journal, SWITCHING, 0)
         if recovery:
@@ -696,7 +968,7 @@ def apply(root, launcher=None, sleep=time.sleep, notify=None, recovery=True) -> 
             _record(root, journal, QUEUED, 0)
             unregister_recovery()
             write_result(root, "queued", old, new)
-            launcher.open_window(defer=True)
+            _resume(launcher, journal, defer=True)
             return "queued"
         except (OSError, SwapError) as exc:
             log(root, f"switch failed: {type(exc).__name__}")
@@ -707,8 +979,11 @@ def apply(root, launcher=None, sleep=time.sleep, notify=None, recovery=True) -> 
                 notify(BROKEN_MESSAGE)
                 return "broken"
             write_result(root, "rolled_back_switch", old, new)
-            launcher.open_window()
+            _resume(launcher, journal)
             return "rolled_back_switch"
+        code = _install_new_packages(root, journal, launcher, sleep, notify)
+        if code is not None:
+            return code
         _record(root, journal, CHECKING, 2)
         if launcher.start_and_check():
             code = "updated"
@@ -722,7 +997,7 @@ def apply(root, launcher=None, sleep=time.sleep, notify=None, recovery=True) -> 
                 log(root, f"{new} runs but its version could not be recorded")
                 with contextlib.suppress(OSError):
                     write_result(root, code, old, new)
-            launcher.open_window()
+            _resume(launcher, journal)
             return code
         log(root, f"{new} didn't answer /api/health; going back to {old}")
         launcher.stop()
@@ -737,7 +1012,7 @@ def apply(root, launcher=None, sleep=time.sleep, notify=None, recovery=True) -> 
             notify(BROKEN_MESSAGE)
             return "broken"
         write_result(root, "rolled_back_health", old, new)
-        launcher.open_window()
+        _resume(launcher, journal)
         return "rolled_back_health"
 
 

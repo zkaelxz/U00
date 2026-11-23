@@ -149,6 +149,9 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\python\pythonw.exe"; Paramete
 
 [Run]
 Filename: "{app}\python\pythonw.exe"; Parameters: "-s ""{app}\app\installer\launcher.py"""; WorkingDir: "{app}\app"; Description: "Start Baihe Studio now"; Flags: postinstall nowait skipifsilent; Check: PackagesInstalled
+; The app's automatic update runs Setup with /VERYSILENT /RESTARTAPP=1: the app
+; it stopped starts again, without a window, since nobody may be at the PC.
+Filename: "{app}\python\pythonw.exe"; Parameters: "-s ""{app}\app\installer\launcher.py"" --no-browser"; WorkingDir: "{app}\app"; Flags: nowait runhidden; Check: RestartAfterSilentUpdate
 
 [UninstallRun]
 Filename: "{app}\python\python.exe"; Parameters: "-s ""{app}\app\installer\launcher.py"" --stop"; WorkingDir: "{app}\app"; Flags: runhidden waituntilterminated; RunOnceId: "StopServer"
@@ -894,6 +897,11 @@ end;
 function PackagesInstalled(): Boolean;
 begin
   Result := not PostInstallFailed;
+end;
+
+function RestartAfterSilentUpdate(): Boolean;
+begin
+  Result := WizardSilent() and (ExpandConstant('{param:RESTARTAPP|0}') = '1') and PackagesInstalled();
 end;
 
 procedure RunPostInstall();

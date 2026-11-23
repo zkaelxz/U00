@@ -137,7 +137,8 @@ def env(tmp_path, key, monkeypatch):
     return layout, svc, manifest
 
 
-def _release(layout, key, version=NEW, base=None, signer=None, tamper=False, request_version=None):
+def _release(layout, key, version=NEW, base=None, signer=None, tamper=False, request_version=None,
+             wheels=False):
     """Writes what the server leaves for BaiheUpdate: the zip, its signature and the request."""
     updates = layout.data / "library" / "updates"
     name = f"BaiheStudio-App-{version}.zip"
@@ -146,7 +147,17 @@ def _release(layout, key, version=NEW, base=None, signer=None, tamper=False, req
     entries[sw.APP_MANIFEST_NAME] = json.dumps({
         "product": "Baihe Studio", "layer": "app", "version": version, "min_base_version": "0.1.0",
         "base": base if base is not None else sw.base_fingerprint(sw.installed_manifest(layout.root)),
-        "db_schema_sha256": "d"})
+        "carries_wheels": wheels, "db_schema_sha256": "d"})
+    if wheels:
+        import hashlib
+        import io
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as whl:
+            whl.writestr("demo/__init__.py", "v2")
+            whl.writestr("demo-2.0.dist-info/RECORD", "demo/__init__.py,,\n")
+        entries[f"{sw.CARRIED_WHEELS_DIR}/demo-2.0-py3-none-any.whl"] = buf.getvalue()
+        entries[f"{sw.CARRIED_WHEELS_DIR}/{sw.WHEEL_LOCK_NAME}"] = (
+            f"demo==2.0 \\\n    --hash=sha256:{hashlib.sha256(buf.getvalue()).hexdigest()}\n")
     with zipfile.ZipFile(updates / name, "w") as zf:
         for entry, data in entries.items():
             zf.writestr(entry, data)
@@ -257,6 +268,27 @@ def test_a_request_whose_version_and_file_name_disagree_is_refused(env, key):
 def test_a_base_the_install_does_not_have_needs_the_full_installer(env, key):
     layout, svc, _ = env
     _release(layout, key, base={"python_sha256": "other"})
+    with pytest.raises(service_layout.ServiceError, match="full installer"):
+        _apply(layout, svc)
+    assert svc.stops == 0 and _app_text(layout) == "old"
+
+
+def test_an_update_carrying_other_packages_installs_them_as_it_switches(env, key, monkeypatch):
+    layout, svc, _ = env
+    site = sw.site_packages(layout.root)
+    site.mkdir(parents=True)
+    base = dict(sw.base_fingerprint(sw.installed_manifest(layout.root)), wheels_sha256="other")
+    _release(layout, key, base=base, wheels=True)
+    # Nothing in the per-user install folder runs as LocalSystem.
+    monkeypatch.setattr(sw.subprocess, "run", lambda *a, **kw: pytest.fail("ran a process"))
+    assert "0.1.0 to 0.2.0" in _apply(layout, svc)
+    assert (site / "demo" / "__init__.py").read_text() == "v2"
+
+
+def test_other_packages_without_carried_wheels_need_the_full_installer(env, key):
+    layout, svc, _ = env
+    base = dict(sw.base_fingerprint(sw.installed_manifest(layout.root)), wheels_sha256="other")
+    _release(layout, key, base=base)
     with pytest.raises(service_layout.ServiceError, match="full installer"):
         _apply(layout, svc)
     assert svc.stops == 0 and _app_text(layout) == "old"

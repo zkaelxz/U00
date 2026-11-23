@@ -13,7 +13,7 @@ __all__ = ["SeriesAutoRunState", "SeriesAutoRunOn", "SeriesAutoRunCeiling", "Ser
            "SeriesDefaults", "TitleSettingSource", "TitleSettingSources", "SeriesDefaultsUpdate", "SeriesDefaultsTitle",
            "SeriesDefaultsPreview", "SeriesDefaultsApplyRequest", "SeriesDefaultsApplyResult",
            "SeriesTmxImportRequest", "SeriesTmxImportResult", "SeriesSpeakerModeRequest",
-           "SeriesSpeakerModeResult", "ConsistencyTitleLines", "ConsistencyExample",
+           "SeriesSpeakerModeResult", "SeriesStreamerRequest", "SeriesStreamerResult", "ConsistencyTitleLines", "ConsistencyExample",
            "ConsistencyRendering", "ConsistencyTerm", "ConsistencySummary", "SeriesConsistencyReport"]
 
 _ID: dict[str, Any] = dict(ge=1, le=2**31 - 1)
@@ -26,6 +26,7 @@ class SeriesListItem(BaseModel):
     owned_by_me: bool = Field(description="The signed-in viewer created it.")
     title_count: int
     glossary_term_count: int
+    streamer: Optional[str] = Field(None, description="The streamer the Library files it under; null: none.")
     cover_title_id: Optional[int] = Field(
         None, description="A visible title of the series that has cover art; its /api/dramas/{id}/cover is the folder picture.")
 
@@ -57,6 +58,7 @@ class SeriesPage(BaseModel):
     character_count: int
     speaker_mode: Literal["auto", "solo"] = Field(
         description="solo: one creator, so speaker detection keeps one speaker.")
+    streamer: Optional[str] = None
     titles: List[SeriesTitle]
 
 
@@ -212,6 +214,16 @@ class SeriesSpeakerModeRequest(BaseModel):
 class SeriesSpeakerModeResult(BaseModel):
     series_id: int
     speaker_mode: Literal["auto", "solo"]
+
+
+class SeriesStreamerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    streamer: str = Field(max_length=1000, description="Empty clears it.")
+
+
+class SeriesStreamerResult(BaseModel):
+    series_id: int
+    streamer: Optional[str]
 
 
 class SeriesAutoRunState(BaseModel):

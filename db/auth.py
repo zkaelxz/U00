@@ -351,6 +351,15 @@ def set_series_speaker_mode(series_id: int, mode: str | None) -> bool:
         return cur.rowcount > 0
 
 
+def set_series_streamer(series_id: int, streamer: str | None) -> bool:
+    """Stores the streamer name a series is filed under (series_service
+    cleans it; None clears). False for an unknown series."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute("UPDATE series SET streamer = ? WHERE id = ?", (streamer, series_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
 def get_series_speaker_mode(series_id: int) -> str:
     """The series' stored speaker mode, "auto" when unset or unknown."""
     with contextlib.closing(db.get_conn()) as conn:

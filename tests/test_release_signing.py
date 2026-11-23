@@ -389,7 +389,8 @@ set -eu
 printf '%s\\n' "$*" >> "$GH_LOG"
 case "$1 $2" in
   "api repos/o/r/environments/release-main") printf '%s\\n' "$GH_RULES" ;;
-  "api repos/o/r/commits/tags/"*) printf '%s\\n' "${GH_COMMIT}" ;;
+  "api repos/o/r/git/ref/tags/"*) printf '%s\\n' "${GH_REF:-commit $GH_COMMIT}" ;;
+  "api repos/o/r/git/tags/"*) printf 'commit %s\\n' "${GH_COMMIT}" ;;
   "api repos/o/r/actions/workflows/tests.yml/runs?head_sha=$GH_COMMIT&event=push&branch=baihe-subtitler&per_page=100")
     printf '%s\\n' "$GH_TESTS" ;;
   "api -H")
@@ -437,7 +438,8 @@ def _release_files(folder, seed, tamper=None):
 
 
 def _run_promote(tmp_path, tag="v0.2.0", rules="1", state="false true", assets=SIGNED,
-                 tamper=None, key=None, sign_with=None, tests="success", commit="c" * 40):
+                 tamper=None, key=None, sign_with=None, tests="success", commit="c" * 40,
+                 ref=None):
     if os.name == "nt" or not (shutil.which("bash") and shutil.which("openssl")
                                and shutil.which("base64")):
         pytest.skip("needs bash, openssl and coreutils (the promote job runs on ubuntu)")
@@ -456,6 +458,8 @@ def _run_promote(tmp_path, tag="v0.2.0", rules="1", state="false true", assets=S
            "GH_TESTS": tests, "RUNS_FILTER": _promote_step()["env"]["RUNS_FILTER"],
            "GH_KEY": public if key is None else key, "GH_FILES": str(tmp_path / "assets"),
            "TMPDIR": str(tmp_path)}
+    if ref is not None:
+        env["GH_REF"] = ref
     proc = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True,
                           timeout=60)
     calls = log.read_text().splitlines() if log.exists() else []
@@ -522,8 +526,26 @@ def test_promote_reads_the_tag_not_a_branch_and_its_tests_run_on_the_branch(tmp_
     proc, _ = _run_promote(tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     calls = (tmp_path / "gh.log").read_text()
-    assert "api repos/o/r/commits/tags/v0.2.0 --jq .sha" in calls
+    assert "api repos/o/r/git/ref/tags/v0.2.0 --jq" in calls
+    assert "git/tags/" not in calls
     assert f"contents/installer/release_public_key.txt?ref={'c' * 40}" in calls
+
+
+def test_promote_peels_an_annotated_tag_to_its_commit(tmp_path):
+    # v0.1.6 was an annotated tag: its ref names a tag object, and reading it
+    # through commits/ failed with HTTP 422, so Promote refused a good release.
+    proc, edits = _run_promote(tmp_path, ref="tag " + "a" * 40)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert len(edits) == 1
+    calls = (tmp_path / "gh.log").read_text()
+    assert f"api repos/o/r/git/tags/{'a' * 40} --jq" in calls
+    assert f"contents/installer/release_public_key.txt?ref={'c' * 40}" in calls
+
+
+def test_promote_refuses_a_tag_that_names_neither_a_commit_nor_a_tag(tmp_path):
+    proc, edits = _run_promote(tmp_path, ref="tree " + "c" * 40)
+    assert proc.returncode != 0 and edits == []
+    assert "Couldn't read the commit" in proc.stdout
 
 
 def test_promote_never_pipes_into_grep_q():

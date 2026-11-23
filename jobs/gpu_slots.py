@@ -296,6 +296,24 @@ def holder_count(exclude_holder: str | None = None) -> int:
     return sum(1 for r in _live_rows() if r["holder"] != exclude_holder)
 
 
+def wait_until_no_ui_job(should_stop, exclude_holder: str | None = None, poll: float = 5.0,
+                         on_wait=None) -> bool:
+    """Blocks while another server job holds a GPU slot; False if `should_stop()` ended the wait.
+    Only `ui:` holders count: a Live session holds its slot for hours and would never let a
+    caller waiting here go on. `on_wait` is called once, when the first wait begins."""
+    told = False
+    while True:
+        if should_stop():
+            return False
+        if not any(r["holder"].startswith(UI_PREFIX) and r["holder"] != exclude_holder
+                   for r in _live_rows()):
+            return True
+        if on_wait is not None and not told:
+            told = True
+            on_wait()
+        time.sleep(poll)
+
+
 def status():
     """(holder, description) of a live holder (the lowest slot), or
     (None, None) when none holds a slot."""
