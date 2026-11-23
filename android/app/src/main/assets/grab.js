@@ -7,15 +7,33 @@
   var seen = {};
   // Readers draw pages only as they scroll into view, so walk down the page first; the
   // step and the count are capped so an endless feed cannot hold the grab open.
-  var lastHeight = -1;
-  for (var step = 0; step < 60; step++) {
-    window.scrollBy(0, Math.max(400, window.innerHeight * 0.9));
-    await new Promise(function (r) { setTimeout(r, 250); });
-    var atEnd = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 4;
-    if (atEnd && document.documentElement.scrollHeight === lastHeight) break;
-    lastHeight = document.documentElement.scrollHeight;
+  // Many readers scroll an inner box, not the window, so the tallest scrollable element is
+  // scrolled instead of the page when one is taller than the page itself.
+  function scrollBox() {
+    var best = document.scrollingElement || document.documentElement;
+    var gap = best.scrollHeight - best.clientHeight;
+    var all = document.querySelectorAll("div, main, section, article, ul");
+    for (var n = 0; n < all.length && n < 4000; n++) {
+      var el = all[n];
+      var room = el.scrollHeight - el.clientHeight;
+      if (room > gap + 50 && el.clientHeight > 200 && /(auto|scroll)/.test(getComputedStyle(el).overflowY)) {
+        best = el;
+        gap = room;
+      }
+    }
+    return best;
   }
-  window.scrollTo(0, 0);
+  var lastHeight = -1;
+  var box = scrollBox();
+  for (var step = 0; step < 60; step++) {
+    if (step % 10 === 0) box = scrollBox();
+    box.scrollTop += Math.max(400, box.clientHeight * 0.9);
+    await new Promise(function (r) { setTimeout(r, 250); });
+    var atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+    if (atEnd && box.scrollHeight === lastHeight) break;
+    lastHeight = box.scrollHeight;
+  }
+  box.scrollTop = 0;
   var CHAPTER_TEXT = /第\s*[\d０-９一二三四五六七八九十百零]+\s*[章话話回集卷期]|(?:chapter|chap|ch|episode|ep|vol)\.?\s*[\d.]+|[\d.]+\s*[화話话章]|^\s*#?\d+\s*$/i;
   var NEXT_TEXT = /^\s*(下一章|下一话|下一話|下一回|下章|次の話|次へ|次話|다음\s*화|다음화|next\s*(chapter|ch\.?|episode)?|next\s*›|›|»)\s*$/i;
   function chapterLinks() {
