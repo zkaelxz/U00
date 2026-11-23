@@ -513,3 +513,26 @@ def test_dark_art_lama_mask_covers_the_letters_but_not_pale_art_beside_them():
     mask = scanlate_inpaint._dark_art_stroke_mask(page)
     assert mask[:, 230:270].max() == 0 or mask[:, 230:270].mean() < 5
     assert mask[120:170, 20:190].mean() > 40
+
+
+def _region(kind, text, x=0, y=0, w=100, h=100):
+    return {"kind": kind, "source_text": text, "x": x, "y": y, "w": w, "h": h}
+
+
+def test_a_balloon_box_on_the_titles_own_glyph_is_dropped_when_the_caption_covers_it():
+    # The detector boxed one glyph of a logo title as a balloon; the caption holds the whole title.
+    glyph = _region("bubble", "的", 10, 10, 30, 30)
+    caption = _region("caption", "重生佣兵王的复仇", 0, 0, 200, 200)
+    assert scanlate.drop_parts_of_captions([glyph], [caption]) == []
+
+
+def test_a_real_balloon_inside_a_caption_keeps_its_own_lettering():
+    balloon = _region("bubble", "快跑！", 10, 10, 30, 30)
+    caption = _region("caption", "重生佣兵王的复仇", 0, 0, 200, 200)
+    assert scanlate.drop_parts_of_captions([balloon], [caption]) == [balloon]
+
+
+def test_a_blank_balloon_inside_a_caption_is_kept():
+    blank = _region("bubble", "", 10, 10, 30, 30)
+    caption = _region("caption", "重生佣兵王的复仇", 0, 0, 200, 200)
+    assert scanlate.drop_parts_of_captions([blank], [caption]) == [blank]
