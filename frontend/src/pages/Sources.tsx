@@ -4,7 +4,8 @@
  * One "Search or paste a link" card with a two-way switch
  * (FindModeSwitch): search the enabled sources by title (a paced
  * background job) or paste a link (UrlBox: preview it, open its series or
- * import a novel page); the other mode stays mounted, hidden, so its text
+ * import a novel page; Discover is linked from there, so the page has no
+ * third level of choice above the box); the other mode stays mounted, hidden, so its text
  * and results survive a switch. Open a series to see its chapter list
  * (another job, per source), tick chapters to import them into a drama or
  * track the series for new chapters (SeriesPanel). Cover images are never
@@ -27,7 +28,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { listNotifications, listSources, listTracked, SEARCH_JOB_ID, seriesJobId, startSeries, untrackSeries } from '../api/sources'
 import { PageShell } from '../components/PageShell'
-import { FindSwitch } from './FindSwitch'
+import { routeHref } from '../router'
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RetryBanner } from '../components/RetryBanner'
@@ -256,7 +257,6 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
         />
       )}
     >
-      <FindSwitch current="sources" />
       <ErrorBanner error={loadError} />
 
       {panel('find', (
@@ -268,6 +268,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
             {canLink && (
               <div className="sources-find" hidden={mode !== 'link'}>
                 <UrlBox display={display} onOpenSeries={openFromUrl} handoff={linkHandoff} />
+                <p className="muted">No link yet? <a href={routeHref({ name: 'discover' })}>Discover</a> finds titles on official platforms and baihehub.</p>
               </div>
             )}
             {canSearch && sources && (

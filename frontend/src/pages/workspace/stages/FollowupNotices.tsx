@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { dismissTranslateErrors, redoDoubtfulLines, redoGlossaryFlagged, retryFailedLines } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { SettingLink } from '../../../components/SettingLink'
 import { humanize } from '../../../components/labels'
 import type { TranslateRunConfig } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
@@ -89,7 +90,7 @@ export function GlossaryFlaggedNotice({ config, busy, onStarted }: Omit<RunProps
       <p className="warn">
         {count} line{count === 1 ? '' : 's'} still {count === 1 ? 'misses' : 'miss'} a glossary name after a second try
         {' '}and {count === 1 ? 'is' : 'are'} flagged in Review.
-        {!engine && ' Pick a stronger engine in Settings to redo them in one click.'}
+        {!engine && <> Pick a stronger engine in <SettingLink card="engine-routing">Settings &gt; Which engine does what</SettingLink> to redo them in one click.</>}
       </p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {engine && (
@@ -124,7 +125,7 @@ export function DoubtfulLinesNotice({ config, busy, onStarted }: Omit<RunProps, 
     <section className="panel translate-failed" aria-label="Doubtful lines" data-testid="doubtful-lines">
       <p className="warn">
         {count} line{count === 1 ? ' is' : 's are'} flagged in Review as unlike {count === 1 ? 'its' : 'their'} source or as uncertain.
-        {!engine && ' Pick a stronger engine in Settings to redo them in one click.'}
+        {!engine && <> Pick a stronger engine in <SettingLink card="engine-routing">Settings &gt; Which engine does what</SettingLink> to redo them in one click.</>}
       </p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {engine && (

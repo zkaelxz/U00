@@ -11,6 +11,7 @@ import { ButtonLink } from '../../components/Button'
 import { buttonClass } from '../../components/uiClasses'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Tabs } from '../../components/Tabs'
+import { tabButtonId, tabPanelId } from '../../components/tabIds'
 import { browserStorage } from '../../hooks/usePersistedState'
 import { loadPrefs } from '../reader/readerPrefsStore'
 import { routeHref } from '../../router'
@@ -187,8 +188,10 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
         active={tab}
         onSelect={setTab}
       />
-      {tab === 'instructions' && <NovelInstructionsTab id={id} />}
-      <section className="panel" aria-label="Saved chapters" hidden={tab !== 'chapters'}>
+      <div id={tabPanelId('novel-title', 'instructions')} role="tabpanel" aria-labelledby={tabButtonId('novel-title', 'instructions')} hidden={tab !== 'instructions'}>
+        {tab === 'instructions' && <NovelInstructionsTab id={id} />}
+      </div>
+      <section id={tabPanelId('novel-title', 'chapters')} role="tabpanel" aria-labelledby={tabButtonId('novel-title', 'chapters')} className="panel" hidden={tab !== 'chapters'}>
         <h2 className="source-subhead">Saved chapters</h2>
         <p className="muted" data-testid="chapters-headline">{chaptersHeadline(list)}</p>
         {list && rows.length > 0 && (
