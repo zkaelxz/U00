@@ -69,6 +69,8 @@ racing. Only detection and OCR (and storing their result) are serialised;
 translation runs outside the lock so an LLM call never stalls other pages
 or a Cancel. This is a single-user local app, so serialising is the right
 trade rather than a bug.
+An overlay page's redraw takes turns on `TYPESET_LOCK` instead, since it
+uses only the eraser, which locks itself (`scanlate_lama`).
 
 A stored page is visible to other requests before it is translated; see
 `page_turns` for how captures of one page or one title take turns.
@@ -119,6 +121,10 @@ REQUEST_TIMEOUT_SECONDS = 120.0
 ALLOWED_TEXT_LANGUAGES = {"zh", "ja", "ko", "en"}
 
 PIPELINE_LOCK = threading.Lock()
+# Overlay redraws (erase + letter) take turns on this lock rather than PIPELINE_LOCK, so the next
+# page is read while the last one is redrawn. The eraser is the one model the redraw loads, and
+# scanlate_lama locks its own load and run.
+TYPESET_LOCK = threading.Lock()
 
 _server_lock = threading.Lock()
 _server_started = False
@@ -374,10 +380,11 @@ def _lines_without_english(bubbles) -> list:
 
 
 def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, member,
-                         image: bytes = b"") -> float:
+                         image: bytes = b"", in_order: bool = True) -> float:
     """Translates a freshly read page, asks once more for any lines left empty, and returns the
     seconds spent. Notes are appended for a failure, no engine, or lines still empty after the
-    retry, so they are counted rather than silently shown as the source text."""
+    retry, so they are counted rather than silently shown as the source text. `in_order=False`
+    does not wait for the title's previous page (page_turns.translate_in_chain)."""
     import db
     from scanlate import scanlate_translate
     engine = _build_engine(config)
@@ -392,7 +399,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     extras = _page_extras(drama, config, engine, image)
     try:
         page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage,
-                                      **extras)
+                                      wait_for_turn=in_order, **extras)
     except Exception as e:
         # The OCR text is still real and still useful, so it is returned rather than thrown
         # away -- the same choice the Scanlate pipeline makes on this failure.
@@ -400,6 +407,10 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
                                  "the source text below was still read"])
     missing = _lines_without_english(bubbles)
     if missing:
+        from applog import get_logger
+        # A second engine call is a page's slowest case; the log says how often it happens.
+        get_logger().info("Extension page: %d of %d lines came back empty, asking again",
+                          len(missing), len(bubbles))
         try:
             scanlate_translate.translate_page_bubbles(
                 missing, engine, drama or {}, previous_context="", glossary_terms=glossary,
@@ -471,14 +482,15 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
                      style=None) -> str:
     """The cleaned, typeset page as a data: URL for an overlay-only page (nothing is
     stored, so there is no library page to render from), or "" when it cannot be sent.
-    The page keeps its plain boxes then, so a failure here only costs the nicer picture."""
+    The page keeps its plain boxes then, so a failure here only costs the nicer picture.
+    Reads no detector or OCR model, so it holds TYPESET_LOCK, not PIPELINE_LOCK."""
     from scanlate import scanlate_render
     from services import settings_service
     if not any((b.get("translated_text") or "").strip() and not b.get("skip") for b in bubbles):
         return ""
     out_path = storage.new_partial_file("typeset", ".png")
     try:
-        with PIPELINE_LOCK:
+        with TYPESET_LOCK:
             scanlate_render.process_page(image_path, bubbles, out_path,
                                          match_color=bool(settings_service.get("scanlate_match_text_color")),
                                          **({"look": style} if style else {}))
@@ -529,6 +541,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     busy = None
     claim = None
     read_seconds = 0.0
+    seconds = {}
     try:
         # The discard runs before the lock is released, while no other
         # request can have seen the page.
@@ -608,9 +621,11 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         notes.extend(_detect_notes(detect_notes, member))
         with turn.translating():
             translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
-                                                     notes, member, data)
+                                                     notes, member, data, in_order=store)
         if typeset and temp_path and page is None:
+            typeset_started = time.monotonic()
             typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style)
+            seconds["typeset"] = round(time.monotonic() - typeset_started, 2)
         if page is not None:
             notes.extend(read_notes)
             notes.extend(page_capture_checks.save_translations_of_read(
@@ -630,7 +645,8 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         "page_id": (page or {}).get("id"),
         "stored": page is not None,
         "untranslated_lines": len(_lines_without_english(bubbles)),
-        "seconds": {"read": round(read_seconds, 2), "translate": round(translate_seconds, 2)},
+        "seconds": {"read": round(read_seconds, 2), "translate": round(translate_seconds, 2),
+                    **seconds},
     }
 
 

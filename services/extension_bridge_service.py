@@ -10,12 +10,15 @@ title list to what they can see and sends only into a title they can edit.
 
 import contextlib
 import contextvars
+import copy
+import hashlib
 import json
 import os
 import queue
 import re
 import threading
 import time
+from collections import OrderedDict
 
 import db
 import page_capture_checks
@@ -331,9 +334,68 @@ def _decode_images(images) -> list:
     return decoded
 
 
+# Quick read answers by image bytes: going back a page, or a phone sending the same chapter again,
+# answers at once instead of paying for the page twice. In memory only, and small, because each
+# answer carries its redrawn page (up to about 1.5 MB).
+QUICK_READ_CACHE_PAGES = 20
+_quick_read_cache: "OrderedDict[str, dict]" = OrderedDict()
+_quick_read_cache_lock = threading.Lock()
+
+
+def _quick_read_key(image: dict, job: dict) -> str | None:
+    """None for a saved send: the library is that send's memory, and it must store the page."""
+    if job["store"]:
+        return None
+    config = page_server.get_translation_config()
+    parts = [hashlib.sha256(image["content"]).hexdigest(), job["drama_id"], job["source_language"],
+             job["typeset"], json.dumps(job["typeset_style"], sort_keys=True, default=str),
+             job["member"], config.get("engine"), config.get("model")]
+    return hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()
+
+
+def _cached_quick_read(key: str | None) -> dict | None:
+    if key is None:
+        return None
+    with _quick_read_cache_lock:
+        hit = _quick_read_cache.get(key)
+        if hit is None:
+            return None
+        _quick_read_cache.move_to_end(key)
+        return {**copy.deepcopy(hit), "cached": True, "seconds": {}}
+
+
+def _remember_quick_read(key: str | None, result: dict) -> None:
+    """Only a complete answer is kept, so a page that failed or came back partly empty is tried
+    again next time rather than repeating its failure."""
+    if key is None or result.get("untranslated_lines") or any(
+            n and n[0] == "warning" for n in result.get("notes") or []):
+        return
+    with _quick_read_cache_lock:
+        _quick_read_cache[key] = copy.deepcopy(result)
+        _quick_read_cache.move_to_end(key)
+        while len(_quick_read_cache) > QUICK_READ_CACHE_PAGES:
+            _quick_read_cache.popitem(last=False)
+
+
+def _log_page_time(result: dict, job: dict, started: float) -> None:
+    from applog import get_logger
+    seconds = result.get("seconds") or {}
+    get_logger().info("Extension page (%s%s): %.2fs in all; read %ss, translate %ss, typeset %ss; "
+                      "%d regions", "saved" if job["store"] else "quick read",
+                      ", from cache" if result.get("cached") else "", time.monotonic() - started,
+                      seconds.get("read", "-"), seconds.get("translate", "-"),
+                      seconds.get("typeset", "-"), len(result.get("regions") or []))
+
+
 def _translate_one(image: dict, job: dict, turn):
     """One page of a request as (outcome, value): ("page", result), ("failed", entry),
     ("fatal", entry) when every later page would fail the same way, or ("stopped", None)."""
+    started = time.monotonic()
+    cache_key = _quick_read_key(image, job)
+    cached = _cached_quick_read(cache_key)
+    if cached is not None:
+        _log_page_time(cached, job, started)
+        return "page", {**cached, "key": image["key"], "url": image["url"]}
     try:
         if page_capture_checks.looks_blank(image["content"]):
             raise page_server.EndpointError(422, "the page was blank (the reader had not drawn it yet)")
@@ -361,6 +423,8 @@ def _translate_one(image: dict, job: dict, turn):
         _typeset_stored_page(result, job["drama_id"], member=job["member"])
         result.setdefault("seconds", {})["typeset"] = round(time.monotonic() - typeset_started, 2)
     _record_run_notes(result)
+    _remember_quick_read(cache_key, result)
+    _log_page_time(result, job, started)
     result["key"] = image["key"]
     result["url"] = image["url"]
     return "page", result
@@ -370,13 +434,18 @@ def _translate_one(image: dict, job: dict, turn):
 # last one lettered) while one translates. Pages still read and translate in page order
 # (page_turns.PageOrder), so a third worker would only wait behind the same turns.
 PAGES_AT_ONCE = 2
+# Quick read translates pages without waiting for the page before (nothing is saved, so speed
+# wins over the tighter story link), so more pages can be at the model at once. Reading still
+# takes turns, so this adds model calls in flight, not GPU work.
+QUICK_READ_PAGES_AT_ONCE = 4
 
 
 def _translate_all(decoded: list, job: dict, on_page=None) -> list:
     """Each image's (outcome, value), in the images' order. `on_page(result)` is called as each
     page finishes, from a worker thread, one call at a time."""
     halted = threading.Event()
-    order = page_turns.PageOrder(len(decoded), lambda: halted.is_set() or _run_cancelled(job["run_id"]))
+    order = page_turns.PageOrder(len(decoded), lambda: halted.is_set() or _run_cancelled(job["run_id"]),
+                                 ordered_translation=job["store"])
     outcomes: list[tuple[str, dict | None]] = [("stopped", None)] * len(decoded)
     report_lock = threading.Lock()
 
@@ -419,7 +488,8 @@ def _translate_all(decoded: list, job: dict, on_page=None) -> list:
     # new thread would otherwise start with an empty one and bill the owner.
     workers = [threading.Thread(target=contextvars.copy_context().run, args=(worker,), daemon=True,
                                 name="bridge-page")
-               for _ in range(min(PAGES_AT_ONCE, len(decoded)))]
+               for _ in range(min(PAGES_AT_ONCE if job["store"] else QUICK_READ_PAGES_AT_ONCE,
+                                  len(decoded)))]
     for thread in workers:
         thread.start()
     for thread in workers:

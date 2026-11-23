@@ -2,6 +2,7 @@
 running it on one region (scanlate_inpaint.py decides what to erase)."""
 
 import os
+import threading
 
 import model_pins
 
@@ -13,6 +14,11 @@ _LAMA_BLOCKS = 18
 # region of a few megapixels (a user-drawn box, a tall webtoon strip) needs
 # gigabytes. Past this size the OpenCV fallback is used instead.
 _ML_MAX_PIXELS = 3_000_000
+
+# The model and its GPU copy are process globals shared by Scanlate's render (under the pipeline
+# lock) and the extension's overlay redraw (which is not), so a first load or GPU copy is never
+# made twice and one region runs at a time.
+_LAMA_LOCK = threading.Lock()
 
 # Set when the checkpoint is present but unusable (corrupt, wrong shape), so one
 # bad ~200 MB file is not re-read for every region of every page.
@@ -277,7 +283,8 @@ def _run_ml_inpaint(roi_bgr, mask_u8, hf_token: str | None = None, allow_downloa
     import torch
     import cv2
 
-    generator = _load_lama_generator(hf_token=hf_token, allow_download=allow_download)
+    with _LAMA_LOCK:
+        generator = _load_lama_generator(hf_token=hf_token, allow_download=allow_download)
     rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB).astype("float32") / 255.0
     mask = (mask_u8 > 0).astype("float32")
     # Zero out the masked area in the image channel first -- otherwise the
@@ -292,7 +299,8 @@ def _run_ml_inpaint(roi_bgr, mask_u8, hf_token: str | None = None, allow_downloa
     if pad_h or pad_w:
         tensor = torch.nn.functional.pad(tensor, (0, pad_w, 0, pad_h), mode="reflect")
 
-    out = _generate(generator, tensor, torch)
+    with _LAMA_LOCK:
+        out = _generate(generator, tensor, torch)
     out = out[:, :h, :w].clamp(0, 1).permute(1, 2, 0).numpy()
     out_bgr = cv2.cvtColor((out * 255).astype("uint8"), cv2.COLOR_RGB2BGR)
 
