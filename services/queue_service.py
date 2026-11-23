@@ -911,17 +911,14 @@ def _may_overlap(running: list, candidate: dict) -> bool:
     model = (other.get("settings") or {}).get("model") or _queued_model_and_batch(drama, engine)[0]
     if engine_local.ollama_touches_local_gpu(engine, model):
         return False
-    return not _local_ollama_after_batches(engine)
+    return not _local_ollama_after_batches()
 
 
-def _local_ollama_after_batches(engine: str) -> bool:
-    """The run's own episode summary and source-match check use the local Ollama after the
-    batches, and a run on an online engine does not take a GPU slot, so only this keeps them
-    apart from a transcription. The source-match check counts only while its model is there:
-    without it the check does nothing."""
-    if settings_service.get("translate_alignment_check") and settings_service.source_match_model_present():
-        return True
-    return str(settings_service.get("episode_summary_engine")) == "ollama" and engine != "ollama"
+def _local_ollama_after_batches() -> bool:
+    """The run's own source-match check uses the local Ollama after the batches, and a run on
+    an online engine does not take a GPU slot, so only this keeps it apart from a transcription.
+    It counts only while its model is there: without it the check does nothing."""
+    return bool(settings_service.get("translate_alignment_check") and settings_service.source_match_model_present())
 
 
 def _overlap_note(doc: dict) -> Optional[str]:
@@ -933,9 +930,6 @@ def _overlap_note(doc: dict) -> Optional[str]:
         return ("A transcription still waits for an online translation to finish while the Source match "
                 "check is on: the check uses this PC's Ollama after the translation. Turn it off in "
                 "Settings to run them side by side.")
-    if str(settings_service.get("episode_summary_engine")) == "ollama":
-        return ("A transcription still waits for an online translation to finish because the episode "
-                "summary engine is Ollama, which this PC runs after the translation.")
     return None
 
 
