@@ -485,7 +485,7 @@ from db.library_folder import (  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 
 from db.dramas import (  # noqa: E402,F401
-    create_drama, delete_drama, drama_has_translated_lines, drama_visible_sql, earlier_episode_summaries,
+    count_dramas_owned_by, create_drama, delete_drama, drama_has_translated_lines, drama_visible_sql, earlier_episode_summaries,
     get_drama, series_cover_title_id,
     get_library_stats, line_progress_by_drama, list_dramas, list_dramas_by_series, list_dramas_by_series_ids,
     list_dramas_recently_active,

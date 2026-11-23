@@ -527,3 +527,40 @@ for (const [width, count, compact] of [[1280, 5, false], [1440, 1, false], [1280
     expect(Math.abs(h.shelf - h.placeholder), JSON.stringify(h)).toBeLessThanOrEqual(2)
   })
 }
+
+test('away from the PC, a member deletes a title they made and is not offered others', async ({ page }) => {
+  await page.route('**/api/meta', (r) => r.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }))
+  await page.route('**/api/auth/me', (r) => r.fulfill({ json: {
+    auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet',
+    user: { id: 5, email: 'kim@example.com', display_name: 'Kim', is_admin: false, is_local_owner: false },
+    permissions: ['library.read', 'lines.read', 'lines.edit', 'jobs.start', 'jobs.cancel', 'review.use', 'media.import_url'],
+  } }))
+  await page.route((u) => u.pathname === '/api/library/dramas', async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const res = await route.fetch()
+    const body = await res.json()
+    const items = body.items.map((d: { title_en: string }) => ({ ...d, made_by_me: d.title_en === 'Signal' }))
+    await route.fulfill({ response: res, json: { ...body, items } })
+  })
+  const deleted: unknown[] = []
+  await page.route(/\/api\/dramas\/\d+\/delete-mine$/, async (route) => {
+    deleted.push(route.request().postDataJSON())
+    await route.fulfill({ json: { deleted: true, drama_id: Number(new URL(route.request().url()).pathname.split('/')[3]) } })
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Details: Heaven Official\'s Blessing' }).click()
+  const other = page.getByRole('dialog', { name: 'Heaven Official\'s Blessing' })
+  await expect(other).toBeVisible()
+  await expect(other.getByRole('button', { name: 'Delete title…' })).toHaveCount(0)
+  await other.getByRole('button', { name: /close/i }).first().click()
+
+  await page.getByRole('button', { name: 'Details: Signal' }).click()
+  const mine = page.getByRole('dialog', { name: 'Signal' })
+  await mine.getByRole('button', { name: 'Delete title…' }).click()
+  await mine.getByLabel('Type DELETE to confirm').fill('DELETE')
+  await mine.getByRole('button', { name: 'Delete permanently' }).click()
+  await expect(page.getByRole('dialog', { name: 'Signal' })).toHaveCount(0)
+  expect(deleted).toEqual([{ confirm: true, confirm_text: 'DELETE' }])
+  // The Library reloads its list after a delete; let that read finish unmocked.
+  await page.unrouteAll({ behavior: 'ignoreErrors' })
+})

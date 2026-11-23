@@ -3,8 +3,8 @@ api/routers/quick_video_routes.py -- Quick video translate: a link and a saved p
 subtitled title out. Thin: see services/quick_video_service.py.
 
 Starting needs Import from a link plus Start jobs, from any device, like a Live start (owner
-decision 2026-11-23); the run itself is on the PC. Removing a watch-once title stays PC only, like
-every delete.
+decision 2026-11-23); the run itself is on the PC. Removing a watch-once title here stays PC only;
+from away its maker uses POST /api/dramas/{id}/delete-mine like any title they made.
 """
 
 from fastapi import APIRouter, Path, Request

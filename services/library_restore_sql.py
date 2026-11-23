@@ -203,7 +203,8 @@ def has_accounts(db_path: str) -> bool:
 
 # Columns naming an account. An id one of them still names must never go to
 # a new account: it would inherit that person's private titles and history.
-_ACCOUNT_ID_COLUMNS = (("dramas", "owner_user_id"), ("series", "owner_user_id"),
+_ACCOUNT_ID_COLUMNS = (("dramas", "owner_user_id"), ("dramas", "created_by_user_id"),
+                       ("series", "owner_user_id"),
                        ("job_records", "owner_user_id"), ("translate_history", "user_id"),
                        ("speaker_merge_undos", "user_id"), ("audit_log", "user_id"))
 
