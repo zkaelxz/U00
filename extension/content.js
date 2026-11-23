@@ -139,7 +139,9 @@
     if (last) { try { last.scrollIntoView({ block: "end" }); } catch (e) { /* detached */ } }
     const step = Math.max(400, window.innerHeight * 0.9);
     try { window.scrollBy(0, step); } catch (e) { /* ignore */ }
-    const target = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2) || document.body;
+    let target = null;
+    try { target = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2); } catch (e) { /* ignore */ }
+    target = target || document.body;
     try {
       target.dispatchEvent(new WheelEvent("wheel", { deltaY: step, bubbles: true, cancelable: true }));
     } catch (e) { /* ignore */ }
