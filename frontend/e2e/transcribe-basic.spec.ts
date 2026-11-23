@@ -149,7 +149,7 @@ test('with Qwen3 ASR on long audio the Whisper model and Whisper-only switches a
   await expect(card.getByTestId('run-line')).not.toContainText('large-v3')
   await expect(card.getByTestId('transcribe-advisor')).toContainText('Use Whisper')
 
-  await openAdvanced(page)
+  const advanced = await openAdvanced(page)
   for (const name of ['Whisper fast mode', 'Whisper repeat guard']) {
     await expect(advanced.getByRole('switch', { name })).toBeDisabled()
   }

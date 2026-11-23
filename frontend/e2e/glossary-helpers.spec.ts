@@ -162,6 +162,7 @@ test.describe('desktop', () => {
     const runs = await mockTranslateRun(page)
 
     await page.goto('/#/drama/1/translate')
+    const run = page.getByRole('region', { name: 'Translate run' })
     await (await reviewToggle(page)).click()
     await expect((await reviewToggle(page))).toHaveAttribute('aria-checked', 'true')
     // The choice survives a reload of the tab.
