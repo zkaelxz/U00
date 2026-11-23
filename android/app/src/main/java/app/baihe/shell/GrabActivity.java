@@ -877,7 +877,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             // A part of a split chapter hands over to the next one with the reader still open.
             boolean carryOn = moreParts && !cancelRequested && !QuickReadSession.isAbandoned() && thisPart > 0;
             partsContinuing = carryOn;
-            if (!carryOn) QuickReadSession.finish();
             long ended = System.currentTimeMillis();
             String timing = firstPageAt[0] == 0 ? "" : String.format(java.util.Locale.ROOT,
                     " (found %d s, first page %d s, all %d s)", (readStarted - grabStartedAt) / 1000,
@@ -888,15 +887,16 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     : (cancelRequested ? "Cancelled. " : "")
                     + QuickRead.summary(thisPart, images.size() + unreadable, firstError[0])
                     + (truncated ? ". Some pages were left out." : "") + timing;
+            if (!carryOn) QuickReadSession.finish(message);
             if (!carryOn) QuickReadSession.onCancel(null);
             finishGrab(message, carryOn);
         } catch (BaiheClient.BridgeException e) {
             QuickReadSession.onCancel(null);
-            QuickReadSession.finish();
+            QuickReadSession.finish(e.getMessage());
             finishGrab(e.getMessage());
         } catch (Exception e) {
             QuickReadSession.onCancel(null);
-            QuickReadSession.finish();
+            QuickReadSession.finish("Could not read the pages.");
             finishGrab("Could not read the pages.");
         } finally {
             pool.shutdown();
