@@ -56,8 +56,9 @@ export type Route =
   | { name: 'assistant' }
   // tab: "#/series/3?tab=glossary" opens that tab of a series' page.
   | { name: 'series'; id: number; tab?: SeriesTab }
-  // "#/series": every series as a folder, each opening its Series page.
-  | { name: 'series-list' }
+  // "#/series": every series as a folder, each opening its Series page; once any series has a
+  // streamer, the streamers come first. streamer: one streamer's series ("" for the series with none).
+  | { name: 'series-list'; streamer?: string }
   | { name: 'read'; id: number; page: number | null }
   // "#/follow/3": a title's lines on their own clock, for audio played in another app.
   | { name: 'follow'; id: number }
@@ -142,7 +143,10 @@ export function parseRoute(hash: string): Route {
   if (head === 'discover' && parts.length === 1) return { name: 'discover' }
   if (head === 'live' && parts.length === 1) return { name: 'live' }
   if (head === 'assistant' && parts.length === 1) return { name: 'assistant' }
-  if (head === 'series' && parts.length === 1) return { name: 'series-list' }
+  if (head === 'series' && parts.length === 1) {
+    const streamer = new URLSearchParams(qs).get('streamer')
+    return streamer === null || [...streamer].length > 1000 ? { name: 'series-list' } : { name: 'series-list', streamer }
+  }
   if (head === 'series' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
     const tab = new URLSearchParams(qs).get('tab')
     return isSeriesTab(tab) ? { name: 'series', id: Number(a), tab } : { name: 'series', id: Number(a) }
@@ -209,7 +213,7 @@ export function routeHref(r: Route): string {
     const query = [r.focus && `focus=${r.focus}`, r.find && `find=${encodeURIComponent(r.find)}`, r.tools && `tools=${r.tools}`, r.tab && `tab=${r.tab}`].filter(Boolean).join('&')
     return query ? `${base}?${query}` : base
   }
-  if (r.name === 'series-list') return '#/series'
+  if (r.name === 'series-list') return r.streamer === undefined ? '#/series' : `#/series?streamer=${encodeURIComponent(r.streamer)}`
   if (r.name === 'series') return `#/series/${r.id}${r.tab ? `?tab=${r.tab}` : ''}`
   if (r.name === 'comic-edit') return `#/comic/${r.id}/edit${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'follow' || r.name === 'watch') return `#/${r.name}/${r.id}`
