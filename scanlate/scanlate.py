@@ -453,11 +453,22 @@ def drop_parts_of_captions(regions: list, captions: list) -> list:
     detector can cut a large glowing caption into sign or sfx fragments; each
     line then sits less than half inside any one fragment, so the caption is
     found as well, and the fragments' English was set on top of the caption's.
-    Balloons stay: their lettering is their own even where a caption overlaps."""
+    A balloon stays unless it is a box on the caption's own lettering (its text
+    is part of the caption's): a title logo's single glyph gets boxed as a
+    balloon, and lettering both would put English twice over the title."""
     from scanlate.scanlate_art_text import _overlap
+
+    def inside(region, caption):
+        return _overlap(region, caption) >= _CAPTION_PART_SHARE
+
+    def is_caption_lettering(region, caption):
+        text = (region.get("source_text") or "").strip()
+        return bool(text) and text in (caption.get("source_text") or "")
+
     return [r for r in regions
-            if r.get("kind") in SHAPE_FITTED_KINDS
-            or not any(_overlap(r, c) >= _CAPTION_PART_SHARE for c in captions)]
+            if not any(inside(r, c) and (r.get("kind") not in SHAPE_FITTED_KINDS
+                                         or is_caption_lettering(r, c))
+                       for c in captions)]
 
 
 def with_captions(regions: list, captions: list) -> list:

@@ -341,6 +341,15 @@ def _page_source_language(drama, requested):
             or (requested or "").strip() or "zh")
 
 
+def _reads_art_captions(lang: str, ocr_backend) -> bool:
+    """Title logos and banners drawn on the art have no balloon, so without this the
+    detector boxes a fragment of them and the rest stays untranslated. Only the
+    OCR backends that read whole-page lines can find them; the others (manga-ocr)
+    would add a failure note to every page."""
+    import ocr
+    return (ocr_backend or ocr.auto_ocr_backend(lang)) in ("rapidocr", "paddle")
+
+
 def _store_page(drama_id: int, data: bytes, ext: str):
     """Lands the image in the drama through the same import path
     Scanlate's own upload uses, and returns its new page row."""
@@ -579,12 +588,14 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
 
             if reuse_saved is None and busy is None:
                 lang = _page_source_language(drama, source_language)
+                ocr_backend = config.get("ocr_backend") or None
                 read_started = time.monotonic()
                 bubbles, detect_notes = scanlate.detect_and_ocr_page(
                     image_path, lang,
                     detect_backend=config.get("detect_backend") or "auto",
                     hf_token=config.get("hf_token") or None,
-                    ocr_backend=config.get("ocr_backend") or None,
+                    ocr_backend=ocr_backend,
+                    art_captions=_reads_art_captions(lang, ocr_backend),
                     tesseract_cmd=config.get("tesseract_cmd") or None,
                     prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
                     page_id=(page or {}).get("id"))
