@@ -746,6 +746,26 @@ class TestStartingTheServer:
         page_server.serve(18757)
         assert bound["address"][0] == "127.0.0.1"
 
+    def test_a_second_bind_on_a_taken_port_fails_on_windows_too(self, monkeypatch):
+        """Two installs must not share the bridge port: the server must not ask for
+        address reuse on Windows, where that would allow the second bind."""
+        captured = {}
+
+        class FakeServer:
+            allow_reuse_address = True
+
+            def __init__(self, address, handler):
+                captured["reuse"] = type(self).allow_reuse_address
+
+            def serve_forever(self):
+                pass
+
+        monkeypatch.setattr(page_server, "ThreadingHTTPServer", FakeServer)
+        monkeypatch.setattr(page_server, "_server", None)
+        monkeypatch.setattr(page_server.sys, "platform", "win32")
+        page_server.serve(18759)
+        assert captured["reuse"] is False
+
     def test_a_port_conflict_is_reported_not_claimed_as_running(self, monkeypatch):
         monkeypatch.setattr(page_server, "_server_started", False)
 

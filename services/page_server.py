@@ -92,6 +92,7 @@ import contextlib
 import json
 import os
 import secrets
+import sys
 import tempfile
 import threading
 import time
@@ -904,7 +905,13 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def serve(port: int, generation=None):
-    server = ThreadingHTTPServer(("127.0.0.1", port), _Handler)
+    class BridgeServer(ThreadingHTTPServer):
+        # On Windows SO_REUSEADDR lets a second process bind a port that is already
+        # listening, so two Baihe installs (live and a test copy) both "owned" 8756 and a
+        # request reached either one. Without it the second bind fails and says so.
+        allow_reuse_address = sys.platform != "win32"
+
+    server = BridgeServer(("127.0.0.1", port), _Handler)
     server.timeout = REQUEST_TIMEOUT_SECONDS
     # Daemon handler threads are not joined by server_close(), so stopping
     # never waits on an in-flight OCR run.
