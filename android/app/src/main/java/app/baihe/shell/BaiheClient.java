@@ -24,6 +24,10 @@ final class BaiheClient {
     private static final int CONNECT_TIMEOUT_MS = 15_000;
     /** Room for a few typeset pages (each at most 1.5 MB as base64 text) of a Quick read answer. */
     private static final int MAX_ANSWER_BYTES = 12 * 1024 * 1024;
+    private static final int MAX_LINE_BYTES = 6 * 1024 * 1024;
+
+    /** Names this client's page batches so the server can be told to stop working on them. */
+    volatile String runId;
 
     /** A refused or failed call; the message is the server's own text or a short fixed one. */
     static final class BridgeException extends Exception {
@@ -75,28 +79,128 @@ final class BaiheClient {
         return post(pageUrl, batch, 0, false);
     }
 
+    /** Tells the server to drop the pages of this run it has not started; the page in flight finishes. */
+    void cancelRun(String id) throws BridgeException {
+        try {
+            call("POST", "/cancel", new JSONObject().put("run_id", id));
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
+    /** Hears each finished page as the server sends it, instead of after the whole batch. */
+    interface PageListener {
+        void onPage(JSONObject page) throws IOException;
+    }
+
+    /**
+     * Quick read with a streamed answer: `onPage` gets each typeset page as soon as the server
+     * finishes it, and the result is the closing summary (failed, skipped and so on). A lone image
+     * has no streamed route, so it comes back whole and is handed to `onPage` the same way.
+     */
+    JSONObject streamPages(String pageUrl, List<PageImage> batch, PageListener onPage) throws BridgeException {
+        try {
+            if (batch.size() == 1) {
+                JSONObject answer = readPages(pageUrl, batch);
+                JSONArray pages = answer.optJSONArray("pages");
+                for (int i = 0; pages != null && i < pages.length(); i++) onPage.onPage(pages.getJSONObject(i));
+                answer.remove("pages");
+                return answer;
+            }
+            JSONObject body = requestBody(pageUrl, batch, 0, false).put("stream", true);
+            return callStream("/pages", body, onPage);
+        } catch (JSONException | IOException e) {
+            throw new BridgeException(0, "Could not read the pages.");
+        }
+    }
+
+    private JSONObject callStream(String path, JSONObject body, PageListener onPage) throws BridgeException {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(origin + "/api/ext-bridge" + path).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setInstanceFollowRedirects(false);
+            conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            conn.setReadTimeout(READ_TIMEOUT_MS);
+            conn.setRequestProperty("Authorization", "Bearer " + token);
+            conn.setRequestProperty("Accept", "application/x-ndjson");
+            byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
+            conn.setDoOutput(true);
+            conn.setFixedLengthStreamingMode(bytes.length);
+            conn.setRequestProperty("Content-Type", "application/json");
+            try (OutputStream out = conn.getOutputStream()) {
+                out.write(bytes);
+            }
+            int status = conn.getResponseCode();
+            if (status >= 300) {
+                InputStream err = conn.getErrorStream();
+                throw new BridgeException(status, refusalText(status, err == null ? "" : readCapped(err)));
+            }
+            JSONObject done = null;
+            try (InputStream in = conn.getInputStream()) {
+                String line;
+                while ((line = readLine(in)) != null) {
+                    if (line.isEmpty()) continue;
+                    JSONObject item = new JSONObject(line);
+                    if (item.has("page")) onPage.onPage(item.getJSONObject("page"));
+                    else if (item.has("done")) done = item.getJSONObject("done");
+                    else if (item.has("error")) throw new BridgeException(item.optInt("status", 0), item.optString("error"));
+                }
+            }
+            if (done == null) throw new BridgeException(status, "Baihe stopped before it finished the pages.");
+            return done;
+        } catch (BridgeException e) {
+            throw e;
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Baihe sent an answer this app could not read.");
+        } catch (IOException e) {
+            throw new BridgeException(0, "Could not reach Baihe.");
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    /** One line of the stream; a typeset page is a few MB at most, so a longer line is refused. */
+    private static String readLine(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int b;
+        while ((b = in.read()) != -1) {
+            if (b == '\n') return out.toString("UTF-8");
+            if (out.size() >= MAX_LINE_BYTES) throw new IOException("line too large");
+            out.write(b);
+        }
+        return out.size() == 0 ? null : out.toString("UTF-8");
+    }
+
     private JSONObject post(String pageUrl, List<PageImage> batch, long dramaId, boolean store) throws BridgeException {
         try {
-            JSONArray images = new JSONArray();
-            for (PageImage image : batch) {
-                images.put(new JSONObject()
-                        .put("key", image.key)
-                        .put("url", image.url.startsWith("http") ? image.url : "")
-                        .put("content_type", image.contentType)
-                        .put("data", image.base64));
-            }
-            JSONObject body = new JSONObject()
-                    .put("images", images)
-                    .put("source_url", ServerAddress.publicSourceUrl(pageUrl))
-                    .put("store", store)
-                    .put("filter_pages", true);
-            if (store) body.put("drama_id", dramaId);
-            else body.put("typeset", true);
+            JSONObject body = requestBody(pageUrl, batch, dramaId, store);
             // /page takes exactly one image; /pages runs the page filter, so a lone image uses /page.
             return call("POST", batch.size() == 1 ? "/page" : "/pages", body);
         } catch (JSONException e) {
             throw new BridgeException(0, "Could not build the request.");
         }
+    }
+
+    private JSONObject requestBody(String pageUrl, List<PageImage> batch, long dramaId, boolean store)
+            throws JSONException {
+        JSONArray images = new JSONArray();
+        for (PageImage image : batch) {
+            images.put(new JSONObject()
+                    .put("key", image.key)
+                    .put("url", image.url.startsWith("http") ? image.url : "")
+                    .put("content_type", image.contentType)
+                    .put("data", image.base64));
+        }
+        JSONObject body = new JSONObject()
+                .put("images", images)
+                .put("source_url", ServerAddress.publicSourceUrl(pageUrl))
+                .put("store", store)
+                .put("filter_pages", true);
+        if (runId != null) body.put("run_id", runId);
+        if (store) body.put("drama_id", dramaId);
+        else body.put("typeset", true);
+        return body;
     }
 
     private JSONObject call(String method, String path, JSONObject body) throws BridgeException {

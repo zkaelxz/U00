@@ -28,6 +28,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -171,7 +172,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         chapters = new GrabUi.BarButton(this, palette, R.drawable.ic_chapters, "Chapters", false);
         chapters.setOnClickListener(v -> toggleChapters());
         quick = new GrabUi.BarButton(this, palette, R.drawable.ic_quick, "Quick read", true);
-        quick.setOnClickListener(v -> startGrab(true));
+        quick.setOnClickListener(v -> {
+            if (grabbing && runId != null) cancelGrab();
+            else startGrab(true);
+        });
         ImageView more = new ImageView(this);
         more.setImageResource(R.drawable.ic_more);
         more.setImageTintList(android.content.res.ColorStateList.valueOf(palette.muted));
@@ -355,6 +359,41 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.show();
     }
 
+    /** While a grab runs the main button is its Cancel; Quick read comes back when it ends. */
+    private void showCancel(boolean running) {
+        runOnUiThread(() -> {
+            quick.setDanger(running);
+            if (running) quick.setLabel("Cancel", palette.onAccent, R.drawable.ic_stop);
+            else {
+                quick.setLabel("Quick read", palette.onAccent, R.drawable.ic_quick);
+                quick.setBusy(false);
+            }
+        });
+    }
+
+    /** Stops this grab on the phone and tells the server to drop the pages it has not started. */
+    private void cancelGrab() {
+        if (!grabbing) return;
+        cancelRequested = true;
+        chaptersLeft = 0;
+        loadingNext = false;
+        String id = runId;
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (id != null && uploading) {
+            new Thread(() -> {
+                try {
+                    new BaiheClient(server, token).cancelRun(id);
+                } catch (BaiheClient.BridgeException ignored) {
+                    // The phone side has already stopped; the server only finishes its page in flight.
+                }
+            }, "grab-cancel").start();
+        }
+        QuickReadSession.finish();
+        if (uploading) say("Cancelling...", GrabUi.Kind.BUSY);
+        else finishGrab("Cancelled.");
+    }
+
     private void showChapterState() {
         if (chaptersLeft > 0) chapters.setLabel("Stop (" + chaptersLeft + " left)", palette.bad, R.drawable.ic_stop);
         else {
@@ -491,8 +530,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
         grabbing = true;
         quickRead = readOnly;
+        grabStartedAt = System.currentTimeMillis();
+        runId = "grab-" + newNonce().substring(0, 16);
+        cancelRequested = false;
         grab.setBusy(true);
-        quick.setBusy(true);
+        showCancel(true);
         say("Reading pages");
         String nonce = newNonce();
         bridge.start(nonce);
@@ -583,7 +625,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String go = next;
         runOnUiThread(() -> {
             grab.setBusy(false);
-            quick.setBusy(false);
+            showCancel(false);
             showChapterState();
             chip.show(shown, GrabUi.kindOf(shown, sent));
             if (go != null) {
@@ -596,11 +638,17 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private static final int MAX_CHAPTERS = 20;
     private static final String OPEN_FIRST = "Open a comic chapter first: enter its site address above and tap Go.";
     private static final int QUICK_READ_BATCH = 4;
+    // Batches in flight at once: the PC reads two pages at a time, so one stream leaves it waiting on uploads.
+    private static final int QUICK_READ_STREAMS = 2;
     private volatile String pageNext = "";
     private JSONArray pageChapters = new JSONArray();
 
-    private static final long GRAB_TIMEOUT_MS = 5 * 60 * 1000;
+    private static final long GRAB_TIMEOUT_MS = 9 * 60 * 1000;
     private volatile String runningGrab = "";
+    // Names this grab's batches on the server so Cancel can stop the pages it has not started.
+    private volatile String runId;
+    private volatile long grabStartedAt;
+    private volatile boolean cancelRequested;
     // From the web view, not the page: a page can claim any address.
     private volatile String pageUrl = "";
     private volatile String pageAgent = "";
@@ -638,6 +686,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             long used = 0;
             long downloadDeadline = System.currentTimeMillis() + 5 * 60_000L;
             for (PageImage image : images) {
+                if (cancelRequested) {
+                    finishGrab("Cancelled.");
+                    return;
+                }
                 PageImage got = image;
                 if (image.needsDownload()) {
                     got = System.currentTimeMillis() > downloadDeadline ? null
@@ -658,57 +710,155 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 return;
             }
             BaiheClient client = new BaiheClient(server, token);
+            client.runId = runId;
             if (readOnly) read(client, url, ready, bad, cut);
             else upload(client, url, titles, chapterLinks, ready, bad, cut);
         });
     }
 
-    /** Quick read: send the pages without saving, write what comes back to the cache and open it. */
+    /**
+     * Quick read: send the pages without saving. Two batches are in flight at once so the PC is
+     * not idle while the next one uploads, but pages are shown in page order: a later batch's
+     * pages wait until the earlier ones are done. The reader opens on the first finished page and
+     * the rest are added as the server streams them.
+     */
     private void read(BaiheClient client, String url, List<PageImage> images, int unreadable, boolean truncated) {
+        QuickReadSession.begin();
+        QuickReadSession.onCancel(this::cancelGrab);
+        long readStarted = System.currentTimeMillis();
+        java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(QUICK_READ_STREAMS);
         try {
             // A typeset answer is large, so the batch stays small however many the server allows.
             int max = Math.min(QUICK_READ_BATCH, client.health().optInt("max_images_per_request", 12));
             QuickReadActivity.clear(this);
-            List<String> names = new ArrayList<>();
-            String firstError = "";
             List<List<PageImage>> batches = Batches.plan(images, max);
-            for (int i = 0; i < batches.size(); i++) {
-                say("Redrawing " + (i + 1) + " of " + batches.size());
-                try {
-                    JSONObject answer = client.readPages(url, batches.get(i));
-                    for (byte[] jpeg : QuickRead.typesetPages(answer)) {
-                        String name = String.format(java.util.Locale.ROOT, "page-%03d.jpg", names.size());
-                        try (java.io.FileOutputStream out = new java.io.FileOutputStream(
-                                new java.io.File(QuickReadActivity.quickReadDir(this), name))) {
-                            out.write(jpeg);
+            int n = batches.size();
+            Object lock = new Object();
+            List<List<byte[]>> held = new ArrayList<>();
+            boolean[] finished = new boolean[n];
+            for (int i = 0; i < n; i++) held.add(new ArrayList<>());
+            int[] frontier = {0};
+            int[] shown = {0};
+            long[] firstPageAt = {0};
+            boolean[] opened = {false};
+            String[] firstError = {""};
+            boolean[] refused = {false};
+
+            // Called with `lock` held: writes a page and, the first time, opens the reader.
+            java.util.function.Consumer<byte[]> show = jpeg -> {
+                String name = String.format(java.util.Locale.ROOT, "page-%03d.jpg", shown[0]);
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(
+                        new java.io.File(QuickReadActivity.quickReadDir(this), name))) {
+                    out.write(jpeg);
+                } catch (IOException e) {
+                    return;
+                }
+                shown[0]++;
+                QuickReadSession.add(name);
+                if (!opened[0]) {
+                    opened[0] = true;
+                    firstPageAt[0] = System.currentTimeMillis();
+                    Intent open = new Intent(this, QuickReadActivity.class);
+                    runOnUiThread(() -> startActivity(open));
+                }
+            };
+
+            List<java.util.concurrent.Future<?>> running = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                final int index = i;
+                running.add(pool.submit(() -> {
+                    if (refused[0] || cancelRequested || QuickReadSession.isAbandoned()) {
+                        synchronized (lock) {
+                            finished[index] = true;
+                            advance(frontier, finished, held, show);
                         }
-                        names.add(name);
+                        return;
                     }
-                    if (firstError.isEmpty() && QuickRead.typesetPages(answer).isEmpty()) {
-                        firstError = QuickRead.firstWarning(answer);
+                    say("Redrawing " + images.size() + " pictures: " + shown[0] + " ready");
+                    try {
+                        JSONObject done = client.streamPages(url, batches.get(index), page -> {
+                            JSONObject wrapped;
+                            try {
+                                wrapped = new JSONObject().put("pages", new JSONArray().put(page));
+                            } catch (org.json.JSONException e) {
+                                return;
+                            }
+                            List<byte[]> jpegs = QuickRead.typesetPages(wrapped);
+                            synchronized (lock) {
+                                if (jpegs.isEmpty()) {
+                                    if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
+                                    return;
+                                }
+                                for (byte[] jpeg : jpegs) {
+                                    if (index == frontier[0]) show.accept(jpeg);
+                                    else held.get(index).add(jpeg);
+                                }
+                            }
+                        });
+                        synchronized (lock) {
+                            JSONArray failed = done.optJSONArray("failed");
+                            if (firstError[0].isEmpty() && failed != null && failed.length() > 0) {
+                                firstError[0] = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
+                            }
+                            JSONArray skipped = done.optJSONArray("skipped");
+                            if (firstError[0].isEmpty() && skipped != null && skipped.length() > 0) {
+                                firstError[0] = skipped.length() + " pictures were not pages ("
+                                        + (skipped.optJSONObject(0) == null ? "" : skipped.optJSONObject(0).optString("reason", "")) + ")";
+                            }
+                        }
+                    } catch (BaiheClient.BridgeException e) {
+                        synchronized (lock) {
+                            if (firstError[0].isEmpty()) firstError[0] = e.getMessage();
+                            // A token the server refused, or a spent limit, would refuse every later batch too.
+                            if (e.status == 401 || e.status == 403 || e.status == 429) refused[0] = true;
+                        }
                     }
-                    JSONArray failed = answer.optJSONArray("failed");
-                    if (firstError.isEmpty() && failed != null && failed.length() > 0) {
-                        firstError = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
+                    synchronized (lock) {
+                        finished[index] = true;
+                        advance(frontier, finished, held, show);
                     }
-                } catch (BaiheClient.BridgeException e) {
-                    if (firstError.isEmpty()) firstError = e.getMessage();
-                    // A token the server refused, or a spent limit, would refuse every later batch too.
-                    if (e.status == 401 || e.status == 403 || e.status == 429) break;
+                }));
+            }
+            for (java.util.concurrent.Future<?> f : running) {
+                try {
+                    f.get();
+                } catch (InterruptedException | java.util.concurrent.ExecutionException e) {
+                    // A batch that threw is counted as nothing shown; the others carry on.
                 }
             }
-            String message = QuickRead.summary(names.size(), images.size() + unreadable, firstError)
-                    + (truncated ? ". Some pages were left out." : "");
+            QuickReadSession.finish();
+            long ended = System.currentTimeMillis();
+            String timing = firstPageAt[0] == 0 ? "" : String.format(java.util.Locale.ROOT,
+                    " (found %d s, first page %d s, all %d s)", (readStarted - grabStartedAt) / 1000,
+                    (firstPageAt[0] - readStarted) / 1000, (ended - readStarted) / 1000);
+            String message = cancelRequested && shown[0] == 0 ? "Cancelled."
+                    : (cancelRequested ? "Cancelled. " : "")
+                    + QuickRead.summary(shown[0], images.size() + unreadable, firstError[0])
+                    + (truncated ? ". Some pages were left out." : "") + timing;
+            QuickReadSession.onCancel(null);
             finishGrab(message, false);
-            if (!names.isEmpty()) {
-                Intent open = new Intent(this, QuickReadActivity.class)
-                        .putExtra(QuickReadActivity.EXTRA_FILES, names.toArray(new String[0]));
-                runOnUiThread(() -> startActivity(open));
-            }
         } catch (BaiheClient.BridgeException e) {
+            QuickReadSession.onCancel(null);
+            QuickReadSession.finish();
             finishGrab(e.getMessage());
         } catch (Exception e) {
+            QuickReadSession.onCancel(null);
+            QuickReadSession.finish();
             finishGrab("Could not read the pages.");
+        } finally {
+            pool.shutdown();
+        }
+    }
+
+    /** With the read lock held: shows what earlier batches held back, moving on past each finished batch. */
+    private static void advance(int[] frontier, boolean[] finished, List<List<byte[]>> held,
+                                java.util.function.Consumer<byte[]> show) {
+        while (frontier[0] < finished.length) {
+            List<byte[]> waiting = held.get(frontier[0]);
+            for (byte[] jpeg : waiting) show.accept(jpeg);
+            waiting.clear();
+            if (!finished[frontier[0]]) break;
+            frontier[0]++;
         }
     }
 
@@ -722,7 +872,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             int stored = 0;
             int failed = 0;
             String firstError = "";
-            for (int i = 0; i < batches.size(); i++) {
+            for (int i = 0; i < batches.size() && !cancelRequested; i++) {
                 say("Sending " + (i + 1) + " of " + batches.size());
                 try {
                     JSONObject answer = client.sendPages(dramaId, url, batches.get(i));
@@ -736,7 +886,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
             }
             failed += unreadable;
-            StringBuilder out = new StringBuilder("Sent " + stored + " pages to " + title.optString("title", "Baihe"));
+            StringBuilder out = new StringBuilder((cancelRequested ? "Cancelled. " : "") + "Sent " + stored + " pages to " + title.optString("title", "Baihe"));
             if (failed > 0 || truncated) out.append(". Not sent: ").append(failed + (truncated ? " or more" : ""));
             if (!firstError.isEmpty()) out.append(". ").append(firstError);
             // A chapter where every page was refused must not send the chain on to the next.
