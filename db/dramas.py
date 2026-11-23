@@ -167,6 +167,11 @@ def get_drama(drama_id: int):
     return dict(row) if row else None
 
 
+def count_dramas_owned_by(user_id: int) -> int:
+    with contextlib.closing(db.get_conn()) as conn:
+        return conn.execute("SELECT COUNT(*) FROM dramas WHERE owner_user_id = ?", (user_id,)).fetchone()[0]
+
+
 def earlier_episode_summaries(drama_id: int) -> list:
     """[(episode_number, summary)] of the episodes of this drama's series that come
     before it, oldest first, leaving out the one just before it (that one reaches

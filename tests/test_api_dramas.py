@@ -495,3 +495,39 @@ def test_capture_notes_route_lists_a_titles_notes_and_404s_for_a_missing_title(c
     items = client.get(f"/api/library/dramas/{did}/capture-notes").json()["items"]
     assert [i["summary"] for i in items] == ["Saved 3 of 3 pages."]
     assert client.get("/api/library/dramas/999999/capture-notes").status_code == 404
+
+
+def test_a_member_deletes_their_own_title_from_away_and_nothing_else(isolated_db):
+    from fastapi.testclient import TestClient
+    from api import auth as api_auth
+    from services import auth_service
+
+    def signed_in(email, admin=False):
+        u = auth_service.grant_admin_local(email) if admin else auth_service.add_user(email)
+        s = auth_service.create_session(u["id"])
+        return u, {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}", api_auth.CSRF_HEADER: s["csrf_token"]}
+
+    away = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com",
+                      raise_server_exceptions=False)
+    kim, kim_h = signed_in("kim@example.com")
+    _, bo_h = signed_in("bo@example.com")
+    _, admin_h = signed_in("admin@example.com", admin=True)
+    mine = db.create_drama(title_en="Mine", owner_user_id=kim["id"], is_private=1)
+    kept = db.create_drama(title_en="Kept", owner_user_id=kim["id"])
+    pc_made = db.create_drama(title_en="PC", is_private=0)
+    body = {"confirm": True, "confirm_text": "DELETE"}
+
+    def delete(did, h, **over):
+        return away.post(f"/api/dramas/{did}/delete-mine", json={**body, **over}, headers=h)
+
+    assert delete(mine, kim_h, confirm_text="delete").status_code == 422
+    assert delete(mine, bo_h).status_code == 404              # private: not even seen
+    assert delete(pc_made, kim_h).status_code == 403
+    assert delete(pc_made, admin_h).status_code == 403        # an admin away: only their own too
+    assert db.get_drama(mine) and db.get_drama(pc_made)
+    r = delete(mine, kim_h)
+    assert r.status_code == 200 and r.json() == {"deleted": True, "drama_id": mine}
+    assert db.get_drama(mine) is None
+    assert any(row["action"] == "title.delete" for row in auth_service.list_audit(limit=10))
+    listed = away.get("/api/library/dramas", headers=kim_h).json()["items"]
+    assert {d["id"]: d["made_by_me"] for d in listed} == {kept: True, pc_made: False}

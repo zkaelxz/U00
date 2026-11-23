@@ -101,6 +101,10 @@ export const openDramaFolder = (id: number, f?: Fetch) =>
 export const deleteDrama = (id: number, f?: Fetch) =>
   deleteJson<DramaDeleteResult>(`/api/dramas/${id}?confirm=true&confirm_text=DELETE`, pcOnlyFetch(f))
 
+// A title the signed-in person owns, from any device; its 403 means "not yours", not "not the PC".
+export const deleteOwnDrama = (id: number, f?: Fetch) =>
+  postJson<DramaDeleteResult>(`/api/dramas/${id}/delete-mine`, { confirm: true, confirm_text: 'DELETE' }, f)
+
 export type CaptureNote = { summary: string; created_at: string }
 export const getCaptureNotes = (id: number, f?: Fetch) =>
   getJson<{ items: CaptureNote[] }>(`/api/library/dramas/${id}/capture-notes`, f)

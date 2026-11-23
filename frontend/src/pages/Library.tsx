@@ -609,7 +609,8 @@ export default function LibraryPage() {
           <DramaDetailPanel
             key={selected.id}
             dramaId={selected.id}
-            onDeleted={pc === 'remote' ? undefined : (r) => {
+            away={pc === 'remote'}
+            onDeleted={pc === 'remote' && !items.find((d) => d.id === selected.id)?.made_by_me ? undefined : (r) => {
               setNotice(deleteNotice(r))
               setSelected(null)
               reload()

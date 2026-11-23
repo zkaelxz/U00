@@ -3409,6 +3409,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/{drama_id}/delete-mine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Permanently delete a title you made, from any device (confirm=true and confirm_text=DELETE)
+         * @description 403 for a title made at the PC or by someone else; those are deleted at the PC.
+         */
+        post: operations["delete_own_drama_api_dramas__drama_id__delete_mine_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/{drama_id}/duplicate": {
         parameters: {
             query?: never;
@@ -18686,6 +18706,11 @@ export interface components {
              * @default 0
              */
             line_count: number;
+            /**
+             * Made By Me
+             * @description The signed-in viewer owns it, so they may delete it from any device. Only set in the Library list.
+             */
+            made_by_me: boolean | null;
             /** Media Type */
             media_type: string | null;
             /** Narration Language */
@@ -18838,6 +18863,11 @@ export interface components {
              * @default 0
              */
             line_count: number;
+            /**
+             * Made By Me
+             * @description The signed-in viewer owns it, so they may delete it from any device. Only set in the Library list.
+             */
+            made_by_me: boolean | null;
             /** Media Type */
             media_type: string | null;
             /** Narration Language */
@@ -19060,6 +19090,11 @@ export interface components {
              * @default 0
              */
             line_count: number;
+            /**
+             * Made By Me
+             * @description The signed-in viewer owns it, so they may delete it from any device. Only set in the Library list.
+             */
+            made_by_me: boolean | null;
             /** Media Type */
             media_type: string | null;
             /**
@@ -24342,6 +24377,23 @@ export interface components {
             size_bytes: number;
             /** Vram Bytes */
             vram_bytes: number;
+        };
+        /**
+         * OwnTitleDelete
+         * @description Deleting a title you made, from any device: confirm=true and the word DELETE.
+         */
+        OwnTitleDelete: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm?: boolean;
+            /**
+             * Confirm Text
+             * @description The word DELETE, exactly.
+             * @default
+             */
+            confirm_text?: string;
         };
         /** PcProfilePinRequest */
         PcProfilePinRequest: {
@@ -42711,6 +42763,68 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_own_drama_api_dramas__drama_id__delete_mine_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnTitleDelete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DramaDeleteResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

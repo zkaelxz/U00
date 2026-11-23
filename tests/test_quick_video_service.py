@@ -272,3 +272,21 @@ def test_losing_import_from_a_link_stops_a_waiting_download(jobs, started_downlo
     auth_service.revoke_permission(u["id"], "media.import_url")
     q.tick()
     assert _statuses(did)[0] == "skipped" and started_downloads == []
+
+
+def test_a_member_stops_at_the_title_limit_and_an_admin_does_not(jobs, started_downloads, monkeypatch):
+    from services import auth_service
+    u, member = _away_member(monkeypatch)
+    for n in range(qv.MEMBER_TITLE_LIMIT - 1):
+        db.create_drama(title_en=f"T{n}", owner_user_id=u["id"])
+    pid = _profile()
+    assert qv.start(member, URL, pid, False, holds_paid=False, at_pc=False)["drama_id"]
+    before = len(db.list_dramas())
+    with pytest.raises(ConflictError, match="100 titles"):
+        qv.start(member, URL, pid, False, holds_paid=False, at_pc=False)
+    assert len(db.list_dramas()) == before
+    admin = auth_service.add_user("a@example.com")
+    for n in range(qv.MEMBER_TITLE_LIMIT):
+        db.create_drama(title_en=f"A{n}", owner_user_id=admin["id"])
+    assert qv.start({**member, "user_id": admin["id"], "is_admin": True}, URL, pid, False,
+                    holds_paid=False, at_pc=False)["drama_id"]

@@ -277,6 +277,9 @@ class DramaSummary(BaseModel):
         default=None, description="The signed-in viewer may change its sharing: they created it, "
                                   "or they are an admin and it was made at the PC (or they are at "
                                   "the PC). Only set in the Library list.")
+    made_by_me: Optional[bool] = Field(
+        default=None, description="The signed-in viewer owns it, so they may delete it from any "
+                                  "device. Only set in the Library list.")
     has_cover_art: bool = Field(default=False, description="An uploaded cover exists. Only set in the Library list.")
     line_count: int = Field(default=0, description="Lines the title has. Only counted in the Library list.")
     translated_count: int = Field(default=0, description="Lines with English text. Only counted in the Library list.")

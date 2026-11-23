@@ -48,7 +48,7 @@ from core import SOURCE_LANGUAGES
 from services import (language_pack_service, library_service, ownership_service, settings_service,
                       source_link_service, vdb_names_service)
 from lib import file_manager
-from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
+from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                                      ServiceError, UnsupportedOperationError)
 
 log = logging.getLogger(__name__)
@@ -566,6 +566,25 @@ def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: fl
     # realpath: a dramas folder moved to another drive behind a link is still swept.
     return storage._sweep_folder(os.path.realpath(db.DRAMAS_DIR), stale_tombstone, max_age, now,
                                  set(), False)["removed"]
+
+
+_NOT_YOURS = ("Away from the PC you can delete only titles you made yourself. Other titles are "
+              "deleted at the PC.")
+
+
+def delete_own_drama(principal, drama_id, confirm=False, confirm_text="") -> dict:
+    """delete_drama for a title the caller owns (owner decision 2026-11-23: members delete their
+    own titles from any device). A title made at the PC or by someone else is refused (403), for an
+    admin away from the PC too: a remote session has no second factor. Audited."""
+    from services import auth_service, ownership_service
+    ownership_service.require_visible(principal, "drama", drama_id)
+    uid = ownership_service.user_id(principal)
+    drama = db.get_drama(drama_id)
+    if uid is None or drama is None or drama.get("owner_user_id") != uid:
+        raise ForbiddenError(_NOT_YOURS)
+    result = delete_drama(drama_id, confirm=confirm, confirm_text=confirm_text)
+    auth_service.write_audit(uid, "title.delete", f"title {drama_id}")
+    return result
 
 
 def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
