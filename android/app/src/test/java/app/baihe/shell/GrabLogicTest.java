@@ -276,4 +276,32 @@ public class GrabLogicTest {
         assertEquals(GrabUi.Kind.BAD, GrabUi.kindOf("Could not read the pages.", false));
     }
 
+
+    @Test
+    public void quickReadSessionGrowsAndStopsWhenTheReaderCloses() {
+        QuickReadSession.begin();
+        assertFalse(QuickReadSession.isComplete());
+        QuickReadSession.add("page-000.jpg");
+        QuickReadSession.add("page-001.jpg");
+        assertEquals(2, QuickReadSession.snapshot().size());
+        QuickReadSession.finish();
+        assertTrue(QuickReadSession.isComplete());
+        QuickReadSession.abandon();
+        assertTrue(QuickReadSession.isAbandoned());
+        assertEquals(0, QuickReadSession.snapshot().size());
+    }
+
+    @Test
+    public void cancellingKeepsReadPagesAndTellsTheGrabToStop() {
+        QuickReadSession.begin();
+        QuickReadSession.add("page-000.jpg");
+        boolean[] stopped = {false};
+        QuickReadSession.onCancel(() -> stopped[0] = true);
+        QuickReadSession.cancel();
+        assertTrue(stopped[0]);
+        assertTrue(QuickReadSession.isAbandoned());
+        assertTrue(QuickReadSession.isComplete());
+        assertEquals(1, QuickReadSession.snapshot().size());
+        QuickReadSession.onCancel(null);
+    }
 }

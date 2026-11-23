@@ -19,33 +19,36 @@ import java.io.File;
  * library and nothing stays on the phone.
  */
 public class QuickReadActivity extends Activity {
-    static final String EXTRA_FILES = "files";
-
-    private File[] files = new File[0];
+    private final java.util.List<File> files = new java.util.ArrayList<>();
     private LruCache<Integer, Bitmap> cache;
+    private PageAdapter adapter;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        String[] names = getIntent().getStringArrayExtra(EXTRA_FILES);
-        File dir = quickReadDir(this);
-        if (names != null) {
-            files = new File[names.length];
-            for (int i = 0; i < names.length; i++) {
-                // Only a bare name inside the cache folder is opened, never a path an intent chose.
-                files[i] = new File(dir, new File(names[i]).getName());
-            }
-        }
         cache = new LruCache<>(6);
         ListView list = new ListView(this);
         list.setDivider(null);
-        list.setAdapter(new PageAdapter());
+        adapter = new PageAdapter();
+        list.setAdapter(adapter);
+        refresh();
+        // Pages arrive while the reader is open, so the list grows as the grab writes them.
+        QuickReadSession.listen(() -> runOnUiThread(this::refresh));
         setContentView(list);
         list.setFitsSystemWindows(true);
     }
 
+    /** Only bare names the grab itself wrote inside the cache folder are opened, never a path an intent chose. */
+    private void refresh() {
+        File dir = quickReadDir(this);
+        files.clear();
+        for (String name : QuickReadSession.snapshot()) files.add(new File(dir, new File(name).getName()));
+        adapter.notifyDataSetChanged();
+    }
+
     @Override
     protected void onDestroy() {
+        QuickReadSession.abandon();
         clear(this);
         super.onDestroy();
     }
@@ -69,24 +72,42 @@ public class QuickReadActivity extends Activity {
         int width = getResources().getDisplayMetrics().widthPixels;
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(files[position].getPath(), bounds);
+        BitmapFactory.decodeFile(files.get(position).getPath(), bounds);
         int sample = 1;
         // Pages are often much wider than the screen; half-size steps keep them sharp enough.
         while (bounds.outWidth / (sample * 2) >= width) sample *= 2;
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sample;
-        Bitmap bitmap = BitmapFactory.decodeFile(files[position].getPath(), options);
+        Bitmap bitmap = BitmapFactory.decodeFile(files.get(position).getPath(), options);
         if (bitmap != null) cache.put(position, bitmap);
         return bitmap;
     }
 
     private final class PageAdapter extends BaseAdapter {
-        @Override public int getCount() { return files.length; }
-        @Override public Object getItem(int position) { return files[position]; }
+        @Override public int getCount() { return files.size() + (QuickReadSession.isComplete() ? 0 : 1); }
+        @Override public Object getItem(int position) { return position < files.size() ? files.get(position) : null; }
         @Override public long getItemId(int position) { return position; }
 
         @Override
         public View getView(int position, View convert, ViewGroup parent) {
+            if (position >= files.size()) {
+                android.widget.LinearLayout row = new android.widget.LinearLayout(QuickReadActivity.this);
+                row.setOrientation(android.widget.LinearLayout.VERTICAL);
+                row.setGravity(android.view.Gravity.CENTER);
+                int pad = (int) (24 * getResources().getDisplayMetrics().density);
+                row.setPadding(pad, pad, pad, pad);
+                android.widget.TextView more = new android.widget.TextView(QuickReadActivity.this);
+                more.setText("Redrawing more pages...");
+                more.setTextSize(16);
+                row.addView(more);
+                android.widget.Button stop = new android.widget.Button(QuickReadActivity.this);
+                stop.setText("Cancel");
+                stop.setOnClickListener(v -> QuickReadSession.cancel());
+                row.addView(stop);
+                row.setLayoutParams(new ListView.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                return row;
+            }
             ImageView view = convert instanceof ImageView ? (ImageView) convert : new ImageView(QuickReadActivity.this);
             view.setAdjustViewBounds(true);
             view.setScaleType(ImageView.ScaleType.FIT_CENTER);
