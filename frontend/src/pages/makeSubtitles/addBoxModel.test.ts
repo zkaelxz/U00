@@ -70,6 +70,8 @@ describe('Add box: the plan line', () => {
       .toBe('Download it on this PC, transcribe it, then translate it, through the Queue.')
     expect(planForLink({ pc: 'remote', source: false, loaded: false, profile: null, engine: null })).toMatch(/only on the main PC/)
     expect(planForLink({ pc: 'local', source: true, loaded: true, profile: 'Fast', engine: null })).toMatch(/Sources page/)
+    expect(planForLink({ pc: 'local', source: false, loaded: true, profile: 'Default', engine: 'claude', capNeeded: true }))
+      .toBe('Set a monthly spending cap in Settings > Spending first: this profile translates with a paid engine.')
   })
 })
 
