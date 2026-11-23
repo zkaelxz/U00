@@ -330,7 +330,8 @@ _GPU_DETECTOR_MB = 800
 
 def _detector_on_gpu(model, torch):
     """The GPU copy when Settings allows GPU use and it fits (or is already there), else None."""
-    if _bubble_ml_gpu_broken or not torch.cuda.is_available():
+    cuda = getattr(torch, "cuda", None)
+    if _bubble_ml_gpu_broken or cuda is None or not cuda.is_available():
         return None
     import stored_settings
     if not stored_settings.read("use_gpu"):
