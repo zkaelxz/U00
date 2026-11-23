@@ -17,6 +17,8 @@ before it is translated. Three rules keep that safe:
   that waits longer than `CHAIN_WAIT_SECONDS` translates with no context
   rather than hold its handler thread behind one slow model call, and a
   capture with neither a drama nor a page URL has no title to chain.
+  Quick read (nothing saved) skips the lock and reads whatever summary the
+  title has when its page starts, trading some continuity for speed.
 - A newly added page is discarded only while the pipeline lock is still
   held (`discard_on_failure`); after release another request may already
   have answered with it, so a later failure keeps it for a re-capture.
@@ -81,12 +83,31 @@ def _evict_idle_chains():
         _contexts.pop(key, None)
 
 
-def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb, **extras):
+def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb,
+                       wait_for_turn: bool = True, **extras):
     """Translates one page as the next link of its title's context chain.
     Other titles never wait on this title's lock. `extras` (character_notes,
-    page_image) go to `translate_page_bubbles` as given."""
+    page_image) go to `translate_page_bubbles` as given.
+
+    `wait_for_turn=False` (Quick read, which keeps nothing) skips the title's
+    lock: the page reads the summary of whichever page finished last and
+    leaves its own, so pages translate side by side at the cost of a looser
+    story link between pages in flight together."""
     from scanlate import scanlate_translate
     key = _chain_key(drama_id, source_url)
+    if key is not None and not wait_for_turn:
+        with _context_lock:
+            previous = _contexts.get(key, "")
+        new_context = scanlate_translate.translate_page_bubbles(
+            bubbles, engine, drama or {}, previous_context=previous,
+            glossary_terms=glossary, usage_cb=usage_cb, **extras)
+        with _context_lock:
+            _contexts[key] = new_context
+            _contexts.move_to_end(key)
+            # This path makes no lock, so the lock count that bounds the chains never sees it.
+            while len(_contexts) > MAX_CHAINS:
+                _contexts.popitem(last=False)
+        return
     if key is None:
         scanlate_translate.translate_page_bubbles(
             bubbles, engine, drama or {}, previous_context="",
@@ -198,12 +219,15 @@ UNORDERED = _Unordered()
 class PageOrder:
     """Turns for the pages of one request, by their index in it. `should_stop` is asked when
     a page's turn to read comes; True raises `Stopped` there, before anything is stored.
-    `finish(index)` must run for every page, however it ended, or the next page waits for ever."""
+    `finish(index)` must run for every page, however it ended, or the next page waits for ever.
+    `ordered_translation=False` lets a page translate without waiting for the one before it
+    (Quick read); reading stays in page order either way."""
 
-    def __init__(self, count: int, should_stop=lambda: False):
+    def __init__(self, count: int, should_stop=lambda: False, ordered_translation: bool = True):
         self._read = [threading.Event() for _ in range(count)]
         self._translated = [threading.Event() for _ in range(count)]
         self._should_stop = should_stop
+        self.ordered_translation = ordered_translation
 
     def turn(self, index: int) -> "_PageTurn":
         return _PageTurn(self, index)
@@ -231,7 +255,7 @@ class _PageTurn:
 
     @contextlib.contextmanager
     def translating(self):
-        if self._index:
+        if self._index and self._order.ordered_translation:
             self._order._translated[self._index - 1].wait()
         try:
             yield

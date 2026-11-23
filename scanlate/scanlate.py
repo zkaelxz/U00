@@ -48,9 +48,9 @@ from scanlate.scanlate_watermark import flag_site_marks
 
 
 def warm_models(detect_backend: str = "auto") -> list:
-    """Loads the balloon detector and the text eraser now, from weights already on disk, so the
-    first page after the app starts does not wait for them (about 6 s of a first page on a 3080 Ti
-    PC). Downloads nothing; a model that is not on disk, or is not the chosen detector, is left
+    """Loads the balloon detector, the text eraser and the Chinese text reader now, from weights
+    already on disk, so the first page after the app starts does not wait for them (about 6 s of
+    a first page on a 3080 Ti PC, before the reader was added). Downloads nothing; a model that is not on disk, or is not the chosen detector, is left
     alone. Returns the names of the models it loaded. The caller holds the pipeline lock."""
     from scanlate import scanlate_detect
     from scanlate import scanlate_lama
@@ -64,7 +64,20 @@ def warm_models(detect_backend: str = "auto") -> list:
         mask[24:40, 24:40] = 255
         scanlate_lama._run_ml_inpaint(blank, mask, allow_download=False)
         warmed.append("text eraser")
+    if _chinese_reader_on_disk():
+        import ocr
+        ocr._run_rapidocr("medium", blank)
+        warmed.append("Chinese text reader")
     return warmed
+
+
+def _chinese_reader_on_disk() -> bool:
+    """Whether the RapidOCR pair Chinese pages use is installed and already downloaded: building
+    is otherwise paid by the first Chinese page, and warming must never download."""
+    import ocr
+    return (ocr.backend_problem("rapidocr") is None
+            and all(os.path.isfile(ocr.rapidocr_model_path(spec))
+                    for spec in (ocr.RAPIDOCR_MEDIUM_DET_MODEL, ocr.RAPIDOCR_MEDIUM_REC_MODEL)))
 
 
 def slice_webtoon_to_files(image_path: str, out_dir: str, target_height: int = 1600,

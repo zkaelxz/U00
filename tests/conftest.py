@@ -295,6 +295,16 @@ def _ml_detector_failure_forgotten():
 
 
 @pytest.fixture(autouse=True)
+def _quick_read_answers_forgotten():
+    """Quick read keeps answers by image bytes process-wide, and tests reuse the same small
+    images, so one test's answer must not stand in for the next test's page."""
+    yield
+    from services import extension_bridge_service
+    with extension_bridge_service._quick_read_cache_lock:
+        extension_bridge_service._quick_read_cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_gemma_picture_reader():
     """A comic page's picture goes to Gemma on Ollama's servers whenever the PC's
     Ollama answers, so a test run beside a running Ollama would send real, billed
