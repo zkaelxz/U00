@@ -55,7 +55,7 @@ test('From a URL: toggle, checks, download starts the urlmedia job', async ({ pa
   const s = await mockUrlDownload(page, { hasAudio: true })
   await page.goto('/#/drama/1/source')
   await expect(page.getByTestId('media-status')).toBeVisible()
-  await expect(page.getByLabel('Audio or video file')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Choose a file' })).toBeVisible()
 
   await page.getByRole('radio', { name: 'From a URL' }).check()
   await expect(page.getByLabel('Audio or video file')).toHaveCount(0)

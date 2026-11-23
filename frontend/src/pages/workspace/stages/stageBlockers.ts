@@ -26,7 +26,7 @@ export function exportBlocked(totalLines: number | null): boolean {
   return totalLines !== null && totalLines <= 0
 }
 
-// The Source stage's media file input, so the Transcribe blocker can focus it.
+// The Source stage's Choose a file button (the file input itself is hidden), so the Transcribe blocker can focus it.
 export const mediaFileInputId = (dramaId: number) => `source-media-file-${dramaId}`
 export const replaceBoxId = (dramaId: number) => `source-replace-media-${dramaId}`
 

@@ -20,7 +20,7 @@ test('phone: the bell sits on the title row and its panel fits the screen', asyn
     }),
   )
   await page.goto('/#/library')
-  const bell = page.getByRole('button', { name: 'Alerts (2 new)' })
+  const bell = page.getByRole('button', { name: 'Alerts, 2 new' })
   await expect(bell).toBeVisible()
   const box = (await bell.boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)

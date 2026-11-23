@@ -7,7 +7,7 @@ export function TitleViewSwitch({ view, onChange }: { view: TitleView; onChange:
       {(['simple', 'full'] as const).map((v) => (
         <label key={v}>
           <input type="radio" name="title-view" value={v} checked={view === v} onChange={() => onChange(v)} />
-          <span>{v === 'simple' ? 'Simple' : 'Full'}</span>
+          <span>{v === 'simple' ? 'Guided' : 'All tools'}</span>
         </label>
       ))}
     </fieldset>

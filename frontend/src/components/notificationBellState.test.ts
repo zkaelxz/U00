@@ -99,7 +99,7 @@ describe('last seen in localStorage', () => {
 describe('labels', () => {
   it('names the bell with the unread count', () => {
     expect(bellLabel(0)).toBe('Alerts')
-    expect(bellLabel(3)).toBe('Alerts (3 new)')
+    expect(bellLabel(3)).toBe('Alerts, 3 new')
   })
 
   it('gives each kind a toned, worded badge', () => {

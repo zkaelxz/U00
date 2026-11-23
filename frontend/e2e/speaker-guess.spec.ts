@@ -17,7 +17,7 @@ for (const view of ['full', 'simple'] as const) test(`fill blank speakers from t
   await page.addInitScript((v) => localStorage.setItem('baihe.pref.title.view', JSON.stringify(v)), view)
   await page.goto('/#/drama/3/review')
   // Simple opens on the lines that need a look, which lists the blank speakers too; this flow reads them under All.
-  if (view === 'simple') await page.getByRole('radio', { name: /^All/ }).check()
+  if (view === 'simple') await page.getByRole('group', { name: 'Lines to show' }).getByRole('radio', { name: /^All/ }).check()
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(7)
 
   // The best-supported speaker comes first; named lines get no buttons.

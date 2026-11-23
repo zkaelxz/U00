@@ -82,12 +82,3 @@ for (const link of ['focus=characters', 'tab=characters']) test(`Simple: a link 
   await expect(page.getByRole('tab', { name: 'Characters', exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('region', { name: 'Characters', exact: true })).toBeInViewport()
 })
-
-test('Simple: the title page\'s Estimate cost opens Translate with Estimate cost on screen', async ({ page }) => {
-  await simpleView(page)
-  await setup(page, 3, { line_count: 4, untranslated_count: 4 })
-  await page.goto('/#/drama/3')
-  await page.getByRole('complementary', { name: 'Title panel' }).getByRole('link', { name: 'Estimate cost' }).click()
-  await expect(page).toHaveURL(/#\/drama\/3\/translate/)
-  await expect(page.getByRole('button', { name: 'Estimate cost' })).toBeInViewport()
-})

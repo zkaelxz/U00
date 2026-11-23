@@ -178,12 +178,12 @@ export default function ExportStage() {
                 {r.overlap_count > 0 && (
                   <li className="muted">
                     {plural(r.overlap_count, 'cue')} overlap; both stay fully visible in ASS and VTT and are shortened in SRT.{' '}
-                    <a href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Open Review checks</a> to flag them.
+                    <a className="touch-link" href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Open Review checks</a> to flag them.
                   </li>
                 )}
                 {review.length > 0 && (
                   <li className="muted">
-                    {review.join(', ')}. <a href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Open Review checks</a> to flag them.
+                    {review.join(', ')}. <a className="touch-link" href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Open Review checks</a> to flag them.
                   </li>
                 )}
               </ul>
