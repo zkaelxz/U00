@@ -209,4 +209,27 @@ public class GrabLogicTest {
         assertFalse(ServerAddress.opensInGrab("file:///sdcard/x"));
         assertFalse(ServerAddress.opensInGrab("intent://x#Intent;end"));
     }
+
+    @Test
+    public void quickReadKeepsOnlyServerJpegPagesInOrder() throws Exception {
+        String jpeg = "data:image/jpeg;base64,/9j/";
+        org.json.JSONObject answer = new org.json.JSONObject()
+                .put("pages", new org.json.JSONArray()
+                        .put(new org.json.JSONObject().put("typeset_image", jpeg))
+                        .put(new org.json.JSONObject().put("typeset", false))
+                        .put(new org.json.JSONObject().put("typeset_image", "data:text/html;base64,AAAA"))
+                        .put(new org.json.JSONObject().put("typeset_image", "data:image/jpeg;base64,!!!"))
+                        .put(new org.json.JSONObject().put("typeset_image", jpeg)));
+        List<byte[]> pages = QuickRead.typesetPages(answer);
+        assertEquals(2, pages.size());
+        assertEquals((byte) 0xFF, pages.get(0)[0]);
+        assertEquals(0, QuickRead.typesetPages(new org.json.JSONObject()).size());
+    }
+
+    @Test
+    public void quickReadSummaryNamesWhatHappened() {
+        assertEquals("Opened 3 of 4 pages", QuickRead.summary(3, 4, ""));
+        assertEquals("Nothing could be translated and redrawn on this page. The monthly cap is spent.",
+                QuickRead.summary(0, 2, "The monthly cap is spent."));
+    }
 }

@@ -22,7 +22,8 @@ final class BaiheClient {
     /** A bridge call can queue behind a long run; the extension waits the same 4.5 minutes. */
     private static final int READ_TIMEOUT_MS = (int) (4.5 * 60 * 1000);
     private static final int CONNECT_TIMEOUT_MS = 15_000;
-    private static final int MAX_ANSWER_BYTES = 4 * 1024 * 1024;
+    /** Room for a few typeset pages (each at most 1.5 MB as base64 text) of a Quick read answer. */
+    private static final int MAX_ANSWER_BYTES = 12 * 1024 * 1024;
 
     /** A refused or failed call; the message is the server's own text or a short fixed one. */
     static final class BridgeException extends Exception {
@@ -63,6 +64,18 @@ final class BaiheClient {
     }
 
     JSONObject sendPages(long dramaId, String pageUrl, List<PageImage> batch) throws BridgeException {
+        return post(pageUrl, batch, dramaId, true);
+    }
+
+    /**
+     * Quick read: the pages are translated and typeset on the PC and sent back, with no title
+     * and nothing saved. The same permissions and spending limit as a saved send apply.
+     */
+    JSONObject readPages(String pageUrl, List<PageImage> batch) throws BridgeException {
+        return post(pageUrl, batch, 0, false);
+    }
+
+    private JSONObject post(String pageUrl, List<PageImage> batch, long dramaId, boolean store) throws BridgeException {
         try {
             JSONArray images = new JSONArray();
             for (PageImage image : batch) {
@@ -74,10 +87,11 @@ final class BaiheClient {
             }
             JSONObject body = new JSONObject()
                     .put("images", images)
-                    .put("drama_id", dramaId)
                     .put("source_url", ServerAddress.publicSourceUrl(pageUrl))
-                    .put("store", true)
+                    .put("store", store)
                     .put("filter_pages", true);
+            if (store) body.put("drama_id", dramaId);
+            else body.put("typeset", true);
             // /page takes exactly one image; /pages runs the page filter, so a lone image uses /page.
             return call("POST", batch.size() == 1 ? "/page" : "/pages", body);
         } catch (JSONException e) {

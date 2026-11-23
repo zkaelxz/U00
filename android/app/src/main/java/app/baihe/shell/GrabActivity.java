@@ -53,6 +53,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private final ExecutorService sender = Executors.newSingleThreadExecutor();
     private final SecureRandom random = new SecureRandom();
     private Button chapters;
+    private Button quick;
+    // This grab is a Quick read: the pages come back typeset and nothing is saved.
+    private volatile boolean quickRead;
     private volatile boolean grabbing;
     // Chapters still to follow after the current one; 0 when not following.
     private volatile int chaptersLeft;
@@ -64,6 +67,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         bridge = new GrabBridge(this);
+        // Pages left by a Quick read that was cut off (the app was killed) are not kept.
+        QuickReadActivity.clear(this);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -129,6 +134,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         buttons.addView(button("Open Baihe", v -> openBaihe()), weighted());
         buttons.addView(button("Settings", v -> showSettings()), weighted());
         root.addView(buttons);
+        LinearLayout second = new LinearLayout(this);
+        second.setOrientation(LinearLayout.HORIZONTAL);
+        quick = button("Quick read", v -> startGrab(true));
+        second.addView(quick, weighted());
+        root.addView(second);
 
         setContentView(root);
         root.setFitsSystemWindows(true);
@@ -378,6 +388,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void startGrab() {
+        startGrab(false);
+    }
+
+    private void startGrab(boolean readOnly) {
+        // Following chapters saves each one, so a Quick read never starts inside that run.
+        if (readOnly && chaptersLeft > 0) return;
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
@@ -386,7 +402,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
         if (grabbing) return;
         grabbing = true;
+        quickRead = readOnly;
         grab.setEnabled(false);
+        quick.setEnabled(false);
         say("Reading pages");
         String nonce = newNonce();
         bridge.start(nonce);
@@ -473,6 +491,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String go = next;
         runOnUiThread(() -> {
             grab.setEnabled(true);
+            quick.setEnabled(true);
             chapters.setText(chaptersLeft > 0 ? "Stop" : "Chapters");
             status.setText(shown);
             if (go != null) {
@@ -483,6 +502,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private static final int MAX_CHAPTERS = 20;
+    private static final int QUICK_READ_BATCH = 4;
     private volatile String pageNext = "";
     private JSONArray pageChapters = new JSONArray();
 
@@ -512,7 +532,57 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
+        if (quickRead) {
+            sender.execute(() -> read(new BaiheClient(server, token), url, images, unreadable, truncated));
+            return;
+        }
         sender.execute(() -> upload(new BaiheClient(server, token), url, titles, chapterLinks, images, unreadable, truncated));
+    }
+
+    /** Quick read: send the pages without saving, write what comes back to the cache and open it. */
+    private void read(BaiheClient client, String url, List<PageImage> images, int unreadable, boolean truncated) {
+        try {
+            // A typeset answer is large, so the batch stays small however many the server allows.
+            int max = Math.min(QUICK_READ_BATCH, client.health().optInt("max_images_per_request", 12));
+            QuickReadActivity.clear(this);
+            List<String> names = new ArrayList<>();
+            String firstError = "";
+            List<List<PageImage>> batches = Batches.plan(images, max);
+            for (int i = 0; i < batches.size(); i++) {
+                say("Redrawing " + (i + 1) + " of " + batches.size());
+                try {
+                    JSONObject answer = client.readPages(url, batches.get(i));
+                    for (byte[] jpeg : QuickRead.typesetPages(answer)) {
+                        String name = String.format(java.util.Locale.ROOT, "page-%03d.jpg", names.size());
+                        try (java.io.FileOutputStream out = new java.io.FileOutputStream(
+                                new java.io.File(QuickReadActivity.quickReadDir(this), name))) {
+                            out.write(jpeg);
+                        }
+                        names.add(name);
+                    }
+                    JSONArray failed = answer.optJSONArray("failed");
+                    if (firstError.isEmpty() && failed != null && failed.length() > 0) {
+                        firstError = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
+                    }
+                } catch (BaiheClient.BridgeException e) {
+                    if (firstError.isEmpty()) firstError = e.getMessage();
+                    // A token the server refused, or a spent limit, would refuse every later batch too.
+                    if (e.status == 401 || e.status == 403 || e.status == 429) break;
+                }
+            }
+            String message = QuickRead.summary(names.size(), images.size() + unreadable, firstError)
+                    + (truncated ? ". Some pages were left out." : "");
+            finishGrab(message, false);
+            if (!names.isEmpty()) {
+                Intent open = new Intent(this, QuickReadActivity.class)
+                        .putExtra(QuickReadActivity.EXTRA_FILES, names.toArray(new String[0]));
+                runOnUiThread(() -> startActivity(open));
+            }
+        } catch (BaiheClient.BridgeException e) {
+            finishGrab(e.getMessage());
+        } catch (Exception e) {
+            finishGrab("Could not read the pages.");
+        }
     }
 
     private void upload(BaiheClient client, String url, List<String> titles, JSONArray chapterLinks,
