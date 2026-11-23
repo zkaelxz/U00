@@ -168,3 +168,26 @@ class TestEpisodeContext:
         lines = [Line(idx=0, start=0, end=1, zh="你好"), Line(idx=1, start=1, end=2, zh="再见")]
         meta = _context(isolated_db, ids[2], lines, job_id)
         assert meta["series_note"] == "Episode 1: One."
+
+
+class TestEpisodeSummaryCall:
+    def test_the_reply_limit_fits_a_full_json_summary(self, monkeypatch):
+        sent = {}
+
+        def fake(engine, prompt, **kw):
+            sent.update(kw, prompt=prompt)
+            return '{"summary": "They met."}'
+        monkeypatch.setattr(llm_tasks, "call_llm_json", fake)
+        lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="S0"),
+                 Line(idx=1, start=1, end=2, zh="再见", en="Bye")]
+        out = llm_tasks.generate_episode_summary(lines, _Engine(), character_names={"S0": "Lin"})
+        assert out == "They met."
+        assert sent["max_tokens"] >= 1200
+        assert "[Lin] Hello" in sent["prompt"] and "\nBye" in sent["prompt"]
+
+    def test_a_speaker_name_survives_the_long_episode_cut(self):
+        from engine_backends import llm_feature_prompts as p
+        lines = [Line(idx=i, start=i, end=i + 1, zh="x", en="word " * 20, speaker="S0") for i in range(900)]
+        prompt = p.build_episode_summary_prompt(lines, {"S0": "Lin"})
+        assert "middle of the episode is left out" in prompt
+        assert prompt.split("\n\n", 2)[-1].startswith("[Lin] word")

@@ -421,7 +421,7 @@ def test_ollama_down_with_an_empty_summary_is_a_dependency_error_not_a_500(isola
     did = _title(en=("a", "b", "c", "d"), errors=None)
     monkeypatch.setattr(episode_summary_service.line_ai_service, "engine_for",
                         lambda *a, **k: (object(), "ollama"))
-    monkeypatch.setattr(episode_summary_service.llm_tasks, "generate_episode_summary", lambda lines, engine: "")
+    monkeypatch.setattr(episode_summary_service.llm_tasks, "generate_episode_summary", lambda lines, engine, **k: "")
     monkeypatch.setattr(episode_summary_service.translate_run_service, "ollama_reachable", lambda: False)
     with pytest.raises(DependencyUnavailableError, match="Ollama not reachable"):
         episode_summary_service.generate(did, "ollama")
@@ -444,7 +444,7 @@ def test_generate_writes_nothing_and_logs_usage(isolated_db, monkeypatch):
     did = _title(errors=None)
     calls = []
 
-    def fake_generate(lines, engine, usage_cb=None):
+    def fake_generate(lines, engine, usage_cb=None, character_names=None):
         calls.append(len(lines))
         return "They met at the lake."
     monkeypatch.setattr(llm_tasks, "generate_episode_summary", fake_generate)
@@ -464,7 +464,7 @@ def test_generate_with_nothing_translated_or_an_empty_reply_says_so(isolated_db,
 
 def test_api_summary_options_and_generate(local_client, monkeypatch):
     from engine_backends import llm_tasks
-    monkeypatch.setattr(llm_tasks, "generate_episode_summary", lambda lines, engine, usage_cb=None: "S.")
+    monkeypatch.setattr(llm_tasks, "generate_episode_summary", lambda lines, engine, usage_cb=None, character_names=None: "S.")
     did = _title(errors=None)
     opts = local_client.get(f"/api/translate-run/dramas/{did}/episode-summary").json()
     assert "fake" in opts["engines"] and opts["engine"]

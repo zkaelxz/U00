@@ -43,7 +43,7 @@ class TestResolve:
         assert routing.resolve_capability("translation.cheap") == "deepseek"
         assert routing.resolve_capability("translation.high_quality") == "deepseek"
         assert routing.resolve_capability("llm.instructions") == "deepseek"
-        assert routing.resolve_capability("summary.episode") == "ollama"
+        assert routing.resolve_capability("summary.episode") == "claude"
         assert routing.resolve_capability("research.grounded_search") == "gemini"
 
     def test_returns_the_configured_engine(self, isolated_db):
