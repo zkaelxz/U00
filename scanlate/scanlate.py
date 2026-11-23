@@ -235,7 +235,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
                         hf_token: str | None = None, ocr_backend: str | None = None,
                         tesseract_cmd: str | None = None,
                         prefer_paddle_vl_manga: bool = False, page_id: int | None = None,
-                        art_captions: bool = False):
+                        art_captions: bool = False, art_captions_max_regions: int | None = None):
     """Detect -> structure (analyze_page_regions) -> OCR -> font-style
     sample for one page. Shared by the single-page Detect button and the
     run service's per-page loop, so both do exactly the same thing per page.
@@ -248,7 +248,8 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
 
     art_captions: also find lettering drawn straight onto the artwork (see
     scanlate_art_text), which the bubble detector never sees, and return it as
-    regions of kind "caption" after the bubbles.
+    regions of kind "caption" after the bubbles; a page with more bubbles than
+    `art_captions_max_regions` skips that extra pass (about 0.7 s of CPU a page).
 
     The page is decoded once (decode_page()) and that array shared by every
     step, instead of each step and each bubble reading the file again."""
@@ -319,7 +320,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     flag_english_text(bubbles, source_language)
     flag_bare_numbers(bubbles, source_language)
     _note_skipped_sfx(bubbles, notes)
-    if art_captions:
+    if art_captions and _within_caption_limit(len(bubbles), art_captions_max_regions):
         if captions is None:
             captions = _art_caption_regions(image_path, source_language, bubbles, page, notes,
                                             ocr_backend)
@@ -340,6 +341,10 @@ _THOUGHT_DOTS = re.compile(r"[oO0°○◦.·・\s]+")
 
 _SOURCE_SCRIPT = re.compile("[\u1100-\u11ff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
 _ENGLISH_MIN_LETTERS = 4
+
+
+def _within_caption_limit(region_count: int, limit: int | None) -> bool:
+    return limit is None or region_count <= limit
 
 
 def flag_english_text(regions: list, source_language: str) -> int:
@@ -453,11 +458,22 @@ def drop_parts_of_captions(regions: list, captions: list) -> list:
     detector can cut a large glowing caption into sign or sfx fragments; each
     line then sits less than half inside any one fragment, so the caption is
     found as well, and the fragments' English was set on top of the caption's.
-    Balloons stay: their lettering is their own even where a caption overlaps."""
+    A balloon stays unless it is a box on the caption's own lettering (its text
+    is part of the caption's): a title logo's single glyph gets boxed as a
+    balloon, and lettering both would put English twice over the title."""
     from scanlate.scanlate_art_text import _overlap
+
+    def inside(region, caption):
+        return _overlap(region, caption) >= _CAPTION_PART_SHARE
+
+    def is_caption_lettering(region, caption):
+        text = (region.get("source_text") or "").strip()
+        return bool(text) and text in (caption.get("source_text") or "")
+
     return [r for r in regions
-            if r.get("kind") in SHAPE_FITTED_KINDS
-            or not any(_overlap(r, c) >= _CAPTION_PART_SHARE for c in captions)]
+            if not any(inside(r, c) and (r.get("kind") not in SHAPE_FITTED_KINDS
+                                         or is_caption_lettering(r, c))
+                       for c in captions)]
 
 
 def with_captions(regions: list, captions: list) -> list:

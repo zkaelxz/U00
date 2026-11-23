@@ -84,7 +84,10 @@ public class QuickReadActivity extends Activity {
     }
 
     private final class PageAdapter extends BaseAdapter {
-        @Override public int getCount() { return files.size() + (QuickReadSession.isComplete() ? 0 : 1); }
+        @Override public int getCount() { return files.size() + (footerShown() ? 1 : 0); }
+        private boolean footerShown() {
+            return !QuickReadSession.isComplete() || !QuickReadSession.summary().isEmpty();
+        }
         @Override public Object getItem(int position) { return position < files.size() ? files.get(position) : null; }
         @Override public long getItemId(int position) { return position; }
 
@@ -97,9 +100,15 @@ public class QuickReadActivity extends Activity {
                 int pad = (int) (24 * getResources().getDisplayMetrics().density);
                 row.setPadding(pad, pad, pad, pad);
                 android.widget.TextView more = new android.widget.TextView(QuickReadActivity.this);
-                more.setText("Redrawing more pages...");
+                boolean running = !QuickReadSession.isComplete();
+                more.setText(running ? "Redrawing more pages (" + files.size() + " so far)..." : QuickReadSession.summary());
                 more.setTextSize(16);
                 row.addView(more);
+                if (!running) {
+                    row.setLayoutParams(new ListView.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                    return row;
+                }
                 android.widget.Button stop = new android.widget.Button(QuickReadActivity.this);
                 stop.setText("Cancel");
                 stop.setOnClickListener(v -> QuickReadSession.cancel());

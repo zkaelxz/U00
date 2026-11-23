@@ -9,6 +9,7 @@ final class QuickReadSession {
     private static boolean complete = true;
     private static boolean abandoned;
     private static boolean cancelled;
+    private static String summary = "";
     private static Runnable cancelHook;
     private static Runnable listener;
 
@@ -19,6 +20,7 @@ final class QuickReadSession {
         complete = false;
         abandoned = false;
         cancelled = false;
+        summary = "";
     }
 
     /** What stopping the grab does (tell the server, end the batches); set while the grab runs. */
@@ -48,6 +50,16 @@ final class QuickReadSession {
         notifyListener();
     }
 
+    /** Ends the grab and leaves its closing line under the pages, so a stop is never silent. */
+    static synchronized void finish(String closingLine) {
+        summary = closingLine == null ? "" : closingLine;
+        finish();
+    }
+
+    static synchronized String summary() {
+        return summary;
+    }
+
     /** The reader was closed: the grab stops asking the server for more pages. */
     static void abandon() {
         Runnable hook = null;
@@ -57,6 +69,7 @@ final class QuickReadSession {
             abandoned = true;
             complete = true;
             names.clear();
+            summary = "";
             listener = null;
         }
         if (hook != null) hook.run();
