@@ -13,7 +13,7 @@ import type { TranslateRunConfig, TranslateRunEstimate } from '../../../../types
 import { applyStartToForm, buildRunBody, initialForm, loadPresetStart, validateRun } from '../../translateForm'
 import { LineAiPicker } from './LineAiPicker'
 import { useLineAiPick } from './lineAiPick'
-import { useLineSelectionContext } from './LineSelectionContext'
+import { useLineSelectionContext } from './useLineSelectionContext'
 import { formatUsd } from './strongerEngineLogic'
 
 // Redoes the ticked lines with an engine and model picked here, as an ordinary

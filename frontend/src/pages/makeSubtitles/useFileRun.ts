@@ -13,6 +13,7 @@ import type { UploadSent } from '../../components/UploadProgress'
 import { downloadText } from '../../components/downloadBlob'
 import { JOB_FAILED } from '../../components/errorMessages'
 import { useJob, useJobRun } from '../../hooks/useJob'
+import { useLatest } from '../../hooks/useLatest'
 import { useLoad } from '../../hooks/useLoad'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { useReattachJob } from '../../hooks/useReattachJob'
@@ -87,7 +88,10 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   useEffect(() => { run.current = { title: file ? titleFor(file.name, title) : title, dramaId } })
   const stepNow = flow.phase === 'running' ? flow.step : null
 
-  useEffect(() => { if (runs) setSaved(savedFor(flow)) }, [flow]) // setSaved is a fresh function each render
+  // Refs, not deps: setSaved is a fresh function each render, and `runs` never changes mid-run.
+  const runsRef = useLatest(runs)
+  const setSavedRef = useLatest(setSaved)
+  useEffect(() => { if (runsRef.current) setSavedRef.current(savedFor(flow)) }, [flow, runsRef, setSavedRef])
 
   const fail = useCallback((error: unknown) => { setResuming(false); setJobId(null); dispatch({ type: 'fail', error }) }, [setJobId])
 
@@ -215,15 +219,17 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   // Once, after the first render: a run saved in storage wins over a hand-off. The hand-off then waits
   // untouched, so the saved run never translates with a translator or variant picked for another file.
   const resumed = useRef(false)
+  const startRef = useLatest(start)
   useEffect(() => {
     if (resumed.current || !runs) return
     resumed.current = true
     const s = parseSaved(saved)
     // A run that died before the upload finished has nothing to follow.
+    // eslint-disable-next-line react/set-state-in-effect -- the resumed run must start from the first render's choices, and the guard above makes this a single pass
     if (s && s.step !== 'upload') { resumedFrom.current = s; setResuming(true); dispatch({ type: 'resume', saved: s }); setWaiting(request); return }
     if (s) setNote({ kind: 'upload-lost', dramaId: s.dramaId })
-    if (request) { fillBox(request); void start(request) }
-  }, [saved, runs, request, fillBox, start])
+    if (request) { fillBox(request); void startRef.current(request) }
+  }, [saved, runs, request, fillBox, startRef])
 
   // Once the box is back, the waiting file is put in it to be started by hand: nobody pressed for it yet.
   // One effect covers every way back (Make another, a cancel, any failure), and it lands after Make

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DiagnosticsGpuTorchStatus, DiagnosticsSetupChecks } from '../../types/diagnostics'
-import { hardwareLines } from './RecommendedInstalls'
+import { hardwareLines } from './hardwareLines'
 
 const setup = (over: Partial<DiagnosticsSetupChecks> = {}) => ({
   ffmpeg: { found: true, version: '6.1', libass: true }, js_runtime: { found: true, name: 'deno' }, ...over,

@@ -17,14 +17,17 @@ export function LiveCaptions({ cues, delay, chunkSeconds }: { cues: LiveCue[]; d
   const [caption, setCaption] = useState<Caption | null>(null)
   const latest = useRef({ cues, delay, chunkSeconds })
 
-  const now = Date.now()
-  for (const c of cues) if (!arrivals.current.has(c.id)) arrivals.current.set(c.id, now)
-  // Only the cues the page still keeps: a long session would grow the map without bound.
-  if (arrivals.current.size > cues.length) {
-    const shown = new Set(cues.map((c) => c.id))
-    for (const id of arrivals.current.keys()) if (!shown.has(id)) arrivals.current.delete(id)
-  }
-  latest.current = { cues, delay, chunkSeconds }
+  // Runs before the tick effect below, so a new cue is stamped before the first tick reads it.
+  useEffect(() => {
+    const now = Date.now()
+    for (const c of cues) if (!arrivals.current.has(c.id)) arrivals.current.set(c.id, now)
+    // Only the cues the page still keeps: a long session would grow the map without bound.
+    if (arrivals.current.size > cues.length) {
+      const shown = new Set(cues.map((c) => c.id))
+      for (const id of arrivals.current.keys()) if (!shown.has(id)) arrivals.current.delete(id)
+    }
+    latest.current = { cues, delay, chunkSeconds }
+  }, [cues, delay, chunkSeconds])
 
   useEffect(() => {
     const tick = () => {
@@ -44,9 +47,6 @@ export function LiveCaptions({ cues, delay, chunkSeconds }: { cues: LiveCue[]; d
     </div>
   )
 }
-
-/** Whether the page's own full screen (picture and captions together) can be offered. */
-export const canFullscreenWithCaptions = () => typeof document !== 'undefined' && document.fullscreenEnabled === true
 
 /**
  * Takes the picture and its captions full screen together; the player's own

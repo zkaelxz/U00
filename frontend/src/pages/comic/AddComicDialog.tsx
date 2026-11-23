@@ -70,7 +70,7 @@ export function AddComicDialog({ open, onClose, readTranslated = false }: { open
       saveComicPrefs(browserStorage(), id, startPrefs(mediaType, mode))
       if (readTranslated) markReadTranslated(browserStorage(), id)
       onClose()
-      window.location.hash = routeHref({ name: 'comic', id, page: null })
+      window.location.assign(routeHref({ name: 'comic', id, page: null }))
     } catch (e) {
       setError(e)
       // An empty title nobody asked to keep. When it can't be removed (not on the PC), the retry reuses it.

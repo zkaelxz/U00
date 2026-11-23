@@ -18,7 +18,7 @@ import { firstImage } from '../../../readImage'
 import { TranslateReadImage } from '../../../TranslateReadImage'
 import type { ReviewLine } from '../../../../types/review'
 import { afterLinesWrite, beforeLinesWrite } from './linesController'
-import { useLineSelectionContext } from './LineSelectionContext'
+import { useLineSelectionContext } from './useLineSelectionContext'
 import type { PlayerHandle } from './Player'
 
 interface Props {

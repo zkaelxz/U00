@@ -47,7 +47,9 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted, dr
   const [fileProblem, setFileProblem] = useState<string | null>(null)
   const [opts, setOpts] = useState<SubtitleImportOptions>(DEFAULTS)
   const [preview, setPreview] = useState<SubtitleImportPreview | null>(null)
-  const [checking, setChecking] = useState(false)
+  // What the last finished check was for; a file or option not yet checked counts as checking.
+  const [checkedFor, setCheckedFor] = useState<{ dramaId: number; file: File; opts: SubtitleImportOptions } | null>(null)
+  const checking = !!file && !(checkedFor?.dramaId === dramaId && checkedFor.file === file && checkedFor.opts === opts)
   const [confirmed, setConfirmed] = useState(false)
   const [realign, setRealign] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -57,41 +59,6 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted, dr
   // A new key empties the file input after an import, so it doesn't keep showing the old name.
   const [inputKey, setInputKey] = useState(0)
   const fileInput = useRef<HTMLInputElement | null>(null)
-  useEffect(() => {
-    if (!dropped) return
-    if (fileInput.current) {
-      const list = new DataTransfer()
-      list.items.add(dropped)
-      fileInput.current.files = list.files
-    }
-    pick(dropped)
-  }, [dropped])
-  const inputId = useId()
-
-  // Re-checks whenever the file or an option changes, so the counts always match what Import will do.
-  useEffect(() => {
-    if (!file) return
-    let cancelled = false
-    setChecking(true)
-    previewSubtitle(dramaId, file, opts).then(
-      (p) => {
-        if (cancelled) return
-        setPreview(p)
-        setError(null)
-        setChecking(false)
-      },
-      (e: unknown) => {
-        if (cancelled) return
-        setPreview(null)
-        setError(e)
-        setChecking(false)
-      },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [dramaId, file, opts])
-
   const pick = (f: File | null) => {
     setDone(null)
     setWroteLines(false)
@@ -103,6 +70,42 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted, dr
     setFile(f && !problem ? f : null)
     if (f && !problem) setOpts(DEFAULTS)
   }
+
+  const [seenDropped, setSeenDropped] = useState<File | null>(null)
+  if (dropped !== seenDropped) {
+    setSeenDropped(dropped)
+    if (dropped) pick(dropped)
+  }
+  useEffect(() => {
+    if (!dropped || !fileInput.current) return
+    const list = new DataTransfer()
+    list.items.add(dropped)
+    fileInput.current.files = list.files
+  }, [dropped])
+  const inputId = useId()
+
+  // Re-checks whenever the file or an option changes, so the counts always match what Import will do.
+  useEffect(() => {
+    if (!file) return
+    let cancelled = false
+    previewSubtitle(dramaId, file, opts).then(
+      (p) => {
+        if (cancelled) return
+        setPreview(p)
+        setError(null)
+        setCheckedFor({ dramaId, file, opts })
+      },
+      (e: unknown) => {
+        if (cancelled) return
+        setPreview(null)
+        setError(e)
+        setCheckedFor({ dramaId, file, opts })
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId, file, opts])
 
   const set = <K extends keyof SubtitleImportOptions>(k: K, v: SubtitleImportOptions[K]) => {
     setConfirmed(false)

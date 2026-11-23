@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { engineGate } from './workspace/stages/engineReady'
-import { packagesHref } from './readiness/NeedsInstall'
+import { packagesHref } from './readiness/packagesHref'
 import { ApiError } from '../api/client'
 import { modelOptionLabel } from '../api/translate'
 import {

@@ -285,7 +285,10 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
       const all = Array.from({ length: list[k]?.pages ?? 0 }, (_, i) => first + i)
       targets = body.edge === 'first' ? all.slice(0, body.count) : body.edge === 'last' ? all.slice(-(body.count ?? 1)) : all
     }
-    for (const t of targets) body.hidden ? set.add(t) : set.delete(t)
+    for (const t of targets) {
+      if (body.hidden) set.add(t)
+      else set.delete(t)
+    }
     opts.hidden = [...set]
     return json(route, { changed: targets.length, hidden_count: set.size })
   })

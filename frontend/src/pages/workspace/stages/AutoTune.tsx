@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { applyAutotune, getAutotune, startAutotune } from '../../../api/autotuneGlossary'
 import { hasStatus } from '../../../api/client'
@@ -59,13 +59,20 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
   // The estimate needs the true start: false when the run was already past its
   // first candidate when this panel found it.
   const [fromStart, setFromStart] = useState(true)
-  const firstMessage = useRef('')
-  firstMessage.current = status?.message ?? ''
+  // Reset on the render where the run becomes active, so the message read is
+  // the one the run was found with.
+  const [wasActive, setWasActive] = useState(false)
+  if (active !== wasActive) {
+    setWasActive(active)
+    if (active) {
+      const first = status?.message ?? ''
+      setElapsed(0)
+      setFromStart(!/(\d+)\s+of\s+\d+/i.test(first) || /\b1\s+of\b/i.test(first))
+    }
+  }
   useEffect(() => {
     if (!active) return
     const begun = Date.now()
-    setElapsed(0)
-    setFromStart(!/(\d+)\s+of\s+\d+/i.test(firstMessage.current) || /\b1\s+of\b/i.test(firstMessage.current))
     const t = setInterval(() => setElapsed((Date.now() - begun) / 1000), 1000)
     return () => clearInterval(t)
   }, [active])

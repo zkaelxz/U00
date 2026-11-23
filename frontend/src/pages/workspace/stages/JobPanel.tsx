@@ -74,30 +74,45 @@ function useLiveProgress(job: JobRecord | null, enabled: boolean, expectedSecond
   const [samples, setSamples] = useState<{ stage: string; list: EtaSample[] }>({ stage: '0', list: [] })
   const progress = job?.progress ?? null
   const message = job?.message ?? ''
-  useEffect(() => {
+  const [wasRunning, setWasRunning] = useState(false)
+  if (running !== wasRunning) {
+    setWasRunning(running)
     if (!running) {
       setFirstSeen(null)
       setSamples({ stage: '0', list: [] })
-      return
     }
-    const t = Date.now() / 1000
-    setNow(t)
-    setFirstSeen((f) => f ?? t)
-    const id = setInterval(() => setNow(Date.now() / 1000), 1000)
-    return () => clearInterval(id)
-  }, [running])
+  }
   useEffect(() => {
     if (!running) return
-    const t = Date.now() / 1000
-    const stage = etaStage(message)
-    setSamples((cur) => {
-      const list = cur.stage === stage ? cur.list : []
-      if (progress === null || progress <= 0 || isNoPercentStage(message)) return { stage, list }
+    const tick = () => {
+      const t = Date.now() / 1000
+      setNow(t)
+      setFirstSeen((f) => f ?? t)
+    }
+    // The clock state is stale from before the job started, so refresh it at once rather than after a second.
+    const first = setTimeout(tick, 0)
+    const id = setInterval(tick, 1000)
+    return () => {
+      clearTimeout(first)
+      clearInterval(id)
+    }
+  }, [running])
+  // Sampled when a reading or the clock changes, stamped with the clock state so render stays pure. No sample
+  // before the first tick of this run (firstSeen unset): the clock is still from before the job and would
+  // date the first reading too early, which inflates every later estimate.
+  const sampleKey = `${running}|${progress}|${message}|${now}`
+  const [seenSampleKey, setSeenSampleKey] = useState(sampleKey)
+  if (seenSampleKey !== sampleKey) {
+    setSeenSampleKey(sampleKey)
+    if (running && firstSeen !== null) {
+      const stage = etaStage(message)
+      const list = samples.stage === stage ? samples.list : []
       const last = list[list.length - 1]
-      if (last && last.p === progress && t - last.t < 5) return { stage, list }
-      return { stage, list: [...list, { t, p: progress }].slice(-60) }
-    })
-  }, [running, progress, message, now])
+      if (progress === null || progress <= 0 || isNoPercentStage(message)) setSamples({ stage, list })
+      else if (last && last.p === progress && now - last.t < 5) setSamples({ stage, list })
+      else setSamples({ stage, list: [...list, { t: now, p: progress }].slice(-60) })
+    }
+  }
   if (!running || !job) return { elapsed: null, left: null }
   const started = job.started_at ?? firstSeen ?? now
   const left = isNoPercentStage(message) || samples.stage !== etaStage(message)
@@ -113,11 +128,9 @@ function useStuck(job: JobRecord | null): StuckInfo | null {
   const latest = useRef(job)
   const watch = useRef<ReturnType<typeof watchStuck> | null>(null)
   const jobId = job?.job_id ?? null
+  if (!jobId && info !== null) setInfo(null)
   useEffect(() => {
-    if (!jobId) {
-      setInfo(null)
-      return
-    }
+    if (!jobId) return
     watch.current = watchStuck(() => latest.current, setInfo)
     return () => {
       watch.current?.stop()

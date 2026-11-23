@@ -401,7 +401,8 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
   const [engines, setEngines] = useState<CloneEngines | null>(null)
   const [bank, setBank] = useState<VoiceBankEntry[]>([])
   const [error, setError] = useState<unknown>(null)
-  const [loadForbidden, setLoadForbidden] = useState(false)
+  const [forbiddenFor, setForbiddenFor] = useState<number | null>(null)
+  const loadForbidden = forbiddenFor === dramaId
   const [notice, setNotice] = useState<string | null>(null)
   // Bumped to re-read the voice suggestions (a speaker changed) and the
   // series cast (someone was remembered).
@@ -588,10 +589,9 @@ export function CharactersPanel({ focusReady, defaultOpen }: { focusReady?: bool
 
   useEffect(() => {
     let cancelled = false
-    setLoadForbidden(false)
     getCharacters(dramaId).then(
       (c) => !cancelled && setEntries(c),
-      (e: unknown) => !cancelled && (isForbidden(e) ? setLoadForbidden(true) : setError(e)),
+      (e: unknown) => !cancelled && (isForbidden(e) ? setForbiddenFor(dramaId) : setError(e)),
     )
     // Options are conveniences: a failure leaves free-text/empty pickers.
     getCloneEngines(dramaId).then((c) => !cancelled && setEngines(c), () => undefined)

@@ -7,7 +7,8 @@ const state = { admin: true, pc: 'local' as 'local' | 'remote' | 'unknown' }
 vi.mock('../../hooks/useHolds', () => ({ useHolds: () => state.admin }))
 vi.mock('../../hooks/usePcOnly', () => ({ usePcOnly: () => state.pc }))
 
-import { ASK_OWNER, NeedsInstall, packagesHref } from './NeedsInstall'
+import { ASK_OWNER, NeedsInstall } from './NeedsInstall'
+import { packagesHref } from './packagesHref'
 
 const need = (over: Partial<Need>): Need => ({ id: 'x', label: 'X', reason: 'X is missing.', action: 'diagnostics', packages: [], ...over })
 const html = (n: Need) => renderToStaticMarkup(<NeedsInstall need={n} />)

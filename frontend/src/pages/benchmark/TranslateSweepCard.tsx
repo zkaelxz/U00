@@ -68,7 +68,7 @@ export function TranslateSweepCard({ options, sets, pc, job, running, onStarted,
       if (n === seq.current) setSweep(r.sweep)
     }, (e: unknown) => setError(plainError(e)))
     getTranslateSweepDecisions().then((r) => setDecisions(r.decisions), () => setDecisions([]))
-  }, [])
+  }, [setSweep])
   // On open, and again when the Lab's job ends.
   useEffect(() => {
     if (!running) load()

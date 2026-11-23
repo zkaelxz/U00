@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { expectFitsScreens, gotoMedia, mediaPanel, mediaTab, topCards, selectMediaTab } from './mediaTabs'
+import { expectFitsScreens, gotoMedia, mediaPanel, topCards, selectMediaTab } from './mediaTabs'
 import { enableDeveloperMode, openAdvanced } from './sourceHelpers'
 
 // The cards inside each Media sub-tab: the one-open-card fold rule, the Switches card, the prompt fold, and

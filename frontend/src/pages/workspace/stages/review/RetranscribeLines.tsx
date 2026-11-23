@@ -9,7 +9,7 @@ import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useStoredRun } from '../../../../hooks/useStoredRun'
 import { isTerminalStatus, cancelHint, offersCancel } from '../../../../types/jobs'
 import type { RetranscribeManyResult } from '../../../../types/workspace'
-import { useLineSelectionContext } from './LineSelectionContext'
+import { useLineSelectionContext } from './useLineSelectionContext'
 import { afterLinesWrite, beforeLinesWrite } from './linesController'
 import {
   applyItems, applyNote, failureSummary, fillBlankLines, fillNote, retranscribeLinesOutcome, retranscribeLinesProblem,

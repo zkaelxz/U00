@@ -309,7 +309,10 @@ export function VoiceClonePanel() {
   const [cands, setCands] = useState<VoiceCloneCandidates | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [jobError, setJobError] = useState<unknown>(null)
-  const [loadForbidden, setLoadForbidden] = useState(false)
+  // Keyed on what the read depends on, so a new title or series starts without the notice.
+  const [forbiddenKey, setForbiddenKey] = useState<string | null>(null)
+  const loadKey = `${dramaId}|${drama.series_id}`
+  const loadForbidden = forbiddenKey === loadKey
   const [extractFor, setExtractFor] = useState<string | null>(null)
   const [jobId, setJobId, runKey, adoptJob] = useJobRun()
   useReattachJob([voiceCloneJobId(dramaId)], adoptJob)
@@ -319,10 +322,9 @@ export function VoiceClonePanel() {
 
   useEffect(() => {
     let cancelled = false
-    setLoadForbidden(false)
     getCharacters(dramaId).then(
       (c) => !cancelled && setEntries(c),
-      (e: unknown) => !cancelled && (isForbidden(e) ? setLoadForbidden(true) : setError(e)),
+      (e: unknown) => !cancelled && (isForbidden(e) ? setForbiddenKey(loadKey) : setError(e)),
     )
     // Conveniences: a failure leaves the pickers empty.
     getVoiceBank().then((b) => !cancelled && setBank(b), () => undefined)
@@ -332,7 +334,7 @@ export function VoiceClonePanel() {
     return () => {
       cancelled = true
     }
-  }, [dramaId, drama.series_id])
+  }, [dramaId, drama.series_id, loadKey])
 
   useCancellableEffect((cancelled) => {
     listCandidates(dramaId).then((c) => !cancelled() && setCands(c), () => undefined)

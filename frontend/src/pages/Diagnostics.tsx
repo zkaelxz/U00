@@ -99,11 +99,22 @@ function DiagnosticsContent() {
     selectTab(CARD_TAB[card])
     setTarget((t) => ({ card, n: (t?.n ?? 0) + 1 }))
   }, [selectTab])
+  // A link's card or tab is followed each time the route changes (null: nothing seen yet, so the first render follows it too).
+  const [seenRoute, setSeenRoute] = useState<typeof route | null>(null)
+  if (route !== seenRoute) {
+    setSeenRoute(route)
+    if (route.name === 'diagnostics') {
+      if (route.card) {
+        setTabState(CARD_TAB[route.card])
+        setTarget((t) => ({ card: route.card!, n: (t?.n ?? 0) + 1 }))
+      } else if (route.tab) setTabState(route.tab)
+    }
+  }
   useEffect(() => {
     if (route.name !== 'diagnostics') return
-    if (route.card) goTo(route.card)
-    else if (route.tab) selectTab(route.tab)
-  }, [route, goTo, selectTab])
+    if (route.card) setStoredTab(CARD_TAB[route.card])
+    else if (route.tab) setStoredTab(route.tab)
+  }, [route, setStoredTab])
   useEffect(() => {
     if (!target) return
     const scroll = () => document.getElementById(cardAnchorId(target.card))?.scrollIntoView({ block: 'start' })

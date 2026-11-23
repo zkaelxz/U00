@@ -17,7 +17,7 @@ import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
 import type { SettingsOverview, SettingsPreferences, SettingsSchemaRow } from '../../types/settings'
 import { useDeveloperMode } from '../assistant/developerMode'
-import { toSavedValue } from './SchemaCard'
+import { toSavedValue } from './schemaValues'
 import {
   DEV_ONLY_NOTE, TIMING_NOTE, defaultLine, draftText, isDefault, resetPatch, savedNumber, timingGroups,
   type TimingGroup,

@@ -439,9 +439,15 @@ export default function LibraryToolsPage() {
     setTabState(t)
     setStoredTab(t)
   }, [setStoredTab])
+  // Follows a link's tab each time the route changes; the remembered tab is written after commit.
+  const [seenRoute, setSeenRoute] = useState(route)
+  if (route !== seenRoute) {
+    setSeenRoute(route)
+    if (route.name === 'library-tools' && route.tab) setTabState(route.tab)
+  }
   useEffect(() => {
-    if (route.name === 'library-tools' && route.tab) selectTab(route.tab)
-  }, [route, selectTab])
+    if (route.name === 'library-tools' && route.tab) setStoredTab(route.tab)
+  }, [route, setStoredTab])
   // The disk scan walks the data folder, so it waits until a tab that shows it is opened, on the PC:
   // away from it (or before /api/meta says which) nothing is asked.
   const usage = useDiskUsage(pc === 'local' && (tab === 'storage' || tab === 'data'))

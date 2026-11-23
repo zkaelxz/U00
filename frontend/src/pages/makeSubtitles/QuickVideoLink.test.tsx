@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { QuickVideoRun } from '../../types/quickVideo'
-import { canDeleteWatched, runText, visibleRuns } from './QuickVideoLink'
+import { canDeleteWatched, runText, visibleRuns } from './quickVideoRuns'
 import { settingText } from './makeSubtitlesFlow'
 
 const run = (o: Partial<QuickVideoRun>): QuickVideoRun => ({

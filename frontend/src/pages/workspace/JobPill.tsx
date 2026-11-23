@@ -26,11 +26,9 @@ export function JobPill({ dramaId, onFinished }: { dramaId: number; onFinished: 
   // focus would fall to the page; the finished flash takes it instead.
   const handOffFocus = useRef(false)
   useEffect(() => {
-    if (open && active.length === 0) {
-      handOffFocus.current = wrap.current?.contains(document.activeElement) ?? false
-      setOpen(false)
-    }
+    if (open && active.length === 0) handOffFocus.current = wrap.current?.contains(document.activeElement) ?? false
   }, [open, active.length])
+  if (open && active.length === 0) setOpen(false)
 
   const text = active.length > 0 ? pillText(active) : flash ? FLASH_TEXT[flash] : null
   const running = active.length > 0

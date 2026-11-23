@@ -186,7 +186,7 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
         },
       )
     },
-    [reattachOn409],
+    [reattachOn409, idRef],
   )
 
   /** Ask the server to stop the job; true once the request was accepted. */
@@ -200,14 +200,14 @@ export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }:
         return false
       },
     )
-  }, [])
+  }, [idRef])
 
   /** Forget the shown result locally (the server keeps it). */
   const reset = useCallback(() => {
     const id = idRef.current
     if (id) setState(idle(id))
     setStartError(null)
-  }, [])
+  }, [idRef])
 
   const cur = state && state.id === jobId ? state : null
   return {

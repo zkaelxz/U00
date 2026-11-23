@@ -195,7 +195,6 @@ test.describe('desktop', () => {
     })
     await mockTranslateRun(page)
     await page.goto('/#/drama/1/translate')
-    const run = page.getByRole('region', { name: 'Translate run' })
     const toggle = (await reviewToggle(page))
     await toggle.click()
     await page.reload()

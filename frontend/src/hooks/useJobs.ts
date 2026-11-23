@@ -77,8 +77,11 @@ export function createJobsSync(): JobsSync {
 /** Seconds since the epoch, re-read every second while `live`, for running-job durations. */
 export function useNow(live: boolean): number {
   const [now, setNow] = useState(() => Date.now() / 1000)
+  // The value is stale after a stretch of not ticking, so going live re-reads the clock before the first interval tick.
   useEffect(() => {
-    if (live) setNow(Date.now() / 1000)
+    if (!live) return
+    const t = setTimeout(() => setNow(Date.now() / 1000), 0)
+    return () => clearTimeout(t)
   }, [live])
   useInterval(() => setNow(Date.now() / 1000), live ? 1000 : null)
   return now

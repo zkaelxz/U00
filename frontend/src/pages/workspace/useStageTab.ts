@@ -14,7 +14,9 @@ interface StageTabSource<T extends string> {
 export function useStageTab<T extends string>(source: StageTabSource<T>): [T | null, (tab: T) => void] {
   // Read through a ref so the listener below follows the latest closure without resubscribing on every render.
   const latest = useRef(source)
-  latest.current = source
+  useEffect(() => {
+    latest.current = source
+  })
   const [wanted, setWanted] = useState<T | null>(() => source.initial())
   // A link followed while the stage is open (a blocker's "set it in Details") moves the tab too.
   useEffect(() => {

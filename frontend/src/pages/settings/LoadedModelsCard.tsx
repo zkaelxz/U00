@@ -21,7 +21,7 @@ export function LoadedModelsCard({ openSignal = 0 }: { openSignal?: number }) {
   const pc = usePcOnly()
   const [data, setData] = useState<LoadedModels | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState(true)
 
   const run = useCallback(async (action: () => Promise<LoadedModels>) => {
     setBusy(true)
@@ -35,9 +35,10 @@ export function LoadedModelsCard({ openSignal = 0 }: { openSignal?: number }) {
     }
   }, [])
 
+  // Busy and no error already hold on mount, so the first load skips the setup `run` does.
   useEffect(() => {
-    void run(() => getLoadedModels())
-  }, [run])
+    getLoadedModels().then(setData, setError).finally(() => setBusy(false))
+  }, [])
 
   const rows = data ? loadedRows(data) : []
   const summary = data ? (rows.length === 0 ? 'Nothing loaded' : `${rows.length} loaded`) : undefined

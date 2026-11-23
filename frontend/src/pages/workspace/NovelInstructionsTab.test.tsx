@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { InstructionsForm, joinConventions, splitConventions } from './NovelInstructionsTab'
+import { InstructionsForm } from './NovelInstructionsTab'
+import { joinConventions, splitConventions } from './novelConventions'
 
 describe('term conventions in the instructions text', () => {
   it('round-trips prose and conventions through one text', () => {

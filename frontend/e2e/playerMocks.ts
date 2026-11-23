@@ -51,22 +51,22 @@ export async function seekVideo(page: Page, seconds: number): Promise<void> {
 // stub that records which element was asked and fires fullscreenchange like a browser.
 export async function stubFullscreen(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    let current: Element | null = null
+    const fs: { current: Element | null } = { current: null }
     const w = window as unknown as { __fsRequests: string[] }
     w.__fsRequests = []
     Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: true })
-    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => current })
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => fs.current })
     HTMLElement.prototype.requestFullscreen = function (this: HTMLElement) {
       w.__fsRequests.push(this.dataset.testid ?? this.tagName)
       // What the browser's top layer does to the element's box.
       this.style.cssText = 'position:fixed;inset:0;z-index:9999;width:100vw;height:100vh'
-      current = this
+      fs.current = this
       document.dispatchEvent(new Event('fullscreenchange'))
       return Promise.resolve()
     }
     document.exitFullscreen = () => {
-      if (current) (current as HTMLElement).style.cssText = ''
-      current = null
+      if (fs.current) (fs.current as HTMLElement).style.cssText = ''
+      fs.current = null
       document.dispatchEvent(new Event('fullscreenchange'))
       return Promise.resolve()
     }

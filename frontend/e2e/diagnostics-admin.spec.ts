@@ -1,5 +1,5 @@
 import { mockPlainPlan } from './pendingInstallMocks'
-import { expect, test, type Page, type Request } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSection } from './diagnosticsInstallsMocks'
 import { openDiagTab } from './diagnosticsTabsNav'

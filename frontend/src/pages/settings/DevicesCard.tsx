@@ -55,7 +55,7 @@ function DevicesBody({ session }: { session: SessionState }) {
       setNowMs(Date.now())
       setData(r)
     }, setError)
-  }, [])
+  }, [setError])
 
   useEffect(load, [load])
 

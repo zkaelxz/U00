@@ -36,16 +36,20 @@ export function SourceDomains() {
   const [proposals, setProposals] = useState<SourceDomainProposal[]>([])
   const [error, setError] = useState<unknown>(null)
 
-  const load = useCallback(async () => {
-    try {
-      const [e, p] = await Promise.all([listSourceDomains(), listDomainProposals()])
-      setEntries(e)
-      setProposals(p)
-    } catch (err) {
-      // An older server has no such routes: hide the card.
-      if (!isMissingRoute(err)) setError(err)
-    }
-  }, [])
+  const load = useCallback(
+    () =>
+      Promise.all([listSourceDomains(), listDomainProposals()]).then(
+        ([e, p]) => {
+          setEntries(e)
+          setProposals(p)
+        },
+        (err: unknown) => {
+          // An older server has no such routes: hide the card.
+          if (!isMissingRoute(err)) setError(err)
+        },
+      ),
+    [],
+  )
 
   useEffect(() => {
     void load()
@@ -99,9 +103,11 @@ function DomainRow({
   const dirty = !sameList(draft, entry.domains)
 
   // A saved list replaced from outside (confirm, reset) becomes the draft.
-  useEffect(() => {
+  const [seenDomains, setSeenDomains] = useState(entry.domains)
+  if (seenDomains !== entry.domains) {
+    setSeenDomains(entry.domains)
     setDraft(entry.domains)
-  }, [entry.domains])
+  }
 
   async function run(job: () => Promise<void>) {
     setError(null)

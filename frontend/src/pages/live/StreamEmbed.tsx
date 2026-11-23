@@ -8,7 +8,8 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
-import { FullscreenWithCaptions, canFullscreenWithCaptions } from './LiveCaptions'
+import { canFullscreenWithCaptions } from './captions'
+import { FullscreenWithCaptions } from './LiveCaptions'
 
 import {
   AUTOPLAY_WAIT_S, DVR_WAIT_S, MUTED_NOTE, NO_DELAY_NOTE, WAITING_NOTE, YT_ORIGIN, canDelay, delayNote, delayReached, embedSrc,
@@ -50,6 +51,18 @@ export function StreamEmbed({ stream, delay, captions, onPictureDelay }: {
   // address would reload the player.
   const [noFullscreen] = useState(() => !!captions && canFullscreenWithCaptions())
 
+  // A new YouTube stream starts its readout over; done while rendering so no stale figure paints first.
+  const watched = `${stream.kind}:${key}`
+  const [watchedStream, setWatchedStream] = useState(watched)
+  if (watched !== watchedStream) {
+    setWatchedStream(watched)
+    if (stream.kind === 'youtube') {
+      setNote(WAITING_NOTE)
+      setPictureDelay(0)
+      setMuted(false)
+    }
+  }
+
   useEffect(() => {
     if (stream.kind !== 'youtube') return
     let info: PlayerInfo | null = null
@@ -74,9 +87,6 @@ export function StreamEmbed({ stream, delay, captions, onPictureDelay }: {
     let playAsked = false
     let unstartedS = 0
     let alive = true
-    setNote(WAITING_NOTE)
-    setPictureDelay(0)
-    setMuted(false)
     const send = (msg: string) => frame.current?.contentWindow?.postMessage(msg, YT_ORIGIN)
     const show = () => {
       setPictureDelay(captionDelay(info, delayRef.current, { unsupported, moving, unreachable, offset }))

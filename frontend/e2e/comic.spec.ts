@@ -76,7 +76,7 @@ test('a long vertical chapter keeps only the pages around the reader loaded', as
 // A scroll callback that lands after the user left (the router re-renders a
 // moment after hashchange) must not rewrite the hash back to the comic.
 test('leaving the comic mid-scroll stays on the library', async ({ page }) => {
-  const s = await mockComic(page, { mediaType: 'manhua', lastPage: 1 })
+  await mockComic(page, { mediaType: 'manhua', lastPage: 1 })
   await page.addInitScript(() => {
     const w = window as unknown as { __io: IntersectionObserverCallback[] }
     const Orig = window.IntersectionObserver

@@ -4,9 +4,8 @@ import { planInstall, queueInstall } from '../../api/pendingInstall'
 import type { PendingInstallQueued } from '../../types/pendingInstall'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import type { PendingInstallPlan } from '../../types/pendingInstall'
-import {
-  InstallPlanPanel, needsPlanPanel, planCheckUnavailable, planPanelKey, type PlannedInstall,
-} from './PendingInstall'
+import { needsPlanPanel, planCheckUnavailable, planPanelKey } from './installPlan'
+import { InstallPlanPanel, type PlannedInstall } from './PendingInstall'
 
 type PlanPreview =
   | { kind: 'go' }

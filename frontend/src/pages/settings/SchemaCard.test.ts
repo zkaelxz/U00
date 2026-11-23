@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { SettingsSchemaRow } from '../../types/settings'
-import { toDraftValue, toSavedValue } from './SchemaCard'
+import { toDraftValue, toSavedValue } from './schemaValues'
 
 const row = (over: Partial<SettingsSchemaRow>): SettingsSchemaRow => ({
   key: 'k', type: 'text', default: null, scope: 'app', label: 'Thing', help: '', unit: '', placeholder: '',

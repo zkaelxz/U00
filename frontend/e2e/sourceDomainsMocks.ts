@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { json } from './mockHelpers'
 
 // Mocks for the per-source address lists (/api/source-domains). Register

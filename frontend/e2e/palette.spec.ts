@@ -10,10 +10,6 @@ const viaShortcut = (page: import('@playwright/test').Page) => async () => {
   await page.keyboard.press('Control+k')
   await expect(palette(page)).toBeVisible()
 }
-const viaButton = (page: import('@playwright/test').Page) => async () => {
-  await searchButton(page).click()
-  await expect(palette(page)).toBeVisible()
-}
 
 test('opens with Ctrl+K, filters and Enter goes to the page', async ({ page }) => {
   await expectFilterAndEnter(page, viaShortcut(page))

@@ -53,5 +53,5 @@ export function useReattachJob(
       fetchJob: fetchRef.current,
       attach: (id) => adoptRef.current(id),
     })
-  }, [key])
+  }, [key, fetchRef, adoptRef])
 }
