@@ -12,7 +12,7 @@ import db
 
 
 _COLUMN_NAME = re.compile(r"[a-z_][a-z0-9_]*")
-_UPDATE_REFUSED = ("id", "created_at")
+_UPDATE_REFUSED = ("id", "created_at", "created_by_user_id")
 
 
 def _check_columns(conn, keys, refused=()):

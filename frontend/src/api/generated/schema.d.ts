@@ -18708,7 +18708,7 @@ export interface components {
             line_count: number;
             /**
              * Made By Me
-             * @description The signed-in viewer owns it, so they may delete it from any device. Only set in the Library list.
+             * @description The signed-in viewer made it and still owns it, so they may delete it from any device. Only set in the Library list.
              */
             made_by_me: boolean | null;
             /** Media Type */
@@ -18865,7 +18865,7 @@ export interface components {
             line_count: number;
             /**
              * Made By Me
-             * @description The signed-in viewer owns it, so they may delete it from any device. Only set in the Library list.
+             * @description The signed-in viewer made it and still owns it, so they may delete it from any device. Only set in the Library list.
              */
             made_by_me: boolean | null;
             /** Media Type */
@@ -19092,7 +19092,7 @@ export interface components {
             line_count: number;
             /**
              * Made By Me
-             * @description The signed-in viewer owns it, so they may delete it from any device. Only set in the Library list.
+             * @description The signed-in viewer made it and still owns it, so they may delete it from any device. Only set in the Library list.
              */
             made_by_me: boolean | null;
             /** Media Type */

@@ -92,8 +92,8 @@ def _with_sharing(dramas: list, principal) -> list:
     """Add `sharing_private` (what the household sees: a drama in a series
     follows the series) and `sharing_owned` (the signed-in viewer may change
     its sharing: they created it, or an admin and it was made at the PC;
-    False with sign-in off) and `sharing_made` (they own it, so they may
-    delete it from any device) to each row."""
+    False with sign-in off) and `sharing_made` (they made it and still own
+    it, so they may delete it from any device) to each row."""
     uid = None if principal is None else principal.get("user_id")
     series = {s["id"]: s for s in db.list_series()} if any(d.get("series_id") for d in dramas) else {}
     out = []
@@ -103,7 +103,8 @@ def _with_sharing(dramas: list, principal) -> list:
         out.append({**d, "sharing_private": bool(private),
                     "sharing_owned": uid is not None and ownership_service.may_set_private(
                         principal, d.get("owner_user_id")),
-                    "sharing_made": uid is not None and d.get("owner_user_id") == uid})
+                    "sharing_made": uid is not None and d.get("owner_user_id") == uid
+                    and d.get("created_by_user_id") == uid})
     return out
 
 

@@ -176,7 +176,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
             raise NotFoundError("No preset with that id.")
 
     fields: dict[str, Any] = dict(texts, media_type=media_type, source_language=source_language,
-                                  **owned)
+                                  created_by_user_id=owned["owner_user_id"], **owned)
     if media_type == "novel":
         # A novel is translated from text, so it starts in narration mode instead of
         # needing a set-up click on Media before the text can become lines.
@@ -568,33 +568,50 @@ def cleanup_stale_tombstones(max_age: float = TOMBSTONE_MAX_AGE_SECONDS, now: fl
                                  set(), False)["removed"]
 
 
-_NOT_YOURS = ("Away from the PC you can delete only titles you made yourself. Other titles are "
-              "deleted at the PC.")
+_NOT_YOURS = ("Away from the PC you can delete only titles you made yourself and still own. "
+              "Other titles are deleted at the PC.")
+
+
+_BULK_PENDING = ("This title has a bulk translation still waiting for its results. Let it finish, or "
+                 "delete the title at the PC.")
+
+
+def _made_and_owned_by(drama, uid) -> bool:
+    return (uid is not None and drama is not None and drama.get("created_by_user_id") == uid
+            and drama.get("owner_user_id") == uid)
 
 
 def delete_own_drama(principal, drama_id, confirm=False, confirm_text="") -> dict:
-    """delete_drama for a title the caller owns (owner decision 2026-11-23: members delete their
-    own titles from any device). A title made at the PC or by someone else is refused (403), for an
-    admin away from the PC too: a remote session has no second factor. Audited."""
+    """delete_drama for a title the caller both made and still owns (owner decision 2026-11-23:
+    members delete their own titles from any device). The creator is checked because an owner can
+    be changed from away (Settings > Sharing), which would otherwise turn any PC-made title into a
+    deletable one. Re-checked inside the delete's hold so an owner change at the same moment wins.
+    Audited."""
     from services import auth_service, ownership_service
     ownership_service.require_visible(principal, "drama", drama_id)
     uid = ownership_service.user_id(principal)
-    drama = db.get_drama(drama_id)
-    if uid is None or drama is None or drama.get("owner_user_id") != uid:
+    if not _made_and_owned_by(db.get_drama(drama_id), uid):
         raise ForbiddenError(_NOT_YOURS)
-    result = delete_drama(drama_id, confirm=confirm, confirm_text=confirm_text)
+    from services.translate_run_options import BULK_IN_FLIGHT_STATUSES
+    # A pending batch's row holds its share of the monthly cap and the member's paid limit; the
+    # delete would drop it. At the PC the owner decides that themselves.
+    if db.list_bulk_jobs(drama_id, statuses=BULK_IN_FLIGHT_STATUSES):
+        raise ConflictError(_BULK_PENDING)
+    result = delete_drama(drama_id, confirm=confirm, confirm_text=confirm_text,
+                          still_allowed=lambda: _made_and_owned_by(db.get_drama(drama_id), uid))
     auth_service.write_audit(uid, "title.delete", f"title {drama_id}")
     return result
 
 
-def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
+def delete_drama(drama_id, confirm=False, confirm_text="", still_allowed=None) -> dict:
     """Permanently deletes a drama and its folder. Order: unknown id ->
     NotFoundError (always, even without confirmation); then
     InvalidInputError unless `confirm is True` and `confirm_text` is
     exactly "DELETE"; then ConflictError
     if a job is running for the drama. Returns {"deleted": True,
     "drama_id": id}, plus a non-secret "warning" when the row is gone but
-    leftover files could not be removed."""
+    leftover files could not be removed. `still_allowed` is asked again
+    under the hold, just before the delete (ForbiddenError when it says no)."""
     library_service.get_library_drama(drama_id)  # id check + existence
     if confirm is not True or confirm_text != _DELETE_CONFIRM_TEXT:
         raise InvalidInputError("Deleting a title needs confirm=true and confirm_text set to "
@@ -609,6 +626,8 @@ def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
         # A backup reading the library would list the title's files and then
         # miss them; the restore and bulk delete are held off the same way.
         with uploads_held(drama_id), library_admin_service.maintenance("deleting a title"):
+            if still_allowed is not None and not still_allowed():
+                raise ForbiddenError(_NOT_YOURS)
             leftover = hard_delete_drama(drama_id)
     result = {"deleted": True, "drama_id": drama_id}
     if leftover:

@@ -497,37 +497,111 @@ def test_capture_notes_route_lists_a_titles_notes_and_404s_for_a_missing_title(c
     assert client.get("/api/library/dramas/999999/capture-notes").status_code == 404
 
 
-def test_a_member_deletes_their_own_title_from_away_and_nothing_else(isolated_db):
+
+def _away_client():
     from fastapi.testclient import TestClient
+    return TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com",
+                      raise_server_exceptions=False)
+
+
+def _signed_in(email, admin=False):
     from api import auth as api_auth
     from services import auth_service
+    u = auth_service.grant_admin_local(email) if admin else auth_service.add_user(email)
+    s = auth_service.create_session(u["id"])
+    return u, {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}", api_auth.CSRF_HEADER: s["csrf_token"]}
 
-    def signed_in(email, admin=False):
-        u = auth_service.grant_admin_local(email) if admin else auth_service.add_user(email)
-        s = auth_service.create_session(u["id"])
-        return u, {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}", api_auth.CSRF_HEADER: s["csrf_token"]}
 
-    away = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com",
-                      raise_server_exceptions=False)
-    kim, kim_h = signed_in("kim@example.com")
-    _, bo_h = signed_in("bo@example.com")
-    _, admin_h = signed_in("admin@example.com", admin=True)
-    mine = db.create_drama(title_en="Mine", owner_user_id=kim["id"], is_private=1)
-    kept = db.create_drama(title_en="Kept", owner_user_id=kim["id"])
+_DELETE = {"confirm": True, "confirm_text": "DELETE"}
+
+
+def _made_by(user, **kw):
+    return db.create_drama(owner_user_id=user["id"], created_by_user_id=user["id"], **kw)
+
+
+def test_a_member_deletes_a_title_they_made_from_away_and_nothing_else(isolated_db):
+    from services import auth_service
+    away = _away_client()
+    kim, kim_h = _signed_in("kim@example.com")
+    _, bo_h = _signed_in("bo@example.com")
+    _, admin_h = _signed_in("admin@example.com", admin=True)
+    mine = _made_by(kim, title_en="Mine", is_private=1)
+    kept = _made_by(kim, title_en="Kept")
+    shared = _made_by(kim, title_en="Shared", is_private=0)
     pc_made = db.create_drama(title_en="PC", is_private=0)
-    body = {"confirm": True, "confirm_text": "DELETE"}
 
     def delete(did, h, **over):
-        return away.post(f"/api/dramas/{did}/delete-mine", json={**body, **over}, headers=h)
+        return away.post(f"/api/dramas/{did}/delete-mine", json={**_DELETE, **over}, headers=h)
 
     assert delete(mine, kim_h, confirm_text="delete").status_code == 422
     assert delete(mine, bo_h).status_code == 404              # private: not even seen
+    assert delete(shared, bo_h).status_code == 403            # seen and editable, but not theirs
     assert delete(pc_made, kim_h).status_code == 403
-    assert delete(pc_made, admin_h).status_code == 403        # an admin away: only their own too
-    assert db.get_drama(mine) and db.get_drama(pc_made)
+    assert delete(pc_made, admin_h).status_code == 403        # an admin away: only what they made too
+    assert away.post(f"/api/dramas/{mine}/delete-mine", json=_DELETE,
+                     headers={"Cookie": kim_h["Cookie"]}).status_code == 403   # no CSRF token
+    assert db.get_drama(mine) and db.get_drama(pc_made) and db.get_drama(shared)
     r = delete(mine, kim_h)
     assert r.status_code == 200 and r.json() == {"deleted": True, "drama_id": mine}
     assert db.get_drama(mine) is None
-    assert any(row["action"] == "title.delete" for row in auth_service.list_audit(limit=10))
+    row = next(a for a in auth_service.list_audit(limit=10) if a["action"] == "title.delete")
+    assert row["user_id"] == kim["id"] and row["detail_redacted"] == f"title {mine}"
     listed = away.get("/api/library/dramas", headers=kim_h).json()["items"]
-    assert {d["id"]: d["made_by_me"] for d in listed} == {kept: True, pc_made: False}
+    assert {d["id"]: d["made_by_me"] for d in listed} == {kept: True, shared: True, pc_made: False}
+
+
+def test_giving_yourself_a_title_from_away_does_not_make_it_deletable(isolated_db):
+    """The owner can be changed from away (Settings > Sharing); only who made the title counts."""
+    away = _away_client()
+    admin, admin_h = _signed_in("admin@example.com", admin=True)
+    pc_made = db.create_drama(title_en="PC", is_private=0)
+    r = away.post(f"/api/sharing/dramas/{pc_made}/owner", json={"owner_user_id": admin["id"]}, headers=admin_h)
+    assert r.status_code == 200, r.text
+    assert db.get_drama(pc_made)["owner_user_id"] == admin["id"]
+    assert away.post(f"/api/dramas/{pc_made}/delete-mine", json=_DELETE, headers=admin_h).status_code == 403
+    assert db.get_drama(pc_made) is not None
+    # An admin's own title made from away is theirs to delete.
+    own = _made_by(admin, title_en="Phone")
+    assert away.post(f"/api/dramas/{own}/delete-mine", json=_DELETE, headers=admin_h).status_code == 200
+
+
+def test_a_title_given_away_after_it_was_made_is_no_longer_deletable_by_its_maker(isolated_db):
+    away = _away_client()
+    kim, kim_h = _signed_in("kim@example.com")
+    did = _made_by(kim, title_en="Mine")
+    db.update_drama(did, owner_user_id=None)
+    assert away.post(f"/api/dramas/{did}/delete-mine", json=_DELETE, headers=kim_h).status_code in (403, 404)
+    assert db.get_drama(did) is not None
+
+
+def test_an_owner_change_during_the_delete_wins(isolated_db, monkeypatch):
+    from services import drama_service
+    kim, _ = _signed_in("kim@example.com")
+    did = _made_by(kim, title_en="Mine")
+    monkeypatch.setattr(drama_service, "uploads_held", _owner_changes_first(did))
+    from lib.errors import ForbiddenError
+    with pytest.raises(ForbiddenError):
+        drama_service.delete_own_drama({"user_id": kim["id"], "is_admin": False, "permissions": ["lines.edit"]},
+                                       did, confirm=True, confirm_text="DELETE")
+    assert db.get_drama(did) is not None
+
+
+def _owner_changes_first(did):
+    import contextlib
+
+    # The admin at the PC moves the title in Settings > Sharing just as the member presses Delete.
+    @contextlib.contextmanager
+    def held(drama_id):
+        db.update_drama(did, owner_user_id=None)
+        yield
+    return held
+
+
+def test_a_title_with_a_bulk_batch_waiting_is_not_deleted_from_away(isolated_db):
+    away = _away_client()
+    kim, kim_h = _signed_in("kim@example.com")
+    did = _made_by(kim, title_en="Mine")
+    db.create_bulk_job(did, "claude", "claude-sonnet", "submitted", [], provider_batch_id="b1", estimated_usd=0.5)
+    r = away.post(f"/api/dramas/{did}/delete-mine", json=_DELETE, headers=kim_h)
+    assert r.status_code == 409 and "bulk translation" in r.text
+    assert db.get_drama(did) is not None
