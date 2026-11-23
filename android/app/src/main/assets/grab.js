@@ -131,6 +131,9 @@
       } catch (e) { /* ignore */ }
     });
   }
+  // Everything already in the page (loaded or with a lazy address) is taken before the walk, so
+  // it is not lost if the page stops loading when the app is put away mid-walk.
+  collect();
   var lastHeight = -1;
   var box = scrollBox();
   var stale = 0;
