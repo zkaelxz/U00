@@ -304,4 +304,13 @@ public class GrabLogicTest {
         assertEquals(1, QuickReadSession.snapshot().size());
         QuickReadSession.onCancel(null);
     }
+
+    @Test
+    public void aChapterSplitInPartsIsRecognisedFromItsTitle() {
+        int[] part = ServerAddress.partOf(java.util.Arrays.asList("A", "第112話(1/2)"));
+        assertEquals(1, part[0]);
+        assertEquals(2, part[1]);
+        assertEquals(2, ServerAddress.partOf(java.util.Arrays.asList("第5話（2／3）"))[0]);
+        assertNull(ServerAddress.partOf(java.util.Arrays.asList("Chapter 5", "Title 2024/05")));
+    }
 }
