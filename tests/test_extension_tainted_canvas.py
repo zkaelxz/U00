@@ -32,6 +32,11 @@ class TestPageSideFallback:
         assert out["fetched"] == ["https://s1.bzcdn.net/p/1.jpg"]
         assert out["sent"] == [{"content_type": "image/jpeg", "url": "https://s1.bzcdn.net/p/1.jpg", "bytes": 12}]
 
+    def test_a_hidden_tab_does_not_hold_the_capture(self):
+        # A background tab never runs animation frames; the capture must not wait for one.
+        out = _run("content", "hidden_tab_capture_finishes")
+        assert out["ok"] is True
+
     def test_a_tainted_canvas_uses_the_sibling_img_url(self):
         out = _run("content", "canvas_tainted_url_from_sibling_img")
         assert out["ok"] is True
