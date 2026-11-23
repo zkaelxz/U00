@@ -479,7 +479,7 @@ def _remove_quietly(path) -> None:
 
 
 def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
-                     style=None) -> str:
+                     style=None, max_width: int | None = None) -> str:
     """The cleaned, typeset page as a data: URL for an overlay-only page (nothing is
     stored, so there is no library page to render from), or "" when it cannot be sent.
     The page keeps its plain boxes then, so a failure here only costs the nicer picture.
@@ -494,7 +494,7 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
             scanlate_render.process_page(image_path, bubbles, out_path,
                                          match_color=bool(settings_service.get("scanlate_match_text_color")),
                                          **({"look": style} if style else {}))
-        return page_capture_checks.jpeg_data_url(out_path)
+        return page_capture_checks.jpeg_data_url(out_path, max_width)
     except Exception as e:
         page_capture_checks.log_page_failure(e)
         notes.append(["warning", "typeset failed: " + ("the page was kept" if member else
@@ -507,7 +507,8 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
 def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
                     store: bool = True, member: bool = False, typeset: bool = False,
-                    typeset_style=None, turn=page_turns.UNORDERED) -> dict:
+                    typeset_style=None, turn=page_turns.UNORDERED,
+                    typeset_max_width: int | None = None) -> dict:
     """One image, end to end: detect + OCR + translate, optionally stored
     into a drama first so the library keeps the real page and its
     bubbles.
@@ -624,7 +625,8 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                                                      notes, member, data, in_order=store)
         if typeset and temp_path and page is None:
             typeset_started = time.monotonic()
-            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style)
+            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style,
+                                             typeset_max_width)
             seconds["typeset"] = round(time.monotonic() - typeset_started, 2)
         if page is not None:
             notes.extend(read_notes)

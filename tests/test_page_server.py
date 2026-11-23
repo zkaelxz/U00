@@ -1600,7 +1600,7 @@ def test_the_overlay_typeset_follows_the_colour_matching_setting(isolated_db, mo
         return out_path, []
 
     monkeypatch.setattr(scanlate_render, "process_page", fake_process_page)
-    monkeypatch.setattr(page_capture_checks, "jpeg_data_url", lambda path: "data:image/jpeg;base64,")
+    monkeypatch.setattr(page_capture_checks, "jpeg_data_url", lambda path, max_width=None: "data:image/jpeg;base64,")
     bubbles = [{"translated_text": "Hi", "skip": 0}]
     assert page_server._overlay_typeset("page.png", bubbles, [], False)
     assert seen["match_color"] is setting
