@@ -424,6 +424,20 @@ def refuse_newer_copy(src):
         raise InvalidInputError(lrs.BACKUP_FROM_NEWER_APP) from None
 
 
+def _set_accounts(row, drama, import_as, owners) -> None:
+    """The copy's owner, creator and privacy (see copy_drama)."""
+    if import_as is not None:
+        row["owner_user_id"] = import_as["owner_user_id"]
+        row["is_private"] = import_as["is_private"]
+        row["notion_page_id"] = None
+        # Creator ids name another library's accounts; delete-mine must not trust them.
+        row["created_by_user_id"] = None
+        _sanitise_file_refs("dramas", row, import_as)
+    else:
+        row["owner_user_id"] = owners.get(drama.get("owner_user_id"))
+        row["created_by_user_id"] = owners.get(drama.get("created_by_user_id"))
+
+
 def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owners=None) -> tuple:
     """Inserts the drama and its children into dst (inside the caller's
     transaction). new_id None = a fresh id. Returns (live id, counts,
@@ -447,14 +461,8 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
     counts = {}
     profiles = _live_ids(dst, "profiles")
     row = sensitivity_preset.older_row(drama)
-    if import_as is not None:
-        row["owner_user_id"] = import_as["owner_user_id"]
-        row["is_private"] = import_as["is_private"]
-        row["notion_page_id"] = None
-        _sanitise_file_refs("dramas", row, import_as)
-    else:
-        owners = owners or {}
-        row["owner_user_id"] = owners.get(drama.get("owner_user_id"))
+    owners = owners or {}
+    _set_accounts(row, drama, import_as, owners)
     # db.auth.assign_drama_series lets only the PC owner's titles (owner NULL)
     # join another account's private series; an unmatched owner only looks
     # like one after the remap.
