@@ -385,7 +385,8 @@ def _page_extras(drama, config: dict, engine, image: bytes, bubbles=(), language
         extras = {}
     try:
         extras["character_notes"] = comic_glossary_service.with_reference(
-            extras.get("character_notes", ""), language, bubbles, glossary)
+            extras.get("character_notes", ""), _page_source_language(drama, language), bubbles,
+            glossary)
     except Exception:
         pass
     return extras
@@ -639,8 +640,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             page, drama_pk = _stored(page, drama_id)
             with turn.translating():
                 reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url,
-                                                 config, member, image=data,
-                                                 language=_page_source_language(drama, source_language))
+                                                 config, member, image=data, language=source_language)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, drama_pk, page["id"])
 
@@ -649,8 +649,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         notes.extend(_detect_notes(detect_notes, member))
         with turn.translating():
             translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
-                                                     notes, member, data, in_order=store,
-                                                     language=_page_source_language(drama, source_language))
+                                                     notes, member, data, store, source_language)
         if typeset and temp_path and page is None:
             typeset_started = time.monotonic()
             typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style)

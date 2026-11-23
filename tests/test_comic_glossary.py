@@ -69,3 +69,10 @@ def test_with_reference_joins_notes_and_block(isolated_db):
     out = svc.with_reference("CAST", "ja", _page("勇者"))
     assert out.startswith("CAST\n\n") and "勇者" in out
     assert svc.with_reference("CAST", "ja", _page("")) == "CAST"
+
+
+def test_quick_read_page_extras_carry_the_glossary_for_a_page_with_no_title(isolated_db):
+    from services import page_server
+    extras = page_server._page_extras(None, {}, None, b"", _page("勇者が来た"), "ja")
+    assert "勇者 → default: Hero" in extras["character_notes"]
+    assert "勇者" not in page_server._page_extras(None, {}, None, b"", _page("犬"), "ja")["character_notes"]
