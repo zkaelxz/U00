@@ -132,6 +132,39 @@ class TestSpeakerMode:
             svc.set_speaker_mode(people["b"], s, "solo")
 
 
+# --- streamer -----------------------------------------------------------------
+
+class TestStreamer:
+    def test_round_trips_on_the_page_and_list_and_empty_clears(self, people):
+        s = db.create_series("Anvil00", owner_user_id=people["a_id"])
+        assert svc.get_series_page(people["a"], s)["streamer"] is None
+        assert svc.set_streamer(people["a"], s, "  Chime 德塔 ")["streamer"] == "Chime 德塔"
+        assert svc.get_series_page(people["a"], s)["streamer"] == "Chime 德塔"
+        assert [x["streamer"] for x in svc.list_series(people["a"])] == ["Chime 德塔"]
+        assert svc.set_streamer(people["a"], s, "   ")["streamer"] is None
+        assert svc.get_series_page(people["a"], s)["streamer"] is None
+
+    def test_a_name_differing_only_in_case_or_width_takes_the_existing_spelling(self, people):
+        first = db.create_series("Anvil00", owner_user_id=people["a_id"])
+        second = db.create_series("HS", owner_user_id=people["a_id"])
+        svc.set_streamer(people["a"], first, "Chime")
+        assert svc.set_streamer(people["a"], second, "ｃｈｉｍｅ")["streamer"] == "Chime"
+        assert svc.set_streamer(people["a"], first, "CHIME")["streamer"] == "CHIME"  # its own, re-spelt
+
+    def test_rejects_too_long_or_invisible_characters(self, people):
+        s = db.create_series("Saga", owner_user_id=people["a_id"])
+        with pytest.raises(InvalidInputError):
+            svc.set_streamer(people["a"], s, "x" * (svc.MAX_STREAMER_LEN + 1))
+        with pytest.raises(InvalidInputError):
+            svc.set_streamer(people["a"], s, "Chi\u200bon")
+        assert svc.get_series_page(people["a"], s)["streamer"] is None
+
+    def test_another_user_cannot_change_it(self, people):
+        s = db.create_series("Saga", owner_user_id=people["a_id"], is_private=True)
+        with pytest.raises((ForbiddenError, NotFoundError)):
+            svc.set_streamer(people["b"], s, "Chime")
+
+
 # --- rename ------------------------------------------------------------------
 
 class TestRename:

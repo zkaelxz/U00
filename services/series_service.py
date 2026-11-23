@@ -1,6 +1,7 @@
 """
 services/series_service.py -- the Series page: a series' titles and counts,
-rename, delete, and copying glossary terms in from another series.
+rename, its streamer name, delete, and copying glossary terms in from
+another series.
 
 Ownership (services/ownership_service.py): reading needs the series to be
 visible, and lists only the titles the viewer may see; rename needs it
@@ -95,6 +96,7 @@ def list_series(principal=None) -> list:
                     "owned_by_me": uid is not None and s.get("owner_user_id") == uid,
                     "title_count": counts["visible_titles"],
                     "glossary_term_count": counts["glossary_terms"],
+                    "streamer": s.get("streamer") or None,
                     "cover_title_id": db.series_cover_title_id(s["id"], visible_to=visible_to)})
     return out
 
@@ -120,6 +122,7 @@ def get_series_page(principal, series_id) -> dict:
             "glossary_term_count": counts["glossary_terms"],
             "character_count": counts["characters"],
             "speaker_mode": row.get("speaker_mode") or "auto",
+            "streamer": row.get("streamer") or None,
             "titles": titles}
 
 
@@ -271,3 +274,33 @@ def copy_terms(principal, series_id, source_series_id) -> dict:
     result = db.copy_series_terms(series_id, terms, term_key,
                                   _replacements_to_copy(series_id, source_series_id))
     return {"series_id": series_id, "source_series_id": source_series_id, **result}
+
+
+MAX_STREAMER_LEN = 100
+
+
+def set_streamer(principal, series_id, streamer) -> dict:
+    """Files a series under a streamer name, or clears it with an empty one.
+    A name that matches one already on a series the caller can see (ignoring
+    case and width) takes that spelling, so "chime" and "Chime" stay one
+    folder in the Library; a hidden series' spelling is never revealed.
+    Re-spelling a series' own streamer (only case or width changes) is
+    stored as typed, or a shared streamer's spelling could never change."""
+    ownership_service.require_editable(principal, "series", series_id)
+    if not isinstance(streamer, str):
+        raise InvalidInputError("A streamer name must be text.")
+    streamer = streamer.strip()
+    if len(streamer) > MAX_STREAMER_LEN:
+        raise InvalidInputError(f"A streamer name is at most {MAX_STREAMER_LEN} characters.")
+    if any(unicodedata.category(ch) in _BAD_NAME_CATEGORIES for ch in streamer):
+        raise InvalidInputError("A streamer name can't contain control or invisible characters.")
+    visible = db.list_series(visible_to=ownership_service.visible_to_filter(principal))
+    current = next((s.get("streamer") for s in visible if s["id"] == series_id), None)
+    if streamer and term_key(streamer) != term_key(current):
+        key = term_key(streamer)
+        streamer = next((s["streamer"] for s in visible
+                         if s["id"] != series_id and s.get("streamer") and term_key(s["streamer"]) == key),
+                        streamer)
+    if not db.set_series_streamer(series_id, streamer or None):
+        raise NotFoundError("Series not found.")
+    return {"series_id": series_id, "streamer": streamer or None}

@@ -36,6 +36,7 @@ async function mockSeries(page: Page) {
       const body = req.postDataJSON()
       posts.push({ path, body })
       if (path.endsWith('/rename')) return route.fulfill({ json: { id: 9, name: body.name } })
+      if (path.endsWith('/streamer')) return route.fulfill({ json: { series_id: 9, streamer: body.streamer } })
       if (path.endsWith('/copy-terms')) return route.fulfill({ json: { series_id: 9, source_series_id: 12, added: 2, skipped: 1 } })
       if (path.endsWith('/translation-memory/import')) return route.fulfill({ json: { series_id: 9, added: 1, skipped: 0 } })
       if (path.endsWith('/defaults')) return route.fulfill({ json: { series_id: 9, settings: body.settings, fields: FIELDS } })
@@ -123,6 +124,10 @@ test('opens a series from the Library and uses every tab', async ({ page }) => {
   await name.fill('Saga II')
   await page.getByRole('button', { name: 'Rename series' }).click()
 
+  await expect(page.getByRole('button', { name: 'Save streamer' })).toBeDisabled()
+  await page.getByTestId('series-streamer').fill('Chime 德塔')
+  await page.getByRole('button', { name: 'Save streamer' }).click()
+
   await page.getByRole('button', { name: 'Delete series…' }).click()
   const prompt = page.getByTestId('series-delete-prompt')
   await expect(prompt).toContainText('2 titles kept: they become “No series”.')
@@ -137,6 +142,7 @@ test('opens a series from the Library and uses every tab', async ({ page }) => {
   expect(posts).toEqual([
     { path: '/api/series/9/copy-terms', body: { source_series_id: 12 } },
     { path: '/api/series/9/rename', body: { name: 'Saga II' } },
+    { path: '/api/series/9/streamer', body: { streamer: 'Chime 德塔' } },
     { path: '/api/series/9/delete', body: { confirm: true, confirm_text: 'DELETE' } },
   ])
 })
