@@ -244,15 +244,26 @@ def sniff_image(data: bytes) -> tuple[str, None] | tuple[None, tuple[int, str]]:
 PREVIEW_MAX_BYTES = 1_500_000
 
 
-def jpeg_data_url(path: str) -> str:
-    """The image at `path` as a JPEG data: URL, or "" when it is over PREVIEW_MAX_BYTES."""
+# A redrawn page is looked at once on a phone or over the page it replaces, never kept, and it
+# travels back over the household's connection: 75 is about a third smaller than 85 with no
+# difference a reader sees on lettering at screen size.
+PREVIEW_JPEG_QUALITY = 75
+
+
+def jpeg_data_url(path: str, max_width: int | None = None) -> str:
+    """The image at `path` as a JPEG data: URL, or "" when it is over PREVIEW_MAX_BYTES.
+    `max_width` scales a wider image down to it (a phone sends its screen width), never up."""
     import base64
     import io
 
     from PIL import Image
     with Image.open(path) as image:
+        picture = image.convert("RGB")
+        if max_width and picture.width > max_width:
+            height = max(1, round(picture.height * max_width / picture.width))
+            picture = picture.resize((max_width, height), Image.Resampling.LANCZOS)
         buffer = io.BytesIO()
-        image.convert("RGB").save(buffer, format="JPEG", quality=85)
+        picture.save(buffer, format="JPEG", quality=PREVIEW_JPEG_QUALITY)
     if buffer.tell() > PREVIEW_MAX_BYTES:
         return ""
     return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
