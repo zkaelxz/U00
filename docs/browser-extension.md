@@ -27,6 +27,7 @@ It reaches pages the adapters can't (blob-protected chapters, tile-scrambled rea
    host permission is `http://127.0.0.1:8756/*`. It'll say *Connected* and
    how many dramas it can see. If the bridge switch is off the extension
    says it couldn't reach Baihe and names the switch to turn on.
+   Only one Baihe install can hold 8756 (whichever starts first). A test copy running beside the real app should set `BAIHE_FEATURES_OFF=extension` in its `.env`, so it never takes the port.
 
 ## Using it
 

@@ -50,7 +50,7 @@ function container(children) {
   return parent;
 }
 
-function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null }) {
+function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null, frames = true, readable = false }) {
   const sent = [];
   const shots = [];
   const marks = [];
@@ -63,6 +63,11 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
   const cropCanvas = () => {
     const c = fakeCanvas();
     if (screenshot) c.toBlob = (cb) => cb(new Blob([PNG], { type: "image/png" }));
+    if (readable) {
+      // A same-origin picture: its pixels can be sampled and exported.
+      c.getContext = () => ({ drawImage() {}, getImageData: () => ({ data: [10, 20, 30, 255, 200, 100, 50, 255, 90, 90, 90, 255] }) });
+      c.toBlob = (cb) => cb(new Blob([PNG], { type: "image/png" }));
+    }
     return c;
   };
   const document = {
@@ -78,7 +83,8 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
   const sandbox = {
     document, console, URL, setTimeout, clearTimeout, setInterval, clearInterval, performance, crypto: globalThis.crypto,
     atob, btoa, Blob, Uint8Array, Promise, Map, Set, WeakMap, WeakSet, Math, Number, String, Array, Error, Date,
-    requestAnimationFrame: (cb) => setTimeout(cb, 0),
+    // A background tab never runs animation frames.
+    requestAnimationFrame: (cb) => { if (frames) setTimeout(cb, 0); },
     getComputedStyle: () => ({ visibility: "visible", display: "block", opacity: "1", backgroundImage: "none", overflowY: "visible" }),
     MutationObserver: class { observe() {} disconnect() {} },
     ResizeObserver: class { observe() {} disconnect() {} },
@@ -163,6 +169,8 @@ async function content(scenario) {
   switch (scenario) {
     case "img_tainted_fetches_in_worker":
       return run(visible, { images: [img()], fetchImage: okImage() });
+    case "hidden_tab_capture_finishes":
+      return run(visible, { images: [img()], fetchImage: okImage(), frames: false, readable: true });
     case "img_tainted_needs_permission":
       return run(visible, { images: [img()], fetchImage: needsPermission });
     case "img_tainted_worker_rejects":
