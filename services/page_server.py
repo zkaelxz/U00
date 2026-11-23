@@ -341,6 +341,11 @@ def _page_source_language(drama, requested):
             or (requested or "").strip() or "zh")
 
 
+# Quick read is timed per page, so the extra caption pass runs only on pages with
+# few balloons: title pages, banners and splash art.
+_ART_CAPTION_MAX_REGIONS = 4
+
+
 def _reads_art_captions(lang: str, ocr_backend) -> bool:
     """Title logos and banners drawn on the art have no balloon, so without this the
     detector boxes a fragment of them and the rest stays untranslated. Only the
@@ -596,6 +601,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     hf_token=config.get("hf_token") or None,
                     ocr_backend=ocr_backend,
                     art_captions=_reads_art_captions(lang, ocr_backend),
+                    art_captions_max_regions=_ART_CAPTION_MAX_REGIONS,
                     tesseract_cmd=config.get("tesseract_cmd") or None,
                     prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
                     page_id=(page or {}).get("id"))
