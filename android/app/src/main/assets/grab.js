@@ -72,12 +72,39 @@
     }
   });
   }
+  // For readers that ignore a changed scrollTop (their own scroller listens for wheel, keys or
+  // scrollIntoView): the last picture is brought into view and a wheel and key press are sent.
+  function nudge(box) {
+    var imgs = document.querySelectorAll("img, canvas, amp-img");
+    if (imgs.length) {
+      try { imgs[imgs.length - 1].scrollIntoView({ block: "end" }); } catch (e) { /* detached */ }
+    }
+    try { window.scrollBy(0, Math.max(400, window.innerHeight * 0.9)); } catch (e) { /* ignore */ }
+    var target = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2) || document.body;
+    try {
+      target.dispatchEvent(new WheelEvent("wheel", { deltaY: Math.max(400, window.innerHeight * 0.9), bubbles: true, cancelable: true }));
+    } catch (e) { /* ignore */ }
+    ["ArrowDown", "PageDown"].forEach(function (key) {
+      try {
+        target.dispatchEvent(new KeyboardEvent("keydown", { key: key, code: key, bubbles: true, cancelable: true }));
+      } catch (e) { /* ignore */ }
+    });
+  }
   var lastHeight = -1;
   var box = scrollBox();
+  var stale = 0;
   for (var step = 0; step < 150; step++) {
     if (step % 10 === 0) box = scrollBox();
+    var topBefore = box.scrollTop;
     box.scrollTop += Math.max(400, box.clientHeight * 0.95);
     await new Promise(function (r) { setTimeout(r, 90); });
+    var room = box.scrollHeight - box.clientHeight;
+    // A box that cannot be scrolled by scrollTop (or did not move) may still be driven by its
+    // reader's own wheel and key handling.
+    if (room < 50 || box.scrollTop === topBefore) {
+      nudge(box);
+      await new Promise(function (r) { setTimeout(r, 250); });
+    }
     for (var waited = 0; waited < 800 && stillLoading(); waited += 100) {
       await new Promise(function (r) { setTimeout(r, 100); });
     }
@@ -85,19 +112,23 @@
     // the walk passes instead of once at the end.
     var before = items.length;
     collect();
-    var atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
-    if (atEnd && box.scrollHeight === lastHeight && items.length === before) {
-      // A reader that adds the next pictures on reaching the end needs a moment to do so.
+    var grew = items.length > before;
+    var atEnd = room >= 50 && box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
+    var stuck = room < 50 || (atEnd && box.scrollHeight === lastHeight);
+    if (grew || !stuck) {
+      stale = 0;
+    } else {
+      // The next pictures of a reader that adds them on reaching the end need a moment to come.
       await new Promise(function (r) { setTimeout(r, 600); });
       collect();
-      if (items.length === before) break;
+      if (++stale >= 3) break;
     }
     lastHeight = box.scrollHeight;
   }
   collect();
   box.scrollTop = 0;
   var CHAPTER_TEXT = /第\s*[\d０-９一二三四五六七八九十百零]+\s*[章话話回集卷期]|(?:chapter|chap|ch|episode|ep|vol)\.?\s*[\d.]+|[\d.]+\s*[화話话章]|^\s*#?\d+\s*$/i;
-  var NEXT_TEXT = /^\s*(下一章|下一话|下一話|下一回|下章|次の話|次へ|次話|다음\s*화|다음화|next\s*(chapter|ch\.?|episode)?|next\s*›|›|»)\s*$/i;
+  var NEXT_TEXT = /^\s*(下一章|下一话|下一話|下一回|下章|下一頁|下一页|次の話|次へ|次話|다음\s*화|다음화|next\s*(chapter|ch\.?|episode)?|next\s*›|›|»)\s*$/i;
   function chapterLinks() {
     var out = [], keys = {};
     var anchors = document.querySelectorAll("a[href]");
