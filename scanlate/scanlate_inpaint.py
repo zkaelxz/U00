@@ -117,6 +117,26 @@ def _drop_marks_running_off_edge(mask) -> None:
             mask[labels == i] = 0
 
 
+_RIM_BAND_PX = 6
+_RIM_RING_SHARE = 0.8
+
+
+def _drop_rim_rings(mask, keep) -> None:
+    """Clears, in place, the mask components that lie almost wholly in a thin band along the
+    balloon's rim. The rays or shading at a burst's edge read as one ring of "lettering";
+    repainting it ate the rim and left a staircase edge. Lettering sits inside the band
+    only where it touches the outline, so it is never mostly in it."""
+    import cv2
+    depth = cv2.distanceTransform(keep.astype(np.uint8), cv2.DIST_L2, 3)
+    band = depth <= _RIM_BAND_PX
+    count, labels, stats, _ = cv2.connectedComponentsWithStats((mask > 0).astype(np.uint8), connectivity=8)
+    for i in range(1, count):
+        part = labels == i
+        if int((band & part).sum()) >= _RIM_RING_SHARE * stats[i, cv2.CC_STAT_AREA]:
+            # A stroke joined to the ring stays: only the ring's own part is cleared.
+            mask[part & band] = 0
+
+
 # A mark this large in both directions yet this hollow is a frame or ornament
 # round the lettering, not the lettering itself.
 _FRAME_MIN_SPAN = 0.35
@@ -376,11 +396,26 @@ def _flatten_plain_paper(roi, inpainted, mask, inside):
     if _shaded_away_from_lettering(gray, mask, paper, median):
         return inpainted
     out = inpainted.copy()
-    out[core] = np.median(roi[paper], axis=0).astype(inpainted.dtype)
+    colour = np.median(roi[paper], axis=0)
+    # Art the interior mask spilled over (a pink wall between a burst's lobes, the
+    # soft rays of its edge) differs from the paper and is far from the lettering:
+    # flattening it cut a white block out of the picture with a staircase edge.
+    near = cv2.dilate((mask > 0).astype(np.uint8), cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (_HALO_REACH_PX, _HALO_REACH_PX))).astype(bool)
+    like_paper = np.abs(roi.astype(np.float32) - colour).max(axis=2) <= _PAPER_LIKE_DISTANCE
+    # Eroded, so the soft rays or shading at the balloon's edge keep their own gradient
+    # instead of ending in a staircase where the flat paper begins.
+    inner_paper = cv2.erode(like_paper.astype(np.uint8), np.ones((_EDGE_KEEP_PX, _EDGE_KEEP_PX), np.uint8)).astype(bool)
+    take = core & (inner_paper | near)
+    out[take] = colour.astype(inpainted.dtype)
     return out
 
 
 _HALO_REACH_PX = 13
+# A pixel this close to the balloon's paper colour (largest channel difference) is paper
+# or its JPEG halo; anything further that is not beside the lettering is the art.
+_PAPER_LIKE_DISTANCE = 22
+_EDGE_KEEP_PX = 9
 
 
 def _shaded_away_from_lettering(gray, mask, paper, median: float) -> bool:
@@ -589,6 +624,37 @@ def _strokes_on_a_line(gray_roi):
     return grown, math.degrees(math.atan2(vy, vx)) * (1 if vx >= 0 else -1), typical
 
 
+# Lettering that is brighter than its surroundings by this much, measured over a window
+# wider than a stroke, is a stroke; a flat pale area of the art is not.
+_BRIGHT_STROKE_WINDOW_PX = 21
+_BRIGHT_STROKE_LIFT = 70
+_BRIGHT_STROKE_GROW_PX = 5
+_BRIGHT_STROKE_MIN_SHARE = 0.04
+_BRIGHT_STROKE_MAX_MEDIAN = 200
+# A sign whose paper-relative mask covers more of its box than this is taking the art for
+# lettering, and repainting that much erased a blurry rectangle over the picture.
+BRIGHT_STROKE_MASK_SHARE = 0.5
+
+
+def _bright_strokes(gray_roi):
+    """uint8 mask (255 = erase) of the pale strokes of lettering set on mid-tone art with a
+    glow round it, found as pixels much brighter than the window round them, or None when
+    there are none."""
+    import cv2
+    lift = cv2.morphologyEx(gray_roi, cv2.MORPH_TOPHAT, cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (_BRIGHT_STROKE_WINDOW_PX, _BRIGHT_STROKE_WINDOW_PX)))
+    # Pale paper with dark lettering on it is the ordinary case, not this one: the paper
+    # between two lines of lettering would count as a pale stroke.
+    if float(np.median(gray_roi)) >= _BRIGHT_STROKE_MAX_MEDIAN:
+        return None
+    mask = (lift > _BRIGHT_STROKE_LIFT).astype(np.uint8) * 255
+    # The corners of a dark mark on paper also lift a little; real lettering is far more.
+    if (mask > 0).mean() < _BRIGHT_STROKE_MIN_SHARE:
+        return None
+    return cv2.dilate(mask, cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (_BRIGHT_STROKE_GROW_PX, _BRIGHT_STROKE_GROW_PX)))
+
+
 def sign_text_line(page_bgr, box: dict):
     """(corridor, angle, size) of the single line of lettering on a pale band over busy art, or
     None. `corridor` is a bool array the size of `box`, True along the line's own strip, `angle`
@@ -611,6 +677,30 @@ def sign_text_line(page_bgr, box: dict):
     margin = max(3, round(scanlate_tuning.LINE_CORRIDOR_MARGIN * typical)) | 1
     corridor = cv2.dilate(corridor, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (margin, margin)))
     return corridor > 0, angle, round(scanlate_tuning.LINE_TEXT_SIZE_OF_GLYPH * typical)
+
+
+def _erase_mask(gray_roi, keep, spare_art: bool, on_art: bool):
+    """(uint8 mask of the lettering to erase in a crop, whether it is a single line's strokes).
+    `keep` is the balloon's inside, or None for a box with no outline."""
+    if keep is not None:
+        mask = _lettering_mask(_without_hatching(gray_roi, keep))
+        mask[~keep] = 0
+        _drop_rim_rings(mask, keep)
+        return mask, False
+    mask = _lettering_mask(gray_roi)
+    share = (mask > 0).mean()
+    line = _strokes_on_a_line(gray_roi) if on_art and share > scanlate_tuning.LINE_ONLY_MASK_SHARE else None
+    if line is not None:
+        return line[0], True
+    strokes = (_bright_strokes(gray_roi)
+               if on_art and not background_is_dark(gray_roi) and share > BRIGHT_STROKE_MASK_SHARE else None)
+    if strokes is not None:
+        return strokes, False
+    if spare_art:
+        _drop_marks_running_off_edge(mask)
+    elif on_art:
+        _drop_hollow_frames(mask, gray_roi)
+    return mask, False
 
 
 def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,
@@ -664,22 +754,8 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
 
     roi = img[y:y + bh, x:x + bw]
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    if inside is not None:
-        keep = _inside_in_crop(inside, box, x, y, bw, bh)
-        mask = _lettering_mask(_without_hatching(gray_roi, keep))
-        mask[~keep] = 0
-    else:
-        mask = _lettering_mask(gray_roi)
-    line = None
-    if inside is None and on_art and (mask > 0).mean() > scanlate_tuning.LINE_ONLY_MASK_SHARE:
-        line = _strokes_on_a_line(gray_roi)
-    line_only = line is not None
-    if line_only:
-        mask = line[0]
-    elif inside is None and spare_art:
-        _drop_marks_running_off_edge(mask)
-    elif inside is None and on_art:
-        _drop_hollow_frames(mask, gray_roi)
+    keep = _inside_in_crop(inside, box, x, y, bw, bh) if inside is not None else None
+    mask, line_only = _erase_mask(gray_roi, keep, spare_art, on_art)
     mask = _grown_erase_mask(mask, grow, keep if inside is not None else None)
 
     inpainted_roi = None
