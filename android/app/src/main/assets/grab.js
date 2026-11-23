@@ -51,8 +51,48 @@
   var known = new Set();
   // img, canvas and amp-img: some readers (baozimh mirrors) use amp-img elements, whose address
   // is in src and which hold no img until the AMP runtime loads.
+  // Pictures in open shadow roots and same-site frames, after the page's own: some readers draw
+  // there, where a plain querySelectorAll on the page does not reach.
+  function allMedia() {
+    var out = Array.prototype.slice.call(document.querySelectorAll("img, canvas, amp-img"));
+    var roots = [document], seenRoots = 0;
+    while (roots.length && seenRoots < 40) {
+      var root = roots.shift();
+      seenRoots++;
+      var all = root.querySelectorAll("*");
+      for (var n = 0; n < all.length && n < 6000; n++) {
+        var el = all[n];
+        if (el.shadowRoot) {
+          roots.push(el.shadowRoot);
+          Array.prototype.push.apply(out, el.shadowRoot.querySelectorAll("img, canvas"));
+        } else if (el.tagName === "IFRAME") {
+          try {
+            if (el.contentDocument) {
+              roots.push(el.contentDocument);
+              Array.prototype.push.apply(out, el.contentDocument.querySelectorAll("img, canvas"));
+            }
+          } catch (e) { /* another site's frame */ }
+        }
+      }
+    }
+    return out;
+  }
+  // Readers that paint each page as a CSS background: only looked for while little was found.
+  function backgrounds() {
+    var all = document.querySelectorAll("div, section, li, figure, span");
+    for (var n = 0; n < all.length && n < 4000; n++) {
+      var el = all[n];
+      if (known.has(el) || el.offsetWidth < 300 || el.offsetHeight < 300) continue;
+      var m = /url\(["']?(https?:[^"')]+)["']?\)/.exec(getComputedStyle(el).backgroundImage || "");
+      if (m && !seenUrls[m[1]]) {
+        seenUrls[m[1]] = true;
+        known.add(el);
+        items.push({ kind: "url", url: m[1] });
+      }
+    }
+  }
   function collect() {
-  Array.prototype.slice.call(document.querySelectorAll("img, canvas, amp-img")).forEach(function (el) {
+  Array.prototype.slice.call(allMedia()).forEach(function (el) {
     if (known.has(el)) return;
     if (el.tagName === "AMP-IMG") {
       var ampUrl = lazyAddress(el) || (function () {
@@ -71,6 +111,7 @@
       if (later && !seenUrls[later]) { seenUrls[later] = true; items.push({ kind: "url", url: later }); known.add(el); }
     }
   });
+  if (items.length < 3) backgrounds();
   }
   // For readers that ignore a changed scrollTop (their own scroller listens for wheel, keys or
   // scrollIntoView): the last picture is brought into view and a wheel and key press are sent.
