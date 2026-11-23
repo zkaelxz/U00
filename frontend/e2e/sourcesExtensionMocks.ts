@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test'
+import type { Page } from '@playwright/test'
 
 import { SOURCES } from './sourcesMocks'
 import type { MockState } from './sourcesMocks'

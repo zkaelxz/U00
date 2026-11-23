@@ -3,7 +3,6 @@ import { type Page } from '@playwright/test'
 import { ME, mockAuth } from './authMocks'
 import { expect, test } from './fixtures'
 import { animationsSettled } from './mockHelpers'
-import { navLink, openMenu } from './settingsNav'
 import { enableDeveloperMode } from './sourceHelpers'
 
 // The left rail (1024px and wider), against the seeded API (auth off), and a

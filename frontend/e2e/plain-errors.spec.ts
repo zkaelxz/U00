@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test'
 
 import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
-import { selectMediaTab } from './mediaTabs'
 import { mockProgress } from './plainErrorsMocks'
 
 // Plain reasons instead of generic or raw errors: Export buttons that

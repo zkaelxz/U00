@@ -2,7 +2,6 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { guardWrites, mockDiagnostics } from './diagnosticsConsolidateMocks'
 import { diagTab } from './diagnosticsTabsNav'
-import { openFold } from './foldHelpers'
 
 // Every tabbed page: the first visit to a tab opens its first card only, and after that the person's
 // own folds stay as left, even when an earlier version had saved every card closed.

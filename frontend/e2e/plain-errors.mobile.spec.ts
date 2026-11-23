@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { hitHeight, installHitArea } from './hitArea'
+import { installHitArea } from './hitArea'
 import { mockProgress } from './plainErrorsMocks'
 import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
 
