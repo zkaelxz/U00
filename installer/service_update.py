@@ -318,6 +318,9 @@ def _apply_requested(layout, run, port, health, sleep, installed, old, version, 
         code = "rolled_back_switch"
     if code == "updated":
         return f"Updated Baihe Studio's service from {old} to {version}."
+    if code == "updated_unrecorded":
+        return (f"Updated Baihe Studio's service from {old} to {version}, but the version "
+                "could not be recorded.")
     raise ServiceError(OUTCOMES.get(code, f"The update ended with {code}."))
 
 

@@ -3,11 +3,12 @@
  * "Sign in with Google" is a plain same-tab link: a first login page has no
  * drafts to protect (the sign-in overlay keeps its new tab for that reason).
  * The server redirects to Google and back, then to `return_to`. The page
- * rechecks /me when it regains focus or on "I've signed in". A failed
+ * rechecks /me when it regains focus or on "Check again". A failed
  * sign-in comes back as /?login_error=<code>, shown here in plain words.
  */
 import { useEffect, useState } from 'react'
 
+import { buttonClass } from '../components/uiClasses'
 import { recheckSession } from '../hooks/useSession'
 import { loginErrorMessage, loginHref, readLoginError } from '../api/auth'
 import './login.css'
@@ -66,8 +67,8 @@ export default function LoginPage({ configured }: { configured: boolean }) {
             <a className="login-button" href={loginHref(currentReturnTo())}>
               Sign in with Google
             </a>
-            <button type="button" onClick={() => void recheck()}>
-              I've signed in
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => void recheck()}>
+              Check again
             </button>
             {stillOut && (
               <p className="muted" role="status">

@@ -712,6 +712,14 @@ class TestBuildNumberedLines:
         result = line_text.build_numbered_lines([1, 2], ["你好", "再见"])
         assert result == "1. 你好\n2. 再见"
 
+    def test_a_break_inside_a_source_line_cannot_start_another_numbered_row(self):
+        result = line_text.build_numbered_lines([1, 2], ["你好\n2. 假的\r\n再见", "真的"])
+        assert result == "1. 你好 2. 假的 再见\n2. 真的"
+        assert len(result.splitlines()) == 2
+
+    def test_a_line_with_no_source_text_still_gets_its_row(self):
+        assert line_text.build_numbered_lines([1, 2], [None, "再见"]) == "1. \n2. 再见"
+
     def test_known_speaker_is_prefixed_in_brackets(self):
         result = line_text.build_numbered_lines([1, 2], ["你好", "再见"], speaker_names=["Xiaoling", None])
         assert result == "1. [Xiaoling] 你好\n2. 再见"

@@ -20,8 +20,8 @@ describe('dashboard numbers (parity L01)', () => {
     expect(usageLine({ estimated_cost_usd: 0 } as unknown as typeof usage)).toBe('0 API calls')
   })
   it('headline: titles and lines, with the remainder only while some are left', () => {
-    expect(libraryHeadline({ total_dramas: 5, total_lines: 4210, translated_lines: 2875 })).toBe('5 titles · 2,875 of 4,210 lines · 1,335 left')
-    expect(libraryHeadline({ total_dramas: 1, total_lines: 10, translated_lines: 10 })).toBe('1 title · 10 of 10 lines')
+    expect(libraryHeadline({ total_dramas: 5, total_lines: 4210, translated_lines: 2875 })).toBe('5 titles · 2,875 of 4,210 lines translated · 1,335 left')
+    expect(libraryHeadline({ total_dramas: 1, total_lines: 10, translated_lines: 10 })).toBe('1 title · 10 of 10 lines translated')
     expect(libraryHeadline({ total_dramas: 0, total_lines: 0, translated_lines: 0 })).toBe('0 titles')
     expect(libraryHeadline({ total_dramas: 3, total_lines: 0, translated_lines: 0 })).toBe('3 titles')
   })
@@ -63,14 +63,14 @@ describe('cost rows (parity L04)', () => {
 
 describe('series view (parity L05)', () => {
   const d = (media_type: string | null) => ({ media_type })
-  it('keeps only series with 2+ titles and counts their types', () => {
+  it('keeps one-title series, so the count matches the Series page, and counts their types', () => {
     const out = sharedSeries([
       { id: 1, dramas: [d('audio_drama'), d(null), d('novel')] },
       { id: 2, dramas: [d('manhua')] },
-      { id: 3, dramas: [] },
     ])
-    expect(out.map((s) => s.id)).toEqual([1])
+    expect(out.map((s) => s.id)).toEqual([1, 2])
     expect(out[0].types).toEqual({ audio_drama: 2, novel: 1 })
+    expect(out[1].types).toEqual({ manhua: 1 })
   })
   it('shared line', () => {
     expect(sharedLine({ character_count: 14, glossary_term_count: 1 })).toBe('14 shared characters · 1 glossary term')

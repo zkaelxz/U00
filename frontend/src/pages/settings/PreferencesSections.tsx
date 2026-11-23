@@ -118,10 +118,12 @@ function MonthCounter({ settings, onSettings, remote }: Props & { remote: boolea
     )
   }
   const resetAt = settings.month_spend_reset_at
+  const imported = settings.month_spend_imported_usd ?? 0
   return (
     <div data-testid="month-counter">
       <p data-testid="month-spend">
         This month: ${settings.month_spend_usd.toFixed(2)}
+        {imported > 0 ? ` (includes $${imported.toFixed(2)} imported)` : ''}
         {resetAt ? `, counted toward the cap since reset: $${settings.month_spend_counted_usd.toFixed(2)}` : ''}
       </p>
       {resetAt ? (

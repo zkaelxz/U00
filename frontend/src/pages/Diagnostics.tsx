@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { getDiagnostics, getModelCache, getSetupChecks } from '../api/diagnostics'
+import { AppVersionLine } from '../components/AppVersionLine'
 import { PageShell } from '../components/PageShell'
 import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
@@ -197,7 +198,7 @@ function DiagnosticsContent() {
           {badges.length ? badges.map((b) => <Badge key={b.key} tone={b.tone}>{b.text}</Badge>) : 'Loading…'}
         </p>
       )}
-      headExtra={<RemoteHealthLine />}
+      headExtra={<><AppVersionLine /><RemoteHealthLine /></>}
       tabs={(
         <Tabs
           label="Diagnostics"

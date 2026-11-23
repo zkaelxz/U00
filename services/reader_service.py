@@ -130,9 +130,7 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     ends = None
     # Editing works on single lines: a joined paragraph has no one line to save to.
     if include_html and not editable and drama.get("content_mode") == "novel_narration":
-        # Needs every line, not just this page: the match is against the whole source text.
-        ends = novel_text.narration_paragraph_ends(db.load_line_objects(drama_id),
-                                                   os.path.join(db.DRAMAS_DIR, str(drama_id)))
+        ends = _narration_paragraph_ends(drama_id)
     html_str = ""
     if include_html:
         html_str = reader.build_reader_html(
@@ -142,6 +140,31 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
             terms=glossary_service.effective_glossary_terms(drama_id) if editable else None)
 
     return {"html": html_str, "page": page, "page_count": page_count, "total_lines": total}
+
+
+_PARAGRAPH_ENDS: dict = {}
+_PARAGRAPH_ENDS_KEPT = 16
+
+
+def _narration_paragraph_ends(drama_id: int):
+    """novel_text.narration_paragraph_ends for the whole title, kept between page
+    turns: it matches every line against the whole source text, which on a long
+    novel costs more than building the page itself."""
+    path = os.path.join(db.DRAMAS_DIR, str(drama_id), novel_text.NOVEL_SOURCE_FILENAME)
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (st.st_mtime_ns, st.st_size, db.line_text_stamp(drama_id))
+    cached = _PARAGRAPH_ENDS.get(drama_id)
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    ends = novel_text.narration_paragraph_ends(db.load_line_texts(drama_id),
+                                               os.path.dirname(path))
+    if len(_PARAGRAPH_ENDS) >= _PARAGRAPH_ENDS_KEPT:
+        _PARAGRAPH_ENDS.pop(next(iter(_PARAGRAPH_ENDS)), None)
+    _PARAGRAPH_ENDS[drama_id] = (key, ends)
+    return ends
 
 
 # ---------------------------------------------------------------------------
@@ -409,12 +432,13 @@ def get_reading_overview(drama_id: int) -> dict:
     last_line_idx}. Timed media use the real duration, text a reading-time
     estimate."""
     drama = _require_drama(drama_id)
-    lines = _lines(drama_id)
-    est = (story_context.estimate_listening_time(lines)
-           if drama.get("media_type") in _LISTENING_MEDIA_TYPES
-           else story_context.estimate_reading_time(lines))
+    count, last_end, words = db.line_reading_stats(drama_id)
+    if drama.get("media_type") in _LISTENING_MEDIA_TYPES:
+        display = story_context.listening_time(last_end)["display"] if count else "0m"
+    else:
+        display = story_context.reading_time(words)["display"]
     prog = db.get_progress(drama_id) or {}
-    return {"drama_id": drama_id, "length_display": est["display"], "line_count": len(lines),
+    return {"drama_id": drama_id, "length_display": display, "line_count": count,
             "percent_complete": float(prog.get("percent_complete") or 0.0),
             "last_page": int(prog.get("last_page") or 1),
             "last_line_idx": prog.get("last_line_idx")}
@@ -424,11 +448,13 @@ def save_reading_position(drama_id: int, page: int, chapter_size: int = DEFAULT_
     """Records that `page` was viewed: last line = the page's last line,
     percent from it. Writes only the progress row (partial upsert)."""
     _require_drama(drama_id)
-    lines = _require_lines(drama_id)
-    _check_page(page, chapter_size, len(lines))
-    page_lines = lines[(page - 1) * chapter_size: page * chapter_size]
-    last_idx = page_lines[-1].idx
-    percent = story_context.compute_percent_complete(last_idx, len(lines))
+    total, _ = db.load_line_page(drama_id, 0, 0)
+    if not total:
+        raise NotFoundError(f"Drama {drama_id} has no lines yet.")
+    _check_page(page, chapter_size, total)
+    _, last_row = db.load_line_page(drama_id, min(page * chapter_size, total) - 1, 1)
+    last_idx = last_row[0]["idx"]
+    percent = story_context.compute_percent_complete(last_idx, total)
     db.save_progress(drama_id, last_line_idx=last_idx, last_page=page, percent_complete=percent)
     return {"drama_id": drama_id, "last_page": page, "last_line_idx": last_idx,
             "percent_complete": percent}

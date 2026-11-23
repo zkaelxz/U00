@@ -321,6 +321,27 @@ def test_join_series_takes_the_file_s_print_when_this_series_has_none(local_clie
     assert json.loads(row[0]) == [0.5, 0.5] and row[1] == 2
 
 
+@pytest.mark.parametrize("here, kept", [("", "female, young adult"), ("male, elderly", "male, elderly")])
+def test_join_series_fills_a_blank_remembered_voice_from_the_file(local_client, here, kept):
+    """A remembered voice keeps a speaker sounding the same across titles; joining a
+    series used to drop the file's, so the next narration picked another."""
+    a, b, g = _world()
+    with _conn() as c:
+        sid = c.execute("SELECT series_id FROM dramas WHERE id = ?", (a,)).fetchone()[0]
+        c.execute("UPDATE series_characters SET voice_design = 'female, young adult' "
+                  "WHERE series_id = ? AND character_name = 'Lin'", (sid,))
+        c.commit()
+    data = _manual_zip()
+    with _conn() as c:
+        c.execute("UPDATE series_characters SET voice_design = ? "
+                  "WHERE series_id = ? AND character_name = 'Lin'", (here, sid))
+        c.commit()
+    assert _post_import(local_client, data, [a], join_series="true").status_code == 200
+    with _conn() as c:
+        assert c.execute("SELECT voice_design FROM series_characters "
+                         "WHERE series_id = ? AND character_name = 'Lin'", (sid,)).fetchone()[0] == kept
+
+
 @pytest.mark.parametrize("incoming", [[1.0, 2.0, 3.0], "not a print", ["x", "y"]])
 def test_join_series_keeps_this_print_when_the_file_s_cannot_be_blended(local_client, incoming):
     a, b, g = _world()
@@ -1624,6 +1645,26 @@ def test_imported_titles_bring_their_spend_with_them(local_client):
                          "FROM usage_log ORDER BY created_at").fetchall()
     assert rows == [(new_a, 0.25, 10, None), (new_a, 0.5, 10, None)]
     assert db.get_usage_summary()["estimated_cost_usd"] == pytest.approx(0.75)
+
+
+def test_spend_imported_this_month_counts_toward_the_cap_and_is_shown_apart(local_client):
+    from lib import clock
+    from services import settings_service
+    a, b, g = _world()
+    now = clock.utcnow().isoformat()
+    with _conn() as c:
+        _usage(c, a, now, 0.25)
+        c.commit()
+    data = _manual_zip()
+    with _conn() as c:
+        c.execute("DELETE FROM usage_log")
+        _usage(c, b, now, 1.0, input_tokens=7)   # a call made here
+        c.commit()
+    assert _post_import(local_client, data, [a]).status_code == 200
+    status = settings_service.month_spend_status()
+    assert status["month_spend_usd"] == pytest.approx(1.25)
+    assert status["month_spend_counted_usd"] == pytest.approx(1.25)
+    assert status["month_spend_imported_usd"] == pytest.approx(0.25)
 
 
 def test_reimporting_into_the_same_library_does_not_count_spend_twice(local_client):

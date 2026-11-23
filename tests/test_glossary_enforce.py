@@ -90,7 +90,8 @@ def test_no_retry_once_the_run_cost_cap_is_spent():
 
     engine = Billed({10: "Buki", 11: "ok", 12: "Buki"}, name="claude")
     engine.model = "claude-sonnet-5-5"
-    lines = _run(engine, _lines(), cost_cap_usd=0.0001, usage_cb=lambda *a: None)[0]
+    # Room for the short batch as estimated before the run; its billed million tokens spend it all.
+    lines = _run(engine, _lines(), cost_cap_usd=1.0, usage_cb=lambda *a: None)[0]
     assert len(engine.calls) == 1 and lines[0].flag == "glossary_missing"
 
 

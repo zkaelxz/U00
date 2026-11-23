@@ -179,7 +179,11 @@ function HandoffCard({ error, onRetry, onPasted, url }: {
   return (
     <div className="sources-card sources-handoff" role="alert">
       <p>{copy.text}</p>
-      <p className="muted">Open the page in your own browser, get past the check there, then try again.</p>
+      <p className="muted">
+        {onPasted && url
+          ? "Getting past the check in your own browser doesn't change what Baihe's own fetch sees. Open the page there, get past the check, then paste its page source below, or send the page with the browser extension."
+          : "Getting past the check in your own browser doesn't change what Baihe's own fetch sees. Open the page there, get past the check, then send the page with the browser extension."}
+      </p>
       <div className="actions">
         {copy.openUrl && (
           <ButtonLink href={copy.openUrl} target="_blank" rel="noopener noreferrer">

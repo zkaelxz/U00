@@ -242,6 +242,29 @@ test('an armed delete reverts after the idle time', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Delete Narrator' })).toBeVisible()
 })
 
+test('voice bank Details: English is a clip language, and after Replace the cursor is on what the clip says', async ({ page }) => {
+  const voice = { id: 4, name: 'Narrator', language: 'en', clone_engine: 'omnivoice', source_drama: null,
+    clip_available: false, notes: '', ref_text: 'old words' }
+  await page.route('**/api/library/voice-bank', (r) => r.fulfill({ json: { items: [voice] } }))
+  await page.route('**/api/library/voice-bank/4/clip', (r) => r.fulfill({ json: voice }))
+  await page.goto('/#/library-tools')
+  await openFold(page, 'Voice bank')
+  await page.getByRole('button', { name: 'Details of Narrator' }).click()
+  const details = page.getByRole('group', { name: 'Details of Narrator' })
+  await expect(details.getByLabel('Language')).toHaveValue('en')
+  await details.getByLabel(/Replace the clip/).setInputFiles({ name: 'new.wav', mimeType: 'audio/wav', buffer: Buffer.from('RIFF') })
+  await expect(details.getByText('Clip replaced. Check what the new clip says.')).toBeVisible()
+  await expect(details.getByLabel('What the clip says')).toBeFocused()
+
+  await page.route('**/api/meta', (r) => r.fulfill({ json: {
+    app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
+  await page.reload()
+  await openFold(page, 'Voice bank')
+  await page.getByRole('button', { name: 'Details of Narrator' }).click()
+  await expect(page.getByRole('group', { name: 'Details of Narrator' }).getByLabel('What the clip says')).toBeVisible()
+  await expect(page.getByLabel(/Replace the clip/)).toHaveCount(0)
+})
+
 test('a failed delete re-enables the first step with focus; one press then only arms', async ({ page }) => {
   let calls = 0
   await page.route('**/api/library/presets', (r) => r.fulfill({ json: {

@@ -13,6 +13,7 @@ import {
 import { Card } from '../components/Card'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RetryBanner } from '../components/RetryBanner'
+import { AppVersionLine } from '../components/AppVersionLine'
 import { PageShell } from '../components/PageShell'
 import { buttonClass } from '../components/uiClasses'
 import { Field } from '../components/Field'
@@ -20,7 +21,6 @@ import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
-import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useFeatures } from '../hooks/useFeatures'
 import { featureOn, type FeatureName } from '../api/features'
 import { refreshReadiness, useReadiness } from '../hooks/useReadiness'
@@ -71,7 +71,7 @@ const ALL_CARDS = new Set(SETTINGS_INDEX.map((entry) => entry.cardId))
 const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
   gpu_limit_enabled:
     'Jobs beyond "GPU jobs at once" wait in line, so the GPU does not run out of memory. To keep graphics memory or RAM free for other programs, see Keep free memory below.',
-  notify_on_completion: 'Shows a notification when a job finishes.',
+  notify_on_completion: 'Shows a Windows pop-up on this PC when a job finishes.',
   use_gpu: 'Transcribe on the GPU when there is one (faster).',
   unload_ollama_before_transcribe:
     'Ollama keeps its model in GPU memory for a few minutes after translating, which can make transcription run out of memory.',
@@ -222,15 +222,13 @@ export default function SettingsPage() {
   const ownKeyShown = showOllamaKey(useSession())
   const pcMode = usePcOnly()
   const remote = pcMode === 'remote'
-  // The Android shell is the web app in a phone-width view; width, text size, spacing and nav position follow the phone there.
-  const phone = useMediaQuery('(max-width: 640px)')
   const features = useFeatures()
   const canUpdate = useHolds('system.update')
   const available: ReadonlySet<string> = useMemo(() => {
     const cards = loaded ? ALL_CARDS : MEMBER_CARDS
     return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (canUpdate || id !== 'updates')
-      && !(remote && PC_ONLY_CARDS.has(id)) && !(phone && id === 'display') && !(id in FEATURE_CARDS && !featureOn(FEATURE_CARDS[id], features))))
-  }, [loaded, ownKeyShown, canUpdate, remote, phone, features])
+      && !(remote && PC_ONLY_CARDS.has(id)) && !(id in FEATURE_CARDS && !featureOn(FEATURE_CARDS[id], features))))
+  }, [loaded, ownKeyShown, canUpdate, remote, features])
   const shown = (id: string) => available.has(id)
   const searching = query.trim() !== ''
   const match = useMemo(() => filterSettings(query, available), [query, available])
@@ -267,7 +265,6 @@ export default function SettingsPage() {
       {children}
     </div>
   )
-  const notifySummary = settings ? `Notify when a job finishes: ${settings.notify_on_completion ? 'On' : 'Off'}` : undefined
   const jobsSummary = settings
     ? `${gpuOnText(settings.use_gpu, readiness)} · ${
         settings.gpu_limit_enabled ? `${settings.gpu_max_parallel} GPU job${settings.gpu_max_parallel === 1 ? '' : 's'} at once` : 'no GPU job limit'
@@ -280,6 +277,7 @@ export default function SettingsPage() {
       title="Settings"
       label="Settings"
       className="settings-page"
+      meta={<AppVersionLine />}
       actions={<a className={buttonClass('secondary', 'sm')} href={USER_GUIDE_URL} target="_blank" rel="noopener noreferrer">Help: user guide</a>}
       tabs={(
         <>
@@ -380,8 +378,8 @@ export default function SettingsPage() {
         {settings && prefProps && panel('connections', (
           <>
             {shown('notifications') && (
-              <SettingsCard id="notifications" summary={notifySummary}>
-                <NotificationsSection notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
+              <SettingsCard id="notifications">
+                <NotificationsSection popupOn={settings.notify_on_completion} notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
               </SettingsCard>
             )}
             {shown('pc-alerts') && <SettingsCard id="pc-alerts"><PcAlertsCard /></SettingsCard>}

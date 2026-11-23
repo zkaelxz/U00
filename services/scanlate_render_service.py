@@ -74,9 +74,7 @@ def render_page(drama_id: int, page_id: int, notes: list | None = None, cancel_c
     notes = notes if notes is not None else []
     page = pages_svc.require_page(drama_id, page_id)
     bubbles = db.load_bubbles(page_id)
-    from scanlate import scanlate_watermark
-    if not _placed_regions(bubbles) and not any(
-            scanlate_watermark.is_site_mark_region(b) for b in bubbles):
+    if not has_something_to_place(bubbles):
         _drop_stale_typeset(drama_id, page)
         return {"rendered": False, "blank": 0}
     src = original_path(drama_id, page)
@@ -97,6 +95,14 @@ def render_page(drama_id: int, page_id: int, notes: list | None = None, cancel_c
         notes.append(("warning", _blank_regions_note(skipped_blank, bubbles)))
     db.update_page(page_id, rendered_filename=f"pages/{name}")
     return {"rendered": True, "blank": len(skipped_blank)}
+
+
+def has_something_to_place(bubbles: list) -> bool:
+    """Whether typesetting these regions draws anything: English to set, or
+    a site stamp to paint out. render_page writes no image otherwise."""
+    from scanlate import scanlate_watermark
+    return bool(_placed_regions(bubbles)) or any(
+        scanlate_watermark.is_site_mark_region(b) for b in bubbles)
 
 
 def _placed_regions(bubbles: list) -> list:

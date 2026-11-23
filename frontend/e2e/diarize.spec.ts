@@ -59,6 +59,13 @@ test('transcribe with speaker detection sends the speaker range', async ({ page 
     bodies.push(route.request().postDataJSON() as Record<string, unknown>)
     await route.fulfill({ json: { job_id: 'fake-transcribe' } })
   })
+  // Transcribe saves the changed run choices first. Answered here, so speaker detection is not left on for
+  // the seeded drama 1 that later specs read.
+  await page.route('**/api/transcribe/dramas/1/config', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    const current = await route.fetch({ method: 'GET' })
+    await route.fulfill({ response: current, json: { ...(await current.json()), ...(route.request().postDataJSON() as object) } })
+  })
   await page.route('**/api/jobs/fake-transcribe', (route) =>
     route.fulfill({
       json: {

@@ -244,7 +244,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
   return (
     <PageShell
       width="wide"
-      title="Sources"
+      title="Find"
       className={`sources-page${wide ? ' wide' : ''}${seriesShown ? ' has-series' : ''}`}
       tabs={(
         <Tabs

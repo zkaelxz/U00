@@ -9,7 +9,7 @@ test('lists the first steps with no key, and hides until shown again', async ({ 
   await mockFirstRun(page)
   await page.goto('/')
   const view = page.getByRole('region', { name: 'Get started' })
-  await expect(view.getByRole('link', { name: 'Add', exact: true })).toHaveAttribute('href', '#/make-subtitles')
+  await expect(view.getByRole('link', { name: 'Add your first title', exact: true })).toHaveAttribute('href', '#/make-subtitles')
   await expect(view.getByRole('link', { name: 'Add a translation key' })).toHaveAttribute('href', '#/settings')
   await expect(view.getByRole('link', { name: 'Install transcription' })).toHaveAttribute('href', '#/diagnostics?card=recommended')
   // The Add box is on the Library; a run itself shows on the Add page.
@@ -31,7 +31,7 @@ test('lists the first steps with no key, and hides until shown again', async ({ 
 test('the card opens the Add page', async ({ page }) => {
   await mockFirstRun(page)
   await page.goto('/')
-  await page.getByRole('region', { name: 'Get started' }).getByRole('link', { name: 'Add', exact: true }).click()
+  await page.getByRole('region', { name: 'Get started' }).getByRole('link', { name: 'Add your first title', exact: true }).click()
   await expect(page).toHaveURL(/#\/make-subtitles$/)
   await expect(page.getByRole('heading', { name: 'Add', level: 1 })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Add' }).getByRole('textbox', { name: 'Paste a link' })).toBeVisible()

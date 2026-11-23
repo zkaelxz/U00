@@ -167,8 +167,8 @@ def _check_novel(result: Preflight, html: str, url: str):
     return bool(data.get("valid"))
 
 
-def preflight(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = True,
-              allow_browser: bool = True, cancel_check=None) -> Preflight:
+def preflight(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = False,
+              allow_browser: bool = False, cancel_check=None) -> Preflight:
     """Fetch `url` once and report whether importing it would work.
 
     `allow_signed_in`/`allow_browser`/`cancel_check` are passed to

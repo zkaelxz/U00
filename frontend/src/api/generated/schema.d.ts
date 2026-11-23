@@ -6308,7 +6308,7 @@ export interface paths {
         put?: never;
         /**
          * Job: download a drama's audio/video from a URL with yt-dlp (PC only)
-         * @description The URL must be a public http(s) address (checked before anything starts). Replacing existing audio needs confirm_replace_audio=true (422 with details.reason "confirm_replace_audio" otherwise). Poll GET /api/jobs/{job_id}; cancel with POST /api/jobs/{job_id}/cancel. Up to 3 downloads run at once, started at least 20 s apart; more wait in line (the job message says "Queued: 2nd in line"). allow_long raises the 6 h cap to 12 h for this download; part_start/part_end (h:mm:ss) download only that section, exact_cuts re-encodes it for precise cuts. max_height keeps a video no taller than that (the best on offer when left out).
+         * @description The URL must be a public http(s) address (checked before anything starts). Replacing existing audio needs confirm_replace_audio=true (422 with details.reason "confirm_replace_audio" otherwise). Poll GET /api/jobs/{job_id}; cancel with POST /api/jobs/{job_id}/cancel. Up to 3 downloads run at once, started at least 20 s apart; more wait in line (the job message says "Queued: 2nd in line"). allow_long raises the 6 h cap to 12 h for this download; part_start/part_end (h:mm:ss) download only that section, exact_cuts re-encodes it for precise cuts. max_height keeps a video no taller than that (the best on offer when left out). keep_lines downloads the title's video again at another quality: no confirm needed, an empty url uses the title's own link, no part, and the job fails with the title unchanged when the new length doesn't match the current media's.
          */
         post: operations["post_download_url_api_media_dramas__drama_id__download_url_post"];
         delete?: never;
@@ -12657,6 +12657,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This copy's version and its release or commit date */
+        get: operations["app_version_api_version_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/voices": {
         parameters: {
             query?: never;
@@ -13035,6 +13052,29 @@ export interface components {
             started: boolean;
             /** Version */
             version: string;
+        };
+        /** AppVersionInfo */
+        AppVersionInfo: {
+            /**
+             * Commit Date
+             * @description A source checkout's commit date (YYYY-MM-DD); null without git.
+             */
+            commit_date: string | null;
+            /**
+             * Released
+             * @description An installed copy's release date (YYYY-MM-DD), from its build stamp.
+             */
+            released: string | null;
+            /**
+             * Source Copy
+             * @description A source checkout, not a copy installed with Setup.
+             */
+            source_copy: boolean;
+            /**
+             * Version
+             * @description This copy's version; null for an installed copy whose manifest.json can't be read.
+             */
+            version: string | null;
         };
         /** ArtifactInfo */
         ArtifactInfo: {
@@ -18603,7 +18643,10 @@ export interface components {
              * @description A source audio/video file is attached.
              */
             has_audio: boolean;
-            /** Has Cover Art */
+            /**
+             * Has Cover Art
+             * @default false
+             */
             has_cover_art: boolean;
             /** Has Novel Reference */
             has_novel_reference: boolean;
@@ -18752,7 +18795,10 @@ export interface components {
              * @description A source audio/video file is attached.
              */
             has_audio: boolean;
-            /** Has Cover Art */
+            /**
+             * Has Cover Art
+             * @default false
+             */
             has_cover_art: boolean;
             /** Has Novel Reference */
             has_novel_reference: boolean;
@@ -18978,6 +19024,12 @@ export interface components {
             custom_tags: string[];
             /** Director */
             director: string | null;
+            /**
+             * Has Cover Art
+             * @description An uploaded cover exists. Only set in the Library list.
+             * @default false
+             */
+            has_cover_art: boolean;
             /** Id */
             id: number;
             /**
@@ -21600,6 +21652,11 @@ export interface components {
             ref_text: string | null;
             /** Source Drama */
             source_drama: string | null;
+            /**
+             * Source Hidden
+             * @default false
+             */
+            source_hidden: boolean;
             /** Source Speaker */
             source_speaker: string | null;
         };
@@ -22486,7 +22543,7 @@ export interface components {
             reply_without_thinking?: boolean;
             /**
              * Segment Seconds
-             * @default 20
+             * @default 10
              */
             segment_seconds?: number;
             /**
@@ -22946,14 +23003,22 @@ export interface components {
              * @default false
              */
             exact_cuts?: boolean;
+            /**
+             * Keep Lines
+             * @default false
+             */
+            keep_lines?: boolean;
             /** Max Height */
             max_height?: (2160 | 1440 | 1080 | 720 | 480 | 360) | null;
             /** Part End */
             part_end?: string | null;
             /** Part Start */
             part_start?: string | null;
-            /** Url */
-            url: string;
+            /**
+             * Url
+             * @default
+             */
+            url?: string;
         };
         /** MediaUrlDownloadStarted */
         MediaUrlDownloadStarted: {
@@ -23384,6 +23449,11 @@ export interface components {
         MonthSpendStatus: {
             /** Month Spend Counted Usd */
             month_spend_counted_usd: number;
+            /**
+             * Month Spend Imported Usd
+             * @default 0
+             */
+            month_spend_imported_usd: number;
             /** Month Spend Reset At */
             month_spend_reset_at: string | null;
             /** Month Spend Usd */
@@ -24420,6 +24490,12 @@ export interface components {
              * @description Jobs a restart would stop.
              */
             running_jobs: string[];
+            /**
+             * Service
+             * @description The background service runs this copy: closing its window doesn't restart it.
+             * @default false
+             */
+            service: boolean;
         };
         /** PendingInstallRestartRequest */
         PendingInstallRestartRequest: {
@@ -28270,6 +28346,11 @@ export interface components {
              * @default 0
              */
             month_spend_counted_usd: number;
+            /**
+             * Month Spend Imported Usd
+             * @default 0
+             */
+            month_spend_imported_usd: number;
             /** Month Spend Reset At */
             month_spend_reset_at: string | null;
             /**
@@ -71581,6 +71662,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    app_version_api_version_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppVersionInfo"];
                 };
             };
         };

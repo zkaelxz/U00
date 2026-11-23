@@ -11,7 +11,7 @@ import { canSignOut, gateView, menuUser, recheckSession, sessionExpired, signOut
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import { usePersistedState } from './hooks/usePersistedState'
 import { ViewModeSwitch } from './nav/ViewModeSwitch'
-import { VIEW_MODE_PREF, asViewMode } from './nav/viewMode'
+import { VIEW_MODE_PREF, ViewModeContext, asViewMode } from './nav/viewMode'
 import { useDeveloperMode } from './pages/assistant/developerMode'
 import { HelpTip } from './components/HelpTip'
 import { JobsMenu } from './components/JobsMenu'
@@ -405,6 +405,7 @@ export default function App() {
 
   // One tree at every width, so crossing 600px keeps the open page (and a playing video) mounted.
   return (
+    <ViewModeContext.Provider value={viewMode}>
     <JobsProvider>
       {signedOut && <SignInOverlay configured={signInConfigured} />}
       <a className="skip-link" href="#main-content" onClick={skipToContent}>Skip to content</a>
@@ -420,7 +421,8 @@ export default function App() {
             </header>
           ) : wide ? (
             <header className="app-header" ref={headerRef}>
-              <BackButton />
+              {/* The Series folders page has its own Library / Series breadcrumb; a second Back beside it says the same thing. */}
+              {route.name !== 'series-list' && <BackButton />}
               {headerEnd}
             </header>
           ) : (
@@ -442,5 +444,6 @@ export default function App() {
         {phoneBar && <PhoneBar route={route} context={navContext} moreOpen={menuOpen} onMore={() => setMenuOpen(true)} words={BOUNDED_ROUTES.has(route.name)} />}
       </div>
     </JobsProvider>
+    </ViewModeContext.Provider>
   )
 }

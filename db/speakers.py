@@ -4,9 +4,11 @@ characters and voice links, and the voice bank of reusable cloned voices.
 The tables are created by db.init_db."""
 
 import contextlib
+import hashlib
 from lib import clock
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import List
@@ -779,6 +781,15 @@ def voice_bank_clip_path(clip_filename: str) -> str | None:
     return str(path)
 
 
+def _label_file_part(label: str) -> str:
+    """The label itself when it is a safe file name part on every system, else a short hash
+    of it: labels come from speaker tagging, where `..`, a slash or a character Windows
+    refuses (`:`, `?`) would put the copy elsewhere or fail it."""
+    if re.fullmatch(r"[\w\- ]{1,40}", label) and not label.endswith(" "):
+        return label
+    return "h" + hashlib.sha1(label.encode("utf-8", "surrogatepass")).hexdigest()[:12]
+
+
 def apply_voice_bank_entry(entry_id: int, drama_dir: str, drama_id: int, speaker_label: str) -> str:
     """Copies a bank entry's clip into drama_dir (a new file, not shared
     with the bank's own copy or any other drama's) and sets the matching
@@ -792,7 +803,7 @@ def apply_voice_bank_entry(entry_id: int, drama_dir: str, drama_id: int, speaker
     if src is None:
         raise ValueError(f"Voice bank entry {entry_id} has no clip inside the voice bank folder")
     ext = os.path.splitext(src)[1]
-    dest_filename = f"voicebank_{entry_id}_{speaker_label}{ext}"
+    dest_filename = f"voicebank_{entry_id}_{_label_file_part(speaker_label)}{ext}"
     os.makedirs(drama_dir, exist_ok=True)
     shutil.copyfile(src, os.path.join(drama_dir, dest_filename))
     db.upsert_character(drama_id, speaker_label, ref_audio_filename=dest_filename,

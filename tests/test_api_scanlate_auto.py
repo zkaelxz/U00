@@ -1487,6 +1487,37 @@ def test_read_ahead_on_a_paid_engine_needs_a_monthly_cap(client, monkeypatch):
     assert not started
 
 
+def test_read_ahead_leaves_out_pages_that_have_nothing_to_do(client, monkeypatch):
+    """A page whose read text has no English (all skipped or untranslated)
+    never gets a typeset image, so a run for it would only hold the job id."""
+    from services import translate_run_service
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
+    started = _read_ahead(monkeypatch)
+    did = _drama()
+    unread, skipped, untranslated, ready = (_page(did, i) for i in range(4))
+    db.save_bubbles(skipped, [{"x": 1, "y": 1, "w": 9, "h": 9, "source_text": "噪", "skip": True}])
+    db.save_bubbles(untranslated, [{"x": 1, "y": 1, "w": 9, "h": 9, "source_text": "你好"}])
+    db.save_bubbles(ready, [{"x": 1, "y": 1, "w": 9, "h": 9, "source_text": "你好",
+                             "translated_text": "Hello"}])
+    run_svc.start_run(did, read_ahead_from=unread, engine="claude")
+    assert started["targets"] == [unread, ready]
+
+
+def test_read_ahead_with_nothing_to_do_starts_no_job(client, monkeypatch):
+    from services import translate_run_service
+    from lib.errors import UnsupportedOperationError
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
+    started = _read_ahead(monkeypatch)
+    did = _drama()
+    ids = [_page(did, i) for i in range(2)]
+    for pid in ids:
+        db.save_bubbles(pid, [{"x": 1, "y": 1, "w": 9, "h": 9, "source_text": "你好"}])
+    with pytest.raises(UnsupportedOperationError) as e:
+        run_svc.start_run(did, read_ahead_from=ids[0], engine="claude")
+    assert e.value.details == {"reason": "NOTHING_TO_READ_AHEAD"}
+    assert not started
+
+
 def test_read_ahead_only_runs_missing_mode(client, monkeypatch):
     _read_ahead(monkeypatch)
     did = _drama()

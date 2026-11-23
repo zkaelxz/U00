@@ -135,6 +135,17 @@ class TestCheck:
         assert s["available"] is False and s["reason"] == su.INSTALLED
         assert not any("fetch" in c for c in checkout.calls)
 
+    def test_an_installed_copy_restarts_by_closing_its_window(self, checkout, monkeypatch):
+        monkeypatch.setattr(us, "_is_installed", lambda: True)
+        monkeypatch.delenv("BAIHE_APPLY_PENDING", raising=False)
+        assert su.restart_problem() == su.INSTALLED_RESTART and not su.runs_as_service()
+
+    def test_the_background_service_is_told_to_restart_the_pc(self, checkout, monkeypatch):
+        # Closing the window never restarts the service, which is what runs the queued install.
+        monkeypatch.setattr(us, "_is_installed", lambda: True)
+        monkeypatch.setenv("BAIHE_APPLY_PENDING", "1")
+        assert su.restart_problem() == su.SERVICE_RESTART and su.runs_as_service()
+
     def test_not_a_git_folder(self, checkout, tmp_path):
         (tmp_path / ".git").rmdir()
         assert su.status()["reason"] == su.NOT_GIT

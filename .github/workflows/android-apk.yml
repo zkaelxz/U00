@@ -91,7 +91,7 @@ jobs:
           aapt2="$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -n 1)"
           "$aapt2" dump badging "$apk" > badging.txt
           grep -q "^package: name='app.baihe.shell'" badging.txt
-          if ! grep -q "versionName='0.1.$((1000 + RUN_NUMBER))'" badging.txt; then
+          if ! grep -q "versionName='build $((1000 + RUN_NUMBER))'" badging.txt; then
             echo "::error title=Version name::The APK's version name doesn't carry its build number."
             exit 1
           fi

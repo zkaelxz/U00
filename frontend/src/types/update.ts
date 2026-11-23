@@ -9,6 +9,8 @@ export type UpdateStatus = Schemas['UpdateStatus']
 export type AndroidAppFetchResult = Schemas['AndroidAppFetchResult']
 export type AppUpdateApplyResponse = Schemas['AppUpdateApplyResponse']
 export type UpdateInstallResponse = Schemas['UpdateInstallResponse']
+// GET /api/version, readable from any signed-in device.
+export type AppVersionInfo = Schemas['AppVersionInfo']
 
 // Update and restart for a git working copy (api/routers/source_update_routes.py).
 // `changes` and `reason` have server defaults, so the generated type makes them optional; the server always sends both.

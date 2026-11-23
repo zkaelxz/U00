@@ -8,7 +8,7 @@ from bulk.bulk_apply import (junk_check, flag_rejected, require_bulk_job, _load_
                         _save_applied_english, _save_flags, _stale_line)
 from bulk.bulk_providers import make_provider
 from bulk.bulk_translate import (_character_names, _copy_english_lines, _require_batch_engine, _target_lines,
-                            request_key, zh_hash)
+                            request_key, resolve_novel_reference, stored_translate_args, zh_hash)
 from engine_backends.medium_prompts import kind_for
 import db
 import source_change
@@ -64,7 +64,7 @@ def _reflect_prompt_parts(drama_id: int, translate_args: dict | None, engine, ba
     args = translate_args or {}
     ctx = translate_pipeline.build_translation_context(
         engine, args.get("drama_meta") or db.get_drama(drama_id) or {},
-        style_note=args.get("style_note", ""), novel_reference=args.get("novel_reference"),
+        style_note=args.get("style_note", ""), novel_reference=resolve_novel_reference(drama_id, args),
         locale=args.get("locale", "en-US"), glossary_terms=args.get("glossary_terms"),
         style_guidelines=args.get("style_guidelines", ""))
     ids = [ln.id for ln in batch]
@@ -119,7 +119,8 @@ def submit_reflect_stage(drama_id: int, stage: str, provider, batches: list, eng
     if not requests_:
         raise ValueError("Nothing to process -- no eligible lines.")
     bulk_job_id = db.create_bulk_job(drama_id, engine_choice, model, "submitting", rows,
-                                     translate_args=translate_args, kind="reflect", stage=stage,
+                                     translate_args=stored_translate_args(translate_args),
+                                     kind="reflect", stage=stage,
                                      pipeline_id=pipeline_id, estimated_usd=estimated_usd)
     try:
         batch_id = provider.submit(requests_)
@@ -231,12 +232,15 @@ def _stage_chunks(job: dict, ids: list, engine):
     stage request, for the ids that still exist, in line order."""
     current = db.load_line_objects(job["drama_id"])
     wanted, names = set(ids), _character_names(job["drama_id"])
+    # Read once: the title's novel file can be large, and every batch carries it.
+    args = dict(job.get("translate_args") or {})
+    args["novel_reference"] = resolve_novel_reference(job["drama_id"], args)
     alive = [ln for ln in current if ln.id in wanted]
     n = engine_registry.default_batch_size(engine, reflect=True)
     for start in range(0, len(alive), n):
         batch = alive[start:start + n]
         instructions, batch_ctx, source_by_id, _speakers = _reflect_prompt_parts(
-            job["drama_id"], job.get("translate_args"), engine, batch, names)
+            job["drama_id"], args, engine, batch, names)
         yield [ln.id for ln in batch], {ln.id: ln.zh for ln in batch}, instructions, batch_ctx, source_by_id
 
 

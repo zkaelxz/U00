@@ -188,6 +188,52 @@ def current_version():
     return version if isinstance(version, str) and parse_version(version) else None
 
 
+# Written into the app folder by installer/build_installer.write_release_stamp,
+# so a full install and an app-only update (whose zip is that same folder)
+# both carry it.
+RELEASE_STAMP_NAME = "release.json"
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_commit_date_cache = {}
+
+
+def _release_date(version):
+    """The stamp's date (YYYY-MM-DD) when it names `version`, else None: a copy
+    built before stamps existed has none, and a stamp for another version
+    would put the wrong date beside this one."""
+    try:
+        with open(os.path.join(_APP_DIR, RELEASE_STAMP_NAME), encoding="utf-8") as fh:
+            stamp = json.loads(fh.read(MAX_RELEASE_JSON_BYTES))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(stamp, dict) or stamp.get("version") != version:
+        return None
+    released = stamp.get("released")
+    return released if isinstance(released, str) and _DATE_RE.fullmatch(released) else None
+
+
+def _commit_date():
+    """A source checkout's commit date (YYYY-MM-DD), or None without git. Read
+    once: pulling a newer commit always restarts the server."""
+    if "date" not in _commit_date_cache:
+        # Imported here: source_update_service imports this module.
+        from services import source_update_service
+        code, out = source_update_service._git("log", "-1", "--format=%cs")
+        _commit_date_cache["date"] = out if code == 0 and _DATE_RE.fullmatch(out) else None
+    return _commit_date_cache["date"]
+
+
+def version_info() -> dict:
+    """The version line every device shows: an installed copy's version and
+    release date, or a source copy's version and commit date. Version text
+    and dates only."""
+    if _is_installed():
+        version = current_version()
+        return {"version": version, "released": _release_date(version) if version else None,
+                "source_copy": False, "commit_date": None}
+    return {"version": portable.SOURCE_VERSION, "released": None, "source_copy": True,
+            "commit_date": _commit_date()}
+
+
 # --- settings -----------------------------------------------------------------
 
 def releases_repo() -> str:

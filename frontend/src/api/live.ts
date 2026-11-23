@@ -92,7 +92,7 @@ export const DEFAULT_FORM: LiveForm = {
   engine: '',
   model: '',
   whisper_size: 'small',
-  segment_seconds: 20,
+  segment_seconds: 10,
   overlap_seconds: 3,
   max_minutes: 60,
   use_gpu: false,

@@ -93,7 +93,7 @@ export const LIVE_READY: Record<string, boolean> = {
   whisper_cached_tiny: true, whisper_cached_base: true, whisper_cached_small: true, whisper_cached_medium: true, whisper_cached_large_v3_turbo: true, whisper_cached_large_v3: true, whisper_cached_breeze_asr_25: true, whisper_cached_ja_15b: true,
 }
 
-export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean; readiness?: Record<string, boolean>; liveOptions?: Partial<LiveFormOptions>; permissions?: string[] } = {}): Promise<LiveMocks> {
+export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean; ollamaFit?: string; readiness?: Record<string, boolean>; liveOptions?: Partial<LiveFormOptions>; permissions?: string[] } = {}): Promise<LiveMocks> {
   const m: LiveMocks = {
     posts: [], polls: [], unmocked: [], ollamaChecks: [],
     follows: { items: [], can_auto_start: true, posts: [], addStatus: 200 },
@@ -146,6 +146,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
   await page.route('**/api/live/ollama-check*', (route) => {
     const model = new URL(route.request().url()).searchParams.get('model') ?? ''
     m.ollamaChecks.push(model)
+    if (opts.ollamaFit) return json(route, { ok: false, model, message: opts.ollamaFit, gpu_fit: true })
     return json(route, opts.ollamaMissing
       ? { ok: false, model, message: `Ollama doesn't have the model ${model}. Run "ollama pull ${model}" first, or pick another model in Settings.` }
       : { ok: true, model, message: null })

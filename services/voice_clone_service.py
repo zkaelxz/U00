@@ -66,7 +66,7 @@ import db
 from jobs import job_store
 from voice import dub
 import video_export
-from core import SOURCE_LANGUAGES
+from core import LINE_LANGUAGES
 from lib.atomic_write import atomic_write
 from services import characters_service, library_service
 from services.media_upload_service import AUDIO_EXTENSIONS
@@ -788,8 +788,8 @@ def upload_to_voice_bank(name, client_filename, fileobj, ref_text: str = "",
     characters_service.check_len("ref_text", ref_text or "", characters_service.MAX_REF_TEXT_LEN)
     if clone_engine and clone_engine not in dub.CLONE_ENGINES:
         raise InvalidInputError("Pick one of the listed voice engines.")
-    if language and language not in SOURCE_LANGUAGES:
-        raise InvalidInputError(f"Language must be one of {', '.join(SOURCE_LANGUAGES)}.")
+    if language and language not in LINE_LANGUAGES:
+        raise InvalidInputError(f"Language must be one of {', '.join(LINE_LANGUAGES)}.")
     ext = _clip_extension(client_filename)
     os.makedirs(db.VOICE_BANK_DIR, exist_ok=True)
     # The probe needs a real file; a temp copy keeps a rejected upload out of the bank folder.
@@ -809,7 +809,7 @@ def upload_to_voice_bank(name, client_filename, fileobj, ref_text: str = "",
     raise NotFoundError("The voice bank entry could not be read back.")  # pragma: no cover
 
 
-def replace_voice_bank_clip(entry_id: int, client_filename, fileobj) -> dict:
+def replace_voice_bank_clip(entry_id: int, client_filename, fileobj, principal=None) -> dict:
     """Swaps a bank entry's clip for an uploaded one, checked like any
     reference clip. The entry keeps its name, notes and transcript (edit the
     transcript if the new clip says something else)."""
@@ -823,7 +823,7 @@ def replace_voice_bank_clip(entry_id: int, client_filename, fileobj) -> dict:
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)
-    return next(e for e in library_service.list_voice_bank() if e["id"] == entry_id)
+    return next(e for e in library_service.list_voice_bank(principal) if e["id"] == entry_id)
 
 
 # --- C03: series character link -------------------------------------------------

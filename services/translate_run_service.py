@@ -38,6 +38,7 @@ from bulk import bulk_poll
 from bulk import bulk_translate
 import translation_finish
 import db
+import paid_limits
 from engine_backends import engine_registry, llm_tasks, paid_calls, pricing
 from engine_backends import prompts as engine_prompts
 from engine_backends import gemini as engine_gemini
@@ -716,6 +717,7 @@ def _build_engine_chain(engine_name, model, fallback_chain, gemini_free_tier, jo
         _require_offered_model(c["engine"], c["model"])
     monthly_cap = month_cap_usd()
     month_spend = db.get_month_spend() if monthly_cap else 0.0
+    member_room = _member_room_usd()
     built, caps = [], []
     for c in chain:
         name = c["engine"]
@@ -731,9 +733,27 @@ def _build_engine_chain(engine_name, model, fallback_chain, gemini_free_tier, jo
                 job_cost_cap_usd, monthly_cap, month_spend)
             if refusal:
                 raise UnsupportedOperationError(refusal)
+            if member_room is not None:
+                if member_room <= 0:
+                    raise UnsupportedOperationError(paid_limits.PAID_LIMIT_MESSAGE)
+                cap = member_room if cap is None else min(cap, member_room)
         caps.append(cap)
         built.append((name, api_key, c["model"], free_tier))
     return chain, built, caps
+
+
+def _member_room_usd() -> float | None:
+    """What is left of the spending member's own monthly limit, or None when
+    none applies. Part of the run's budget, because the limit is otherwise
+    enforced only after a spend, and parallel lanes would each land one
+    more batch past it."""
+    user_id = db.current_spender()
+    if user_id is None:
+        return None
+    limit = paid_limits.paid_limit_usd(user_id)
+    if limit is None:
+        return None
+    return limit - db.get_user_month_spend(user_id)
 
 
 def _record_started_run(drama_id, drama, opts, include_genre_notes, default_female_pronouns) -> None:

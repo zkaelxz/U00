@@ -1000,6 +1000,26 @@ class TestSpendingCapJob:
         assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(2.0)
         _clear(job_id)
 
+    def test_a_cap_too_small_for_the_first_batch_stops_at_the_cap_not_failed(self, isolated_db):
+        from services import jobs_service
+        job_id = "test_translate_cap_first_batch"
+        _clear(job_id)
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                   "error": None, "cancel_requested": False, "result": None}
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(45)])
+
+        run_translate_job(job_id, did, isolated_db.load_line_objects(did), _CapPricedEngine(),
+                          {"id": did}, "", None, False, "en-US", None, "", "claude", "audio_drama",
+                          cost_cap_usd=0.0000001)
+
+        result = background_jobs.get_status(job_id)["result"]
+        assert result["cap_reached"] == 0.0 and result["errors"] == []
+        assert all(not r["en"] for r in isolated_db.load_lines(did))
+        outcome, message = jobs_service.derive_outcome("done", None, result)
+        assert outcome == "partial" and message.startswith("Stopped at the spending cap")
+        _clear(job_id)
+
     def test_job_stops_when_the_logged_month_spend_crosses_the_monthly_cap(
             self, isolated_db, monkeypatch):
         """No cap at launch (cost_cap_usd None): the cap is set, and the month's

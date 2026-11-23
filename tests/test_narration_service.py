@@ -336,6 +336,24 @@ class TestJob:
         assert [ln.speaker for ln in lines] == ["Ann" if i == 1 else "Narrator" for i in range(len(lines))]
         assert "Ghost" not in {c["speaker_label"] for c in isolated_db.list_characters(did)}
 
+    def test_labels_are_cleaned_and_capped_like_a_typed_name(self, isolated_db, monkeypatch):
+        """A label becomes part of a voice file's name and is shown everywhere; the model's text is
+        not checked on its way in."""
+        did = _drama(isolated_db)
+        long = "Ann " + "x" * 300
+        self._run(isolated_db, did, monkeypatch, lambda ch: {0: " Ann\u200b\nLee\x00 ", 1: long})
+        assert [ln.speaker for ln in isolated_db.load_line_objects(did)][:2] == ["Ann Lee", long[:100]]
+        assert {c["speaker_label"] for c in isolated_db.list_characters(did)} >= {"Ann Lee", long[:100]}
+        assert [narration_service._tagged_label(v) for v in ("\u202e\t", 42, None, "")] == ["Narrator"] * 4
+
+    def test_a_tagged_label_passes_the_rules_a_typed_name_does(self):
+        """The voice bank refuses a speaker whose name has a slash or "..", so one the model
+        wrote that way could never get a saved voice."""
+        from services import characters_service
+        for raw, want in (("Mei/Lin", "Mei Lin"), ("..\\..\\x", "\u2026 \u2026 x"), ("Ann...", "Ann\u2026")):
+            label = narration_service._tagged_label(raw)
+            assert label == want and characters_service._clean_label("name", label) == label
+
     def test_failure_redacts_secret_in_job_error(self, isolated_db, monkeypatch, key):
         did = _drama(isolated_db)
         from engine_backends import llm_tasks, engine_registry

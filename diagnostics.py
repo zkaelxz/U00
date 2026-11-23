@@ -33,7 +33,7 @@ OPTIONAL_DEPENDENCIES = {
     "pyannote.audio": ("pyannote.audio", "speaker diarization", "feature"),
     "librosa": ("librosa", "Nemotron speaker detection (reads the audio for it)", "feature"),
     "soundfile": ("soundfile", "speaker diarization, vocal separation chunking, word-level realignment", "feature"),
-    "pydub": ("pydub", "dub/narration track mixing", "feature"),
+    "pydub": ("pydub", "joining the narration track", "feature"),
     # Keys are the real pip names -- Diagnostics' Install button runs
     # `pip install <key>`.
     "pytesseract": ("pytesseract", "OCR (Tesseract backend)", "feature"),
@@ -254,7 +254,7 @@ INSTALL_TASKS = [
     {"id": "word_timing", "group": "Audio", "label": "Word-level timing",
      "help": "Re-align lines to individual words (experimental).",
      "packages": ["torch", "torchaudio", "uroman", "soundfile"]},
-    {"id": "narration_track", "group": "Dubbing", "label": "Narration track",
+    {"id": "narration_track", "group": "Narration", "label": "Narration track",
      "help": "Join the spoken lines into one audio file.",
      "packages": ["pydub"]},
     {"id": "hardsub_ocr", "group": "Video", "label": "Read burned-in captions (OCR)",

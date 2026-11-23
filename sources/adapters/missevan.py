@@ -230,7 +230,10 @@ class MissEvanSource(SourceAdapter):
         ref = self._audio_ref(sound, chapter)
         if ref is not None:
             return ref
-        if self._rendered_fetch is not None or auth_browser.has_profile(self.login_url, self.name):
+        # The signed-in profile is the PC owner's: only work allowed the browser
+        # (a request from this PC, for the owner) may read through it.
+        if self.allow_browser and (self._rendered_fetch is not None
+                                   or auth_browser.has_profile(self.login_url, self.name)):
             sound = self._sound(chapter, authenticated=True)
             ref = self._audio_ref(sound, chapter)
             if ref is not None:
