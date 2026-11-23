@@ -213,8 +213,14 @@ describe('Add menu item', () => {
     expect(isNavLocked(NAV_ITEMS.find((i) => i.label === 'Add')!)).toBe(false)
   })
 
-  it('is not offered to people who cannot create titles', () => {
+  it('is not offered to people who cannot create titles or run a link', () => {
     expect(labels(personas['household member'])).not.toContain('Add')
+  })
+
+  it('is offered to a member given Import from a link, for One-click translate', () => {
+    const member = personas['household member']
+    const session = meOf({ user: { ...owner, is_admin: false, is_local_owner: false }, permissions: [...MEMBER_PERMISSIONS, 'media.import_url'] })
+    expect(labels({ ...member, session })).toContain('Add')
   })
 })
 

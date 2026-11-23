@@ -6270,8 +6270,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * What a link says about a title: title, channel, stream date (PC only)
-         * @description Nothing is downloaded or saved. A video or stream link is read with yt-dlp (metadata only), a supported Sources link with that source's own data; any other page returns kind "page" without being fetched. 422 a bad or private address, 503 the read failed or yt-dlp is missing.
+         * What a link says about a title: title, channel, stream date
+         * @description Nothing is downloaded or saved. A video or stream link is read with yt-dlp (metadata only), a supported Sources link with that source's own data; any other page returns kind "page" without being fetched. 422 a bad or private address, 503 the read failed or yt-dlp is missing, 429 away from the PC while the caller or the server already has one running.
          */
         post: operations["post_media_link_probe_api_media_link_probe_post"];
         delete?: never;
@@ -7707,7 +7707,7 @@ export interface paths {
         put?: never;
         /**
          * Create a title for a video link and queue download, transcribe, translate and export
-         * @description PC only. A refused request creates nothing. Follow the run with GET /api/quick-video/runs.
+         * @description A refused request creates nothing. Follow the run with GET /api/quick-video/runs.
          */
         post: operations["start_api_quick_video_start_post"];
         delete?: never;
@@ -51247,6 +51247,15 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

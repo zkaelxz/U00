@@ -1,8 +1,9 @@
 """
 services/url_media_service.py -- download a drama's audio/video from a URL
 with yt-dlp (the Workspace Source stage's "From a URL"; Sources S-5
-video). The route is
-`local_only()` for now (docs/remote-access-decision.md).
+video). The title's route is `local_only()`; One-click translate
+(quick_video_service) also starts it, from any device, without the saved
+cookies when asked from away (docs/remote-access-permissions-core.md).
 
 Checks in the request, before any job or fetch: the pasted URL is public
 (sources_url_service.check_public_url: http(s), no userinfo, <=2000 chars,
@@ -27,7 +28,8 @@ re-encoded section, see _WallClock), no byte cap (a free-disk-space floor, polle
 timer, stops it instead, see _SpaceWatch), native downloader only (except a chosen
 part, which yt-dlp hands to ffmpeg: refused when cookie login is on), no
 cookie option in those caps (the saved Settings yt-dlp cookies, a browser
-or a cookies.txt path, are passed separately: the route is PC-only), and
+or a cookies.txt path, are passed separately, and only for a download asked
+for at the PC: One-click translate from away gets none), and
 never yt-dlp's `generic` extractor (security review LOW-1: it
 follows any embedded media URL and redirect without our address guard).
 A plain direct media link (the URL path ends in an audio/video extension
@@ -608,7 +610,8 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict |
     link), link being the video's ytdlp_child.link_fields or None."""
     options = options or {}
     ranged = options.get("part_start") is not None or options.get("part_end") is not None
-    cookies = settings_service.get_cookie_settings()
+    # The saved login is the PC owner's: a link someone gave from another device is fetched without it, as Live does.
+    cookies = settings_service.get_cookie_settings() if options.get("use_saved_cookies", True) else {}
     if ranged and (cookies.get("cookies_browser") or cookies.get("cookies_file")):
         raise RuntimeError(_PART_NO_COOKIES)
     section = ranged and options.get("part_end") is not None
@@ -871,7 +874,7 @@ def _title_link(drama_id) -> str:
 
 def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, allow_long=False,
                        part_start=None, part_end=None, exact_cuts=False, max_height=None,
-                       keep_lines=False) -> dict:
+                       keep_lines=False, use_saved_cookies=True) -> dict:
     """Starts `urlmedia_<drama_id>`; poll GET /api/jobs/{job_id}. The job
     waits in line when MAX_PARALLEL_DOWNLOADS are running or the last start
     was under START_SPACING_SECONDS ago. 422 bad or private URL, wrong
@@ -885,7 +888,8 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
     it means nothing for audio only or a direct file link. keep_lines
     downloads the title's video again (module docstring): it replaces the
     media without confirm_replace_audio, and an empty url means the title's
-    own link."""
+    own link. use_saved_cookies False leaves out the Settings yt-dlp cookies
+    (a link given from away from the PC)."""
     flags = (audio_only, confirm_replace_audio, allow_long, exact_cuts, keep_lines)
     if not all(isinstance(f, bool) for f in flags):
         raise InvalidInputError("audio_only, confirm_replace_audio, allow_long, exact_cuts and "
@@ -922,7 +926,8 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
             raise InvalidInputError(_PART_NO_COOKIES)
     options = {"allow_long": allow_long, "part_start": start if ranged else None,
                "part_end": end, "exact_cuts": exact_cuts if ranged else None,
-               "max_height": None if audio_only else max_height, "keep_lines": keep_lines}
+               "max_height": None if audio_only else max_height, "keep_lines": keep_lines,
+               "use_saved_cookies": use_saved_cookies is True}
     with media_upload_service.claims_lock:
         if drama_id in media_upload_service.claimed:
             raise ConflictError("Another upload is in progress for this title.")

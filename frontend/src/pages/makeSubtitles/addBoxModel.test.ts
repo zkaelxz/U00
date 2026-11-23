@@ -47,12 +47,12 @@ describe('Add box: Found for a link', () => {
 })
 
 describe('Add box: which actions show', () => {
-  it('offers Make English subtitles for a link at the PC, not away from it or for a Sources page', () => {
-    expect(linkCanRun('local', { state: 'reading' })).toBe(true)
-    expect(linkCanRun('local', { state: 'failed' })).toBe(true)
-    expect(linkCanRun('remote', { state: 'off' })).toBe(false)
-    expect(linkCanRun('local', { state: 'read', probe: probe({ kind: 'source' }) })).toBe(false)
-    expect(linkCanRun('local', { state: 'read', probe: probe({ kind: 'page' }) })).toBe(true)
+  it('offers Make English subtitles for a link to an account with the rights, not otherwise or for a Sources page', () => {
+    expect(linkCanRun(true, { state: 'reading' })).toBe(true)
+    expect(linkCanRun(true, { state: 'failed' })).toBe(true)
+    expect(linkCanRun(false, { state: 'off' })).toBe(false)
+    expect(linkCanRun(true, { state: 'read', probe: probe({ kind: 'source' }) })).toBe(false)
+    expect(linkCanRun(true, { state: 'read', probe: probe({ kind: 'page' }) })).toBe(true)
   })
 })
 
@@ -62,15 +62,17 @@ describe('Add box: the plan line', () => {
     expect(planForFile({ pc: 'remote', language: 'ja', engine: '' })).toBe('Transcribe it as Japanese speech on the main PC, then translate it.')
   })
   it('for a link names the profile and its engine, or what is missing', () => {
-    expect(planForLink({ pc: 'local', source: false, loaded: true, profile: 'Fast', engine: 'deepseek' }))
+    expect(planForLink({ pc: 'local', allowed: true, source: false, loaded: true, profile: 'Fast', engine: 'deepseek' }))
       .toBe('Download it on this PC, transcribe it, then translate it with DeepSeek (profile “Fast”), through the Queue.')
-    expect(planForLink({ pc: 'local', source: false, loaded: true, profile: null, engine: null }))
+    expect(planForLink({ pc: 'local', allowed: true, source: false, loaded: true, profile: null, engine: null }))
       .toBe('Choose a One-click translate profile in Settings first.')
-    expect(planForLink({ pc: 'local', source: false, loaded: false, profile: null, engine: null }))
+    expect(planForLink({ pc: 'local', allowed: true, source: false, loaded: false, profile: null, engine: null }))
       .toBe('Download it on this PC, transcribe it, then translate it, through the Queue.')
-    expect(planForLink({ pc: 'remote', source: false, loaded: false, profile: null, engine: null })).toMatch(/only on the main PC/)
-    expect(planForLink({ pc: 'local', source: true, loaded: true, profile: 'Fast', engine: null })).toMatch(/Sources page/)
-    expect(planForLink({ pc: 'local', source: false, loaded: true, profile: 'Default', engine: 'claude', capNeeded: true }))
+    expect(planForLink({ pc: 'remote', allowed: false, source: false, loaded: false, profile: null, engine: null })).toMatch(/needs the Import from a link right/)
+    expect(planForLink({ pc: 'remote', allowed: true, source: false, loaded: true, profile: 'Fast', engine: null }))
+      .toBe('Download it on the main PC, transcribe it, then translate it (profile “Fast”), through the Queue.')
+    expect(planForLink({ pc: 'local', allowed: true, source: true, loaded: true, profile: 'Fast', engine: null })).toMatch(/Sources page/)
+    expect(planForLink({ pc: 'local', allowed: true, source: false, loaded: true, profile: 'Default', engine: 'claude', capNeeded: true }))
       .toBe('Set a monthly spending cap in Settings > Spending first: this profile translates with a paid engine.')
   })
 })
