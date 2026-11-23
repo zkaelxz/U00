@@ -9,8 +9,8 @@ from .fallback import (FALLBACK_BACKOFF_BASE_SECONDS, FALLBACK_BACKOFF_CAP_SECON
                        FALLBACK_TRANSIENT_RETRIES, FallbackEngine)
 from .flag_reasons import FLAG_REASONS
 from .gemini import GeminiEngine, gemini_reply
-from .local import (OllamaEngine, _ollama_chat, abort_check_var, ollama_max_request_seconds,
-                    ollama_task_reply)
+from .local import (OllamaEngine, _ollama_chat, abort_check_var, is_ollama_cloud_model,
+                    ollama_max_request_seconds, ollama_task_reply)
 from .openai_compat import OpenAIEngine
 from .paid_calls import TranslateRunStopped, current_limits
 from .shared import (
@@ -71,13 +71,22 @@ _in_worker_var = contextvars.ContextVar("llm_task_in_worker", default=False)
 # limit is on how many workers per engine may be alive at once, abandoned ones
 # included. A worker takes its slot under the lock before it starts, so two
 # calls checking together can't both pass with one slot left.
-_MAX_ABANDONED_JOBLESS = 4
+# Eight lets Quick read keep six pages at a hosted model (measured fastest on the V100) with room
+# for a second reader. A model on this PC answers one call at a time per loaded copy, so more
+# calls there would only queue inside Ollama and run into their deadlines.
+_MAX_ABANDONED_JOBLESS = 8
+_MAX_JOBLESS_ON_LOCAL_OLLAMA = 4
 _abandoned_jobless = {}  # engine key -> worker threads alive or not yet pruned
+# A full set of slots is usually calls about to finish (Quick read pages side by side, or the
+# phone and the extension at once), so a request waits this long for one instead of failing a
+# page outright. Only workers abandoned past their deadline hold slots for longer.
+JOBLESS_SLOT_WAIT_SECONDS = 30.0
 # job id -> worker thread of a call this job stopped waiting for. A python
 # thread can't be killed, so the rule is one such thread per job id: a new
 # call is refused while it lives, instead of piling more up.
 _abandoned = {}
 _abandoned_lock = threading.Lock()
+_jobless_slot_freed = threading.Condition(_abandoned_lock)
 
 
 @contextlib.contextmanager
@@ -198,6 +207,35 @@ def _engine_key(engine) -> str:
     return getattr(engine, "name", None) or type(engine).__name__
 
 
+def _jobless_cap(engine) -> int:
+    if isinstance(engine, OllamaEngine) and not is_ollama_cloud_model(getattr(engine, "model", "")):
+        return min(_MAX_ABANDONED_JOBLESS, _MAX_JOBLESS_ON_LOCAL_OLLAMA)
+    return _MAX_ABANDONED_JOBLESS
+
+
+def _wait_for_jobless_slot_locked(slots: list, cap: int) -> bool:
+    """True once fewer than `cap` workers hold the engine's slots, False after
+    JOBLESS_SLOT_WAIT_SECONDS. Called and returns with _abandoned_lock held."""
+    give_up = time.monotonic() + JOBLESS_SLOT_WAIT_SECONDS
+    while True:
+        slots[:] = [w for w in slots if w.is_alive()]
+        if len(slots) < cap:
+            return True
+        left = give_up - time.monotonic()
+        if left <= 0:
+            return False
+        # A worker hands its slot back as it finishes (_free_jobless_slot); the timeout also
+        # catches one that died without reaching that.
+        _jobless_slot_freed.wait(min(left, 1.0))
+
+
+def _free_jobless_slot(engine, worker) -> None:
+    with _abandoned_lock:
+        with contextlib.suppress(ValueError):
+            _abandoned_jobless.get(_engine_key(engine), []).remove(worker)
+        _jobless_slot_freed.notify_all()
+
+
 def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float | None = None,
                  on_late_result=None):
     """on_late_result() is called once, from whichever thread notices first,
@@ -238,21 +276,24 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float | None =
                     "usage of an abandoned AI call was not logged: %s", redact_secrets(str(exc)))
 
     def work():
-        job_timing.set_current_job(timing_job)
         try:
-            box["value"] = ctx.run(fn)
-        except BaseException as exc:
-            box["error"] = exc
-            return
-        if abandon.is_set():
-            record_late_result()
+            job_timing.set_current_job(timing_job)
+            try:
+                box["value"] = ctx.run(fn)
+            except BaseException as exc:
+                box["error"] = exc
+                return
+            if abandon.is_set():
+                record_late_result()
+        finally:
+            if scope.job_id is None:
+                _free_jobless_slot(engine, worker)
 
     worker = threading.Thread(target=work, daemon=True, name=f"llm-task-{scope.job_id}")
     with _abandoned_lock:
         if scope.job_id is None:
             slots = _abandoned_jobless.setdefault(_engine_key(engine), [])
-            slots[:] = [w for w in slots if w.is_alive()]
-            busy = len(slots) >= _MAX_ABANDONED_JOBLESS
+            busy = not _wait_for_jobless_slot_locked(slots, _jobless_cap(engine))
         else:
             busy = _abandoned_alive_locked(scope.job_id)
             if not busy:

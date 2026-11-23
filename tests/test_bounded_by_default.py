@@ -87,6 +87,7 @@ def test_no_second_request_while_the_abandoned_one_lives(monkeypatch):
 def test_jobless_calls_cap_the_abandoned_workers(monkeypatch):
     monkeypatch.setattr(llm_tasks, "batch_deadline_for", lambda engine: 0.2)
     monkeypatch.setattr(llm_tasks, "_MAX_ABANDONED_JOBLESS", 1)
+    monkeypatch.setattr(llm_tasks, "JOBLESS_SLOT_WAIT_SECONDS", 0.3)
     engines = [HangingEngine() for _ in range(2)]
     for engine in engines[:-1]:
         with pytest.raises(llm_tasks.LLMTaskTimeout, match="did not answer"):
@@ -289,6 +290,7 @@ def test_cancel_during_a_split_batch_does_not_start_the_second_half():
 def test_jobless_cap_is_per_engine_and_a_running_call_holds_its_slot(monkeypatch):
     monkeypatch.setattr(llm_tasks, "batch_deadline_for", lambda engine: 5)
     monkeypatch.setattr(llm_tasks, "_MAX_ABANDONED_JOBLESS", 1)
+    monkeypatch.setattr(llm_tasks, "JOBLESS_SLOT_WAIT_SECONDS", 0.3)
     other = HangingEngine()
     other.name = "claude"
     started = threading.Event()
@@ -311,7 +313,7 @@ def test_jobless_cap_is_per_engine_and_a_running_call_holds_its_slot(monkeypatch
     t.start()
     assert started.wait(5)
     # Still in flight, not abandoned: its slot is already taken, so a second
-    # call on the same engine is refused instead of racing it for the slot.
+    # call on the same engine waits and is refused when it does not free up.
     second = HangingEngine()
     with pytest.raises(llm_tasks.LLMTaskTimeout, match="still finishing"):
         llm_tasks.call_batch_bounded(second, lambda: second.translate_batch(["a"], {}))
@@ -322,3 +324,44 @@ def test_jobless_cap_is_per_engine_and_a_running_call_holds_its_slot(monkeypatch
     first.release.set()
     t.join(5)
     assert outcome["first"] == ["x"]
+
+
+def test_a_jobless_call_waits_for_a_slot_instead_of_failing(monkeypatch):
+    """Quick read pages side by side (or the phone and the extension at once) fill the slots
+    with calls about to finish; the next page waits for one rather than coming back
+    untranslated."""
+    monkeypatch.setattr(llm_tasks, "batch_deadline_for", lambda engine: 5)
+    monkeypatch.setattr(llm_tasks, "_MAX_ABANDONED_JOBLESS", 1)
+    monkeypatch.setattr(llm_tasks, "JOBLESS_SLOT_WAIT_SECONDS", 5)
+    first, second = HangingEngine(), HangingEngine()
+    outcome = {}
+
+    def run(name, engine):
+        try:
+            outcome[name] = llm_tasks.call_batch_bounded(engine, lambda: engine.translate_batch(["a"], {}))
+        except Exception as exc:
+            outcome[name] = exc
+    threads = [threading.Thread(target=run, args=("first", first))]
+    threads[0].start()
+    deadline = time.monotonic() + 5
+    while first.calls == 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    threads.append(threading.Thread(target=run, args=("second", second)))
+    threads[1].start()
+    time.sleep(0.3)
+    assert second.calls == 0   # waiting for the slot, not sent alongside
+    second.release.set()
+    first.release.set()
+    for t in threads:
+        t.join(5)
+    assert outcome == {"first": ["x"], "second": ["x"]}
+
+
+def test_a_model_on_this_pc_takes_fewer_calls_at_once_than_a_hosted_one():
+    from engine_backends.local import OllamaEngine
+    local, cloud = OllamaEngine.__new__(OllamaEngine), OllamaEngine.__new__(OllamaEngine)
+    local.model, cloud.model = "gemma4:31b", "gemma4:31b-cloud"
+    assert llm_tasks._jobless_cap(local) == llm_tasks._MAX_JOBLESS_ON_LOCAL_OLLAMA
+    assert llm_tasks._jobless_cap(cloud) == llm_tasks._MAX_ABANDONED_JOBLESS
+    assert llm_tasks._jobless_cap(HangingEngine()) == llm_tasks._MAX_ABANDONED_JOBLESS
+    assert llm_tasks._MAX_JOBLESS_ON_LOCAL_OLLAMA < llm_tasks._MAX_ABANDONED_JOBLESS
