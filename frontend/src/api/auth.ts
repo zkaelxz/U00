@@ -32,7 +32,7 @@ const ACCOUNT_WORDS_MAX = 24
 // Kanji, kana, Hangul, fullwidth forms and emoji are about twice as wide as a Latin letter; combining joiners add nothing.
 // The whole Katakana block is listed because the long mark and the middle dot belong to no script yet are as wide as a kana.
 const WIDE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\u30a0-\u30ff\p{Script=Hangul}\p{Extended_Pictographic}\u3000-\u303f\uff01-\uff60\uffe0-\uffe6]/u
-const JOINER = /[\u200d\ufe0e\ufe0f]/u
+const JOINER = /\u200d|\ufe0e|\ufe0f/u
 
 /** A name's width in Latin-letter units: wide characters count as two. */
 export function nameWidth(name: string): number {

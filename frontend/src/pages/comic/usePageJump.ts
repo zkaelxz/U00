@@ -69,6 +69,6 @@ export function usePageJump({ activeJump, current, vertical, pages, figures, sta
     )
     for (const el of figures.current?.values() ?? []) io.observe(el)
     return () => io.disconnect()
-  }, [vertical, pages, ready, canObserve, figures])
+  }, [vertical, pages, ready, canObserve, figures, jumpRef, onVisibleRef])
 
 }

@@ -4,9 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { PendingInstallPlan, PendingInstallStatus } from '../../types/pendingInstall'
 import { ApiError } from '../../api/client'
-import {
-  InstallPlanPanel, PendingInstallBanner, needsPlanPanel, pendingKeys, planCheckUnavailable, planPanelKey,
-} from './PendingInstall'
+import { needsPlanPanel, pendingKeys, planCheckUnavailable, planPanelKey } from './installPlan'
+import { InstallPlanPanel, PendingInstallBanner } from './PendingInstall'
 
 const plan = (o: Partial<PendingInstallPlan> = {}): PendingInstallPlan => ({
   packages: ['paddleocr'], available: true, mode: 'now', changes: [], summary: [], loaded: [], blocked: [],

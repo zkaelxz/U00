@@ -22,7 +22,8 @@ import {
   isInstallable, useDetailsOpen, type AdminBusy,
 } from './diagnosticsAdmin'
 import { GpuTorchPanel } from './GpuTorchPanel'
-import { PendingInstallBanner, pendingKeys } from './PendingInstall'
+import { pendingKeys } from './installPlan'
+import { PendingInstallBanner } from './PendingInstall'
 import { useInstallPlan } from './useInstallPlan'
 import { usePickedPackage } from './usePickedPackage'
 import { setupConfirmLabel, verifyText } from './gpuTorch'

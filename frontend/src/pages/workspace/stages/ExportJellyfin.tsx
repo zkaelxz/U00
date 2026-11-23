@@ -47,12 +47,15 @@ export function ExportJellyfin({ field, inputs, assRequest }: {
 
   // A video list or result found for one language is not reused for another.
   // Keyed on the text too: bilingual and English share a language but not a file.
-  useEffect(() => {
+  const textKey = `${language}|${field}`
+  const [seenTextKey, setSeenTextKey] = useState(textKey)
+  if (seenTextKey !== textKey) {
+    setSeenTextKey(textKey)
     setItems(null)
     setItemId('')
     setNote(null)
     setError(null)
-  }, [language, field])
+  }
 
   useEffect(() => {
     let live = true

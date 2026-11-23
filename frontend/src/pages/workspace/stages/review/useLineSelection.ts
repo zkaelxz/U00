@@ -1,4 +1,4 @@
-import { useMemo, useRef, useSyncExternalStore } from 'react'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 
 interface VisibleLine {
   id: number
@@ -119,9 +119,7 @@ export interface LineSelection {
 // Selected lines for one title. `scope` is the title's id: a new scope starts
 // with nothing selected, so a selection never carries into another title.
 export function useLineSelection(scope: string | number, reshapes = 0): LineSelection {
-  const store = useRef<LineSelectionStore>(null)
-  if (!store.current) store.current = new LineSelectionStore(scope)
-  const s = store.current
+  const [s] = useState(() => new LineSelectionStore(scope))
   s.setScope(scope)
   s.setReshapes(reshapes)
   const ids = useSyncExternalStore(s.subscribe, s.getSnapshot)

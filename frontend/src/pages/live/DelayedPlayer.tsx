@@ -8,7 +8,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { MUTED_NOTE } from './embedLogic'
-import { FullscreenWithCaptions, canFullscreenWithCaptions } from './LiveCaptions'
+import { canFullscreenWithCaptions } from './captions'
+import { FullscreenWithCaptions } from './LiveCaptions'
 import {
   LOAD_FAILED_NOTE, MAX_RELOADS, PREPARING_NOTE, RECOVERING_NOTE, RECORDER_LAG_S, SEEK_COOLDOWN_S, UNSUPPORTED_NOTE, errorAction, pictureDelayWithoutWindow, placement, playerSrc, stallAction,
 } from './playerLogic'

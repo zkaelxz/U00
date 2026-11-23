@@ -211,12 +211,15 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const [initialSize] = useState(prefs.chapterSize)
   const [vocabTick, setVocabTick] = useState(0)
 
-  // One-off loads for this drama.
-  useEffect(() => {
-    // Title A's link must not show on title B while B loads, or if B's load fails.
+  // Title A's link must not show on title B while B loads, or if B's load fails.
+  const [seenLoad, setSeenLoad] = useState({ id, loadTick })
+  if (seenLoad.id !== id || seenLoad.loadTick !== loadTick) {
+    setSeenLoad({ id, loadTick })
     setSourceUrl(null)
     setTitleFailed(false)
     setLoadError(null)
+  }
+  useEffect(() => {
     let cancelled = false
     api.getDrama(id).then(
       (d) => {

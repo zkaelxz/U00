@@ -1,4 +1,4 @@
-import { useEffect, type MutableRefObject } from 'react'
+import { useCallback, useEffect, type MutableRefObject } from 'react'
 
 import { listAllLines } from '../../../../api/restructure'
 import type { ReviewLine } from '../../../../types/review'
@@ -126,6 +126,8 @@ export function useDraftGuard(edit: EditState | null, st: MutableRefObject<Lines
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirtyNow])
+  // Read at unmount, not captured at mount: the edit open when the stage closes is the one to park.
+  const latestEdit = useCallback(() => st.current.edit, [st])
   useEffect(() => {
     const unregister = registerLinesWriter(ctl)
     let cancelled = false
@@ -133,7 +135,7 @@ export function useDraftGuard(edit: EditState | null, st: MutableRefObject<Lines
     return () => {
       cancelled = true
       unregister()
-      leaveWithDraft(ctl, st.current.edit)
+      leaveWithDraft(ctl, latestEdit())
     }
-  }, [ctl, st])
+  }, [ctl, latestEdit])
 }

@@ -13,20 +13,23 @@ export function BlindPick({ runA, runB, onSaved }: { runA: number; runB: number;
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const load = useCallback(async () => {
+  const fetchPair = useCallback(() => Promise.all([getBenchmarkPair(runA, runB), getBenchmarkPickSummary(runA, runB)]), [runA, runB])
+  const show = useCallback(([next, sums]: [BenchmarkPairNext, BenchmarkPickSummary]) => {
+    setPair(next)
+    setSummary(sums)
+    setError(null)
+  }, [])
+  const load = async () => {
     try {
-      const [next, sums] = await Promise.all([getBenchmarkPair(runA, runB), getBenchmarkPickSummary(runA, runB)])
-      setPair(next)
-      setSummary(sums)
-      setError(null)
+      show(await fetchPair())
     } catch (e) {
       setError(plainError(e))
     }
-  }, [runA, runB])
+  }
 
   useEffect(() => {
-    void load()
-  }, [load])
+    fetchPair().then(show, (e: unknown) => setError(plainError(e)))
+  }, [fetchPair, show])
 
   const choose = async (choice: BenchmarkPickChoice) => {
     if (!pair?.ticket) return

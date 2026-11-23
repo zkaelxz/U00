@@ -13,6 +13,7 @@ import {
   POLL_MS, describeLiveError, getLive, hasPending, isActive, listLive, mergeCues, pickSession, readFrom, stopLive,
 } from '../../api/live'
 import { LIVE_STARTED_EVENT } from '../../api/liveFollows'
+import { useLatest } from '../../hooks/useLatest'
 import { useEventStream } from '../../hooks/useEventStream'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import type { LiveCue, LiveSessionStatus } from '../../types/live'
@@ -39,8 +40,7 @@ export function useLiveSession(setError: (text: string | null) => void) {
   const [stopping, setStopping] = useState<false | 'finishing' | 'now'>(false)
   // The last session this browser started and its link, so a reload still shows its video.
   const [startedLink, setStartedLink] = usePersistedState<StartedLink | null>('live.startedLink', null)
-  const startedLinkRef = useRef(startedLink)
-  startedLinkRef.current = startedLink
+  const startedLinkRef = useLatest(startedLink)
   const sessionRef = useRef<Session | null>(null)
   const pollFailures = useRef(0)
   const pollErrorShown = useRef(false)
@@ -54,12 +54,16 @@ export function useLiveSession(setError: (text: string | null) => void) {
     const known = startedLinkRef.current
     setSession({ id, url: known?.id === id ? known.url : null, status: null, cues: [], next: 0 })
     setError(null)
-  }, [setError])
+  }, [setError, startedLinkRef])
 
   // A Stop, or a run of failed reads, belongs to the session it happened to.
   const sessionId = session?.id
-  useEffect(() => {
+  const [stopFor, setStopFor] = useState(sessionId)
+  if (stopFor !== sessionId) {
+    setStopFor(sessionId)
     setStopping(false)
+  }
+  useEffect(() => {
     pollFailures.current = 0
     pollErrorShown.current = false
   }, [sessionId])

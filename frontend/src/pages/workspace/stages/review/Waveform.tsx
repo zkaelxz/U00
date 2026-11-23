@@ -185,7 +185,8 @@ export default function Waveform({ dramaId, lines, active, player, hasVideo = fa
     return () => cancelAnimationFrame(raf)
   }, [player, view, width])
 
-  const bounds = useMemo(() => (active ? edgeBounds(lines, active, lineCount, duration()) : null), [lines, active, lineCount, peaks])
+  const dur = duration()
+  const bounds = useMemo(() => (active ? edgeBounds(lines, active, lineCount, dur) : null), [lines, active, lineCount, dur])
   const shown = visibleLines(lines, view)
   const timeAt = (clientX: number) => {
     const r = box.current?.getBoundingClientRect()
@@ -277,7 +278,6 @@ export default function Waveform({ dramaId, lines, active, player, hasVideo = fa
   })
 
   const seek = (e: PointerEvent<HTMLDivElement>) => player.current?.seek(timeAt(e.clientX))
-  const dur = duration()
   const zoom = (f: number) => setView((v) => zoomView(v, f, duration()))
   const pan = (dir: number) => setView((v) => panView(v, (dir * v.span) / 2, duration()))
 

@@ -10,7 +10,9 @@ export function useDramaJobs(dramaId: number, onFinished: () => void) {
   const [flash, setFlash] = useState<PillFlash | null>(null)
   const prevActive = useRef<Set<string>>(new Set())
   const finished = useRef(onFinished)
-  finished.current = onFinished
+  useEffect(() => {
+    finished.current = onFinished
+  })
 
   useEffect(() => {
     if (!jobs) return

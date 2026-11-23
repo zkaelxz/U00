@@ -107,3 +107,6 @@ export function captionAt(
   }
   return null
 }
+
+/** Whether the page's own full screen (picture and captions together) can be offered. */
+export const canFullscreenWithCaptions = () => typeof document !== 'undefined' && document.fullscreenEnabled === true

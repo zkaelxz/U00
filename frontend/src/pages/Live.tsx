@@ -237,8 +237,12 @@ export default function LivePage() {
     session?.status?.processing_seconds ?? 0, (session?.status?.chunks_measured ?? 0) > 0)
   const [autoValue, setAutoValue] = useState<number | null>(null)
   // A new session's estimate starts from its own chunks, not the last session's.
-  useEffect(() => setAutoValue(null), [sessionId])
-  const steadyValue = steadyDelay(autoValue, estimate)
+  const [valueFor, setValueFor] = useState(sessionId)
+  if (valueFor !== sessionId) {
+    setValueFor(sessionId)
+    setAutoValue(null)
+  }
+  const steadyValue = steadyDelay(valueFor === sessionId ? autoValue : null, estimate)
   if (steadyValue !== autoValue) setAutoValue(steadyValue)
   // What the player reports it really runs behind live; the chat panel waits that long.
   const [pictureDelay, setPictureDelay] = useState(0)

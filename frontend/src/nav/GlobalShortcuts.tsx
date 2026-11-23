@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 
 import { useShortcut } from '../hooks/useShortcut'
 import { Sheet } from '../components/Sheet'
-import { REVIEW_EDITING_KEYS, REVIEW_KEYS } from '../pages/workspace/stages/review/ShortcutSheet'
+import { REVIEW_EDITING_KEYS, REVIEW_KEYS } from '../pages/workspace/stages/review/reviewKeys'
 import type { Route } from '../router'
 import { globalShortcut } from './palette'
 import './palette.css'

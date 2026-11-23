@@ -22,9 +22,7 @@ function History() {
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(true)
 
-  const load = (month?: string) => {
-    setBusy(true)
-    setError(null)
+  const fetchMonth = (month?: string) => {
     getSpendHistory(month).then(
       (d) => {
         setData(d)
@@ -36,7 +34,13 @@ function History() {
       },
     )
   }
-  useEffect(() => load(), [])
+  const load = (month?: string) => {
+    setBusy(true)
+    setError(null)
+    fetchMonth(month)
+  }
+  // Busy and no error already hold on mount, so the first fetch doesn't set them again.
+  useEffect(() => fetchMonth(), [])
 
   const selected = data?.selected_month ?? null
   return (

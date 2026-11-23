@@ -37,7 +37,7 @@ export function useAction<A extends unknown[]>(fn: (...args: A) => Promise<void>
       inFlight.current = false
       setBusy(false)
     }
-  }, [])
+  }, [fnRef])
   const retry = useCallback(() => {
     if (last.current) void run(...last.current)
   }, [run])

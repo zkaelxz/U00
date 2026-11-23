@@ -234,7 +234,7 @@ export default function TranscribeStage({
       setSwitchedNotice(`${reason} Switched to ${DEFAULT_WHISPER_SIZE}.`)
       setCf((s) => (s ? { ...s, whisper_size: DEFAULT_WHISPER_SIZE } : s))
     }
-  }, [cf, config, language])
+  }, [cf, setCf, config, language])
 
   const setC = <K extends keyof ConfigForm>(k: K, v: ConfigForm[K]) => {
     setSaved(false)

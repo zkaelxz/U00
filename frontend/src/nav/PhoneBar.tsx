@@ -10,7 +10,8 @@ import { usePublishedHeight } from '../hooks/usePublishedHeight'
 import { routeHref, type Route } from '../router'
 import { NAV_DRAWER_ID } from './NavDrawer'
 import { visibleRailGroups, type NavContext } from './navItems'
-import { Icon, navIconPath } from './navLinks'
+import { navIconPath } from './navIcons'
+import { Icon } from './navLinks'
 import './phoneBar.css'
 
 const BAR_LABELS = ['Library', 'Add', 'Jobs']

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { withExportLines, withTranslateLines } from './stageLineMocks'
-import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
+import { exportBlock, openExportBlock } from './exportBlocks'
 
 // Leaving a stage while its job runs and coming back picks the job up again
 // (useReattachJob). Job starts and job reads are mocked; nothing runs.

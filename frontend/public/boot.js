@@ -12,4 +12,4 @@ try {
   if (z === 'small' || z === 'large' || z === 'larger') document.documentElement.setAttribute('data-text', z)
   if (localStorage.getItem('baihe.density') === 'compact') document.documentElement.setAttribute('data-density', 'compact')
   if (localStorage.getItem('baihe.style') === 'soft') document.documentElement.setAttribute('data-style', 'soft')
-} catch (e) {}
+} catch {}

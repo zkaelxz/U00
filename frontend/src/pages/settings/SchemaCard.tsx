@@ -19,7 +19,8 @@ import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import type { SettingsOverview, SettingsPreferences, SettingsSchemaRow } from '../../types/settings'
 import { useDeveloperMode } from '../assistant/developerMode'
-import { changedPreferences, checkPath, OCR_LABELS, type Parsed } from './preferences'
+import { changedPreferences, OCR_LABELS } from './preferences'
+import { toDraftValue, toSavedValue } from './schemaValues'
 
 const grid = { display: 'grid', gap: 'var(--space-3)' } as const
 
@@ -58,44 +59,6 @@ function rowsFor(schema: SettingsSchemaRow[] | null, section: string, keys: stri
 function savedValue(settings: SettingsOverview, key: string): unknown {
   const prefs = settings.preferences as unknown as Record<string, unknown>
   return key in prefs ? prefs[key] : (settings as unknown as Record<string, unknown>)[key]
-}
-
-// A zero or unset number reads as blank: the placeholder says what blank means.
-export function toDraftValue(row: SettingsSchemaRow, saved: unknown): string | boolean {
-  if (row.type === 'bool') return saved === true
-  if (row.type === 'int' || row.type === 'float') return saved == null || saved === 0 ? '' : String(saved)
-  if (row.type === 'json') return JSON.stringify(saved ?? row.default ?? {}, null, 2)
-  return saved == null ? '' : String(saved)
-}
-
-export function toSavedValue(row: SettingsSchemaRow, raw: string | boolean): Parsed<unknown> {
-  if (row.type === 'bool') return { ok: true, value: raw === true }
-  const text = String(raw).trim()
-  if (row.type === 'choice') return { ok: true, value: text || row.default }
-  if (row.type === 'int' || row.type === 'float') {
-    if (!text) return { ok: true, value: row.default }
-    const whole = row.type === 'int'
-    const range =
-      row.min != null && row.max != null ? ` from ${row.min.toLocaleString('en-US')} to ${row.max.toLocaleString('en-US')}` : ''
-    const n = Number(text)
-    if (!(whole ? /^-?\d+$/ : /^-?\d+(\.\d+)?$/).test(text) || (row.min != null && n < row.min) || (row.max != null && n > row.max)) {
-      return { ok: false, error: whole ? `Enter a whole number${range}.` : `Enter an amount${range}.` }
-    }
-    return { ok: true, value: n }
-  }
-  if (row.type === 'json') {
-    try {
-      return { ok: true, value: JSON.parse(text) }
-    } catch {
-      return { ok: false, error: `${row.label} is not valid JSON.` }
-    }
-  }
-  if (row.max_len != null && text.length > row.max_len) return { ok: false, error: `${row.label} is too long.` }
-  if (row.type === 'path') {
-    const problem = checkPath(text)
-    if (problem) return { ok: false, error: problem }
-  }
-  return { ok: true, value: text }
 }
 
 // The server sends the stored value as the label; the page words it.

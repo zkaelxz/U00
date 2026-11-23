@@ -1,5 +1,5 @@
 // Filling in lines with no speaker: the guesses to offer, and the Undo for the last one taken.
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 
 import { undoSpeakerChange } from '../../../../api/characters'
 import { listSpeakerSuggestions } from '../../../../api/review'
@@ -43,7 +43,7 @@ export function useSpeakerUndo(
   // Kept with its title, so an offer never outlives a switch to another title.
   const [held, setHeld] = useState<{ dramaId: number; undo: SpeakerUndo } | null>(null)
   const undo = held?.dramaId === dramaId ? held.undo : null
-  const setUndo = (u: SpeakerUndo | null) => setHeld(u && { dramaId, undo: u })
+  const setUndo = useCallback((u: SpeakerUndo | null) => setHeld(u && { dramaId, undo: u }), [dramaId])
   const [busy, setBusy] = useState(false)
   // busy reaches this closure only after a render, so a fast second click would post the undo again.
   const running = useRef(false)

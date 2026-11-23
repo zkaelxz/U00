@@ -9,7 +9,7 @@ import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useStoredRun } from '../../../../hooks/useStoredRun'
 import { isTerminalStatus, offersCancel } from '../../../../types/jobs'
 import type { RetimeProposal, RetimeResult } from '../../../../types/workspace'
-import { useLineSelectionContext } from './LineSelectionContext'
+import { useLineSelectionContext } from './useLineSelectionContext'
 import { formatTime } from './reviewLogic'
 import { retimeJobId, retimeOutcome, retimeSelectedProblem, startShift } from './retimeLogic'
 import { buttonClass } from '../../../../components/uiClasses'
@@ -37,7 +37,6 @@ export function RetimeLines({
   const textLang = useTitleTextLang()
   const { selectedIds } = useLineSelectionContext()
   const panelRef = useRef<HTMLDivElement>(null)
-  const [sectionSignal, setSectionSignal] = useState(0)
   const [error, setError] = useState<unknown>(null)
   const [starting, setStarting] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -67,7 +66,6 @@ export function RetimeLines({
 
   useEffect(() => {
     if (!openSignal) return
-    setSectionSignal((n) => n + 1)
     panelRef.current?.scrollIntoView({ block: 'start' })
   }, [openSignal])
 
@@ -129,7 +127,7 @@ export function RetimeLines({
 
   return (
     <div ref={panelRef}>
-      <Section storageKey="review.retimeLines" title="Re-time with Qwen3 aligner" summary="Keeps the words, changes only start and end" openSignal={sectionSignal}>
+      <Section storageKey="review.retimeLines" title="Re-time with Qwen3 aligner" summary="Keeps the words, changes only start and end" openSignal={openSignal}>
         <div className="compare-panel" data-testid="retime-lines">
           <p className="muted">
             Fits the ticked lines’ existing text to the audio with the Qwen3 forced aligner, without hearing it again.

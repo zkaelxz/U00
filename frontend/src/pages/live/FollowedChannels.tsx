@@ -61,18 +61,22 @@ export function FollowedChannels({ liveOptions }: Props) {
   const [note, setNote] = useState<string | null>(null)
   const alive = useRef(true)
 
-  const load = useCallback(async () => {
-    try {
-      const r = await listFollows()
-      if (!alive.current) return null
-      setList(r)
-      setLoadError(null)
-      return r
-    } catch (err) {
-      if (alive.current) setLoadError(describeFollowError(err))
-      return null
-    }
-  }, [])
+  const load = useCallback(
+    () =>
+      listFollows().then(
+        (r) => {
+          if (!alive.current) return null
+          setList(r)
+          setLoadError(null)
+          return r
+        },
+        (err: unknown) => {
+          if (alive.current) setLoadError(describeFollowError(err))
+          return null
+        },
+      ),
+    [],
+  )
 
   useEffect(() => {
     alive.current = true

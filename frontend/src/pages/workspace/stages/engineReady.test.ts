@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { TranslateEngine } from '../../../types/translate'
 import { aiUnavailableText, engineGate, ollamaAnswer } from './engineReady'
-import { startOptions } from './StartFromPicker'
+import { startOptions } from './startFrom'
 
 const eng = (name: string, over: Partial<TranslateEngine> = {}): TranslateEngine => ({
   name, label: name, free: false, models: null, key_configured: true, model_labels: {}, cloud_models: [], package_installed: true, ...over,

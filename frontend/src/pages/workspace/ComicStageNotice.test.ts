@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isLineStageForComic } from './ComicStageNotice'
+import { isLineStageForComic } from './comicStage'
 import { isCastTab } from './stages'
 
 describe('isLineStageForComic', () => {
