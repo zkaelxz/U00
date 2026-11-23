@@ -16,6 +16,8 @@ original files" so the delete confirmation can name the pin.
 import os
 import stat
 
+import db
+
 from services import keep_original_service
 from services.disk_usage_guard import (_Ctx, _is_link_stat, _norm, _protection, _resolve,
                                        _within)
@@ -349,7 +351,8 @@ def trash_empty(confirm_text=None, expected_item_count=None, expected_size_bytes
     """PERMANENT DELETE of every entry in Trash (typed word needed). The count
     and total size the person saw must still match (409 `changed`), and a
     Trash too large to measure completely can't be emptied this way. Entries
-    that can't be removed stay; `failed` counts them. Anything in the Trash
+    that can't be removed stay; `failed` counts them. Also clears the source-text edit
+    history kept from deleted titles. Anything in the Trash
     folder that isn't one of Baihe's entries is left alone."""
     _require_word(confirm_text)
     for v in (expected_item_count, expected_size_bytes):
@@ -379,4 +382,7 @@ def trash_empty(confirm_text=None, expected_item_count=None, expected_size_bytes
                 continue
             freed += sizes[trash_id]
             removed += 1
+        # Deleting a title keeps its source-text edit history for the corrections report; emptying
+        # Trash is the person's "forever" for what they deleted, so that history goes with it.
+        db.clear_deleted_title_source_edits()
         return {"freed_bytes": freed, "removed": removed, "failed": failed}

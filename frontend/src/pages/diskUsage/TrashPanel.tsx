@@ -87,7 +87,7 @@ export function TrashPanel({ trash, onChanged, onStale }: Props) {
             >
               <p className="du-warn">
                 Delete the {trash.item_count} item{trash.item_count === 1 ? '' : 's'} above forever? Frees {formatDecimalBytes(trash.size_bytes)}.
-                If Trash changed since this list loaded, nothing is deleted. Can&apos;t be undone.
+                If Trash changed since this list loaded, nothing is deleted. It also clears the source-text correction history kept from titles you deleted. Can&apos;t be undone.
               </p>
               {keptTitlesLine(trash.items) && <p className="du-warn" data-testid="trash-kept-titles">{keptTitlesLine(trash.items)}</p>}
             </TypedConfirm>

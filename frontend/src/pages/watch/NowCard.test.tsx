@@ -173,7 +173,7 @@ describe('NowCard marks and jump', () => {
     expect(out).toMatch(/aria-pressed="true"[^>]*aria-label="Wrong"/)
     expect(out).toMatch(/aria-label="Looks right"[^>]*><span[^>]*>✓<\/span><\/button>/)
     expect(out).toMatch(/aria-label="Wrong"[^>]*><span[^>]*>✗<\/span><\/button>/)
-    expect(out).toMatch(/aria-label="Mixed"[^>]*><span[^>]*>〰<\/span><\/button>/)
+    expect(out).toMatch(/aria-label="Partly"[^>]*><span[^>]*>〰<\/span><\/button>/)
     expect(out).toContain('‹ Prev. Flag')
     expect(out).toContain('Next Flag ›')
   })

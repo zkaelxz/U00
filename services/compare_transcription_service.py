@@ -13,7 +13,7 @@ against what the preview was built from, after a history snapshot.
 import difflib
 import threading
 import unicodedata
-from typing import TypeGuard
+from typing import Optional, TypeGuard
 
 import asr_backend
 import background_jobs
@@ -596,6 +596,16 @@ def _finished_job(drama_id: int) -> dict:
     if not isinstance(result, dict) or not isinstance(result.get("proposals"), list):
         raise NotFoundError("No finished transcription comparison for this title.")
     return job
+
+
+def get_compare_result_or_none(drama_id: int) -> Optional[dict]:
+    """get_compare_result, or None when the title has no finished comparison: opening Review asks
+    every time, and "nothing yet" is an ordinary answer, not an error for the console."""
+    _drama_or_404(drama_id)
+    try:
+        return get_compare_result(drama_id)
+    except NotFoundError:
+        return None
 
 
 def get_compare_result(drama_id: int) -> dict:

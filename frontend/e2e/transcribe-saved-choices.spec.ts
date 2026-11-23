@@ -28,7 +28,7 @@ test('language and speaker detection are saved with the title and survive a brow
   const card = transcribeCard(page)
   await card.getByLabel('Source language').selectOption('ja')
   await card.getByRole('switch', { name: 'Detect speakers' }).click()
-  await expect(card.getByTestId('run-settings')).toContainText('Japanese')
+  await expect(card.getByTestId('run-settings')).toContainText('voice detection')
   await expect(card.getByTestId('run-settings')).toContainText('speakers on')
   await expect(card.getByTestId('run-settings-saved')).toContainText('not saved yet')
 

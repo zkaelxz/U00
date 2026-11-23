@@ -11824,7 +11824,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The finished comparison's proposals (raw line text) */
+        /** The finished comparison's proposals (raw line text), or null when there is none */
         get: operations["get_compare_result_api_transcribe_dramas__drama_id__compare_transcription_result_get"];
         put?: never;
         post?: never;
@@ -68859,7 +68859,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CompareResult"];
+                    "application/json": components["schemas"]["CompareResult"] | null;
                 };
             };
             /** @description Not Found */

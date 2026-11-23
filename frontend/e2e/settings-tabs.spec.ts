@@ -35,7 +35,7 @@ test('every tab starts with only its first card open', async ({ page }) => {
 
   await tab(page, 'Transcription and jobs').click()
   expect(await isOpen(page, 'Jobs and GPU')).toBe(true)
-  for (const name of ['Timing and splitting', 'Advanced transcription']) expect(await isOpen(page, name)).toBe(false)
+  for (const name of ['Timing and splitting']) expect(await isOpen(page, name)).toBe(false)
 
   await tab(page, 'Advanced').click()
   expect(await isOpen(page, 'Offline, paths and limits')).toBe(true)

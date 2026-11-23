@@ -106,14 +106,11 @@ interface RunSettingsInput {
   promptOverride: string
 }
 
-const LANGUAGE_WORDS: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean' }
-
-/** The options that decide how long and how good the run is, in one line the person can check before a long run. */
+/** The options that decide how long and how good the run is, in one line the person can check before a long run.
+ *  The language is left out: the picker right above and the summary below already say it. */
 export function runSettingsLine(i: RunSettingsInput): string {
-  const language = LANGUAGE_WORDS[i.language] ?? i.language
-  const script = i.language === 'zh' ? ` (${(i.script || i.titleScript || 'simplified')} script)` : ''
   const parts = [
-    `${language}${script}`,
+    ...(i.language === 'zh' ? [`${i.script || i.titleScript || 'simplified'} script`] : []),
     `voice detection ${i.voiceDetection}`,
     `beam ${i.beamSize}`,
     `vocals first ${i.separateVocals ? 'on' : 'off'}`,
