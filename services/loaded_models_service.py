@@ -108,6 +108,9 @@ def _app_rows() -> dict:
         for key in list(getattr(aligner, "_aligner_model_cache", {})):
             models.append({"name": "Qwen3 forced aligner", "kind": "Alignment",
                            "device": _device_label(key)})
+        if getattr(sys.modules.get("scanlate.scanlate_detect"), "_bubble_ml_gpu", None):
+            models.append({"name": "Comic text and bubble detector", "kind": "Comic balloon finder",
+                           "device": _device_label("cuda")})
         if getattr(sys.modules.get("scanlate.scanlate_lama"), "_lama_gpu", None):
             models.append({"name": "LaMa-manga", "kind": "Comic text eraser",
                            "device": _device_label("cuda")})

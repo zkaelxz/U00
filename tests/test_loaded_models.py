@@ -96,6 +96,13 @@ def test_app_models_reads_other_caches_only_when_loaded(monkeypatch):
                      ("Moss transcribe + diarize", "GPU")}
 
 
+def test_the_comic_balloon_finder_is_listed_while_its_gpu_copy_is_loaded(monkeypatch):
+    from scanlate import scanlate_detect
+    monkeypatch.setattr(scanlate_detect, "_bubble_ml_gpu", {"cuda": object()})
+    assert ("Comic text and bubble detector", "GPU") in {
+        (m["name"], m["device"]) for m in svc._app_rows()["models"]}
+
+
 def test_gpu_unknown_on_cpu_only_machine():
     assert svc._gpu_row() == {"state": "unknown"}
 
