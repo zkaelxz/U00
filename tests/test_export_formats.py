@@ -128,7 +128,7 @@ class TestAss:
         assert styles["Speaker 1"][16] == "5"           # outline width
         dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
         assert dialogue[0].split(",")[3:5] == ["Speaker 1", "Xiaoling"]
-        assert dialogue[1].split(",")[3] == "Speaker 2"
+        assert dialogue[1].split(",")[3:5] == ["Speaker 2", "Default"]   # an unnamed speaker is never written as its raw label
         assert "0:00:00.00,0:00:02.50" in dialogue[0]
 
     def test_text_is_escaped(self):
