@@ -749,6 +749,8 @@ class TestAppZip:
             "product": "Baihe Studio", "app_version": "0.2.0",
             "python": {"embed_sha256": "p"}, "wheels": [{"file": "a.whl", "sha256": "1"}],
             "services": {"caddy": {"sha256": "c"}, "winsw": {"sha256": "s"}}}))
+        _touch(payload / "wheels", "a.whl")
+        _touch(payload / "wheels", "wheels.lock.txt")
         return payload
 
     def test_zip_is_the_staged_app_plus_its_manifest(self, payload, tmp_path):
@@ -760,7 +762,9 @@ class TestAppZip:
         with zipfile.ZipFile(path) as zf:
             names = set(zf.namelist())
             manifest = app_swap.read_manifest(zf)
-        assert names == set(app_swap.REQUIRED_ENTRIES)
+        assert names == set(app_swap.REQUIRED_ENTRIES) | {"core-wheels/a.whl",
+                                                          "core-wheels/wheels.lock.txt"}
+        assert manifest["carries_wheels"] is True
         installed = json.loads((payload / "manifest.json").read_text())
         assert manifest["base"] == app_swap.base_fingerprint(installed)
         assert manifest["db_schema_sha256"] == "f" * 64
@@ -773,6 +777,12 @@ class TestAppZip:
         with pytest.raises(baz.BuildError, match="wouldn't be accepted"):
             baz.build_zip("0.2.0", payload, tmp_path / "out", schema_sha256="f" * 64)
         assert not (tmp_path / "out" / "BaiheStudio-App-0.2.0.zip").exists()
+
+    def test_needs_the_payload_wheels(self, payload, tmp_path):
+        import build_app_zip as baz
+        (payload / "wheels" / "wheels.lock.txt").unlink()
+        with pytest.raises(baz.BuildError, match="wheels.lock.txt"):
+            baz.build_zip("0.2.0", payload, tmp_path / "out", schema_sha256="f" * 64)
 
     def test_needs_the_payload_manifest(self, payload, tmp_path):
         import build_app_zip as baz

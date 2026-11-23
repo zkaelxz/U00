@@ -7,6 +7,7 @@ nothing starts. Windows can't run here: what these pin is the decisions
 """
 
 import base64
+from pathlib import Path
 import json
 import os
 import zipfile
@@ -137,7 +138,8 @@ def env(tmp_path, key, monkeypatch):
     return layout, svc, manifest
 
 
-def _release(layout, key, version=NEW, base=None, signer=None, tamper=False, request_version=None):
+def _release(layout, key, version=NEW, base=None, signer=None, tamper=False, request_version=None,
+             wheels=False):
     """Writes what the server leaves for BaiheUpdate: the zip, its signature and the request."""
     updates = layout.data / "library" / "updates"
     name = f"BaiheStudio-App-{version}.zip"
@@ -146,7 +148,9 @@ def _release(layout, key, version=NEW, base=None, signer=None, tamper=False, req
     entries[sw.APP_MANIFEST_NAME] = json.dumps({
         "product": "Baihe Studio", "layer": "app", "version": version, "min_base_version": "0.1.0",
         "base": base if base is not None else sw.base_fingerprint(sw.installed_manifest(layout.root)),
-        "db_schema_sha256": "d"})
+        "carries_wheels": wheels, "db_schema_sha256": "d"})
+    if wheels:
+        entries[f"{sw.CARRIED_WHEELS_DIR}/{sw.WHEEL_LOCK_NAME}"] = "new set"
     with zipfile.ZipFile(updates / name, "w") as zf:
         for entry, data in entries.items():
             zf.writestr(entry, data)
@@ -257,6 +261,30 @@ def test_a_request_whose_version_and_file_name_disagree_is_refused(env, key):
 def test_a_base_the_install_does_not_have_needs_the_full_installer(env, key):
     layout, svc, _ = env
     _release(layout, key, base={"python_sha256": "other"})
+    with pytest.raises(service_layout.ServiceError, match="full installer"):
+        _apply(layout, svc)
+    assert svc.stops == 0 and _app_text(layout) == "old"
+
+
+def test_an_update_carrying_other_packages_installs_them_as_it_switches(env, key, monkeypatch):
+    layout, svc, _ = env
+    base = dict(sw.base_fingerprint(sw.installed_manifest(layout.root)), wheels_sha256="other")
+    _release(layout, key, base=base, wheels=True)
+    runs = []
+
+    class Done:
+        returncode = 0
+    monkeypatch.setattr(sw.subprocess, "run", lambda cmd, **kw: runs.append(cmd) or Done())
+    assert "0.1.0 to 0.2.0" in _apply(layout, svc)
+    ((cmd),) = runs
+    assert cmd[0] == str(layout.root / "python" / "python.exe")
+    assert Path(cmd[cmd.index("-r") + 1]) == layout.root / "app" / sw.CARRIED_WHEELS_DIR / sw.WHEEL_LOCK_NAME
+
+
+def test_other_packages_without_carried_wheels_need_the_full_installer(env, key):
+    layout, svc, _ = env
+    base = dict(sw.base_fingerprint(sw.installed_manifest(layout.root)), wheels_sha256="other")
+    _release(layout, key, base=base)
     with pytest.raises(service_layout.ServiceError, match="full installer"):
         _apply(layout, svc)
     assert svc.stops == 0 and _app_text(layout) == "old"

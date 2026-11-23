@@ -439,6 +439,26 @@ side) and `services/app_update_service.py` (offer, download, hand-off).
   in plain words (`app-update\result.json`; details in `swap.log`). Until
   the new version has answered, `manifest.json` still names the old one, so
   the library records the old version and the old app can open it again.
+- **Packages.** Every app zip also carries the release's whole pinned wheel
+  set and lock under `core-wheels\` and says `carries_wheels` in its
+  manifest, so a release that only changed wheels is still app-only: the
+  offer then needs the same Python, WinSW and Caddy, not the same wheels
+  (`app_swap.base_accepts`). Right after the two renames the helper runs the
+  install's own `python -I -m pip install --no-index --require-hashes
+  --no-deps -r core-wheels\wheels.lock.txt` (pip only changes what the lock
+  pins differently; Diagnostics' packages stay), with `packages` set in the
+  journal first. Any rollback from then on, including recovery after a
+  crash, installs the previous version's set again: `app-<old>\core-wheels`,
+  or Setup's `<install>\wheels` while app\ is still what Setup installed.
+  pip failing either way leaves the result `rolled_back_packages` or
+  `broken`. The boot service's helper is code from Setup, so it takes such
+  an update only once the full installer of a version with this has run;
+  until then the offer says the full installer is needed.
+- **Automatic.** "Install app updates automatically" (on by default) downloads
+  after the daily check and applies a signed, verified update on a
+  background tick between 03:00 and 06:00 local time, or once it has waited
+  a day, when no job runs; a database change first starts a backup. The
+  journal's `quiet` makes the helper start the app without opening a window.
 - **Locked files and crashes.** A rename Windows refuses for 30 s (a file
   in use) is undone and queued: the old version starts again, and the next
   start from the Start menu runs the switch before anything loads from

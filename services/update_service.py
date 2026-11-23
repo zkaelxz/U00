@@ -479,14 +479,19 @@ def check() -> dict:
                       size=release["exe_size"] if release else None)
     from services import app_update_service
     app_update_service.refresh_offer(release)
+    auto_install_tick(after_check=True)
     return status()
 
 
 def periodic_tick(now=time.time) -> None:
     """At most one check a day, and only when the owner turned it on.
-    Called from the API's background poller; never downloads."""
+    Called from the API's background poller; a verified app update waiting
+    for the quiet hours is applied from here."""
     if not get_auto_check():
         return
+    from services import app_update_service
+    app_update_service.auto_apply_tick()
+    auto_install_tick()
     try:
         last = float(db.get_app_setting(LAST_CHECK_KEY, 0) or 0)
     except (TypeError, ValueError):
@@ -498,6 +503,53 @@ def periodic_tick(now=time.time) -> None:
     try:
         check()
     except ServiceError:
+        pass
+
+
+def _silent_setup_possible() -> bool:
+    """Setup can run with no one there: the Start-menu app on a PC without
+    the background service, whose Setup step would stop for an administrator
+    prompt."""
+    from services import app_update_service as aus
+    if not (_is_windows() and _is_installed() and aus.launcher_started()
+            and desktop_session.has_desktop()):
+        return False
+    program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+    return not os.path.isdir(os.path.join(program_files, aus.ADMIN_FOLDER))
+
+
+def auto_install_tick(after_check=False, now=None) -> None:
+    """The automatic update for a release the app-only update can't take (a
+    new Python, Caddy or WinSW): after a check, download the installer; once
+    it is verified and signed, run Setup silently at the app-only update's
+    times. Each step that can't go ahead now waits for a later tick; nothing
+    here raises."""
+    from services import app_update_service as aus
+    if not (aus.service_auto_apply() and _silent_setup_possible()):
+        return
+    if aus.status_fields()["app_update"] != "needs_full_installer":
+        return
+    with _lock:
+        state, held = _state["download"], _verified
+        newer = _release is not None and is_newer(_release["version"], current_version(),
+                                                  include_prereleases())
+    if not newer:
+        return
+    try:
+        if after_check and state in ("idle", "failed") and held is None:
+            start_download()
+            return
+        if (state != "verified" or held is None or held["signature"] is None
+                or not aus._apply_time(held, now) or background_jobs.active_job_ids()):
+            return
+        try:
+            aus.check_database_before_setup(held["version"])
+        except ConflictError:
+            from services import auto_backup_service
+            auto_backup_service.start_now(include_media=False)
+            return
+        install(silent=True)
+    except (ServiceError, OSError):
         pass
 
 
@@ -749,7 +801,8 @@ def download() -> dict:
         # Set in the same step: no reader sees a verified file the state still calls
         # downloading, and a check() can't clear it in between.
         _verified = {"version": release["version"], "name": release["exe_name"],
-                     "path": final, "sha256": expected, "signature": signature}
+                     "path": final, "sha256": expected, "signature": signature,
+                     "at": time.time()}
         _state.update(download="verified", download_error=None)
     return status()
 
@@ -833,9 +886,15 @@ def setup_busy() -> bool:
         return _installing or (_setup is not None and _setup.poll() is None)
 
 
-def install() -> dict:
-    """Starts the verified installer's normal (visible) Setup from a private
-    copy, and nothing else: the server keeps running. Refused off Windows,
+# An automatic full update: no window, no questions, the choices of the last
+# install (folders and tasks), and Setup starts the app again once it is done.
+SILENT_SETUP_ARGS = ("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/RESTARTAPP=1")
+
+
+def install(silent=False) -> dict:
+    """Starts the verified installer's Setup from a private copy, and
+    nothing else: the server keeps running (Setup stops it). Visible unless
+    `silent` (the automatic update). Refused off Windows,
     for a source checkout, without a verified download, while a download or
     any job is running, and while Setup or an app-only update is under way."""
     global _installing
@@ -865,13 +924,13 @@ def install() -> dict:
         # calls setup_busy(), so holding both here could deadlock.
         if app_update_service.apply_busy():
             raise ConflictError(_APP_UPDATE_APPLYING)
-        return _install(verified)
+        return _install(verified, silent)
     finally:
         with _lock:
             _installing = False
 
 
-def _install(verified) -> dict:
+def _install(verified, silent=False) -> dict:
     global _verified, _setup
     # The option may have been switched off since the download; same rule as download().
     if not is_newer(verified["version"], current_version(), include_prereleases()):
@@ -913,7 +972,8 @@ def _install(verified) -> dict:
     try:
         # The server's job lets a child out only for the length of this call.
         with process_guard.breakaway_allowed():
-            setup = subprocess.Popen([copy], cwd=folder, env=_setup_env(),
+            setup = subprocess.Popen([copy, *(SILENT_SETUP_ARGS if silent else ())],
+                                     cwd=folder, env=_setup_env(),
                                      creationflags=_CREATE_BREAKAWAY_FROM_JOB
                                      | _CREATE_NEW_PROCESS_GROUP, close_fds=True)
         with _lock:

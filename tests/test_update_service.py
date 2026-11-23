@@ -1309,3 +1309,86 @@ def test_another_versions_schema_does_not_count_for_setup(no_backup, monkeypatch
 def test_download_deadline_grows_with_the_installer_size():
     assert us.download_deadline_seconds(50 * 1024 * 1024) == us.DOWNLOAD_DEADLINE_SECONDS
     assert us.download_deadline_seconds(us.MAX_INSTALLER_BYTES) > us.DOWNLOAD_DEADLINE_SECONDS
+
+
+# --- automatic full update ------------------------------------------------------
+
+@pytest.fixture
+def auto_setup(http, monkeypatch, tmp_path):
+    """The Start-menu app on a PC without the background service, with a
+    release only the full installer can take, inside the quiet hours."""
+    from services import app_update_service as aus
+    monkeypatch.setattr(us, "_is_windows", lambda: True)
+    monkeypatch.setattr(aus, "launcher_started", lambda: True)
+    monkeypatch.setattr(us.desktop_session, "has_desktop", lambda: True)
+    monkeypatch.setenv("ProgramFiles", str(tmp_path / "Program Files"))
+    monkeypatch.setattr(aus, "status_fields", lambda: {"app_update": "needs_full_installer"})
+    monkeypatch.setattr(aus, "in_quiet_hours", lambda now=None: True)
+    monkeypatch.setattr(aus, "check_database_before_setup", lambda version: None)
+    monkeypatch.setattr(us.background_jobs, "active_job_ids", lambda: [])
+    FakePopen.calls = []
+    monkeypatch.setattr(us.subprocess, "Popen", FakePopen)
+    return tmp_path
+
+
+def _check_and_settle():
+    us.check()
+    if us._download_thread is not None:
+        us._download_thread.join(DOWNLOAD_WAIT_SECONDS)
+
+
+def test_a_signed_full_update_downloads_and_runs_setup_silently(signed, auto_setup):
+    _check_and_settle()
+    assert us.status()["verified"] is True and FakePopen.calls == []
+    us.auto_install_tick()
+    (args, kw), = FakePopen.calls
+    assert args[1:] == list(us.SILENT_SETUP_ARGS) and args[0].endswith(NAME)
+
+
+def test_setup_waits_while_a_job_runs_or_outside_the_quiet_hours(signed, auto_setup, monkeypatch):
+    from services import app_update_service as aus
+    _check_and_settle()
+    monkeypatch.setattr(us.background_jobs, "active_job_ids", lambda: ["j1"])
+    us.auto_install_tick()
+    monkeypatch.setattr(us.background_jobs, "active_job_ids", lambda: [])
+    monkeypatch.setattr(aus, "in_quiet_hours", lambda now=None: False)
+    us.auto_install_tick()
+    assert FakePopen.calls == []
+    us.auto_install_tick(now=us._verified["at"] + aus.QUIET_WAIT_SECONDS)
+    assert len(FakePopen.calls) == 1
+
+
+def test_a_database_change_backs_up_before_silent_setup(signed, auto_setup, monkeypatch):
+    from services import app_update_service as aus, auto_backup_service
+    backups = []
+    monkeypatch.setattr(auto_backup_service, "start_now",
+                        lambda include_media=None: backups.append(include_media))
+
+    def needs_backup(version):
+        raise ConflictError("back up first")
+    monkeypatch.setattr(aus, "check_database_before_setup", needs_backup)
+    _check_and_settle()
+    us.auto_install_tick()
+    assert backups == [False] and FakePopen.calls == []
+
+
+def test_no_silent_setup_on_a_pc_with_the_background_service(signed, auto_setup):
+    from services import app_update_service as aus
+    (auto_setup / "Program Files" / aus.ADMIN_FOLDER).mkdir(parents=True)
+    _check_and_settle()
+    assert us.status()["download"] == "idle" and FakePopen.calls == []
+
+
+def test_no_silent_setup_with_the_setting_off(signed, auto_setup):
+    from services import app_update_service as aus
+    aus.set_service_auto_apply(False)
+    _check_and_settle()
+    assert us.status()["download"] == "idle" and FakePopen.calls == []
+
+
+def test_an_unsigned_installer_is_never_run_on_its_own(http, auto_setup):
+    _serve_release(http)
+    _check_and_settle()
+    assert us.status()["verified"] is True
+    us.auto_install_tick()
+    assert FakePopen.calls == []

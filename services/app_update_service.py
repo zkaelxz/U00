@@ -74,6 +74,9 @@ REQUEST_NAME = "app-update-request.json"    # installer/service_update.REQUEST_N
 SC_TIMEOUT_SECONDS = 20
 ADMIN_FOLDER = "Baihe Studio Services"     # installer/service_layout.ADMIN_FOLDER_NAME
 SERVICE_AUTO_APPLY_KEY = "update.service_auto_apply"
+# 03:00 to 06:00 local: the app restarts for an automatic update only then.
+QUIET_HOURS = (3, 6)
+QUIET_WAIT_SECONDS = 24 * 3600
 
 RESULT_MESSAGES = {
     "updated": "Updated to {new}.",
@@ -86,6 +89,8 @@ RESULT_MESSAGES = {
     "rolled_back_health": "Version {new} didn't start, so Baihe Studio went back to {old}.",
     "rolled_back_switch": ("The app folder couldn't be switched to {new}, so Baihe Studio "
                            "kept {old}."),
+    "rolled_back_packages": ("Version {new}'s Python packages couldn't be installed, so Baihe "
+                             "Studio went back to {old}."),
     "recovered": ("The update to {new} was interrupted, so Baihe Studio went back to {old} "
                   "when it started again."),
     "broken": ("The update to {new} couldn't be finished or undone. Run the Baihe Studio "
@@ -127,9 +132,12 @@ def _base_matches(manifest) -> bool:
     installed = _installed_manifest()
     if installed is None:
         return False
-    base, version = app_swap.base_fingerprint(installed), app_swap.base_version(installed)
+    version = app_swap.base_version(installed)
     minimum = manifest.get("min_base_version")
-    if base is None or manifest.get("base") != base or version is None or not isinstance(minimum, str):
+    if not app_swap.base_accepts(manifest, installed) or version is None or not isinstance(minimum, str):
+        return False
+    if (manifest.get("base") != app_swap.base_fingerprint(installed)
+            and updater_present() and not _updater_takes_wheels()):
         return False
     have, need = us.parse_version(version), us.parse_version(minimum)
     return have is not None and need is not None and have >= need
@@ -172,7 +180,7 @@ def refresh_offer(release) -> None:
                 _state.update(download="idle", downloaded_bytes=0, download_error=None)
         _state.update(offer=offer, offer_version=release["version"] if release else None,
                       size=size)
-    _auto_apply_step()
+    _auto_apply_step(after_check=True)
 
 
 def launcher_started() -> bool:
@@ -181,6 +189,21 @@ def launcher_started() -> bool:
 
 def _system32(exe: str) -> str:
     return os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", exe)
+
+
+def _updater_takes_wheels() -> bool:
+    """Whether the BaiheUpdate helper can install an update's own packages.
+    Only Setup replaces the helper's code (the app layer can't reach the
+    admin folder), so one from an older Setup still wants the same wheels;
+    offering it such an update would only end in a refusal."""
+    program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+    path = os.path.join(program_files, ADMIN_FOLDER, "helper", "lib", "installer",
+                        app_swap.HELPER_NAME)
+    try:
+        with open(path, "rb") as fh:
+            return b"def base_accepts(" in fh.read(1024 * 1024)
+    except OSError:
+        return False
 
 
 def updater_present() -> bool:
@@ -196,8 +219,8 @@ def updater_present() -> bool:
 
 
 def service_auto_apply() -> bool:
-    """The owner's opt-in (off by default) to download and apply app-only
-    updates by themselves on the boot service."""
+    """Whether app-only updates download and apply by themselves (on by
+    default; the key keeps its name from when only the boot service could)."""
     from services import settings_service
     try:
         return settings_service.get(SERVICE_AUTO_APPLY_KEY) is True
@@ -405,7 +428,7 @@ def download() -> dict:
         if _release is None or _release["version"] != release["version"]:
             raise ConflictError("A different version was found while downloading. Download again.")
         _verified = {"version": release["version"], "name": release["name"], "path": final,
-                     "sha256": expected, "signature": signature}
+                     "sha256": expected, "signature": signature, "at": time.time()}
     return us.status()
 
 
@@ -421,27 +444,62 @@ def _run_download() -> None:
     _auto_apply_step()
 
 
-def _auto_apply_step() -> None:
-    """With the opt-in on and the BaiheUpdate helper present: after a check,
-    download the app-only update, and once it is verified apply it. Each step
-    that can't go ahead now (a job is running, a backup is needed) is left
-    for the next check, which runs this again; nothing here raises."""
-    if not (service_auto_apply() and updater_present()):
+def in_quiet_hours(now=None) -> bool:
+    """The local hours an automatic update may restart the app in."""
+    hour = time.localtime(time.time() if now is None else now).tm_hour
+    return QUIET_HOURS[0] <= hour < QUIET_HOURS[1]
+
+
+def _apply_time(held, now=None) -> bool:
+    """Inside the quiet hours, or once an update has waited a whole day for
+    them: a PC that is off at night still gets it."""
+    now = time.time() if now is None else now
+    return in_quiet_hours(now) or now - held.get("at", now) >= QUIET_WAIT_SECONDS
+
+
+def _auto_apply_step(after_check=False, now=None) -> None:
+    """With the setting on (the default) and a way to switch here: after a
+    check, download the app-only update; once it is verified, apply it on
+    the first tick inside the quiet hours. Each step that can't go ahead now
+    (a job is running, the backup a database change needs is still being
+    made) waits for a later tick; nothing here raises."""
+    if not (service_auto_apply() and us._is_windows() and can_switch_here()):
         return
     with _lock:
         offered = _release is not None
-        state, held = _state["download"], _verified is not None
+        state, held = _state["download"], _verified
+        schema = _offer_schema
     if not offered:
         return
     try:
-        if state in ("idle", "failed") and not held:
+        if after_check and state in ("idle", "failed") and held is None:
             start_download()
-        elif state == "verified" and held:
-            apply()
+        elif (state == "verified" and held is not None and held["signature"] is not None
+              and _apply_time(held, now) and not background_jobs.active_job_ids()):
+            if _needs_backup(schema, held["version"]):
+                from services import auto_backup_service
+                auto_backup_service.start_now(include_media=False)
+                return
+            apply(quiet=True)
     except ServiceError as exc:
         app_swap.log(install_root(), f"automatic update waits: {type(exc).__name__}")
-    except OSError:
+    except (OSError, sqlite3.Error):
         pass
+
+
+def _needs_backup(schema, version) -> bool:
+    """Whether _check_database would refuse this version now. Only the
+    signed manifest copy's fingerprint is believed; the zip's own is checked
+    again on apply."""
+    if schema is not None and schema[0] == version and schema[1] == _library_schema():
+        return False
+    return not _recent_backup()
+
+
+def auto_apply_tick(now=None) -> None:
+    """Called on every background tick, so a verified update waiting for
+    the quiet hours goes in once they start."""
+    _auto_apply_step(now=now)
 
 
 def start_download() -> dict:
@@ -607,7 +665,7 @@ def apply_busy() -> bool:
     return journal is not None and journal["state"] != app_swap.QUEUED
 
 
-def apply() -> dict:
+def apply(quiet=False) -> dict:
     """Checks and unpacks the verified app zip beside the running app, then
     hands over to the swap helper, which restarts Baihe Studio. One at a
     time, and not while the full Setup is starting or open: a second click
@@ -622,7 +680,7 @@ def apply() -> dict:
             _applying = False
         raise ConflictError(us.SETUP_OPEN)
     try:
-        return _apply()
+        return _apply(quiet)
     finally:
         with _lock:
             _applying = False
@@ -632,7 +690,7 @@ _START_FAILED = ("Baihe couldn't start the update. Nothing was changed; try agai
                  "full installer.")
 
 
-def _apply() -> dict:
+def _apply(quiet=False) -> dict:
     global _verified
     if not us._is_windows():
         raise UnsupportedOperationError("Updating the app is only possible on Windows.")
@@ -677,7 +735,7 @@ def _apply() -> dict:
         except zipfile.BadZipFile:
             raise app_swap.SwapError("The update isn't a readable zip.") from None
         if not _manifest_ok(manifest, verified["version"]) or not _base_matches(manifest):
-            raise ConflictError("This update was built for a different Python, packages or "
+            raise ConflictError("This update was built for a different Python, WinSW or "
                                 "Caddy than this install has. Use the full installer.")
         _check_database(manifest)
         if dest.exists():
@@ -696,7 +754,7 @@ def _apply() -> dict:
         shutil.copyfile(os.path.join(us._APP_DIR, "INSTALLED"), dest / "INSTALLED")
         _remember_library(old, verified["version"])
         app_swap.write_journal(root, app_swap.STAGED, old, verified["version"], base,
-                               port=_server_port())
+                               port=_server_port(), quiet=quiet)
         _start_helper(root)
     except (OSError, ValueError, sqlite3.Error, app_swap.SwapError):
         app_swap.clear_journal(root)
@@ -727,7 +785,7 @@ def _hand_to_updater(verified, installed) -> dict:
     except app_swap.SwapError as exc:
         raise ConflictError(str(exc)) from None
     if not _manifest_ok(manifest, verified["version"]) or not _base_matches(manifest):
-        raise ConflictError("This update was built for a different Python, packages or "
+        raise ConflictError("This update was built for a different Python, WinSW or "
                             "Caddy than this install has. Use the full installer.")
     _check_database(manifest)
     try:

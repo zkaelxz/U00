@@ -88,6 +88,9 @@ class FakeLauncher:
     def open_window(self, defer=False):
         self.calls.append("window-defer" if defer else "window")
 
+    def start_quietly(self, defer=False):
+        self.calls.append("quiet-defer" if defer else "quiet")
+
 
 @pytest.fixture
 def root(tmp_path):
@@ -664,3 +667,127 @@ def test_stop_gives_up_when_the_old_server_keeps_answering(root, monkeypatch):
     monkeypatch.setattr(sw.time, "sleep", lambda s: None)
     monkeypatch.setattr(sw, "STOP_SECONDS", 0)
     assert sw.Launcher(root, 8611).stop() is False
+
+
+# --- carried Python packages ----------------------------------------------------
+
+def _wheels(folder, tag, name=sw.CARRIED_WHEELS_DIR):
+    wheels = folder / name
+    wheels.mkdir(parents=True)
+    (wheels / sw.WHEEL_LOCK_NAME).write_text(tag)
+    return wheels
+
+
+class FakePip:
+    """Records which wheel set each pip run installed (by its lock's text)."""
+
+    def __init__(self, fail_on=()):
+        self.installed, self.fail_on = [], set(fail_on)
+
+    def __call__(self, cmd, **kw):
+        lock = Path(cmd[cmd.index("-r") + 1]).read_text()
+        self.installed.append(lock)
+        assert cmd[1:4] == ["-I", "-m", "pip"] and "--require-hashes" in cmd and "--no-deps" in cmd
+        assert kw["env"]["PIP_CONFIG_FILE"] == os.devnull and kw["timeout"]
+
+        class Done:
+            returncode = 1 if lock in self.fail_on else 0
+        return Done()
+
+
+def test_base_accepts_other_wheels_only_from_a_layer_that_carries_its_own():
+    installed = json.loads(json.dumps({
+        "python": {"embed_sha256": "p"}, "services": {"caddy": {"sha256": "c"},
+                                                      "winsw": {"sha256": "s"}},
+        "wheels": [{"file": "a.whl", "sha256": "1"}]}))
+    same = sw.base_fingerprint(installed)
+    other_wheels = dict(same, wheels_sha256="x")
+    assert sw.base_accepts({"base": same}, installed)
+    assert not sw.base_accepts({"base": other_wheels}, installed)
+    assert sw.base_accepts({"base": other_wheels, "carries_wheels": True}, installed)
+    for key in ("python_sha256", "caddy_sha256", "winsw_sha256"):
+        assert not sw.base_accepts({"base": dict(other_wheels, **{key: "x"}),
+                                    "carries_wheels": True}, installed)
+    assert not sw.base_accepts({"base": same, "carries_wheels": True}, {"wheels": []})
+
+
+def test_a_layer_claiming_wheels_it_doesnt_hold_is_refused(tmp_path):
+    z = _zip(tmp_path / "a.zip", manifest=_manifest(carries_wheels=True))
+    with zipfile.ZipFile(z) as zf, pytest.raises(sw.SwapError, match="carries"):
+        sw.read_manifest(zf)
+    z = _zip(tmp_path / "b.zip", manifest=_manifest(carries_wheels=True),
+             extra=[(f"{sw.CARRIED_WHEELS_DIR}/{sw.WHEEL_LOCK_NAME}", "x")])
+    with zipfile.ZipFile(z) as zf:
+        assert sw.read_manifest(zf)["carries_wheels"] is True
+
+
+def test_the_switch_installs_the_new_versions_packages(root):
+    _wheels(_stage(root), "new")
+    pip, launcher = FakePip(), FakeLauncher([True])
+    assert sw.apply(root, launcher, sleep=lambda s: None, run=pip) == "updated"
+    assert pip.installed == ["new"] and _current(root) == NEW
+
+
+def test_a_layer_without_wheels_leaves_the_packages_alone(root):
+    _stage(root)
+    pip = FakePip()
+    assert sw.apply(root, FakeLauncher([True]), sleep=lambda s: None, run=pip) == "updated"
+    assert pip.installed == []
+
+
+def test_packages_that_dont_install_put_the_old_set_and_version_back(root):
+    _wheels(root, "setup", sw.BASE_WHEELS_DIR)      # what Setup installed
+    _wheels(_stage(root), "new")
+    pip, launcher = FakePip(fail_on={"new"}), FakeLauncher()
+    assert sw.apply(root, launcher, sleep=lambda s: None, run=pip) == "rolled_back_packages"
+    assert pip.installed == ["new", "setup"]
+    assert _current(root) == OLD and _app_version(root) == OLD
+    assert sw.read_journal(root) is None
+    assert launcher.calls == ["stop", "window"]
+
+
+def test_a_failed_health_check_reinstalls_the_previous_versions_own_set(root):
+    _wheels(root / "app", "old-carried")
+    _wheels(root, "setup", sw.BASE_WHEELS_DIR)
+    _wheels(_stage(root), "new")
+    pip = FakePip()
+    assert sw.apply(root, FakeLauncher([False, True]), sleep=lambda s: None,
+                    run=pip) == "rolled_back_health"
+    assert pip.installed == ["new", "old-carried"] and _current(root) == OLD
+
+
+def test_old_packages_that_wont_go_back_are_reported_broken(root):
+    _wheels(root, "setup", sw.BASE_WHEELS_DIR)
+    _wheels(_stage(root), "new")
+    pip, shown = FakePip(fail_on={"new", "setup"}), []
+    assert sw.apply(root, FakeLauncher(), sleep=lambda s: None, run=pip,
+                    notify=shown.append) == "broken"
+    assert shown == [sw.BROKEN_MESSAGE]
+
+
+def test_a_crash_while_packages_installed_recovers_both(root, monkeypatch):
+    _wheels(root, "setup", sw.BASE_WHEELS_DIR)
+    _wheels(_stage(root), "new")
+    os.rename(root / "app", root / "app-0.1.0")
+    os.rename(root / "app-0.2.0", root / "app")
+    sw.write_journal(root, sw.SWITCHING, OLD, NEW, OLD, step=2, packages=True)
+    pip = FakePip()
+    monkeypatch.setattr(sw.subprocess, "run", pip)
+    assert sw.recover(root, sleep=lambda s: None) == "recovered"
+    assert pip.installed == ["setup"] and _current(root) == OLD
+
+
+def test_a_journal_from_before_packages_still_reads(root):
+    (root / "app-update").mkdir()
+    (root / "app-update" / sw.JOURNAL_NAME).write_text(json.dumps(
+        {"state": "staged", "old": OLD, "new": NEW, "base_version": OLD, "port": None, "step": 0}))
+    journal = sw.read_journal(root)
+    assert journal["packages"] is False and journal["quiet"] is False
+
+
+def test_an_automatic_update_opens_no_window(root):
+    _stage(root)
+    sw.write_journal(root, sw.STAGED, OLD, NEW, OLD, quiet=True)
+    launcher = FakeLauncher([False, True])
+    assert sw.apply(root, launcher, sleep=lambda s: None) == "rolled_back_health"
+    assert "window" not in launcher.calls and launcher.calls[-1] == "quiet"
