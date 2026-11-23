@@ -23,6 +23,8 @@ class QuickVideoSettings(BaseModel):
     profiles: List[QuickVideoProfile]
     # What a run with the chosen profile will use, resolved with the defaults the run falls back to.
     summary: List[QueueSettingRow] = []
+    # The run would translate with a paid engine and no monthly cap is set, so it would stop at Translate.
+    cap_needed: bool = False
 
 
 class QuickVideoSettingsSet(BaseModel):
