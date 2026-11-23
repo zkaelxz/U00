@@ -33,6 +33,45 @@
     }
     return false;
   }
+  // In page order: loaded pictures, pictures a lazy loader has not filled in yet (their real
+  // address is in a data attribute), and canvases a reader draws onto.
+  var LAZY = ["data-src", "data-original", "data-lazy-src", "data-lazy"];
+  function lazyAddress(img) {
+    for (var k = 0; k < LAZY.length; k++) {
+      var v = img.getAttribute(LAZY[k]);
+      if (v) {
+        try { var u = new URL(v, location.href); if (/^https?:$/.test(u.protocol)) return u.href; } catch (e) { /* not an address */ }
+      }
+    }
+    return "";
+  }
+  var items = [];
+  var seenUrls = {};
+  // Elements already taken, so collecting after every scroll step does not repeat a picture.
+  var known = new Set();
+  // img, canvas and amp-img: some readers (baozimh mirrors) use amp-img elements, whose address
+  // is in src and which hold no img until the AMP runtime loads.
+  function collect() {
+  Array.prototype.slice.call(document.querySelectorAll("img, canvas, amp-img")).forEach(function (el) {
+    if (known.has(el)) return;
+    if (el.tagName === "AMP-IMG") {
+      var ampUrl = lazyAddress(el) || (function () {
+        try { var u = new URL(el.getAttribute("src") || "", location.href); return /^https?:$/.test(u.protocol) ? u.href : ""; } catch (e) { return ""; }
+      })();
+      if (ampUrl && !seenUrls[ampUrl] && !el.querySelector("img")) { seenUrls[ampUrl] = true; items.push({ kind: "url", url: ampUrl }); known.add(el); }
+    } else if (el.tagName === "CANVAS") {
+      if (el.width >= MIN_SIDE && el.height >= MIN_SIDE) { items.push({ kind: "canvas", el: el }); known.add(el); }
+    } else if (el.naturalWidth >= MIN_SIDE && el.naturalHeight >= MIN_SIDE) {
+      items.push({ kind: "img", el: el });
+      known.add(el);
+    } else if (el.naturalWidth < MIN_SIDE) {
+      var later = lazyAddress(el);
+      if (!later && !el.complete && /^https?:/.test(el.currentSrc || el.src || "") &&
+          !(el.width > 0 && el.width < MIN_SIDE)) later = el.currentSrc || el.src;
+      if (later && !seenUrls[later]) { seenUrls[later] = true; items.push({ kind: "url", url: later }); known.add(el); }
+    }
+  });
+  }
   var lastHeight = -1;
   var box = scrollBox();
   for (var step = 0; step < 150; step++) {
@@ -42,10 +81,20 @@
     for (var waited = 0; waited < 800 && stillLoading(); waited += 100) {
       await new Promise(function (r) { setTimeout(r, 100); });
     }
+    // Some readers keep only the pictures near the screen in the page, so they are taken as
+    // the walk passes instead of once at the end.
+    var before = items.length;
+    collect();
     var atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
-    if (atEnd && box.scrollHeight === lastHeight) break;
+    if (atEnd && box.scrollHeight === lastHeight && items.length === before) {
+      // A reader that adds the next pictures on reaching the end needs a moment to do so.
+      await new Promise(function (r) { setTimeout(r, 600); });
+      collect();
+      if (items.length === before) break;
+    }
     lastHeight = box.scrollHeight;
   }
+  collect();
   box.scrollTop = 0;
   var CHAPTER_TEXT = /第\s*[\d０-９一二三四五六七八九十百零]+\s*[章话話回集卷期]|(?:chapter|chap|ch|episode|ep|vol)\.?\s*[\d.]+|[\d.]+\s*[화話话章]|^\s*#?\d+\s*$/i;
   var NEXT_TEXT = /^\s*(下一章|下一话|下一話|下一回|下章|次の話|次へ|次話|다음\s*화|다음화|next\s*(chapter|ch\.?|episode)?|next\s*›|›|»)\s*$/i;
@@ -78,39 +127,6 @@
     }
     return el ? el.href : "";
   }
-  // In page order: loaded pictures, pictures a lazy loader has not filled in yet (their real
-  // address is in a data attribute), and canvases a reader draws onto.
-  var LAZY = ["data-src", "data-original", "data-lazy-src", "data-lazy"];
-  function lazyAddress(img) {
-    for (var k = 0; k < LAZY.length; k++) {
-      var v = img.getAttribute(LAZY[k]);
-      if (v) {
-        try { var u = new URL(v, location.href); if (/^https?:$/.test(u.protocol)) return u.href; } catch (e) { /* not an address */ }
-      }
-    }
-    return "";
-  }
-  var items = [];
-  var seenUrls = {};
-  // img, canvas and amp-img: some readers (baozimh mirrors) use amp-img elements, whose address
-  // is in src and which hold no img until the AMP runtime loads.
-  Array.prototype.slice.call(document.querySelectorAll("img, canvas, amp-img")).forEach(function (el) {
-    if (el.tagName === "AMP-IMG") {
-      var ampUrl = lazyAddress(el) || (function () {
-        try { var u = new URL(el.getAttribute("src") || "", location.href); return /^https?:$/.test(u.protocol) ? u.href : ""; } catch (e) { return ""; }
-      })();
-      if (ampUrl && !seenUrls[ampUrl] && !el.querySelector("img")) { seenUrls[ampUrl] = true; items.push({ kind: "url", url: ampUrl }); }
-    } else if (el.tagName === "CANVAS") {
-      if (el.width >= MIN_SIDE && el.height >= MIN_SIDE) items.push({ kind: "canvas", el: el });
-    } else if (el.naturalWidth >= MIN_SIDE && el.naturalHeight >= MIN_SIDE) {
-      items.push({ kind: "img", el: el });
-    } else if (el.naturalWidth < MIN_SIDE) {
-      var later = lazyAddress(el);
-      if (!later && !el.complete && /^https?:/.test(el.currentSrc || el.src || "") &&
-          !(el.width > 0 && el.width < MIN_SIDE)) later = el.currentSrc || el.src;
-      if (later) items.push({ kind: "url", url: later });
-    }
-  });
   function first(selector, attr) {
     var el = document.querySelector(selector);
     return el ? (attr ? el.getAttribute(attr) : el.textContent) || "" : "";
@@ -152,7 +168,15 @@
     }
   }
 
+  // Pictures are read four at a time, but handed over in page order.
+  var reads = {};
+  function ensureRead(upTo) {
+    for (var j = 0; j <= upTo && j < items.length; j++) {
+      if (!reads[j] && items[j].kind === "img") reads[j] = bytesOf(items[j].el);
+    }
+  }
   for (var i = 0; i < items.length; i++) {
+    ensureRead(i + 3);
     var item = items[i];
     try {
       if (item.kind === "url") {
@@ -168,7 +192,7 @@
       var src = img.currentSrc || img.src;
       if (seen[src]) continue;
       seen[src] = true;
-      var got = await bytesOf(img);
+      var got = await reads[i];
       if (got) Baihe.image(nonce, "p" + i, src.indexOf("http") === 0 ? src : "", got.type, got.data);
       else if (src.indexOf("http") === 0) Baihe.pending(nonce, "p" + i, src);
       else Baihe.skipped(nonce, "p" + i);

@@ -28,6 +28,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -529,6 +530,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
         grabbing = true;
         quickRead = readOnly;
+        grabStartedAt = System.currentTimeMillis();
         runId = "grab-" + newNonce().substring(0, 16);
         cancelRequested = false;
         grab.setBusy(true);
@@ -636,6 +638,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private static final int MAX_CHAPTERS = 20;
     private static final String OPEN_FIRST = "Open a comic chapter first: enter its site address above and tap Go.";
     private static final int QUICK_READ_BATCH = 4;
+    // Batches in flight at once: the PC reads two pages at a time, so one stream leaves it waiting on uploads.
+    private static final int QUICK_READ_STREAMS = 2;
     private volatile String pageNext = "";
     private JSONArray pageChapters = new JSONArray();
 
@@ -643,6 +647,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile String runningGrab = "";
     // Names this grab's batches on the server so Cancel can stop the pages it has not started.
     private volatile String runId;
+    private volatile long grabStartedAt;
     private volatile boolean cancelRequested;
     // From the web view, not the page: a page can claim any address.
     private volatile String pageUrl = "";
@@ -712,74 +717,124 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     /**
-     * Quick read: send the pages without saving. The reader opens on the first finished page and
-     * the rest are added to it as the server sends them, so reading starts after one page's time
-     * rather than the whole chapter's.
+     * Quick read: send the pages without saving. Two batches are in flight at once so the PC is
+     * not idle while the next one uploads, but pages are shown in page order: a later batch's
+     * pages wait until the earlier ones are done. The reader opens on the first finished page and
+     * the rest are added as the server streams them.
      */
     private void read(BaiheClient client, String url, List<PageImage> images, int unreadable, boolean truncated) {
         QuickReadSession.begin();
         QuickReadSession.onCancel(this::cancelGrab);
+        long readStarted = System.currentTimeMillis();
+        java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(QUICK_READ_STREAMS);
         try {
             // A typeset answer is large, so the batch stays small however many the server allows.
             int max = Math.min(QUICK_READ_BATCH, client.health().optInt("max_images_per_request", 12));
             QuickReadActivity.clear(this);
+            List<List<PageImage>> batches = Batches.plan(images, max);
+            int n = batches.size();
+            Object lock = new Object();
+            List<List<byte[]>> held = new ArrayList<>();
+            boolean[] finished = new boolean[n];
+            for (int i = 0; i < n; i++) held.add(new ArrayList<>());
+            int[] frontier = {0};
             int[] shown = {0};
+            long[] firstPageAt = {0};
             boolean[] opened = {false};
             String[] firstError = {""};
-            List<List<PageImage>> batches = Batches.plan(images, max);
-            int sent = 0;
-            for (int i = 0; i < batches.size() && !cancelRequested && !QuickReadSession.isAbandoned(); i++) {
-                List<PageImage> batch = batches.get(i);
-                sent += batch.size();
-                say("Redrawing pages " + (shown[0] + 1) + "-" + sent + " of " + images.size());
-                try {
-                    JSONObject done = client.streamPages(url, batch, page -> {
-                        JSONObject wrapped;
-                        try {
-                            wrapped = new JSONObject().put("pages", new JSONArray().put(page));
-                        } catch (org.json.JSONException e) {
-                            return;
+            boolean[] refused = {false};
+
+            // Called with `lock` held: writes a page and, the first time, opens the reader.
+            java.util.function.Consumer<byte[]> show = jpeg -> {
+                String name = String.format(java.util.Locale.ROOT, "page-%03d.jpg", shown[0]);
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(
+                        new java.io.File(QuickReadActivity.quickReadDir(this), name))) {
+                    out.write(jpeg);
+                } catch (IOException e) {
+                    return;
+                }
+                shown[0]++;
+                QuickReadSession.add(name);
+                if (!opened[0]) {
+                    opened[0] = true;
+                    firstPageAt[0] = System.currentTimeMillis();
+                    Intent open = new Intent(this, QuickReadActivity.class);
+                    runOnUiThread(() -> startActivity(open));
+                }
+            };
+
+            List<java.util.concurrent.Future<?>> running = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                final int index = i;
+                running.add(pool.submit(() -> {
+                    if (refused[0] || cancelRequested || QuickReadSession.isAbandoned()) {
+                        synchronized (lock) {
+                            finished[index] = true;
+                            advance(frontier, finished, held, show);
                         }
-                        List<byte[]> jpegs = QuickRead.typesetPages(wrapped);
-                        if (jpegs.isEmpty()) {
-                            if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
-                            return;
-                        }
-                        for (byte[] jpeg : jpegs) {
-                            String name = String.format(java.util.Locale.ROOT, "page-%03d.jpg", shown[0]);
-                            try (java.io.FileOutputStream out = new java.io.FileOutputStream(
-                                    new java.io.File(QuickReadActivity.quickReadDir(this), name))) {
-                                out.write(jpeg);
+                        return;
+                    }
+                    say("Redrawing " + images.size() + " pictures: " + shown[0] + " ready");
+                    try {
+                        JSONObject done = client.streamPages(url, batches.get(index), page -> {
+                            JSONObject wrapped;
+                            try {
+                                wrapped = new JSONObject().put("pages", new JSONArray().put(page));
+                            } catch (org.json.JSONException e) {
+                                return;
                             }
-                            shown[0]++;
-                            QuickReadSession.add(name);
+                            List<byte[]> jpegs = QuickRead.typesetPages(wrapped);
+                            synchronized (lock) {
+                                if (jpegs.isEmpty()) {
+                                    if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
+                                    return;
+                                }
+                                for (byte[] jpeg : jpegs) {
+                                    if (index == frontier[0]) show.accept(jpeg);
+                                    else held.get(index).add(jpeg);
+                                }
+                            }
+                        });
+                        synchronized (lock) {
+                            JSONArray failed = done.optJSONArray("failed");
+                            if (firstError[0].isEmpty() && failed != null && failed.length() > 0) {
+                                firstError[0] = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
+                            }
+                            JSONArray skipped = done.optJSONArray("skipped");
+                            if (firstError[0].isEmpty() && skipped != null && skipped.length() > 0) {
+                                firstError[0] = skipped.length() + " pictures were not pages ("
+                                        + (skipped.optJSONObject(0) == null ? "" : skipped.optJSONObject(0).optString("reason", "")) + ")";
+                            }
                         }
-                        if (!opened[0]) {
-                            opened[0] = true;
-                            Intent open = new Intent(this, QuickReadActivity.class);
-                            runOnUiThread(() -> startActivity(open));
+                    } catch (BaiheClient.BridgeException e) {
+                        synchronized (lock) {
+                            if (firstError[0].isEmpty()) firstError[0] = e.getMessage();
+                            // A token the server refused, or a spent limit, would refuse every later batch too.
+                            if (e.status == 401 || e.status == 403 || e.status == 429) refused[0] = true;
                         }
-                    });
-                    JSONArray failed = done.optJSONArray("failed");
-                    if (firstError[0].isEmpty() && failed != null && failed.length() > 0) {
-                        firstError[0] = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
                     }
-                    JSONArray skipped = done.optJSONArray("skipped");
-                    if (firstError[0].isEmpty() && skipped != null && skipped.length() > 0) {
-                        firstError[0] = skipped.length() + " pictures were not pages ("
-                                + (skipped.optJSONObject(0) == null ? "" : skipped.optJSONObject(0).optString("reason", "")) + ")";
+                    synchronized (lock) {
+                        finished[index] = true;
+                        advance(frontier, finished, held, show);
                     }
-                } catch (BaiheClient.BridgeException e) {
-                    if (firstError[0].isEmpty()) firstError[0] = e.getMessage();
-                    // A token the server refused, or a spent limit, would refuse every later batch too.
-                    if (e.status == 401 || e.status == 403 || e.status == 429) break;
+                }));
+            }
+            for (java.util.concurrent.Future<?> f : running) {
+                try {
+                    f.get();
+                } catch (InterruptedException | java.util.concurrent.ExecutionException e) {
+                    // A batch that threw is counted as nothing shown; the others carry on.
                 }
             }
             QuickReadSession.finish();
+            long ended = System.currentTimeMillis();
+            String timing = firstPageAt[0] == 0 ? "" : String.format(java.util.Locale.ROOT,
+                    " (found %d s, first page %d s, all %d s)", (readStarted - grabStartedAt) / 1000,
+                    (firstPageAt[0] - readStarted) / 1000, (ended - readStarted) / 1000);
             String message = cancelRequested && shown[0] == 0 ? "Cancelled."
                     : (cancelRequested ? "Cancelled. " : "")
                     + QuickRead.summary(shown[0], images.size() + unreadable, firstError[0])
-                    + (truncated ? ". Some pages were left out." : "");
+                    + (truncated ? ". Some pages were left out." : "") + timing;
             QuickReadSession.onCancel(null);
             finishGrab(message, false);
         } catch (BaiheClient.BridgeException e) {
@@ -790,6 +845,20 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             QuickReadSession.onCancel(null);
             QuickReadSession.finish();
             finishGrab("Could not read the pages.");
+        } finally {
+            pool.shutdown();
+        }
+    }
+
+    /** With the read lock held: shows what earlier batches held back, moving on past each finished batch. */
+    private static void advance(int[] frontier, boolean[] finished, List<List<byte[]>> held,
+                                java.util.function.Consumer<byte[]> show) {
+        while (frontier[0] < finished.length) {
+            List<byte[]> waiting = held.get(frontier[0]);
+            for (byte[] jpeg : waiting) show.accept(jpeg);
+            waiting.clear();
+            if (!finished[frontier[0]]) break;
+            frontier[0]++;
         }
     }
 
