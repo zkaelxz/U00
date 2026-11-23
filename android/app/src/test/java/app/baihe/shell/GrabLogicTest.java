@@ -315,6 +315,27 @@ public class GrabLogicTest {
     }
 
     @Test
+    public void aPageWithNoRedrawFallsBackToThePictureThePhoneSent() {
+        String data = java.util.Base64.getEncoder().encodeToString(new byte[] {1, 2, 3});
+        List<PageImage> batch = new ArrayList<>();
+        batch.add(new PageImage("a", "u1", "image/png", data));
+        batch.add(new PageImage("b", "u2", "image/png", ""));
+        assertEquals(3, QuickRead.original(batch, "a").length);
+        assertNull(QuickRead.original(batch, "b"));
+        assertNull(QuickRead.original(batch, "missing"));
+        assertNull(QuickRead.original(batch, ""));
+    }
+
+    @Test
+    public void theClosingLineSaysWhatTheLinkCost() {
+        UploadStats stats = new UploadStats();
+        assertEquals("", stats.describe());
+        stats.add(2L * 1048576, 10_000, 4_000);
+        stats.add(2L * 1048576, 10_000, 8_000);
+        assertEquals("sent 4.0 MB in 2 requests at 205 KB/s each, PC first answer 6 s after", stats.describe());
+    }
+
+    @Test
     public void onlyWidePicturesAreScaledDownBeforeAnUpload() {
         assertEquals(ImageShrink.MAX_WIDTH, ImageShrink.targetWidth(3000));
         assertEquals(0, ImageShrink.targetWidth(ImageShrink.MAX_WIDTH));
