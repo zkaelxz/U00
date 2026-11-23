@@ -175,6 +175,16 @@ _ART_FILL_SATURATION = 120
 # would show as a smudge on that texture, and its median brightness can read as
 # light even though the lettering is pale outlined text, so LaMa gets the mask.
 _COLOURED_ART_MEDIAN_SATURATION = 100
+# A plain black or near-black ground (a notice banner, a title card) has no art for coloured
+# lettering to be mistaken for, so any bright pixel on it is lettering: yellow headlines on a
+# black disclaimer page were left under the English when only pale strokes were taken.
+_PLAIN_GROUND_MAX_GRAY = 40
+_PLAIN_GROUND_MAX_SATURATION = 40
+
+
+def _on_plain_dark_ground(gray, saturation) -> bool:
+    return (float(np.median(gray)) <= _PLAIN_GROUND_MAX_GRAY
+            and float(np.median(saturation)) <= _PLAIN_GROUND_MAX_SATURATION)
 
 
 def _fill_enclosed_holes(mask):
@@ -195,6 +205,8 @@ def _pale_pixels(crop):
     import cv2
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     saturation = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1]
+    if _on_plain_dark_ground(gray, saturation):
+        return gray > 150
     return (gray > 150) & (saturation <= _ART_FILL_SATURATION)
 
 
@@ -311,7 +323,11 @@ def _dark_art_inpaint(img, x: int, y: int, bw: int, bh: int, backend: str, hf_to
     model is usable; the tone fill is the fallback and the answer without it."""
     import cv2
     crop = img[y:y + bh, x:x + bw]
-    if _resolve_inpaint_backend(backend) != "ml" or not _pale_pixels(crop).any():
+    # A plain ground has no edges or texture for LaMa to keep, and LaMa left faint grey blocks
+    # where the lettering was on a black notice page; the tone fill gives the ground itself.
+    if (_resolve_inpaint_backend(backend) != "ml" or not _pale_pixels(crop).any()
+            or _on_plain_dark_ground(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY),
+                                     cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1])):
         return _dark_art_fill(img, x, y, bw, bh)
     mask = _dark_art_stroke_mask(crop)
     if not mask.any():

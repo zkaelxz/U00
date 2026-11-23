@@ -495,6 +495,22 @@ def test_a_dark_art_sign_goes_through_lama_when_the_model_is_usable(monkeypatch)
     assert int(erased.max()) < 90
 
 
+@pytest.mark.parametrize("backend", ["cv", "ml"])
+def test_coloured_lettering_on_a_plain_black_notice_is_erased_to_black(monkeypatch, backend):
+    # A yellow headline over white lines on a black disclaimer page: the yellow is too
+    # saturated to pass as pale lettering, so it stayed under the English, and LaMa left
+    # grey blocks where the white lines were.
+    monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint",
+                        lambda roi, mask, hf_token=None, allow_download=True: np.full_like(roi, 60))
+    page = np.zeros((500, 600, 3), np.uint8)
+    cv2.putText(page, "NOTICE", (120, 150), cv2.FONT_HERSHEY_SIMPLEX, 2.4, (40, 220, 250), 10)
+    for y in (240, 300, 360):
+        cv2.putText(page, "lorem ipsum", (130, y), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (255, 255, 255), 3)
+    box = {"x": 80, "y": 60, "w": 440, "h": 340}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend=backend, on_art=True)
+    assert int(page.max()) < 25
+
+
 def test_a_dark_art_sign_falls_back_to_the_tone_fill_when_lama_fails(monkeypatch):
     def broken(*a, **k):
         raise RuntimeError("no weights")
