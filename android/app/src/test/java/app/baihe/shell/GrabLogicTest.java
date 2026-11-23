@@ -253,4 +253,18 @@ public class GrabLogicTest {
         assertEquals("no translation engine is set", QuickRead.firstWarning(answer));
         assertEquals("", QuickRead.firstWarning(new org.json.JSONObject()));
     }
+
+    @Test
+    public void imageFetchRefusesPrivateAddressesAndScopesCookiesAndReferer() throws Exception {
+        for (String ip : new String[] {"127.0.0.1", "192.168.1.5", "10.0.0.2", "169.254.169.254", "100.64.0.1", "0.0.0.0", "fd00::1"}) {
+            assertFalse(ip, ImageFetch.isPublic(java.net.InetAddress.getByName(ip)));
+        }
+        assertTrue(ImageFetch.isPublic(java.net.InetAddress.getByName("93.184.216.34")));
+        assertTrue(ImageFetch.sameSite("www.site.com", "cdn.site.com"));
+        assertFalse(ImageFetch.sameSite("www.site.com", "evil.example"));
+        java.net.URL page = new java.net.URL("https://www.site.com/ch/1?x=2#top");
+        assertEquals("https://www.site.com/ch/1?x=2", ImageFetch.refererFor(page, new java.net.URL("https://www.site.com/a.jpg")));
+        assertEquals("https://www.site.com/", ImageFetch.refererFor(page, new java.net.URL("https://cdn.other.net/a.jpg")));
+        assertNull(ImageFetch.refererFor(page, new java.net.URL("http://cdn.other.net/a.jpg")));
+    }
 }

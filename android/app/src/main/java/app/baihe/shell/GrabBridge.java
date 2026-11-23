@@ -81,6 +81,10 @@ final class GrabBridge {
     @JavascriptInterface
     public synchronized void image(String given, String key, String url, String type, String base64) {
         if (!accepts(given) || !begun || base64 == null || base64.isEmpty()) return;
+        if (key == null || key.length() > 64) {
+            unreadable++;
+            return;
+        }
         if (Batches.tooLarge(base64)) {
             unreadable++;
             return;
@@ -101,6 +105,10 @@ final class GrabBridge {
     @JavascriptInterface
     public synchronized void pending(String given, String key, String url) {
         if (!accepts(given) || !begun || url == null) return;
+        if (key == null || key.length() > 64) {
+            unreadable++;
+            return;
+        }
         if (!(url.startsWith("https://") || url.startsWith("http://")) || url.length() > 2000) {
             unreadable++;
             return;

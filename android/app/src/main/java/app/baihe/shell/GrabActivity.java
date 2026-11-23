@@ -572,11 +572,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             int bad = unreadable;
             boolean cut = truncated;
             long used = 0;
+            long downloadDeadline = System.currentTimeMillis() + 5 * 60_000L;
             for (PageImage image : images) {
                 PageImage got = image;
                 if (image.needsDownload()) {
-                    String cookie = android.webkit.CookieManager.getInstance().getCookie(image.url);
-                    got = ImageFetch.download(image, url, cookie, agent);
+                    got = System.currentTimeMillis() > downloadDeadline ? null
+                            : ImageFetch.download(image, url, android.webkit.CookieManager.getInstance()::getCookie, agent);
                 }
                 if (got == null) {
                     bad++;
