@@ -1,6 +1,7 @@
 package app.baihe.shell;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Locale;
 
 /** Which addresses the app will talk to: the saved Baihe server and the pages it browses. */
@@ -172,5 +173,21 @@ final class ServerAddress {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * "(1/2)" in a title: a chapter a site splits across several web pages, as {this part, parts},
+     * or null. Only a part before the last one has a next part to follow.
+     */
+    static int[] partOf(List<String> titles) {
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("[(（]\\s*(\\d{1,3})\\s*[/／]\\s*(\\d{1,3})\\s*[)）]");
+        for (String title : titles) {
+            java.util.regex.Matcher m = pattern.matcher(title);
+            if (!m.find()) continue;
+            int part = Integer.parseInt(m.group(1));
+            int parts = Integer.parseInt(m.group(2));
+            if (part >= 1 && parts >= part && parts <= 50) return new int[] {part, parts};
+        }
+        return null;
     }
 }
