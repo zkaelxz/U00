@@ -743,8 +743,8 @@ def test_a_failed_job_read_before_its_record_lands_keeps_no_path(isolated_db, mo
 
 def _paid_ready(cap, monkeypatch):
     real = settings_service.get
-    # Both default to running on this PC's GPU after the batches, which keeps the overlap off.
-    overrides = {"episode_summary_engine": "claude", "translate_alignment_check": False}
+    # The source-match check defaults to running on this PC's GPU after the batches, which keeps the overlap off.
+    overrides = {"translate_alignment_check": False}
     monkeypatch.setattr(settings_service, "get",
                         lambda k, *a, **kw: overrides[k] if k in overrides else real(k, *a, **kw))
     monkeypatch.setattr(translate_run_service.translate_service, "resolve_api_key", lambda name: "k")
@@ -836,12 +836,14 @@ def test_a_policy_call_changes_only_what_it_sends(jobs):
     assert q.get_queue(None)["overlap_online_translate"] is True
 
 
-@pytest.mark.parametrize("key, value", [("episode_summary_engine", "ollama"), ("translate_alignment_check", True)])
-def test_a_local_summary_or_alignment_check_blocks_the_overlap(jobs, cap, monkeypatch, key, value):
+
+
+def test_the_source_match_check_blocks_the_overlap(jobs, cap, monkeypatch):
     _paid_ready(cap, monkeypatch)
     monkeypatch.setattr(settings_service, "source_match_model_present", lambda: True)
     patched = settings_service.get
-    monkeypatch.setattr(settings_service, "get", lambda k, *a, **kw: value if k == key else patched(k, *a, **kw))
+    monkeypatch.setattr(settings_service, "get",
+                        lambda k, *a, **kw: True if k == "translate_alignment_check" else patched(k, *a, **kw))
     a, _b = _overlap_queue("claude", True)
     q.tick()
     q.tick()

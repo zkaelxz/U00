@@ -56,7 +56,7 @@ def test_preference_defaults(isolated_db, env_file):
     assert set(timing_settings_service.KEYS) <= set(prefs)
     assert {k: v for k, v in prefs.items() if k not in timing_settings_service.KEYS} == {
         "default_engine": "claude", "default_locale": "en-US", "default_style_note": "",
-        "scene_aware_batches": True, "blocked_phrases": whisper_hallucination.BLOCKED_PHRASES_DEFAULT, "scanlate_chapter_brief": True, "scanlate_page_image": True, "scanlate_sfx_gloss": False, "scanlate_match_text_color": True, "scanlate_rect_layout": False, "episode_brief": True, "stream_plain_prompt": True, "ollama_cloud_default": False, "translate_reply_guard": "auto", "novel_parallel_chapters": 3, "claude_reasoning": "default", "openai_reasoning": "less", "translate_alignment_check": True, "episode_summary_engine": "ollama", "monthly_cap_usd": None,
+        "scene_aware_batches": True, "blocked_phrases": whisper_hallucination.BLOCKED_PHRASES_DEFAULT, "scanlate_chapter_brief": True, "scanlate_page_image": True, "scanlate_sfx_gloss": False, "scanlate_match_text_color": True, "scanlate_rect_layout": False, "episode_brief": True, "stream_plain_prompt": True, "ollama_cloud_default": False, "translate_reply_guard": "auto", "novel_parallel_chapters": 3, "claude_reasoning": "default", "openai_reasoning": "less", "translate_alignment_check": True, "episode_summary_engine": "claude", "monthly_cap_usd": None,
         "narration_pace": 0.9, "max_upload_mb": 20480, "ollama_num_ctx_override": 0, "keep_free_vram_gb": 0.0,
         "keep_free_ram_gb": 0.0, "gpu_guard": True, "second_hearing": False, "gpu_guard_temp_c": 85, "gpu_guard_stop_minutes": 2,
         "whisper_model_path": "", "ocr_backend": "auto", "speaker_model": "nemotron",
@@ -387,11 +387,11 @@ def test_translate_run_passes_num_ctx_override_and_summary_engine(isolated_db, e
         built.append((name, key))
         return real_get_engine("fake", "offline")
     monkeypatch.setattr(engine_registry, "get_engine", fake_get_engine)
-    env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
+    env_file.write_text("BAIHE_CLAUDE_KEY=c-key\nBAIHE_DEEPSEEK_KEY=ds-key\n")
 
     translate_run_service.start_translate_run(did, engine_name="fake")
     assert captured["ollama_num_ctx_override"] is None
-    assert captured["summary_engine_choice"] == "ollama"
+    assert captured["summary_engine_choice"] == "claude"
 
     settings_service.set_settings({"ollama_num_ctx_override": 32768,
                                    "episode_summary_engine": "deepseek"})
@@ -410,27 +410,21 @@ def test_summary_engine_cloud_without_key_is_skipped(isolated_db, env_file):
 
 def test_summary_engine_paid_pick_skipped_when_not_allowed(isolated_db, env_file, monkeypatch):
     """Security review (PR #439): a caller without engines.paid never gets a
-    cloud summary on the owner's key; a free (Ollama) pick still runs."""
+    cloud summary on the owner's key."""
     from services import translate_run_service
     monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
     env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
     settings_service.set_settings({"episode_summary_engine": "deepseek"})
     assert translate_run_service.pick_summary_engine(allow_paid=False) == (None, None)
     assert translate_run_service.pick_summary_engine()[1] == "deepseek"
-    settings_service.set_settings({"episode_summary_engine": "ollama"})
-    assert translate_run_service.pick_summary_engine(allow_paid=False)[1] == "ollama"
 
 
-def test_ollama_summary_reuses_the_ollama_run_model(isolated_db, env_file, monkeypatch):
-    """The summary shares the run's Ollama model so a second model isn't loaded beside it."""
-    from services import translate_run_service
-    built = []
-    monkeypatch.setattr(engine_registry, "get_engine",
-                        lambda name, key=None, model=None, **k: built.append((name, model)) or object())
-    settings_service.set_settings({"episode_summary_engine": "ollama"})
-    translate_run_service.pick_summary_engine(run_engine="ollama", run_model="translategemma:12b")
-    translate_run_service.pick_summary_engine(run_engine="deepseek", run_model="deepseek-chat")
-    assert built == [("ollama", "translategemma:12b"), ("ollama", None)]
+def test_a_saved_ollama_summary_engine_reads_as_claude(isolated_db):
+    """Ollama was removed from the summary choices; a value saved earlier reads as the default."""
+    import db
+    db.set_app_setting("pref.episode_summary_engine", "ollama")
+    assert settings_service.get("episode_summary_engine") == "claude"
+    assert "ollama" not in settings_service.SUMMARY_ENGINE_CHOICES
 
 
 def test_translate_run_passes_allow_paid_summary_and_monthly_cap(isolated_db, env_file,

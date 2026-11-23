@@ -6,6 +6,7 @@ siblings export every expected job function (a guard against a move or rename dr
 import services.workspace_audio_job_service as wajs
 from engine_backends import engine_registry
 import services.workspace_job_service as wjs
+from services import translate_run_service
 import services.workspace_review_job_service as wrjs
 from tests.saved_settings import patch_setting
 
@@ -50,8 +51,7 @@ def _capture_bulk_start(isolated_db, monkeypatch, engine, content_mode, translat
     seen = {}
 
     def fake_get_engine(name, key, *a, **k):
-        if name == "ollama" and key is None:
-            seen["summary_base_url"] = k.get("base_url")
+        if key == "summary-key":
             return summary
         # The real class without its constructor (no SDK import, no network).
         built = engine_registry.ENGINES[name].__new__(engine_registry.ENGINES[name])
@@ -59,6 +59,7 @@ def _capture_bulk_start(isolated_db, monkeypatch, engine, content_mode, translat
             built.model = a[0]
         return built
     monkeypatch.setattr(engine_registry, "get_engine", fake_get_engine)
+    monkeypatch.setattr(translate_run_service.translate_service, "resolve_api_key", lambda n: "summary-key")
 
     def fake_start(job_id, fn, *args, **kwargs):
         seen.update(args=args, kwargs=kwargs)
@@ -78,8 +79,7 @@ def test_bulk_uses_novel_defaults_custom_notes_and_summary_engine(isolated_db, m
     assert context_window == 30
     assert kwargs["context_window_ahead"] == 15 and kwargs["batch_size"] == 30
     assert "LEARNED-STYLE" in style_guidelines and "EMOTION-GUIDE" in style_guidelines
-    assert kwargs["summary_engine"] is summary and kwargs["summary_engine_choice"] == "ollama"
-    assert seen["summary_base_url"] == "http://gpu-box:11434"
+    assert kwargs["summary_engine"] is summary and kwargs["summary_engine_choice"] == "claude"
 
 
 def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkeypatch):
