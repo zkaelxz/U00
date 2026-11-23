@@ -94,6 +94,24 @@ final class GrabBridge {
         totalChars += base64.length();
     }
 
+    /**
+     * A picture the page would not let the script read. Only its address is kept, in page order
+     * (an empty body marks it); the app downloads it itself with the page's cookies.
+     */
+    @JavascriptInterface
+    public synchronized void pending(String given, String key, String url) {
+        if (!accepts(given) || !begun || url == null) return;
+        if (!(url.startsWith("https://") || url.startsWith("http://")) || url.length() > 2000) {
+            unreadable++;
+            return;
+        }
+        if (images.size() >= MAX_IMAGES) {
+            truncated = true;
+            return;
+        }
+        images.add(new PageImage(key, url, "image/jpeg", ""));
+    }
+
     @JavascriptInterface
     public synchronized void skipped(String given, String key) {
         if (accepts(given)) unreadable++;

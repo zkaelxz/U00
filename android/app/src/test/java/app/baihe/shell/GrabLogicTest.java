@@ -236,4 +236,11 @@ public class GrabLogicTest {
         assertEquals("Nothing could be translated and redrawn on this page. The monthly cap is spent.",
                 QuickRead.summary(0, 2, "The monthly cap is spent."));
     }
+
+    @Test
+    public void aPictureWithOnlyAnAddressNeedsDownloading() {
+        assertTrue(new PageImage("p0", "https://cdn.example/1.jpg", "image/jpeg", "").needsDownload());
+        assertFalse(new PageImage("p1", "https://cdn.example/2.jpg", "image/jpeg", "AAAA").needsDownload());
+        assertFalse(new PageImage("p2", "", "image/png", "").needsDownload());
+    }
 }

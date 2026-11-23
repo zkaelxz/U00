@@ -436,6 +436,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String nonce = newNonce();
         bridge.start(nonce);
         pageUrl = web.getUrl() == null ? "" : web.getUrl();
+        pageAgent = web.getSettings().getUserAgentString();
         runningGrab = nonce;
         web.postDelayed(() -> {
             if (grabbing && !uploading && nonce.equals(runningGrab)) finishGrab("The page did not finish.");
@@ -538,6 +539,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile String runningGrab = "";
     // From the web view, not the page: a page can claim any address.
     private volatile String pageUrl = "";
+    private volatile String pageAgent = "";
     private List<String> pageTitles = new ArrayList<>();
 
     @Override
@@ -551,20 +553,49 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     @Override
     public void onDone(List<PageImage> images, int unreadable, boolean truncated) {
         if (images.isEmpty()) {
-            finishGrab("No page images were found on this page.");
+            finishGrab(unreadable > 0
+                    ? "Found " + unreadable + " pictures but the site would not let Baihe read them."
+                    : "No page images were found on this page.");
             return;
         }
         String url = pageUrl;
+        String agent = pageAgent;
         List<String> titles = pageTitles;
         JSONArray chapterLinks = pageChapters;
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
-        if (quickRead) {
-            sender.execute(() -> read(new BaiheClient(server, token), url, images, unreadable, truncated));
-            return;
-        }
-        sender.execute(() -> upload(new BaiheClient(server, token), url, titles, chapterLinks, images, unreadable, truncated));
+        boolean readOnly = quickRead;
+        sender.execute(() -> {
+            // Pictures the page would not hand over are downloaded here, in page order.
+            List<PageImage> ready = new ArrayList<>();
+            int bad = unreadable;
+            boolean cut = truncated;
+            long used = 0;
+            for (PageImage image : images) {
+                PageImage got = image;
+                if (image.needsDownload()) {
+                    String cookie = android.webkit.CookieManager.getInstance().getCookie(image.url);
+                    got = ImageFetch.download(image, url, cookie, agent);
+                }
+                if (got == null) {
+                    bad++;
+                } else if (!SharedImages.fitsTotal(used, got.base64.length())) {
+                    cut = true;
+                    break;
+                } else {
+                    used += got.base64.length();
+                    ready.add(got);
+                }
+            }
+            if (ready.isEmpty()) {
+                finishGrab("Found " + bad + " pictures but the site would not let Baihe read them.");
+                return;
+            }
+            BaiheClient client = new BaiheClient(server, token);
+            if (readOnly) read(client, url, ready, bad, cut);
+            else upload(client, url, titles, chapterLinks, ready, bad, cut);
+        });
     }
 
     /** Quick read: send the pages without saving, write what comes back to the cache and open it. */
