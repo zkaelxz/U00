@@ -63,6 +63,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     // Chapters still to follow after the current one; 0 when not following.
     private volatile int chaptersLeft;
     private volatile boolean loadingNext;
+    // A Quick read of a chapter split in parts ("(1/2)") follows each part into the same reader.
+    private volatile boolean followingParts;
+    private volatile boolean partsContinuing;
     private volatile boolean uploading;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -140,7 +143,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 if (!loadingNext) return;
                 loadingNext = false;
                 web.postDelayed(() -> {
-                    if (chaptersLeft > 0 && !grabbing) startGrab();
+                    if (chaptersLeft > 0 && !grabbing) startGrab(followingParts);
                 }, 2500);
             }
 
@@ -173,7 +176,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         chapters.setOnClickListener(v -> toggleChapters());
         quick = new GrabUi.BarButton(this, palette, R.drawable.ic_quick, "Quick read", true);
         quick.setOnClickListener(v -> {
-            if (grabbing && runId != null) cancelGrab();
+            if ((grabbing && runId != null) || (followingParts && chaptersLeft > 0)) cancelGrab();
             else startGrab(true);
         });
         ImageView more = new ImageView(this);
@@ -373,10 +376,21 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     /** Stops this grab on the phone and tells the server to drop the pages it has not started. */
     private void cancelGrab() {
-        if (!grabbing) return;
+        boolean betweenParts = !grabbing && followingParts && chaptersLeft > 0;
+        if (!grabbing && !betweenParts) return;
         cancelRequested = true;
         chaptersLeft = 0;
         loadingNext = false;
+        followingParts = false;
+        if (betweenParts) {
+            // The next part is only loading: nothing is running on the server to stop.
+            partsContinuing = false;
+            QuickReadSession.onCancel(null);
+            QuickReadSession.finish();
+            showCancel(false);
+            say("Cancelled.");
+            return;
+        }
         String id = runId;
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
@@ -395,7 +409,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void showChapterState() {
-        if (chaptersLeft > 0) chapters.setLabel("Stop (" + chaptersLeft + " left)", palette.bad, R.drawable.ic_stop);
+        if (chaptersLeft > 0 && !followingParts) chapters.setLabel("Stop (" + chaptersLeft + " left)", palette.bad, R.drawable.ic_stop);
         else {
             chapters.setLabel("Chapters", palette.muted, R.drawable.ic_chapters);
             chapters.resetTint();
@@ -512,7 +526,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             return;
         }
         // Following chapters saves each one, so a Quick read never starts inside that run.
-        if (readOnly && chaptersLeft > 0) {
+        if (readOnly && chaptersLeft > 0 && !followingParts) {
             say("Stop following chapters first.");
             return;
         }
@@ -621,11 +635,20 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             }
             if (next == null) chaptersLeft = 0;
         }
+        if (chaptersLeft == 0) {
+            if (partsContinuing) {
+                // The chain ended with the reader still waiting for a next part that will not come.
+                QuickReadSession.onCancel(null);
+                QuickReadSession.finish();
+            }
+            followingParts = false;
+            partsContinuing = false;
+        }
         String shown = message;
         String go = next;
         runOnUiThread(() -> {
             grab.setBusy(false);
-            showCancel(false);
+            if (!(go != null && followingParts)) showCancel(false);
             showChapterState();
             chip.show(shown, GrabUi.kindOf(shown, sent));
             if (go != null) {
@@ -678,6 +701,14 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
         boolean readOnly = quickRead;
+        if (readOnly && chaptersLeft == 0) {
+            int[] part = ServerAddress.partOf(titles);
+            if (part != null && part[0] < part[1] && ServerAddress.nextChapterUrl(url, pageNext) != null) {
+                chaptersLeft = part[1] - part[0] + 1;
+                followingParts = true;
+                partsContinuing = false;
+            }
+        }
         sender.execute(() -> {
             // Pictures the page would not hand over are downloaded here, in page order.
             List<PageImage> ready = new ArrayList<>();
@@ -723,14 +754,16 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
      * the rest are added as the server streams them.
      */
     private void read(BaiheClient client, String url, List<PageImage> images, int unreadable, boolean truncated) {
-        QuickReadSession.begin();
+        boolean continuing = partsContinuing;
+        boolean moreParts = followingParts && chaptersLeft > 1;
+        if (!continuing) QuickReadSession.begin();
         QuickReadSession.onCancel(this::cancelGrab);
         long readStarted = System.currentTimeMillis();
         java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(QUICK_READ_STREAMS);
         try {
             // A typeset answer is large, so the batch stays small however many the server allows.
             int max = Math.min(QUICK_READ_BATCH, client.health().optInt("max_images_per_request", 12));
-            QuickReadActivity.clear(this);
+            if (!continuing) QuickReadActivity.clear(this);
             List<List<PageImage>> batches = Batches.plan(images, max);
             int n = batches.size();
             Object lock = new Object();
@@ -738,9 +771,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             boolean[] finished = new boolean[n];
             for (int i = 0; i < n; i++) held.add(new ArrayList<>());
             int[] frontier = {0};
-            int[] shown = {0};
+            int[] shown = {continuing ? QuickReadSession.snapshot().size() : 0};
+            int shownBefore = shown[0];
             long[] firstPageAt = {0};
-            boolean[] opened = {false};
+            boolean[] opened = {continuing};
             String[] firstError = {""};
             boolean[] refused = {false};
 
@@ -826,17 +860,21 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     // A batch that threw is counted as nothing shown; the others carry on.
                 }
             }
-            QuickReadSession.finish();
+            int thisPart = shown[0] - shownBefore;
+            // A part of a split chapter hands over to the next one with the reader still open.
+            boolean carryOn = moreParts && !cancelRequested && !QuickReadSession.isAbandoned() && thisPart > 0;
+            partsContinuing = carryOn;
+            if (!carryOn) QuickReadSession.finish();
             long ended = System.currentTimeMillis();
             String timing = firstPageAt[0] == 0 ? "" : String.format(java.util.Locale.ROOT,
                     " (found %d s, first page %d s, all %d s)", (readStarted - grabStartedAt) / 1000,
                     (firstPageAt[0] - readStarted) / 1000, (ended - readStarted) / 1000);
-            String message = cancelRequested && shown[0] == 0 ? "Cancelled."
+            String message = cancelRequested && thisPart == 0 ? "Cancelled."
                     : (cancelRequested ? "Cancelled. " : "")
-                    + QuickRead.summary(shown[0], images.size() + unreadable, firstError[0])
+                    + QuickRead.summary(thisPart, images.size() + unreadable, firstError[0])
                     + (truncated ? ". Some pages were left out." : "") + timing;
-            QuickReadSession.onCancel(null);
-            finishGrab(message, false);
+            if (!carryOn) QuickReadSession.onCancel(null);
+            finishGrab(message, carryOn);
         } catch (BaiheClient.BridgeException e) {
             QuickReadSession.onCancel(null);
             QuickReadSession.finish();
