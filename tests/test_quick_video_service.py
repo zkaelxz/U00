@@ -142,8 +142,8 @@ def test_the_download_keeps_a_video_no_taller_than_1080p(monkeypatch):
     seen = []
     monkeypatch.setattr(url_media_service, "start_url_download",
                         lambda drama_id, url, audio_only, *a, **kw: seen.append((a, kw)) or {"job_id": "j"})
-    assert qv.start_download({"id": 7}, URL) == "j"
-    assert seen == [((), {"max_height": 1080})]
+    assert qv.start_download({"id": 7}, URL, True) == "j"
+    assert seen == [((), {"max_height": 1080, "use_saved_cookies": True})]
 
 
 def _statuses(drama_id):

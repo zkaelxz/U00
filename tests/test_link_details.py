@@ -268,9 +268,18 @@ def test_a_pasted_link_is_read_from_another_device_only_with_import_from_a_link(
     assert remote.post("/api/media-link/probe", json={"url": VIDEO},
                        headers=member("kid@example.com")).status_code == 403
     assert FakeYDL.calls == []
-    r = remote.post("/api/media-link/probe", json={"url": VIDEO},
-                    headers=member("ok@example.com", "media.import_url"))
+    ok = member("ok@example.com", "media.import_url")
+    r = remote.post("/api/media-link/probe", json={"url": VIDEO}, headers=ok)
     assert r.status_code == 200 and r.json()["kind"] == "video" and SECRET not in r.text
+    # One read at a time per caller away from the PC: each holds a worker and a yt-dlp process.
+    from api import llm_slots
+    key = f"user:{auth_service.find_user_by_email('ok@example.com')['id']}"
+    llm_slots.ACTIVE_CALLERS.add(key)
+    try:
+        assert remote.post("/api/media-link/probe", json={"url": VIDEO}, headers=ok).status_code == 429
+    finally:
+        llm_slots.ACTIVE_CALLERS.discard(key)
+    assert len(FakeYDL.calls) == 1
 
 
 def test_every_title_route_is_refused_from_another_device(env):

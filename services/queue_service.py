@@ -774,7 +774,7 @@ def _start_item(item: dict) -> Optional[str]:
         # Records the job as the adder's, as if they had pressed the button.
         acting.note_acting_principal(principal)
         if item["step"] == DOWNLOAD:
-            return quick_video_service.start_download(drama, (item.get("settings") or {}).get("url"))
+            return quick_video_service.start_download(drama, (item.get("settings") or {}).get("url"), item["at_pc"])
         if item["step"] == "transcribe":
             # Again at start: the title's model choice may have changed since it was added.
             model_readiness_service.require_ready(

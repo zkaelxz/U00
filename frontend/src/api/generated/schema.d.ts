@@ -6271,7 +6271,7 @@ export interface paths {
         put?: never;
         /**
          * What a link says about a title: title, channel, stream date
-         * @description Nothing is downloaded or saved. A video or stream link is read with yt-dlp (metadata only), a supported Sources link with that source's own data; any other page returns kind "page" without being fetched. 422 a bad or private address, 503 the read failed or yt-dlp is missing.
+         * @description Nothing is downloaded or saved. A video or stream link is read with yt-dlp (metadata only), a supported Sources link with that source's own data; any other page returns kind "page" without being fetched. 422 a bad or private address, 503 the read failed or yt-dlp is missing, 429 away from the PC while the caller or the server already has one running.
          */
         post: operations["post_media_link_probe_api_media_link_probe_post"];
         delete?: never;
@@ -51247,6 +51247,15 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
