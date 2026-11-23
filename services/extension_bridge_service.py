@@ -175,6 +175,19 @@ def _record_run_notes(result: dict) -> None:
         db.update_page(int(page_id), run_notes=pages_svc.notes_to_json(notes))
 
 
+# A phone screen, from a small one to a tablet; anything else is ignored rather than refused, so
+# an odd value only costs the smaller download.
+_TYPESET_WIDTHS = range(320, 4097)
+
+
+def _typeset_max_width(raw) -> int | None:
+    """The width the redrawn page is scaled down to: the phone's screen width, which is all it
+    can show, so the rest of a full-size page is only download time."""
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw in _TYPESET_WIDTHS:
+        return raw
+    return None
+
+
 def _typeset_style(raw):
     """The look settings the popup sent, or None for the plain render. A bad value falls back
     to its default rather than refusing the page: it is a preference, not data."""
@@ -354,6 +367,16 @@ _quick_read_cache: "OrderedDict[str, dict]" = OrderedDict()
 _quick_read_cache_lock = threading.Lock()
 
 
+def _glossary_version(drama_id) -> str:
+    """Changes when the terms a page is translated with change, so an edited glossary is never
+    answered from the cache. Quick read without a title has none."""
+    if not drama_id:
+        return ""
+    drama = db.get_drama(int(drama_id))
+    terms = db.list_run_glossary_terms(drama) if drama else []
+    return quick_read_cache.make_key(sorted(terms, key=lambda t: str(t.get("term_original"))))[:16]
+
+
 def _quick_read_key(image: dict, job: dict) -> str | None:
     """None for a saved send: the library is that send's memory, and it must store the page."""
     if job["store"]:
@@ -366,8 +389,8 @@ def _quick_read_key(image: dict, job: dict) -> str | None:
 
 def _key_settings(job: dict, config: dict) -> list:
     return [job["drama_id"], job["source_language"], job["typeset"],
-            json.dumps(job["typeset_style"], sort_keys=True, default=str),
-            config.get("engine"), config.get("model")]
+            json.dumps(job["typeset_style"], sort_keys=True, default=str), job["typeset_max_width"],
+            job["glossary_version"], config.get("engine"), config.get("model")]
 
 
 def _quick_read_url_key(image: dict, job: dict) -> str | None:
@@ -424,7 +447,7 @@ def _remember_on_disk(key: str | None, url_key: str | None, result: dict) -> Non
         quick_read_cache.put(url_key, {"alias": key})
 
 
-def _prefetch(decoded: list, payload: dict, job: dict) -> list:
+def _prefetch(decoded: list, payload: dict, job: dict, member=None) -> list:
     """Fills in the pictures the phone named by address. A picture whose answer is already cached is
     never downloaded; one that cannot be downloaded is dropped from the run and returned as
     {"key","url","reason"}, so the phone uploads just those."""
@@ -445,7 +468,7 @@ def _prefetch(decoded: list, payload: dict, job: dict) -> list:
     options = {"referer": str(payload.get("fetch_referer") or ""),
                "user_agent": str(payload.get("fetch_user_agent") or ""),
                "cookie": str(payload.get("fetch_cookie") or "")}
-    fetched = quick_read_fetch.fetch_all(wanted, options, page_server.MAX_IMAGE_BYTES)
+    fetched = quick_read_fetch.fetch_all(wanted, options, page_server.MAX_IMAGE_BYTES, member=member)
     unfetched = []
     for index, (content, reason) in fetched.items():
         image = decoded[index]
@@ -491,7 +514,7 @@ def _translate_one(image: dict, job: dict, turn):
             image["content"], image["content_type"], drama_id=job["drama_id"],
             source_url=job["source_url"], source_language=job["source_language"], store=job["store"],
             member=job["member"], typeset=job["typeset"] and not job["store"],
-            typeset_style=job["typeset_style"], turn=turn)
+            typeset_style=job["typeset_style"], turn=turn, typeset_max_width=job["typeset_max_width"])
     except page_turns.Stopped:
         return "stopped", None
     except page_server.EndpointError as e:
@@ -602,8 +625,10 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
     job = {"drama_id": drama_id, "source_url": source_url, "store": store,
            "source_language": str(payload.get("source_language") or ""),
            "typeset": payload.get("typeset") is True, "typeset_style": typeset_style,
+           "typeset_max_width": _typeset_max_width(payload.get("typeset_max_width")),
+           "glossary_version": _glossary_version(drama_id),
            "member": principal is not None, "single": False, "run_id": _run_id(payload)}
-    unfetched = _prefetch(decoded, payload, job) if any(i["content"] is None for i in decoded) else []
+    unfetched = _prefetch(decoded, payload, job, member=_user_id(principal)) if any(i["content"] is None for i in decoded) else []
 
     # Let the existing page-image filter decide what is a real page,
     # but only when there is a set worth clustering: filtering a

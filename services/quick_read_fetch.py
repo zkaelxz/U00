@@ -1,6 +1,7 @@
 """Quick read's PC-side download of the pictures a phone names by address, so the phone need not upload them."""
 
 import concurrent.futures
+import threading
 from urllib.parse import urlsplit
 
 from lib import http
@@ -10,6 +11,10 @@ FETCH_TIMEOUT = (5, 20)
 # One send names at most MAX_IMAGES_PER_REQUEST pictures; fetching them together keeps the
 # first page from waiting on the slowest download.
 FETCHES_AT_ONCE = 6
+# Per request and per member: a small request can name 12 pictures of 12 MB each, and none of it
+# reaches an engine (so no spending cap) when the addresses are not images.
+MAX_TOTAL_BYTES = 48 * 1024 * 1024
+REQUESTS_AT_ONCE_PER_MEMBER = 2
 MAX_URL_CHARS = 2048
 
 # A CDN that checks the browser (rawkuma's does) refuses the default python-requests agent.
@@ -71,11 +76,51 @@ def fetch_one(fetch_url: str, options: dict, max_bytes: int) -> tuple[bytes | No
     return response.body, ""
 
 
-def fetch_all(wanted: dict, options: dict, max_bytes: int) -> dict:
-    """`wanted` maps a key to its picture address; the answer maps each key to (bytes, reason)."""
+class _Budget:
+    def __init__(self, total: int):
+        self._left, self._lock = total, threading.Lock()
+
+    def left(self) -> int:
+        with self._lock:
+            return self._left
+
+    def spend(self, n: int) -> None:
+        with self._lock:
+            self._left -= n
+
+
+_member_slots: dict = {}
+_member_slots_lock = threading.Lock()
+
+
+def _slots(member) -> threading.BoundedSemaphore:
+    with _member_slots_lock:
+        return _member_slots.setdefault(member, threading.BoundedSemaphore(REQUESTS_AT_ONCE_PER_MEMBER))
+
+
+def fetch_all(wanted: dict, options: dict, max_bytes: int, member=None) -> dict:
+    """`wanted` maps a key to its picture address; the answer maps each key to (bytes, reason).
+    `member` (None for the PC's owner) holds one of REQUESTS_AT_ONCE_PER_MEMBER slots while it
+    downloads, so one account cannot take the household's bandwidth with parallel requests."""
     if not wanted:
         return {}
+    with _slots(member):
+        return _fetch_all(wanted, options, max_bytes)
+
+
+def _fetch_all(wanted: dict, options: dict, max_bytes: int) -> dict:
+    budget = _Budget(MAX_TOTAL_BYTES)
+
+    def one(url):
+        room = min(max_bytes, budget.left())
+        if room <= 0:
+            return None, TOO_LARGE
+        content, reason = fetch_one(url, options, room)
+        if content is not None:
+            budget.spend(len(content))
+        return content, reason
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(FETCHES_AT_ONCE, len(wanted)),
                                                thread_name_prefix="quick-read-fetch") as pool:
-        futures = {key: pool.submit(fetch_one, url, options, max_bytes) for key, url in wanted.items()}
+        futures = {key: pool.submit(one, url) for key, url in wanted.items()}
         return {key: future.result() for key, future in futures.items()}

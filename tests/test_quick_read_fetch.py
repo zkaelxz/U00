@@ -114,14 +114,14 @@ def test_another_member_gets_the_cached_page(pipeline, monkeypatch):
     _serve(monkeypatch, {"https://cdn.example.com/1.png": (200, _png_bytes())})
     _run([{"key": "a", "fetch_url": "https://cdn.example.com/1.png"}])
     bridge._quick_read_cache.clear()
-    job = {"drama_id": None, "source_language": "", "typeset": True, "typeset_style": None,
+    job = {"drama_id": None, "source_language": "", "typeset": True, "typeset_style": None, "typeset_max_width": None, "glossary_version": "",
            "store": False, "member": True}
     assert bridge._disk_cached(bridge._quick_read_url_key(
         {"fetch_url": "https://cdn.example.com/1.png"}, job)) is not None
 
 
 def test_a_saved_send_is_never_cached(pipeline, monkeypatch):
-    job = {"drama_id": 1, "source_language": "", "typeset": False, "typeset_style": None, "store": True,
+    job = {"drama_id": 1, "source_language": "", "typeset": False, "typeset_style": None, "typeset_max_width": None, "glossary_version": "", "store": True,
            "member": False}
     assert bridge._quick_read_url_key({"fetch_url": "https://x.test/1.png"}, job) is None
 
@@ -170,3 +170,27 @@ def test_cookie_needs_https_and_the_chapters_own_host():
     assert "Cookie" not in quick_read_fetch.request_headers("https://example.com.evil.test/1.png", options)
     parent = {"referer": "https://read.example.com/ch1", "cookie": "s=1"}
     assert "Cookie" not in quick_read_fetch.request_headers("https://example.com/1.png", parent)
+
+
+def test_one_request_cannot_download_more_than_the_total(monkeypatch):
+    monkeypatch.setattr(quick_read_fetch, "MAX_TOTAL_BYTES", 1500)
+    monkeypatch.setattr(quick_read_fetch, "FETCHES_AT_ONCE", 1)
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", lambda url, options, max_bytes: (b"x" * 1000, ""))
+    got = quick_read_fetch.fetch_all({"a": "u1", "b": "u2", "c": "u3"}, {}, 12 * 1024 * 1024)
+    assert [got[k][1] for k in "abc"] == ["", "", "too_large"]
+
+
+def test_a_member_has_two_download_slots(monkeypatch):
+    sem = quick_read_fetch._slots("m1")
+    assert sem.acquire(blocking=False) and sem.acquire(blocking=False)
+    assert not sem.acquire(blocking=False)
+    assert quick_read_fetch._slots("m2").acquire(blocking=False)
+
+
+def test_edited_glossary_changes_the_cache_key(isolated_db, monkeypatch):
+    drama = isolated_db.create_drama(title_zh="t", title_en="t", media_type="manga")
+    before = bridge._glossary_version(drama)
+    monkeypatch.setattr(isolated_db, "list_run_glossary_terms",
+                        lambda d: [{"term_original": "阿洛", "term_translation": "RLuo"}])
+    assert bridge._glossary_version(drama) != before
+    assert bridge._glossary_version(None) == ""
