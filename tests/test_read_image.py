@@ -388,3 +388,38 @@ def test_on_done_reports_usage_and_zero_on_failure():
     with pytest.raises(RuntimeError):
         vision.read_image_text(engine, b"x", "image/png", on_done=got.append)
     assert got[-1] == {}
+
+
+class TestMemberPicks:
+    """A member's read: what is refused, and that a slow body can't hold the shared slot."""
+
+    def _member(self):
+        return TestFromARemoteDevice._member(None)
+
+    def test_a_hosted_tag_outside_the_member_list_is_refused_before_any_call(self, isolated_db, sent):
+        remote = self._member()
+        resp = remote.post("/api/translate/read-image", data={"engine": "ollama", "model": "gpt-oss:120b-cloud"},
+                           files={"image": ("shot.png", _png(), "image/png")})
+        assert resp.status_code == 403 and not sent
+        resp = remote.post("/api/translate/read-image/estimate",
+                           json={"engine": "ollama", "model": "gpt-oss:120b-cloud", "width": 10, "height": 10})
+        assert resp.status_code == 403
+
+    def test_an_empty_engine_field_is_the_default_not_a_paid_engine(self, isolated_db, sent):
+        db.set_app_setting("default_engine", "claude")
+        resp = self._member().post("/api/translate/read-image", data={"engine": ""},
+                                   files={"image": ("shot.png", _png(), "image/png")})
+        assert resp.status_code == 200 and sent[0]["engine"].name == "ollama"
+
+    def test_a_picture_that_takes_too_long_to_arrive_is_refused(self, isolated_db, sent, monkeypatch):
+        import asyncio
+        from api.routers import translate_routes
+
+        async def slow(*a, **k):
+            await asyncio.sleep(5)
+
+        monkeypatch.setattr(translate_routes, "read_capped_form", slow)
+        monkeypatch.setattr(translate_routes, "_IMAGE_READ_SECONDS", 0.05)
+        resp = self._member().post("/api/translate/read-image", data={},
+                                   files={"image": ("shot.png", _png(), "image/png")})
+        assert resp.status_code == 422 and "too long" in resp.text and not sent

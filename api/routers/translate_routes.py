@@ -10,6 +10,8 @@ delete (see services/translate_service.py's own docstring for why it
 requires an explicit confirm=true rather than a bare DELETE).
 """
 
+import asyncio
+
 import applog
 from engine_backends import shared as engine_shared
 from engine_backends import vision as engine_vision
@@ -45,17 +47,13 @@ def get_history(request: Request, limit: int = Query(50, ge=1, le=200)):
                                                     principal=request.state.principal)}
 
 
-def _checked_engine(request: Request, named, default, model) -> tuple:
+def _require_engine_for_caller(request: Request, named, default, model) -> tuple:
     """(engine, model) this caller runs: an omitted engine is the owner's default, or
     Ollama for an account that may not use it (`engine_for_caller`), so a member's
     Text page needs no engine picker; a named engine is held to `engines.paid`."""
     engine, model = engine_for_caller(request, named, named or default, model)
     require_engines_allowed(request, engine, model=model)
     return engine, model
-
-
-def _text_engine(request: Request, payload) -> tuple:
-    return _checked_engine(request, payload.engine, settings_service.get("default_engine"), payload.model)
 
 
 def _vision_default() -> str:
@@ -68,7 +66,8 @@ def _vision_default() -> str:
             summary="Translate text with a chosen engine (server-side key resolution, D2)",
             responses=error_responses(400, 403, 422, 429, 503))
 def post_translate(payload: TranslateRequest, request: Request):
-    engine, model = _text_engine(request, payload)
+    engine, model = _require_engine_for_caller(
+        request, payload.engine, settings_service.get("default_engine"), payload.model)
     # Synchronous LLM call: capped by the shared slot pool (api/llm_slots.py).
     with llm_slot(request):
         return translate_service.translate(
@@ -81,14 +80,18 @@ def post_translate(payload: TranslateRequest, request: Request):
              summary="What translating this text would cost, and what is left of the monthly cap",
              responses=error_responses(400, 403, 422))
 def post_translate_estimate(payload: TranslateRequest, request: Request):
-    engine, model = _text_engine(request, payload)
+    engine, model = _require_engine_for_caller(
+        request, payload.engine, settings_service.get("default_engine"), payload.model)
     return translate_service.estimate(
         payload.text, engine, payload.source_language, payload.target_language,
         model=model, free_tier=payload.free_tier)
 
 
 _IMAGE_TOO_LARGE = (f"The picture is larger than {page_import_limits.MAX_IMAGE_BYTES // (1024 * 1024)} MB.")
-# read_capped_form bounds the body, and the slot is taken before it is read.
+# read_capped_form bounds the body, and the slot is taken before it is read. Any member
+# may send one, so a body trickled in slowly must not hold a shared slot for long.
+_IMAGE_READ_SECONDS = 120
+_IMAGE_TOO_SLOW = "The picture took too long to arrive. Try again on a better connection."
 # Room for the multipart boundaries and the four short text fields.
 _IMAGE_BODY_MAX = page_import_limits.MAX_IMAGE_BYTES + 64 * 1024
 _READ_IMAGE_BODY = {"requestBody": {"required": True, "content": {"multipart/form-data": {"schema": {
@@ -110,17 +113,20 @@ async def post_read_image(request: Request):
     # Taken before the body is read so a member's parallel 30 MB uploads are
     # refused at once instead of each filling temp disk and memory first.
     with llm_slot(request):
-        form = await read_capped_form(
-            request, _IMAGE_BODY_MAX, "the picture", _IMAGE_TOO_LARGE,
-            "The picture form could not be read.", max_files=1, max_fields=4)
+        try:
+            form = await asyncio.wait_for(read_capped_form(
+                request, _IMAGE_BODY_MAX, "the picture", _IMAGE_TOO_LARGE,
+                "The picture form could not be read.", max_files=1, max_fields=4), _IMAGE_READ_SECONDS)
+        except TimeoutError:
+            raise InvalidInputError(_IMAGE_TOO_SLOW) from None
         try:
             upload = form.get("image")
             named = form.get("engine")
             if not isinstance(upload, UploadFile) or not (named is None or isinstance(named, str)):
                 raise InvalidInputError("Send an image.")
             fields = {k: v for k, v in form.items() if isinstance(v, str)}
-            engine, model = _checked_engine(request, named or None, _vision_default(),
-                                            fields.get("model") or None)
+            engine, model = _require_engine_for_caller(request, named or None, _vision_default(),
+                                                       fields.get("model") or None)
             content = await upload.read(page_import_limits.MAX_IMAGE_BYTES + 1)
             if len(content) > page_import_limits.MAX_IMAGE_BYTES:
                 raise InvalidInputError(_IMAGE_TOO_LARGE)
@@ -144,7 +150,7 @@ async def post_read_image(request: Request):
              summary="What reading a picture of this size would cost, and what is left of the monthly cap",
              responses=error_responses(400, 403, 422))
 def post_read_image_estimate(payload: ReadImageEstimateRequest, request: Request):
-    engine, model = _checked_engine(request, payload.engine, _vision_default(), payload.model)
+    engine, model = _require_engine_for_caller(request, payload.engine, _vision_default(), payload.model)
     return image_text_service.estimate(
         payload.width, payload.height, engine, model=model,
         free_tier=payload.free_tier)

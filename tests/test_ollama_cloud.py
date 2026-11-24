@@ -348,7 +348,7 @@ def test_engine_for_caller_unit(isolated_db):
     from api import auth as api_auth
     req = SimpleNamespace()
     with patch.object(api_auth, "holds", return_value=False):
-        # With the owner's hosted-default switch off: Ollama's own default model.
+        # With the owner's hosted-default switch off: Ollama's own default model (override, else built-in).
         db.set_app_setting("pref.ollama_cloud_default", False)
         assert api_auth.engine_for_caller(req, None, "claude", None) == ("ollama", None)
         db.set_app_setting("pref.ollama_cloud_default", True)
@@ -413,3 +413,15 @@ def test_text_page_with_no_engine_runs_on_ollama_for_a_member(remote, monkeypatc
     paid = _household("text-paid@example.com", ["engines.paid"])
     assert remote.post("/api/translate", json=body, headers=paid).status_code == 200
     assert seen["engine"] == "claude"
+
+
+def test_text_price_check_with_no_engine_prices_ollama_for_a_member(remote):
+    import db
+    db.set_app_setting("default_engine", "claude")
+    body = {"text": "你好", "source_language": "zh", "target_language": "en"}
+    member = _household("price@example.com")
+    resp = remote.post("/api/translate/estimate", json=body, headers=member)
+    assert resp.status_code == 200
+    assert remote.post("/api/translate/estimate", json={**body, "engine": "claude"}, headers=member).status_code == 403
+    assert remote.post("/api/translate/estimate", json={**body, "engine": "ollama", "model": PAID_CLOUD},
+                       headers=member).status_code == 403
