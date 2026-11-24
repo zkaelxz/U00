@@ -269,6 +269,7 @@ describe('pickedForYou', () => {
     expect(pickedForYou(ready(), 'unknown')).toBeNull()
     expect(pickedForYou(ready({ user: { ...user, is_admin: false, is_local_owner: true } }), 'local')).toBeNull()
     expect(pickedForYou(ready({ auth_enabled: false }), 'local')).toBeNull()
+    expect(pickedForYou(ready({ auth_enabled: false }), 'remote')).toBeNull()
   })
 })
 

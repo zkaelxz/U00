@@ -15,6 +15,7 @@ import {
 } from '../api/translate'
 import { PageShell } from '../components/PageShell'
 import { Card } from '../components/Card'
+import { ChosenForYouNote, useChosenForYou } from '../components/ChosenForYou'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { copyText } from '../components/clipboard'
@@ -23,7 +24,6 @@ import { buttonClass } from '../components/uiClasses'
 import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { pickedForYou, useSession } from '../hooks/useSession'
 import { useStoredState } from '../hooks/useStoredRun'
 import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
 import { appendRead } from './readImage'
@@ -79,10 +79,8 @@ export default function TranslatePage() {
   const pc = usePcOnly()
   // The server holds a named paid engine to engines.paid and runs an omitted one on what the account may use.
   const canTranslate = useHolds('jobs.start')
-  const picked = pickedForYou(useSession(), pc)
-  const [showOptions, setShowOptions] = useState(false)
-  // Engine and model are left to the server, so the page shows only the text, the languages and Translate.
-  const auto = picked === 'member' || (picked === 'away' && !showOptions)
+  const chosen = useChosenForYou()
+  const auto = chosen.auto
   // Keys are written on the main PC only, so a remote viewer has no key UI to be sent to.
   const canAddKey = pc !== 'remote'
 
@@ -257,14 +255,7 @@ export default function TranslatePage() {
             </div>
           </div>
           {auto ? (
-            <p className="muted translate-engine-note" data-testid="engine-note">
-              The engine is chosen for you.{' '}
-              {picked === 'away' && (
-                <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setShowOptions(true)}>
-                  Show options
-                </button>
-              )}
-            </p>
+            <ChosenForYouNote text="The engine is chosen for you." chosen={chosen} testId="engine-note" />
           ) : selected && (
             <p className="muted translate-engine-note" data-testid="engine-note">
               {engineShortName(selected)}: {engineSummary(selected.label)}

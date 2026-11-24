@@ -78,7 +78,7 @@ export function isMember(s: SessionState): boolean {
  * admin at the PC, who keep every picker. UX only; the server checks whatever engine is sent. */
 export function pickedForYou(s: SessionState, pc: PcMode): 'member' | 'away' | null {
   if (isMember(s)) return 'member'
-  return pc === 'remote' ? 'away' : null
+  return pc === 'remote' && !!menuUser(s) ? 'away' : null
 }
 
 export const REMOTE_ADMIN_NOTE = 'Changing other people’s items is done on the main PC.'
