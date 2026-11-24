@@ -15,7 +15,7 @@ import type {
   ComicVisibilityResult,
   ComicVariant,
 } from '../types/comic'
-import { apiUrl, getJson, headStatus, postJson, type Fetch } from './client'
+import { apiUrl, fetchBody, getJson, headStatus, postJson, type Fetch } from './client'
 
 const root = (id: number) => `/api/scanlate/dramas/${id}`
 
@@ -32,6 +32,12 @@ export function comicImageUrl(
   if (size !== 'full') q.set('size', size)
   if (version !== null && version !== '') q.set('v', String(version))
   return apiUrl(`${root(dramaId)}/pages/${pageId}/image?${q}`)
+}
+
+// The picture behind a comicImageUrl() src, for saving or sharing it. The src carries apiUrl's base, which the client adds again.
+export function fetchComicImage(src: string, f?: Fetch) {
+  const base = apiUrl('')
+  return fetchBody(src.slice(base.length), {}, (r) => r.blob(), f)
 }
 
 export type ImageProblem = 'forbidden' | 'missing' | 'failed'
