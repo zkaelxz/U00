@@ -265,6 +265,17 @@ def _uploads_not_probed():
 
 
 @pytest.fixture(autouse=True)
+def _ocr_reads_in_this_process():
+    """The text reader's helper process can't see a test's fake RapidOCR, so reads stay here;
+    tests/test_ocr_worker.py runs a real helper. Set by hand for the same ordering reason."""
+    import ocr_worker
+    ocr_worker.inline = True
+    yield
+    ocr_worker.inline = False
+    ocr_worker._params_cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def _echo_engine_off_after_each_test():
     """Turning Developer Mode on registers the Echo engine in the process-wide
     engine tables; a test that does so (assistant, source-domain and role tests)
