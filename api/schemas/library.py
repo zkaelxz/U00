@@ -606,6 +606,9 @@ class MediaUrlDownloadRequest(BaseModel):
     # "Download again, keep the lines": the same video at another quality; the
     # job refuses a file whose length doesn't match the title's current media.
     keep_lines: StrictBool = False
+    # "Use the site's captions": make the video site's own captions the title's lines (when it
+    # has none) instead of recognizing the speech. Without it they are kept only as hints.
+    use_site_captions: StrictBool = False
 
 
 class MediaUrlDownloadStarted(BaseModel):

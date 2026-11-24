@@ -769,6 +769,11 @@ def generate_episode_brief(lines, engine, drama_meta=None, character_names=None,
     source = "\n".join(rows)[:EPISODE_BRIEF_SOURCE_CHARS]
     if not source:
         return ""
+    reference = ((drama_meta or {}).get("site_captions") or "").strip()
+    if reference:
+        source += ("\n\n[Reference only, not part of the episode: the video site's own captions, which "
+                   "may be machine-made and wrong. Use them only to settle how names and terms are "
+                   "spelled.]\n" + reference.replace("[", "(").replace("]", ")"))
     language = (drama_meta or {}).get("source_language") or "zh"
     prompt = (stream_recipe.build_brief_prompt(source, language)
               if plain_stream_prompt else build_episode_brief_prompt(source, language))
