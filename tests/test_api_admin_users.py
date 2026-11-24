@@ -1107,3 +1107,15 @@ def test_delete_refuses_an_account_reactivated_after_the_check(isolated_db, monk
         auth_service.admin_delete_user(m["id"], at_pc=True)
     assert db.auth_get_user(m["id"])["is_active"] == 1 and not _audit("user.delete")
     assert detached == []   # a refused delete leaves their shared glossary groups linked
+
+
+def test_deleting_an_account_deletes_its_chapter_marks_only(isolated_db):
+    d = db.create_drama(title_en="Comic", media_type="manga")
+    m, _ = _member()
+    other, _ = _member("other@example.com")
+    for uid in (0, m["id"], other["id"]):
+        db.set_chapter_marks(d, ["c1"], read=True, user_id=uid)
+    auth_service.deactivate_user(m["id"])
+    auth_service.admin_delete_user(m["id"], at_pc=True)
+    assert db.get_chapter_marks(d, m["id"]) == {}
+    assert db.get_chapter_marks(d) and db.get_chapter_marks(d, other["id"])

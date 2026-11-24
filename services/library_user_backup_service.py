@@ -44,6 +44,8 @@ log = logging.getLogger(__name__)
 #   user: rows of the owner only, user column cleared
 #   drama_spend: rows of a kept drama only, user column cleared (who spent
 #       it is an id from this install, meaningless in the target one)
+#   user_drama: the owner's rows of a kept drama only, user column set to 0
+#       (the target install's PC, as the owner column of a title is cleared)
 #   profile_drama: rows of a kept drama on the default profile only
 #   profiles: the default profile only (the one reader data uses)
 #   style_scope: the learned style of a kept series only
@@ -59,7 +61,7 @@ USER_BACKUP_TABLES = {
     "progress": ("profile_drama", "other household profiles' reading stays behind"),
     "personal_notes": ("profile_drama", "other household profiles' notes stay behind"),
     "reading_history": ("profile_drama", "other household profiles' history stays behind"),
-    "chapter_marks": ("profile_drama", "other household profiles' read marks stay behind"),
+    "chapter_marks": ("user_drama", "other accounts' read marks stay behind"),
     "translation_versions": ("drama", ""), "bug_reports": ("drama", ""),
     "wiki_entries": ("drama", ""), "edit_samples": ("drama", ""), "source_edits": ("drama", ""),
     "line_provenance": ("drama", ""), "metadata_research_results": ("drama", ""),
@@ -162,7 +164,7 @@ _IN_DRAMAS = "drama_id IN (SELECT id FROM temp.keep_dramas)"
 _IN_SERIES = "series_id IN (SELECT id FROM temp.keep_series)"
 # The column a rule filters on; a table without it has no row to keep.
 _RULE_COLUMN = {"drama": "drama_id", "drama_spend": "drama_id", "series_character": "drama_id", "page": "page_id",
-                "series": "series_id", "user": "user_id", "profile_drama": "profile_id"}
+                "series": "series_id", "user": "user_id", "profile_drama": "profile_id", "user_drama": "user_id"}
 
 
 def _cols(conn, table: str) -> set:
@@ -183,7 +185,7 @@ def _filter_by_own_rule(conn, t: str, rule: str, owner_id, default_profile):
         return
     need = _RULE_COLUMN.get(rule)
     if rule == "empty" or (need and need not in _cols(conn, t)) or (
-            rule == "profile_drama" and "drama_id" not in _cols(conn, t)):
+            rule in ("profile_drama", "user_drama") and "drama_id" not in _cols(conn, t)):
         conn.execute(f'DELETE FROM "{t}"')
     elif rule == "profile_drama":
         # A NULL profile_id means the default profile.
@@ -199,6 +201,9 @@ def _filter_by_own_rule(conn, t: str, rule: str, owner_id, default_profile):
         _keep_only(conn, t, _IN_DRAMAS)
         if "user_id" in _cols(conn, t):
             conn.execute(f'UPDATE "{t}" SET user_id = NULL')
+    elif rule == "user_drama":
+        _keep_only(conn, t, _IN_DRAMAS + " AND user_id IS ?", (owner_id or 0,))
+        conn.execute(f'UPDATE "{t}" SET user_id = 0')
     elif rule == "user":
         _keep_only(conn, t, "user_id IS ?", (owner_id,))
         conn.execute(f'UPDATE "{t}" SET user_id = NULL')

@@ -70,7 +70,7 @@ _SKIPPED_TABLES = {
 _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports",
                     "edit_samples", "source_edits")
 _FIRST_SEEN_TABLES = ("vocab_lookups", "wiki_entries")
-_PROFILE_TABLES = ("progress", "personal_notes", "reading_history", "chapter_marks")
+_PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 _MAX_LINES_JSON = 64 * 1024 ** 2    # older line_history values are gzip (db.PLAIN_SNAPSHOTS)
 SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory", "word_replacements",
@@ -424,6 +424,20 @@ def refuse_newer_copy(src):
         raise InvalidInputError(lrs.BACKUP_FROM_NEWER_APP) from None
 
 
+def _remap_mark_account(child: dict, owners: dict, marked: set) -> bool:
+    """Points a chapter mark at the live account it belongs to; False when it has none.
+    0 is the PC itself in every library. A copy from before marks were kept per account
+    has no account at all: its marks become the PC's, one row per chapter."""
+    account = child.get("user_id", 0)
+    if account != 0:
+        account = owners.get(account)
+    if account is None or (account, child.get("chapter_id")) in marked:
+        return False
+    marked.add((account, child.get("chapter_id")))
+    child["user_id"] = account
+    return True
+
+
 def _set_accounts(row, drama, import_as, owners) -> None:
     """The copy's owner, creator and privacy (see copy_drama)."""
     if import_as is not None:
@@ -486,12 +500,13 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
     counts["dramas"] = 1
 
     line_map, page_map, line_by_idx = {}, {}, {}
+    marked = set()
     for table in CHILD_TABLES:
         if table == "bug_reports" and not has_table(dst, table) and has_table(src, table):
             db.ensure_legacy_bug_reports(dst)
         if not has_table(dst, table):
             continue
-        if import_as is not None and table in _PROFILE_TABLES:
+        if import_as is not None and (table in _PROFILE_TABLES or table == "chapter_marks"):
             counts[table] = 0
             continue
         live_cols = columns(dst, table)
@@ -505,6 +520,8 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
                 continue
             if table in _LINE_REF_TABLES and not _remap_line_ref(table, child, line_map,
                                                                  line_by_idx):
+                continue
+            if table == "chapter_marks" and not _remap_mark_account(child, owners, marked):
                 continue
             _remap_first_seen(table, child, line_map)
             if "series_character_id" in child and child["series_character_id"] is not None:

@@ -2,6 +2,8 @@
 content (dramas, lines, series, annotations, reading, review, tools, bulk jobs,
 metadata research). init_db in db/__init__.py runs them in a fixed order."""
 
+import db
+
 
 def _create_library_tables(conn):
     conn.executescript("""
@@ -431,6 +433,19 @@ def _create_bulk_job_tables(conn):
     """)
 
 
+# Shared with the rebuild in db.migrations, so an upgraded table has the same shape as a new one.
+CHAPTER_MARKS_DDL = """
+        CREATE TABLE IF NOT EXISTS {name} (
+            drama_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL DEFAULT 0,
+            chapter_id TEXT NOT NULL,
+            read_at TEXT,
+            bookmarked INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (drama_id, user_id, chapter_id),
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        );"""
+
+
 def _create_reading_tables(conn):
     conn.executescript("""
 
@@ -485,20 +500,12 @@ def _create_reading_tables(conn):
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
 
-        -- Which comic chapters a profile has read or bookmarked. chapter_id is the
-        -- chapter's id in the page list (comic_chapters.group_pages), which stays
-        -- the same when pages are renumbered; a row for a chapter that no longer
-        -- exists is simply never matched.
-        CREATE TABLE IF NOT EXISTS chapter_marks (
-            drama_id INTEGER NOT NULL,
-            profile_id INTEGER NOT NULL,
-            chapter_id TEXT NOT NULL,
-            read_at TEXT,
-            bookmarked INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (drama_id, profile_id, chapter_id),
-            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
-            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
-        );
+        -- Which comic chapters an account has read or bookmarked. user_id 0 is the PC
+        -- itself (no sign-in), so it is not a foreign key; deleting an account deletes
+        -- its rows (db.auth). chapter_id is the chapter's id in the page list
+        -- (comic_chapters.group_pages), which stays the same when pages are renumbered;
+        -- a row for a chapter that no longer exists is simply never matched.
+""" + db.CHAPTER_MARKS_DDL.format(name="chapter_marks") + """
 
         CREATE TABLE IF NOT EXISTS reading_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

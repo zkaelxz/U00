@@ -727,7 +727,8 @@ def auth_deactivate_user_keeping_an_admin(user_id: int, member_only: bool = Fals
 
 def auth_delete_inactive_member(user_id: int) -> bool:
     """Deletes a deactivated non-admin account; its permissions, sessions,
-    extension device tokens and saved keys go with it (ON DELETE CASCADE).
+    extension device tokens and saved keys go with it (ON DELETE CASCADE),
+    and so do its chapter read marks.
     One statement, so an activate or grant-admin landing after the caller's
     check makes it refuse instead of deleting a live account. Ids are never
     reused (AUTOINCREMENT), so titles and audit rows that still name this id
@@ -737,6 +738,9 @@ def auth_delete_inactive_member(user_id: int) -> bool:
             # Flag truthiness as in auth_deactivate_user_keeping_an_admin.
             "DELETE FROM users WHERE id = ? AND COALESCE(is_active, 0) = 0 "
             "AND COALESCE(is_admin, 0) = 0", (user_id,))
+        if cur.rowcount > 0:
+            # No foreign key reaches these: user_id 0 there means the PC, which has no users row.
+            conn.execute("DELETE FROM chapter_marks WHERE user_id = ?", (user_id,))
         conn.commit()
         return cur.rowcount > 0
 

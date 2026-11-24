@@ -100,10 +100,10 @@ def _sniff(path: str):
     return None
 
 
-def list_pages(drama_id: int) -> dict:
+def list_pages(drama_id: int, user_id: int = 0) -> dict:
     """C1: the page list. No filenames or paths; `image_version` is the
     newest file mtime (ms) and busts caches when typeset output is
-    overwritten in place."""
+    overwritten in place. The chapters carry `user_id`'s read marks (0: the PC itself)."""
     drama = ownership_service.require_drama(drama_id)
     visible_counts = {}
     for b in db.list_bubbles_for_drama(drama_id):
@@ -130,7 +130,7 @@ def list_pages(drama_id: int) -> dict:
             "hidden": page.get("filename") in hidden,
         })
     media_type = drama.get("media_type") or "other"
-    marks = db.get_chapter_marks(drama_id)
+    marks = db.get_chapter_marks(drama_id, user_id)
     for g in groups:
         g.update(marks.get(g["id"], {"read": False, "bookmarked": False}))
     return {"drama_id": drama_id, "media_type": media_type,

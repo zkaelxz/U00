@@ -1406,3 +1406,48 @@ def test_job_record_listing_keeps_every_active_row_and_caps_finished_ones(isolat
     ids = [r["job_id"] for r in isolated_db.list_job_records(finished_limit=2)]
     assert ids == ["done-4", "done-3", "old-active"]
     assert len(isolated_db.list_job_records()) == 6
+
+
+def test_household_chapter_marks_become_the_pcs_and_each_active_admins(isolated_db):
+    """Marks used to be kept per household profile. The upgrade folds them into the PC's own
+    marks and gives every active admin account a copy; other accounts start empty."""
+    fresh = _schema_shape(isolated_db.DB_PATH)
+    with contextlib.closing(isolated_db.get_conn()) as conn:
+        conn.execute("INSERT INTO dramas (id, title_en) VALUES (1, 'Comic')")
+        conn.execute("INSERT INTO profiles (id, name) VALUES (7, 'Second')")
+        for uid, admin, active in ((3, 1, 1), (4, 0, 1), (5, 1, 0)):
+            conn.execute("INSERT INTO users (id, email, is_admin, is_active) VALUES (?, ?, ?, ?)",
+                         (uid, f"u{uid}@example.com", admin, active))
+        conn.execute("DROP TABLE chapter_marks")
+        conn.execute("""CREATE TABLE chapter_marks (
+            drama_id INTEGER NOT NULL, profile_id INTEGER NOT NULL, chapter_id TEXT NOT NULL,
+            read_at TEXT, bookmarked INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (drama_id, profile_id, chapter_id),
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE)""")
+        conn.executemany("INSERT INTO chapter_marks VALUES (1, ?, ?, ?, ?)",
+                         [(1, "c1", "2026-11-01", 0), (1, "c2", None, 1),
+                          (7, "c1", "2026-11-02", 1), (7, "c3", "2026-11-03", 0)])
+        conn.commit()
+
+    isolated_db.init_db()
+
+    assert _schema_shape(isolated_db.DB_PATH) == fresh
+    household = {"c1": {"read": True, "bookmarked": True}, "c2": {"read": False, "bookmarked": True},
+                 "c3": {"read": True, "bookmarked": False}}
+    assert isolated_db.get_chapter_marks(1) == household
+    assert isolated_db.get_chapter_marks(1, 3) == household
+    assert isolated_db.get_chapter_marks(1, 4) == {} and isolated_db.get_chapter_marks(1, 5) == {}
+    with contextlib.closing(isolated_db.get_conn()) as conn:
+        assert conn.execute("SELECT read_at FROM chapter_marks WHERE user_id = 0 AND chapter_id = 'c1'"
+                            ).fetchone()[0] == "2026-11-01"      # the first time anyone read it
+        rows = conn.execute("SELECT COUNT(*) FROM chapter_marks").fetchone()[0]
+    # A later start leaves the marks alone: an admin added afterwards gets no copy.
+    with contextlib.closing(isolated_db.get_conn()) as conn:
+        conn.execute("INSERT INTO users (id, email, is_admin, is_active) VALUES (9, 'late@example.com', 1, 1)")
+        conn.commit()
+    isolated_db.set_chapter_marks(1, ["c1"], read=False, bookmarked=False, user_id=3)
+    isolated_db.init_db()
+    with contextlib.closing(isolated_db.get_conn()) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM chapter_marks").fetchone()[0] == rows - 1
+    assert isolated_db.get_chapter_marks(1, 9) == {}
