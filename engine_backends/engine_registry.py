@@ -8,7 +8,7 @@ from lib import settings_schema
 from . import pricing
 from .claude import ClaudeEngine
 from .gemini import GeminiEngine
-from .local import OllamaEngine, is_ollama_cloud_model
+from .local import OllamaEngine, cloud_model_needs_paid, is_ollama_cloud_model
 from .openai_compat import DeepSeekEngine, OpenAIEngine
 
 
@@ -184,11 +184,12 @@ def set_hosted_default_caller_check(check) -> None:
     _hosted_default_caller_ok = check
 
 
-def hosted_default_allowed() -> bool:
-    """Whether a hosted Ollama tag may be a default for this caller: the owner
-    opted in (Settings) and the caller holds paid-engine permission. A caller
-    without it falls back to the local default (translategemma), so the owner's
-    choice never sends a restricted account's text off the PC."""
+def hosted_default_allowed(model=None) -> bool:
+    """Whether hosted Ollama tag `model` may be a default for this caller: the owner
+    opted in (Settings), and the caller holds paid-engine permission unless the tag
+    is one every account may use (local.MEMBER_CLOUD_MODELS). A caller without it
+    falls back to the local default (translategemma), so the owner's choice never
+    sends a restricted account's text off the PC on a model they may not use."""
     try:
         import db
         if not settings_schema.coerce(
@@ -196,6 +197,8 @@ def hosted_default_allowed() -> bool:
             return False
     except Exception:
         return False
+    if model is not None and not cloud_model_needs_paid(model):
+        return True
     return _hosted_default_caller_ok is None or bool(_hosted_default_caller_ok())
 
 
@@ -203,7 +206,7 @@ def hosted_default_blocked(engine_name: "str | None", model) -> bool:
     """True when `model` is a hosted Ollama tag that may not be used as a default:
     a default is used by every call that names Ollama without a model, so a hosted
     tag there sends text off this PC unannounced unless the owner opted in."""
-    return engine_name == "ollama" and is_ollama_cloud_model(model) and not hosted_default_allowed()
+    return engine_name == "ollama" and is_ollama_cloud_model(model) and not hosted_default_allowed(model)
 
 
 def model_override_for_default(engine_name: str):

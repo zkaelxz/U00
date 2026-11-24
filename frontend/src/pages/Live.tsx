@@ -34,7 +34,7 @@ import { ModelSelect } from '../components/ModelSelect'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
 import { useLivePrefs } from './live/useLivePrefs'
-import { useCloudModelsAllowed, useHolds } from '../hooks/useHolds'
+import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { useReadiness } from '../hooks/useReadiness'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -163,8 +163,7 @@ export default function LivePage() {
   const engine = pickEngine(usable, form.engine, opts.default_engine)
 
   const canSwitchThinking = opts.thinking_switch_engines.includes(engine)
-  const cloudAllowed = useCloudModelsAllowed()
-  const { entry: engineEntry, onlyCloud, defaultModel, model, fellBack } = resolveLiveModel(usable.find((e) => e.name === engine), cloudAllowed, form.model, opts)
+  const { entry: engineEntry, onlyCloud, defaultModel, model, fellBack } = resolveLiveModel(usable.find((e) => e.name === engine), form.model, opts)
   const modelNote = enginesFailed
     ? "Couldn't load the model list; the engine's default model will be used."
     : fellBack ? "That model isn't offered any more; the engine's default model will be used." : null

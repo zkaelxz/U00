@@ -211,19 +211,19 @@ export function pickEngine(usable: Pick<TranslateEngine, 'name'>[], saved: strin
 /** The one Ollama model Live offers: it runs on Ollama's servers, so Whisper keeps the PC's graphics memory to itself. */
 export const LIVE_CLOUD_MODEL = 'gemma4:31b-cloud'
 
-/** Live's view of an engine: Ollama shows only the hosted 31B when the viewer may use it and it is offered, otherwise the engine as it is. */
+/** Live's view of an engine: Ollama shows only the hosted 31B when it is offered (every account may use it), otherwise the engine as it is. */
 export function liveEngineView<T extends Pick<TranslateEngine, 'name' | 'models'> & { cloud_models?: string[] }>(
-  engine: T | undefined, cloudAllowed: boolean,
+  engine: T | undefined,
 ): T | undefined {
-  if (!engine || engine.name !== 'ollama' || !cloudAllowed || !engine.cloud_models?.includes(LIVE_CLOUD_MODEL)) return engine
+  if (!engine || engine.name !== 'ollama' || !engine.cloud_models?.includes(LIVE_CLOUD_MODEL)) return engine
   return { ...engine, models: [LIVE_CLOUD_MODEL] }
 }
 
 /** The engine as Live shows it, the model it runs, and the default to label: the hosted 31B is the default when it is the only choice. */
 export function resolveLiveModel<T extends Pick<TranslateEngine, 'name' | 'models'> & { cloud_models?: string[] }>(
-  engine: T | undefined, cloudAllowed: boolean, saved: string, opts: LiveFormOptions,
+  engine: T | undefined, saved: string, opts: LiveFormOptions,
 ) {
-  const entry = liveEngineView(engine, cloudAllowed)
+  const entry = liveEngineView(engine)
   const onlyCloud = entry?.name === 'ollama' && entry.models?.length === 1 && entry.models[0] === LIVE_CLOUD_MODEL
   const defaults = onlyCloud ? { ...opts, default_model: LIVE_CLOUD_MODEL } : opts
   return { entry, onlyCloud, defaultModel: defaults.default_model, ...resolveModel(entry, saved, defaults) }
