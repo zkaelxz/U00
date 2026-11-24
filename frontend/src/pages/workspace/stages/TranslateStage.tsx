@@ -64,9 +64,6 @@ import {
   MAX_FALLBACKS,
   monthSpendText,
   ollamaWarning,
-  reflectAvailable,
-  thinkingApplies,
-  thinkingHelp,
   translateButtonLabel,
   PRESET_NAME_MAX,
   styleGuidance,
@@ -327,7 +324,6 @@ function RunPanel({
     return e ? engineOptionLabel(e) : name
   }
   const effEngine = f.engine || config.translation_engine
-  const canReflect = reflectAvailable(effEngine) && !(f.bulk && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const canBulk = bulkAvailable(effEngine, config.bulk_supported_engines) && !(f.reflect && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const scanFirst = reviewFirst && canReview
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
@@ -610,13 +606,13 @@ function RunPanel({
               <strong id={`${fallbackIds}-title`}>Fallback engines</strong>
               <HelpTip label="Fallback engines" id={`${fallbackIds}-help`}>
                 Up to {MAX_FALLBACKS}, tried in order only after the main engine keeps failing (it retries first). Same kind
-                as the main engine: AI with AI, translation-only with translation-only. Not with Check and revise or Bulk.
+                as the main engine: AI with AI, translation-only with translation-only. Not with Bulk.
               </HelpTip>
             </div>
             <p className="muted fallback-rule" id={`${fallbackIds}-rule`}>Used if the first engine fails</p>
             {fallbackOff && (
               <p className="muted fallback-rule" role="status">
-                Off while {f.reflect ? 'Check and revise' : 'Bulk'} is on{f.fallbacks.length ? '; remove these to run' : ''}.
+                Off while Bulk is on{f.fallbacks.length ? '; remove these to run' : ''}.
               </p>
             )}
             {f.fallbacks.map((fb, i) => {
@@ -658,17 +654,6 @@ function RunPanel({
                 {reviewFirst && <p className="muted" data-testid="review-glossary-note">{REVIEW_GLOSSARY_NOTE}</p>}
               </>
             )}
-            {reflectAvailable(effEngine) && (
-              <Field
-                label="Check and revise (3 passes)"
-                help={`Three passes: translate, critique, then revise. Slower and costs more; not available for translation-only engines.${!canReflect && !f.reflect ? ' Not with Bulk on this engine.' : ''}`}
-              >
-                <Toggle checked={f.reflect} disabled={!canReflect && !f.reflect} onChange={(v) => set('reflect', v)} />
-              </Field>
-            )}
-            <Field label="Think harder (slower, costs more)" help={thinkingHelp(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)}>
-              <Toggle checked={f.thinking && thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)} disabled={!thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)} onChange={(v) => set('thinking', v)} />
-            </Field>
             {bulkAvailable(effEngine, config.bulk_supported_engines) && (
               <Field
                 label="Bulk"

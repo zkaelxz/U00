@@ -1,7 +1,6 @@
 // Pure form logic for the Translate stage (no React), so it can be unit
 // tested. Ranges mirror api/schemas/translate.py TranslateRunStart.
 
-import { THINKING_SWITCH_ENGINES } from '../../api/live'
 import { formatRange } from './formatRange'
 import type { ProfileOptions } from '../../types/library'
 import type {
@@ -65,35 +64,6 @@ export function isTranslationOnly(engine: string): boolean {
 
 export function reflectAvailable(engine: string): boolean {
   return !isTranslationOnly(engine)
-}
-
-// Whether the "think harder" choice does anything for this run: some engine in
-// the chain needs a request switch (a fallback is sent the same context as the
-// main engine, so it thinks too), and Reflect's passes and a Claude/Gemini
-// batch have none (services/translate_thinking_service.py).
-export function thinkingEngines(engine: string, fallbacks: string[], reflect: boolean, switchEngines?: string[]): string[] {
-  if (reflect) return []
-  const withSwitch = switchEngines ?? THINKING_SWITCH_ENGINES
-  return [engine, ...fallbacks].filter((e) => e && withSwitch.includes(e))
-}
-
-export function thinkingApplies(engine: string, reflect: boolean, switchEngines?: string[], fallbacks: string[] = []): boolean {
-  return thinkingEngines(engine, fallbacks, reflect, switchEngines).length > 0
-}
-
-export function thinkingHelp(engine: string, reflect: boolean, switchEngines?: string[], fallbacks: string[] = []): string {
-  const thinkers = thinkingEngines(engine, fallbacks, reflect, switchEngines)
-  if (thinkers.length) {
-    const where = fallbacks.some((e) => e) ? ` It applies to ${thinkers.join(' and ')}, not to the other engines in the chain.` : ''
-    // The estimate prices the main engine, so it only undercounts when that engine is the one that thinks.
-    const estimate = thinkers.includes(engine)
-      ? 'so the cost estimate is a lower bound'
-      : 'and the cost estimate, which prices the main engine, does not include it'
-    return `Off by default. Turn it on for ambiguous or idiomatic text, such as novels and video subtitles: the model reasons before it answers. Slower and costs more; the hidden reasoning is billed as output, ${estimate}.${where}`
-  }
-  const chain = [engine, ...fallbacks.filter((e) => e)]
-  const why = reflect ? 'Reflect mode has no thinking switch' : chain.length > 1 ? `${chain.join(' and ')} have no thinking switch` : `${engine} has no thinking switch`
-  return `${why}, so this does nothing for this run; it runs as it always has. Thinking can be switched for DeepSeek and Ollama.`
 }
 
 // A fallback chain can't mix AI (instruction-following) engines with
@@ -200,7 +170,6 @@ export function runOptionsDraft(
 }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
-const bool = (v: unknown): boolean | undefined => (typeof v === 'boolean' ? v : undefined)
 
 // An integer string within [min, max]: a stored number out of range is
 // clamped, anything that isn't a whole number falls back.
@@ -234,7 +203,7 @@ export function restoreRunOptions(
     const m = str(s.model)
     f.model = m && models.includes(m) ? m : base.engine === savedEngine ? base.model : ''
     const eff = savedEngine || c.translation_engine
-    const reflect = s.reflect === true && reflectAvailable(eff)
+    const reflect = false // "Check and revise" was removed; a saved value is read as off
     const bulk = !reflect && s.bulk === true && bulkAvailable(eff, supported)
     f.reflect = reflect
     f.bulk = bulk
@@ -245,7 +214,7 @@ export function restoreRunOptions(
       }
       f.fallbacks = fb.slice(0, MAX_FALLBACKS)
     }
-    f.thinking = bool(s.thinking) ?? base.thinking
+    f.thinking = false
   }
 
   const style = str(s.style_preset)
@@ -311,7 +280,7 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
     forceConfirmed: false,
     reflect: false,
     bulk: false,
-    thinking: c.title_thinking ?? false,
+    thinking: false,
     // The title's saved choice first (what every run, retry and AI action
     // uses), then a preset's value, then the API defaults.
     female_pronouns: c.default_female_pronouns ?? preset.default_female_pronouns ?? false,
@@ -448,7 +417,7 @@ export function applyTierToForm(f: RunForm, t: WorkflowTierApplied, c: Translate
   const engine = t.translation_engine
   const models = c.engines?.find((e) => e.name === engine)?.models ?? []
   const model = t.engine_model && models.includes(t.engine_model) ? t.engine_model : ''
-  const reflect = t.reflect && reflectAvailable(engine)
+  const reflect = false // a preset's Reflect is ignored: the option was removed
   const supported = c.bulk_supported_engines ?? []
   const bulk = f.bulk && (reflect ? bulkReflectAvailable(engine, supported) : bulkAvailable(engine, supported))
   return { ...f, engine, model, reflect, bulk }
@@ -492,7 +461,7 @@ export function applyStartToForm(
     out.context_window_ahead = clampInt(start.context_window_ahead, CONTEXT_MIN, CONTEXT_MAX, out.context_window_ahead)
   }
   if (typeof start.cost_cap === 'number') out.cost_cap = String(start.cost_cap)
-  const reflect = start.reflect === true && reflectAvailable(eff)
+  const reflect = false // a remembered Reflect run is read as off
   const bulk = !reflect && start.bulk === true && bulkAvailable(eff, supported)
   if (start.reflect !== undefined) out.reflect = reflect
   if (start.bulk !== undefined) out.bulk = bulk
@@ -503,7 +472,6 @@ export function applyStartToForm(
     }
     out.fallbacks = fb.slice(0, MAX_FALLBACKS)
   }
-  if (typeof start.thinking === 'boolean') out.thinking = start.thinking
   // An older preset's toggles: the title's own saved choice still wins.
   if (typeof start.default_female_pronouns === 'boolean' && c.default_female_pronouns == null) out.female_pronouns = start.default_female_pronouns
   if (typeof start.include_genre_notes === 'boolean' && c.include_genre_notes == null) out.genre_notes = start.include_genre_notes
@@ -526,7 +494,7 @@ export function applyPresetToForm(f: RunForm, p: TranslatePresetApplied, c: Tran
   const style = p.style_preset && c.style_presets.some((s) => s.key === p.style_preset) ? p.style_preset : f.style_preset
   const locale = p.locale && c.locales.includes(p.locale) ? p.locale : f.locale
   const supported = c.bulk_supported_engines ?? []
-  const reflect = f.reflect && reflectAvailable(eff)
+  const reflect = false
   const bulk = f.bulk && (reflect ? bulkReflectAvailable(eff, supported) : bulkAvailable(eff, supported))
   return applyStartToForm({
     ...f,

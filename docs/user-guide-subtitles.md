@@ -38,7 +38,7 @@ Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration
 
 **Bulk batch replies.** A finished Bulk batch (Claude or Gemini) checks each reply the way a normal run does: a reply that is empty, JSON, reasoning text, still in the source script or far too long for its line is not written; the line stays blank and is flagged "check: the model's reply for this line was unusable" with the rejected text in the note so you can copy it back, and the batch summary counts it as rejected. Setting the reply check to Off turns this off here too. If saving a finished batch fails before any English was written (a locked database), it is tried once more from the same results without logging the cost twice; one unreadable reply no longer costs the replies next to it. Two cases are not covered: if the app stops while a finished batch is being applied, or the provider reports the batch failed or expired, the paid output may need to be bought again.
 
-**Reflect** (the Translate stage's Reflect toggle) sends its fixed instructions once as a system block instead of repeating them in each prompt; on Claude that block is cached, so the three passes and later batches re-read it at the cached price.
+**Check and revise and Think harder** were removed from Translate. A title or profile that had either saved now translates normally; a Check and revise Bulk batch sent earlier still finishes. The Release preset still turns on Auto QC but no longer adds the three-pass check.
 
 ### Translation guide (style, terms, and notes)
 
