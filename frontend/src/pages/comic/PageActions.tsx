@@ -1,5 +1,5 @@
 // The sheet a long press (or right-click) on a comic page opens: save or share the picture, or make it the cover.
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { fetchComicImage } from '../../api/comic'
 import { uploadCover } from '../../api/metadata'
@@ -32,30 +32,60 @@ export function PageActions({ dramaId, title, pick, onClose }: Props) {
   const [error, setError] = useState<unknown>(null)
   const [done, setDone] = useState<string | null>(null)
 
+  // Fetched when the menu opens: a browser only lets a page share within a few seconds of the tap,
+  // too short for a download on a slow link.
+  const [fetched, setFetched] = useState<{ src: string; file: File } | null>(null)
+  const open = useRef(true)
+  useEffect(() => {
+    open.current = true
+    return () => {
+      open.current = false
+    }
+  }, [])
+  const src = pick?.src
+  const number = pick?.number
+  useEffect(() => {
+    if (src === undefined || number === undefined) return
+    let stale = false
+    pageFile({ src, number }, title).then(
+      (got) => {
+        if (!stale) setFetched({ src, file: got })
+      },
+      (e: unknown) => {
+        if (!stale) setError(e)
+      },
+    )
+    return () => {
+      stale = true
+    }
+  }, [src, number, title])
+  const file = fetched && fetched.src === src ? fetched.file : null
+
   const close = () => {
     setError(null)
     setDone(null)
     onClose()
   }
   const run = (name: string, work: (file: File) => Promise<string | null>) => {
-    if (!pick) return
+    if (!file) return
     setBusy(name)
     setError(null)
     setDone(null)
-    pageFile(pick, title)
-      .then(work)
-      .then(
-        (note) => {
-          setBusy(null)
-          if (note) setDone(note)
-          else close()
-        },
-        (e: unknown) => {
-          setBusy(null)
-          // Closing the phone's share menu is not a failure.
-          if (!(e instanceof DOMException && e.name === 'AbortError')) setError(e)
-        },
-      )
+    work(file).then(
+      (note) => {
+        // A menu closed while this ran must not close the one opened since.
+        if (!open.current) return
+        setBusy(null)
+        if (note) setDone(note)
+        else close()
+      },
+      (e: unknown) => {
+        if (!open.current) return
+        setBusy(null)
+        // Closing the phone's share menu is not a failure.
+        if (!(e instanceof DOMException && e.name === 'AbortError')) setError(e)
+      },
+    )
   }
 
   const save = () =>
@@ -85,16 +115,16 @@ export function PageActions({ dramaId, title, pick, onClose }: Props) {
   return (
     <Sheet open={pick !== null} title={pick ? `Page ${pick.number}` : 'Page'} onClose={close}>
       <div className="stack" data-testid="page-actions">
-        <button type="button" className={buttonClass('secondary')} disabled={busy !== null} onClick={save}>
+        <button type="button" className={buttonClass('secondary')} disabled={busy !== null || !file} onClick={save}>
           {busy === 'save' ? 'Saving…' : 'Save picture'}
         </button>
         {canShareFiles() && (
-          <button type="button" className={buttonClass('secondary')} disabled={busy !== null} onClick={share}>
+          <button type="button" className={buttonClass('secondary')} disabled={busy !== null || !file} onClick={share}>
             {busy === 'share' ? 'Opening…' : 'Share picture'}
           </button>
         )}
         {canUpload && (
-          <button type="button" className={buttonClass('secondary')} disabled={busy !== null} onClick={cover}>
+          <button type="button" className={buttonClass('secondary')} disabled={busy !== null || !file} onClick={cover}>
             {busy === 'cover' ? 'Setting…' : 'Set as cover'}
           </button>
         )}

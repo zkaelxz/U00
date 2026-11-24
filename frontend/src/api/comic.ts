@@ -35,9 +35,13 @@ export function comicImageUrl(
 }
 
 // The picture behind a comicImageUrl() src, for saving or sharing it. The src carries apiUrl's base, which the client adds again.
+// The reader's smaller copy is a lossy re-encode, so the stored picture is asked for instead.
 export function fetchComicImage(src: string, f?: Fetch) {
   const base = apiUrl('')
-  return fetchBody(src.slice(base.length), {}, (r) => r.blob(), f)
+  const [path, query = ''] = src.slice(base.length).split('?')
+  const q = new URLSearchParams(query)
+  q.delete('size')
+  return fetchBody(`${path}?${q}`, {}, (r) => r.blob(), f)
 }
 
 export type ImageProblem = 'forbidden' | 'missing' | 'failed'
