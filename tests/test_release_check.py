@@ -117,7 +117,7 @@ def test_failed_clip_does_not_stop_the_rest(tmp_path, monkeypatch):
 
     monkeypatch.setattr(rc, "run_transcription", fake)
     monkeypatch.setattr(rc, "gpu_name", lambda: None)
-    opts = rc.argparse.Namespace(use_gpu=False, max_usd=1.0, whisper_model="large-v3")
+    opts = rc.argparse.Namespace(use_gpu=False, max_usd=1.0, whisper_model="large-v3", repeats=1)
     result = rc.run_all(manifest, opts)
     assert calls == ["a", "b"]
     assert result["results"][0]["error"].startswith("RuntimeError") and result["results"][1]["score"] == 0.9
@@ -268,3 +268,74 @@ def test_a_speaker_count_still_runs_nemotron_as_the_app_does(tmp_path, monkeypat
     monkeypatch.setattr(rc.diarize, "diarize", lambda *a, **k: pytest.fail("pyannote was used"))
     row = rc.run_diarization(clip, rc.argparse.Namespace(use_gpu=False))
     assert "nemotron" in row["detail"].lower()
+
+
+def test_repeats_default_to_five(tmp_path, monkeypatch):
+    clip = {"id": "a", "kind": "transcription", "audio": "a.wav", "language": "zh", "reference_text": "x"}
+    seen = []
+
+    def fake_run_all(manifest, opts):
+        seen.append(opts.repeats)
+        return _run([{"id": "a", "kind": "transcription", "metric": "cer", "score": 0.9}])
+
+    monkeypatch.setattr(rc, "run_all", fake_run_all)
+    assert rc.main([_write(tmp_path, [clip]), "--yes", "--out", str(tmp_path / "out")]) == 0
+    assert seen == [5]
+
+
+def test_manifest_refuses_a_baseline_that_is_not_a_score(tmp_path):
+    clip = {"id": "a", "kind": "transcription", "audio": "a.wav", "language": "zh", "reference_text": "x"}
+    for bad in ("0.6", True, -0.1, float("nan"), float("inf")):
+        with pytest.raises(rc.Refusal):
+            rc.load_manifest(_write(tmp_path, [{**clip, "baseline": bad}]))
+    assert rc.load_manifest(_write(tmp_path, [{**clip, "baseline": 0.642}]))["clips"][0]["baseline"] == 0.642
+
+
+def test_baseline_status_uses_the_margin_and_the_metric_direction():
+    t = {"kind": "transcription", "metric": "cer", "baseline": 0.642}
+    assert rc.baseline_status({**t, "score": 0.623}) == "pass"
+    assert rc.baseline_status({**t, "score": 0.62}) == "fail"
+    d = {"kind": "diarization", "metric": "der", "baseline": 0.421}
+    assert rc.baseline_status({**d, "score": 0.44}) == "pass"
+    assert rc.baseline_status({**d, "score": 0.45}) == "fail"
+    assert rc.baseline_status({**t, "score": None, "error": "x"}) == "fail"
+    assert rc.baseline_status({"kind": "translation", "metric": "chrf", "score": 0.5}) == "none"
+    # Without sacrebleu translation scores a difflib ratio, which a chrF baseline can't judge.
+    assert rc.baseline_status({"kind": "translation", "metric": "similarity", "score": 0.9, "baseline": 0.5}) == "fail"
+
+
+def test_gate_needs_a_baseline_nothing_red_and_five_default_runs():
+    fixed = {"id": "t1", "kind": "transcription", "metric": "cer", "score": 0.64, "baseline": 0.642,
+             "fixed_decoding": True}
+    assert rc.gate_passed(_run([fixed]))
+    assert not rc.gate_passed(_run([{**fixed, "baseline": None}]))
+    assert not rc.gate_passed(_run([{**fixed, "score": 0.5}]))
+    assert not rc.gate_passed(_run([fixed, {"id": "d1", "kind": "diarization", "score": None, "error": "x"}]))
+    default = {**fixed, "fixed_decoding": False}
+    assert not rc.gate_passed(_run([default]))
+    assert not rc.gate_passed(_run([{**default, "scores": [0.6, 0.64, 0.7]}]))
+    assert rc.gate_passed(_run([{**default, "scores": [0.6, 0.62, 0.64, 0.66, 0.7]}]))
+
+
+def test_report_shows_the_baseline_and_the_gate():
+    passing = {**_run([{"id": "t1", "kind": "transcription", "metric": "cer", "score": 0.64, "baseline": 0.642,
+                        "fixed_decoding": True}]), "stamp": "20261124-101500"}
+    report = rc.format_report(passing, None)
+    assert "| 0.640 | 0.642 |" in report and "Release gate: passed" in report and "`20261124-101500`" in report
+    failing = _run([{"id": "t1", "kind": "transcription", "metric": "cer", "score": 0.5, "baseline": 0.642,
+                     "fixed_decoding": True}])
+    report = rc.format_report(failing, None)
+    assert "BELOW BASELINE" in report and "1 below baseline" in report and "Release gate: not passed" in report
+
+
+def test_a_run_records_baselines_status_and_the_gate(tmp_path, monkeypatch):
+    clips = [{"id": "a", "kind": "transcription", "audio": "a.wav", "language": "zh", "reference_text": "x",
+              "baseline": 0.8}]
+    manifest = rc.load_manifest(_write(tmp_path, clips))
+    monkeypatch.setattr(rc, "run_transcription", lambda clip, opts: {"score": 0.9, "metric": "cer"})
+    monkeypatch.setattr(rc, "gpu_name", lambda: None)
+    opts = rc.argparse.Namespace(use_gpu=False, max_usd=1.0, whisper_model="large-v3", repeats=5)
+    result = rc.run_all(manifest, opts)
+    row = result["results"][0]
+    assert row["baseline"] == 0.8 and row["status"] == "pass" and row["scores"] == [0.9] * 5
+    assert result["passed"] is True
