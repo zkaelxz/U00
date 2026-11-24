@@ -160,6 +160,19 @@ def test_a_long_text_is_embedded_in_pieces_and_averaged(monkeypatch):
     assert all(len(t) < 60 for batch in sent[-1:] for t in batch)
 
 
+def test_a_refused_batch_takes_a_few_requests_and_gives_the_one_by_one_vectors(monkeypatch):
+    """A batch with long English used to be re-sent one text per request (about 4,000
+    requests on a 2,000-line stream). The vectors must stay the ones that path gave."""
+    texts = ["短句%d" % i for i in range(24)] + ["这是一个很长的句子，" * (7 + i) for i in range(8)]
+    sent = _nan_server(monkeypatch)
+    out = alignment_check.embed("http://o:1", texts)
+    assert len(sent) <= 8
+    # What each text gets on its own: whole when the server takes it, else its pieces averaged.
+    sent.clear()
+    alone = [alignment_check._embed_one("http://o:1", alignment_check.EMBED_MODEL, t) for t in texts]
+    assert out == alone and all(v is not None for v in out)
+
+
 def test_a_text_that_fails_even_in_pieces_gives_none_in_its_place(monkeypatch):
     _nan_server(monkeypatch, limit=1)
     assert alignment_check.embed("http://o:1", ["短句", "又一句话"]) == [None, None]

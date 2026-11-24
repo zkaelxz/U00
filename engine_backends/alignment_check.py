@@ -71,7 +71,48 @@ def _embed_one(base_url: str, model: str, text: str):
     status, got = _post_embed(base_url, model, pieces)
     if not got:
         return None
-    return [sum(v[i] for v in got) / len(got) for i in range(len(got[0]))]
+    return _averaged(got)
+
+
+def _averaged(vectors):
+    return [sum(v[i] for v in vectors) / len(vectors) for i in range(len(vectors[0]))]
+
+
+def _embed_around_nan(base_url: str, model: str, chunk: list) -> list:
+    """Vectors for a batch the server refused with a 500, in a handful of requests rather
+    than one per text: the refusal comes from its longest texts (the NaN answer above
+    starts at a length), so the shortest texts that still go through together are found
+    by halving, and the longer ones are embedded in pieces, all in one request. A text
+    left over (its pieces refused too) gets the one-text treatment of _embed_one."""
+    order = sorted(range(len(chunk)), key=lambda i: len(chunk[i]))
+    # Every text together failed, so at most all but the longest can go through.
+    fits, fitted, too_many = 0, [], len(chunk)
+    while too_many - fits > 1:
+        mid = (fits + too_many) // 2
+        _status, got = _post_embed(base_url, model, [chunk[i] for i in order[:mid]])
+        if got:
+            fits, fitted = mid, got
+        else:
+            too_many = mid
+    vectors = [None] * len(chunk)
+    for i, vector in zip(order[:fits], fitted):
+        vectors[i] = vector
+    long_ones = [(i, _pieces(chunk[i])) for i in order[fits:]]
+    split = [(i, pieces) for i, pieces in long_ones if len(pieces) >= 2]
+    for i, pieces in long_ones:
+        if len(pieces) < 2:
+            vectors[i] = _embed_one(base_url, model, chunk[i])
+    _status, got = (_post_embed(base_url, model, [p for _, pieces in split for p in pieces])
+                    if split else (None, None))
+    if got:
+        at = 0
+        for i, pieces in split:
+            vectors[i] = _averaged(got[at:at + len(pieces)])
+            at += len(pieces)
+    else:
+        for i, _pieces_of_text in split:
+            vectors[i] = _embed_one(base_url, model, chunk[i])
+    return vectors
 
 
 def embed(base_url: str, texts: list, model: str = EMBED_MODEL, should_stop=None, on_progress=None):
@@ -89,7 +130,7 @@ def embed(base_url: str, texts: list, model: str = EMBED_MODEL, should_stop=None
         try:
             status, got = _post_embed(base_url, model, chunk)
             if got is None and status == 500:
-                got = [_embed_one(base_url, model, t) for t in chunk]
+                got = _embed_around_nan(base_url, model, chunk)
             elif got is None:
                 log.warning("Source-match check skipped: Ollama returned HTTP %s for %s "
                             "(is it pulled? `ollama pull %s`)", status, model, model)
