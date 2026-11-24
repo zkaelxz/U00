@@ -38,7 +38,7 @@ export function modelOptionLabel(
   const label = engine?.model_labels?.[model]
   if (label) return label
   // The server decides what is a cloud tag; a hosted model is never shown as plain text.
-  return engine?.cloud_models?.includes(model) ? `${model} (Cloud)` : model
+  return engine?.cloud_models?.includes(model) ? `${model} (Cloud, paid)` : model
 }
 
 // Engines that can run now (key configured). The Translate page lists these

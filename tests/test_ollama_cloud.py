@@ -113,7 +113,7 @@ def test_quota_error_retries_then_gives_plain_message_with_redaction(monkeypatch
         shared.call_with_backoff(lambda: engine.translate_batch(["你好"], {}), max_retries=3)
     assert len(calls) == 3
     msg = str(info.value)
-    assert "rate-limited or over the free usage cap" in msg
+    assert "rate-limited or over its usage limit" in msg
     assert "sk-secret1234567890abcd" not in msg
     assert "weekly limit reached" in msg
 
@@ -156,7 +156,7 @@ def test_installed_check_does_not_require_cloud_tag_in_local_list(monkeypatch):
 def test_cloud_models_are_labelled_in_engine_list(isolated_db):
     ollama = next(e for e in translate_service.list_engines() if e["name"] == "ollama")
     assert CLOUD in ollama["models"] and CLOUD in ollama["cloud_models"]
-    assert ollama["model_labels"][CLOUD] == f"{CLOUD} (Cloud)"
+    assert ollama["model_labels"][CLOUD] == f"{CLOUD} (Cloud, paid)"
     assert "gemma4:12b" not in ollama["cloud_models"]
     assert "gemma4:12b" not in ollama["model_labels"]
 
@@ -210,7 +210,7 @@ def test_cloud_flag_covers_any_cloud_shaped_tag_including_saved_presets(isolated
     ollama = next(e for e in translate_service.list_engines() if e["name"] == "ollama")
     assert "gpt-oss:120b-cloud" in ollama["models"]
     assert "gpt-oss:120b-cloud" in ollama["cloud_models"]
-    assert ollama["model_labels"]["gpt-oss:120b-cloud"] == "gpt-oss:120b-cloud (Cloud)"
+    assert ollama["model_labels"]["gpt-oss:120b-cloud"] == "gpt-oss:120b-cloud (Cloud, paid)"
     for m in ollama["models"]:
         assert (m in ollama["cloud_models"]) == engine_local.is_ollama_cloud_model(m)
 

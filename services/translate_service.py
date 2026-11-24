@@ -118,7 +118,7 @@ def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> 
         labels = {m: model_registry_service.extra_model_label(name, m) for m in extras}
         # Without this the picker would show a hosted tag as plain text,
         # indistinguishable from a local model.
-        labels.update({m: f"{m} (Cloud)" for m in cloud})
+        labels.update({m: f"{m} (Cloud, paid)" for m in cloud})
         engines.append({
             "name": name,
             "label": engine_registry.engine_picker_label(name, gemini_free_tier),
