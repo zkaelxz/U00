@@ -180,6 +180,11 @@ def test_auto_start_is_the_pc_owners_only_and_only_on_their_own(follows):
     assert svc.list_follows(REMOTE_ADMIN)["can_auto_start"] is False
 
 
+def test_a_follow_can_have_no_time_limit(follows, isolated_db):
+    v = svc.add_follow("@name", principal=OWNER, options={"engine": "fake", "max_minutes": None})
+    assert v["options"]["max_minutes"] is None
+
+
 def test_options_are_bounded_like_a_live_start(follows, isolated_db):
     v = svc.add_follow("@name", principal=OWNER, options={
         "source_language": "ja", "whisper_size": "tiny", "engine": "fake", "max_minutes": 999,

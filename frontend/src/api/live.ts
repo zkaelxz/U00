@@ -68,7 +68,8 @@ export interface LiveForm {
   whisper_size: string
   segment_seconds: number
   overlap_seconds: number
-  max_minutes: number
+  // null = no limit: captions until the stream ends.
+  max_minutes: number | null
   use_gpu: boolean
   reply_without_thinking: boolean
   // YouTube links only: also read the stream's chat and translate it.
@@ -142,7 +143,7 @@ export const LIVE_FORM_FALLBACK: LiveFormOptions = {
   spend_limit_range: SPEND_LIMIT_RANGE,
   monthly_cap_set: false,
   defaults: (({ source_language, whisper_size, segment_seconds, overlap_seconds, max_minutes, player_height, spend_limit_usd }) =>
-    ({ source_language, whisper_size, segment_seconds, overlap_seconds, max_minutes, player_height, spend_limit_usd }))(DEFAULT_FORM),
+    ({ source_language, whisper_size, segment_seconds, overlap_seconds, max_minutes: max_minutes ?? 60, player_height, spend_limit_usd }))(DEFAULT_FORM),
 }
 
 /** The model a stream in this language starts on when this browser has not picked one. */
@@ -260,7 +261,8 @@ export function buildStartBody(form: LiveForm, opts: LiveFormOptions = LIVE_FORM
     overlap_seconds: overlap,
     engine: form.engine || null,
     model: form.model || null,
-    max_minutes: clamp(form.max_minutes, opts.max_minutes_range, d.max_minutes),
+    max_minutes: form.max_minutes == null || !Number.isFinite(form.max_minutes) ? null
+      : clamp(form.max_minutes, opts.max_minutes_range, d.max_minutes),
     spend_limit_usd: clamp(form.spend_limit_usd, opts.spend_limit_range, d.spend_limit_usd),
     use_gpu: form.use_gpu === true,
     reply_without_thinking: form.reply_without_thinking !== false,
@@ -401,7 +403,7 @@ export function lagLine(s: Partial<Pick<LiveSessionStatus, 'lag_seconds' | 'tran
 /** One line for the Advanced summary: the values Start would send (a cleared field reads as its default, overlap capped at half the chunk). */
 export function advancedSummary(form: LiveForm, opts: LiveFormOptions = LIVE_FORM_FALLBACK): string {
   const f = buildStartBody(form, opts)
-  return `Whisper ${f.whisper_size} · chunk ${f.segment_seconds}s · overlap ${f.overlap_seconds}s · stop after ${f.max_minutes} min · ${f.use_gpu ? 'GPU' : 'CPU'} · ${f.reply_without_thinking ? 'no thinking' : 'thinking allowed'}`
+  return `Whisper ${f.whisper_size} · chunk ${f.segment_seconds}s · overlap ${f.overlap_seconds}s · ${f.max_minutes === null ? "no time limit" : `stop after ${f.max_minutes} min`} · ${f.use_gpu ? 'GPU' : 'CPU'} · ${f.reply_without_thinking ? 'no thinking' : 'thinking allowed'}`
 }
 
 // A 403 on start: from another device this needs a permission the owner grants.

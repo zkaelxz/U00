@@ -112,9 +112,10 @@ describe('buildStartBody', () => {
     expect(DEFAULT_FORM.whisper_size).toBe('small')
   })
 
-  it('falls back to defaults for blank (NaN or null) numbers', () => {
+  it('falls back to defaults for blank (NaN or null) numbers, except the time limit, where blank means none', () => {
     const b = buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', segment_seconds: NaN, overlap_seconds: null as unknown as number, max_minutes: NaN })
-    expect(b).toMatchObject({ segment_seconds: 10, overlap_seconds: 3, max_minutes: 60 })
+    expect(b).toMatchObject({ segment_seconds: 10, overlap_seconds: 3, max_minutes: null })
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', max_minutes: null }).max_minutes).toBeNull()
   })
 })
 
@@ -192,8 +193,8 @@ describe('sessions', () => {
 
   it('summarises the advanced options', () => {
     expect(advancedSummary({ ...DEFAULT_FORM })).toBe('Whisper small · chunk 10s · overlap 3s · stop after 60 min · CPU · no thinking')
-    // A cleared field and an overlap over half the chunk read as what Start sends.
-    expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: Number.NaN, max_minutes: Number.NaN })).toBe('Whisper small · chunk 10s · overlap 3s · stop after 60 min · CPU · no thinking')
+    // A cleared field (no limit, for the time limit) and an overlap over half the chunk read as what Start sends.
+    expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: Number.NaN, max_minutes: Number.NaN })).toBe('Whisper small · chunk 10s · overlap 3s · no time limit · CPU · no thinking')
     expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: 4, overlap_seconds: 8 })).toBe('Whisper small · chunk 4s · overlap 2s · stop after 60 min · CPU · no thinking')
     expect(DEFAULT_OPTIONS).not.toHaveProperty('url')
   })

@@ -22400,9 +22400,10 @@ export interface components {
             glossary_drama_id?: number | null;
             /**
              * Max Minutes
+             * @description None = no limit.
              * @default 60
              */
-            max_minutes?: number;
+            max_minutes?: number | null;
             /** Model */
             model?: string | null;
             /** Series Id */
@@ -22560,9 +22561,10 @@ export interface components {
             glossary_drama_id?: number | null;
             /**
              * Max Minutes
+             * @description None = no limit: captions until the stream ends.
              * @default 60
              */
-            max_minutes?: number;
+            max_minutes?: number | null;
             /** Model */
             model?: string | null;
             /**

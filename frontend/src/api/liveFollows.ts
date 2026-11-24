@@ -51,7 +51,7 @@ export function followOptions(b: LiveSessionStart): LiveFollowOptions {
     whisper_size: b.whisper_size,
     engine: b.engine ?? null,
     model: b.model ?? null,
-    max_minutes: Math.round(b.max_minutes ?? DEFAULT_FOLLOW_MAX_MINUTES),
+    max_minutes: b.max_minutes === null ? null : Math.round(b.max_minutes ?? DEFAULT_FOLLOW_MAX_MINUTES),
     use_gpu: b.use_gpu,
     glossary_drama_id: b.glossary_drama_id ?? null,
     series_id: b.series_id ?? null,
@@ -60,7 +60,7 @@ export function followOptions(b: LiveSessionStart): LiveFollowOptions {
 
 /** One line naming a follow's saved Live options. */
 export function optionsSummary(o: LiveFollowOptions): string {
-  return `${o.source_language} · ${o.engine || 'Ollama'}${o.model ? ` ${o.model}` : ''} · Whisper ${o.whisper_size} · ${o.use_gpu ? 'GPU' : 'CPU'} · stop after ${o.max_minutes} min`
+  return `${o.source_language} · ${o.engine || 'Ollama'}${o.model ? ` ${o.model}` : ''} · Whisper ${o.whisper_size} · ${o.use_gpu ? 'GPU' : 'CPU'} · ${o.max_minutes === null ? 'no time limit' : `stop after ${o.max_minutes} min`}`
 }
 
 /** Why Follow can't be pressed with this text yet, or null. The server checks again. */

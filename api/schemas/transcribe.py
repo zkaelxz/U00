@@ -337,7 +337,7 @@ class LiveSessionStart(BaseModel):
     engine: Optional[str] = Field(None, max_length=40,
                                   description="None = Ollama on this PC, never the Settings default engine.")
     model: Optional[str] = Field(None, max_length=100)
-    max_minutes: float = 60
+    max_minutes: Optional[float] = Field(60, description="None = no limit: captions until the stream ends.")
     use_gpu: StrictBool = False
     reply_without_thinking: StrictBool = Field(
         True, description="Ask engines that can switch reasoning off (Ollama, DeepSeek) to do so.")
@@ -501,7 +501,7 @@ class LiveFollowOptions(BaseModel):
     engine: Optional[str] = Field(None, max_length=40,
                                   description="None = Ollama on this PC, as a Live start.")
     model: Optional[str] = Field(None, max_length=100)
-    max_minutes: int = Field(60, ge=1, le=240)
+    max_minutes: Optional[int] = Field(60, ge=1, le=240, description="None = no limit.")
     use_gpu: StrictBool = False
     glossary_drama_id: Optional[StrictInt] = Field(None, ge=1, le=2**62)
     series_id: Optional[StrictInt] = Field(None, ge=1, le=2**62)
