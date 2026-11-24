@@ -60,7 +60,7 @@ import { AI_ENGINE_LABEL } from '../helpText'
 import { buttonClass } from '../components/uiClasses'
 import { routeHref } from '../router'
 
-const numValue = (n: number) => (Number.isFinite(n) ? n : '')
+const numValue = (n: number | null) => (n !== null && Number.isFinite(n) ? n : '')
 
 /** "A and B", "A, B and C": engine names as the picker shows them. */
 const listNames = (names: string[]) => {
@@ -364,9 +364,9 @@ export default function LivePage() {
                 <input type="number" min={opts.overlap_range[0]} max={opts.overlap_range[1]} step={1} value={numValue(form.overlap_seconds)} disabled={active || busy}
                   onChange={(e) => setOpt('overlap_seconds', e.target.valueAsNumber)} />
               </Field>
-              <Field label="Stop after" unit="min" help="A hard cap on how long the session runs (and spends).">
+              <Field label="Stop after" unit="min" help="A hard cap on how long the session runs (and spends). Leave it blank to caption until the stream ends; the spend limit still applies.">
                 <input type="number" min={opts.max_minutes_range[0]} max={opts.max_minutes_range[1]} step={1} value={numValue(form.max_minutes)} disabled={active || busy}
-                  onChange={(e) => setOpt('max_minutes', e.target.valueAsNumber)} />
+                  placeholder="no limit" onChange={(e) => setOpt('max_minutes', Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : null)} />
               </Field>
             </div>
             {opts.whisper_sizes.map((w) => {
