@@ -65,7 +65,10 @@ def group_lines(lines: list) -> list:
             groups.append({"x": line["x"], "y": line["y"], "w": line["w"], "h": line["h"],
                            "lines": [line]})
     return [{"x": g["x"], "y": g["y"], "w": g["w"], "h": g["h"],
-             "source_text": "".join(l["text"] for l in g["lines"])} for g in groups]
+             "source_text": "".join(l["text"] for l in g["lines"]),
+             # The weakest line decides: one misread line makes the caption worth a second look.
+             "ocr_confidence": min((l["conf"] for l in g["lines"] if "conf" in l), default=None)}
+            for g in groups]
 
 
 def continues_across_pages(upper: dict, lower: dict, upper_page_h: int) -> bool:
@@ -147,7 +150,7 @@ def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=No
         box = {"x": x, "y": y, "w": bw, "h": bh}
         if any(_overlap(box, e) > 0.5 for e in existing_boxes):
             continue
-        lines.append({**box, "text": text.strip()})
+        lines.append({**box, "text": text.strip(), "conf": conf})
     return [g for g in group_lines(lines) if _is_caption_text(g["source_text"])]
 
 
