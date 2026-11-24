@@ -970,6 +970,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "glossary_terms": ("category", "policy", "enforce_exact", "aliases", "banned_translations"),
     "series_characters": ("gender", "voice_fingerprint", "voice_fingerprint_samples", "voice_bank_id",
                           "voice_design"),
+    "voice_bank": ("is_private",),
     "usage_log": ("cache_read_tokens", "estimated_cost_usd_before_recost", "user_id",
                   "imported_at"),
     "bubbles": ("font_category", "kind", "kind_confidence", "confidence", "language",

@@ -707,7 +707,8 @@ def _create_library_tool_tables(conn):
             notes TEXT,
             source_drama TEXT,
             source_speaker TEXT,
-            created_at TEXT
+            created_at TEXT,
+            is_private INTEGER DEFAULT 0
         );
     """)
 

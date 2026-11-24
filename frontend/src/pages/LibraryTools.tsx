@@ -3,7 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 
 import {
   clearReadingHistory, getCosts, getHistory, getAllSeries, getPresets, getStats, getVoiceBank, renamePreset,
-  addVoiceBankEntry, editVoiceBankDetails, renameVoiceBankEntry, replaceVoiceBankClip,
+  addVoiceBankEntry, editVoiceBankDetails, renameVoiceBankEntry, replaceVoiceBankClip, setVoiceBankPrivate,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
 import { pcOnlyFetch } from '../api/pcOnly'
@@ -331,6 +331,12 @@ function VoiceDetails({ pc, voice, onChanged, onClose }: { pc: PcMode; voice: Li
           {BANK_LANGUAGES.map((l) => <option key={l} value={l}>{languageLabel(l)}</option>)}
         </select>
       </Field>
+      <label className="check">
+        <input type="checkbox" checked={voice.is_private} disabled={pending}
+          onChange={(e) => run(setVoiceBankPrivate(voice.id, e.target.checked),
+            e.target.checked ? 'Private: members no longer see this voice.' : 'Shared: members can see this voice.')} />
+        {' '}Private (only admins see this voice)
+      </label>
       <div className="actions">
         <button type="button" className={buttonClass('secondary', 'sm')} disabled={pending}
           onClick={() => run(editVoiceBankDetails(voice.id, { notes, ref_text: refText, language }), 'Saved.')}>Save details</button>
@@ -385,7 +391,7 @@ function VoiceBankList({ pc, voices, onChanged }: { pc: PcMode; voices: LibraryV
         help="Characters that used it keep their own copy."
         items={shown.map((v) => ({
           id: v.id, name: v.name,
-          meta: [v.language ? languageLabel(v.language) : null, v.notes || null].filter(Boolean).join(' · ') || null,
+          meta: [v.is_private ? 'Private' : null, v.language ? languageLabel(v.language) : null, v.notes || null].filter(Boolean).join(' · ') || null,
         }))}
         remove={deleteVoiceBankEntry}
         rename={renameVoiceBankEntry}

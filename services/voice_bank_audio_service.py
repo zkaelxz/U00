@@ -14,6 +14,7 @@ import os
 
 import db
 from lib.errors import NotFoundError
+from services import ownership_service
 
 AUDIO_TYPES = {
     ".wav": "audio/wav",
@@ -29,11 +30,13 @@ AUDIO_TYPES = {
 _NOT_FOUND = "No playable clip for that voice-bank entry."
 
 
-def clip_for_entry(entry_id: int):
+def clip_for_entry(entry_id: int, principal=None):
     """(absolute path, content type, extension) for one entry's clip.
     NotFoundError for an unknown entry, a missing file, a non-audio file,
     or a path that escapes the voice-bank folder."""
     entry = db.get_voice_bank_entry(entry_id)
+    if not ownership_service.can_see_voice_entry(principal, entry):
+        raise NotFoundError(_NOT_FOUND)
     name = (entry or {}).get("clip_filename") or ""
     ext = os.path.splitext(name)[1].lower()
     path = db.voice_bank_clip_path(name) if entry and ext in AUDIO_TYPES else None
