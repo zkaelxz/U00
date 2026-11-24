@@ -993,7 +993,8 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .continue-tile { flex: none; }
 /* The button names the next step, so it can be long: rather than squeeze the title below about 8rem it drops to a
    row of its own, where the growth (negligible beside the text's) makes it full width. */
-.continue-text { flex: 999 1 8rem; }
+.continue-open { flex: 999 1 8rem; display: flex; align-items: center; gap: var(--space-3); min-width: 0; color: inherit; text-decoration: none; }
+.continue-text { flex: 1; }
 .continue-row > .continue-next { flex: 1 0 auto; }
 /* A tile too narrow for most labels beside the title puts every button on its own row, so tiles side by side match
    whatever their labels. */

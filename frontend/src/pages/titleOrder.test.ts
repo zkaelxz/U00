@@ -24,6 +24,11 @@ describe('sortTitles', () => {
     sortTitles(items, 'date-asc')
     expect(items).toEqual(copy)
   })
+  it('"added-asc" is the given order reversed, without mutating the input', () => {
+    const copy = items.slice()
+    expect(names(sortTitles(items, 'added-asc'))).toEqual(['b', 'none2', 'a', 'none1', 'c'])
+    expect(items).toEqual(copy)
+  })
   it('title sorts A-Z by the displayed name', () => {
     expect(names(sortTitles([t('b', null), t('a', null)], 'title'))).toEqual(['a', 'b'])
   })
