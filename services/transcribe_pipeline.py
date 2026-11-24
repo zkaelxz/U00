@@ -148,6 +148,24 @@ _move_into_place = storage.move_into_place
 _VOCALS_LENGTH_SLACK_SECONDS = 1.0
 
 
+def _to_speech_format(separated):
+    """The separated vocals as the 16 kHz mono wav the audio itself is stored as,
+    beside them; the separator's own 44.1 kHz stereo file is removed. Whisper
+    resamples to that anyway, and decoding the 5x larger file took about 100 s
+    longer on a two-hour stream. A failed conversion keeps the separator's file,
+    which every reader still takes, only slower."""
+    import audio_extract
+    small = os.path.join(os.path.dirname(separated) or ".", ".speech-" + os.path.basename(separated))
+    try:
+        audio_extract.extract_audio_from_video(separated, small)
+    except (audio_extract.FfmpegError, audio_extract.FfmpegTimeout, OSError):
+        with contextlib.suppress(OSError):
+            os.remove(small)
+        return separated
+    os.remove(separated)
+    return small
+
+
 def _reusable_vocals(vocals_path, audio_path) -> bool:
     """True when an earlier run's vocals.wav beside the audio is a complete
     separation of this audio, so a re-run need not separate again (minutes on
@@ -358,8 +376,9 @@ class _PipelineRun:
         finally:
             if self.sep_ticker:
                 self.sep_ticker.stop()
+        separated = _to_speech_format(separated)
         self.stage_seconds["separate"] = time.monotonic() - separate_started
-        if o.vocals_work_dir and os.path.abspath(separated) != os.path.abspath(vocals_path):
+        if os.path.abspath(separated) != os.path.abspath(vocals_path):
             _move_into_place(separated, vocals_path)
             separated = vocals_path
         self.audio_path = separated

@@ -48,6 +48,11 @@ MODEL_DIR = os.environ.get("BAIHE_AUDIO_SEP_MODEL_DIR") or os.path.join(
 # boundary so the seam isn't audible.
 DEFAULT_CHUNK_SECONDS = 30.0
 DEFAULT_CHUNK_OVERLAP_SECONDS = 1.0
+# How many overlapping model windows cover each sample. audio-separator's
+# default is 8, which runs the model over every sample eight times; fewer
+# windows is proportionally faster, and the transcript is what was checked
+# (titles 59/60 and a two-hour stream on the V100), not the vocals' polish.
+SEPARATION_WINDOWS = 4
 
 
 # audio-separator downloads the checkpoint straight to its final name (no
@@ -447,7 +452,10 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
             event_cb("loading", "audio_separator")
         try:
             separator = Separator(output_dir=work_dir, model_file_dir=MODEL_DIR,
-                                  output_single_stem="Vocals")
+                                  output_single_stem="Vocals",
+                                  mdxc_params={"segment_size": 256, "override_model_segment_size": False,
+                                               "batch_size": 1, "overlap": SEPARATION_WINDOWS,
+                                               "pitch_shift": 0})
             _load_with_download_guard(
                 model, lambda: separator.load_model(model_filename=model),
                 cancel_check_cb=cancel_check_cb)

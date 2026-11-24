@@ -58,9 +58,10 @@ def _install_fake_audio_separator(monkeypatch, vocals_only=True, separate_exc=No
     captured = {"separate_paths": []}
 
     class FakeSeparator:
-        def __init__(self, output_dir, model_file_dir, output_single_stem):
+        def __init__(self, output_dir, model_file_dir, output_single_stem, mdxc_params=None):
             captured["output_dir"] = output_dir
             captured["model_file_dir"] = model_file_dir
+            captured["mdxc_params"] = mdxc_params
 
         def load_model(self, model_filename):
             captured["model"] = model_filename
@@ -144,6 +145,8 @@ class TestSeparateVocalsAudioSeparator:
         assert result == out_path and os.path.exists(out_path)
         assert captured["model"] == audio_preprocess.MEL_ROFORMER_VOCAL_MODEL
         assert [e for e, _ in events] == ["loading", "device"]
+        # Fewer overlapping windows than audio-separator's 8: the speed setting reaches the model.
+        assert captured["mdxc_params"]["overlap"] == audio_preprocess.SEPARATION_WINDOWS < 8
 
     def test_the_model_is_loaded_once_however_many_chunks_there_are(self, monkeypatch, tmp_path):
         """A per-chunk model reload would be a real slowdown: the separator
