@@ -176,6 +176,17 @@ export const formDefaults = (opts: LiveFormOptions, language?: string): LiveForm
   ...DEFAULT_FORM, ...opts.defaults, whisper_size: languageWhisperDefault(opts, language ?? opts.defaults.source_language),
 })
 
+/** What a browser's remembered options keep when the settings are chosen for the viewer (a member, or another
+ * device): the language and glossary, which say what is being watched; engine, model and captions follow the
+ * server's defaults for that language. */
+export const chosenForYou = (prefs: Partial<StoredLiveOptions>): Partial<StoredLiveOptions> => {
+  const kept: Partial<StoredLiveOptions> = {}
+  if (prefs.source_language !== undefined) kept.source_language = prefs.source_language
+  if (prefs.glossary_drama_id !== undefined) kept.glossary_drama_id = prefs.glossary_drama_id
+  if (prefs.series_id !== undefined) kept.series_id = prefs.series_id
+  return kept
+}
+
 export const DEFAULT_OPTIONS: LiveOptions = (({ url: _url, ...rest }) => rest)(DEFAULT_FORM)
 
 const SID = /^live_[0-9a-f]{32}$/
