@@ -315,6 +315,27 @@ public class GrabLogicTest {
     }
 
     @Test
+    public void aPageWithNoRedrawFallsBackToThePictureThePhoneSent() {
+        String data = java.util.Base64.getEncoder().encodeToString(new byte[] {1, 2, 3});
+        List<PageImage> batch = new ArrayList<>();
+        batch.add(new PageImage("a", "u1", "image/png", data));
+        batch.add(new PageImage("b", "u2", "image/png", ""));
+        assertEquals(3, QuickRead.original(batch, "a").length);
+        assertNull(QuickRead.original(batch, "b"));
+        assertNull(QuickRead.original(batch, "missing"));
+        assertNull(QuickRead.original(batch, ""));
+    }
+
+    @Test
+    public void theClosingLineSaysWhatTheLinkCost() {
+        UploadStats stats = new UploadStats();
+        assertEquals("", stats.describe());
+        stats.add(2L * 1048576, 10_000, 4_000);
+        stats.add(2L * 1048576, 10_000, 8_000);
+        assertEquals("sent 4.0 MB in 2 requests at 205 KB/s each, PC first answer 6 s after", stats.describe());
+    }
+
+    @Test
     public void onlyWidePicturesAreScaledDownBeforeAnUpload() {
         assertEquals(ImageShrink.MAX_WIDTH, ImageShrink.targetWidth(3000));
         assertEquals(0, ImageShrink.targetWidth(ImageShrink.MAX_WIDTH));
@@ -326,5 +347,28 @@ public class GrabLogicTest {
         PageImage small = new PageImage("k", "u", "image/png", "AAAA");
         assertFalse(ImageShrink.worthShrinking(small));
         assertTrue(ImageShrink.forUpload(small) == small);
+    }
+
+    @Test
+    public void onlyClearNonPagesAreLeftOutOfAnUpload() {
+        int[] w = {844, 844, 844, 844, 844, 300, 1600, 0};
+        int[] h = {1200, 1200, 1200, 1200, 1200, 420, 1200, 0};
+        boolean[] keep = PageFilter.keep(w, h);
+        assertTrue(keep[0] && keep[4]);
+        assertFalse(keep[5]);
+        assertTrue(keep[6]);
+        assertTrue(keep[7]);
+        boolean[] few = PageFilter.keep(new int[] {844, 300}, new int[] {1200, 420});
+        assertTrue(few[0] && few[1]);
+    }
+
+    @Test
+    public void theFirstRequestCarriesOnePicture() {
+        List<PageImage> images = new ArrayList<>();
+        for (int i = 0; i < 5; i++) images.add(new PageImage("k" + i, "u", "image/png", "AAAA"));
+        List<List<PageImage>> plan = Batches.plan(images, 2, 1);
+        assertEquals(1, plan.get(0).size());
+        assertEquals(2, plan.get(1).size());
+        assertEquals(5, plan.get(0).size() + plan.get(1).size() + plan.get(2).size());
     }
 }

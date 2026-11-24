@@ -28,6 +28,10 @@ final class BaiheClient {
 
     /** Names this client's page batches so the server can be told to stop working on them. */
     volatile String runId;
+    /** Quick read only: the screen width, so the PC need not send back pictures wider than it can show. 0 sends none. */
+    volatile int typesetMaxWidth;
+    /** Quick read only: where the requests' time went. */
+    volatile UploadStats stats;
 
     /** A refused or failed call; the message is the server's own text or a short fixed one. */
     static final class BridgeException extends Exception {
@@ -128,10 +132,14 @@ final class BaiheClient {
             conn.setDoOutput(true);
             conn.setFixedLengthStreamingMode(bytes.length);
             conn.setRequestProperty("Content-Type", "application/json");
+            long sendStart = System.currentTimeMillis();
             try (OutputStream out = conn.getOutputStream()) {
                 out.write(bytes);
             }
+            long sent = System.currentTimeMillis();
             int status = conn.getResponseCode();
+            UploadStats record = stats;
+            if (record != null) record.add(bytes.length, sent - sendStart, System.currentTimeMillis() - sent);
             if (status >= 300) {
                 InputStream err = conn.getErrorStream();
                 throw new BridgeException(status, refusalText(status, err == null ? "" : readCapped(err)));
@@ -199,7 +207,10 @@ final class BaiheClient {
                 .put("filter_pages", true);
         if (runId != null) body.put("run_id", runId);
         if (store) body.put("drama_id", dramaId);
-        else body.put("typeset", true);
+        else {
+            body.put("typeset", true);
+            if (typesetMaxWidth > 0) body.put("typeset_max_width", typesetMaxWidth);
+        }
         return body;
     }
 

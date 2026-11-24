@@ -1,0 +1,302 @@
+{
+ "id": "ko-comic",
+ "version": 1,
+ "language": "ko",
+ "title": "Korean comic terms and sound effects",
+ "description": "Starter pack, review it. For webtoons: Court titles, hunter and tower stories, regression, possession and murim words, and common sound effects. Used by Quick read and Scanlate for every comic without turning anything on.",
+ "entries": [
+  {
+   "source": "형님",
+   "en": "hyungnim",
+   "category": "honorific",
+   "note": "A respectful, often gang-style, 'older brother'.",
+   "context": "man to an older man he respects"
+  },
+  {
+   "source": "오라버니",
+   "en": "brother",
+   "category": "honorific",
+   "note": "Archaic or noble 'older brother'.",
+   "context": "historical or noble setting"
+  },
+  {
+   "source": "도련님",
+   "en": "young master",
+   "category": "honorific",
+   "context": "servant to a noble son"
+  },
+  {
+   "source": "아가씨",
+   "en": "young miss",
+   "category": "honorific",
+   "context": "servant to a noble daughter"
+  },
+  {
+   "source": "마님",
+   "en": "madam",
+   "category": "honorific",
+   "context": "servant to the lady of the house"
+  },
+  {
+   "source": "나리",
+   "en": "my lord",
+   "category": "honorific",
+   "context": "servant or commoner to a nobleman"
+  },
+  {
+   "source": "폐하",
+   "en": "Your Majesty",
+   "category": "honorific",
+   "context": "king, queen or emperor"
+  },
+  {
+   "source": "전하",
+   "en": "Your Highness",
+   "category": "honorific",
+   "context": "prince, princess or king in a Joseon setting"
+  },
+  {
+   "source": "공작",
+   "en": "duke",
+   "category": "term"
+  },
+  {
+   "source": "후작",
+   "en": "marquis",
+   "category": "term"
+  },
+  {
+   "source": "백작",
+   "en": "count",
+   "category": "term"
+  },
+  {
+   "source": "자작",
+   "en": "viscount",
+   "category": "term"
+  },
+  {
+   "source": "남작",
+   "en": "baron",
+   "category": "term"
+  },
+  {
+   "source": "영애",
+   "en": "lady",
+   "category": "term",
+   "note": "A noble daughter."
+  },
+  {
+   "source": "황제",
+   "en": "Emperor",
+   "category": "term"
+  },
+  {
+   "source": "황후",
+   "en": "Empress",
+   "category": "term"
+  },
+  {
+   "source": "황태자",
+   "en": "Crown Prince",
+   "category": "term"
+  },
+  {
+   "source": "악녀",
+   "en": "villainess",
+   "category": "term"
+  },
+  {
+   "source": "빙의",
+   "en": "possession",
+   "category": "term",
+   "note": "Waking up in another person's body, usually a novel's character."
+  },
+  {
+   "source": "회귀",
+   "en": "regression",
+   "category": "term",
+   "note": "Going back in time with one's memories."
+  },
+  {
+   "source": "환생",
+   "en": "reincarnation",
+   "category": "term"
+  },
+  {
+   "source": "헌터",
+   "en": "hunter",
+   "category": "term"
+  },
+  {
+   "source": "각성",
+   "en": "awakening",
+   "category": "term"
+  },
+  {
+   "source": "던전",
+   "en": "dungeon",
+   "category": "term"
+  },
+  {
+   "source": "게이트",
+   "en": "gate",
+   "category": "term"
+  },
+  {
+   "source": "랭크",
+   "en": "rank",
+   "category": "term"
+  },
+  {
+   "source": "스킬",
+   "en": "skill",
+   "category": "term"
+  },
+  {
+   "source": "상태창",
+   "en": "status window",
+   "category": "term"
+  },
+  {
+   "source": "레벨업",
+   "en": "level up",
+   "category": "term"
+  },
+  {
+   "source": "길드",
+   "en": "guild",
+   "category": "term"
+  },
+  {
+   "source": "마탑",
+   "en": "Mage Tower",
+   "category": "term"
+  },
+  {
+   "source": "무림",
+   "en": "murim",
+   "category": "term",
+   "note": "The martial arts world; keep 'murim'."
+  },
+  {
+   "source": "사부님",
+   "en": "Master",
+   "category": "honorific",
+   "context": "disciple to the teacher of a martial art"
+  },
+  {
+   "source": "사형",
+   "en": "senior brother",
+   "category": "honorific",
+   "note": "A fellow disciple who joined earlier."
+  },
+  {
+   "source": "사제",
+   "en": "junior brother",
+   "category": "honorific",
+   "note": "A fellow disciple who joined later."
+  },
+  {
+   "source": "사저",
+   "en": "senior sister",
+   "category": "honorific"
+  },
+  {
+   "source": "사매",
+   "en": "junior sister",
+   "category": "honorific"
+  },
+  {
+   "source": "문파",
+   "en": "sect",
+   "category": "term"
+  },
+  {
+   "source": "내공",
+   "en": "inner energy",
+   "category": "term"
+  },
+  {
+   "source": "마교",
+   "en": "Demonic Cult",
+   "category": "term"
+  },
+  {
+   "source": "맹주",
+   "en": "Alliance Leader",
+   "category": "term"
+  },
+  {
+   "source": "두근두근",
+   "en": "thump thump",
+   "category": "sfx",
+   "note": "A pounding heart."
+  },
+  {
+   "source": "쿵",
+   "en": "thud",
+   "category": "sfx"
+  },
+  {
+   "source": "쾅",
+   "en": "bang",
+   "category": "sfx"
+  },
+  {
+   "source": "휙",
+   "en": "swish",
+   "category": "sfx"
+  },
+  {
+   "source": "탁",
+   "en": "tap",
+   "category": "sfx"
+  },
+  {
+   "source": "짝",
+   "en": "slap",
+   "category": "sfx"
+  },
+  {
+   "source": "퍽",
+   "en": "thwack",
+   "category": "sfx"
+  },
+  {
+   "source": "덜컹",
+   "en": "rattle",
+   "category": "sfx"
+  },
+  {
+   "source": "번쩍",
+   "en": "flash",
+   "category": "sfx"
+  },
+  {
+   "source": "꿀꺽",
+   "en": "gulp",
+   "category": "sfx"
+  },
+  {
+   "source": "흠칫",
+   "en": "flinch",
+   "category": "sfx"
+  },
+  {
+   "source": "부들부들",
+   "en": "trembling",
+   "category": "sfx"
+  },
+  {
+   "source": "후다닥",
+   "en": "scurry",
+   "category": "sfx"
+  },
+  {
+   "source": "스윽",
+   "en": "slide",
+   "category": "sfx"
+  }
+ ]
+}

@@ -92,6 +92,7 @@ import contextlib
 import json
 import os
 import secrets
+import sys
 import tempfile
 import threading
 import time
@@ -373,14 +374,23 @@ def _store_page(drama_id: int, data: bytes, ext: str):
     return page
 
 
-def _page_extras(drama, config: dict, engine, image: bytes) -> dict:
-    """Character notes and the page picture, as a Scanlate run sends them. A
-    failure here only costs that quality, never the translation."""
-    from services import extension_service
+def _page_extras(drama, config: dict, engine, image: bytes, bubbles=(), language: str = "",
+                 glossary=None) -> dict:
+    """Character notes and the page picture, as a Scanlate run sends them, with the built-in
+    comic glossary's entries for this page appended to the notes. A failure here only costs
+    that quality, never the translation."""
+    from services import comic_glossary_service, extension_service
     try:
-        return extension_service.page_extras(drama, config, engine, image)
+        extras = extension_service.page_extras(drama, config, engine, image)
     except Exception:
-        return {}
+        extras = {}
+    try:
+        extras["character_notes"] = comic_glossary_service.with_reference(
+            extras.get("character_notes", ""), _page_source_language(drama, language), bubbles,
+            glossary)
+    except Exception:
+        pass
+    return extras
 
 
 def _lines_without_english(bubbles) -> list:
@@ -394,7 +404,7 @@ def _lines_without_english(bubbles) -> list:
 
 
 def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, member,
-                         image: bytes = b"", in_order: bool = True) -> float:
+                         image: bytes = b"", in_order: bool = True, language: str = "") -> float:
     """Translates a freshly read page, asks once more for any lines left empty, and returns the
     seconds spent. Notes are appended for a failure, no engine, or lines still empty after the
     retry, so they are counted rather than silently shown as the source text. `in_order=False`
@@ -410,7 +420,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     started = time.monotonic()
     glossary = (db.list_run_glossary_terms(drama) or None) if drama else None
     usage = _usage_cb(drama, config, engine)
-    extras = _page_extras(drama, config, engine, image)
+    extras = _page_extras(drama, config, engine, image, bubbles, language, glossary)
     try:
         page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage,
                                       wait_for_turn=in_order, **extras)
@@ -439,7 +449,8 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
 
 
 def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, source_url: str,
-                       config: dict, member: bool = False, image: bytes = b"") -> list:
+                       config: dict, member: bool = False, image: bytes = b"",
+                       language: str = "") -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
     import db
 
@@ -454,7 +465,8 @@ def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, 
     try:
         page_turns.translate_in_chain(drama_id, source_url, missing, engine, drama, glossary,
                                       _usage_cb(drama, config, engine),
-                                      **_page_extras(drama, config, engine, image))
+                                      **_page_extras(drama, config, engine, image, missing, language,
+                                                     glossary))
     except Exception as e:
         return [["warning", f"translation failed ({failure_detail(e, member)})"]]
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
@@ -493,7 +505,7 @@ def _remove_quietly(path) -> None:
 
 
 def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
-                     style=None) -> str:
+                     style=None, max_width: int | None = None) -> str:
     """The cleaned, typeset page as a data: URL for an overlay-only page (nothing is
     stored, so there is no library page to render from), or "" when it cannot be sent.
     The page keeps its plain boxes then, so a failure here only costs the nicer picture.
@@ -508,7 +520,7 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
             scanlate_render.process_page(image_path, bubbles, out_path,
                                          match_color=bool(settings_service.get("scanlate_match_text_color")),
                                          **({"look": style} if style else {}))
-        return page_capture_checks.jpeg_data_url(out_path)
+        return page_capture_checks.jpeg_data_url(out_path, max_width)
     except Exception as e:
         page_capture_checks.log_page_failure(e)
         notes.append(["warning", "typeset failed: " + ("the page was kept" if member else
@@ -521,7 +533,8 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
 def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
                     store: bool = True, member: bool = False, typeset: bool = False,
-                    typeset_style=None, turn=page_turns.UNORDERED) -> dict:
+                    typeset_style=None, turn=page_turns.UNORDERED,
+                    typeset_max_width: int | None = None) -> dict:
     """One image, end to end: detect + OCR + translate, optionally stored
     into a drama first so the library keeps the real page and its
     bubbles.
@@ -603,8 +616,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     art_captions=_reads_art_captions(lang, ocr_backend),
                     art_captions_max_regions=_ART_CAPTION_MAX_REGIONS,
                     tesseract_cmd=config.get("tesseract_cmd") or None,
-                    prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")),
-                    page_id=(page or {}).get("id"))
+                    prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")), page_id=(page or {}).get("id"))
                 read_seconds = time.monotonic() - read_started
                 # Saved before release so a re-capture or Redo finds the read.
                 if page is not None:
@@ -629,7 +641,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             page, drama_pk = _stored(page, drama_id)
             with turn.translating():
                 reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url,
-                                                 config, member, image=data)
+                                                 config, member, image=data, language=source_language)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, drama_pk, page["id"])
 
@@ -638,10 +650,10 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         notes.extend(_detect_notes(detect_notes, member))
         with turn.translating():
             translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
-                                                     notes, member, data, in_order=store)
+                                                     notes, member, data, store, source_language)
         if typeset and temp_path and page is None:
             typeset_started = time.monotonic()
-            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style)
+            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style, typeset_max_width)
             seconds["typeset"] = round(time.monotonic() - typeset_started, 2)
         if page is not None:
             notes.extend(read_notes)
@@ -921,7 +933,13 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def serve(port: int, generation=None):
-    server = ThreadingHTTPServer(("127.0.0.1", port), _Handler)
+    class BridgeServer(ThreadingHTTPServer):
+        # On Windows SO_REUSEADDR lets a second process bind a port that is already
+        # listening, so two Baihe installs (live and a test copy) both "owned" 8756 and a
+        # request reached either one. Without it the second bind fails and says so.
+        allow_reuse_address = sys.platform != "win32"
+
+    server = BridgeServer(("127.0.0.1", port), _Handler)
     server.timeout = REQUEST_TIMEOUT_SECONDS
     # Daemon handler threads are not joined by server_close(), so stopping
     # never waits on an in-flight OCR run.

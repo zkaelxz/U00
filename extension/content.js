@@ -212,6 +212,15 @@
     }
   }
 
+  // A background tab never runs animation frames, so a bare requestAnimationFrame wait would hold
+  // the whole capture until the person comes back to the tab; the timer lets it go on meanwhile.
+  function nextFrame() {
+    return new Promise((resolve) => {
+      requestAnimationFrame(resolve);
+      setTimeout(resolve, 100);
+    });
+  }
+
   // Waits for the element's pixels to stop changing before capture, not
   // a fixed sleep: a page whose own JS is still descrambling/reassembling
   // a page onto a canvas (mangaz's own reader does exactly this) can have
@@ -223,7 +232,7 @@
     if (last === null) return;
     const start = performance.now();
     while (performance.now() - start < timeoutMs) {
-      await new Promise((r) => requestAnimationFrame(r));
+      await nextFrame();
       await new Promise((r) => setTimeout(r, stabilityMs));
       const next = sampleSignature(el);
       if (next === last) return;

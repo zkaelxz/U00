@@ -175,6 +175,19 @@ def _record_run_notes(result: dict) -> None:
         db.update_page(int(page_id), run_notes=pages_svc.notes_to_json(notes))
 
 
+# A phone screen, from a small one to a tablet; anything else is ignored rather than refused, so
+# an odd value only costs the smaller download.
+_TYPESET_WIDTHS = range(320, 4097)
+
+
+def _typeset_max_width(raw) -> int | None:
+    """The width the redrawn page is scaled down to: the phone's screen width, which is all it
+    can show, so the rest of a full-size page is only download time."""
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw in _TYPESET_WIDTHS:
+        return raw
+    return None
+
+
 def _typeset_style(raw):
     """The look settings the popup sent, or None for the plain render. A bad value falls back
     to its default rather than refusing the page: it is a preference, not data."""
@@ -349,6 +362,7 @@ def _quick_read_key(image: dict, job: dict) -> str | None:
     config = page_server.get_translation_config()
     parts = [hashlib.sha256(image["content"]).hexdigest(), job["drama_id"], job["source_language"],
              job["typeset"], json.dumps(job["typeset_style"], sort_keys=True, default=str),
+             job["typeset_max_width"],
              job["member"], config.get("engine"), config.get("model")]
     return hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()
 
@@ -403,7 +417,7 @@ def _translate_one(image: dict, job: dict, turn):
             image["content"], image["content_type"], drama_id=job["drama_id"],
             source_url=job["source_url"], source_language=job["source_language"], store=job["store"],
             member=job["member"], typeset=job["typeset"] and not job["store"],
-            typeset_style=job["typeset_style"], turn=turn)
+            typeset_style=job["typeset_style"], turn=turn, typeset_max_width=job["typeset_max_width"])
     except page_turns.Stopped:
         return "stopped", None
     except page_server.EndpointError as e:
@@ -526,6 +540,7 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
     job = {"drama_id": drama_id, "source_url": source_url, "store": store,
            "source_language": str(payload.get("source_language") or ""),
            "typeset": payload.get("typeset") is True, "typeset_style": typeset_style,
+           "typeset_max_width": _typeset_max_width(payload.get("typeset_max_width")),
            "member": principal is not None, "single": len(decoded) == 1, "run_id": _run_id(payload)}
     # One bad page must not discard the rest of a chapter: each failure
     # is named so the person sees a mismatch instead of a short count.

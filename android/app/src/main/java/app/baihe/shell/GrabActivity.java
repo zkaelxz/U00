@@ -75,6 +75,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         bridge = new GrabBridge(this);
         // Pages left by a Quick read that was cut off (the app was killed) are not kept.
         QuickReadActivity.clear(this);
+        // Android 13 hides the "reading in the background" notice until this is allowed; the grab
+        // keeps running either way.
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);
+        }
 
         palette = GrabUi.Palette.of(this);
         LinearLayout root = new LinearLayout(this);
@@ -424,6 +430,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     @Override
     protected void onDestroy() {
+        GrabKeepAlive.stop(getApplicationContext());
         bridge.cancel();
         sender.shutdownNow();
         web.destroy();
@@ -543,6 +550,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             return;
         }
         grabbing = true;
+        GrabKeepAlive.start(getApplicationContext());
         quickRead = readOnly;
         grabStartedAt = System.currentTimeMillis();
         runId = "grab-" + newNonce().substring(0, 16);
@@ -644,6 +652,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             followingParts = false;
             partsContinuing = false;
         }
+        if (next == null) GrabKeepAlive.stop(getApplicationContext());
         String shown = message;
         String go = next;
         runOnUiThread(() -> {
@@ -742,6 +751,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             }
             BaiheClient client = new BaiheClient(server, token);
             client.runId = runId;
+            client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+            client.stats = new UploadStats();
             if (readOnly) read(client, url, ready, bad, cut);
             else upload(client, url, titles, chapterLinks, ready, bad, cut);
         });
@@ -764,7 +775,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             // A typeset answer is large, so the batch stays small however many the server allows.
             int max = Math.min(QUICK_READ_BATCH, client.health().optInt("max_images_per_request", 12));
             if (!continuing) QuickReadActivity.clear(this);
-            List<List<PageImage>> batches = Batches.plan(images, max);
+            // Clear non-pages stay home: on a slow link each one costs real time to upload.
+            List<PageImage> pages = PageFilter.pagesOnly(images);
+            List<List<PageImage>> batches = Batches.plan(pages, max, 1);
             int n = batches.size();
             Object lock = new Object();
             List<List<byte[]>> held = new ArrayList<>();
@@ -789,7 +802,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
                 shown[0]++;
                 QuickReadSession.add(name);
-                say("Redrawing " + images.size() + " pictures: " + shown[0] + " ready");
+                say("Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
                 if (!opened[0]) {
                     opened[0] = true;
                     firstPageAt[0] = System.currentTimeMillis();
@@ -809,7 +822,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         }
                         return;
                     }
-                    say("Redrawing " + images.size() + " pictures: " + shown[0] + " ready");
+                    say("Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
                     try {
                         JSONObject done = client.streamPages(url, ImageShrink.forUpload(batches.get(index)), page -> {
                             JSONObject wrapped;
@@ -822,7 +835,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                             synchronized (lock) {
                                 if (jpegs.isEmpty()) {
                                     if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
-                                    return;
+                                    byte[] original = QuickRead.original(batches.get(index), page.optString("key", ""));
+                                    if (original == null) return;
+                                    jpegs = java.util.Collections.singletonList(original);
                                 }
                                 for (byte[] jpeg : jpegs) {
                                     if (index == frontier[0]) show.accept(jpeg);
@@ -865,24 +880,26 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             // A part of a split chapter hands over to the next one with the reader still open.
             boolean carryOn = moreParts && !cancelRequested && !QuickReadSession.isAbandoned() && thisPart > 0;
             partsContinuing = carryOn;
-            if (!carryOn) QuickReadSession.finish();
             long ended = System.currentTimeMillis();
             String timing = firstPageAt[0] == 0 ? "" : String.format(java.util.Locale.ROOT,
                     " (found %d s, first page %d s, all %d s)", (readStarted - grabStartedAt) / 1000,
                     (firstPageAt[0] - readStarted) / 1000, (ended - readStarted) / 1000);
+            String link = client.stats == null ? "" : client.stats.describe();
+            if (!link.isEmpty()) timing = timing.isEmpty() ? " (" + link + ")" : timing.substring(0, timing.length() - 1) + "; " + link + ")";
             String message = cancelRequested && thisPart == 0 ? "Cancelled."
                     : (cancelRequested ? "Cancelled. " : "")
-                    + QuickRead.summary(thisPart, images.size() + unreadable, firstError[0])
+                    + QuickRead.summary(thisPart, pages.size() + unreadable, firstError[0])
                     + (truncated ? ". Some pages were left out." : "") + timing;
+            if (!carryOn) QuickReadSession.finish(message);
             if (!carryOn) QuickReadSession.onCancel(null);
             finishGrab(message, carryOn);
         } catch (BaiheClient.BridgeException e) {
             QuickReadSession.onCancel(null);
-            QuickReadSession.finish();
+            QuickReadSession.finish(e.getMessage());
             finishGrab(e.getMessage());
         } catch (Exception e) {
             QuickReadSession.onCancel(null);
-            QuickReadSession.finish();
+            QuickReadSession.finish("Could not read the pages.");
             finishGrab("Could not read the pages.");
         } finally {
             pool.shutdown();

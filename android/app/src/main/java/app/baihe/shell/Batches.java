@@ -24,13 +24,20 @@ final class Batches {
      * when the next image would push it past the byte budget; a single image is never split.
      */
     static List<List<PageImage>> plan(List<PageImage> images, int maxImages) {
+        return plan(images, maxImages, maxImages);
+    }
+
+    /** As {@link #plan(List, int)}, with a smaller first batch so the first page comes back sooner. */
+    static List<List<PageImage>> plan(List<PageImage> images, int maxImages, int firstBatchImages) {
         int cap = Math.max(1, maxImages);
+        int firstCap = Math.max(1, Math.min(cap, firstBatchImages));
         List<List<PageImage>> out = new ArrayList<>();
         List<PageImage> current = new ArrayList<>();
         long size = 0;
         for (PageImage image : images) {
             long chars = image.base64.length();
-            if (!current.isEmpty() && (current.size() >= cap || size + chars > MAX_BATCH_BASE64_CHARS)) {
+            int limit = out.isEmpty() ? firstCap : cap;
+            if (!current.isEmpty() && (current.size() >= limit || size + chars > MAX_BATCH_BASE64_CHARS)) {
                 out.add(current);
                 current = new ArrayList<>();
                 size = 0;
