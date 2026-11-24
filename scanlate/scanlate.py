@@ -31,7 +31,7 @@ import re
 
 import numpy as np
 from memory_headroom import HeadroomError
-from ocr import auto_ocr_backend
+from ocr import auto_ocr_backend, take_read_confidence
 
 from scanlate.scanlate_box_merge import merge_fragment_boxes
 from scanlate.scanlate_detect import BubbleModelUnavailable, detect_bubbles, detect_bubbles_cv, inset_box_for_ocr
@@ -231,6 +231,15 @@ def bulk_find_replace_preview(items: list, find: str, replace: str, text_field: 
     return matches
 
 
+def _ocr_scored(image_path: str, box: dict, source_language: str, **kwargs) -> str:
+    """ocr_box_region() that also records the read's confidence on the box, None when the
+    backend gives none, so a later step can tell which text deserves a second look."""
+    take_read_confidence()
+    text = ocr_box_region(image_path, box, source_language, **kwargs)
+    box["ocr_confidence"] = take_read_confidence()
+    return text
+
+
 def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: str = "auto",
                         hf_token: str | None = None, ocr_backend: str | None = None,
                         tesseract_cmd: str | None = None,
@@ -286,7 +295,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b = region.to_bubble()
         # ocr_box_region() insets the box (a border can blank OCR).
         try:
-            b["source_text"] = ocr_box_region(
+            b["source_text"] = _ocr_scored(
                 image_path, b, source_language, backend=ocr_backend,
                 tesseract_cmd=tesseract_cmd, prefer_paddle_vl_manga=prefer_paddle_vl_manga,
                 image=page)
@@ -511,7 +520,8 @@ def _art_caption_regions(image_path: str, source_language: str, bubbles: list, p
             "confidence": None,
             "orientation": "vertical" if c["h"] > 1.4 * c["w"] else "horizontal",
             "panel_id": None, "kind": "caption", "kind_confidence": 0.5,
-            "source_text": c["source_text"], "font_category": "bold",
+            "source_text": c["source_text"], "ocr_confidence": c.get("ocr_confidence"),
+            "font_category": "bold",
             "ink_ratio": None, "irregular": None,
             "translated_text": "", "font_size": 18, "skip": False, "include_sfx": False})
     return regions

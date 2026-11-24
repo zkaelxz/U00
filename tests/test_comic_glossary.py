@@ -76,3 +76,19 @@ def test_quick_read_page_extras_carry_the_glossary_for_a_page_with_no_title(isol
     extras = page_server._page_extras(None, {}, None, b"", _page("勇者が来た"), "ja")
     assert "勇者 → default: Hero" in extras["character_notes"]
     assert "勇者" not in page_server._page_extras(None, {}, None, b"", _page("犬"), "ja")["character_notes"]
+
+
+class TestSoundEffectsNeedAWordOfTheirOwn:
+    def test_an_effect_inside_a_misread_katakana_run_is_not_matched(self, isolated_db):
+        assert svc.reference_block("ja", _page("シクシーンバッズ部の人は")) == ""
+
+    def test_the_effect_standing_alone_or_beside_other_script_is_matched(self, isolated_db):
+        assert "シーン → default: silence" in svc.reference_block("ja", _page("シーン…"))
+        assert "シーン → default: silence" in svc.reference_block("ja", _page("その場はシーンとなった"))
+
+    def test_a_korean_effect_inside_a_longer_hangul_word_is_not_matched(self, isolated_db):
+        assert svc.reference_block("ko", _page("쿵쿵쿵")) == ""
+        assert "쿵 → default: thud" in svc.reference_block("ko", _page("쿵! 뭐야"))
+
+    def test_a_non_katakana_term_still_matches_inside_a_sentence(self, isolated_db):
+        assert "勇者" in svc.reference_block("ja", _page("あの勇者さま"))
