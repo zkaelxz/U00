@@ -9147,6 +9147,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scanlate/dramas/{drama_id}/chapters/marks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark chapters read or unread, or bookmark them */
+        post: operations["post_chapter_marks_api_scanlate_dramas__drama_id__chapters_marks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scanlate/dramas/{drama_id}/config": {
         parameters: {
             query?: never;
@@ -16720,6 +16737,11 @@ export interface components {
         };
         /** ComicChapter */
         ComicChapter: {
+            /**
+             * Bookmarked
+             * @default false
+             */
+            bookmarked: boolean;
             /** First Page */
             first_page: number;
             /** Hidden Count */
@@ -16730,6 +16752,11 @@ export interface components {
             known: boolean;
             /** Page Count */
             page_count: number;
+            /**
+             * Read
+             * @default false
+             */
+            read: boolean;
             /** Title */
             title: string;
             /**
@@ -16737,6 +16764,32 @@ export interface components {
              * @default
              */
             url: string;
+        };
+        /** ComicChapterMark */
+        ComicChapterMark: {
+            /** Bookmarked */
+            bookmarked: boolean;
+            /** Id */
+            id: string;
+            /** Read */
+            read: boolean;
+        };
+        /** ComicChapterMarks */
+        ComicChapterMarks: {
+            /** Chapters */
+            chapters: components["schemas"]["ComicChapterMark"][];
+        };
+        /**
+         * ComicChapterMarksRequest
+         * @description Mark chapters read or unread, or bookmark them; a field left out is not changed.
+         */
+        ComicChapterMarksRequest: {
+            /** Bookmarked */
+            bookmarked?: boolean | null;
+            /** Chapter Ids */
+            chapter_ids: string[];
+            /** Read */
+            read?: boolean | null;
         };
         /** ComicPage */
         ComicPage: {
@@ -60871,6 +60924,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SavedSeries"][];
+                };
+            };
+        };
+    };
+    post_chapter_marks_api_scanlate_dramas__drama_id__chapters_marks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComicChapterMarksRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComicChapterMarks"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 __all__ = ["ComicPage", "ComicChapter", "ComicPageList", "ComicRegion", "ComicPageRegions", "ComicViewPrefs",
            "ComicProgress", "ComicViewPrefsView", "ComicProgressRequest", "ComicVisibilityRequest",
            "ComicVisibilityResult", "ComicStartChapterRequest", "ComicStartChapterResult", "ComicSourceChapter",
-           "ComicSourceChapters"]
+           "ComicSourceChapters", "ComicChapterMarksRequest", "ComicChapterMark", "ComicChapterMarks"]
 
 
 class ComicPage(BaseModel):
@@ -36,6 +36,8 @@ class ComicChapter(BaseModel):
     hidden_count: int
     # The chapter's page on its source (display-safe), "" when not known.
     url: str = ""
+    read: bool = False
+    bookmarked: bool = False
 
 
 class ComicPageList(BaseModel):
@@ -118,6 +120,24 @@ class ComicStartChapterRequest(BaseModel):
 
 class ComicStartChapterResult(BaseModel):
     changed: int
+
+
+class ComicChapterMarksRequest(BaseModel):
+    """Mark chapters read or unread, or bookmark them; a field left out is not changed."""
+    model_config = ConfigDict(extra="forbid")
+    chapter_ids: List[str] = Field(min_length=1, max_length=5000)
+    read: Optional[bool] = None
+    bookmarked: Optional[bool] = None
+
+
+class ComicChapterMark(BaseModel):
+    id: str
+    read: bool
+    bookmarked: bool
+
+
+class ComicChapterMarks(BaseModel):
+    chapters: List[ComicChapterMark]
 
 
 class ComicSourceChapter(BaseModel):

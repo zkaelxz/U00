@@ -189,7 +189,7 @@ def _build_library():
         _seed_row(conn, "profiles", {}, OTHER)                    # a second household profile
         other_profile = conn.execute("SELECT MAX(id) FROM profiles").fetchone()[0]
         for did in mine:                          # its reading data on A's dramas stays behind
-            for t in ("progress", "personal_notes", "reading_history"):
+            for t in ("progress", "personal_notes", "reading_history", "chapter_marks"):
                 _seed_row(conn, t, {"drama_id": did, "profile_id": other_profile}, OTHER)
         seeded = set(drama_tables) | {"series_characters", "glossary_terms", "bubbles",
                                       "translation_memory", "glossary_dismissals", "word_replacements", "translate_history",
