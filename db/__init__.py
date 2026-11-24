@@ -338,6 +338,7 @@ def init_db():
         _create_auth_tables(conn)
         _migrate_line_columns(conn)
         _migrate_drama_columns(conn)
+        _add_topic_chapters_column(conn)
         _migrate_series_and_character_columns(conn)
         _migrate_scanlate_columns(conn)
         _migrate_bulk_job_columns(conn)
@@ -380,7 +381,7 @@ from db.schema_system import (  # noqa: E402,F401
 
 from db.migrations import (  # noqa: E402,F401
     _grant_lines_read_for_reader_page, _migrate_auth_session_columns, _migrate_bulk_job_columns,
-    _migrate_drama_columns, _migrate_gpu_lock_slots, _migrate_job_records_columns,
+    _add_topic_chapters_column, _migrate_drama_columns, _migrate_gpu_lock_slots, _migrate_job_records_columns,
     _create_line_ref_indexes, _migrate_line_columns, _migrate_line_refs_to_ids, _migrate_off_removed_test_engine,
     _migrate_ownership_columns, _migrate_progress_view_prefs, _migrate_scanlate_columns,
     _migrate_series_and_character_columns, _migrate_step26e_profiles,
@@ -539,6 +540,7 @@ from db.speakers import (  # noqa: F401
     voice_bank_clip_path,
     apply_voice_bank_entry,
     rename_voice_bank_entry,
+    set_voice_bank_private,
     set_series_character_voice,
     update_voice_bank_details,
     replace_voice_bank_clip,
@@ -553,6 +555,7 @@ from db.comic_pages import (  # noqa: F401
     update_page,
     list_pages,
     page_progress_by_drama,
+    page_filenames_by_drama,
     get_page,
     move_pages,
     BUBBLE_EDIT_FIELDS,
@@ -625,9 +628,10 @@ from db.line_annotations import (  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 
 from db.reading import (  # noqa: E402,F401
-    clear_reading_history, create_profile, delete_profile, get_personal_notes, get_profile,
+    clear_reading_history, create_profile, delete_profile, get_chapter_marks, get_personal_notes, get_profile,
     get_progress, list_continue_reading, list_profiles, list_reading_history,
-    get_view_prefs, save_personal_notes, save_progress, save_view_prefs)
+    get_view_prefs, reading_marks_by_drama, save_personal_notes, save_progress, save_view_prefs,
+    set_chapter_marks)
 
 
 # ---------------------------------------------------------------------------
@@ -867,4 +871,5 @@ from db.auth import (  # noqa: F401
     auth_list_audit_actions,
     auth_deactivate_user_keeping_an_admin,
     auth_revoke_admin_keeping_an_admin,
+    auth_delete_inactive_member,
 )

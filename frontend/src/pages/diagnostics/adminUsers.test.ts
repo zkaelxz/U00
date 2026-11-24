@@ -5,7 +5,7 @@ import type { AdminUser } from '../../types/adminUsers'
 import {
   activeAdminCount, ADMIN_PC_ONLY, adminTargetBlock, appendAudit, auditActionLabel, auditActor,
   auditTime, canChangeUsers, MAX_PAID_LIMIT_USD, paidSpendText, parsePaidLimit, canViewUsers, deactivateBlock, holds, revokeAdminBlock, revokeBlock, rowBlocks,
-  rightAbout, rightName, sessionsText, showRevokeAdmin, showRights, userName,
+  rightAbout, rightName, sessionsText, showDeleteUser, showRevokeAdmin, showRights, userName,
 } from './adminUsers'
 
 const user = (o: Partial<AdminUser> = {}): AdminUser => ({
@@ -103,6 +103,16 @@ describe('remove admin', () => {
     expect(showRevokeAdmin(admin, 'remote')).toBe(false)
     expect(showRevokeAdmin(admin, 'unknown')).toBe(false)
     expect(showRevokeAdmin(member, 'local')).toBe(false)
+  })
+
+  it('offers Delete only on a deactivated member row, and only on the PC', () => {
+    const off = user({ id: 5, is_active: false })
+    expect(showDeleteUser(off, 'local')).toBe(true)
+    expect(showDeleteUser(off, 'remote')).toBe(false)
+    expect(showDeleteUser(off, 'unknown')).toBe(false)
+    expect(showDeleteUser(user({ id: 6 }), 'local')).toBe(false)
+    expect(showDeleteUser(user({ id: 7, is_active: false, is_admin: true }), 'local')).toBe(false)
+    expect(showDeleteUser(user({ id: 8, is_active: false, is_self: true }), 'local')).toBe(false)
   })
 
   it('refuses your own account and the last active admin', () => {

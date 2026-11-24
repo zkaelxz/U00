@@ -10,6 +10,7 @@ import type {
   CharacterUpdate,
   EpisodeSummaryGenerated,
   EpisodeSummaryOptions,
+  TopicChaptersState,
   EstimateParams,
   GlossaryAffectedParams,
   GlossaryAffectedPreview,
@@ -108,6 +109,14 @@ export const getEpisodeSummaryOptions = (id: number, f?: Fetch) =>
 /** Spends on the chosen engine; returns the text without saving it. */
 export const generateEpisodeSummary = (id: number, engine: string, f?: Fetch) =>
   postJson<EpisodeSummaryGenerated>(`/api/translate-run/dramas/${id}/episode-summary/generate`, { engine }, f)
+export const getTopicChapters = (id: number, f?: Fetch) =>
+  getJson<TopicChaptersState>(`/api/translate-run/dramas/${id}/topic-chapters`, f)
+/** Spends on the chosen engine and saves the chapters it makes over any earlier ones. */
+export const generateTopicChapters = (id: number, engine: string, f?: Fetch) =>
+  postJson<{ chapters: TopicChaptersState['chapters'] }>(`/api/translate-run/dramas/${id}/topic-chapters/generate`, { engine }, f)
+export const clearTopicChapters = (id: number, f?: Fetch) =>
+  postJson<{ chapters: [] }>(`/api/translate-run/dramas/${id}/topic-chapters`, { chapters: [] }, f)
+export const topicChaptersTextUrl = (id: number) => apiUrl(`/api/export/dramas/${id}/chapters-text`)
 export const applyWorkflowTier = (id: number, tier: string, f?: Fetch) =>
   postJson<WorkflowTierApplied>(`/api/translate-run/dramas/${id}/workflow-tier`, { tier }, f)
 export const applyTranslatePreset = (id: number, presetId: number, f?: Fetch) =>

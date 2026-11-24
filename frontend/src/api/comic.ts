@@ -3,6 +3,8 @@
 // lines.edit, and the page images media.stream (so an <img> can fail with 403).
 
 import type {
+  ComicChapterMarks,
+  ComicChapterMarksRequest,
   ComicPagesResponse,
   ComicProgress,
   ComicRegionsResponse,
@@ -15,7 +17,7 @@ import type {
   ComicVisibilityResult,
   ComicVariant,
 } from '../types/comic'
-import { apiUrl, getJson, headStatus, postJson, type Fetch } from './client'
+import { apiUrl, fetchBody, getJson, headStatus, postJson, type Fetch } from './client'
 
 const root = (id: number) => `/api/scanlate/dramas/${id}`
 
@@ -32,6 +34,16 @@ export function comicImageUrl(
   if (size !== 'full') q.set('size', size)
   if (version !== null && version !== '') q.set('v', String(version))
   return apiUrl(`${root(dramaId)}/pages/${pageId}/image?${q}`)
+}
+
+// The picture behind a comicImageUrl() src, for saving or sharing it. The src carries apiUrl's base, which the client adds again.
+// The reader's smaller copy is a lossy re-encode, so the stored picture is asked for instead.
+export function fetchComicImage(src: string, f?: Fetch) {
+  const base = apiUrl('')
+  const [path, query = ''] = src.slice(base.length).split('?')
+  const q = new URLSearchParams(query)
+  q.delete('size')
+  return fetchBody(`${path}?${q}`, {}, (r) => r.blob(), f)
 }
 
 export type ImageProblem = 'forbidden' | 'missing' | 'failed'
@@ -63,6 +75,8 @@ export const comicApi = {
   sourceChapters: (id: number, f?: Fetch) => getJson<ComicSourceChapters>(`${root(id)}/source-chapters`, f),
   setVisibility: (id: number, body: ComicVisibilityRequest, f?: Fetch) =>
     postJson<ComicVisibilityResult>(`${root(id)}/pages/visibility`, body, f),
+  markChapters: (id: number, body: ComicChapterMarksRequest, f?: Fetch) =>
+    postJson<ComicChapterMarks>(`${root(id)}/chapters/marks`, body, f),
   startChapter: (id: number, body: ComicStartChapterRequest, f?: Fetch) =>
     postJson<ComicStartChapterResult>(`${root(id)}/pages/start-chapter`, body, f),
 }

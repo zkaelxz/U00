@@ -114,6 +114,62 @@ def save_progress(drama_id: int, profile_id: int | None = None, last_line_idx: i
         conn.commit()
 
 
+def get_chapter_marks(drama_id: int, profile_id: int | None = None) -> dict:
+    """{chapter_id: {"read": bool, "bookmarked": bool}} for the chapters that carry a mark."""
+    with contextlib.closing(db.get_conn()) as conn:
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
+        rows = conn.execute(
+            "SELECT chapter_id, read_at, bookmarked FROM chapter_marks WHERE drama_id = ? AND profile_id = ?",
+            (drama_id, profile_id)).fetchall()
+    return {r["chapter_id"]: {"read": r["read_at"] is not None, "bookmarked": bool(r["bookmarked"])}
+            for r in rows}
+
+
+def set_chapter_marks(drama_id: int, chapter_ids, read: bool | None = None,
+                      bookmarked: bool | None = None, profile_id: int | None = None) -> None:
+    """Sets read and/or bookmarked on these chapters; a None leaves that mark as it is.
+    A chapter already read keeps its first read time."""
+    now = clock.utcnow().isoformat()
+    with contextlib.closing(db.get_conn()) as conn:
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
+        conn.executemany("""
+            INSERT INTO chapter_marks (drama_id, profile_id, chapter_id, read_at, bookmarked)
+            VALUES (:drama, :profile, :chapter, :read_at, :new_bookmarked)
+            ON CONFLICT(drama_id, profile_id, chapter_id) DO UPDATE SET
+                read_at = CASE WHEN :read IS NULL THEN chapter_marks.read_at
+                               WHEN :read = 0 THEN NULL
+                               ELSE COALESCE(chapter_marks.read_at, excluded.read_at) END,
+                bookmarked = COALESCE(:bookmarked, chapter_marks.bookmarked)
+        """, [{"drama": drama_id, "profile": profile_id, "chapter": chapter_id,
+               "read": None if read is None else int(read),
+               "bookmarked": None if bookmarked is None else int(bookmarked),
+               "read_at": now if read else None, "new_bookmarked": int(bool(bookmarked))}
+              for chapter_id in chapter_ids])
+        # A chapter with neither mark needs no row.
+        conn.execute("DELETE FROM chapter_marks WHERE drama_id = ? AND profile_id = ? "
+                     "AND read_at IS NULL AND bookmarked = 0", (drama_id, profile_id))
+        conn.commit()
+
+
+def reading_marks_by_drama(profile_id: int | None = None) -> dict:
+    """{drama_id: (percent_complete, {read chapter ids})} for every title with a resume point
+    or a read chapter, in two queries, for the Library list's reading filter and unread count."""
+    with contextlib.closing(db.get_conn()) as conn:
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
+        percents = conn.execute(
+            "SELECT drama_id, percent_complete FROM progress WHERE profile_id = ?", (profile_id,)).fetchall()
+        read = conn.execute(
+            "SELECT drama_id, chapter_id FROM chapter_marks WHERE profile_id = ? AND read_at IS NOT NULL",
+            (profile_id,)).fetchall()
+    out = {r["drama_id"]: (r["percent_complete"] or 0.0, set()) for r in percents}
+    for r in read:
+        out.setdefault(r["drama_id"], (0.0, set()))[1].add(r["chapter_id"])
+    return out
+
+
 def get_progress(drama_id: int, profile_id: int | None = None):
     with contextlib.closing(db.get_conn()) as conn:
         if profile_id is None:

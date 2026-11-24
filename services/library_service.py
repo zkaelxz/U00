@@ -12,6 +12,7 @@ it takes plain values and returns plain dicts, so any caller can use it.
 """
 
 from core import LINE_LANGUAGES
+import comic_chapters
 import os
 import sqlite3
 
@@ -67,16 +68,32 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
 
 
 def _with_progress(dramas: list) -> list:
-    """Add `line_count`, `translated_count`, `page_count`, `pages_translated` and
-    `new_chapters` so a card can show where a title stands without opening it."""
+    """Add `line_count`, `translated_count`, `page_count`, `pages_translated`,
+    `new_chapters`, `read_percent` and `unread_chapters` so a card can show where a
+    title stands without opening it."""
     counts = db.line_progress_by_drama() if dramas else {}
     pages = db.page_progress_by_drama() if dramas else {}
     new = _new_chapter_counts() if dramas else {}
-    return [{**d, "line_count": counts.get(d["id"], (0, 0))[0],
+    reading = db.reading_marks_by_drama() if dramas else {}
+    filenames = db.page_filenames_by_drama() if dramas else {}
+    return [{**d, "read_percent": reading.get(d["id"], (0.0, ()))[0],
+             "unread_chapters": _unread_chapters(d["id"], filenames.get(d["id"], ()),
+                                                 reading.get(d["id"], (0.0, ()))[1]),
+             "line_count": counts.get(d["id"], (0, 0))[0],
              "translated_count": counts.get(d["id"], (0, 0))[1],
              "page_count": pages.get(d["id"], (0, 0))[0],
              "pages_translated": pages.get(d["id"], (0, 0))[1],
              "new_chapters": new.get(d["id"], 0)} for d in dramas]
+
+
+def _unread_chapters(drama_id: int, filenames, read_ids) -> int:
+    """A comic's chapters with no read mark, grouped as the reader groups them: marks are kept
+    under the reader's group ids, and a chapter whose pages are gone has no row there to tick.
+    Pages that belong to no chapter are not counted."""
+    if not filenames:
+        return 0
+    groups = comic_chapters.group_pages([{"filename": f} for f in filenames], comic_chapters.load(drama_id))
+    return sum(1 for g in groups if g["known"] and g["id"] not in read_ids)
 
 
 def _new_chapter_counts() -> dict:
@@ -164,7 +181,8 @@ def list_cost_by_drama(principal=None) -> list:
     """Dramas with at least one logged call (free-engine runs included)."""
     return [{k: d.get(k) for k in (
         "id", "title_en", "title_zh", "translation_engine", "input_tokens",
-        "output_tokens", "cache_read_tokens", "estimated_cost_usd", "call_count")}
+        "output_tokens", "cache_read_tokens", "estimated_cost_usd", "call_count",
+        "cloud_call_count")}
         for d in db.get_usage_by_drama(visible_to=ownership_service.visible_to_filter(principal))
         if d["call_count"] > 0]
 
@@ -277,7 +295,7 @@ def rename_preset(preset_id: int, name: str) -> dict:
 
 
 _VOICE_FIELDS = ("id", "name", "language", "clone_engine", "source_drama", "source_speaker",
-                 "notes", "ref_text", "created_at")
+                 "notes", "ref_text", "created_at", "is_private")
 
 
 def _voice_source_shown(principal):
@@ -309,8 +327,9 @@ def list_voice_bank(principal=None) -> list:
     the principal may not see are left out (`source_hidden`)."""
     shown = _voice_source_shown(principal)
     out = []
-    for e in db.list_voice_bank_entries():
-        entry = {**{k: e.get(k) for k in _VOICE_FIELDS},
+    for e in ownership_service.visible_voice_entries(principal, db.list_voice_bank_entries()):
+        entry = {**{k: e.get(k) for k in _VOICE_FIELDS if k != "is_private"},
+                 "is_private": bool(e.get("is_private")),
                  "clip_available": os.path.exists(os.path.join(db.VOICE_BANK_DIR, e["clip_filename"])),
                  "source_hidden": False}
         if not shown(e.get("source_drama")):
@@ -319,13 +338,31 @@ def list_voice_bank(principal=None) -> list:
     return out
 
 
+def voice_bank_entry_view(entry_id: int, principal=None) -> dict:
+    """The entry as `principal` sees it; a private one it can't see is a 404, so a write
+    that already happened doesn't end in an unhandled error."""
+    for e in list_voice_bank(principal):
+        if e["id"] == entry_id:
+            return e
+    raise NotFoundError(f"No voice bank entry with id {entry_id}.")
+
+
 def rename_voice_bank_entry(entry_id: int, name: str, principal=None) -> dict:
     entry_id = lib_ids.check_id_of("voice bank entry", entry_id)
     name = _clean_name(name)
     if db.get_voice_bank_entry(entry_id) is None:
         raise NotFoundError(f"No voice bank entry with id {entry_id}.")
     db.rename_voice_bank_entry(entry_id, name)
-    return next(e for e in list_voice_bank(principal) if e["id"] == entry_id)
+    return voice_bank_entry_view(entry_id, principal)
+
+
+def set_voice_bank_private(entry_id: int, private: bool, principal=None) -> dict:
+    """Hides a voice from members (or shows it again). Admin-only by its route."""
+    entry_id = lib_ids.check_id_of("voice bank entry", entry_id)
+    if db.get_voice_bank_entry(entry_id) is None:
+        raise NotFoundError(f"No voice bank entry with id {entry_id}.")
+    db.set_voice_bank_private(entry_id, private)
+    return voice_bank_entry_view(entry_id, principal)
 
 
 def update_voice_bank_details(entry_id: int, notes: str, ref_text: str, language, principal=None) -> dict:
@@ -339,4 +376,4 @@ def update_voice_bank_details(entry_id: int, notes: str, ref_text: str, language
     if language and language not in LINE_LANGUAGES:
         raise InvalidInputError(f"Language must be one of {', '.join(LINE_LANGUAGES)}.")
     db.update_voice_bank_details(entry_id, notes.strip(), ref_text.strip(), language or None)
-    return next(e for e in list_voice_bank(principal) if e["id"] == entry_id)
+    return voice_bank_entry_view(entry_id, principal)

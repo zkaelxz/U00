@@ -32,13 +32,10 @@ export function languagePair(
 /** What a model picker shows for `model`: its server label when it has one (a model
  *  offered from the provider's list), else the id. */
 export function modelOptionLabel(
-  engine: { model_labels?: Record<string, string>; cloud_models?: string[] } | null | undefined,
+  engine: { model_labels?: Record<string, string> } | null | undefined,
   model: string,
 ): string {
-  const label = engine?.model_labels?.[model]
-  if (label) return label
-  // The server decides what is a cloud tag; a hosted model is never shown as plain text.
-  return engine?.cloud_models?.includes(model) ? `${model} (Cloud)` : model
+  return engine?.model_labels?.[model] || model
 }
 
 // Engines that can run now (key configured). The Translate page lists these
@@ -93,12 +90,13 @@ export function engineSummary(label: string): string {
 // TranslateRequest.text max_length in api/schemas/translate.py (the API answers 422 past it).
 export const MAX_TRANSLATE_TEXT_CHARS = 2_000_000
 
-export function validateTranslateInput(text: string, engine: string): string | null {
+// engine null: picked by the server, so there is nothing to choose.
+export function validateTranslateInput(text: string, engine: string | null): string | null {
   if (!text.trim()) return 'Enter some text to translate.'
   if (text.length > MAX_TRANSLATE_TEXT_CHARS) {
     return `The text is too long: the limit is ${MAX_TRANSLATE_TEXT_CHARS.toLocaleString('en-US')} characters.`
   }
-  if (!engine) return 'Pick an engine.'
+  if (engine === '') return 'Pick an engine.'
   return null
 }
 
@@ -117,12 +115,13 @@ export const translateApi = {
     postJson<TranslateEstimate>('/api/translate/estimate', req, f),
   readImage: (
     image: Blob,
-    opts: { engine: string; model?: string | null; language?: string },
+    // No engine: the server picks one this account may use.
+    opts: { engine?: string; model?: string | null; language?: string },
     f?: Fetch,
   ) => {
     const form = new FormData()
     form.append('image', image, 'screenshot.png')
-    form.append('engine', opts.engine)
+    if (opts.engine) form.append('engine', opts.engine)
     if (opts.model) form.append('model', opts.model)
     if (opts.language) form.append('language', opts.language)
     return postMultipart<ReadImageResult>('/api/translate/read-image', form, f)

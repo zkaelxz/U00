@@ -53,9 +53,11 @@ type Props = {
   // Web-search fallback: puts a result's address into the Paste a link box
   // (null where that box is not available).
   onUseLink: ((url: string) => void) | null
+  // A source picked from the Sources list: search just that one (n: a new pick each time).
+  only?: { name: string; n: number } | null
 }
 
-export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUseLink }: Props) {
+export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUseLink, only = null }: Props) {
   const [query, setQuery] = useState('')
   // Unticked source names; everything else searchable is ticked.
   const [excluded, setExcluded] = usePersistedState<string[]>('sources.searchIn', [])
@@ -65,7 +67,15 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUse
   const searchable = searchableSources(sources, !!browserNeed)
   const held = browserHeldSources(sources, !!browserNeed)
   const names = searchable.map((s) => s.name)
-  const selected = selectedSources(names, Array.isArray(excluded) ? excluded : [])
+  // Kept apart from the saved ticks, so a one-off pick from the list doesn't overwrite the person's choice.
+  const [onlyName, setOnlyName] = useState<string | null>(only?.name ?? null)
+  const [seenOnly, setSeenOnly] = useState(only?.n ?? 0)
+  if ((only?.n ?? 0) !== seenOnly) {
+    setSeenOnly(only?.n ?? 0)
+    setOnlyName(only?.name ?? null)
+  }
+  const onlyActive = onlyName !== null && names.includes(onlyName) ? onlyName : null
+  const selected = onlyActive ? [onlyActive] : selectedSources(names, Array.isArray(excluded) ? excluded : [])
   const running = job.status === 'running'
   const reason = searchDisabledReason(query, names.length, selected.length, remote)
   const display = (name: string) => sources.find((s) => s.name === name)?.display_name ?? name
@@ -107,6 +117,14 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUse
             Search
           </button>
         </div>
+        {onlyActive !== null && (
+          <p className="muted sources-only">
+            Searching only {display(onlyActive)}.{' '}
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => setOnlyName(null)}>
+              Search all sources
+            </button>
+          </p>
+        )}
         {reason && <p className="muted sources-reason">{reason}</p>}
         {browserNeed && held.length > 0 && <NeedsInstall need={browserNeed} />}
         {names.length > 0 && (

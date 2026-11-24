@@ -107,10 +107,43 @@ def test_a_pr_build_never_reads_the_signing_key_or_publishes():
 
 def test_promoting_a_release_waits_for_an_audit_of_the_tags_code():
     promote = _load("promote-release.yml")["jobs"]
-    assert promote["promote"]["needs"] == "audit"
+    assert "audit" in promote["promote"]["needs"]
     audit = promote["audit"]
     assert audit["uses"] == "./.github/workflows/dependency-audit-code.yml"
     assert audit["with"]["ref"] == "refs/tags/${{ inputs.tag }}"
+
+
+# --- a recent release check before a release is promoted ---------------------------
+
+def _release_check_step():
+    wf = _load("promote-release.yml")
+    assert _on(wf)["workflow_dispatch"]["inputs"]["release_check"]["required"] is True
+    jobs = wf["jobs"]
+    assert "release-check" in jobs["promote"]["needs"]
+    (step,) = jobs["release-check"]["steps"]
+    assert "uses" not in step  # nothing from the repository runs
+    return step
+
+
+def _run_release_check(stamp):
+    if os.name == "nt" or not shutil.which("bash"):
+        pytest.skip("needs bash and GNU date (the job runs on ubuntu)")
+    step = _release_check_step()
+    env = {**os.environ, **{k: v for k, v in step["env"].items() if k != "STAMP"}, "STAMP": stamp}
+    return subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True, timeout=30)
+
+
+def test_promoting_needs_a_release_check_from_the_last_seven_days():
+    import datetime
+
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    for days, ok in ((0, True), (7, True), (-1, True), (8, False), (-2, False)):
+        stamp = (today - datetime.timedelta(days=days)).strftime("%Y%m%d") + "-101500"
+        proc = _run_release_check(stamp)
+        assert (proc.returncode == 0) is ok, (days, proc.stdout)
+    for bad in ("", "20261124", "20261340-101500", "20261124-101500; echo hi"):
+        proc = _run_release_check(bad)
+        assert proc.returncode != 0 and "Nothing was promoted" in proc.stdout, bad
 
 
 def test_the_audit_checks_out_the_given_commit_with_a_read_only_token():

@@ -8,7 +8,7 @@ from lib import settings_schema
 from . import pricing
 from .claude import ClaudeEngine
 from .gemini import GeminiEngine
-from .local import OllamaEngine, is_ollama_cloud_model
+from .local import REMOVED_LOCAL_MODELS, OllamaEngine, cloud_model_needs_paid, is_ollama_cloud_model
 from .openai_compat import DeepSeekEngine, OpenAIEngine
 
 
@@ -30,9 +30,13 @@ WORKFLOW_TIERS = {
                  "engine_model": "claude-sonnet-5-5", "reflect": False, "auto_qc": False},
     "release": {"label": "Release -- best quality, checked before export",
                 "translation_engine": "claude", "engine_model": "claude-opus-5-5",
-                "reflect": True, "auto_qc": True},
+                "reflect": False, "auto_qc": True},
 }
 
+
+# "Check and revise" (Reflect) was removed from the app. The pipeline stays so a
+# bulk Reflect job submitted earlier can still finish; no new run may use it.
+REFLECT_RUNS_ENABLED = False
 
 ENGINES = {
     # Paid/normal engines first, then the free-for-testing ones grouped
@@ -131,7 +135,7 @@ ENGINE_NOTES = {
     "deepseek": "Paid, cloud, very cheap; strong on Chinese.",
     "gemini": "Paid, cloud, cheap; strong on Chinese/Japanese.",
     "openai": "Paid, cloud; GPT-6 models, billed per token.",
-    "ollama": "Free and private; local Gemma 4 on your GPU.",
+    "ollama": "Free on this PC with a local model; hosted Gemma 4 31B is paid.",
 }
 
 # Shown instead of ENGINE_NOTES["gemini"] when the "My Gemini key is
@@ -184,11 +188,12 @@ def set_hosted_default_caller_check(check) -> None:
     _hosted_default_caller_ok = check
 
 
-def hosted_default_allowed() -> bool:
-    """Whether a hosted Ollama tag may be a default for this caller: the owner
-    opted in (Settings) and the caller holds paid-engine permission. A caller
-    without it falls back to the local default (translategemma), so the owner's
-    choice never sends a restricted account's text off the PC."""
+def hosted_default_allowed(model=None) -> bool:
+    """Whether hosted Ollama tag `model` may be a default for this caller: the owner
+    opted in (Settings), and the caller holds paid-engine permission unless the tag
+    is one every account may use (local.MEMBER_CLOUD_MODELS). A caller without it
+    is refused a hosted default, so the owner's choice never
+    sends a restricted account's text off the PC on a model they may not use."""
     try:
         import db
         if not settings_schema.coerce(
@@ -196,6 +201,8 @@ def hosted_default_allowed() -> bool:
             return False
     except Exception:
         return False
+    if model is not None and not cloud_model_needs_paid(model):
+        return True
     return _hosted_default_caller_ok is None or bool(_hosted_default_caller_ok())
 
 
@@ -203,20 +210,32 @@ def hosted_default_blocked(engine_name: "str | None", model) -> bool:
     """True when `model` is a hosted Ollama tag that may not be used as a default:
     a default is used by every call that names Ollama without a model, so a hosted
     tag there sends text off this PC unannounced unless the owner opted in."""
-    return engine_name == "ollama" and is_ollama_cloud_model(model) and not hosted_default_allowed()
+    return engine_name == "ollama" and is_ollama_cloud_model(model) and not hosted_default_allowed(model)
+
+
+def drop_removed_model(engine_name: "str | None", model):
+    """None for an Ollama tag that is no longer offered, so a saved title, preset
+    or queued run that names it runs on the engine's default instead; any other
+    model is returned as it came."""
+    if engine_name in (None, "ollama") and isinstance(model, str) and model.lower() in REMOVED_LOCAL_MODELS:
+        return None
+    return model
 
 
 def model_override_for_default(engine_name: str):
     """The user's chosen model for `engine_name`'s built-in default, or None.
     An override for an engine this build no longer has is ignored."""
-    model = _read_overrides(MODEL_OVERRIDE_DEFAULTS_KEY, ENGINES).get(engine_name)
+    model = drop_removed_model(
+        engine_name, _read_overrides(MODEL_OVERRIDE_DEFAULTS_KEY, ENGINES).get(engine_name))
     # Re-checked on read: a restored backup bypasses the write-time check, and
     # switching the opt-in off must stop a stored hosted default at once.
     return None if hosted_default_blocked(engine_name, model) else model
 
 
 def model_override_for_tier(tier_key: str):
-    model = _read_overrides(MODEL_OVERRIDE_TIERS_KEY, WORKFLOW_TIERS).get(tier_key)
+    model = drop_removed_model(
+        (WORKFLOW_TIERS.get(tier_key) or {}).get("translation_engine"),
+        _read_overrides(MODEL_OVERRIDE_TIERS_KEY, WORKFLOW_TIERS).get(tier_key))
     tier = WORKFLOW_TIERS.get(tier_key) or {}
     return None if hosted_default_blocked(tier.get("translation_engine"), model) else model
 
@@ -374,7 +393,7 @@ def effective_tier(tier_key: str):
 def get_engine(engine_name: str, api_key: str | None = None, model: str | None = None,
                free_tier: bool = False, base_url: str | None = None):
     cls = ENGINES[engine_name]
-    model = model or model_override_for_default(engine_name)
+    model = drop_removed_model(engine_name, model) or model_override_for_default(engine_name)
     kwargs = {}
     if engine_name == "gemini":
         kwargs["free_tier"] = free_tier

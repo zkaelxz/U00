@@ -19,6 +19,7 @@ def paid_limit_reached(user_id) -> bool:
     return limit is not None and db.get_user_month_spend(user_id) >= limit
 
 
-PAID_LIMIT_MESSAGE = ("You've used this month's limit for paid engines, so they're off for you "
-                      "until next month or until the PC owner raises your limit. Free engines "
-                      "such as Ollama still work.")
+# No "free engines still work": a member's runs are chosen for them, and the hosted Ollama
+# model they run on counts toward the limit too, so nothing would be left for them to pick.
+PAID_LIMIT_MESSAGE = ("You've reached your monthly spending limit, so AI runs are paused for you "
+                      "until next month or until the PC owner raises your limit.")

@@ -135,7 +135,7 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
               engine: str | None = None, detect_backend: str = "auto",
               chapter_id: str | None = None, art_captions: bool = False,
               read_ahead_from: int | None = None, page_ids: list | None = None,
-              keep_text: bool = False) -> dict:
+              keep_text: bool = False, engine_swapped: bool = False) -> dict:
     """Starts the drama's Scanlate run. 409: a job or import is running,
     or mode "all" without confirm. 503: no key for the engine. 400: no
     pages. `chapter_id` limits "missing"/"all" to one chapter. `art_captions` also
@@ -144,7 +144,8 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
     having asked for this spend) is refused for a capped engine while no monthly cap is set.
     Mode "pages" redoes the pages in `page_ids` (confirm required, like "all"). `keep_text` (modes
     page, pages, all) skips detection and OCR: the text already read is translated again and
-    the pages are typeset again; a page with no text read yet is read normally.
+    the pages are typeset again; a page with no text read yet is read normally. `engine_swapped`:
+    Ollama stands in for a default the account may not use (api.auth.engine_for_caller).
     Returns {job_id, engine, mode}."""
     pages_svc.require_drama(drama_id)
     if mode not in MODES:
@@ -206,7 +207,10 @@ def start_run(drama_id: int, mode: str = "missing", page_id: int | None = None, 
     engine_name = engine or str(settings_service.get("default_engine"))
     if read_ahead_from is not None:
         paid_job_service.require_cap_for_unattended(
-            engine_name, bool(settings_service.get("gemini_free_tier")), None)  # runs the default model
+            engine_name, bool(settings_service.get("gemini_free_tier")),
+            # A swapped-in Ollama runs its default, which may be hosted and billed per token, and the
+            # member did not choose it. Elsewhere None keeps the pre-existing check of the local default.
+            engine_registry.effective_default_model(engine_name) if engine_swapped else None)
     # Pure-MT engines are called once per region, outside call_llm_json.
     built = llm_tasks.bound_batches(_build_engine(engine_name))
     started = pages_svc.start_drama_job(

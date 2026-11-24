@@ -42,6 +42,8 @@ describe('cost rows (parity L04)', () => {
   it('free engines say so', () => {
     expect(costLabel(0)).toBe('$0.00 (free)')
     expect(costLabel(3.471)).toBe('$3.47')
+    expect(costLabel(0, { translation_engine: 'ollama' })).toBe('$0.00 (on this PC)')
+    expect(costLabel(0, { translation_engine: 'ollama', cloud_call_count: 3 })).toBe('$0.00 (cloud, logged as free)')
   })
   it('compact token counts', () => {
     expect(compactCount(950)).toBe('950')

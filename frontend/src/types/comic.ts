@@ -26,6 +26,8 @@ export interface ComicPageInfo {
 }
 
 export type ComicChapter = Schemas['ComicChapter']
+export type ComicChapterMarksRequest = Schemas['ComicChapterMarksRequest']
+export type ComicChapterMarks = Schemas['ComicChapterMarks']
 
 // C1: GET /pages
 export interface ComicPagesResponse {

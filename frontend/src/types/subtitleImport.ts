@@ -9,6 +9,8 @@ export type SubtitleImportPreview = Schemas['SubtitleImportPreview']
 
 export type SubtitleImportResult = Schemas['SubtitleImportResult']
 
+export type PictureSubtitleStarted = Schemas['PictureSubtitleStarted']
+
 export interface SubtitleImportOptions {
   mode: SubtitleImportMode
   encoding: string

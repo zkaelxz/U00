@@ -5,8 +5,8 @@
 import { useSession } from '../hooks/useSession'
 
 export const PAID_LIMIT_BANNER =
-  "You've used this month's limit for paid engines, so they're off for you until next month or until the " +
-  'person who runs Baihe on the PC raises your limit. Free engines such as Ollama still work.'
+  "You've reached your monthly spending limit, so AI runs are paused for you until next month or until the " +
+  'person who runs Baihe on the PC raises your limit.'
 
 export function PaidLimitBanner() {
   const s = useSession()

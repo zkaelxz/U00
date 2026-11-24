@@ -33,7 +33,8 @@ ROUTES = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"), ("POST", "/a
           ("DELETE", "/api/admin/users/{id}/ollama-key"),
           ("POST", "/api/admin/users/{id}/permissions/{permission}"),
           ("DELETE", "/api/admin/users/{id}/permissions/{permission}"),
-          ("POST", "/api/admin/users/{id}/paid-limit")]
+          ("POST", "/api/admin/users/{id}/paid-limit"),
+          ("DELETE", "/api/admin/users/{id}")]
 
 
 def _app(auth="on"):
@@ -891,6 +892,9 @@ def test_an_admin_has_no_limit_of_their_own(isolated_db):
     assert not _audit("user.paid_limit")
 
 
+_PAID_TEXT = {"text": "你好", "engine": "claude", "source_language": "zh", "target_language": "en"}
+
+
 def test_a_member_over_their_limit_loses_paid_engines_until_it_is_raised(isolated_db):
     c = _remote(_app())
     m, ms = _paid_member(limit=1)
@@ -905,7 +909,7 @@ def test_a_member_over_their_limit_loses_paid_engines_until_it_is_raised(isolate
     assert "engines.paid" in auth_service.effective_permissions(m["id"])
     me = c.get("/api/auth/me", headers=_h(ms)).json()
     assert me["paid_limit_reached"] is True and "engines.paid" not in me["permissions"]
-    r = c.post("/api/translate", headers=_h(ms), json={"text": "你好"})
+    r = c.post("/api/translate", headers=_h(ms), json=_PAID_TEXT)
     assert r.status_code == 403
     assert r.json()["error"] == {"code": "forbidden", "message": paid_limits.PAID_LIMIT_MESSAGE,
                                  "details": {"reason": "paid_limit_reached"}}
@@ -919,7 +923,7 @@ def test_a_member_without_the_right_still_gets_the_plain_refusal(isolated_db):
     auth_service.admin_set_paid_limit(m["id"], 1)
     with db.spending_for(m["id"]):
         db.log_usage(None, "claude", "m", "translate", 1, 1, 2)
-    r = c.post("/api/translate", headers=_h(ms), json={"text": "你好"})
+    r = c.post("/api/translate", headers=_h(ms), json=_PAID_TEXT)
     assert r.status_code == 403 and r.json()["error"]["message"] != paid_limits.PAID_LIMIT_MESSAGE
 
 
@@ -930,7 +934,7 @@ def test_paid_work_for_a_member_over_their_limit_is_refused_before_each_call(iso
     with db.spending_for(m["id"]):
         translate_run_service.refuse_when_cap_spent("claude", False, None)
         db.log_usage(None, "claude", "m", "translate", 1, 1, 1)
-        with pytest.raises(UnsupportedOperationError, match="limit for paid engines"):
+        with pytest.raises(UnsupportedOperationError, match="monthly spending limit"):
             translate_run_service.refuse_when_cap_spent("claude", False, None)
         translate_run_service.refuse_when_cap_spent("ollama", False, None)   # a free engine is not capped
     translate_run_service.refuse_when_cap_spent("claude", False, None)       # the PC owner's own work goes on
@@ -1023,3 +1027,83 @@ def test_adding_a_person_never_makes_an_admin(isolated_db):
                                           json={"email": "kid@example.com"})
     assert not db.auth_get_user(r.json()["id"])["is_admin"]
     assert not any(p.startswith("admin.") for p in r.json()["permissions"])
+
+
+# --- delete a person ------------------------------------------------------------
+
+def test_admin_at_the_pc_deletes_a_deactivated_member_for_good(isolated_db):
+    import device_tokens
+    import member_keys
+    a, s = _admin()
+    m, ms = _member()
+    did = db.create_drama(title_zh="t", owner_user_id=m["id"])
+    c = loopback_client(_app())
+    r = c.delete(f"/api/admin/users/{m['id']}", headers=_h(s))
+    assert r.status_code == 409 and r.json()["error"]["message"] == "Deactivate the account first."
+    assert db.auth_get_user(m["id"])
+    assert c.post(f"/api/admin/users/{m['id']}/deactivate", headers=_h(s)).status_code == 200
+    # Rows the deactivation already cleared, put back to show the delete takes them too.
+    member_keys.put(m["id"], "ollama", "ciphertext", "1234", time.time())
+    device_tokens.insert_under_cap(m["id"], "pc", "hash", time.time(), None, cap=5)
+    r = c.delete(f"/api/admin/users/{m['id']}", headers=_h(s))
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert r.json() == {"user_id": m["id"], "deleted": True}
+    assert db.auth_get_user(m["id"]) is None
+    assert auth_service.resolve_session(ms["session_token"]) is None
+    with contextlib.closing(db.get_conn()) as conn:
+        for table in ("auth_sessions", "user_permissions", "extension_device_tokens", "member_api_keys"):
+            assert conn.execute(f"SELECT COUNT(*) FROM {table} WHERE user_id = ?",
+                                (m["id"],)).fetchone()[0] == 0, table
+    # The title stays, still naming the old id; adding the email again makes a new account.
+    assert db.get_drama(did)["owner_user_id"] == m["id"]
+    assert auth_service.add_user(m["email"])["id"] > m["id"]
+    assert [(e["user_id"], e["detail_redacted"]) for e in _audit("user.delete")] == \
+        [(a["id"], f"user {m['id']}")]
+    assert c.delete(f"/api/admin/users/{m['id']}", headers=_h(s)).status_code == 404
+
+
+def test_deleting_a_person_is_refused_away_from_the_pc(isolated_db):
+    _a, s = _admin()
+    m, _ = _member()
+    auth_service.deactivate_user(m["id"])
+    for client, headers in ((_remote(_app()), _h(s)), (_household_client(), _household_h(s))):
+        r = client.delete(f"/api/admin/users/{m['id']}", headers=headers)
+        assert r.status_code == 403
+        assert r.json()["error"]["message"] == auth_service.DELETE_AT_PC_ONLY
+    # Checked before the lookup, so away from the PC an unknown id answers the same.
+    r = _remote(_app()).delete("/api/admin/users/4242", headers=_h(s))
+    assert r.status_code == 403
+    assert db.auth_get_user(m["id"]) and not _audit("user.delete")
+
+
+def test_deleting_a_person_refuses_self_admins_and_unknown_ids(isolated_db):
+    a, s = _admin()
+    b, _ = _admin("second@example.com")
+    auth_service.deactivate_user(b["id"])
+    c = loopback_client(_app())
+    r = c.delete(f"/api/admin/users/{a['id']}", headers=_h(s))
+    assert r.status_code == 409 and r.json()["error"]["message"] == "You can't delete your own account."
+    r = c.delete(f"/api/admin/users/{b['id']}", headers=_h(s))
+    assert r.status_code == 409 and r.json()["error"]["message"] == "Remove their admin rights first."
+    assert c.delete("/api/admin/users/4242", headers=_h(s)).status_code == 404
+    assert c.delete(f"/api/admin/users/{b['id']}", headers=_h(s, csrf=False)).status_code == 403
+    assert db.auth_get_user(a["id"]) and db.auth_get_user(b["id"]) and not _audit("user.delete")
+
+
+def test_delete_refuses_an_account_reactivated_after_the_check(isolated_db, monkeypatch):
+    """The DELETE itself re-checks inactive and non-admin, so an activate
+    landing between the service's check and the write keeps the account."""
+    m, _ = _member()
+    auth_service.deactivate_user(m["id"])
+    real = db.auth_delete_inactive_member
+    detached = []
+
+    def reactivate_then_delete(uid):
+        db.auth_update_user(uid, is_active=1)
+        return real(uid)
+    monkeypatch.setattr(db, "auth_delete_inactive_member", reactivate_then_delete)
+    monkeypatch.setattr(db, "detach_shared_glossary_owner_groups", detached.append)
+    with pytest.raises(ConflictError):
+        auth_service.admin_delete_user(m["id"], at_pc=True)
+    assert db.auth_get_user(m["id"])["is_active"] == 1 and not _audit("user.delete")
+    assert detached == []   # a refused delete leaves their shared glossary groups linked

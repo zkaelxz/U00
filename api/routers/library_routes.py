@@ -20,7 +20,7 @@ from api.auth import local_only, require_permission
 from api.schemas import (
     CaptureNoteList, DramaDetail, DramaListResponse, DramaSummary, LibraryCostResponse,
     LibraryContinueResponse, LibraryDashboard, LibraryFilterOptions, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
-    LibraryRecentResponse, LibraryRename, LibraryVoiceDetails, LibrarySearchResponse, LibrarySeriesResponse,
+    LibraryRecentResponse, LibraryRename, LibraryVoiceDetails, LibraryVoicePrivate, LibrarySearchResponse, LibrarySeriesResponse,
     LibraryVoice, LibraryVoiceBankResponse, error_responses)
 from services import library_service, novel_files_service, voice_clone_service
 
@@ -28,11 +28,11 @@ router = APIRouter(prefix="/api/library", tags=["library"])
 
 _SUMMARY_FIELDS = tuple(f for f in DramaSummary.model_fields
                         if f not in ("custom_tags", "is_private", "owned_by_me", "made_by_me", "has_cover_art", "line_count", "translated_count", "page_count",
-                                    "pages_translated", "new_chapters"))
+                                    "pages_translated", "new_chapters", "read_percent", "unread_chapters"))
 _DETAIL_FIELDS = tuple(f for f in DramaDetail.model_fields
                        if f not in ("custom_tags", "is_private", "owned_by_me", "made_by_me", "has_audio", "has_novel_reference",
                                     "has_cover_art", "source_url", "keep_original", "line_count", "translated_count", "page_count",
-                                    "pages_translated", "new_chapters"))
+                                    "pages_translated", "new_chapters", "read_percent", "unread_chapters"))
 
 
 def _to_summary(drama: dict) -> DramaSummary:
@@ -48,6 +48,8 @@ def _to_summary(drama: dict) -> DramaSummary:
                         page_count=drama.get("page_count") or 0,
                         pages_translated=drama.get("pages_translated") or 0,
                         new_chapters=drama.get("new_chapters") or 0,
+                        read_percent=drama.get("read_percent") or 0,
+                        unread_chapters=drama.get("unread_chapters") or 0,
                         custom_tags=library_service.split_custom_tags(drama))
 
 
@@ -188,6 +190,13 @@ def add_voice(file: UploadFile = File(...), name: str = Form(..., min_length=1, 
              responses=_ERR_WRITE, summary="Rename a voice bank entry")
 def rename_voice(body: LibraryRename, request: Request, entry_id: int = Path(ge=1, le=2**31 - 1)):
     return library_service.rename_voice_bank_entry(entry_id, body.name, principal=request.state.principal)
+
+
+@router.post("/voice-bank/{entry_id}/private", dependencies=[require_permission("admin.library")],
+             response_model=LibraryVoice, responses=_ERR_WRITE,
+             summary="Hide a voice bank entry from members, or show it again")
+def set_voice_private(body: LibraryVoicePrivate, request: Request, entry_id: int = Path(ge=1, le=2**31 - 1)):
+    return library_service.set_voice_bank_private(entry_id, body.private, principal=request.state.principal)
 
 
 @router.post("/voice-bank/{entry_id}/details", dependencies=[require_permission("admin.library")],

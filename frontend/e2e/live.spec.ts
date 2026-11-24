@@ -144,6 +144,22 @@ test('away from the PC, an account that may import links sees no permission hint
   expect(m.unmocked).toEqual([])
 })
 
+test('a member gets the link, language and glossary only; Start sends the defaults, not this browser\'s old picks', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ engine: 'deepseek', segment_seconds: 3, source_language: 'ja' })))
+  const m = await mockLive(page, { remote: true, permissions: [...HOUSEHOLD, 'media.import_url'] })
+  const live = await openLive(page)
+  await expect(live.getByTestId('live-chosen-note')).toHaveText('The engine and caption settings are chosen for you.')
+  await expect(live.getByText('Advanced')).toHaveCount(0)
+  await expect(live.getByLabel('Language', { exact: true })).toHaveValue('ja')
+  await expect(live.getByTestId('live-glossary-title')).toBeVisible()
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({ source_language: 'ja', engine: 'ollama' })
+  expect(m.posts[0].body).not.toMatchObject({ segment_seconds: 3 })
+  expect(m.unmocked).toEqual([])
+})
+
 test('a refusal with its own reason shows that reason, not the permission text', async ({ page }) => {
   const m = await mockLive(page, { remote: true, permissions: [...HOUSEHOLD, 'media.import_url', 'engines.paid'] })
   m.state.startStatus = 403
@@ -285,12 +301,12 @@ test('model picker: when Ollama offers the hosted 31B, it is the only choice and
   const m = await mockLive(page, { ollama: true })
   await page.route('**/api/translate/engines', (route) => route.fulfill({ json: { items: [{
     name: 'ollama', label: 'Ollama', free: true, key_configured: true,
-    models: ['llama3.1:8b', 'translategemma:27b', 'gemma4:31b-cloud'], model_labels: { 'gemma4:31b-cloud': 'gemma4:31b-cloud (Cloud)' }, cloud_models: ['gemma4:31b-cloud'],
+    models: ['llama3.1:8b', 'translategemma:27b', 'gemma4:31b-cloud'], model_labels: {}, cloud_models: ['gemma4:31b-cloud'],
   }] } }))
   const live = await openLive(page)
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   const model = live.getByLabel('Model', { exact: true })
-  await expect(model.locator('option')).toHaveText(['gemma4:31b-cloud (Cloud) (default)'])
+  await expect(model.locator('option')).toHaveText(['gemma4:31b-cloud (default)'])
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   await expect.poll(() => m.posts.length).toBe(1)
   expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'gemma4:31b-cloud' })

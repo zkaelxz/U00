@@ -265,6 +265,18 @@ def _uploads_not_probed():
 
 
 @pytest.fixture(autouse=True)
+def _ocr_reads_in_this_process():
+    """The text reader's helper process can't see a test's fake RapidOCR, so reads stay here;
+    tests/test_ocr_worker.py drives the helper bookkeeping and the child's loop with fakes (no
+    real spawn). Set by hand for the same ordering reason."""
+    import ocr_worker
+    ocr_worker.inline = True
+    yield
+    ocr_worker.inline = False
+    ocr_worker._params_cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def _echo_engine_off_after_each_test():
     """Turning Developer Mode on registers the Echo engine in the process-wide
     engine tables; a test that does so (assistant, source-domain and role tests)
@@ -443,6 +455,14 @@ def _template_library(tmp_path_factory):
     finally:
         db.configure_library_dir(previous)
     return template
+
+
+@pytest.fixture
+def local_ollama_default(isolated_db):
+    """Makes Ollama's default a model on this PC (qwen3:4b), for a test that is
+    about the free, GPU-bound path; the built-in default is hosted and billed."""
+    from engine_backends import engine_registry
+    isolated_db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": "qwen3:4b"})
 
 
 @pytest.fixture

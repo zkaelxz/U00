@@ -29,6 +29,7 @@ interface LibraryCostRow {
   cache_read_tokens: number
   estimated_cost_usd: number
   call_count: number
+  cloud_call_count?: number
 }
 
 interface LibrarySeries {

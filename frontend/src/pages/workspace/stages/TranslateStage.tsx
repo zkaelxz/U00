@@ -44,6 +44,8 @@ import {
   type TranslateTab,
 } from '../translateTabs'
 import { useSimple, useStage } from '../StageContext'
+import { isMember, useSession } from '../../../hooks/useSession'
+import { useHolds } from '../../../hooks/useHolds'
 import { foldsTranslateOptions, titleKind } from '../titleKind'
 import { stageLabel } from '../stages'
 import { useTranslateRunForm } from './useTranslateRunForm'
@@ -62,11 +64,7 @@ import {
   fallbackOptions,
   MAX_FALLBACKS,
   monthSpendText,
-  cloudModelNotice,
   ollamaWarning,
-  reflectAvailable,
-  thinkingApplies,
-  thinkingHelp,
   translateButtonLabel,
   PRESET_NAME_MAX,
   styleGuidance,
@@ -78,6 +76,8 @@ import {
   contextRange,
   withPresetEngine,
   withSavedEngine,
+  memberEngine,
+  memberRunForm,
   type RunForm,
 } from '../translateForm'
 import { StyleField } from './StartFromPicker'
@@ -290,6 +290,8 @@ function RunPanel({
   // reviewing counts presses (0 = closed) so each press extracts afresh.
   // Simple keeps the engine, model, style and variant out of sight behind one summary line.
   const [changing, setChanging] = useState(false)
+  const member = isMember(useSession())
+  const holdsPaid = useHolds('engines.paid')
   const [reviewing, setReviewing] = useState(0)
   const [reviewNote, setReviewNote] = useState<string | null>(null)
   const canReview = !!drama.series_id
@@ -325,8 +327,7 @@ function RunPanel({
     const e = config.engines.find((x) => x.name === name)
     return e ? engineOptionLabel(e) : name
   }
-  const effEngine = f.engine || config.translation_engine
-  const canReflect = reflectAvailable(effEngine) && !(f.bulk && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
+  const effEngine = member ? memberEngine(config.translation_engine, config.engines, holdsPaid) : f.engine || config.translation_engine
   const canBulk = bulkAvailable(effEngine, config.bulk_supported_engines) && !(f.reflect && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const scanFirst = reviewFirst && canReview
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
@@ -348,7 +349,7 @@ function RunPanel({
     && fallbackOptions(engineNames, effEngine, f.fallbacks, -1).length > f.fallbacks.filter((e) => !e).length
 
   const runEstimate = () => {
-    const params = buildEstimateParams(f)
+    const params = buildEstimateParams(member ? memberRunForm(f) : f)
     setEstimate(null)
     if (!params) return setProblem('Cost cap must be a number of dollars, 0 or more.')
     setProblem(null)
@@ -363,7 +364,7 @@ function RunPanel({
   }
 
   const start = (afterReview = false) => {
-    const bad = validateRun(f, config.translation_engine, config.bulk_supported_engines)
+    const bad = validateRun(member ? memberRunForm(f) : f, config.translation_engine, config.bulk_supported_engines)
     setProblem(bad)
     if (bad) return
     // The Last run card's Retry reaches here without the disabled main button, so the gate is checked again.
@@ -377,7 +378,7 @@ function RunPanel({
     }
     if (starting) return
     setStarting(true)
-    startTranslateRun(dramaId, buildRunBody(f)).then((r) => {
+    startTranslateRun(dramaId, buildRunBody(member ? memberRunForm(f) : f)).then((r) => {
       setError(null)
       onStarted(r.job_id)
     }, setError).finally(() => setStarting(false))
@@ -442,7 +443,9 @@ function RunPanel({
   return (
     <section className="panel" aria-label="Translate run">
       <h2>Translate</h2>
-      {simple && !folded ? (
+      {member ? (
+        <p className="muted" data-testid="translate-summary">The engine and settings are chosen for you.</p>
+      ) : simple && !folded ? (
         <div className="translate-summary">
           <p data-testid="translate-summary">{runSummaryLine(effEngineLabel, f.model, styleLabel, humanize('locale', f.locale))}</p>
           <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={changing} onClick={() => setChanging((v) => !v)}>
@@ -456,10 +459,7 @@ function RunPanel({
           <div className="translate-go">{estimateControls}</div>
         </>
       )}
-      {!folded && !simple && basics}
-      {cloudModelNotice(engine, f.model) && (
-        <p className="warn" role="note" data-testid="cloud-model-notice">{cloudModelNotice(engine, f.model)}</p>
-      )}
+      {!folded && !simple && !member && basics}
       {ollamaWarning(effEngine, config.ollama_reachable) && <OllamaNotice onRecheck={onRecheckOllama} />}
       {gate && gate.id !== 'engine_ollama' && <div id="translate-gate"><EngineGateNote gate={gate} /></div>}
       <div className="translate-go">
@@ -507,7 +507,7 @@ function RunPanel({
             {blocker.kind === 'confirm-force' && <span>Still needed: confirm replacing the existing English below.</span>}
           </p>
         )}
-        {!folded && !simple && estimateControls}
+        {!folded && !simple && !member && estimateControls}
       </div>
       {f.force && (
         <label className="inline stage-ack">
@@ -554,7 +554,7 @@ function RunPanel({
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {/* Folded titles keep their basic fields in this section, so only an unfolded one can leave it out. */}
-      {!(simple && !folded) && <Section storageKey="translate.advanced" title="More options" summary={advancedSummary(f, base, reviewFirst)}>
+      {!(simple && !folded) && !member && <Section storageKey="translate.advanced" title="More options" summary={advancedSummary(f, base, reviewFirst)}>
         <div className="advanced-grid">
           {folded && (
             <div className="advanced-wide">
@@ -612,13 +612,13 @@ function RunPanel({
               <strong id={`${fallbackIds}-title`}>Fallback engines</strong>
               <HelpTip label="Fallback engines" id={`${fallbackIds}-help`}>
                 Up to {MAX_FALLBACKS}, tried in order only after the main engine keeps failing (it retries first). Same kind
-                as the main engine: AI with AI, translation-only with translation-only. Not with Check and revise or Bulk.
+                as the main engine: AI with AI, translation-only with translation-only. Not with Bulk.
               </HelpTip>
             </div>
             <p className="muted fallback-rule" id={`${fallbackIds}-rule`}>Used if the first engine fails</p>
             {fallbackOff && (
               <p className="muted fallback-rule" role="status">
-                Off while {f.reflect ? 'Check and revise' : 'Bulk'} is on{f.fallbacks.length ? '; remove these to run' : ''}.
+                Off while Bulk is on{f.fallbacks.length ? '; remove these to run' : ''}.
               </p>
             )}
             {f.fallbacks.map((fb, i) => {
@@ -660,17 +660,6 @@ function RunPanel({
                 {reviewFirst && <p className="muted" data-testid="review-glossary-note">{REVIEW_GLOSSARY_NOTE}</p>}
               </>
             )}
-            {reflectAvailable(effEngine) && (
-              <Field
-                label="Check and revise (3 passes)"
-                help={`Three passes: translate, critique, then revise. Slower and costs more; not available for translation-only engines.${!canReflect && !f.reflect ? ' Not with Bulk on this engine.' : ''}`}
-              >
-                <Toggle checked={f.reflect} disabled={!canReflect && !f.reflect} onChange={(v) => set('reflect', v)} />
-              </Field>
-            )}
-            <Field label="Think harder (slower, costs more)" help={thinkingHelp(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)}>
-              <Toggle checked={f.thinking && thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)} disabled={!thinkingApplies(effEngine, f.reflect, config.thinking_switch_engines, f.fallbacks)} onChange={(v) => set('thinking', v)} />
-            </Field>
             {bulkAvailable(effEngine, config.bulk_supported_engines) && (
               <Field
                 label="Bulk"
@@ -679,24 +668,24 @@ function RunPanel({
                 <Toggle checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(v) => set('bulk', v)} />
               </Field>
             )}
-            <Field
+            {!member && <Field
               label="Include baihe/GL genre guidance"
               help={`Tells the translator both leads are women, to keep 姐姐/妹妹-style address and not soften romance. It does not turn he into she; use the she/her default for that.${savedNote}`}
             >
               <Toggle checked={f.genre_notes} onChange={(v) => saveToggle('genre_notes', v)} />
-            </Field>
+            </Field>}
             <Field
               label="Use approved translations as examples"
               help="Adds approved lines from this series (edited by hand, accepted from memory or marked reviewed) that closely match, so repeated phrases keep one wording. Needs a title in a series; this run only. Its effect on quality is not measured."
             >
               <Toggle checked={f.memory_examples} onChange={(v) => set('memory_examples', v)} />
             </Field>
-            <Field
+            {!member && <Field
               label="Default ambiguous pronouns to she/her"
               help={`Writes she/her where Mandarin 他/她 is ambiguous, for lines translated after you save it (turn on Re-translate existing to redo lines that already have English).${savedNote}`}
             >
               <Toggle checked={f.female_pronouns} onChange={(v) => saveToggle('female_pronouns', v)} />
-            </Field>
+            </Field>}
             <Field
               label="Translate by sentence"
               help="Translate whole sentences, then split the English across the short subtitle lines. Slower and uses more tokens; helps when lines were split a lot."

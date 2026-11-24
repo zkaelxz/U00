@@ -1504,6 +1504,25 @@ def test_read_ahead_on_a_paid_engine_needs_a_monthly_cap(client, monkeypatch):
     assert not started
 
 
+def test_read_ahead_on_ollama_swapped_in_for_a_member_counts_its_hosted_default(client, monkeypatch):
+    """Ollama standing in for a member's paid default runs its own default, which is hosted and
+    billed per token, so the read-ahead needs a cap like a paid engine; the owner's own Ollama
+    default is checked as before."""
+    from engine_backends import engine_registry
+    from services import translate_run_service
+    from lib.errors import UnsupportedOperationError
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.0)
+    monkeypatch.setattr(engine_registry, "effective_default_model", lambda name: "gemma4:31b-cloud")
+    started = _read_ahead(monkeypatch)
+    did = _drama()
+    ids = [_page(did, i) for i in range(3)]
+    with pytest.raises(UnsupportedOperationError):
+        run_svc.start_run(did, read_ahead_from=ids[0], engine="ollama", engine_swapped=True)
+    assert not started
+    run_svc.start_run(did, read_ahead_from=ids[0], engine="ollama")
+    assert started["targets"] == ids
+
+
 def test_read_ahead_leaves_out_pages_that_have_nothing_to_do(client, monkeypatch):
     """A page whose read text has no English (all skipped or untranslated)
     never gets a typeset image, so a run for it would only hold the job id."""

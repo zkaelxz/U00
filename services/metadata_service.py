@@ -141,7 +141,9 @@ def analyze_media(drama_id: int) -> dict:
             "subtitle_tracks": [
                 {"index": t.index if isinstance(t.index, int) else None,
                  "codec": str(t.codec)[:40],
-                 "language": str(t.language)[:40] if t.language else None}
+                 "language": str(t.language)[:40] if t.language else None,
+                 "importable": isinstance(t.index, int) and media_inspect.is_text_subtitle(str(t.codec)),
+                 "picture": isinstance(t.index, int) and media_inspect.is_picture_subtitle(str(t.codec))}
                 for t in info.subtitle_tracks] if info else [],
             "suggested_pipeline": list(info.suggested_pipeline) if info else [],
             "content_type_guess": str(info.content_type_guess)[:40] if info else None,

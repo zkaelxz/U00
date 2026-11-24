@@ -167,7 +167,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
     const body = r.postDataJSON() as { channel: string; mode?: 'notify' | 'auto'; options?: Record<string, unknown> }
     f.posts.push({ path: '/api/live/follows', body })
     if (f.addStatus !== 200) return json(route, { error: { code: 'forbidden', message: 'Not allowed.' } }, f.addStatus)
-    const row = followRow(f.items.length + 1, { channel: body.channel, channel_name: '', mode: body.mode ?? 'notify' })
+    const row = followRow(f.items.length + 1, { channel: body.channel, channel_name: '', mode: body.mode ?? 'notify', ...(body.options ? { options: body.options } : {}) })
     f.items = [...f.items, row]
     return json(route, row)
   })

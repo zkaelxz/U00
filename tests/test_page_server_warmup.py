@@ -14,7 +14,8 @@ def models(monkeypatch):
     state = {"detector_cached": True, "eraser_cached": True, "reader_cached": False, "detect": [],
              "erase": [], "read": []}
     monkeypatch.setattr(scanlate, "_chinese_reader_on_disk", lambda: state["reader_cached"])
-    monkeypatch.setattr(ocr, "_run_rapidocr", lambda key, source: state["read"].append(key))
+    monkeypatch.setattr(ocr, "_run_rapidocr",
+                        lambda key, source, allow_download=True: state["read"].append((key, allow_download)))
     monkeypatch.setattr(scanlate_detect, "bubble_ml_weights_cached", lambda: state["detector_cached"])
     monkeypatch.setattr(scanlate_lama, "lama_ml_weights_cached", lambda: state["eraser_cached"])
     monkeypatch.setattr(scanlate, "detect_bubbles",
@@ -32,7 +33,7 @@ def test_both_models_on_disk_are_loaded_without_downloading(models):
 def test_the_chinese_text_reader_is_loaded_when_it_is_on_disk(models):
     models["reader_cached"] = True
     assert scanlate.warm_models("auto") == ["balloon detector", "text eraser", "Chinese text reader"]
-    assert models["read"] == ["medium"]
+    assert models["read"] == [("medium", False)], "warming never downloads the GPU weights"
 
 
 def test_the_chinese_text_reader_counts_as_on_disk_only_with_both_files(tmp_path, monkeypatch):

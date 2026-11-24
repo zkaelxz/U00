@@ -695,7 +695,7 @@ def test_chosen_model_reaches_the_engine_and_shows_in_status(live, monkeypatch):
 def test_model_not_offered_for_the_engine_is_refused(live, monkeypatch):
     seen = _capture_engine(live, monkeypatch)
     with pytest.raises(InvalidInputError):
-        _start(engine="claude", model="translategemma:12b")
+        _start(engine="claude", model="gemma4:31b-cloud")
     with pytest.raises(InvalidInputError):
         _start(engine="ollama", model="not-a-real-model:1b")
     assert seen == {} and live_service._sessions == {}
@@ -720,42 +720,25 @@ def test_ollama_model_must_be_pulled_at_start(live, monkeypatch):
                         lambda base, model: (_ for _ in ()).throw(engine_local.OllamaUnavailableError(
                             "ollama_model_missing", f'Ollama doesn\'t have the model {model}. Run "ollama pull {model}" first.')))
     with pytest.raises(DependencyUnavailableError) as exc:
-        _start(engine="ollama", model="translategemma:12b")
-    assert 'ollama pull translategemma:12b' in str(exc.value)
+        _start(engine="ollama", model="gemma4:31b-cloud")
+    assert 'ollama pull gemma4:31b-cloud' in str(exc.value)
     assert seen == {} and live_service._sessions == {}
 
 
-@pytest.mark.parametrize("total_gb,expected", [
-    (12, "translategemma:12b"), (19.9, "translategemma:12b"), (None, "translategemma:12b"),
-    (20, "translategemma:27b"), (24, "translategemma:27b")])
-def test_ollama_default_model_goes_by_graphics_memory(live, monkeypatch, total_gb, expected):
-    # 27B spills onto the CPU on a smaller card and Live then falls behind the stream.
+def test_ollama_default_model_is_hosted_gemma_31b_whatever_the_card(live, monkeypatch):
     import memory_headroom
     from engine_backends import local as engine_local
-    monkeypatch.setattr(memory_headroom, "total_mb",
-                        lambda memory: None if total_gb is None else total_gb * 1024)
-    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda base: ["translategemma:12b", "translategemma:27b"])
+    monkeypatch.setattr(memory_headroom, "total_mb", lambda memory: 24 * 1024)
+    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda base: ["qwen3:4b"])
     seen = _capture_engine(live, monkeypatch)
     checked = []
     monkeypatch.setattr(engine_local, "check_ollama_model_installed",
                         lambda base, model: checked.append(model))
     sid = _start(engine="ollama")
     assert _terminal(sid)
-    assert checked == [expected]
-    assert seen["engine"].model == expected
-    assert live_service.form_options()["default_model"] == expected
-
-
-@pytest.mark.parametrize("pulled,expected", [
-    (["translategemma:27b"], "translategemma:27b"),
-    (["translategemma:27b", "translategemma:12b"], "translategemma:12b"),
-    ([], "translategemma:12b")])
-def test_a_small_card_keeps_27b_when_only_27b_is_pulled(live, monkeypatch, pulled, expected):
-    import memory_headroom
-    from engine_backends import local as engine_local
-    monkeypatch.setattr(memory_headroom, "total_mb", lambda memory: 8 * 1024)
-    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda base: pulled)
-    assert live_service.live_default_model("ollama") == expected
+    assert checked == ["gemma4:31b-cloud"]
+    assert seen["engine"].model == "gemma4:31b-cloud"
+    assert live_service.form_options()["default_model"] == "gemma4:31b-cloud"
 
 
 def test_a_model_picked_in_settings_beats_the_graphics_memory_default(live, monkeypatch):
@@ -763,13 +746,13 @@ def test_a_model_picked_in_settings_beats_the_graphics_memory_default(live, monk
     from engine_backends import engine_registry, local as engine_local
     monkeypatch.setattr(memory_headroom, "total_mb", lambda memory: 8 * 1024)
     monkeypatch.setattr(engine_registry, "model_override_for_default",
-                        lambda name: "translategemma:27b" if name == "ollama" else None)
+                        lambda name: "qwen3:4b" if name == "ollama" else None)
     seen = _capture_engine(live, monkeypatch)
     monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda base, model: None)
     sid = _start(engine="ollama")
     assert _terminal(sid)
-    assert seen["engine"].model == "translategemma:27b"
-    assert live_service.form_options()["default_model"] == "translategemma:27b"
+    assert seen["engine"].model == "qwen3:4b"
+    assert live_service.form_options()["default_model"] == "qwen3:4b"
 
 
 def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
@@ -837,7 +820,7 @@ def test_the_live_form_offers_what_the_service_accepts():
     languages = _re.search(r"LIVE_LANGUAGES = \[(.*?)\]", src, _re.S).group(1)
     assert tuple(_re.findall(r"code: '(\w+)'", languages)) == core.SOURCE_LANGUAGES
     assert _re.findall(r"'([^']*)'", const("LIVE_DEFAULT_ENGINE")) == [live_service.LIVE_DEFAULT_ENGINE]
-    assert _re.findall(r"'([^']*)'", const("LIVE_DEFAULT_MODEL")) == [live_service.LIVE_SMALL_CARD_MODEL]
+    assert _re.findall(r"'([^']*)'", const("LIVE_DEFAULT_MODEL")) == ["gemma4:31b-cloud"]
     from services import live_spend_service
     assert tuple(float(n) for n in _re.findall(r"[\d.]+", const("SPEND_LIMIT_RANGE"))) == \
         live_spend_service.SESSION_LIMIT_RANGE

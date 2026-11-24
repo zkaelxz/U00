@@ -39,6 +39,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a deactivated member account (PC only) */
+        delete: operations["delete_user_api_admin_users__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/users/{user_id}/activate": {
         parameters: {
             query?: never;
@@ -2776,6 +2793,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/quality": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The newest release check result in the data folder, each score against its baseline */
+        get: operations["get_quality_api_diagnostics_quality_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/real-model-check": {
         parameters: {
             query?: never;
@@ -3696,6 +3730,23 @@ export interface paths {
         put?: never;
         /** Start the burned-in (hardsub ASS) video export job */
         post: operations["post_burned_video_api_export_dramas__drama_id__burned_video_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/export/dramas/{drama_id}/chapters-text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The topic chapters as a YouTube-style timestamp list (plain-text download) */
+        get: operations["get_chapters_text_api_export_dramas__drama_id__chapters_text_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5699,6 +5750,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/voice-bank/{entry_id}/private": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hide a voice bank entry from members, or show it again */
+        post: operations["set_voice_private_api_library_voice_bank__entry_id__private_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/voice-bank/{entry_id}/rename": {
         parameters: {
             query?: never;
@@ -6081,7 +6149,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Followed channels the caller can see (never a URL) */
+        /** The caller's own followed channels (never a URL) */
         get: operations["list_follows_api_live_follows_get"];
         put?: never;
         /** Follow a YouTube or Twitch channel for live streams */
@@ -6101,7 +6169,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Queue a check of every channel the caller may change, one after another */
+        /** Queue a check of every channel in the caller's own list, one after another */
         post: operations["check_all_api_live_follows_check_all_post"];
         delete?: never;
         options?: never;
@@ -6345,7 +6413,7 @@ export interface paths {
         put?: never;
         /**
          * Job: download a drama's audio/video from a URL with yt-dlp (PC only)
-         * @description The URL must be a public http(s) address (checked before anything starts). Replacing existing audio needs confirm_replace_audio=true (422 with details.reason "confirm_replace_audio" otherwise). Poll GET /api/jobs/{job_id}; cancel with POST /api/jobs/{job_id}/cancel. Up to 3 downloads run at once, started at least 20 s apart; more wait in line (the job message says "Queued: 2nd in line"). allow_long raises the 6 h cap to 12 h for this download; part_start/part_end (h:mm:ss) download only that section, exact_cuts re-encodes it for precise cuts. max_height keeps a video no taller than that (the best on offer when left out). keep_lines downloads the title's video again at another quality: no confirm needed, an empty url uses the title's own link, no part, and the job fails with the title unchanged when the new length doesn't match the current media's.
+         * @description The URL must be a public http(s) address (checked before anything starts). Replacing existing audio needs confirm_replace_audio=true (422 with details.reason "confirm_replace_audio" otherwise). Poll GET /api/jobs/{job_id}; cancel with POST /api/jobs/{job_id}/cancel. Up to 3 downloads run at once, started at least 20 s apart; more wait in line (the job message says "Queued: 2nd in line"). allow_long raises the 6 h cap to 12 h for this download; part_start/part_end (h:mm:ss) download only that section, exact_cuts re-encodes it for precise cuts. max_height keeps a video no taller than that (the best on offer when left out). keep_lines downloads the title's video again at another quality: no confirm needed, an empty url uses the title's own link, no part, and the job fails with the title unchanged when the new length doesn't match the current media's. A video-site download also saves the site's own captions as hints; use_site_captions makes them the title's lines when it has none.
          */
         post: operations["post_download_url_api_media_dramas__drama_id__download_url_post"];
         delete?: never;
@@ -9079,6 +9147,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scanlate/dramas/{drama_id}/chapters/marks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark chapters read or unread, or bookmark them */
+        post: operations["post_chapter_marks_api_scanlate_dramas__drama_id__chapters_marks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scanlate/dramas/{drama_id}/config": {
         parameters: {
             query?: never;
@@ -11427,6 +11512,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/subtitle-import/dramas/{drama_id}/picture-track/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start reading a picture subtitle track (PGS, DVD) inside the title's media file as lines
+         * @description Runs the picsub_<id> job (poll GET /api/jobs/{job_id}). Replacing existing lines needs confirm_replace_lines=true (422 with details.reason otherwise); the old lines are saved to history first.
+         */
+        post: operations["post_picture_track_read_api_subtitle_import_dramas__drama_id__picture_track_read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/subtitle-import/dramas/{drama_id}/preview": {
         parameters: {
             query?: never;
@@ -11438,6 +11543,43 @@ export interface paths {
         put?: never;
         /** Parse and check an uploaded subtitle file; says what importing it would do, changes nothing */
         post: operations["post_preview_api_subtitle_import_dramas__drama_id__preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/subtitle-import/dramas/{drama_id}/track/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import a text subtitle track inside the title's media file instead of transcribing
+         * @description Same confirmations and undo handle as the file import. Picture tracks (PGS, DVD) are refused with 422.
+         */
+        post: operations["post_track_apply_api_subtitle_import_dramas__drama_id__track_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/subtitle-import/dramas/{drama_id}/track/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read a text subtitle track inside the title's media file; says what importing it would do, changes nothing */
+        post: operations["post_track_preview_api_subtitle_import_dramas__drama_id__track_preview_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -12436,6 +12578,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/translate-run/dramas/{drama_id}/topic-chapters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This title's timed topic chapters and the engines that can make them */
+        get: operations["get_topic_chapters_api_translate_run_dramas__drama_id__topic_chapters_get"];
+        put?: never;
+        /** Replace this title's topic chapters (an empty list clears them) */
+        post: operations["save_topic_chapters_api_translate_run_dramas__drama_id__topic_chapters_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/translate-run/dramas/{drama_id}/topic-chapters/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make the timed topic chapters from the lines and save them */
+        post: operations["generate_topic_chapters_api_translate_run_dramas__drama_id__topic_chapters_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/translate-run/dramas/{drama_id}/workflow-tier": {
         parameters: {
             query?: never;
@@ -13043,6 +13220,13 @@ export interface components {
             monthly_paid_cap_usd: number | null;
             /** Permissions */
             permissions: string[];
+        };
+        /** AdminUserDeleted */
+        AdminUserDeleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** User Id */
+            user_id: number;
         };
         /** AdminUserList */
         AdminUserList: {
@@ -16553,6 +16737,11 @@ export interface components {
         };
         /** ComicChapter */
         ComicChapter: {
+            /**
+             * Bookmarked
+             * @default false
+             */
+            bookmarked: boolean;
             /** First Page */
             first_page: number;
             /** Hidden Count */
@@ -16563,6 +16752,11 @@ export interface components {
             known: boolean;
             /** Page Count */
             page_count: number;
+            /**
+             * Read
+             * @default false
+             */
+            read: boolean;
             /** Title */
             title: string;
             /**
@@ -16570,6 +16764,32 @@ export interface components {
              * @default
              */
             url: string;
+        };
+        /** ComicChapterMark */
+        ComicChapterMark: {
+            /** Bookmarked */
+            bookmarked: boolean;
+            /** Id */
+            id: string;
+            /** Read */
+            read: boolean;
+        };
+        /** ComicChapterMarks */
+        ComicChapterMarks: {
+            /** Chapters */
+            chapters: components["schemas"]["ComicChapterMark"][];
+        };
+        /**
+         * ComicChapterMarksRequest
+         * @description Mark chapters read or unread, or bookmark them; a field left out is not changed.
+         */
+        ComicChapterMarksRequest: {
+            /** Bookmarked */
+            bookmarked?: boolean | null;
+            /** Chapter Ids */
+            chapter_ids: string[];
+            /** Read */
+            read?: boolean | null;
         };
         /** ComicPage */
         ComicPage: {
@@ -18761,6 +18981,12 @@ export interface components {
             /** Publication Status */
             publication_status: string | null;
             /**
+             * Read Percent
+             * @description How far the household has read, watched or listened (0 to 100). Only set in the Library list.
+             * @default 0
+             */
+            read_percent: number;
+            /**
              * Release Date
              * @description Stream / release date, YYYY-MM-DD; empty or null = unknown.
              */
@@ -18801,6 +19027,12 @@ export interface components {
             translated_count: number;
             /** Translation Engine */
             translation_engine: string | null;
+            /**
+             * Unread Chapters
+             * @description A comic's chapters without a read mark. Only counted in the Library list.
+             * @default 0
+             */
+            unread_chapters: number;
             /** Updated At */
             updated_at: string | null;
             /**
@@ -18915,6 +19147,12 @@ export interface components {
             /** Publication Status */
             publication_status: string | null;
             /**
+             * Read Percent
+             * @description How far the household has read, watched or listened (0 to 100). Only set in the Library list.
+             * @default 0
+             */
+            read_percent: number;
+            /**
              * Release Date
              * @description Stream / release date, YYYY-MM-DD; empty or null = unknown.
              */
@@ -18953,6 +19191,12 @@ export interface components {
             translated_count: number;
             /** Translation Engine */
             translation_engine: string | null;
+            /**
+             * Unread Chapters
+             * @description A comic's chapters without a read mark. Only counted in the Library list.
+             * @default 0
+             */
+            unread_chapters: number;
             /** Updated At */
             updated_at: string | null;
             /**
@@ -19138,6 +19382,12 @@ export interface components {
              */
             pages_translated: number;
             /**
+             * Read Percent
+             * @description How far the household has read, watched or listened (0 to 100). Only set in the Library list.
+             * @default 0
+             */
+            read_percent: number;
+            /**
              * Release Date
              * @description Stream / release date, YYYY-MM-DD; empty or null = unknown.
              */
@@ -19168,6 +19418,12 @@ export interface components {
             translated_count: number;
             /** Translation Engine */
             translation_engine: string | null;
+            /**
+             * Unread Chapters
+             * @description A comic's chapters without a read mark. Only counted in the Library list.
+             * @default 0
+             */
+            unread_chapters: number;
             /** Updated At */
             updated_at: string | null;
             /**
@@ -21368,6 +21624,11 @@ export interface components {
             cache_read_tokens: number;
             /** Call Count */
             call_count: number;
+            /**
+             * Cloud Call Count
+             * @default 0
+             */
+            cloud_call_count: number;
             /** Estimated Cost Usd */
             estimated_cost_usd: number;
             /** Id */
@@ -21711,6 +21972,11 @@ export interface components {
             created_at: string | null;
             /** Id */
             id: number;
+            /**
+             * Is Private
+             * @default false
+             */
+            is_private: boolean;
             /** Language */
             language: string | null;
             /** Name */
@@ -21751,6 +22017,14 @@ export interface components {
              * @default
              */
             ref_text?: string;
+        };
+        /**
+         * LibraryVoicePrivate
+         * @description Hide a voice bank entry from members, or show it again.
+         */
+        LibraryVoicePrivate: {
+            /** Private */
+            private: boolean;
         };
         /** LineAlternative */
         LineAlternative: {
@@ -23035,10 +23309,20 @@ export interface components {
         MediaSubtitleTrack: {
             /** Codec */
             codec: string;
+            /**
+             * Importable
+             * @default false
+             */
+            importable: boolean;
             /** Index */
             index: number | null;
             /** Language */
             language: string | null;
+            /**
+             * Picture
+             * @default false
+             */
+            picture: boolean;
         };
         /** MediaUploadResult */
         MediaUploadResult: {
@@ -23086,6 +23370,11 @@ export interface components {
              * @default
              */
             url?: string;
+            /**
+             * Use Site Captions
+             * @default false
+             */
+            use_site_captions?: boolean;
         };
         /** MediaUrlDownloadStarted */
         MediaUrlDownloadStarted: {
@@ -24621,6 +24910,26 @@ export interface components {
             restart: components["schemas"]["PendingInstallRestart"];
             result: components["schemas"]["PendingInstallOutcome"] | null;
         };
+        /** PictureSubtitleStarted */
+        PictureSubtitleStarted: {
+            /** Drama Id */
+            drama_id: number;
+            /** Job Id */
+            job_id: string;
+        };
+        /** PictureTrackRequest */
+        PictureTrackRequest: {
+            /**
+             * Confirm Replace Lines
+             * @default false
+             */
+            confirm_replace_lines?: boolean;
+            /**
+             * Track Index
+             * @description The track's index from analyze-media.
+             */
+            track_index: number;
+        };
         /**
          * PortEntry
          * @description One port Baihe uses: numbers, booleans and fixed text only.
@@ -24834,6 +25143,88 @@ export interface components {
             status: string;
             /** Value */
             value: string;
+        };
+        /** QualityCheck */
+        QualityCheck: {
+            /** Age Days */
+            age_days: number | null;
+            /** Clips */
+            clips: components["schemas"]["QualityClip"][];
+            /**
+             * Found
+             * @description False when the data folder holds no release check result.
+             */
+            found: boolean;
+            /**
+             * Fresh
+             * @description True when the check ran within max_age_days.
+             */
+            fresh: boolean;
+            /** Gpu */
+            gpu: string | null;
+            /**
+             * Machine
+             * @description The PC's name, to tell a V100 run from another PC's.
+             */
+            machine: string | null;
+            /** Margin */
+            margin: number | null;
+            /** Max Age Days */
+            max_age_days: number;
+            /**
+             * Passed
+             * @description The release gate: nothing failed or fell below its baseline.
+             */
+            passed: boolean;
+            /** Repeats */
+            repeats: number | null;
+            /**
+             * Unreadable
+             * @description True when the newest result file can't be read.
+             */
+            unreadable: boolean;
+            /**
+             * When
+             * @description When the check ran, the PC's local time (YYYY-MM-DD HH:MM).
+             */
+            when: string | null;
+        };
+        /** QualityClip */
+        QualityClip: {
+            /** Baseline */
+            baseline: number | null;
+            /** Failed */
+            failed: boolean;
+            /** Fixed Decoding */
+            fixed_decoding: boolean;
+            /**
+             * Id
+             * @description The clip's id from the private manifest, such as title59-transcription.
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Metric
+             * @description cer or wer (scored as 1 - error), der (lower is better) or chrf.
+             */
+            metric: string | null;
+            /**
+             * Runs
+             * @description How many times the clip ran; the score is the median.
+             */
+            runs: number;
+            /**
+             * Score
+             * @description None when the clip failed.
+             */
+            score: number | null;
+            /**
+             * Status
+             * @description fail: the clip failed or is worse than its baseline by more than the margin; none: no baseline.
+             * @enum {string}
+             */
+            status: "pass" | "fail" | "none";
         };
         /** QueueAddAllSteps */
         QueueAddAllSteps: {
@@ -25150,7 +25541,7 @@ export interface components {
          */
         ReadImageEstimateRequest: {
             /** Engine */
-            engine: string;
+            engine?: string | null;
             /** Free Tier */
             free_tier?: boolean | null;
             /** Height */
@@ -31626,6 +32017,74 @@ export interface components {
             /** Enabled */
             enabled: boolean;
         };
+        /** TopicChapter */
+        TopicChapter: {
+            /** Start */
+            start: number;
+            /** Title */
+            title: string;
+        };
+        /** TopicChaptersGenerated */
+        TopicChaptersGenerated: {
+            /** Chapters */
+            chapters: components["schemas"]["TopicChapter"][];
+            /** Drama Id */
+            drama_id: number;
+            /** Engine */
+            engine: string;
+        };
+        /** TopicChaptersSave */
+        TopicChaptersSave: {
+            /** Chapters */
+            chapters: components["schemas"]["TopicChapter"][];
+        };
+        /** TopicChaptersSaved */
+        TopicChaptersSaved: {
+            /** Chapters */
+            chapters: components["schemas"]["TopicChapter"][];
+        };
+        /** TopicChaptersState */
+        TopicChaptersState: {
+            /** Chapters */
+            chapters: components["schemas"]["TopicChapter"][];
+            /** Engine */
+            engine: string;
+            /** Engines */
+            engines: string[];
+        };
+        /** TrackImportRequest */
+        TrackImportRequest: {
+            /**
+             * Confirm Overwrite
+             * @default false
+             */
+            confirm_overwrite?: boolean;
+            /**
+             * Confirm Replace Lines
+             * @default false
+             */
+            confirm_replace_lines?: boolean;
+            /**
+             * Mode
+             * @default source
+             */
+            mode?: string;
+            /**
+             * Split Bilingual
+             * @default false
+             */
+            split_bilingual?: boolean;
+            /**
+             * Track Index
+             * @description The track's index from analyze-media.
+             */
+            track_index: number;
+            /**
+             * Translation First
+             * @default false
+             */
+            translation_first?: boolean;
+        };
         /** TrackedSeries */
         TrackedSeries: {
             /** Drama Id */
@@ -32256,7 +32715,7 @@ export interface components {
          */
         TranslateRequest: {
             /** Engine */
-            engine: string;
+            engine?: string | null;
             /** Free Tier */
             free_tier?: boolean | null;
             /** Model */
@@ -33528,6 +33987,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_user_api_admin_users__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserDeleted"];
                 };
             };
             /** @description Validation Error */
@@ -40933,6 +41423,26 @@ export interface operations {
             };
         };
     };
+    get_quality_api_diagnostics_quality_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityCheck"];
+                };
+            };
+        };
+    };
     get_real_model_check_api_diagnostics_real_model_check_get: {
         parameters: {
             query?: never;
@@ -43710,6 +44220,46 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_chapters_text_api_export_dramas__drama_id__chapters_text_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -49234,6 +49784,59 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["LibraryVoiceDetails"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryVoice"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_voice_private_api_library_voice_bank__entry_id__private_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryVoicePrivate"];
             };
         };
         responses: {
@@ -60361,6 +60964,50 @@ export interface operations {
             };
         };
     };
+    post_chapter_marks_api_scanlate_dramas__drama_id__chapters_marks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComicChapterMarksRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComicChapterMarks"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_config_api_scanlate_dramas__drama_id__config_get: {
         parameters: {
             query?: never;
@@ -67858,6 +68505,59 @@ export interface operations {
             };
         };
     };
+    post_picture_track_read_api_subtitle_import_dramas__drama_id__picture_track_read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PictureTrackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PictureSubtitleStarted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_preview_api_subtitle_import_dramas__drama_id__preview_post: {
         parameters: {
             query?: never;
@@ -67880,6 +68580,130 @@ export interface operations {
                     split_bilingual?: string;
                     translation_first?: string;
                 };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubtitleImportPreview"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_track_apply_api_subtitle_import_dramas__drama_id__track_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubtitleImportResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_track_preview_api_subtitle_import_dramas__drama_id__track_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackImportRequest"];
             };
         };
         responses: {
@@ -70261,6 +71085,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Unprocessable Content */
             422: {
                 headers: {
@@ -71270,6 +72103,161 @@ export interface operations {
             };
         };
     };
+    get_topic_chapters_api_translate_run_dramas__drama_id__topic_chapters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicChaptersState"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_topic_chapters_api_translate_run_dramas__drama_id__topic_chapters_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TopicChaptersSave"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicChaptersSaved"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    generate_topic_chapters_api_translate_run_dramas__drama_id__topic_chapters_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EpisodeSummaryGenerate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicChaptersGenerated"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     apply_workflow_tier_api_translate_run_dramas__drama_id__workflow_tier_post: {
         parameters: {
             query?: never;
@@ -71542,6 +72530,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Unprocessable Content */
             422: {
                 headers: {
@@ -71625,7 +72622,7 @@ export interface operations {
         requestBody: {
             content: {
                 "multipart/form-data": {
-                    engine: string;
+                    engine?: string;
                     free_tier?: string;
                     /** Format: binary */
                     image: string;
@@ -71646,6 +72643,15 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -71715,6 +72721,15 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

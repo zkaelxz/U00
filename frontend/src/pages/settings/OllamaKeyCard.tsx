@@ -1,6 +1,6 @@
 /*
  * Settings > Your Ollama key: a signed-in member saves their own Ollama API
- * key, so their cloud-model runs use their Ollama account and free allowance
+ * key, so their cloud-model runs use their Ollama account (billed per token)
  * rather than the main PC's. The key is typed into a password field, sent
  * once and cleared; the server keeps it encrypted and only ever answers with
  * its last four characters. Removing it takes a confirm step.

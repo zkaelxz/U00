@@ -25,6 +25,9 @@ from engine_backends import engine_registry
 from core import Line
 
 
+pytestmark = pytest.mark.usefixtures("local_ollama_default")
+
+
 class TestTimeEstimates:
     def test_reading_time_counts_words(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="one two three four five")]

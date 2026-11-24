@@ -14,6 +14,9 @@ from lib.errors import (InvalidInputError, NotFoundError,
 from tests.saved_settings import patch_setting
 
 
+pytestmark = pytest.mark.usefixtures("local_ollama_default")
+
+
 def _drama(**fields):
     return db.create_drama(title_zh="D", **fields)
 
@@ -118,8 +121,9 @@ def test_estimate_relationships(isolated_db, cap, monkeypatch):
     plain = svc.estimate_translate_cost(did, "claude")
     assert plain["target_line_count"] == 1 and plain["estimated_usd"] > 0
     assert plain["cap_applies"] is True and plain["free"] is False
+    # Check and revise was removed: asking for it prices a normal run.
     refl = svc.estimate_translate_cost(did, "claude", reflect=True)
-    assert refl["estimated_usd"] == pytest.approx(plain["estimated_usd"] * 3)
+    assert refl["estimated_usd"] == pytest.approx(plain["estimated_usd"])
     bulk = svc.estimate_translate_cost(did, "claude", bulk=True)
     assert bulk["estimated_usd"] == pytest.approx(plain["estimated_usd"] * 0.5)
     forced = svc.estimate_translate_cost(did, "claude", force_retranslate=True)
@@ -179,8 +183,7 @@ def test_validation(isolated_db, monkeypatch):
     did = _drama()
     with pytest.raises(InvalidInputError):
         svc.estimate_translate_cost(did, "nope")
-    with pytest.raises(UnsupportedOperationError):
-        svc.estimate_translate_cost(did, "fake_mt", reflect=True)
+    svc.estimate_translate_cost(did, "fake_mt", reflect=True)   # ignored, so no longer refused
     bad = next(iter(engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS))
     with pytest.raises(UnsupportedOperationError):
         svc.estimate_translate_cost(did, "gemini", model=bad, gemini_free_tier=True)
@@ -539,13 +542,20 @@ class TestMemberLimitInTheRunBudget:
         assert self._caps(member, engine="ollama", model="gpt-oss:120b-cloud") == [pytest.approx(0.5)]
         assert self._caps(None) == [pytest.approx(10.0)]
 
+    def test_an_omitted_model_on_a_hosted_default_gets_the_budget(self, member, cap, monkeypatch):
+        from engine_backends import engine_registry
+        cap(10.0)
+        monkeypatch.setattr(engine_registry, "effective_default_model",
+                            lambda name: "gemma4:31b-cloud" if name == "ollama" else None)
+        assert self._caps(member, engine="ollama", model=None) == [pytest.approx(0.5)]
+
     def test_a_used_up_limit_refuses_the_run(self, member, cap):
         cap(10.0)
         with db.spending_for(member):
             db.log_usage(None, "claude", "m", "translate", 1, 1, 0.5)
-        with pytest.raises(UnsupportedOperationError, match="limit for paid engines"):
+        with pytest.raises(UnsupportedOperationError, match="monthly spending limit"):
             self._caps(member)
-        with pytest.raises(UnsupportedOperationError, match="limit for paid engines"):
+        with pytest.raises(UnsupportedOperationError, match="monthly spending limit"):
             self._caps(member, engine="ollama", model="gpt-oss:120b-cloud")
         # Free engines keep working once the limit is used up.
         assert self._caps(member, engine="ollama", model="qwen3:8b") == [None]

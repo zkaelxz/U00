@@ -134,15 +134,39 @@ def refusal(info, max_seconds=MAX_DURATION_SECONDS, part=None):
 THUMBNAIL_NAME = "site_thumbnail.bin"
 
 
+# The site's own caption tracks worth fetching for a title, by its source language. Bilibili
+# names its machine captions "ai-<lang>"; YouTube's own-language machine captions are plain
+# "<lang>" (and "<lang>-orig"), never a translation, which would be a different language code.
+_CAPTION_LANGS = {
+    "zh": ("zh", "zh-Hans", "zh-Hant", "zh-CN", "zh-TW", "zh-orig", "ai-zh"),
+    "ja": ("ja", "ja-orig", "ai-ja"),
+    "ko": ("ko", "ko-orig", "ai-ko"),
+    "en": ("en", "en-orig", "ai-en"),
+}
+
+
+# yt-dlp's native HLS downloader stops on a playlist that starts a new init
+# segment after media segments (fMP4 HLS, as Twitch highlights and some VODs
+# serve); ffmpeg reads the same playlist fine.
+HLS_NATIVE_REFUSAL = "Initialization fragment found after media fragments"
+
+
+def caption_languages(source_language) -> tuple:
+    """The caption languages to fetch with a download; () for a language not listed."""
+    return _CAPTION_LANGS.get(source_language or "", ())
+
+
 def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts=False,
-                audio_only=True, proxy=None, max_height=None) -> dict:
+                audio_only=True, proxy=None, max_height=None, captions=(), hls_ffmpeg=False) -> dict:
     """The options merged over video_download's own (they win). Never any
     cookie option, and every default extractor except `generic`. `part`
     (start, end-or-None seconds) downloads that section only. `proxy`: every
     request yt-dlp makes goes through it, because yt-dlp resolves DNS itself
     after the parent's URL check and a rebinding answer would otherwise
     reach a private address. `max_height` keeps the tallest picture no
-    taller than it."""
+    taller than it. `captions`: caption languages to save beside the media (manual ones win over
+    machine ones in yt-dlp); a missing track is only a warning there, so it can't fail the download.
+    `hls_ffmpeg` hands HLS to ffmpeg, for a playlist the native downloader refuses (HLS_NATIVE_REFUSAL)."""
     opts = {
         "allowed_extractors": ["default", "-generic"],
         "noplaylist": True,
@@ -161,6 +185,12 @@ def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts
     }
     if proxy:
         opts["proxy"] = proxy
+    if hls_ffmpeg:
+        opts["external_downloader"] = {"default": "native", "m3u8": "ffmpeg"}
+    if captions and not part:
+        # A section's cues would start at the section's zero, not the video's.
+        opts.update({"writesubtitles": True, "writeautomaticsub": True,
+                     "subtitleslangs": list(captions), "subtitlesformat": "vtt/srt/best"})
     if max_height and not audio_only:
         # A sort, not a filter: a site with nothing this small still
         # downloads (its smallest picture) instead of failing.
@@ -288,6 +318,12 @@ def _part(spec):
     return (start or 0, end)
 
 
+def _spec_captions(spec: dict) -> tuple:
+    langs = spec.get("captions")
+    known = {c for group in _CAPTION_LANGS.values() for c in group}
+    return tuple(c for c in langs if c in known) if isinstance(langs, list) else ()
+
+
 def run_worker(spec: dict, emit) -> None:
     """Child side. Emits {"progress": f}, {"rejected": refusal_detail},
     {"estimate": bytes, "seconds": n}, {"link": link_fields}, {"title": t},
@@ -334,7 +370,9 @@ def run_worker(spec: dict, emit) -> None:
             title_cb=lambda t: emit({"title": t}),
             extra_opts=ydl_options(spec["tmp"], hook, match_filter, part=part,
                                    exact_cuts=bool(spec.get("exact_cuts")), audio_only=audio_only,
-                                   proxy=spec.get("proxy"), max_height=max_height),
+                                   proxy=spec.get("proxy"), max_height=max_height,
+                                   captions=_spec_captions(spec),
+                                   hls_ffmpeg=spec.get("hls_ffmpeg") is True),
             cookies_browser=spec.get("cookies_browser"), cookies_file=spec.get("cookies_file"),
             thumbnail_path=os.path.join(spec["tmp"], THUMBNAIL_NAME))
     except ImportError:

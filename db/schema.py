@@ -485,6 +485,21 @@ def _create_reading_tables(conn):
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
 
+        -- Which comic chapters a profile has read or bookmarked. chapter_id is the
+        -- chapter's id in the page list (comic_chapters.group_pages), which stays
+        -- the same when pages are renumbered; a row for a chapter that no longer
+        -- exists is simply never matched.
+        CREATE TABLE IF NOT EXISTS chapter_marks (
+            drama_id INTEGER NOT NULL,
+            profile_id INTEGER NOT NULL,
+            chapter_id TEXT NOT NULL,
+            read_at TEXT,
+            bookmarked INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (drama_id, profile_id, chapter_id),
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS reading_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             drama_id INTEGER NOT NULL,
@@ -707,7 +722,8 @@ def _create_library_tool_tables(conn):
             notes TEXT,
             source_drama TEXT,
             source_speaker TEXT,
-            created_at TEXT
+            created_at TEXT,
+            is_private INTEGER DEFAULT 0
         );
     """)
 

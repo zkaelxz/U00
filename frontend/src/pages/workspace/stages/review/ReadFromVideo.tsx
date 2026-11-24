@@ -10,6 +10,7 @@ import { useEffect, useState, type RefObject } from 'react'
 import { languagePair, translateApi } from '../../../../api/translate'
 import { buttonClass } from '../../../../components/uiClasses'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
+import { useChosenForYou } from '../../../../hooks/useChosenForYou'
 import { useHolds } from '../../../../hooks/useHolds'
 import { usePcOnly } from '../../../../hooks/usePcOnly'
 import { patchLine } from '../../../../api/review'
@@ -49,7 +50,9 @@ export function ReadFromVideo({ player, sourceLanguage, lineStart, onText, trans
   const [frame, setFrame] = useState<{ blob: Blob; seq: number } | null>(null)
   const [seq, setSeq] = useState(0)
   const [message, setMessage] = useState<string | null>(null)
-  const allowed = useHolds('engines.paid')
+  // The server checks a paid engine itself and picks one this account may use when none is sent.
+  const allowed = useHolds('jobs.start')
+  const { auto } = useChosenForYou()
   // The read route refuses callers that are not on the PC, so offer nothing there.
   const pc = usePcOnly()
 
@@ -150,6 +153,7 @@ export function ReadFromVideo({ player, sourceLanguage, lineStart, onText, trans
         pageEngine={pageEngine}
         language={sourceLanguage}
         allowed={allowed}
+        auto={auto}
         onText={onText}
         onClose={() => setOpen(false)}
         frame={frame}
@@ -161,7 +165,7 @@ export function ReadFromVideo({ player, sourceLanguage, lineStart, onText, trans
           run: async (read) => {
             const translated = await translateApi.translate({
               text: read,
-              engine: translationEngine || pageEngine,
+              ...(auto ? {} : { engine: translationEngine || pageEngine }),
               ...languagePair('to_english', sourceLanguage),
             })
             onReadTranslated(read, translated)

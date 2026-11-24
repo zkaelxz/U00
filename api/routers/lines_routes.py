@@ -18,7 +18,7 @@ drama (services/line_tools_service.py).
 """
 
 from fastapi import APIRouter, Path, Request
-from api.auth import require_engines_allowed, require_permission
+from api.auth import engine_for_caller, require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
 from api.schemas import (LinesAcceptTmRequest, LinesFindReplaceApplyRequest,
                          LinesFindReplaceApplyResult, LinesKeepEnglishRequest,
@@ -120,9 +120,10 @@ def delete_note(drama_id: int = Path(ge=1), note_id: int = Path(ge=1)):
              summary="Rewrite lines too long for their time slot more concisely (LLM)",
              responses=error_responses(404, 422, 409, 403, 429, 503))
 def post_shorten_overlong(body: LinesShortenRequest, request: Request, drama_id: int = Path(ge=1)):
-    engine = line_ai_service.tool_engine_name(drama_id, body.engine)
-    require_engines_allowed(request, engine, model=body.model)
+    engine, model = engine_for_caller(
+        request, body.engine, line_ai_service.tool_engine_name(drama_id, body.engine), body.model)
+    require_engines_allowed(request, engine, model=model)
     with llm_slot(request):
         return line_tools_service.shorten_overlong(drama_id, body.line_ids, engine,
-                                                   body.model, body.gemini_free_tier,
+                                                   model, body.gemini_free_tier,
                                                    confirm=body.confirm)

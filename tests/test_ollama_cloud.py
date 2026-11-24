@@ -74,9 +74,9 @@ def test_cloud_detection():
     assert not engine_local.is_ollama_cloud_model(None)
 
 
-def test_local_default_is_unchanged_and_not_cloud():
-    assert engine_local.OLLAMA_DEFAULT_MODEL == "translategemma:27b"
-    assert not engine_local.is_ollama_cloud_model(engine_local.OllamaEngine().model)
+def test_default_is_the_hosted_gemma_31b_and_the_local_picker_is_empty():
+    assert engine_local.OLLAMA_DEFAULT_MODEL == CLOUD
+    assert engine_local.is_ollama_cloud_model(engine_local.OllamaEngine().model)
     assert not set(engine_local.OLLAMA_CLOUD_MODELS) & set(engine_local.OLLAMA_MODELS)
 
 
@@ -113,7 +113,7 @@ def test_quota_error_retries_then_gives_plain_message_with_redaction(monkeypatch
         shared.call_with_backoff(lambda: engine.translate_batch(["你好"], {}), max_retries=3)
     assert len(calls) == 3
     msg = str(info.value)
-    assert "rate-limited or over the free usage cap" in msg
+    assert "rate-limited or over its usage limit" in msg
     assert "sk-secret1234567890abcd" not in msg
     assert "weekly limit reached" in msg
 
@@ -153,16 +153,16 @@ def test_installed_check_does_not_require_cloud_tag_in_local_list(monkeypatch):
         engine_local.check_ollama_model_installed("http://localhost:11434", "gemma4:12b")
 
 
-def test_cloud_models_are_labelled_in_engine_list(isolated_db):
+def test_cloud_models_are_flagged_in_engine_list_but_keep_their_plain_name(isolated_db):
     ollama = next(e for e in translate_service.list_engines() if e["name"] == "ollama")
     assert CLOUD in ollama["models"] and CLOUD in ollama["cloud_models"]
-    assert ollama["model_labels"][CLOUD] == f"{CLOUD} (Cloud)"
+    assert CLOUD not in ollama["model_labels"]
     assert "gemma4:12b" not in ollama["cloud_models"]
     assert "gemma4:12b" not in ollama["model_labels"]
 
 
-def test_cloud_models_never_become_default_or_fallback_choice(isolated_db):
-    assert engine_registry.effective_default_model("ollama") == "translategemma:27b"
+def test_no_workflow_tier_names_a_cloud_model(isolated_db):
+    assert engine_registry.effective_default_model("ollama") == CLOUD
     assert not any(engine_local.is_ollama_cloud_model(t.get("engine_model"))
                    for t in engine_registry.WORKFLOW_TIERS.values())
 
@@ -186,22 +186,24 @@ def test_model_health_does_not_call_cloud_tag_retired_or_unlisted(isolated_db):
     assert other["status"] not in ("retired", "not_listed")
 
 
-# --- cloud tags are never a default -----------------------------------------
+# --- a hosted tag other than the built-in default is picked per run -------------
 
 def test_ollama_default_picker_lists_local_tags_only():
     assert CLOUD not in translate_service.ENGINE_MODEL_DICTS["ollama"]
 
 
-@pytest.mark.parametrize("tag", [CLOUD, "gpt-oss:120b-cloud", "qwen3-coder:cloud"])
-def test_cloud_tag_cannot_replace_the_ollama_default(isolated_db, tag):
+@pytest.mark.parametrize("tag", ["gpt-oss:120b-cloud", "qwen3-coder:cloud"])
+def test_cloud_tag_cannot_replace_the_ollama_default_while_hosted_defaults_are_off(isolated_db, tag):
+    import db
+    db.set_app_setting("pref.ollama_cloud_default", False)
     with pytest.raises(InvalidInputError, match="can't be the default"):
         model_registry_service.set_model_override("default", "ollama", engine_registry.effective_default_model("ollama"), tag)
-    assert engine_registry.effective_default_model("ollama") == "translategemma:27b"
+    assert engine_registry.effective_default_model("ollama") == CLOUD
 
 
-def test_run_naming_ollama_without_a_model_never_resolves_to_a_cloud_tag(isolated_db):
+def test_run_naming_ollama_without_a_model_resolves_to_the_hosted_default(isolated_db):
     engine = engine_registry.get_engine("ollama", None)
-    assert not engine_local.is_ollama_cloud_model(engine.model)
+    assert engine.model == CLOUD
 
 
 def test_cloud_flag_covers_any_cloud_shaped_tag_including_saved_presets(isolated_db):
@@ -210,7 +212,7 @@ def test_cloud_flag_covers_any_cloud_shaped_tag_including_saved_presets(isolated
     ollama = next(e for e in translate_service.list_engines() if e["name"] == "ollama")
     assert "gpt-oss:120b-cloud" in ollama["models"]
     assert "gpt-oss:120b-cloud" in ollama["cloud_models"]
-    assert ollama["model_labels"]["gpt-oss:120b-cloud"] == "gpt-oss:120b-cloud (Cloud)"
+    assert "gpt-oss:120b-cloud" not in ollama["model_labels"]
     for m in ollama["models"]:
         assert (m in ollama["cloud_models"]) == engine_local.is_ollama_cloud_model(m)
 
@@ -244,26 +246,30 @@ def run_url(isolated_db):
     return f"/api/translate-run/dramas/{db.create_drama(title_en='T', source_language='zh')}/run"
 
 
+# A hosted tag outside MEMBER_CLOUD_MODELS: the paid gate applies to it.
+PAID_CLOUD = "gpt-oss:120b-cloud"
+
+
 def test_cloud_tag_run_is_refused_without_engines_paid(remote, run_url):
     h = _household("kid@example.com")
-    r = remote.post(run_url, json={"engine": "ollama", "model": CLOUD}, headers=h)
+    r = remote.post(run_url, json={"engine": "ollama", "model": PAID_CLOUD}, headers=h)
     assert r.status_code == 403
     assert "paid-engine permission" in r.json()["error"]["message"]
     r = remote.post(run_url, json={"engine": "ollama", "model": "gemma4:12b",
-                                   "fallback_chain": [{"engine": "ollama", "model": CLOUD}]}, headers=h)
+                                   "fallback_chain": [{"engine": "ollama", "model": PAID_CLOUD}]}, headers=h)
     assert r.status_code == 403
 
 
 def test_cloud_tag_run_is_allowed_with_engines_paid_and_local_tags_stay_free(remote, run_url):
     paid = _household("paid@example.com", ["engines.paid"])
-    assert remote.post(run_url, json={"engine": "ollama", "model": CLOUD}, headers=paid).status_code != 403
+    assert remote.post(run_url, json={"engine": "ollama", "model": PAID_CLOUD}, headers=paid).status_code != 403
     free = _household("free@example.com")
     assert remote.post(run_url, json={"engine": "ollama", "model": "gemma4:12b"}, headers=free).status_code != 403
 
 
 def test_cloud_tag_live_start_needs_engines_paid(remote):
     h = _household("kid@example.com", ["media.import_url"])
-    body = {"url": "https://example.com/v", "engine": "ollama", "model": CLOUD}
+    body = {"url": "https://example.com/v", "engine": "ollama", "model": PAID_CLOUD}
     assert remote.post("/api/live/sessions", json=body, headers=h).status_code == 403
 
 
@@ -274,13 +280,172 @@ def test_cloud_tag_gate_unit():
     from lib.errors import ForbiddenError
     with patch.object(api_auth, "holds", return_value=False):
         with pytest.raises(ForbiddenError):
-            api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", CLOUD))
+            api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", PAID_CLOUD))
         api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", "gemma4:12b"), ("claude", None))
     with patch.object(api_auth, "holds", return_value=True):
+        api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", PAID_CLOUD))
+
+
+def test_member_cloud_model_needs_no_engines_paid(remote, run_url):
+    free = _household("member@example.com")
+    assert remote.post(run_url, json={"engine": "ollama", "model": CLOUD}, headers=free).status_code != 403
+    live = _household("viewer@example.com", ["media.import_url"])
+    body = {"url": "https://example.com/v", "engine": "ollama", "model": CLOUD}
+    r = remote.post("/api/live/sessions", json=body, headers=live)
+    # Past the paid gate; the fake PC has no Whisper model, which is refused later.
+    assert r.json()["error"]["code"] != "forbidden"
+
+
+def test_member_cloud_model_gate_unit():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from api import auth as api_auth
+    from lib.errors import ForbiddenError
+    with patch.object(api_auth, "holds", return_value=False):
         api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", CLOUD))
+        api_auth.require_engines_allowed(SimpleNamespace(), "ollama", model=CLOUD)
+        with pytest.raises(ForbiddenError):
+            api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", CLOUD), ("ollama", PAID_CLOUD))
+    assert not engine_local.cloud_model_needs_paid(CLOUD)
+    assert engine_local.cloud_model_needs_paid(PAID_CLOUD)
+    assert not engine_local.cloud_model_needs_paid("gemma4:12b")
 
 
 def test_cloud_models_are_priced_so_the_spend_cap_counts_them():
     for tag in engine_local.OLLAMA_CLOUD_MODELS:
         assert pricing.estimate_cost(tag, 1_000_000, 1_000_000) == pytest.approx(0.54)
     assert pricing.estimate_cost("gemma4:12b", 1_000_000, 1_000_000) == 0.0
+
+
+def test_a_member_naming_no_engine_runs_on_the_member_model_not_a_refused_default(remote, run_url, monkeypatch):
+    import db
+    from lib.errors import ConflictError
+    from services import translate_thinking_service
+    seen = {}
+
+    def fake_start(fn, drama_id, thinking, remember, *a, **kw):
+        seen.update(kw)
+        raise ConflictError("stop here")
+
+    monkeypatch.setattr(translate_thinking_service, "start_with_thinking", fake_start)
+    drama_id = int(run_url.split("/")[-2])
+    db.update_drama(drama_id, translation_engine="claude")
+    db.set_app_setting("pref.ollama_cloud_default", True)
+    member = _household("auto@example.com")
+    assert remote.post(run_url, json={}, headers=member).status_code == 409
+    assert (seen["engine_name"], seen["model"]) == ("ollama", CLOUD)
+    # A named paid engine is never switched: it stays refused.
+    assert remote.post(run_url, json={"engine": "claude"}, headers=member).status_code == 403
+    paid = _household("paid-auto@example.com", ["engines.paid"])
+    assert remote.post(run_url, json={}, headers=paid).status_code == 409
+    assert seen["engine_name"] == "claude"
+
+
+def test_engine_for_caller_unit(isolated_db):
+    import db
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from api import auth as api_auth
+    req = SimpleNamespace()
+    with patch.object(api_auth, "holds", return_value=False):
+        # With the owner's hosted-default switch off: Ollama's own default model (override, else built-in).
+        db.set_app_setting("pref.ollama_cloud_default", False)
+        assert api_auth.engine_for_caller(req, None, "claude", None) == ("ollama", None)
+        db.set_app_setting("pref.ollama_cloud_default", True)
+        assert api_auth.engine_for_caller(req, None, "claude", None) == ("ollama", CLOUD)
+        assert api_auth.engine_for_caller(req, None, "ollama", "gemma4:12b") == ("ollama", "gemma4:12b")
+        assert api_auth.engine_for_caller(req, None, "ollama", PAID_CLOUD) == ("ollama", CLOUD)
+        assert api_auth.engine_for_caller(req, "claude", "claude", None) == ("claude", None)
+    with patch.object(api_auth, "holds", return_value=True):
+        assert api_auth.engine_for_caller(req, None, "claude", "m") == ("claude", "m")
+
+
+def test_line_tool_with_no_engine_runs_on_ollama_for_a_member(remote, monkeypatch):
+    import db
+    from services import line_ai_service
+    seen = {}
+
+    def fake_improve(drama_id, line_id, engine, model, *a, **kw):
+        seen.update(engine=engine, model=model)
+        return {"suggestion": "x", "reason": "y"}
+
+    monkeypatch.setattr(line_ai_service, "improve_line", fake_improve)
+    drama_id = db.create_drama(title_en="T", source_language="zh", translation_engine="claude")
+    db.set_app_setting("pref.ollama_cloud_default", True)
+    h = _household("tool@example.com", ["lines.read"])
+    remote.post(f"/api/line-ai/dramas/{drama_id}/lines/1/improve", json={}, headers=h)
+    assert seen == {"engine": "ollama", "model": CLOUD}
+
+
+def test_a_member_over_their_own_limit_is_still_refused(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from api import auth as api_auth
+    from lib.errors import ForbiddenError
+    from services import auth_service
+    monkeypatch.setattr(auth_service, "paid_engines_held_back", lambda uid: True)
+    req = SimpleNamespace(state=SimpleNamespace(principal={"user_id": 7, "permissions": []}))
+    with patch.object(api_auth, "holds", return_value=False):
+        with pytest.raises(ForbiddenError):
+            api_auth.engine_for_caller(req, None, "claude", None)
+
+
+def test_text_page_with_no_engine_runs_on_ollama_for_a_member(remote, monkeypatch):
+    import db
+    from services import translate_service
+    seen = {}
+
+    def fake_translate(text, engine_name, source, target, model=None, **kw):
+        seen.update(engine=engine_name, model=model)
+        return {"translated_text": "hi"}
+
+    monkeypatch.setattr(translate_service, "translate", fake_translate)
+    db.set_app_setting("default_engine", "claude")
+    db.set_app_setting("pref.ollama_cloud_default", True)
+    body = {"text": "你好", "source_language": "zh", "target_language": "en"}
+    member = _household("text@example.com")
+    assert remote.post("/api/translate", json=body, headers=member).status_code == 200
+    assert seen == {"engine": "ollama", "model": CLOUD}
+    # A named paid engine or hosted tag stays refused; the owner's default runs for a paid holder.
+    assert remote.post("/api/translate", json={**body, "engine": "claude"}, headers=member).status_code == 403
+    assert remote.post("/api/translate", json={**body, "engine": "ollama", "model": PAID_CLOUD},
+                       headers=member).status_code == 403
+    paid = _household("text-paid@example.com", ["engines.paid"])
+    assert remote.post("/api/translate", json=body, headers=paid).status_code == 200
+    assert seen["engine"] == "claude"
+
+
+def test_text_price_check_with_no_engine_prices_ollama_for_a_member(remote):
+    import db
+    db.set_app_setting("default_engine", "claude")
+    body = {"text": "你好", "source_language": "zh", "target_language": "en"}
+    member = _household("price@example.com")
+    resp = remote.post("/api/translate/estimate", json=body, headers=member)
+    assert resp.status_code == 200
+    assert remote.post("/api/translate/estimate", json={**body, "engine": "claude"}, headers=member).status_code == 403
+    assert remote.post("/api/translate/estimate", json={**body, "engine": "ollama", "model": PAID_CLOUD},
+                       headers=member).status_code == 403
+
+
+def test_scanlate_run_with_no_engine_runs_on_ollama_for_a_member(remote, monkeypatch):
+    import db
+    from lib.errors import ConflictError
+    from services import model_readiness_service, scanlate_pages_service, scanlate_run_service
+    seen = {}
+
+    def fake_start(drama_id, **kw):
+        seen.update(engine=kw["engine"], swapped=kw["engine_swapped"])
+        raise ConflictError("stop here")
+
+    monkeypatch.setattr(scanlate_run_service, "start_run", fake_start)
+    monkeypatch.setattr(scanlate_pages_service, "default_engine", lambda engines=None: "claude")
+    monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **k: None)
+    drama_id = db.create_drama(title_en="T", source_language="zh", media_type="comic")
+    url = f"/api/scanlate/dramas/{drama_id}/run"
+    member = _household("comic@example.com")
+    assert remote.post(url, json={}, headers=member).status_code == 409
+    assert seen == {"engine": "ollama", "swapped": True}
+    assert remote.post(url, json={"engine": "claude"}, headers=member).status_code == 403
+    paid = _household("comic-paid@example.com", ["engines.paid"])
+    assert remote.post(url, json={}, headers=paid).status_code == 409
+    assert seen == {"engine": "claude", "swapped": False}

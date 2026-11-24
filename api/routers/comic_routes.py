@@ -26,7 +26,7 @@ from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import FileResponse, Response
 
 from api.auth import require_permission
-from api.schemas import (ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest, ComicSourceChapters,
+from api.schemas import (ComicChapterMarks, ComicChapterMarksRequest, ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest, ComicSourceChapters,
                               ComicStartChapterRequest, ComicStartChapterResult,
                               ComicViewPrefs, ComicViewPrefsView, ComicVisibilityRequest, ComicVisibilityResult)
 from api.schemas import error_responses
@@ -135,6 +135,15 @@ def post_visibility(body: ComicVisibilityRequest, drama_id: int = Path(ge=1)):
              responses=error_responses(404, 409, 422))
 def post_start_chapter(body: ComicStartChapterRequest, drama_id: int = Path(ge=1)):
     return comic_chapters_service.start_chapter(drama_id, body.page_id, body.title)
+
+
+# lines.edit, as saving the resume page is: both record where the household is in a title.
+@router.post("/dramas/{drama_id}/chapters/marks", dependencies=[require_permission("lines.edit")],
+             response_model=ComicChapterMarks,
+             summary="Mark chapters read or unread, or bookmark them",
+             responses=error_responses(404, 422))
+def post_chapter_marks(body: ComicChapterMarksRequest, drama_id: int = Path(ge=1)):
+    return comic_chapters_service.set_marks(drama_id, body.chapter_ids, read=body.read, bookmarked=body.bookmarked)
 
 
 @router.get("/dramas/{drama_id}/source-chapters", dependencies=[require_permission("library.read")],

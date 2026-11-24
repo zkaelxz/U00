@@ -108,3 +108,36 @@ test('another device gets the screenshot button too', async ({ page }) => {
   await expect(page.getByLabel('Text to translate')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Read from a screenshot…' })).toBeVisible()
 })
+
+test('a member gets no engine pickers: the server chooses for the text and the picture', async ({ page }) => {
+  const reads: string[] = []
+  const sent: unknown[] = []
+  await mock(page, reads)
+  await page.route('**/api/auth/me', (r) => r.fulfill({ json: {
+    auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet',
+    user: { id: 5, email: 'kim@example.com', display_name: 'Kim', is_admin: false, is_local_owner: false },
+    permissions: ['library.read', 'lines.read', 'lines.edit', 'jobs.start', 'jobs.cancel', 'review.use'],
+  } }))
+  await page.route('**/api/translate', (r) => {
+    sent.push(r.request().postDataJSON())
+    return r.fulfill({ json: { translated_text: 'Hello, world' } })
+  })
+  await page.goto('/#/translate')
+  await expect(page.getByTestId('engine-note')).toHaveText('The engine is chosen for you.')
+  await expect(page.getByLabel('Engine', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Show options' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Read from a screenshot…' }).click()
+  const panel = page.getByRole('group', { name: 'Read from a screenshot' })
+  await expect(panel.getByLabel('Read with', { exact: true })).toHaveCount(0)
+  await expect(panel.getByLabel('Enlarge the text')).toHaveCount(0)
+  await panel.locator('input[type=file]').setInputFiles({ name: 'frame.png', mimeType: 'image/png', buffer: PNG })
+  await panel.getByRole('button', { name: 'Read the text' }).click()
+  await expect(page.getByLabel('Text to translate')).toHaveValue('你好，世界')
+  expect(reads[0]).not.toContain('name="engine"')
+
+  await page.getByRole('button', { name: 'Translate', exact: true }).click()
+  await expect(page.getByTestId('translate-result')).toHaveText('Hello, world')
+  expect(sent[0]).not.toHaveProperty('engine')
+  expect(sent[0]).not.toHaveProperty('model')
+})
