@@ -307,7 +307,7 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float | None =
                 _free_jobless_slot(slots, worker)
 
     worker = threading.Thread(target=work, daemon=True, name=f"llm-task-{scope.job_id}")
-    slots = None
+    slots: list | None = None
     with _abandoned_lock:
         if scope.job_id is None:
             slots, cap = _jobless_slots_for(engine)
@@ -318,7 +318,7 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float | None =
                 _abandoned.pop(scope.job_id, None)
         if busy:
             raise LLMTaskTimeout(PREVIOUS_REQUEST_MESSAGE)
-        if scope.job_id is None:
+        if slots is not None:
             slots.append(worker)
         worker.start()
     if deadline is None:
