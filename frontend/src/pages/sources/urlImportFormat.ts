@@ -10,10 +10,6 @@ import type {
 } from '../../types/sourcesImport'
 import { pluralLocale } from '../../labels'
 
-// While false, other devices cannot import or track from the UI (PC only),
-// same as searching (SEARCH_REMOTE_ALLOWED); see docs/remote-access-decision.md.
-export const IMPORT_REMOTE_ALLOWED = false
-
 export const MAX_URL_LEN = 2000
 // The chapter import route accepts 1..200 chapter ids per request.
 export const MAX_CHAPTERS = 200

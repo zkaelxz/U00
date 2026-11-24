@@ -17,9 +17,9 @@
  * sources (PC only: sites, timing, network, activity; pages/SourcesManage.tsx).
  * The old page link #/sources/manage still works and opens that tab. Find and
  * New chapters stay mounted when hidden so a search, its results and a
- * running Check now survive a switch; Manage mounts on first visit. Searching,
- * importing, tracking and Check now are PC only for now too
- * (SEARCH_REMOTE_ALLOWED / IMPORT_REMOTE_ALLOWED).
+ * running Check now survive a switch; Manage mounts on first visit. Searching
+ * works from any device; importing and tracking need the sources.import right
+ * away from the PC; Manage sources and the link box stay PC only.
  *
  * Find, desktop (>=1024 px): search and results left, the open series right.
  * Narrower: one column, and an open series replaces the results until "‹ Results".
@@ -36,6 +36,7 @@ import { Tabs } from '../components/Tabs'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { canImportSources, useSession } from '../hooks/useSession'
 import { usePersistedState } from '../hooks/usePersistedState'
 import type {
   OpenSeries,
@@ -52,8 +53,6 @@ import { NewChapters } from './sources/NewChapters'
 import { SearchPanel } from './sources/SearchPanel'
 import { SeriesPanel } from './sources/SeriesPanel'
 import { UrlBox } from './sources/UrlBox'
-import { IMPORT_REMOTE_ALLOWED } from './sources/urlImportFormat'
-import { SEARCH_REMOTE_ALLOWED } from './sources/sourcesFormat'
 import { seriesView } from './sources/sourcesSeries'
 import { useSourcesJob } from './sources/useSourcesJob'
 import './sources/sources.css'
@@ -71,6 +70,7 @@ const PREFIX = 'sources'
 export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: { tab?: SourcesTab; area?: ManageTab; sharedUrl?: string }) {
   const pc = usePcOnly()
   const remote = pc === 'remote'
+  const session = useSession()
   const wide = useMediaQuery('(min-width: 1024px)')
   const phone = useMediaQuery('(max-width: 640px)')
 
@@ -212,10 +212,11 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
   const openTracked = open
     ? tracked.find((t) => t.source === open.source && t.series_id === open.series_id) ?? null
     : null
-  const searchBlocked = remote && !SEARCH_REMOTE_ALLOWED
-
-  const canLink = !(remote && !IMPORT_REMOTE_ALLOWED)
-  const canSearch = !searchBlocked
+  // The link box reads a page on the PC itself (UrlBox), so only the PC gets it; search and chapter import run through
+  // routes the server already gates by permission, so a phone gets them when its account holds the right.
+  const canLink = !remote
+  const canSearch = true
+  const canImport = !remote || canImportSources(session)
   const mode: FindMode = !canSearch ? 'link' : !canLink ? 'search' : storedMode === 'link' ? 'link' : 'search'
   const useWebLink = canLink
     ? (url: string) => {
@@ -283,7 +284,6 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
                 />
               </div>
             )}
-            {!canSearch && <p className="muted">Searching sources is PC only for now.</p>}
             {!canLink && <p className="muted">Importing from a link is PC only for now.</p>}
           </Card>
 
@@ -335,7 +335,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
               tracked={tracked}
               sources={sources}
               display={display}
-              canAct={!remote || IMPORT_REMOTE_ALLOWED}
+              canAct={canImport}
               onOpen={openSeries}
               onDismissed={(id) => setNotifications((ns) => ns.filter((n) => n.id !== id))}
               onUntrack={untrack}
