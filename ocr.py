@@ -331,7 +331,12 @@ def _rapidocr_params(key: str) -> dict:
     # The text-orientation classifier flips some upright lines and they come back as
     # garbage (on Korean webtoon pages it lost 8 of 13 checked phrases); comic and
     # subtitle lines are upright, so it is left off.
-    params = {"Global.log_level": "warning", "Global.use_cls": False}
+    params = {"Global.log_level": "warning", "Global.use_cls": False,
+              # RapidOCR's default enlarges an image until its short side is 736 px before
+              # finding lines, so a 430x70 balloon was read at about 4500x740: 3 to 10 s a
+              # balloon on a CPU. Only shrinking a larger image keeps the text the same
+              # (34 Chinese balloons: 6.7 s -> 1.1 s each; full pages found the same lines).
+              "Det.limit_type": "max", "Det.limit_side_len": 2000}
     if key != "small":
         from rapidocr import LangRec, ModelType, OCRVersion
     if key == "ko":
