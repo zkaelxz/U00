@@ -108,7 +108,7 @@
       var later = lazyAddress(el);
       if (!later && !el.complete && /^https?:/.test(el.currentSrc || el.src || "") &&
           !(el.width > 0 && el.width < MIN_SIDE)) later = el.currentSrc || el.src;
-      if (later && !seenUrls[later]) { seenUrls[later] = true; items.push({ kind: "url", url: later }); known.add(el); }
+      if (later && !seenUrls[later]) { seenUrls[later] = true; items.push({ kind: "url", url: later, el: el }); known.add(el); }
     }
   });
   if (items.length < 3) backgrounds();
@@ -211,6 +211,47 @@
     var el = document.querySelector(selector);
     return el ? (attr ? el.getAttribute(attr) : el.textContent) || "" : "";
   }
+  // Reaction emotes, avatars and ads sit among the pages (a reader can end each chapter with a
+  // row of emoji pictures). They are named by their own or their wrappers' markup, or dropped for
+  // being far smaller than the chapter's pages and square where the pages are tall.
+  var NOISE = /emoji|emoticon|emote|reaction|avatar|gravatar|sticker|favicon|sponsor|advert/i;
+  function markup(item) {
+    var text = item.url || "";
+    var el = item.el;
+    for (var up = 0; el && up < 4; up++, el = el.parentElement) {
+      text += " " + (el.currentSrc || el.src || "") + " " + (el.alt || "") + " " + (el.id || "") +
+        " " + (typeof el.className === "string" ? el.className : "");
+    }
+    return text;
+  }
+  function sizeOf(item) {
+    var el = item.el;
+    if (!el) return null;
+    var w = el.naturalWidth || el.width, h = el.naturalHeight || el.height;
+    return w > 0 && h > 0 ? { w: w, h: h } : null;
+  }
+  function median(values) {
+    return values.slice().sort(function (a, b) { return a - b; })[Math.floor(values.length / 2)];
+  }
+  function pagesOnly(list) {
+    var sizes = list.map(sizeOf);
+    var drop = list.map(function (item) { return NOISE.test(markup(item)); });
+    var known = sizes.filter(Boolean);
+    // Fewer than five sized pictures give no reliable idea of what a page looks like.
+    if (known.length >= 5) {
+      var area = median(known.map(function (s) { return s.w * s.h; }));
+      var width = median(known.map(function (s) { return s.w; }));
+      var ratio = median(known.map(function (s) { return s.w / s.h; }));
+      sizes.forEach(function (s, i) {
+        if (!s) return;
+        var small = s.w * s.h < area / 4 && s.w < width * 0.6;
+        var square = s.w * s.h < area / 2 && s.w / s.h > 0.8 && s.w / s.h < 1.25 && ratio < 0.9;
+        if (small || square) drop[i] = true;
+      });
+    }
+    return list.filter(function (item, i) { return !drop[i]; });
+  }
+  items = pagesOnly(items);
   var titles = [document.title, first('meta[property="og:title"]', "content"), first("h1")]
     .map(function (t) { return t.replace(/\s+/g, " ").trim(); })
     .filter(function (t) { return t; });
