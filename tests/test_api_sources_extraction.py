@@ -220,7 +220,10 @@ def _remote_user_named(email, *perms):
                    base_url="https://baihe.example.com", raise_server_exceptions=False)
     u = auth_service.add_user(email)
     for p in perms:
-        auth_service.grant_permission(u["id"], p)
+        if p not in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+            auth_service.grant_permission(u["id"], p)
+    if "sources.import" not in perms:   # new members hold it by default; these tests want the member without it
+        auth_service.revoke_permission(u["id"], "sources.import")
     s = auth_service.create_session(u["id"])
     return c, {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
                api_auth.CSRF_HEADER: s["csrf_token"]}

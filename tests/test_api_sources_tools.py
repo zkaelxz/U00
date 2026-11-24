@@ -362,6 +362,7 @@ def test_remote_permissions(env):
     jobs.start (a household default) but a paid engine needs engines.paid."""
     app = create_app(ApiSettings(auth_mode="on", serve_frontend=False))
     u = auth_service.add_user("h@example.com")
+    auth_service.revoke_permission(u["id"], "sources.import")   # new members hold it by default
     s = auth_service.create_session(u["id"])
     headers = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
                api_auth.CSRF_HEADER: s["csrf_token"]}

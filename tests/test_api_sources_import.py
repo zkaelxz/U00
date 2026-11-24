@@ -524,6 +524,7 @@ def test_auth_on(fakes):
     body = {"series_id": "s1", "chapter_ids": ["c1"], "drama_id": did}
     assert c.post("/api/sources/alpha/import", json=body).status_code == 401
     u = auth_service.add_user("kid@example.com")
+    auth_service.revoke_permission(u["id"], "sources.import")   # new members hold it by default
     s = auth_service.create_session(u["id"])
     h = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
          api_auth.CSRF_HEADER: s["csrf_token"]}

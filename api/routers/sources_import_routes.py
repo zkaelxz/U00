@@ -4,8 +4,8 @@ existing drama (Discover/Sources/Live specs). Thin: see
 services/sources_import_service.py and services/sources_url_service.py.
 
 Same /api/sources prefix as sources_catalog_routes.py and
-sources_search_routes.py. `sources.import` (off by default for household
-accounts): these fetch from this PC, and the imports write pages or text
+sources_search_routes.py. `sources.import` (a household default since
+2026-11-24): these fetch from this PC, and the imports write pages or text
 into a drama. Every start is a background job; poll
 GET /api/sources/jobs/{job_id}/result and cancel with
 POST /api/jobs/{job_id}/cancel.
