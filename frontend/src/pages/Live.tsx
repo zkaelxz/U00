@@ -425,7 +425,7 @@ export default function LivePage() {
             {error}
           </p>
         )}
-        <FollowedChannels liveOptions={followOptions(buildStartBody(startForm, opts))} formOptions={opts} engines={engines && usable.map((e) => liveEngineView(e, cloudAllowed) ?? e)} gpuReason={gpuReason} />
+        <FollowedChannels liveOptions={followOptions(buildStartBody(startForm, opts))} formOptions={opts} engines={engines && usable.map((e) => liveEngineView(e) ?? e)} gpuReason={gpuReason} />
 
         {session && (
           <div className={videoLive ? (theater ? 'live-body has-video theater' : 'live-body has-video') : 'live-body'}>
