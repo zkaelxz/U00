@@ -47,6 +47,7 @@ import type {
   TrackedSeries,
 } from '../types/sources'
 import SourcesManagePanel from './SourcesManage'
+import { SourcesReadList } from './sources/SourcesReadList'
 import { FindModeSwitch, type FindMode } from './sources/FindModeSwitch'
 import { SOURCES_TABS, sourcesHref, type ManageTab, type SourcesTab } from './sources/manageTabs'
 import { NewChapters } from './sources/NewChapters'
@@ -234,9 +235,9 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
     }
   }
 
-  // Manage sources is PC only: away from the PC the tab, its link and its panel are left out.
-  const shownTab = remote && tab === 'manage' ? 'find' : tab
-  const tabs = SOURCES_TABS.filter((t) => !(remote && t.id === 'manage'))
+  // Editing sites is PC only, so away from the PC the Manage tab becomes a read-only list of the sources.
+  const shownTab = tab
+  const tabs = SOURCES_TABS.map((t) => (remote && t.id === 'manage' ? { ...t, label: 'Sources list' } : t))
   const panel = (id: SourcesTab, children: ReactNode, className?: string) => (
     <div id={tabPanelId(PREFIX, id)} role="tabpanel" aria-labelledby={tabButtonId(PREFIX, id)} className={`sources-panel${className ? ` ${className}` : ''}`} hidden={shownTab !== id}>
       {children}
@@ -352,6 +353,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
       ))}
 
       {!remote && manageVisited && panel('manage', <SourcesManagePanel area={area} />, 'sources-manage-panel')}
+      {remote && panel('manage', sources ? <SourcesReadList sources={sources} /> : <p className="muted">Loading…</p>, 'sources-list-panel')}
     </PageShell>
   )
 }
