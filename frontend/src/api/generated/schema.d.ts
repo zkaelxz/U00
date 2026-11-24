@@ -6081,7 +6081,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Followed channels the caller can see (never a URL) */
+        /** The caller's own followed channels (never a URL) */
         get: operations["list_follows_api_live_follows_get"];
         put?: never;
         /** Follow a YouTube or Twitch channel for live streams */
@@ -6101,7 +6101,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Queue a check of every channel the caller may change, one after another */
+        /** Queue a check of every channel in the caller's own list, one after another */
         post: operations["check_all_api_live_follows_check_all_post"];
         delete?: never;
         options?: never;
@@ -9105,7 +9105,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Write the chapter as a ZIP and/or PDF (download from /api/artifacts, kinds scanlate_zip / scanlate_pdf) */
+        /** Write the chapter as a ZIP, PDF and/or CBZ (download from /api/artifacts, kinds scanlate_zip / scanlate_pdf / scanlate_cbz) */
         post: operations["post_export_api_scanlate_dramas__drama_id__export_post"];
         delete?: never;
         options?: never;
@@ -12582,7 +12582,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** PC only: read the text written in a picture with a vision engine */
+        /** Read the text written in a picture with a vision engine */
         post: operations["post_read_image_api_translate_read_image_post"];
         delete?: never;
         options?: never;
@@ -22417,9 +22417,10 @@ export interface components {
             glossary_drama_id?: number | null;
             /**
              * Max Minutes
+             * @description None = no limit.
              * @default 60
              */
-            max_minutes?: number;
+            max_minutes?: number | null;
             /** Model */
             model?: string | null;
             /** Series Id */
@@ -22577,9 +22578,10 @@ export interface components {
             glossary_drama_id?: number | null;
             /**
              * Max Minutes
+             * @description None = no limit: captions until the stream ends.
              * @default 60
              */
-            max_minutes?: number;
+            max_minutes?: number | null;
             /** Model */
             model?: string | null;
             /**
@@ -27667,7 +27669,7 @@ export interface components {
         /** ScanlateExportRequest */
         ScanlateExportRequest: {
             /** Formats */
-            formats?: ("zip" | "pdf")[];
+            formats?: ("zip" | "pdf" | "cbz")[];
             /**
              * Typeset
              * @default true

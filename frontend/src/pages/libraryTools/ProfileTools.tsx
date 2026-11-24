@@ -77,8 +77,6 @@ export function ProfileTools({ presets, pc, onChanged, list }: {
 
   return (
     <>
-      {list({ items, extra })}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {editor ? (
         <ProfileEditor
           // A different profile (or New) is a different form, not an edit of the open one.
@@ -96,6 +94,8 @@ export function ProfileTools({ presets, pc, onChanged, list }: {
           <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => open(null)}>New profile</button>
         </div>
       )}
+      {list({ items, extra })}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </>
   )
 }

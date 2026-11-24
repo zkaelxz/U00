@@ -555,7 +555,7 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None):
 def start_session(url, source_language="zh", whisper_size="small", segment_seconds: float = 10,
                   overlap_seconds: float = live_translate.DEFAULT_OVERLAP_SECONDS,
                   engine: Optional[str] = None, model: Optional[str] = None,
-                  max_minutes: float = DEFAULT_MAX_MINUTES, use_gpu: bool = False,
+                  max_minutes: Optional[float] = DEFAULT_MAX_MINUTES, use_gpu: bool = False,
                   use_saved_cookies: bool = False,
                   reply_without_thinking: bool = True, glossary_drama_id: Optional[int] = None,
                   series_id: Optional[int] = None, delayed_player: bool = False,
@@ -593,7 +593,9 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     segment_seconds = int(_num("segment_seconds", segment_seconds, *SEGMENT_RANGE))
     overlap_seconds = _num("overlap_seconds", overlap_seconds, *OVERLAP_RANGE)
     overlap_seconds = min(overlap_seconds, segment_seconds / 2)
-    max_minutes = _num("max_minutes", max_minutes, *MAX_MINUTES_RANGE)
+    # None keeps captioning until the stream ends; the spend limit still bounds a paid engine.
+    if max_minutes is not None:
+        max_minutes = _num("max_minutes", max_minutes, *MAX_MINUTES_RANGE)
     spend_limit_usd = _num("spend_limit_usd", spend_limit_usd, *live_spend_service.SESSION_LIMIT_RANGE)
     if model is not None and not isinstance(model, str):
         raise InvalidInputError("model must be a string.")
@@ -684,7 +686,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
             reply_without_thinking=bool(reply_without_thinking), term_hints=term_hints,
-            delayed_player=player_height, max_seconds=max_minutes * 60,
+            delayed_player=player_height, max_seconds=None if max_minutes is None else max_minutes * 60,
             spend_guard=spend_guard,
             stream_url_check=check_stream_url,
             **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
