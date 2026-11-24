@@ -1,0 +1,10 @@
+.updates-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.updates-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 56px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: inherit; text-decoration: none;
+}
+.updates-row:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }
+.updates-main { display: flex; flex-direction: column; min-width: 0; }
+.updates-title { font-weight: 600; overflow-wrap: anywhere; }
+.updates-sub { overflow-wrap: anywhere; }
