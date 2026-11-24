@@ -15,6 +15,9 @@ from lib.errors import UnsupportedOperationError
 from tests.test_live_service import _start, _terminal, live  # noqa: F401  (the live fixture)
 
 
+pytestmark = pytest.mark.usefixtures("local_ollama_default")
+
+
 class _PaidEngine:
     name = "claude"
     model = "claude-sonnet-4-5"

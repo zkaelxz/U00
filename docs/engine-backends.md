@@ -389,8 +389,9 @@ backward. 0 disables this.
 6. **Ollama context.** `estimate_ollama_num_ctx` sizes `num_ctx` per request
    (floor `OLLAMA_MIN_NUM_CTX = 16384`) because an undersized window truncates
    the prompt from the start, silently dropping instructions and glossary.
-7. **Ollama models and reasoning.** The picker list is `OLLAMA_MODELS` (default `OLLAMA_DEFAULT_MODEL`,
-   `translategemma:27b`); the API also accepts any tag typed by hand, and a title
+7. **Ollama models and reasoning.** `OLLAMA_DEFAULT_MODEL` is the hosted `gemma4:31b-cloud`; `OLLAMA_MODELS`
+   (the local picker list) is empty, and `REMOVED_LOCAL_MODELS` (TranslateGemma 27B and 12B)
+   resolve to the default through `engine_registry.drop_removed_model`; the API also accepts any tag typed by hand, and a title
    or preset that saved an older tag (Qwen, say) keeps it. Models too big for a 12 GB card
    (tags such as `gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
    `<think>` blocks in a reply are stripped before parsing; a separate

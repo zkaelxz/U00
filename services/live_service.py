@@ -70,11 +70,6 @@ OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
 LIVE_DEFAULT_ENGINE = "ollama"
-# Live must keep up with speech, so a card that cannot hold TranslateGemma 27B
-# starts on 12B, which never fell behind once warm on a 12 GB card.
-LIVE_SMALL_CARD_MODEL = "translategemma:12b"
-LIVE_LARGE_CARD_MODEL = "translategemma:27b"
-LARGE_CARD_MB = 20 * 1024
 # A glossary note is advice for a translator, not text to repeat per chunk.
 HINT_NOTE_CHARS = 120
 MAX_SESSIONS = 32
@@ -170,20 +165,9 @@ def _require_offered_model(engine_name: str, model: Optional[str]):
 
 
 def live_default_model(engine_name: str = LIVE_DEFAULT_ENGINE):
-    """The model Live runs when none is chosen. For Ollama with no model picked
-    in Settings it goes by the card's graphics memory; an unreadable card gets
-    the small model, since 27B on the CPU cannot keep up with a stream. A PC
-    that has only 27B pulled keeps it: a slow stream beats one that won't start."""
-    if engine_name != "ollama" or engine_registry.model_override_for_default("ollama"):
-        return engine_registry.effective_default_model(engine_name)
-    import memory_headroom
-    total = memory_headroom.total_mb("vram")
-    if total is not None and total >= LARGE_CARD_MB:
-        return LIVE_LARGE_CARD_MODEL
-    pulled = engine_local.pulled_ollama_models(settings_service.ollama_url())
-    if LIVE_LARGE_CARD_MODEL in pulled and LIVE_SMALL_CARD_MODEL not in pulled:
-        return LIVE_LARGE_CARD_MODEL
-    return LIVE_SMALL_CARD_MODEL
+    """The model Live runs when none is chosen: the engine's own default, so
+    Ollama starts on Gemma 4 31B (hosted) unless the owner picked another."""
+    return engine_registry.effective_default_model(engine_name)
 
 
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
@@ -246,7 +230,7 @@ _GPU_PAIR_OVERHEAD_MB = 1024
 
 def _gpu_room_note(model: str, whisper_size: Optional[str], use_gpu: bool = True) -> Optional[str]:
     """Why the model (and Whisper, when it runs on the GPU) may not fit in graphics
-    memory, or None. Without it a model that does not fit (TranslateGemma 27B on a
+    memory, or None. Without it a model that does not fit (a 27B model on a
     12 GB card) only showed after Start, as lines skipped to keep up. It counts
     what Start does: with Use GPU, Whisper's load first unloads every Ollama model
     (when Settings lets it), then the model loads again. It warns with the
@@ -275,8 +259,7 @@ def _gpu_room_note(model: str, whisper_size: Optional[str], use_gpu: bool = True
     if not need_mb or free_mb - need_mb >= reserved:
         return None
     kept = f", {_gb(reserved)} kept free for other programs" if reserved > 0 else ""
-    advice = ("Pick a smaller model, such as translategemma:12b" if model != LIVE_SMALL_CARD_MODEL
-              else "Pick a smaller model")
+    advice = "Pick a smaller model"
     if whisper_mb:
         advice += ", or turn off Use GPU"
     return (f"{label} may not fit in graphics memory (need about {_gb(need_mb)}, {_gb(free_mb)} free{kept}). "

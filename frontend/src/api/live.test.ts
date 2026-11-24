@@ -261,8 +261,8 @@ describe('requests', () => {
 
 describe('default engine and model', () => {
   const engines = [{ name: 'deepseek' }, { name: 'ollama' }, { name: 'claude' }]
-  it('starts on Ollama with translategemma:12b until the server names its pick for this card', () => {
-    expect(LIVE_DEFAULT_MODEL).toBe('translategemma:12b')
+  it('starts on Ollama with gemma4:31b-cloud until the server names its pick', () => {
+    expect(LIVE_DEFAULT_MODEL).toBe('gemma4:31b-cloud')
     expect(pickEngine(engines, '')).toBe('ollama')
     expect(resolveModel({ name: 'ollama', models: ['llama3.1:8b', LIVE_DEFAULT_MODEL] }, '')).toEqual({ model: LIVE_DEFAULT_MODEL, fellBack: false })
   })
@@ -281,7 +281,7 @@ describe('default engine and model', () => {
 })
 
 describe('model choice', () => {
-  const ollama = { name: 'ollama', models: ['llama3.1:8b', 'translategemma:12b', 'translategemma:27b'] }
+  const ollama = { name: 'ollama', models: ['llama3.1:8b', LIVE_DEFAULT_MODEL] }
   it('keeps an offered model and sends it', () => {
     expect(resolveModel(ollama, 'llama3.1:8b')).toEqual({ model: 'llama3.1:8b', fellBack: false })
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', engine: 'ollama', model: 'llama3.1:8b' }).model).toBe('llama3.1:8b')
