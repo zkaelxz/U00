@@ -29,8 +29,10 @@ _SITE_NAMES = ("marumaru", "마루마루", "newtoki", "뉴토끼", "newtojuso", 
 # Reader-site ads read as dialogue once translated. "Fastest webtoon" and
 # "search on Google" are the ad's own phrases, rare in a story. OCR of a small
 # stamp over art often keeps only the ends of the first line ("가장른 미리보가"),
-# so "미리보" counts when "가장" or "웹툰" sits just before it.
-_PROMO = re.compile(r"가장\s*빠른\s*웹[툰튼]|구글\s*검색|(?:가장|웹[툰튼]).{0,4}미[리\d]{1,3}보")
+# so "미리보" counts when "가장" or "웹툰" sits just before it, and "구글" still leads the
+# site's name when 검색 between them is misread ("구글감때뉴토" was lettered as a name).
+_PROMO = re.compile(r"가장\s*빠른\s*웹[툰튼]|구글\s*검색|(?:가장|웹[툰튼]).{0,4}미[리\d]{1,3}보"
+                    r"|구글.{0,3}뉴토")
 
 # A stamp line by itself: the site's name cut short, or "미리보기" (preview)
 # with a digit read in for a stroke ("미12보7"). Matched only against a whole

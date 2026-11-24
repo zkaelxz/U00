@@ -171,14 +171,16 @@ def test_the_logo_box_of_a_promo_first_line_alone_reaches_down_over_the_site_nam
     assert both["y"] + both["h"] == 500 + 60 + 8
 
 
-@pytest.mark.parametrize("text", ["구글검 뉴로끼", "구을검색 뉴로끼", "기빠문 미리보기", "구을검식뉴토끼"])
+@pytest.mark.parametrize("text", ["구글검 뉴로끼", "구을검색 뉴로끼", "기빠문 미리보기", "구을검식뉴토끼",
+                                  "구글감때뉴토", "가장빠른웹튼미리보기 구글검색뉴토"])
 def test_ocr_misreadings_of_the_korean_stamp_are_marks(text):
     regions = [_r(text)]
     assert wm.flag_site_marks(regions) == 1
     assert regions[0]["skip"]
 
 
-@pytest.mark.parametrize("text", ["왜 나를", "토끼", "가지마", "죄수 4886!", "지닌 이 남자", "구글에서 검색해봐", "바로 이 곳—"])
+@pytest.mark.parametrize("text", ["왜 나를", "토끼", "가지마", "죄수 4886!", "지닌 이 남자", "구글에서 검색해봐", "바로 이 곳—",
+                                  "구글 뉴스 봤어?"])
 def test_real_korean_lettering_is_not_taken_for_the_stamp(text):
     regions = [_r(text)]
     assert wm.flag_site_marks(regions) == 0
