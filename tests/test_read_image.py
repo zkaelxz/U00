@@ -137,7 +137,8 @@ class TestRoute:
 
 
 class TestFromARemoteDevice:
-    """A phone signs in as a member: the picture read needs engines.paid, like Translate."""
+    """A phone signs in as a member: a paid engine needs engines.paid; with no engine named
+    the picture is read on Ollama (owner decision 2026-11-24: settings are chosen for members)."""
 
     def _member(self, rights=()):
         u = auth_service.add_user("phone@example.com")
@@ -156,6 +157,25 @@ class TestFromARemoteDevice:
         resp = remote.post("/api/translate/read-image/estimate",
                            json={"engine": "claude", "width": 10, "height": 10})
         assert resp.status_code == 403
+
+    def test_a_member_naming_no_engine_reads_on_ollama_and_a_free_estimate(self, isolated_db, sent):
+        db.set_app_setting("default_engine", "claude")
+        db.set_app_setting("pref.ollama_cloud_default", True)
+        remote = self._member()
+        resp = remote.post("/api/translate/read-image", data={"language": "zh"},
+                           files={"image": ("shot.png", _png(), "image/png")})
+        assert resp.status_code == 200 and sent[0]["engine"].name == "ollama"
+        assert sent[0]["engine"].model == local.MEMBER_DEFAULT_CLOUD_MODEL
+        resp = remote.post("/api/translate/read-image/estimate", json={"width": 10, "height": 10})
+        assert resp.status_code == 200 and resp.json()["engine"] == "ollama"
+
+    def test_a_member_without_the_start_right_is_refused(self, isolated_db, sent):
+        remote = self._member()
+        user_id = db.auth_get_user_by_email("phone@example.com")["id"]
+        auth_service.revoke_permission(user_id, "jobs.start")
+        resp = remote.post("/api/translate/read-image", data={},
+                           files={"image": ("shot.png", _png(), "image/png")})
+        assert resp.status_code == 403 and not sent
 
     def test_a_signed_out_device_is_refused(self, isolated_db, sent):
         remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,

@@ -388,3 +388,28 @@ def test_a_member_over_their_own_limit_is_still_refused(monkeypatch):
     with patch.object(api_auth, "holds", return_value=False):
         with pytest.raises(ForbiddenError):
             api_auth.engine_for_caller(req, None, "claude", None)
+
+
+def test_text_page_with_no_engine_runs_on_ollama_for_a_member(remote, monkeypatch):
+    import db
+    from services import translate_service
+    seen = {}
+
+    def fake_translate(text, engine_name, source, target, model=None, **kw):
+        seen.update(engine=engine_name, model=model)
+        return {"translated_text": "hi"}
+
+    monkeypatch.setattr(translate_service, "translate", fake_translate)
+    db.set_app_setting("default_engine", "claude")
+    db.set_app_setting("pref.ollama_cloud_default", True)
+    body = {"text": "你好", "source_language": "zh", "target_language": "en"}
+    member = _household("text@example.com")
+    assert remote.post("/api/translate", json=body, headers=member).status_code == 200
+    assert seen == {"engine": "ollama", "model": CLOUD}
+    # A named paid engine or hosted tag stays refused; the owner's default runs for a paid holder.
+    assert remote.post("/api/translate", json={**body, "engine": "claude"}, headers=member).status_code == 403
+    assert remote.post("/api/translate", json={**body, "engine": "ollama", "model": PAID_CLOUD},
+                       headers=member).status_code == 403
+    paid = _household("text-paid@example.com", ["engines.paid"])
+    assert remote.post("/api/translate", json=body, headers=paid).status_code == 200
+    assert seen["engine"] == "claude"
