@@ -82,3 +82,26 @@ for (const link of ['focus=characters', 'tab=characters']) test(`Simple: a link 
   await expect(page.getByRole('tab', { name: 'Characters', exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('region', { name: 'Characters', exact: true })).toBeInViewport()
 })
+
+test('a member gets no engine or options: the run sends none, so the server picks one their account may use', async ({ page }) => {
+  await setup(page, 2, { line_count: 4, untranslated_count: 4 })
+  await page.route(/\/api\/auth\/me$/, (route) => route.fulfill({ json: {
+    ...ME.signedIn, permissions: ['library.read', 'lines.read', 'lines.edit', 'jobs.start', 'jobs.cancel', 'review.use'],
+  } }))
+  await page.addInitScript(() => {
+    localStorage.setItem('baihe.draft.2.translate', JSON.stringify({ v: 1, values: { form: { engine: 'claude', model: 'claude-opus-5-5' }, baseEngine: 'claude', reviewFirst: false } }))
+  })
+  const sent: unknown[] = []
+  await page.route('**/api/translate-run/dramas/2/run', (route) => {
+    sent.push(route.request().postDataJSON())
+    return route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'Stop here.' } } })
+  })
+  await gotoTranslate(page, 'translate', 2)
+  await expect(page.getByTestId('translate-summary')).toHaveText('The engine and settings are chosen for you.')
+  await expect(more(page)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Estimate cost' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Translate 4 lines' }).click()
+  await expect.poll(() => sent.length).toBe(1)
+  expect(sent[0]).not.toHaveProperty('engine')
+  expect(sent[0]).not.toHaveProperty('model')
+})

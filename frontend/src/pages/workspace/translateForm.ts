@@ -346,6 +346,17 @@ export function validateRun(
 }
 
 // Call only after validateRun returned null. line_ids is left out on purpose.
+/** A member's run (owner decision 2026-11-24: their settings are chosen for them): no engine, model, fallback, Bulk or
+ * Reflect from this form, so the server runs the title's default, or Ollama when that is one their account may not use. */
+export function memberRunForm(f: RunForm): RunForm {
+  return { ...f, engine: '', model: '', fallbacks: [], bulk: false, reflect: false }
+}
+
+/** The engine a member's run will use, mirroring api.auth.engine_for_caller: the default when their account may use it. */
+export function memberEngine(defaultEngine: string, engines: { name: string; free: boolean }[], holdsPaid: boolean): string {
+  return holdsPaid || engines.find((e) => e.name === defaultEngine)?.free ? defaultEngine : 'ollama'
+}
+
 export function buildRunBody(f: RunForm): TranslateRunStartBody {
   const cap = parseCap(f.cost_cap)
   const chain: FallbackEngine[] = f.fallbacks.map((engine) => ({ engine }))
