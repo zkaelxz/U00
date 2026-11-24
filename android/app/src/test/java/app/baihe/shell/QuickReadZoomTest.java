@@ -29,6 +29,14 @@ public class QuickReadZoomTest {
     }
 
     @Test
+    public void zoomScrollsSoTheRowUnderTheFingersStays() {
+        // At 2x the row 800 px down the screen sits 400 px down the list, so the list moves up by 400.
+        assertEquals(400, QuickReadZoom.scrollAfterZoom(800f, 1f, 2f));
+        assertEquals(-400, QuickReadZoom.scrollAfterZoom(800f, 2f, 1f));
+        assertEquals(0, QuickReadZoom.scrollAfterZoom(0f, 1f, 4f));
+    }
+
+    @Test
     public void scaledListEndsAtTheScreenBottom() {
         assertEquals(2000, QuickReadZoom.listHeight(2000, 1f));
         assertEquals(1000, QuickReadZoom.listHeight(2000, 2f));

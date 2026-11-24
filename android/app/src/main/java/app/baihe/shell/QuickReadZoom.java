@@ -23,6 +23,11 @@ final class QuickReadZoom {
         return clampPan(focusX - pagePoint * newScale, newScale, width);
     }
 
+    /** How far to scroll the list (in its own, unscaled pixels) so the point under the fingers (focusY) stays put. */
+    static int scrollAfterZoom(float focusY, float oldScale, float newScale) {
+        return Math.round(focusY / oldScale - focusY / newScale);
+    }
+
     /** A scaled list draws taller than it is laid out, so it is laid out shorter to end at the screen's bottom edge. */
     static int listHeight(int screenHeight, float scale) {
         return (int) Math.ceil(screenHeight / scale);

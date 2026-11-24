@@ -85,21 +85,25 @@ public class QuickReadActivity extends Activity {
             pinch = new ScaleGestureDetector(QuickReadActivity.this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 @Override
                 public boolean onScale(ScaleGestureDetector d) {
-                    zoomTo(scale * d.getScaleFactor(), d.getFocusX());
+                    zoomTo(scale * d.getScaleFactor(), d.getFocusX(), d.getFocusY());
                     return true;
                 }
             });
+            // Its double-tap-and-drag zoom would fight the double-tap toggle below.
+            pinch.setQuickScaleEnabled(false);
             taps = new GestureDetector(QuickReadActivity.this, new GestureDetector.SimpleOnGestureListener() {
                 @Override
                 public boolean onDoubleTap(MotionEvent e) {
-                    zoomTo(QuickReadZoom.afterDoubleTap(scale), e.getX());
+                    zoomTo(QuickReadZoom.afterDoubleTap(scale), e.getX(), e.getY());
+                    // The second tap is the zoom, not a tap or a scroll for the list underneath.
+                    pinching = true;
                     return true;
                 }
 
                 @Override
                 public boolean onScroll(MotionEvent down, MotionEvent move, float dx, float dy) {
                     if (scale > QuickReadZoom.MIN && !pinching) {
-                        pan = QuickReadZoom.clampPan(pan - dx, scale, getWidth());
+                        pan = QuickReadZoom.clampPan(pan - dx, scale, list.getWidth());
                         list.setTranslationX(pan);
                     }
                     return false;
@@ -107,9 +111,11 @@ public class QuickReadActivity extends Activity {
             });
         }
 
-        private void zoomTo(float wanted, float focusX) {
+        /** focusX and focusY are in this frame; the list sits inside its padding (the system bars). */
+        private void zoomTo(float wanted, float focusX, float focusY) {
             float next = QuickReadZoom.clampScale(wanted);
-            pan = QuickReadZoom.panAfterZoom(pan, scale, next, focusX, getWidth());
+            pan = QuickReadZoom.panAfterZoom(pan, scale, next, focusX - list.getLeft(), list.getWidth());
+            int scroll = QuickReadZoom.scrollAfterZoom(focusY - list.getTop(), scale, next);
             scale = next;
             list.setPivotX(0);
             list.setPivotY(0);
@@ -124,14 +130,18 @@ public class QuickReadActivity extends Activity {
                 size.height = height;
                 list.setLayoutParams(size);
             }
+            if (scroll != 0) list.scrollListBy(scroll);
         }
 
         @Override
         public boolean dispatchTouchEvent(MotionEvent event) {
+            // Before the detectors: a double-tap sets it again for its own second tap.
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) pinching = false;
+            boolean wasPinching = pinching;
             pinch.onTouchEvent(event);
             taps.onTouchEvent(event);
-            int action = event.getActionMasked();
-            if (action == MotionEvent.ACTION_DOWN) pinching = false;
+            // The list never saw a double-tap's second press, so it has nothing to cancel.
+            if (pinching && !wasPinching) return true;
             if (event.getPointerCount() > 1 && !pinching) {
                 pinching = true;
                 MotionEvent cancel = MotionEvent.obtain(event);
