@@ -62,6 +62,32 @@ def novel_glossary_engine(drama_id: int) -> str:
     return _drama(drama_id).get("translation_engine") or _default_engine()
 
 
+def _title_model(drama: dict) -> Optional[str]:
+    # The title's own Translate pick counts as chosen (Alex, 2026-11-24), so a saved
+    # cloud tag runs without the owner's hosted-default opt-in, unlike
+    # title_run_defaults; the routes' gate still holds it to engines.paid.
+    from services import profile_service
+    model = profile_service.translate_start(drama).get("engine_model")
+    return model if isinstance(model, str) and model else None
+
+
+def touches_gpu(engine_name: str, engine) -> bool:
+    """A cloud tag must not wait in the GPU queue behind Live and transcription."""
+    from engine_backends.local import ollama_touches_local_gpu
+    return ollama_touches_local_gpu(engine_name, getattr(engine, "model", None))
+
+
+# The default for callers whose gate didn't check a model (tests, internal reruns).
+UNCHECKED = object()
+
+
+def glossary_model(drama_id: int) -> Optional[str]:
+    """The model a glossary run uses: the one the title's Translate runs on (its last
+    run's pick), else None for the engine's Settings default. Routes pass it to the
+    paid-engine gate, because a picked Ollama cloud tag is held to engines.paid."""
+    return _title_model(_drama(drama_id))
+
+
 # A proposal is High confidence when the term turns up at least this often
 # in the source and every window that proposed it agreed on one rendering;
 # anything else is Low. Deliberately simple so a reviewer can predict it.
@@ -288,15 +314,18 @@ def _current_run_id(job_id: str, job: Optional[dict]) -> Optional[str]:
         return _current_run_id_locked(job_id, job)
 
 
-def _glossary_engine(drama: dict, engine_name: Optional[str]):
+def _glossary_engine(drama: dict, engine_name: Optional[str], model=UNCHECKED):
     """(engine_name, engine) for an extraction run on the drama's stored
-    translation_engine. engine_name is the one the caller's gate checked;
-    ConflictError if the stored engine changed since."""
+    translation_engine and title model. engine_name and model are the ones the
+    caller's gate checked; ConflictError if either changed since, so a run never
+    uses a cloud model the gate didn't see."""
     from services import settings_service, translate_service
 
     stored_engine = drama.get("translation_engine") or _default_engine()
     if engine_name is not None and engine_name != stored_engine:
         raise ConflictError("This title's engine changed; check it and start again.")
+    if model is not UNCHECKED and model != _title_model(drama):
+        raise ConflictError("This title's model changed; check it and start again.")
     engine_name = stored_engine
     cls = engine_registry.ENGINES.get(engine_name)
     if cls is None or not getattr(cls, "supports_reference", False):
@@ -304,8 +333,10 @@ def _glossary_engine(drama: dict, engine_name: Optional[str]):
     api_key = translate_service.resolve_api_key(engine_name)
     if not api_key:
         raise MissingKeyError(engine_name)
+    # The title's own model, as Translate uses: scanning on the Settings default
+    # ran a different (and often slower, local) model than the one picked.
     engine = engine_registry.get_engine(
-        engine_name, api_key,
+        engine_name, api_key, model=_title_model(drama),
         free_tier=engine_name == "gemini" and bool(settings_service.get("gemini_free_tier")),
         base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
@@ -313,7 +344,7 @@ def _glossary_engine(drama: dict, engine_name: Optional[str]):
 
 
 def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
-                             fresh: bool = False) -> dict:
+                             fresh: bool = False, model=UNCHECKED) -> dict:
     """Starts proposing glossary terms from this drama's saved novel text.
     Uses the saved original-language novel (raw_novel_context.txt) as the
     source and the saved novel translation as the paired rendering when
@@ -344,7 +375,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     src_text = orig if orig.strip() else novel
     en_text = novel if orig.strip() else ""
 
-    engine_name, engine = _glossary_engine(drama, engine_name)
+    engine_name, engine = _glossary_engine(drama, engine_name, model)
     from services import settings_service, translate_run_service
     translate_run_service.refuse_when_cap_spent(
         engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
@@ -352,7 +383,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     started = _start_extraction_job(
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
         en_text, drama.get("source_language") or "zh", db.list_run_glossary_terms(drama),
-        gpu_touching=engine_name == "ollama",
+        gpu_touching=touches_gpu(engine_name, engine),
         description=f"Glossary from novel (title #{drama_id})", fresh=bool(fresh),
         conventions=split_term_conventions(drama.get("project_instructions"))[1])
     if not started:
@@ -360,7 +391,8 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     return {"job_id": job_id, "engine": engine_name, "paired": bool(en_text)}
 
 
-def draft_project_instructions(drama_id: int, engine_name: Optional[str] = None) -> dict:
+def draft_project_instructions(drama_id: int, engine_name: Optional[str] = None,
+                               model=UNCHECKED) -> dict:
     """One call that drafts this novel's style instruction from a sample of its
     raw text, for the person to review in the Instruction tab. Nothing is saved:
     the draft only fills the box. Paid-engine spend like a glossary run; the
@@ -372,7 +404,7 @@ def draft_project_instructions(drama_id: int, engine_name: Optional[str] = None)
         src = _read_drama_file(drama_id, drama.get("novel_reference_filename"))
     if not src.strip():
         raise UnsupportedOperationError("Attach a novel to this title first.")
-    engine_name, engine = _glossary_engine(drama, engine_name)
+    engine_name, engine = _glossary_engine(drama, engine_name, model)
     from services import settings_service, translate_run_service
     translate_run_service.refuse_when_cap_spent(
         engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
@@ -638,7 +670,7 @@ def _chapter_source_lines(drama_id: int, chapter: int) -> list:
 
 
 def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None,
-                             chapter: Optional[int] = None) -> dict:
+                             chapter: Optional[int] = None, model=UNCHECKED) -> dict:
     """Starts proposing glossary terms from this drama's saved source lines
     (`glossary_extract.extract_terms_llm`, which samples up to 400 lines across the
     whole drama), or only chapter `chapter` of GET line-chapters when given
@@ -663,7 +695,7 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None,
         raise UnsupportedOperationError(
             "This title has no source lines yet; transcribe or import them first."
             if chapter is None else "That chapter has no source lines.")
-    engine_name, engine = _glossary_engine(drama, engine_name)
+    engine_name, engine = _glossary_engine(drama, engine_name, model)
     translate_run_service.refuse_when_cap_spent(
         engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
 
@@ -671,7 +703,7 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     started = _start_extraction_job(
         job_id, _run_lines_glossary_job, drama_id, engine, engine_name, source_lines,
         drama.get("source_language") or "zh", db.list_run_glossary_terms(drama),
-        gpu_touching=engine_name == "ollama",
+        gpu_touching=touches_gpu(engine_name, engine),
         description=f"Glossary from lines (title #{drama_id})")
     if not started:
         raise ConflictError("A glossary extraction is already running for this title.")
