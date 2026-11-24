@@ -135,7 +135,8 @@ def is_ollama_cloud_model(model) -> bool:
 # engines.paid (owner decision 2026-11-24): the model chosen for members and
 # away devices has to just work. Other hosted tags still need engines.paid or
 # the member's own Ollama key. Spend still counts against the monthly cap.
-MEMBER_CLOUD_MODELS = frozenset({"gemma4:31b-cloud"})
+MEMBER_DEFAULT_CLOUD_MODEL = "gemma4:31b-cloud"
+MEMBER_CLOUD_MODELS = frozenset({MEMBER_DEFAULT_CLOUD_MODEL})
 
 
 def cloud_model_needs_paid(model) -> bool:

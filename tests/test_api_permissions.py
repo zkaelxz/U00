@@ -794,7 +794,6 @@ class TestPaidEngines:
         did = db.create_drama(title_en="T", source_language="zh")   # the B2 guard 404s a missing one
         url = f"/api/translate-run/dramas/{did}/run"
         assert c.post(url, json={"engine": "claude"}, headers=_h(s)).status_code == 403
-        assert c.post(url, json={}, headers=_h(s)).status_code == 403   # default: maybe paid
         assert c.post(url, json={"engine": "ollama",
                                  "fallback_chain": [{"engine": "claude"}]},
                       headers=_h(s)).status_code == 403
@@ -824,7 +823,9 @@ class TestPaidEngines:
         _u, s = _user()
         did = db.create_drama(title_en="T", source_language="zh")
         url = f"/api/translate-run/dramas/{did}/{path}"
-        assert c.post(url, json=body, headers=_h(s)).status_code == 403   # default is paid
+        # A paid default the caller may not use runs on the model every account may use.
+        assert c.post(url, json=body, headers=_h(s)).status_code == 409
+        assert (seen["engine_name"], seen["model"]) == ("ollama", "gemma4:31b-cloud")
         db.update_drama(did, translation_engine="ollama")
         assert c.post(url, json=body, headers=_h(s)).status_code == 409
         # The service must run what was checked, not re-read the title's engine.
