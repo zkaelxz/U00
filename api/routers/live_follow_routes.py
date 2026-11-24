@@ -34,7 +34,7 @@ def _check_engine(request: Request, options) -> None:
 
 
 @router.get("", dependencies=[require_permission("library.read")], response_model=LiveFollowList,
-            summary="Followed channels the caller can see (never a URL)")
+            summary="The caller's own followed channels (never a URL)")
 def list_follows(request: Request):
     return live_follow_service.list_follows(principal=request.state.principal)
 
@@ -52,7 +52,7 @@ def add_follow(body: LiveFollowAdd, request: Request):
 # Declared before "/{follow_id}" so the literal path is matched first.
 @router.post("/check-all", dependencies=[require_permission("media.import_url")],
              response_model=LiveFollowCheckAll,
-             summary="Queue a check of every channel the caller may change, one after another",
+             summary="Queue a check of every channel in the caller's own list, one after another",
              responses=_ERRS)
 def check_all(request: Request):
     return live_follow_service.check_all(principal=request.state.principal)

@@ -822,7 +822,7 @@ def record_event(kind, text) -> None:
         pass
 
 
-def _sees_target(principal, event) -> bool:
+def _sees_target(principal, event, admin_ids=None) -> bool:
     """A waiting entry names the title or series its target points at, and
     a hold's entry may also name a title in that series (`names_drama_id`).
     A hold's entry is kept for its owner alone (no job id): once any of
@@ -832,7 +832,7 @@ def _sees_target(principal, event) -> bool:
     target = event.get("target") or {}
     if event["kind"] == "live":
         from services import live_follow_service
-        return live_follow_service.is_own(principal, event["owner_user_id"])
+        return live_follow_service.is_own(principal, event["owner_user_id"], admin_ids)
     if event["kind"] != "waiting" or ownership_service.sees_every_job(principal):
         return True
     named = event.get("names_drama_id")
@@ -852,12 +852,17 @@ def list_recent(principal=None, limit=RECENT_MAX) -> list:
     with _recent_lock:
         events = list(_recent)
     out = []
+    admin_ids = None
     for e in reversed(events):
         if e["kind"] != "chapters":
             try:
+                if e["kind"] == "live" and admin_ids is None:
+                    # Read once per call: the whole deque may be walked.
+                    from services import live_follow_service
+                    admin_ids = live_follow_service.owner_account_ids()
                 visible = ownership_service.can_see_job(principal, e["job_id"] or "",
                                                         e["owner_user_id"]) \
-                    and _sees_target(principal, e)
+                    and _sees_target(principal, e, admin_ids)
             except Exception:
                 visible = False
             if not visible:

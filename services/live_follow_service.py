@@ -112,11 +112,11 @@ def is_own(principal, owner_user_id, admin_ids=None) -> bool:
     if owner_user_id is None:
         return True
     if admin_ids is None:
-        admin_ids = _admin_ids()
+        admin_ids = owner_account_ids()
     return owner_user_id in admin_ids
 
 
-def _admin_ids() -> frozenset:
+def owner_account_ids() -> frozenset:
     import db
     return frozenset(u["id"] for u in db.auth_list_users() if u.get("is_admin"))
 
@@ -342,7 +342,7 @@ def view(row, principal=None) -> dict:
 
 
 def list_follows(principal=None) -> dict:
-    admin_ids = _admin_ids()
+    admin_ids = owner_account_ids()
     rows = [r for r in follow_store.list_all()
             if is_own(principal, r.get("owner_user_id"), admin_ids)]
     return {"items": [view(r, principal) for r in rows], "can_auto_start": is_pc_owner(principal)}
@@ -465,7 +465,7 @@ def check_all(principal=None, now=None) -> dict:
     Channels checked in the last minute or already queued are skipped."""
     now = time.time() if now is None else now
     queued = skipped = 0
-    admin_ids = _admin_ids()
+    admin_ids = owner_account_ids()
     for row in follow_store.list_all():
         if not is_own(principal, row.get("owner_user_id"), admin_ids) \
                 or not _can_see(principal, row, writing=True):
