@@ -42,10 +42,14 @@ import paid_limits
 # media.stream is a default (owner decision 2026-11-17): a new member's player
 # was silent until an admin found the right switch. sources.import is a default
 # for the same reason (owner decision 2026-11-24): Find could search from a phone
-# but not import what it found. Existing accounts keep what they hold.
+# but not import what it found. library.create is a default too (owner decision
+# 2026-11-24, "members add a title and bulk import on phone"): a member makes
+# titles of their own, capped by `drama_service.MEMBER_TITLE_LIMIT`, and an admin
+# can still take it away per person. Accounts that existed then were granted it
+# once by a migration; any other account keeps what it holds.
 HOUSEHOLD_DEFAULT_PERMISSIONS = (
     "library.read", "lines.read", "lines.edit", "jobs.start", "jobs.cancel", "review.use",
-    "media.stream", "sources.import",
+    "media.stream", "sources.import", "library.create",
 )
 OPT_IN_PERMISSIONS = (
     "media.import_url", "engines.paid", "extension.send",
@@ -76,11 +80,7 @@ UPLOAD_PERMISSION = "media.upload"
 # from away too, with no PC switch; the update source is fixed to this copy's
 # own git remote and nothing in the request chooses it.
 UPDATE_PERMISSION = "system.update"
-# Making a new, empty title (POST /api/dramas). It writes one library row and
-# fetches nothing, so unlike the rest of admin.library an admin keeps it away
-# from the PC; editing, importing and deleting titles stay PC-only.
-CREATE_PERMISSION = "library.create"
-ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION, UPDATE_PERMISSION, CREATE_PERMISSION)
+ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION, UPDATE_PERMISSION)
 ADMIN_FLAG_PERMISSIONS = ADMIN_PERMISSIONS + ADMIN_ONLY_PERMISSIONS
 PERMISSIONS = (HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
                + ADMIN_ONLY_PERMISSIONS)

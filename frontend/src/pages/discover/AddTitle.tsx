@@ -11,6 +11,7 @@ import { createTitle, importSuggestion } from '../../api/discover'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
+import { useHolds } from '../../hooks/useHolds'
 import type { KnownTitleCreate } from '../../types/discover'
 import { EMPTY_TITLE, LANGUAGES, TITLE_MEDIA_TYPES, applySuggestion, isHttpUrl, mediaLabel, titleFormProblems } from './discoverFormat'
 
@@ -23,6 +24,8 @@ export function AddTitle({ engine, aiReady, onAdded }: { engine: string; aiReady
   const [error, setError] = useState<unknown>(null)
   const [saved, setSaved] = useState<string | null>(null)
   const [touched, setTouched] = useState(false)
+  // Reading a page fetches its address from the PC, which is the Import from a link right.
+  const mayRead = useHolds('media.import_url')
 
   const set = (k: keyof KnownTitleCreate) => (e: { target: { value: string } }) => {
     setForm((f) => ({ ...f, [k]: e.target.value }))
@@ -79,6 +82,7 @@ export function AddTitle({ engine, aiReady, onAdded }: { engine: string; aiReady
         Adds a catalogue entry (title, author, tags, synopsis), not chapters or episodes. To pull content into a title,
         use Sources › Paste a link.
       </p>
+      {mayRead && (
       <div className="discover-row">
         <Field label="Fill from a page (optional)">
           <input type="url" value={pageUrl} maxLength={2000} onChange={(e) => setPageUrl(e.target.value)} placeholder="https://" />
@@ -87,7 +91,8 @@ export function AddTitle({ engine, aiReady, onAdded }: { engine: string; aiReady
           {reading ? 'Reading…' : 'Read page'}
         </button>
       </div>
-      {!aiReady && <p className="muted">Reading a page needs an AI engine (set a key in Settings).</p>}
+      )}
+      {mayRead && !aiReady && <p className="muted">Reading a page needs an AI engine (set a key in Settings).</p>}
       {readNote && (
         <p className={readNote.warn ? 'warn' : 'muted'} role="status">
           {readNote.text}

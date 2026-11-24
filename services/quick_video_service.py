@@ -19,7 +19,7 @@ from typing import Optional
 
 import db
 from engine_backends import engine_registry, shared
-from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError
+from lib.errors import ForbiddenError, InvalidInputError, NotFoundError
 from services import drama_service, language_pack_service, profile_service, url_media_service
 
 _log = logging.getLogger(__name__)
@@ -40,10 +40,6 @@ _PAID = "This profile translates with a paid engine, which your account can't us
 _NO_CAP = ("Set a monthly spending cap in Settings > Spending first: this profile translates with a "
            "paid engine, which the queue runs only under a cap.")
 _RUN_STEPS = ("download", "transcribe", "translate", "export")
-# Members make titles here without library.create, so their count is bounded (Alex, 2026-11-23).
-MEMBER_TITLE_LIMIT = 100
-_TOO_MANY = (f"You have {MEMBER_TITLE_LIMIT} titles, the most a member account can have. Delete one "
-             "you no longer need, then try again.")
 # The From a URL picker's default (Alex, 2026-11-22): a taller picture costs disk and download
 # time and is not needed to watch with subtitles.
 VIDEO_HEIGHT = 1080
@@ -213,10 +209,7 @@ def start(principal, url, profile_id, watch_once, *, holds_paid: bool, at_pc: bo
         raise ForbiddenError(_PAID)
     if cap_needed(preset):
         raise InvalidInputError(_NO_CAP)
-    uid = principal.get("user_id") if principal else None
-    if uid is not None and not principal.get("is_admin") \
-            and db.count_dramas_owned_by(uid) >= MEMBER_TITLE_LIMIT:
-        raise ConflictError(_TOO_MANY)
+    drama_service.check_title_room(principal)
 
     created = drama_service.create_drama(source_language=language, media_type="video_drama",
                                          preset_id=preset["id"], principal=principal)

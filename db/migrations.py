@@ -487,6 +487,8 @@ def _migrate_ownership_columns(conn):
         ("usage_log", "user_id", "INTEGER"),
         # A member's own monthly limit for paid engines (NULL: none).
         ("users", "monthly_paid_cap_usd", "REAL"),
+        # Who added a catalogue entry (NULL: the PC owner or an admin); members' adds are capped.
+        ("known_titles", "created_by_user_id", "INTEGER"),
     ):
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
         if col not in cols:
@@ -524,6 +526,23 @@ def _grant_lines_read_for_reader_page(conn):
                      "SELECT user_id, 'lines.read' FROM user_permissions "
                      "WHERE permission = 'library.read'")
         conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+
+
+def _grant_library_create_to_members(conn):
+    # library.create became a household default (owner decision 2026-11-24):
+    # grant it once to every account that can read the library, so existing
+    # members get it too. The marker keeps a later per-person revoke, so it is
+    # written even when there are no accounts yet (new accounts get the
+    # default): otherwise the first restart after members exist would give the
+    # right back to someone an admin had taken it from.
+    marker = "migrations.members_library_create"
+    if conn.execute("SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is not None:
+        return
+    conn.execute("INSERT OR IGNORE INTO user_permissions (user_id, permission) "
+                 "SELECT user_id, 'library.create' FROM user_permissions "
+                 "WHERE permission = 'library.read'")
+    # OR IGNORE: two processes starting together both reach this on the upgrade start.
+    conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
 
 
 def _migrate_progress_view_prefs(conn):

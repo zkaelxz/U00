@@ -3,7 +3,7 @@ import pytest
 
 import db
 from services import drama_service as ds
-from lib.errors import InvalidInputError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 
 def _count():
@@ -599,3 +599,18 @@ def test_find_same_titles_keeps_a_link_match_when_many_share_the_name(isolated_d
     assert len(found) == ds.MAX_SAME_TITLES
     assert found[0] == {"id": oldest, "title": "Twin", "same": "link"}
     assert {t["same"] for t in found[1:]} == {"name"}
+
+
+def test_a_member_cannot_create_past_the_title_limit_but_an_admin_can(isolated_db, monkeypatch):
+    monkeypatch.setattr(ds, "MEMBER_TITLE_LIMIT", 2)
+    from services import auth_service
+    member = {"user_id": auth_service.add_user("m@example.com")["id"], "is_admin": False,
+              "permissions": ["library.create"]}
+    for n in range(2):
+        ds.create_drama(source_language="zh", title_en=f"T{n}", principal=member)
+    with pytest.raises(ConflictError, match="most a member account can have"):
+        ds.create_drama(source_language="zh", title_en="T2", principal=member)
+    assert len(db.list_dramas()) == 2
+    admin = {"user_id": auth_service.add_user("a@example.com")["id"], "is_admin": True, "permissions": ["library.create"], "admin_override": True}
+    for n in range(3):
+        ds.create_drama(source_language="zh", title_en=f"A{n}", principal=admin)

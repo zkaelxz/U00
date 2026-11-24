@@ -8,7 +8,7 @@ import type { AdminUser, AuditEvent } from '../../types/adminUsers'
 export function holds(s: SessionState, permission: string): boolean {
   if (s.status === 'loading') return false
   // Unknown session: render as before sign-in existed (routes still enforce),
-  // except admin controls (and library.create, which only an admin holds), which would otherwise
+  // except admin controls (and library.create, which stays hidden until /me answers), which would otherwise
   // light up for every member.
   if (s.status === 'unavailable') return !permission.startsWith('admin.') && permission !== 'library.create'
   return s.me.permissions.includes(permission)
@@ -81,6 +81,7 @@ const RIGHTS: Record<string, { name: string; about: string }> = {
   'sources.import': { name: 'Import from sources', about: 'Add chapters from novel and comic sites, and follow series for new chapters.' },
   'engines.paid': { name: 'Paid engines', about: 'Use engines that cost money, such as Claude, Gemini, OpenAI, DeepSeek or Ollama cloud models other than Gemma 31B cloud, which everyone may use.' },
   'extension.send': { name: 'Browser extension', about: 'Connect the browser extension and send pages to Baihe from their own browser.' },
+  'library.create': { name: 'Add titles', about: 'Add titles of their own, in the Library and in Discover (up to 200), and import them from the Discover catalogue.' },
   'media.stream': { name: 'Play media', about: 'Play audio and video and view comic pages from the PC.' },
 }
 

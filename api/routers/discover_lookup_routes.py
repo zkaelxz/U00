@@ -13,8 +13,10 @@ Permissions:
 - import-suggestion, bulk-extract and navigation-help fetch a caller-chosen
   public URL from this PC (through services/safe_fetch) and call an LLM:
   `media.import_url` plus `require_engines_allowed`.
-- bulk-commit writes the known-titles catalogue: `admin.library`, like the
-  catalogue's own create/seed routes.
+- bulk-commit and the catalogue's create and import-to-library are
+  `library.create`, a member default; a member's catalogue adds are capped
+  (`drama_service.MEMBER_TITLE_LIMIT`). Seeding the starter titles stays
+  `admin.library`.
 Engine keys are resolved server-side and never accepted or returned.
 """
 
@@ -79,12 +81,13 @@ def get_bulk_extract_result(request: Request):
     return svc.bulk_extract_result(principal=request.state.principal)
 
 
-@router.post("/bulk-commit", dependencies=[require_permission("admin.library")],
+@router.post("/bulk-commit", dependencies=[require_permission("library.create")],
              response_model=DiscoverBulkCommitResult,
              summary="Add reviewed entries to the catalogue (deduped by title/URL)",
              responses=_ERRS)
-def post_bulk_commit(body: DiscoverBulkCommitRequest):
-    return svc.bulk_commit([e.model_dump() for e in body.entries], body.source_label)
+def post_bulk_commit(body: DiscoverBulkCommitRequest, request: Request):
+    return svc.bulk_commit([e.model_dump() for e in body.entries], body.source_label,
+                           principal=request.state.principal)
 
 
 @router.post("/navigation-help", dependencies=[require_permission("media.import_url")],
