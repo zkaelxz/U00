@@ -542,7 +542,7 @@ def test_fresh_route_parameter_reaches_the_services(isolated_db, monkeypatch):
     seen = {}
     monkeypatch.setattr(glossary_service, "novel_glossary_engine", lambda d: "ollama")
     monkeypatch.setattr(glossary_service, "start_novel_glossary_run",
-                        lambda d, engine_name=None, fresh=False: seen.update(g=fresh) or
+                        lambda d, engine_name=None, fresh=False, model=None: seen.update(g=fresh) or
                         {"job_id": "novel_glossary_1", "engine": "ollama", "paired": False})
     monkeypatch.setattr(narration_service, "start_narration_run",
                         lambda d, engine_name=None, model=None, fresh=False, **_:
