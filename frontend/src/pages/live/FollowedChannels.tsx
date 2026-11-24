@@ -5,24 +5,28 @@
  * automatically every hour, which then sends one bell notification per
  * stream (api/liveFollows.ts). The PC owner may let their own channels start
  * Live automatically; that needs the hourly check, and the picker says so.
- * Start Live and "Use Live options" take the Live form's current options.
+ * Follow saves the Live form's current options to a new channel; Edit settings
+ * changes a channel's own; Start Live uses the channel's saved ones.
  */
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 
+import type { ApiError } from '../../api/client'
 import {
   addFollow,
   announceLiveStarted,
   autoStartBlocker,
   checkAllFollows,
-  checkChannelInput,
+  checkChannelsInput,
   checkFollow,
   checkedText,
   describeFollowError,
   followStatusText,
   listFollows,
   MAX_CHANNEL_INPUT,
+  MAX_CHANNELS_PER_ADD,
   optionsSummary,
   removeFollow,
+  splitChannels,
   startFromFollow,
   updateFollow,
 } from '../../api/liveFollows'
@@ -33,7 +37,9 @@ import { Toggle } from '../../components/Toggle'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { buttonClass } from '../../components/uiClasses'
 import type { BadgeTone } from '../../components/labels'
-import type { LiveFollow, LiveFollowList, LiveFollowMode, LiveFollowOptions, LiveFollowUpdate } from '../../types/live'
+import type { LiveFollow, LiveFollowList, LiveFollowMode, LiveFollowOptions, LiveFollowUpdate, LiveFormOptions } from '../../types/live'
+import type { TranslateEngine } from '../../types/translate'
+import { FollowSettings } from './FollowSettings'
 
 // While a check is queued or running, the list is re-read this often.
 const CHECKING_POLL_MS = 3000
@@ -47,11 +53,17 @@ const HOURLY_HELP =
   'Off (default): checked only when you press Check now or Check all. On: checked about hourly, and once when a scheduled stream starts. One alert per stream.'
 
 type Props = {
-  /** The Live form's current options, saved to a channel by "Use Live options". */
+  /** The Live form's current options, saved to a new channel. */
   liveOptions: LiveFollowOptions
+  /** What the Live form offers (languages, Whisper models, ranges), for Edit settings. */
+  formOptions: LiveFormOptions
+  /** Engines with a key; null while they load. */
+  engines: TranslateEngine[] | null
+  /** Why Whisper can't run on the GPU here, or null. */
+  gpuReason: string | null
 }
 
-export function FollowedChannels({ liveOptions }: Props) {
+export function FollowedChannels({ liveOptions, formOptions, engines, gpuReason }: Props) {
   const [list, setList] = useState<LiveFollowList | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [text, setText] = useState('')
@@ -59,6 +71,8 @@ export function FollowedChannels({ liveOptions }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  // The channel whose settings panel is open, if any.
+  const [editing, setEditing] = useState<number | null>(null)
   const alive = useRef(true)
 
   const load = useCallback(
@@ -110,7 +124,7 @@ export function FollowedChannels({ liveOptions }: Props) {
     }
   }
 
-  const blocker = checkChannelInput(text)
+  const blocker = checkChannelsInput(text)
   const waiting = busy ? 'Wait for the current request to finish.' : null
   const addReason = waiting ?? blocker
   const changeable = items.filter((f) => f.mine || list?.can_auto_start)
@@ -128,12 +142,41 @@ export function FollowedChannels({ liveOptions }: Props) {
   const add = async (e: FormEvent) => {
     e.preventDefault()
     if (addReason) return
-    const ok = await run('add', () => addFollow({ channel: text.trim() }))
-    if (ok) {
-      setText('')
-      setNote('Following. Press Check now to see whether it is live.')
-      await load()
+    const failed: string[] = []
+    const problems: string[] = []
+    let followed = 0
+    let withoutSettings = 0
+    await run('add', async () => {
+      for (const channel of splitChannels(text)) {
+        try {
+          try {
+            await addFollow({ channel, options: liveOptions })
+          } catch (err) {
+            // The form's translator may be one this account can't use (a paid or cloud engine).
+            // The follow still alerts them; they save settings they can use later.
+            if ((err as Partial<ApiError> | null)?.status !== 403) throw err
+            await addFollow({ channel })
+            withoutSettings += 1
+          }
+          followed += 1
+        } catch (err) {
+          failed.push(channel)
+          problems.push(`${channel}: ${describeFollowError(err)}`)
+        }
+      }
+    })
+    if (!alive.current) return
+    setText(failed.join('\n'))
+    const parts: string[] = []
+    if (followed) {
+      parts.push(`Following ${followed === 1 ? 'it' : `${followed} channels`} with the Live form’s settings. Press Check now to see whether ${followed === 1 ? 'it is' : 'they are'} live.`)
     }
+    if (withoutSettings) {
+      parts.push(`${withoutSettings === 1 ? 'One was' : `${withoutSettings} were`} saved without the form’s translator, which your account can’t use.`)
+    }
+    if (parts.length) setNote(parts.join(' '))
+    if (problems.length) setError(`Not followed (still in the box): ${problems.join(' · ')}`)
+    if (followed) await load()
   }
 
   const change = (f: LiveFollow, key: string, body: LiveFollowUpdate, done?: string) =>
@@ -147,12 +190,12 @@ export function FollowedChannels({ liveOptions }: Props) {
     <Section storageKey="live.follows" title="Followed channels" summary={summary} count={items.length || undefined}>
       <div className="live-follows">
         <form className="live-follow-add" onSubmit={(e) => void add(e)}>
-          <Field label="Channel" help="A YouTube channel link (…/@name, /channel/UC… or /c/name), a Twitch link (twitch.tv/name) or an @handle. Check now shows whether it is live; Check every hour alerts you when it goes live.">
-            <input
-              type="text"
+          <Field label="Channels" help={`One per line, up to ${MAX_CHANNELS_PER_ADD}: a YouTube channel link (…/@name, /channel/UC… or /c/name), a Twitch link (twitch.tv/name) or an @handle. Each new channel keeps the Live form’s current settings (language, caption model, translator, GPU) for Start Live. Check now shows whether it is live; Check every hour alerts you when it goes live.`}>
+            <textarea
+              rows={2}
               value={text}
-              maxLength={MAX_CHANNEL_INPUT}
-              placeholder="@channel or https://www.youtube.com/@channel"
+              maxLength={MAX_CHANNEL_INPUT * MAX_CHANNELS_PER_ADD}
+              placeholder={'@channel or https://www.youtube.com/@channel\nOne per line to follow several'}
               onChange={(e) => setText(e.target.value)}
               disabled={busy === 'add'}
             />
@@ -160,7 +203,7 @@ export function FollowedChannels({ liveOptions }: Props) {
           <div className="actions">
             <button type="submit" className={buttonClass('secondary')} disabled={!!addReason}
               aria-describedby={addReasonShown ? 'live-follow-add-reason' : undefined}
-              title={addReasonShown ? undefined : addReason ?? 'Follow this channel for live streams.'}>
+              title={addReasonShown ? undefined : addReason ?? 'Follow these channels for live streams, with the Live form’s current settings.'}>
               {busy === 'add' ? 'Following…' : 'Follow'}
             </button>
             <button type="button" className={buttonClass('ghost')} disabled={!!checkAllReason}
@@ -188,8 +231,20 @@ export function FollowedChannels({ liveOptions }: Props) {
             {items.map((f) => (
               <FollowRow key={f.id} f={f} busy={busy} canAuto={!!list?.can_auto_start}
                 onHourly={(on) => change(f, 'hourly', { auto_check: on })}
-                onMode={(m) => change(f, 'mode', { mode: m, ...(m === 'auto' ? { options: liveOptions } : {}) })}
-                onOptions={() => change(f, 'options', { options: liveOptions }, 'Saved the Live options for this channel.')}
+                onMode={(m) => change(f, 'mode', { mode: m })}
+                editing={editing === f.id}
+                onEdit={() => setEditing(editing === f.id ? null : f.id)}
+                settings={editing === f.id && (
+                  <FollowSettings name={f.channel_name || f.channel} saved={f.options} fromForm={liveOptions}
+                    opts={formOptions} engines={engines} gpuReason={gpuReason} busy={busy === `options:${f.id}`}
+                    onCancel={() => setEditing(null)}
+                    onSave={(options) => void run(`options:${f.id}`, async () => {
+                      await updateFollow(f.id, { options })
+                      setEditing(null)
+                      await load()
+                      setNote(`Saved the settings for ${f.channel_name || f.channel}.`)
+                    })} />
+                )}
                 onCheck={() => void run(`check:${f.id}`, async () => { await checkFollow(f.id); await load() })}
                 onStart={() => void run(`start:${f.id}`, async () => { const r = await startFromFollow(f.id); announceLiveStarted(r.session_id); setNote('Live started. The lines appear below.') })}
                 onRemove={() => void run(`remove:${f.id}`, async () => { await removeFollow(f.id); await load() })}
@@ -208,13 +263,15 @@ type RowProps = {
   canAuto: boolean
   onHourly: (on: boolean) => void
   onMode: (m: LiveFollowMode) => void
-  onOptions: () => void
+  editing: boolean
+  onEdit: () => void
+  settings: ReactNode
   onCheck: () => void
   onStart: () => void
   onRemove: () => void
 }
 
-function FollowRow({ f, busy, canAuto, onHourly, onMode, onOptions, onCheck, onStart, onRemove }: RowProps) {
+function FollowRow({ f, busy, canAuto, onHourly, onMode, editing, onEdit, settings, onCheck, onStart, onRemove }: RowProps) {
   const name = f.channel_name || f.channel
   const waiting = busy ? 'Wait for the current request to finish.' : null
   const label = (action: string, idle: string, working: string) => (busy === `${action}:${f.id}` ? working : idle)
@@ -233,6 +290,7 @@ function FollowRow({ f, busy, canAuto, onHourly, onMode, onOptions, onCheck, onS
       <p className="muted live-follow-status" data-testid="live-follow-status">
         {f.checking ? 'Checking…' : `${followStatusText(f)} · ${checkedText(f.last_checked_at)}`}
       </p>
+      <p className="muted live-follow-settings">Start Live uses: {optionsSummary(f.options)}</p>
       <div className="live-follow-controls">
         {editable && (
           <span className="live-follow-hourly" title={HOURLY_HELP}>
@@ -252,7 +310,7 @@ function FollowRow({ f, busy, canAuto, onHourly, onMode, onOptions, onCheck, onS
         {f.live_now && (
           <button type="button" className={buttonClass('primary', 'sm')} disabled={!!busy}
             aria-describedby={waiting ? reasonId : undefined}
-            title={waiting ? undefined : `Start Live with this channel’s options (${optionsSummary(f.options)}).`}
+            title={waiting ? undefined : `Start Live with this channel’s saved settings (${optionsSummary(f.options)}).`}
             onClick={onStart}>
             {label('start', 'Start Live', 'Starting…')}
           </button>
@@ -264,9 +322,10 @@ function FollowRow({ f, busy, canAuto, onHourly, onMode, onOptions, onCheck, onS
         </button>
         <button type="button" className={buttonClass('ghost', 'sm')} disabled={!!busy}
           aria-describedby={waiting ? reasonId : undefined}
-          title={waiting ? undefined : `Save the Live form’s options to this channel. Now: ${optionsSummary(f.options)}.`}
-          onClick={onOptions}>
-          {label('options', 'Use Live options', 'Saving…')}
+          aria-expanded={editing}
+          title={waiting ? undefined : 'Change the language, caption model, translator and GPU that Start Live uses for this channel.'}
+          onClick={onEdit}>
+          {editing ? 'Close settings' : 'Edit settings'}
         </button>
         <ConfirmButton name={name} label="Remove…" verb="remove" confirmLabel="Confirm remove" size="sm"
           busy={busy === `remove:${f.id}`} disabled={!!busy} onConfirm={onRemove} />
@@ -275,6 +334,7 @@ function FollowRow({ f, busy, canAuto, onHourly, onMode, onOptions, onCheck, onS
       {canAuto && f.mine && autoBlocked && (
         <p className="muted live-follow-note" id={autoNoteId}>Start Live automatically needs Check every hour on.</p>
       )}
+      {settings}
     </li>
   )
 }
