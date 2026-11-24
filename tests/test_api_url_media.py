@@ -896,6 +896,57 @@ def test_a_temporary_refusal_that_keeps_failing_says_to_try_again(client, env, m
     _no_tmp(did)
 
 
+_HLS_REFUSED = "ERROR: Initialization fragment found after media fragments, unable to download"
+
+
+def test_a_stream_the_native_downloader_refuses_is_fetched_with_ffmpeg(client, env, monkeypatch):
+    """Twitch highlights serve fMP4 HLS that yt-dlp's native downloader stops on; ffmpeg reads it."""
+    real = FakeYDL.extract_info
+    downloaders = []
+
+    def native_refuses(self, url, download=True):
+        downloaders.append(dict(self.opts["external_downloader"]))
+        if self.opts["external_downloader"].get("m3u8") != "ffmpeg":
+            raise RuntimeError(_HLS_REFUSED)
+        return real(self, url, download)
+    monkeypatch.setattr(FakeYDL, "extract_info", native_refuses)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] != "error", st
+    assert downloaders == [{"default": "native"}, {"default": "native", "m3u8": "ffmpeg"}]
+    # The guard proxy still carries every request ffmpeg makes.
+    assert FakeYDL.last_opts.get("proxy")
+
+
+def test_a_refused_stream_with_cookie_login_on_says_why_instead_of_handing_cookies_to_ffmpeg(
+        client, env, monkeypatch):
+    attempts = []
+
+    def native_refuses(self, url, download=True):
+        attempts.append(url)
+        raise RuntimeError(_HLS_REFUSED)
+    monkeypatch.setattr(FakeYDL, "extract_info", native_refuses)
+    monkeypatch.setattr(svc.settings_service, "get_cookie_settings",
+                        lambda: {"cookies_browser": None, "cookies_file": "cookies.txt"})
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and st["error"].endswith(svc._HLS_NO_COOKIES)
+    assert len(attempts) == 1
+    _no_tmp(did)
+
+
+def test_a_stream_ffmpeg_cannot_fetch_either_says_so(client, env, monkeypatch):
+    def always(self, url, download=True):
+        if self.opts["external_downloader"].get("m3u8") == "ffmpeg":
+            raise RuntimeError("ERROR: ffmpeg exited with code 1")
+        raise RuntimeError(_HLS_REFUSED)
+    monkeypatch.setattr(FakeYDL, "extract_info", always)
+    did = _drama()
+    st = _run(client, did)
+    assert st["status"] == "error" and svc._HLS_FFMPEG_FAILED in st["error"]
+    _no_tmp(did)
+
+
 def test_a_permanent_failure_is_not_retried(client, env, monkeypatch):
     attempts = []
 

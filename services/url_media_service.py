@@ -26,7 +26,8 @@ the drama folder (removed in `finally`) with capped yt-dlp options (see
 (12 h with "Download anyway") and 2 h of wall clock (6 h for a clip past the cap or a
 re-encoded section, see _WallClock), no byte cap (a free-disk-space floor, polled on a
 timer, stops it instead, see _SpaceWatch), native downloader only (except a chosen
-part, which yt-dlp hands to ffmpeg: refused when cookie login is on), no
+part, and an HLS playlist the native downloader refuses (ytdlp_child.HLS_NATIVE_REFUSAL),
+which yt-dlp hands to ffmpeg: refused when cookie login is on), no
 cookie option in those caps (the saved Settings yt-dlp cookies, a browser
 or a cookies.txt path, are passed separately, and only for a download asked
 for at the PC: One-click translate from away gets none), and
@@ -141,6 +142,11 @@ _NOW_BUSY = "This title now has audio or video. Start again and confirm replacin
 # on its command line, where other programs on the PC can read them.
 _PART_NO_COOKIES = ("Downloading only part of a video can't use your saved cookie login. Turn "
                     "cookie login off in Settings, or download the whole video.")
+# The same reason stops ffmpeg standing in for yt-dlp's own downloader on a stream it refuses.
+_HLS_NO_COOKIES = ("This stream's video can only be fetched by ffmpeg, which can't use your saved "
+                   "cookie login. Turn cookie login off in Settings and try again.")
+_HLS_FFMPEG_FAILED = ("yt-dlp's own downloader can't join this stream's video pieces, and ffmpeg "
+                      "couldn't fetch it either.")
 _EXTRACT_FAILED = "Could not read audio from the downloaded video."
 _NOTHING_TO_REDOWNLOAD = "This title has no audio or video yet, so there is nothing to download again."
 _NO_LINK_TO_REDOWNLOAD = "This title has no link to download from. Paste the video's link."
@@ -535,6 +541,14 @@ _TRANSIENT_RE = re.compile(r"http error (403|429|5\d\d)|too many requests|forbid
 RETRY_BACKOFF_SECONDS = 8.0
 
 
+def _hls_refused(result: dict, end: dict, state: dict, job_id: str) -> bool:
+    if "path" in result or "rejected" in result or background_jobs.is_cancel_requested(job_id):
+        return False
+    if state["out_of_space"] or state["too_slow"] or end.get("timed_out") or end.get("cancelled"):
+        return False
+    return ytdlp_child.HLS_NATIVE_REFUSAL in str(result.get("error") or "")
+
+
 def _retryable(result: dict, end: dict, state: dict) -> bool:
     if result.get("path") or result.get("rejected") or result.get("missing") or result.get("no_room"):
         return False
@@ -639,6 +653,13 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict |
             spec.pop("captions")
             applog.get_logger().info("URL download failed with captions requested; trying without them.")
             result, end, state = _run_child(job_id, tmp, spec, wall, watch)
+        if _hls_refused(result, end, state, job_id):
+            if cookies.get("cookies_browser") or cookies.get("cookies_file"):
+                raise RuntimeError(_HLS_NO_COOKIES)
+            applog.get_logger().info("yt-dlp's HLS downloader refused the playlist; trying ffmpeg.")
+            spec["hls_ffmpeg"] = True
+            background_jobs.update_progress(job_id, 0.02, "Downloading with ffmpeg...")
+            result, end, state = _run_child(job_id, tmp, spec, wall, watch)
         if _retryable(result, end, state):
             applog.get_logger().info("URL download failed with a likely temporary error; retrying once.")
             if _cancel_aware_sleep(job_id, RETRY_BACKOFF_SECONDS):
@@ -666,7 +687,7 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict |
         if result.get("missing"):
             raise RuntimeError(_NO_YTDLP)
         reason = _failure_reason(RuntimeError(shared.redact_secrets(
-            str(result.get("error") or ""))))
+            str(result.get("error") or "")))) or (_HLS_FFMPEG_FAILED if spec.get("hls_ffmpeg") else "")
         if reason in (_DNS_BLOCKED, _DNS_BLOCKED_OTHER):
             raise RuntimeError(reason)
         snippet = _error_snippet(result.get("error"))
