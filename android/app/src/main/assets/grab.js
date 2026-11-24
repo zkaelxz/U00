@@ -212,15 +212,17 @@
     return el ? (attr ? el.getAttribute(attr) : el.textContent) || "" : "";
   }
   // Reaction emotes, avatars and ads sit among the pages (a reader can end each chapter with a
-  // row of emoji pictures). They are named by their own or their wrappers' markup, or dropped for
-  // being far smaller than the chapter's pages and square where the pages are tall.
+  // row of emoji pictures). They are named by their own or their wrappers' class or id, or by the
+  // file name, never by the series' own words (a comic can be called "Avatar"); or dropped for
+  // being far smaller than the chapter's pages, square where they are tall, and repeated at one
+  // size, which a unique small or square page such as a credits page is not.
   var NOISE = /emoji|emoticon|emote|reaction|avatar|gravatar|sticker|favicon|sponsor|advert/i;
   function markup(item) {
-    var text = item.url || "";
+    var address = item.url || (item.el && (item.el.currentSrc || item.el.src)) || "";
+    var text = address.split("?")[0].split("/").pop();
     var el = item.el;
     for (var up = 0; el && up < 4; up++, el = el.parentElement) {
-      text += " " + (el.currentSrc || el.src || "") + " " + (el.alt || "") + " " + (el.id || "") +
-        " " + (typeof el.className === "string" ? el.className : "");
+      text += " " + (el.id || "") + " " + (typeof el.className === "string" ? el.className : "");
     }
     return text;
   }
@@ -242,13 +244,19 @@
       var area = median(known.map(function (s) { return s.w * s.h; }));
       var width = median(known.map(function (s) { return s.w; }));
       var ratio = median(known.map(function (s) { return s.w / s.h; }));
+      var sameSize = {};
+      known.forEach(function (s) { sameSize[s.w + "x" + s.h] = (sameSize[s.w + "x" + s.h] || 0) + 1; });
       sizes.forEach(function (s, i) {
         if (!s) return;
         var small = s.w * s.h < area / 4 && s.w < width * 0.6;
-        var square = s.w * s.h < area / 2 && s.w / s.h > 0.8 && s.w / s.h < 1.25 && ratio < 0.9;
+        var square = s.w * s.h < area / 2 && s.w / s.h > 0.8 && s.w / s.h < 1.25 && ratio < 0.9 &&
+          sameSize[s.w + "x" + s.h] >= 2;
         if (small || square) drop[i] = true;
       });
     }
+    // A rule that would take out half the chapter is wrong for this site, not right.
+    var dropped = drop.filter(Boolean).length;
+    if (dropped * 2 > list.length) return list;
     return list.filter(function (item, i) { return !drop[i]; });
   }
   items = pagesOnly(items);
