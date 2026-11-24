@@ -9,6 +9,9 @@ from lib.errors import InvalidInputError, NotFoundError
 from services import auth_service, queue_service as q, settings_service, translate_run_service
 
 
+pytestmark = pytest.mark.usefixtures("local_ollama_default")
+
+
 def _drama(engine="ollama", **fields):
     fields.setdefault("transcript_mode", "whisper")
     did = db.create_drama(title_en="Signal", title_zh="信号", translation_engine=engine, **fields)
@@ -43,7 +46,7 @@ def test_translate_panel_shows_what_the_queued_run_resolves(isolated_db, seen_ru
 
     assert seen_run["locale"] == "en-GB" and rows["English variant"] == seen_run["locale"]
     assert bool(seen_run["style_note"]) and rows["Style note"] == "Set"
-    assert seen_run["thinking"] is True and rows["Thinking"] == "On"
+    assert seen_run["thinking"] is False and rows["Thinking"] == "Off"
     options = translate_run_service.get_translate_config_defaults(False, "ollama")
     assert rows["Batch size"] == str(options["batch_size"])
     assert "Audio drama" in rows["Tone and character voice"]

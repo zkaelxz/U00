@@ -823,7 +823,7 @@ def replace_voice_bank_clip(entry_id: int, client_filename, fileobj, principal=N
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)
-    return next(e for e in library_service.list_voice_bank(principal) if e["id"] == entry_id)
+    return library_service.voice_bank_entry_view(entry_id, principal)
 
 
 # --- C03: series character link -------------------------------------------------

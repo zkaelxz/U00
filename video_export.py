@@ -102,7 +102,8 @@ def softsub_output_extension(video_path: str) -> str:
 
 
 def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
-                           language: str = "eng", sub_format: str = "srt") -> list:
+                           language: str = "eng", sub_format: str = "srt",
+                           chapters_path: str | None = None) -> list:
     """The ffmpeg argument list the API's softsub export job runs
     (cancellably, with a timeout).
     sub_format "ass" keeps the ASS styling and needs a .mkv output: MP4's
@@ -116,8 +117,12 @@ def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
         sub_codec = "mov_text" if ext == ".mp4" else "srt"
     else:
         raise ValueError(f"Unknown subtitle format: {sub_format}")
+    # An FFMETADATA file of chapters replaces the source's own: they are the ones the person sees in Baihe.
+    chapters = ([*local_input("ffmetadata"), "-i", chapters_path, "-map_chapters", "2"]
+                if chapters_path else [])
     return [
         "ffmpeg", "-y", *local_input(), "-i", video_path, *local_input(sub_format), "-i", srt_path,
+        *chapters,
         # "?": a video with no audio track (a screen capture, a silent clip) is valid input.
         "-map", "0:v", "-map", "0:a?", "-map", "1:s",
         "-c:v", "copy", "-c:a", "copy", "-c:s", sub_codec,

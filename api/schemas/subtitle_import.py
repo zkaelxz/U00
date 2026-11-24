@@ -5,7 +5,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 __all__ = ["SubtitleProblem", "SubtitleSampleCue", "SubtitleImportPreview", "SubtitleUndoHandle",
-           "SubtitleImportResult"]
+           "SubtitleImportResult", "PictureSubtitleStarted"]
 
 
 class SubtitleProblem(BaseModel):
@@ -60,3 +60,8 @@ class SubtitleImportResult(BaseModel):
     matched_lines: int
     unmatched_cues: int
     undo: Optional[SubtitleUndoHandle] = None
+
+
+class PictureSubtitleStarted(BaseModel):
+    job_id: str
+    drama_id: int

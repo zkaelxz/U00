@@ -79,7 +79,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
 
 // No translation-only engine is offered, so every engine is the same kind and the cross-kind alert
 // cannot be reached here; translateForm.test.ts pins that rule with a stand-in engine.
-test('fallback engines: the rule is shown, every other engine is offered, Reflect turns them off', async ({ page }) => {
+test('fallback engines: the rule is shown, every other engine is offered', async ({ page }) => {
   const config = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
   const names: string[] = config.engines.map((e: { name: string }) => e.name)
   const others = names.filter((n) => n !== config.translation_engine)
@@ -91,7 +91,7 @@ test('fallback engines: the rule is shown, every other engine is offered, Reflec
   await run.getByText('More options', { exact: true }).click()
   const group = run.getByTestId('fallback-engines')
   await expect(group).toContainText('Up to 2, tried in order only after the main engine keeps failing (it retries first).')
-  await expect(group).toContainText('Not with Check and revise or Bulk.')
+  await expect(group).toContainText('Not with Bulk.')
 
   await group.getByRole('button', { name: 'Add fallback engine' }).click()
   const slot = group.getByLabel('Fallback engine 1')
@@ -100,11 +100,6 @@ test('fallback engines: the rule is shown, every other engine is offered, Reflec
   await slot.selectOption(others[0])
   await expect(group.getByRole('alert')).toHaveCount(0)
 
-  // Reflect turns the picker off and says why.
-  await run.getByRole('switch', { name: 'Check and revise (3 passes)' }).click()
-  await expect(group).toContainText('Off while Check and revise is on; remove these to run.')
-  await expect(group.getByLabel('Fallback engine 1')).toBeDisabled()
-  await expect(group.getByRole('button', { name: 'Add fallback engine' })).toHaveCount(0)
 })
 
 test('a 409 on start says a translate job is already running', async ({ page }) => {

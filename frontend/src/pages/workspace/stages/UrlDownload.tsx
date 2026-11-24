@@ -66,6 +66,8 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
   const [replace, setReplace] = useState(false)
   // "Download again, keep the lines": kept for this visit only, like Replace.
   const [keepLines, setKeepLines] = useState(false)
+  // Kept for this visit only, like Replace: taking the site's captions as the lines is a choice per download.
+  const [siteCaptions, setSiteCaptions] = useState(false)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<unknown>(null)
   // The server says the drama has audio even if the status we read did not.
@@ -102,6 +104,7 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
     setError(null)
     const body: UrlDownloadRequest = { url: url.trim(), audio_only: audioOnly, confirm_replace_audio: !again && audioThere && replace }
     if (again) body.keep_lines = true
+    if (siteCaptions && !again && !hasPart && !isDirectMediaUrl(url)) body.use_site_captions = true
     if (anyway) body.allow_long = true
     if (maxHeight && !audioOnly && !isDirectMediaUrl(url)) body.max_height = maxHeight as VideoHeight
     if (hasPart && !isDirectAudioUrl(url)) {
@@ -157,6 +160,14 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
                 </option>
               ))}
             </select>
+          </Field>
+        )}
+        {!again && !hasPart && !isDirectMediaUrl(url) && (
+          <Field
+            label="Use the site's captions"
+            help="A video site's own captions are always saved with the download and help recognition and translation spell names. Turn this on to use them as the lines instead of recognizing the speech: fast and free, but only as good as the site's captions (machine ones are rough), and only for a title with no lines yet."
+          >
+            <Toggle checked={siteCaptions} onChange={setSiteCaptions} />
           </Field>
         )}
       </div>

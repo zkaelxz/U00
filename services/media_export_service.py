@@ -30,12 +30,13 @@ import background_jobs
 from core import ISO_639_2
 from jobs import job_launch
 import db
+import media_inspect
 from services.source_service import drama_file_path
 from voice import dub_narration
 import novel_text
 import storage
 import video_export
-from services import artifact_service, export_service, listen_service, ownership_service
+from services import artifact_service, export_service, listen_service, ownership_service, topic_chapter_service
 from services.media_upload_service import VIDEO_EXTENSIONS
 from lib.errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError)
@@ -213,6 +214,19 @@ def start_burned_video_export(drama_id: int, **ass_options) -> dict:
 # Parity E17: soft subtitle track muxed into the video
 # ---------------------------------------------------------------------------
 
+def _write_chapters_file(drama_id, video_path, tmp) -> str | None:
+    """FFMETADATA of the title's topic chapters in `tmp`, or None when it has none."""
+    chapters = topic_chapter_service.chapters_for(drama_id)
+    if not chapters:
+        return None
+    total_s = media_inspect.duration_seconds(video_path) or (chapters[-1]["start"] + 1)
+    name = "chapters.ffmeta"
+    with open(os.path.join(tmp, name), "w", encoding="utf-8") as f:
+        f.write(dub_narration.narration_ffmetadata(
+            [(c["start"], c["title"]) for c in chapters], int(total_s * 1000)))
+    return name
+
+
 def _softsub_video_job(job_id, drama_id, video_path, sub_text, ext, language, label,
                        sub_format="srt"):
     background_jobs.update_progress(job_id, 0.1, "Adding the subtitle track...")
@@ -222,7 +236,7 @@ def _softsub_video_job(job_id, drama_id, video_path, sub_text, ext, language, la
             f.write(sub_text)
         out_name = f"out{ext}"
         cmd = video_export.mux_soft_subtitles_cmd(video_path, sub_name, out_name, language,
-                                                  sub_format)
+                                                  sub_format, _write_chapters_file(drama_id, video_path, tmp))
         _run_video_ffmpeg(job_id, cmd, tmp)
         final = artifact_service.output_path(drama_id, "softsub_video",
                                              f"softsub_video_{drama_id}{ext}")

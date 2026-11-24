@@ -219,6 +219,15 @@ class TestUsageByDrama:
         assert row["call_count"] == 2
         assert row["estimated_cost_usd"] == 0.0
 
+    def test_counts_calls_on_hosted_ollama_models(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test", translation_engine="ollama")
+        isolated_db.log_usage(did, "ollama", "gemma4:31b-cloud", "translate", 100, 50, 0.0)
+        isolated_db.log_usage(did, "ollama", "gpt-oss:120b:cloud", "translate", 100, 50, 0.0)
+        isolated_db.log_usage(did, "ollama", "translategemma:27b", "translate", 100, 50, 0.0)
+        row = next(r for r in isolated_db.get_usage_by_drama() if r["id"] == did)
+        assert row["call_count"] == 3
+        assert row["cloud_call_count"] == 2
+
     def test_a_drama_with_no_usage_has_zero_call_count(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test")
         row = next(r for r in isolated_db.get_usage_by_drama() if r["id"] == did)
@@ -952,7 +961,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "split_by_sentences", "vocabulary_hint", "translate_thinking", "source_url_full",
         "keep_original", "translate_by_sentence", "release_date", "difficult_audio",
         "translate_start_json", "transcribe_start_json", "ass_styles", "episode_brief",
-        "created_by_user_id"),
+        "created_by_user_id", "topic_chapters"),
     "presets": ("options_json", "is_default"),
     "series": ("instructions", "owner_user_id", "is_private", "default_settings", "speaker_colours",
                "speaker_mode", "shared_group_id", "auto_pipeline", "streamer"),
@@ -961,6 +970,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "glossary_terms": ("category", "policy", "enforce_exact", "aliases", "banned_translations"),
     "series_characters": ("gender", "voice_fingerprint", "voice_fingerprint_samples", "voice_bank_id",
                           "voice_design"),
+    "voice_bank": ("is_private",),
     "usage_log": ("cache_read_tokens", "estimated_cost_usd_before_recost", "user_id",
                   "imported_at"),
     "bubbles": ("font_category", "kind", "kind_confidence", "confidence", "language",

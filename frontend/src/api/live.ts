@@ -47,13 +47,12 @@ const FEED_SHOWN = 50
 const CUES_KEPT = 1000
 export const POLL_MS = 2000
 
-// What the form starts on: Ollama with this model, so the audio's text stays on
-// this PC. Another engine is one pick away.
+// What the form starts on: Ollama with its hosted default. Another engine is one pick away.
 /** The picture sizes the delayed player can record (live_player.HEIGHTS). */
 export const PLAYER_HEIGHTS = [360, 480, 720, 1080]
 export const LIVE_DEFAULT_ENGINE = 'ollama'
-// The server picks 27b on a card of 20 GB or more; until it answers, the model that fits most cards.
-export const LIVE_DEFAULT_MODEL = 'translategemma:12b'
+// Until the server answers: the model it will start on.
+export const LIVE_DEFAULT_MODEL = 'gemma4:31b-cloud'
 /** What a paid engine may cost one session when no monthly cap is set (live_spend_service). */
 export const SPEND_LIMIT_RANGE: [number, number] = [0.1, 100]
 // Engines whose request can switch thinking off (engine_backends/thinking.py).
@@ -177,6 +176,17 @@ export const formDefaults = (opts: LiveFormOptions, language?: string): LiveForm
   ...DEFAULT_FORM, ...opts.defaults, whisper_size: languageWhisperDefault(opts, language ?? opts.defaults.source_language),
 })
 
+/** What a browser's remembered options keep when the settings are chosen for the viewer (a member, or another
+ * device): the language and glossary, which say what is being watched; engine, model and captions follow the
+ * server's defaults for that language. */
+export const chosenForYou = (prefs: Partial<StoredLiveOptions>): Partial<StoredLiveOptions> => {
+  const kept: Partial<StoredLiveOptions> = {}
+  if (prefs.source_language !== undefined) kept.source_language = prefs.source_language
+  if (prefs.glossary_drama_id !== undefined) kept.glossary_drama_id = prefs.glossary_drama_id
+  if (prefs.series_id !== undefined) kept.series_id = prefs.series_id
+  return kept
+}
+
 export const DEFAULT_OPTIONS: LiveOptions = (({ url: _url, ...rest }) => rest)(DEFAULT_FORM)
 
 const SID = /^live_[0-9a-f]{32}$/
@@ -234,19 +244,19 @@ export function pickEngine(usable: Pick<TranslateEngine, 'name'>[], saved: strin
 /** The one Ollama model Live offers: it runs on Ollama's servers, so Whisper keeps the PC's graphics memory to itself. */
 export const LIVE_CLOUD_MODEL = 'gemma4:31b-cloud'
 
-/** Live's view of an engine: Ollama shows only the hosted 31B when the viewer may use it and it is offered, otherwise the engine as it is. */
+/** Live's view of an engine: Ollama shows only the hosted 31B when it is offered (every account may use it), otherwise the engine as it is. */
 export function liveEngineView<T extends Pick<TranslateEngine, 'name' | 'models'> & { cloud_models?: string[] }>(
-  engine: T | undefined, cloudAllowed: boolean,
+  engine: T | undefined,
 ): T | undefined {
-  if (!engine || engine.name !== 'ollama' || !cloudAllowed || !engine.cloud_models?.includes(LIVE_CLOUD_MODEL)) return engine
+  if (!engine || engine.name !== 'ollama' || !engine.cloud_models?.includes(LIVE_CLOUD_MODEL)) return engine
   return { ...engine, models: [LIVE_CLOUD_MODEL] }
 }
 
 /** The engine as Live shows it, the model it runs, and the default to label: the hosted 31B is the default when it is the only choice. */
 export function resolveLiveModel<T extends Pick<TranslateEngine, 'name' | 'models'> & { cloud_models?: string[] }>(
-  engine: T | undefined, cloudAllowed: boolean, saved: string, opts: LiveFormOptions,
+  engine: T | undefined, saved: string, opts: LiveFormOptions,
 ) {
-  const entry = liveEngineView(engine, cloudAllowed)
+  const entry = liveEngineView(engine)
   const onlyCloud = entry?.name === 'ollama' && entry.models?.length === 1 && entry.models[0] === LIVE_CLOUD_MODEL
   const defaults = onlyCloud ? { ...opts, default_model: LIVE_CLOUD_MODEL } : opts
   return { entry, onlyCloud, defaultModel: defaults.default_model, ...resolveModel(entry, saved, defaults) }

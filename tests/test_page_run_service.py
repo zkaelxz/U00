@@ -355,6 +355,8 @@ def test_a_queued_step_on_an_ollama_cloud_model_needs_paid_engines(isolated_db, 
         runs._require_free_or_paid(free_member, "ollama", "gpt-oss:120b-cloud", "translates")
     runs._require_free_or_paid(paid_member, "ollama", "gpt-oss:120b-cloud", "translates")
     runs._require_free_or_paid(free_member, "ollama", "qwen3:8b", "translates")
+    # The hosted model every account may use (local.MEMBER_CLOUD_MODELS).
+    runs._require_free_or_paid(free_member, "ollama", "gemma4:31b-cloud", "translates")
     with pytest.raises(ForbiddenError):
         runs._require_free_or_paid(free_member, "claude", None, "translates")
     with pytest.raises(ForbiddenError):

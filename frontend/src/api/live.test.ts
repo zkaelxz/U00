@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, captionPresetModel, applyCaptionPreset, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
+  chosenForYou, DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, captionPresetModel, applyCaptionPreset, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
   LIVE_CLOUD_MODEL, LIVE_FORM_FALLBACK, SPEND_LIMIT_RANGE, liveEngineView, chatReadFrom, mergeChat, formDefaults, languageWhisperDefault, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, statusTone, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
@@ -261,8 +261,8 @@ describe('requests', () => {
 
 describe('default engine and model', () => {
   const engines = [{ name: 'deepseek' }, { name: 'ollama' }, { name: 'claude' }]
-  it('starts on Ollama with translategemma:12b until the server names its pick for this card', () => {
-    expect(LIVE_DEFAULT_MODEL).toBe('translategemma:12b')
+  it('starts on Ollama with gemma4:31b-cloud until the server names its pick', () => {
+    expect(LIVE_DEFAULT_MODEL).toBe('gemma4:31b-cloud')
     expect(pickEngine(engines, '')).toBe('ollama')
     expect(resolveModel({ name: 'ollama', models: ['llama3.1:8b', LIVE_DEFAULT_MODEL] }, '')).toEqual({ model: LIVE_DEFAULT_MODEL, fellBack: false })
   })
@@ -281,7 +281,7 @@ describe('default engine and model', () => {
 })
 
 describe('model choice', () => {
-  const ollama = { name: 'ollama', models: ['llama3.1:8b', 'translategemma:12b', 'translategemma:27b'] }
+  const ollama = { name: 'ollama', models: ['llama3.1:8b', LIVE_DEFAULT_MODEL] }
   it('keeps an offered model and sends it', () => {
     expect(resolveModel(ollama, 'llama3.1:8b')).toEqual({ model: 'llama3.1:8b', fellBack: false })
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', engine: 'ollama', model: 'llama3.1:8b' }).model).toBe('llama3.1:8b')
@@ -306,6 +306,15 @@ describe('Whisper model choice', () => {
     expect(WHISPER_SIZES).toContain('medium')
     expect(DEFAULT_FORM.whisper_size).toBe('small')
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', whisper_size: 'large-v3-turbo' }).whisper_size).toBe('large-v3-turbo')
+  })
+})
+
+describe('chosenForYou', () => {
+  it('keeps the language and glossary and drops the engine, model and caption options', () => {
+    expect(chosenForYou({ source_language: 'ja', series_id: 3, glossary_drama_id: null, engine: 'claude', model: 'm',
+      whisper_size: 'small', segment_seconds: 4, caption_preset: 'fast', use_gpu: false })).toEqual(
+      { source_language: 'ja', series_id: 3, glossary_drama_id: null })
+    expect(chosenForYou({})).toEqual({})
   })
 })
 
@@ -407,14 +416,13 @@ describe('languageWhisperDefault', () => {
 
 describe('liveEngineView', () => {
   const ollama = { name: 'ollama', models: ['translategemma:27b', LIVE_CLOUD_MODEL], cloud_models: [LIVE_CLOUD_MODEL] }
-  it('offers only the hosted 31B on Ollama when the viewer may use it', () => {
-    expect(liveEngineView(ollama, true)?.models).toEqual([LIVE_CLOUD_MODEL])
+  it('offers only the hosted 31B on Ollama, which every account may use', () => {
+    expect(liveEngineView(ollama)?.models).toEqual([LIVE_CLOUD_MODEL])
   })
-  it('leaves the list alone without permission, without the hosted model, and for other engines', () => {
-    expect(liveEngineView(ollama, false)).toBe(ollama)
+  it('leaves the list alone without the hosted model, and for other engines', () => {
     const local = { name: 'ollama', models: ['translategemma:27b'], cloud_models: [] as string[] }
-    expect(liveEngineView(local, true)).toBe(local)
+    expect(liveEngineView(local)).toBe(local)
     const claude = { name: 'claude', models: ['a', 'b'], cloud_models: [] as string[] }
-    expect(liveEngineView(claude, true)).toBe(claude)
+    expect(liveEngineView(claude)).toBe(claude)
   })
 })

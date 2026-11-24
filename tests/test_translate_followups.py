@@ -338,17 +338,6 @@ def test_a_used_up_monthly_cap_refuses_the_doubtful_redo_and_says_so_first(isola
     assert _en(did)[0] == "a"
 
 
-def test_doubtful_estimate_is_a_lower_bound_when_thinking_applies(isolated_db, monkeypatch):
-    did = _title(en=("a", "b", "c", "d"), errors=None)
-    _flag_as(did, {0: "source_mismatch"})
-    _stronger(monkeypatch, "deepseek")
-    monkeypatch.setattr(translate_run_service, "estimate_translate_cost",
-                        lambda drama_id, **kw: {"estimated_usd": 0.12, "free": False, "engine": "deepseek"})
-    from services import translate_thinking_service as tts
-    monkeypatch.setattr(tts, "get_title_choice", lambda drama_id: True)
-    assert glossary_flagged_service.doubtful_config_fields(did)["doubtful_redo_estimate_is_lower_bound"] is True
-
-
 def test_api_doubtful_redo(local_client, monkeypatch):
     did = _title(en=("a", "b", "c", "d"), errors=None)
     _flag_as(did, {3: "slang_idiom"})

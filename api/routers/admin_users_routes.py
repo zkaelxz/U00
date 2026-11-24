@@ -4,6 +4,7 @@ audit log view. Thin: the rules live in `services/auth_service.py`.
 
     GET  /api/admin/users                            list users
     POST /api/admin/users                            add a person (PC only)
+    DELETE /api/admin/users/{user_id}                delete a deactivated member (PC only)
     POST /api/admin/users/{user_id}/deactivate       block + end their sessions
     POST /api/admin/users/{user_id}/activate         unblock
     POST /api/admin/users/{user_id}/revoke-sessions  sign them out everywhere
@@ -30,6 +31,8 @@ only the member permissions the list returns as `member_permissions`; they
 never make or unmake an admin. Unknown user: 404. The service audits every
 write. Adding a person is PC-only on every listener (403 from away): the
 new account can sign in from the internet. It never makes an admin.
+Deleting a person is PC-only too, and only a deactivated member (409
+otherwise): it can't be undone.
 Nothing here edits or deletes audit rows.
 """
 
@@ -37,7 +40,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Path, Query, Request, Response
 
-from api.schemas import AdminSessionsRevoked, AdminUser, AdminUserList, AuditPage
+from api.schemas import AdminSessionsRevoked, AdminUser, AdminUserDeleted, AdminUserList, AuditPage
 from api.schemas import AdminAddUserRequest, MemberKeyRemoved, MemberPaidLimitRequest
 from api.auth import is_local_request, principal_user_id, require_permission
 from api.no_store import mark_no_store
@@ -68,6 +71,14 @@ def add_user(body: AdminAddUserRequest, request: Request, response: Response):
                                        extension_send=body.extension_send,
                                        actor_id=principal_user_id(request),
                                        at_pc=is_local_request(request))
+
+
+@router.delete("/users/{user_id}", dependencies=_ADMIN, response_model=AdminUserDeleted,
+               summary="Delete a deactivated member account (PC only)")
+def delete_user(request: Request, response: Response, user_id: int = _UserId):
+    mark_no_store(response)
+    return auth_service.admin_delete_user(user_id, actor_id=principal_user_id(request),
+                                          at_pc=is_local_request(request))
 
 
 @router.post("/users/{user_id}/deactivate", dependencies=_ADMIN, response_model=AdminUser,

@@ -26,6 +26,10 @@ export type EpisodeSummaryOptions = Schemas['EpisodeSummaryOptions']
 
 export type EpisodeSummaryGenerated = Schemas['EpisodeSummaryGenerated']
 
+export type TopicChapter = Schemas['TopicChapter']
+
+export type TopicChaptersState = Schemas['TopicChaptersState']
+
 interface TranslateBatchError {
   batch_index?: number
   lines?: number[]

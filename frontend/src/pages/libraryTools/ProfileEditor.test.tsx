@@ -24,9 +24,10 @@ describe('ProfileEditor', () => {
       <ProfileEditor data={data} initial={emptyProfile('claude', 'audio_drama')} existing={null} onSaved={noop} onCancel={noop} />,
     )
     expect(html).toContain('aria-label="New profile"')
-    for (const label of ['Engine', 'Model', 'Style', 'Reflect', 'Cost cap per job', 'Whisper model', 'Beam size']) {
+    for (const label of ['Engine', 'Model', 'Style', 'Cost cap per job', 'Whisper model', 'Beam size']) {
       expect(html).toContain(label)
     }
+    expect(html).not.toMatch(/Reflect|Think harder/)
     expect(html).not.toMatch(/English variant<|Glossary<|Locale/i)
     // The source language exists only to feed One-click translate; it is never applied to a title.
     const labels = [...html.matchAll(/>Source language<\/label>/g)]
