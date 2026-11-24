@@ -6379,7 +6379,7 @@ export interface paths {
         put?: never;
         /**
          * Job: download a drama's audio/video from a URL with yt-dlp (PC only)
-         * @description The URL must be a public http(s) address (checked before anything starts). Replacing existing audio needs confirm_replace_audio=true (422 with details.reason "confirm_replace_audio" otherwise). Poll GET /api/jobs/{job_id}; cancel with POST /api/jobs/{job_id}/cancel. Up to 3 downloads run at once, started at least 20 s apart; more wait in line (the job message says "Queued: 2nd in line"). allow_long raises the 6 h cap to 12 h for this download; part_start/part_end (h:mm:ss) download only that section, exact_cuts re-encodes it for precise cuts. max_height keeps a video no taller than that (the best on offer when left out). keep_lines downloads the title's video again at another quality: no confirm needed, an empty url uses the title's own link, no part, and the job fails with the title unchanged when the new length doesn't match the current media's.
+         * @description The URL must be a public http(s) address (checked before anything starts). Replacing existing audio needs confirm_replace_audio=true (422 with details.reason "confirm_replace_audio" otherwise). Poll GET /api/jobs/{job_id}; cancel with POST /api/jobs/{job_id}/cancel. Up to 3 downloads run at once, started at least 20 s apart; more wait in line (the job message says "Queued: 2nd in line"). allow_long raises the 6 h cap to 12 h for this download; part_start/part_end (h:mm:ss) download only that section, exact_cuts re-encodes it for precise cuts. max_height keeps a video no taller than that (the best on offer when left out). keep_lines downloads the title's video again at another quality: no confirm needed, an empty url uses the title's own link, no part, and the job fails with the title unchanged when the new length doesn't match the current media's. A video-site download also saves the site's own captions as hints; use_site_captions makes them the title's lines when it has none.
          */
         post: operations["post_download_url_api_media_dramas__drama_id__download_url_post"];
         delete?: never;
@@ -23199,6 +23199,11 @@ export interface components {
              * @default
              */
             url?: string;
+            /**
+             * Use Site Captions
+             * @default false
+             */
+            use_site_captions?: boolean;
         };
         /** MediaUrlDownloadStarted */
         MediaUrlDownloadStarted: {

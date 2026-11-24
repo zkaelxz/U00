@@ -104,12 +104,15 @@ def post_upload_and_transcribe(
                          "a video no taller than that (the best on offer when left out). keep_lines "
                          "downloads the title's video again at another quality: no confirm needed, an "
                          "empty url uses the title's own link, no part, and the job fails with the "
-                         "title unchanged when the new length doesn't match the current media's.",
+                         "title unchanged when the new length doesn't match the current media's. A video-site "
+                         "download also saves the site's own captions as hints; use_site_captions makes "
+                         "them the title's lines when it has none.",
              responses=error_responses(404, 409, 422, 503))
 def post_download_url(body: MediaUrlDownloadRequest, drama_id: int = Path(ge=1)):
     return url_media_service.start_url_download(
         drama_id, body.url, body.audio_only, body.confirm_replace_audio, body.allow_long,
-        body.part_start, body.part_end, body.exact_cuts, body.max_height, body.keep_lines)
+        body.part_start, body.part_end, body.exact_cuts, body.max_height, body.keep_lines,
+        use_site_captions=body.use_site_captions)
 
 
 # Each open stream holds a connection and a file read, so one signed-in user
