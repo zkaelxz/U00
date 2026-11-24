@@ -318,7 +318,7 @@ def test_discord_card_footer_names_the_pc_and_no_name_leaves_it_out(monkeypatch)
     card = {"title": "Finished \u00b7 Translation", "color": ns.COLOR_OK}
     monkeypatch.setattr(ns.socket, "gethostname", lambda: "V100-BOX")
     body = json.loads(ns._payload("discord", "x", card)[0])
-    assert body["embeds"][0]["footer"] == {"text": "PC: V100-BOX"}
+    assert body["embeds"][0]["footer"] == {"text": "Sent from V100-BOX"}
     assert "footer" not in card
     assert ns._payload("ntfy", "x")[0] == b"x"
 
@@ -645,6 +645,16 @@ def test_the_card_names_who_ran_it_only_with_several_accounts_and_never_an_email
     ns.notify_job_finished("Export", "done", owner_user_id=None)   # a PC-owner run
     ns.flush()
     assert "Run by" not in _fields(_card(posts))
+    # Google sign-in leaves the name empty: the card still says someone else ran it.
+    nameless = db.auth_create_user("ann@example.com", "")
+    ns.notify_job_finished("Export", "done", owner_user_id=nameless)
+    ns.flush()
+    assert _fields(_card(posts))["Run by"] == "A member (no name in People)"
+    assert "example.com" not in posts.calls[-1]["data"].decode()
+    admin = db.auth_create_user("boss@example.com", "", is_admin=True)
+    ns.notify_job_finished("Export", "done", owner_user_id=admin)
+    ns.flush()
+    assert _fields(_card(posts))["Run by"] == "An admin (no name in People)"
 
 
 def test_a_burst_card_takes_the_colour_of_its_worst_result(env, dns, posts, no_timer):
@@ -1168,14 +1178,14 @@ def test_pc_name_replaces_the_windows_name_until_cleared(env, monkeypatch):
     def footer():
         return json.loads(ns._payload("discord", "x", card)[0])["embeds"][0]["footer"]["text"]
 
-    assert footer() == "PC: DESKTOP-WEEE"
+    assert footer() == "Sent from DESKTOP-WEEE"
     status = ns.set_categories(pc_name="  V100  ")
     assert status["pc_name"] == "V100" and status["pc_name_default"] == "DESKTOP-WEEE"
-    assert footer() == "PC: V100"
+    assert footer() == "Sent from V100"
     assert ns.set_categories(jobs=False)["pc_name"] == "V100"        # untouched
     assert ns.set_categories(pc_name="x" * 90)["pc_name"] == "x" * 39 + "\u2026"
     assert ns.set_categories(pc_name="")["pc_name"] == ""
-    assert footer() == "PC: DESKTOP-WEEE"
+    assert footer() == "Sent from DESKTOP-WEEE"
 
 
 def test_pc_name_route_is_pc_only_and_bounded(env):

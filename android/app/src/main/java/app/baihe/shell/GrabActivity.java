@@ -46,6 +46,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private static final String PREFS = "grab";
     private static final String KEY_SERVER = "server";
     private static final String KEY_TOKEN = "token";
+    private static final String KEY_QUEUE = "queue";
+    private static final String KEY_HISTORY = "history";
 
     private WebView web;
     private EditText address;
@@ -82,6 +84,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);
         }
 
+        queue = GrabQueue.parseQueue(prefs().getString(KEY_QUEUE, ""));
+        history = GrabQueue.parseHistory(prefs().getString(KEY_HISTORY, ""));
         palette = GrabUi.Palette.of(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -360,10 +364,19 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     /** Open Baihe and Settings are rarely needed mid-grab, so they sit behind one button. */
     private void showMore(android.view.View anchor) {
         android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
+        menu.getMenu().add("Add to queue");
+        int waiting;
+        synchronized (queueLock) {
+            waiting = queue.size();
+        }
+        menu.getMenu().add(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)");
         menu.getMenu().add("Open Baihe");
         menu.getMenu().add("Settings");
         menu.setOnMenuItemClickListener(item -> {
-            if ("Settings".contentEquals(item.getTitle())) showSettings();
+            String title = item.getTitle().toString();
+            if ("Settings".equals(title)) showSettings();
+            else if ("Add to queue".equals(title)) askAddToQueue();
+            else if (title.startsWith("Queue and history")) showQueue();
             else openBaihe();
             return true;
         });
@@ -387,6 +400,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         boolean betweenParts = !grabbing && followingParts && chaptersLeft > 0;
         if (!grabbing && !betweenParts) return;
         cancelRequested = true;
+        queueRunning = false;
         chaptersLeft = 0;
         loadingNext = false;
         followingParts = false;
@@ -414,6 +428,189 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         QuickReadSession.finish();
         if (uploading) say("Cancelling...", GrabUi.Kind.BUSY);
         else finishGrab("Cancelled.");
+    }
+
+    private void recordDone(String message) {
+        if (message == null || message.isEmpty()) return;
+        GrabQueue.Done done = new GrabQueue.Done(System.currentTimeMillis(), runName.isEmpty() ? "Page" : runName, message);
+        synchronized (queueLock) {
+            history = GrabQueue.withDone(history, done);
+            prefs().edit().putString(KEY_HISTORY, GrabQueue.historyJson(history)).apply();
+        }
+    }
+
+    /** The next waiting chapter while the queue is running, or null (which also ends the run). */
+    private GrabQueue.Item takeQueued() {
+        synchronized (queueLock) {
+            if (!queueRunning || queue.isEmpty()) {
+                queueRunning = false;
+                return null;
+            }
+            GrabQueue.Item item = queue.get(0);
+            queue = new ArrayList<>(queue.subList(1, queue.size()));
+            prefs().edit().putString(KEY_QUEUE, GrabQueue.queueJson(queue)).apply();
+            return item;
+        }
+    }
+
+    /** Opens a waiting chapter; the page-finished hook starts the grab, as it does for the next chapter of a series. */
+    private void launchQueued(GrabQueue.Item item) {
+        runName = item.name;
+        chaptersLeft = item.chapters;
+        loadingNext = true;
+        GrabKeepAlive.start(getApplicationContext());
+        showChapterState();
+        int more;
+        synchronized (queueLock) {
+            more = queue.size();
+        }
+        say("Next in the queue: " + item.name + (more > 0 ? " (" + more + " more after it)" : ""), GrabUi.Kind.BUSY);
+        web.loadUrl(item.url);
+        // A page that never finishes loading must not hold the rest of the queue.
+        web.postDelayed(() -> {
+            if (loadingNext && !grabbing && item.name.equals(runName)) {
+                loadingNext = false;
+                finishGrab("The page did not load.");
+            }
+        }, QUEUE_PAGE_LOAD_MS);
+    }
+
+    private void askAddToQueue() {
+        String url = web.getUrl();
+        if (url == null || ServerAddress.browsable(url) == null) {
+            say(OPEN_FIRST);
+            return;
+        }
+        EditText count = new EditText(this);
+        count.setInputType(InputType.TYPE_CLASS_NUMBER);
+        count.setText("1");
+        new AlertDialog.Builder(this)
+                .setTitle("Add to the queue")
+                .setMessage("This chapter and the ones after it, saved to your library. How many chapters in all (up to "
+                        + MAX_CHAPTERS + ")?")
+                .setView(count)
+                .setPositiveButton("Add", (d, w) -> {
+                    int n = 0;
+                    try {
+                        n = Integer.parseInt(count.getText().toString().trim());
+                    } catch (NumberFormatException ignored) {
+                        // Falls through to the range message below.
+                    }
+                    if (n < 1 || n > MAX_CHAPTERS) {
+                        say("Enter a number from 1 to " + MAX_CHAPTERS + ".");
+                        return;
+                    }
+                    addToQueue(url, n);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void addToQueue(String url, int chapters) {
+        GrabQueue.Item item = new GrabQueue.Item(url, chapters, GrabQueue.nameFor(web.getTitle(), url));
+        boolean idle = !grabbing && !loadingNext && chaptersLeft == 0;
+        synchronized (queueLock) {
+            List<GrabQueue.Item> before = queue;
+            queue = GrabQueue.withItem(queue, item);
+            if (queue == before) {
+                say(before.size() >= GrabQueue.MAX_QUEUED ? "The queue is full." : "That chapter is already in the queue.");
+                return;
+            }
+            prefs().edit().putString(KEY_QUEUE, GrabQueue.queueJson(queue)).apply();
+        }
+        if (idle) {
+            startQueue();
+        } else {
+            int waiting;
+            synchronized (queueLock) {
+                waiting = queue.size();
+            }
+            say("Added to the queue (" + waiting + " waiting).");
+        }
+    }
+
+    /** Starts working through the queue from the first waiting chapter; does nothing while a grab is running. */
+    private void startQueue() {
+        if (grabbing || loadingNext) {
+            say("Wait for the current grab to finish.");
+            return;
+        }
+        queueRunning = true;
+        GrabQueue.Item first = takeQueued();
+        if (first == null) {
+            say("The queue is empty.");
+            return;
+        }
+        launchQueued(first);
+    }
+
+    private void showQueue() {
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        int pad = GrabUi.dp(this, 16);
+        list.setPadding(pad, pad, pad, 0);
+        List<GrabQueue.Item> waiting;
+        List<GrabQueue.Done> done;
+        synchronized (queueLock) {
+            waiting = new ArrayList<>(queue);
+            done = new ArrayList<>(history);
+        }
+        list.addView(sectionTitle(waiting.isEmpty() ? "Waiting: nothing" : "Waiting (tap one to remove it)"));
+        for (GrabQueue.Item item : waiting) {
+            android.widget.TextView row = lineText(item.name + " - " + item.chapters + (item.chapters == 1 ? " chapter" : " chapters"));
+            row.setOnClickListener(v -> {
+                synchronized (queueLock) {
+                    List<GrabQueue.Item> kept = new ArrayList<>(queue);
+                    for (int i = 0; i < kept.size(); i++) {
+                        if (kept.get(i).url.equals(item.url)) {
+                            kept.remove(i);
+                            break;
+                        }
+                    }
+                    queue = kept;
+                    prefs().edit().putString(KEY_QUEUE, GrabQueue.queueJson(queue)).apply();
+                }
+                row.setVisibility(android.view.View.GONE);
+            });
+            list.addView(row);
+        }
+        list.addView(sectionTitle(done.isEmpty() ? "History: nothing yet" : "History (newest first)"));
+        for (GrabQueue.Done entry : done) {
+            CharSequence when = android.text.format.DateUtils.getRelativeTimeSpanString(
+                    entry.at, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS);
+            list.addView(lineText(entry.name + " (" + when + "): " + entry.message));
+        }
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(list);
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this)
+                .setTitle("Queue and history")
+                .setView(scroll)
+                .setNegativeButton("Close", null);
+        if (!waiting.isEmpty()) dialog.setPositiveButton("Start the queue", (d, w) -> startQueue());
+        if (!done.isEmpty()) {
+            dialog.setNeutralButton("Clear history", (d, w) -> {
+                synchronized (queueLock) {
+                    history = new ArrayList<>();
+                    prefs().edit().putString(KEY_HISTORY, "[]").apply();
+                }
+            });
+        }
+        dialog.show();
+    }
+
+    private android.widget.TextView sectionTitle(String text) {
+        android.widget.TextView view = new android.widget.TextView(this);
+        view.setText(text);
+        view.setTypeface(null, android.graphics.Typeface.BOLD);
+        view.setPadding(0, GrabUi.dp(this, 8), 0, GrabUi.dp(this, 4));
+        return view;
+    }
+
+    private android.widget.TextView lineText(String text) {
+        android.widget.TextView view = new android.widget.TextView(this);
+        view.setText(text);
+        view.setPadding(0, GrabUi.dp(this, 6), 0, GrabUi.dp(this, 6));
+        return view;
     }
 
     private void showChapterState() {
@@ -553,6 +750,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
         grabbing = true;
         GrabKeepAlive.start(getApplicationContext());
+        if (!loadingNext && !queueRunning) runName = GrabQueue.nameFor(web.getTitle(), current);
         quickRead = readOnly;
         grabStartedAt = System.currentTimeMillis();
         runId = "grab-" + newNonce().substring(0, 16);
@@ -593,6 +791,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         if (chaptersLeft > 0) {
             chaptersLeft = 0;
             loadingNext = false;
+            queueRunning = false;
             runOnUiThread(this::showChapterState);
             say("Stopped after this chapter.");
             return;
@@ -654,9 +853,15 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             followingParts = false;
             partsContinuing = false;
         }
-        if (next == null) GrabKeepAlive.stop(getApplicationContext());
+        GrabQueue.Item queued = null;
+        if (next == null && chaptersLeft == 0) {
+            recordDone(message);
+            queued = takeQueued();
+        }
+        if (next == null && queued == null) GrabKeepAlive.stop(getApplicationContext());
         String shown = message;
         String go = next;
+        GrabQueue.Item following = queued;
         runOnUiThread(() -> {
             grab.setBusy(false);
             if (!(go != null && followingParts)) showCancel(false);
@@ -665,10 +870,19 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             if (go != null) {
                 loadingNext = true;
                 web.loadUrl(go);
+            } else if (following != null) {
+                launchQueued(following);
             }
         });
     }
 
+    // Chapters waiting to be grabbed one after another; queueRunning is true while the phone is working through them.
+    private final Object queueLock = new Object();
+    private List<GrabQueue.Item> queue = new ArrayList<>();
+    private List<GrabQueue.Done> history = new ArrayList<>();
+    private volatile boolean queueRunning;
+    private volatile String runName = "";
+    private static final long QUEUE_PAGE_LOAD_MS = 2 * 60 * 1000;
     private static final int MAX_CHAPTERS = 20;
     private static final String OPEN_FIRST = "Open a comic chapter first: enter its site address above and tap Go.";
     private static final int QUICK_READ_BATCH = 2;
