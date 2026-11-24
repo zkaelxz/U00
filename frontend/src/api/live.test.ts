@@ -407,14 +407,13 @@ describe('languageWhisperDefault', () => {
 
 describe('liveEngineView', () => {
   const ollama = { name: 'ollama', models: ['translategemma:27b', LIVE_CLOUD_MODEL], cloud_models: [LIVE_CLOUD_MODEL] }
-  it('offers only the hosted 31B on Ollama when the viewer may use it', () => {
-    expect(liveEngineView(ollama, true)?.models).toEqual([LIVE_CLOUD_MODEL])
+  it('offers only the hosted 31B on Ollama, which every account may use', () => {
+    expect(liveEngineView(ollama)?.models).toEqual([LIVE_CLOUD_MODEL])
   })
-  it('leaves the list alone without permission, without the hosted model, and for other engines', () => {
-    expect(liveEngineView(ollama, false)).toBe(ollama)
+  it('leaves the list alone without the hosted model, and for other engines', () => {
     const local = { name: 'ollama', models: ['translategemma:27b'], cloud_models: [] as string[] }
-    expect(liveEngineView(local, true)).toBe(local)
+    expect(liveEngineView(local)).toBe(local)
     const claude = { name: 'claude', models: ['a', 'b'], cloud_models: [] as string[] }
-    expect(liveEngineView(claude, true)).toBe(claude)
+    expect(liveEngineView(claude)).toBe(claude)
   })
 })
