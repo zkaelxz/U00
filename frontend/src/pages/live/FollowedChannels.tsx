@@ -229,7 +229,6 @@ function FollowRow({ f, busy, canAuto, onHourly, onMode, onOptions, onCheck, onS
         <span className="live-follow-name">{name}</span>
         {name !== f.channel && <span className="muted live-follow-label">{f.channel}</span>}
         {f.state && <Badge tone={STATE_TONE[f.state] ?? 'neutral'}>{STATE_LABEL[f.state] ?? 'Not live'}</Badge>}
-        {!f.mine && <span className="muted">another account’s</span>}
       </div>
       <p className="muted live-follow-status" data-testid="live-follow-status">
         {f.checking ? 'Checking…' : `${followStatusText(f)} · ${checkedText(f.last_checked_at)}`}

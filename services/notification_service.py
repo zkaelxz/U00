@@ -827,9 +827,12 @@ def _sees_target(principal, event) -> bool:
     a hold's entry may also name a title in that series (`names_drama_id`).
     A hold's entry is kept for its owner alone (no job id): once any of
     these is no longer visible to them (a deleted title counts), neither is
-    the entry."""
+    the entry. A live notice is its follow's owner's alone, like the list."""
     from services import ownership_service
     target = event.get("target") or {}
+    if event["kind"] == "live":
+        from services import live_follow_service
+        return live_follow_service.is_own(principal, event["owner_user_id"])
     if event["kind"] != "waiting" or ownership_service.sees_every_job(principal):
         return True
     named = event.get("names_drama_id")
