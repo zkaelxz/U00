@@ -61,7 +61,8 @@ export function SeriesPanel({
   open, display, job, view, tracked, remote, cleared, busyEnded, focusKey, showBack, onReload, onClose, onUntrack, untrackBusy,
   sourceInfo, preselect, phone = false, onTracked, moveCandidates = [],
 }: Props) {
-  const mayImport = !remote || canImportSources(useSession())
+  const session = useSession()
+  const mayImport = !remote || canImportSources(session)
   const headRef = useRef<HTMLHeadingElement>(null)
   const [more, setMore] = useState(false)
   const [shown, setShown] = useState(CHAPTERS_PAGE)
