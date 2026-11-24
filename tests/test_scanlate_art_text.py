@@ -552,3 +552,41 @@ def test_a_blank_balloon_inside_a_caption_is_kept():
     blank = _region("bubble", "", 10, 10, 30, 30)
     caption = _region("caption", "重生佣兵王的复仇", 0, 0, 200, 200)
     assert scanlate.drop_parts_of_captions([blank], [caption]) == [blank]
+
+
+def _page_with_black_title_and_red_tag():
+    page = np.full((300, 600, 3), (240, 200, 180), np.uint8)             # pale blue sky (BGR)
+    cv2.putText(page, "TITLE", (20, 150), cv2.FONT_HERSHEY_SIMPLEX, 3, (10, 10, 10), 14)
+    cv2.rectangle(page, (500, 40), (560, 160), (40, 40, 200), -1)         # solid red tag
+    return page
+
+
+def test_a_solid_coloured_tag_in_the_title_box_is_found_and_the_english_stays_clear_of_it():
+    page = _page_with_black_title_and_red_tag()
+    box = {"x": 10, "y": 30, "w": 570, "h": 200}
+    assert art.decoration_blocks(page, box) == [(500, 40, 561, 161)]
+    room = art.clear_of_decoration(page, box)
+    assert room["x"] == 10 and room["x"] + room["w"] <= 500 - 8
+
+
+def test_the_tag_is_not_painted_out_with_the_title():
+    page = _page_with_black_title_and_red_tag()
+    mask = art.caption_mask(page, {"x": 10, "y": 30, "w": 570, "h": 200})
+    assert not mask[40:160, 500:560].any()
+    assert mask[110:150, 40:120].any()                                    # the title still is
+
+
+def test_a_balloon_box_on_a_glyph_with_a_stray_ocr_digit_is_dropped():
+    glyph = {"kind": "bubble", "source_text": "的\n7", "x": 10, "y": 10, "w": 30, "h": 30}
+    caption = {"kind": "caption", "source_text": "重生佣兵王的复仇", "x": 0, "y": 0, "w": 200, "h": 200}
+    assert scanlate.drop_parts_of_captions([glyph], [caption]) == []
+
+
+def test_dark_caption_lettering_gets_a_light_thin_outline_not_a_fat_dark_one():
+    base = Image.new("RGB", (300, 120), (200, 200, 200))
+    dark, light = base.copy(), base.copy()
+    box = {"x": 10, "y": 10, "w": 280, "h": 100}
+    art.draw_caption(dark, box, "TITLE", {"fill": (20, 20, 20), "glow": None})
+    art.draw_caption(light, box, "TITLE", {"fill": (240, 240, 240), "glow": None})
+    inked = lambda im: int((np.asarray(im.convert("L")) < 100).sum())
+    assert inked(dark) < inked(light)                                       # no dark outline fattening the dark fill

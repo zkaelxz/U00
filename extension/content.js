@@ -1159,12 +1159,9 @@
   function sendBatch(items, { dramaId, store, filterPages }) {
     return chrome.runtime.sendMessage({
       type: "send",
-      images: items.map(({ extracted }) => ({
-        data: extracted.data,
-        content_type: extracted.content_type,
-        url: extracted.url,
-        key: extracted.hash,
-      })),
+      images: items.map(({ extracted }) => (extracted.fetch
+        ? { fetch_url: extracted.url, url: extracted.url, key: extracted.hash }
+        : { data: extracted.data, content_type: extracted.content_type, url: extracted.url, key: extracted.hash })),
       dramaId,
       store,
       sourceUrl: location.href,
@@ -1209,6 +1206,36 @@
     }
   }
 
+  // A member's extension reads through the household's Baihe over the internet, where uploading
+  // every picture is the slow part: for a plain <img> the app is given the address and downloads
+  // it itself, and the picture is uploaded only if it could not (see the unfetched fallback below).
+  // The PC's own extension talks over loopback, where an upload costs nothing and the browser can
+  // read pictures the PC could not, so it keeps uploading. Saved sends keep uploading too: the
+  // app refuses to fetch for those.
+  async function fetchByAddressWanted(store) {
+    if (store !== false) return false;
+    try {
+      const reply = await chrome.runtime.sendMessage({ type: "getSettings" });
+      if (!(reply && reply.ok && reply.data.serverUrl)) return false;
+      // An older Baihe does not say it can read addresses: upload for it, as before.
+      const health = await chrome.runtime.sendMessage({ type: "health" });
+      return !!(health && health.ok && health.data && health.data.picture_addresses === true);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function addressOnly(el) {
+    const src = el.currentSrc || el.src || "";
+    return el.tagName === "IMG" && /^https?:\/\//i.test(src) && el.complete && el.naturalWidth > 0;
+  }
+
+  async function addressEntry(el) {
+    const url = el.currentSrc || el.src;
+    // The key is the address's hash, so the same picture shown twice is still one send.
+    return { hash: await sha256Hex(new TextEncoder().encode(`url|${url}`)), url, fetch: true };
+  }
+
   async function translateVisibleRun({ dramaId, store, all }, run) {
     if (looksLikeChallengePage()) {
       return {
@@ -1234,9 +1261,10 @@
     const needAccess = new Set();
     const unverified = new Set();
     const fromCache = [];
+    const byAddress = await fetchByAddressWanted(store);
     for (const [position, el] of chosen.entries()) {
       try {
-        const extracted = await extractBytes(el);
+        const extracted = byAddress && addressOnly(el) ? await addressEntry(el) : await extractBytes(el);
         const cached = state.cache.get(extracted.hash);
         if (cached) {
           drawOverlay(el, cached);
@@ -1288,7 +1316,7 @@
       for (const el of entry.elements) drawOverlay(el, regions);
       drawnEarly.add(page.key);
     };
-    const outcome = await sendInBatches(images, async (batch, range) => {
+    const sendRange = async (batch, range) => {
       run.text = `Translating ${range.from}-${range.to} of ${range.total}...`;
       reportProgress(run.text, (range.from - 1) / range.total);
       // A deliberate single send is the image the person pointed at, so
@@ -1296,7 +1324,12 @@
       // applies the filter to each request on its own, so a batch is
       // clustered against its own neighbours only.
       return sendBatch(batch, { dramaId, store, filterPages: images.length > 1 });
-    }, (batch, data) => {
+    };
+    // Pictures the app could not download itself (blocked, login only, not reachable): these go
+    // again as uploads, below. They are not failures and not counted twice.
+    const redo = [];
+    const onBatch = (batch, data) => {
+      for (const u of data.unfetched || []) redo.push(u.key);
       // Drawn per batch so a long chapter shows results as they arrive
       // and keeps them if a later batch fails.
       const byHash = regionsByKey(data);
@@ -1315,13 +1348,35 @@
         item.position = positionByKey.get(item.key);
       }
       failedPages.push(...(data.failed || []));
-      totals.sent += Number.isFinite(data.sent) ? data.sent : batch.length;
-      totals.received += Number.isFinite(data.received) ? data.received : batch.length;
+      const later = (data.unfetched || []).length;
+      totals.sent += (Number.isFinite(data.sent) ? data.sent : batch.length) - later;
+      totals.received += (Number.isFinite(data.received) ? data.received : batch.length) - later;
       totals.stored += Number.isFinite(data.stored) ? data.stored : 0;
       totals.alreadyStored += Number.isFinite(data.alreadyStored) ? data.alreadyStored : 0;
       if (data.stopped) serverStop = String(data.stopped);
       return !!data.stopped;
-    }, undefined, () => run.cancelled);
+    };
+    const outcome = await sendInBatches(images, sendRange, onBatch, undefined, () => run.cancelled);
+    if (redo.length && !outcome.failure && !run.cancelled) {
+      const again = [];
+      for (const key of redo) {
+        const entry = pending.get(key);
+        if (!entry) continue;
+        try {
+          // Same key as the address send, so the page is drawn where the answer expects it.
+          entry.extracted = { ...(await extractBytes(entry.elements[0])), hash: key };
+          again.push(entry);
+        } catch (e) {
+          if (e && e.code === "NEEDS_PERMISSION") needAccess.add(e.origin);
+          unreadable.push({ position: entry.position, error: errorText(e) });
+        }
+      }
+      if (again.length) {
+        const second = await sendInBatches(again, sendRange, onBatch, undefined, () => run.cancelled);
+        outcome.sentAny = outcome.sentAny || second.sentAny;
+        if (second.failure) outcome.failure = second.failure;
+      }
+    }
 
     if (outcome.sentAny) watchForPageChanges();
     const data = { pages, skipped, failed: failedPages, ...totals, drawn,
