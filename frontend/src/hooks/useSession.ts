@@ -65,6 +65,13 @@ export function cancelsAnyJob(s: SessionState): boolean {
   return !s.me.auth_enabled || !!s.me.user?.is_local_owner || !!menuUser(s)?.is_admin
 }
 
+/** A signed-in member (not an admin, not the PC owner): their title settings are picked for them, so
+ * the genre-guidance and she/her toggles are left out of their view. UX only; the title keeps its saved values. */
+export function isMember(s: SessionState): boolean {
+  const u = menuUser(s)
+  return !!u && !u.is_admin && !u.is_local_owner
+}
+
 export const REMOTE_ADMIN_NOTE = 'Changing other people’s items is done on the main PC.'
 
 /** An admin signed in on the household (internet) address. They see everyone's items, but the
