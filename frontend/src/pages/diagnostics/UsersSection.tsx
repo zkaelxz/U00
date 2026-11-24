@@ -130,10 +130,17 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen, openSignal }: { sign
           <p className="muted">Sign-in is off, so these accounts are only used once it is turned on.</p>
         )}
         {!canChange && <p className="muted">{CHANGES_AT_PC}</p>}
+        {canChange && pc === 'local' && users !== null && (
+          <AddPersonForm busy={busy !== null} onAdded={(u) => {
+            setError(null)
+            setNote(`${u.email} was added. Their first Google sign-in links the account.`)
+            load()
+          }} />
+        )}
         {users === null ? (
           !error && <p className="muted">Loading…</p>
         ) : users.length === 0 ? (
-          <p className="muted">No one added yet. Add a person below by their Google email; then they can sign in with that Google account.</p>
+          <p className="muted">No one added yet. Add a person above by their Google email; then they can sign in with that Google account.</p>
         ) : (
           <ul className="pkg-list admin-user-list" aria-label="People">
             {users.map((u) => (
@@ -144,13 +151,6 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen, openSignal }: { sign
           </ul>
         )}
         <span className="muted" aria-live="polite">{note}</span>
-        {canChange && pc === 'local' && users !== null && (
-          <AddPersonForm busy={busy !== null} onAdded={(u) => {
-            setError(null)
-            setNote(`${u.email} was added. Their first Google sign-in links the account.`)
-            load()
-          }} />
-        )}
       </div>
     </Section>
   )
