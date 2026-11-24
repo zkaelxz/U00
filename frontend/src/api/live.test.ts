@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
+  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, captionPreset, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
   LIVE_CLOUD_MODEL, LIVE_FORM_FALLBACK, SPEND_LIMIT_RANGE, liveEngineView, chatReadFrom, mergeChat, formDefaults, languageWhisperDefault, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, statusTone, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
@@ -377,6 +377,19 @@ describe('chat messages', () => {
   it('reads again from before the oldest pending message, else from the last id', () => {
     expect(chatReadFrom([msg(4), msg(5, 'pending'), msg(6, 'pending')], 6)).toBe(4)
     expect(chatReadFrom([msg(4), msg(5)], 5)).toBe(5)
+  })
+})
+
+describe('captionPreset', () => {
+  const opts = { ...LIVE_FORM_FALLBACK, language_whisper_defaults: { zh: 'breeze-asr-25', ja: 'ja-1.5b', ko: 'large-v3' } }
+  it('swaps in the language\'s model and keeps the preset\'s chunk values', () => {
+    expect(captionPreset(FAST_CAPTIONS, opts, 'zh')).toMatchObject({ segment_seconds: 4, overlap_seconds: 1, whisper_size: 'breeze-asr-25' })
+    expect(captionPreset(BALANCED_CAPTIONS, opts, 'ja')).toMatchObject({ segment_seconds: 8, overlap_seconds: 3, whisper_size: 'ja-1.5b' })
+    expect(captionPreset(FAST_CAPTIONS, opts, 'ko').whisper_size).toBe('large-v3')
+  })
+  it('falls back to the preset\'s own model where this PC has none for the language', () => {
+    expect(captionPreset(FAST_CAPTIONS, opts, 'en').whisper_size).toBe('small')
+    expect(captionPreset(BALANCED_CAPTIONS, LIVE_FORM_FALLBACK, 'zh').whisper_size).toBe('large-v3')
   })
 })
 

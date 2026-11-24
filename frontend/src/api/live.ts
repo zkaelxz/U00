@@ -149,6 +149,15 @@ export const LIVE_FORM_FALLBACK: LiveFormOptions = {
 export const languageWhisperDefault = (opts: LiveFormOptions, language: string): string =>
   opts.language_whisper_defaults?.[language] ?? opts.defaults.whisper_size
 
+/** For the presets' help: what each language's model is, when already downloaded (see language_whisper_defaults). */
+export const LANGUAGE_MODEL_NOTE = 'Chinese breeze-asr-25, Japanese ja-1.5b, Korean large-v3'
+
+/** What a caption preset sets for `language`: its chunk values, and the model this PC has for that language
+ * (the same one the form starts on) in place of the preset's all-language model, which stays the fallback. */
+export const captionPreset = (preset: Partial<LiveOptions>, opts: LiveFormOptions, language: string): Partial<LiveOptions> => ({
+  ...preset, whisper_size: opts.language_whisper_defaults?.[language] ?? preset.whisper_size,
+})
+
 /** The form a browser starts on: the server's defaults over DEFAULT_FORM, with the model that suits `language` (the form's own language when omitted). */
 export const formDefaults = (opts: LiveFormOptions, language?: string): LiveForm => ({
   ...DEFAULT_FORM, ...opts.defaults, whisper_size: languageWhisperDefault(opts, language ?? opts.defaults.source_language),
