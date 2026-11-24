@@ -62,7 +62,6 @@ import {
   fallbackOptions,
   MAX_FALLBACKS,
   monthSpendText,
-  cloudModelNotice,
   ollamaWarning,
   reflectAvailable,
   thinkingApplies,
@@ -457,9 +456,6 @@ function RunPanel({
         </>
       )}
       {!folded && !simple && basics}
-      {cloudModelNotice(engine, f.model) && (
-        <p className="warn" role="note" data-testid="cloud-model-notice">{cloudModelNotice(engine, f.model)}</p>
-      )}
       {ollamaWarning(effEngine, config.ollama_reachable) && <OllamaNotice onRecheck={onRecheckOllama} />}
       {gate && gate.id !== 'engine_ollama' && <div id="translate-gate"><EngineGateNote gate={gate} /></div>}
       <div className="translate-go">

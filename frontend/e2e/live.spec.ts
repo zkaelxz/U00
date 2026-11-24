@@ -285,12 +285,12 @@ test('model picker: when Ollama offers the hosted 31B, it is the only choice and
   const m = await mockLive(page, { ollama: true })
   await page.route('**/api/translate/engines', (route) => route.fulfill({ json: { items: [{
     name: 'ollama', label: 'Ollama', free: true, key_configured: true,
-    models: ['llama3.1:8b', 'translategemma:27b', 'gemma4:31b-cloud'], model_labels: { 'gemma4:31b-cloud': 'gemma4:31b-cloud (Cloud)' }, cloud_models: ['gemma4:31b-cloud'],
+    models: ['llama3.1:8b', 'translategemma:27b', 'gemma4:31b-cloud'], model_labels: {}, cloud_models: ['gemma4:31b-cloud'],
   }] } }))
   const live = await openLive(page)
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   const model = live.getByLabel('Model', { exact: true })
-  await expect(model.locator('option')).toHaveText(['gemma4:31b-cloud (Cloud) (default)'])
+  await expect(model.locator('option')).toHaveText(['gemma4:31b-cloud (default)'])
   await live.getByRole('button', { name: 'Start', exact: true }).click()
   await expect.poll(() => m.posts.length).toBe(1)
   expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'gemma4:31b-cloud' })
