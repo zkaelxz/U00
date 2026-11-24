@@ -10,8 +10,8 @@ export for the API.
   and recorded as the page's rendered_filename.
 - start_render: a job (`scanlate_<drama_id>`, the drama's one Scanlate job)
   that re-renders one page or every page with regions.
-- start_export: a job that writes a ZIP and/or a PDF of the chapter to
-  artifact_service's `scanlate_zip` / `scanlate_pdf` kinds (downloaded with
+- start_export: a job that writes a ZIP, PDF and/or CBZ (with ComicInfo.xml) of the
+  chapter to artifact_service's `scanlate_zip` / `scanlate_pdf` / `scanlate_cbz` kinds (downloaded with
   GET /api/artifacts/dramas/{id}/{kind}). A page with regions but no typeset
   image is rendered first; a page with no regions goes in as its original.
   One page failing does not stop the rest; it is recorded in that page's
@@ -33,9 +33,9 @@ from services import artifact_service, comic_view_service, settings_service
 from services import scanlate_pages_service as pages_svc
 from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
 
-EXPORT_FORMATS = ("zip", "pdf")
-_KIND = {"zip": "scanlate_zip", "pdf": "scanlate_pdf"}
-_FILENAME = {"zip": "typeset_pages.zip", "pdf": "typeset_pages.pdf"}
+EXPORT_FORMATS = ("zip", "pdf", "cbz")
+_KIND = {"zip": "scanlate_zip", "pdf": "scanlate_pdf", "cbz": "scanlate_cbz"}
+_FILENAME = {"zip": "typeset_pages.zip", "pdf": "typeset_pages.pdf", "cbz": "typeset_pages.cbz"}
 
 
 def original_path(drama_id: int, page: dict) -> str:
@@ -238,6 +238,33 @@ def _write_zip(dest: str, files: list):
             os.remove(tmp)
 
 
+def _comic_series_and_title(drama_id: int):
+    drama = db.get_drama(drama_id) or {}
+    title = (drama.get("title_en") or drama.get("title_zh") or "").strip()
+    series = next((s["name"] for s in db.list_series() if s["id"] == drama.get("series_id")), "")
+    number = drama.get("episode_number")
+    return (series or title), title, number if isinstance(number, int) else None, drama
+
+
+def _write_cbz(dest: str, files: list, drama_id: int, typeset: bool):
+    # Readers sort members by name, so the zero-padded names keep page order.
+    from services import sources_save_service
+    series, title, number, drama = _comic_series_and_title(drama_id)
+    language = "en" if typeset else (drama.get("source_language") or "")
+    tmp = _tmp_beside(dest)
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as zf:
+            for ordinal, path in files:
+                zf.write(path, f"{ordinal:04d}{os.path.splitext(path)[1].lower()}")
+            zf.writestr("ComicInfo.xml",
+                        sources_save_service.comic_info(series, title, number, language),
+                        compress_type=zipfile.ZIP_DEFLATED)
+        os.replace(tmp, dest)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def _write_pdf(dest: str, files: list):
     if len(files) > MAX_PDF_EXPORT_PAGES:
         raise InvalidInputError(_PDF_TOO_MANY)
@@ -295,7 +322,10 @@ def _export_job(jid: str, drama_id: int, formats: list, typeset: bool = True):
         check_cancel(jid)
         background_jobs.update_progress(jid, 0.9, f"Writing the {fmt.upper()}")
         dest = artifact_service.output_path(drama_id, _KIND[fmt], _FILENAME[fmt])
-        (_write_zip if fmt == "zip" else _write_pdf)(dest, files)
+        if fmt == "cbz":
+            _write_cbz(dest, files, drama_id, typeset)
+        else:
+            (_write_zip if fmt == "zip" else _write_pdf)(dest, files)
         artifact_service.set_download_language(drama_id, _KIND[fmt], _FILENAME[fmt],
                                               "translated en" if typeset else "original")
     msg = f"Exported {len(files)} page(s)"
@@ -309,12 +339,12 @@ def _export_job(jid: str, drama_id: int, formats: list, typeset: bool = True):
 
 
 def start_export(drama_id: int, formats=EXPORT_FORMATS, typeset: bool = True) -> dict:
-    """Bulk export job. formats: any of "zip", "pdf" (both by default). typeset=False
-    exports the original page images instead of the translated ones."""
+    """Bulk export job. formats: any of "zip", "pdf", "cbz" (zip and pdf by default).
+    typeset=False exports the original page images instead of the translated ones."""
     pages_svc.require_drama(drama_id)
     formats = list(dict.fromkeys(formats or ()))
     if not formats or any(f not in EXPORT_FORMATS for f in formats):
-        raise InvalidInputError("formats must be 'zip' and/or 'pdf'.")
+        raise InvalidInputError("formats must be 'zip', 'pdf' and/or 'cbz'.")
     page_count = len(db.list_pages(drama_id))
     if not page_count:
         raise UnsupportedOperationError("This title has no pages to export.")

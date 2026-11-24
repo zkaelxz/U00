@@ -208,8 +208,8 @@ def post_render(body: ScanlateRenderRequest, request: Request,
 
 @router.post("/dramas/{drama_id}/export", dependencies=[require_permission("jobs.start")],
              response_model=ScanlateJobStarted, responses=_JOB_ERRS,
-             summary="Write the chapter as a ZIP and/or PDF (download from /api/artifacts, "
-                     "kinds scanlate_zip / scanlate_pdf)")
+             summary="Write the chapter as a ZIP, PDF and/or CBZ (download from /api/artifacts, "
+                     "kinds scanlate_zip / scanlate_pdf / scanlate_cbz)")
 def post_export(body: ScanlateExportRequest, request: Request,
                 drama_id: int = Path(ge=1, le=2**31 - 1)):
     model_readiness_service.require_ready(
