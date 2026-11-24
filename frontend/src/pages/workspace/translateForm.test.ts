@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { TranslatePresetApplied, TranslateRunConfig, WorkflowTierApplied } from '../../types/translateStage'
 import {
+  memberEngine,
+  memberRunForm,
   batchOverride,
   batchSizeRange,
   contextRange,
@@ -676,5 +678,18 @@ describe('Save as profile captures every form field', () => {
       reflect: true, bulk: false, thinking: true, style_note: 'Be formal', batch_size: 15,
       context_window: 5, context_window_ahead: 2, cost_cap: 2, fallback_engines: ['deepseek'],
     })
+  })
+})
+
+describe('a member\'s run', () => {
+  it('sends no engine, model, fallback, Bulk or Reflect', () => {
+    const f = { ...initialForm(config), engine: 'claude', model: 'm', fallbacks: ['deepseek'], bulk: true, reflect: true }
+    expect(memberRunForm(f)).toMatchObject({ engine: '', model: '', fallbacks: [], bulk: false, reflect: false })
+  })
+  it('runs the default when the account may use it, else Ollama', () => {
+    const engines = [{ name: 'claude', free: false }, { name: 'ollama', free: true }]
+    expect(memberEngine('claude', engines, false)).toBe('ollama')
+    expect(memberEngine('claude', engines, true)).toBe('claude')
+    expect(memberEngine('ollama', engines, false)).toBe('ollama')
   })
 })
