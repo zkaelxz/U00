@@ -445,7 +445,8 @@ def test_the_merge_checks_for_cancel_often(isolated_db):
     started = time.monotonic()
     with pytest.raises(background_jobs.JobCancelled):
         report._merge(_synthetic_records(5000), check, time.monotonic() + 60)
-    assert len(calls) == 3 and time.monotonic() - started < 2
+    # The count proves the merge checks often; the time is only a sanity bound, loose because a busy CI runner took 2 s.
+    assert len(calls) == 3 and time.monotonic() - started < 10
 
 
 def test_the_merge_stops_at_its_deadline_and_the_report_says_so(isolated_db, monkeypatch):
