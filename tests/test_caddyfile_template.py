@@ -270,9 +270,10 @@ ADMIN_AWAY_WRITES = [
 
 
 # admin.users routes the app keeps at the PC: Remove admin always targets an
-# admin, and a new person could sign in from the internet.
+# admin, a new person could sign in from the internet, and a delete can't be undone.
 PC_ONLY_ADMIN_USERS = {("POST", "/api/admin/users/{user_id}/revoke-admin"),
-                       ("POST", "/api/admin/users")}
+                       ("POST", "/api/admin/users"),
+                       ("DELETE", "/api/admin/users/{user_id}")}
 
 
 def test_member_account_changes_pass_and_nothing_else_there(routes):
@@ -292,6 +293,7 @@ def test_member_account_changes_pass_and_nothing_else_there(routes):
         assert _blocked(method, _sample(path) + "/x", matchers), f"{method} {path}/x"
     assert _blocked("POST", "/api/admin/users/7/revoke-admin", matchers)
     assert _blocked("POST", "/api/admin/users", matchers)
+    assert _blocked("DELETE", "/api/admin/users/7", matchers)
     for method in ("POST", "DELETE"):
         for perm in auth_service.MEMBER_PERMISSIONS:
             assert not _blocked(method, f"/api/admin/users/7/permissions/{perm}", matchers), perm
