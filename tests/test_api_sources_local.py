@@ -103,7 +103,10 @@ def _code(r):
 def _remote_session(c, *perms):
     u = auth_service.add_user("kid@example.com")
     for p in perms:
-        auth_service.grant_permission(u["id"], p)
+        if p not in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+            auth_service.grant_permission(u["id"], p)
+    if "sources.import" not in perms:   # new members hold it by default; these tests want the member without it
+        auth_service.revoke_permission(u["id"], "sources.import")
     s = auth_service.create_session(u["id"])
     return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
             api_auth.CSRF_HEADER: s["csrf_token"]}

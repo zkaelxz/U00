@@ -71,7 +71,10 @@ def _user(*extra, admin=False):
     else:
         u = auth_service.add_user("kid@example.com")
         for p in extra:
-            auth_service.grant_permission(u["id"], p)
+            if p not in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+                auth_service.grant_permission(u["id"], p)
+        if "sources.import" not in extra:   # new members hold it by default; these tests want the member without it
+            auth_service.revoke_permission(u["id"], "sources.import")
     s = auth_service.create_session(u["id"], "pytest", "203.0.113.9")
     return u, s
 
@@ -79,7 +82,10 @@ def _user(*extra, admin=False):
 def _user_named(email, *extra):
     u = auth_service.add_user(email)
     for p in extra:
-        auth_service.grant_permission(u["id"], p)
+        if p not in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+            auth_service.grant_permission(u["id"], p)
+    if "sources.import" not in extra:   # new members hold it by default; these tests want the member without it
+        auth_service.revoke_permission(u["id"], "sources.import")
     return u, auth_service.create_session(u["id"])
 
 

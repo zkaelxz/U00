@@ -263,6 +263,7 @@ def test_permissions(world):
                    raise_server_exceptions=False)
     owner = auth_service.add_user("a@example.com")
     other = auth_service.add_user("b@example.com")
+    auth_service.revoke_permission(other["id"], "sources.import")   # new members hold it by default
     private = db.create_drama(title_en="Private", media_type="manhua", owner_user_id=owner["id"],
                               is_private=1)
     _tracked_old(private, imported=())
