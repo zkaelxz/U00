@@ -415,8 +415,8 @@ def engine_for_caller(request: Request, named_engine, engine, model):
     default is one the caller may not use, it runs on Ollama instead of being refused
     (owner decision 2026-11-24: settings for members and other devices are chosen for
     them): on the hosted model every account may use while the owner allows a hosted
-    default, else on the local default model, so a default never sends text off the
-    PC against that switch. A named engine is never switched, so the gate still
+    default, else on Ollama's default model (the owner's override, else hosted Gemma 4
+    31B, which every account may use). A named engine is never switched, so the gate still
     refuses an engine the client picked; a member whose own paid limit is used up is
     still told so."""
     if named_engine or holds(request, "engines.paid"):

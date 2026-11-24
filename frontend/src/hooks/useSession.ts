@@ -18,6 +18,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 
 import { logout as apiLogout, me as apiMe, type AuthMe } from '../api/auth'
+import type { PcMode } from '../api/pcOnly'
 import { onUnauthorized, hasStatus } from '../api/client'
 import { clearStoredRuns } from './useStoredRun'
 
@@ -70,6 +71,14 @@ export function cancelsAnyJob(s: SessionState): boolean {
 export function isMember(s: SessionState): boolean {
   const u = menuUser(s)
   return !!u && !u.is_admin && !u.is_local_owner
+}
+
+/** Whose engine and model the app picks (owner decision 2026-11-24): a member's anywhere ('member', no way
+ * to change it), and anyone's on another device ('away', who may open the options). null: the PC owner or an
+ * admin at the PC, who keep every picker. UX only; the server checks whatever engine is sent. */
+export function pickedForYou(s: SessionState, pc: PcMode): 'member' | 'away' | null {
+  if (isMember(s)) return 'member'
+  return pc === 'remote' && !!menuUser(s) ? 'away' : null
 }
 
 export const REMOTE_ADMIN_NOTE = 'Changing other people’s items is done on the main PC.'
