@@ -75,9 +75,10 @@ def _with_progress(dramas: list) -> list:
     pages = db.page_progress_by_drama() if dramas else {}
     new = _new_chapter_counts() if dramas else {}
     reading = db.reading_marks_by_drama() if dramas else {}
+    filenames = db.page_filenames_by_drama() if dramas else {}
     return [{**d, "read_percent": reading.get(d["id"], (0.0, ()))[0],
-             "unread_chapters": _unread_chapters(d["id"], reading.get(d["id"], (0.0, ()))[1])
-             if pages.get(d["id"], (0, 0))[0] else 0,
+             "unread_chapters": _unread_chapters(d["id"], filenames.get(d["id"], ()),
+                                                 reading.get(d["id"], (0.0, ()))[1]),
              "line_count": counts.get(d["id"], (0, 0))[0],
              "translated_count": counts.get(d["id"], (0, 0))[1],
              "page_count": pages.get(d["id"], (0, 0))[0],
@@ -85,11 +86,14 @@ def _with_progress(dramas: list) -> list:
              "new_chapters": new.get(d["id"], 0)} for d in dramas]
 
 
-def _unread_chapters(drama_id: int, read_ids) -> int:
-    """A comic's chapters that carry pages and no read mark. Pages saved before chapters were
-    recorded belong to no chapter, so a title made only of those counts none."""
-    chapters = comic_chapters.load(drama_id)["chapters"]
-    return sum(1 for c in chapters if c["files"] and c["key"] not in read_ids)
+def _unread_chapters(drama_id: int, filenames, read_ids) -> int:
+    """A comic's chapters with no read mark, grouped as the reader groups them: marks are kept
+    under the reader's group ids, and a chapter whose pages are gone has no row there to tick.
+    Pages that belong to no chapter are not counted."""
+    if not filenames:
+        return 0
+    groups = comic_chapters.group_pages([{"filename": f} for f in filenames], comic_chapters.load(drama_id))
+    return sum(1 for g in groups if g["known"] and g["id"] not in read_ids)
 
 
 def _new_chapter_counts() -> dict:

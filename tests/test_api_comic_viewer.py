@@ -480,5 +480,9 @@ def test_library_list_carries_reading_percent_and_unread_chapters(client, isolat
     client.post(f"/api/scanlate/dramas/{d}/chapters/marks", json={"chapter_ids": [one], "read": True})
     client.post(f"/api/scanlate/dramas/{d}/progress", json={"page": 1})
     assert (row(d)["read_percent"], row(d)["unread_chapters"]) == (50.0, 1)
+    # A chapter whose pages are gone has no row in the reader to tick, so it is not counted.
+    import comic_chapters
+    comic_chapters.start_chapter(d, ["pages/gone.png"], "Gone")
+    assert row(d)["unread_chapters"] == 1
     # A title without pages has no chapters to count.
     assert (row(other)["read_percent"], row(other)["unread_chapters"]) == (0, 0)
