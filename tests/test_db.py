@@ -219,6 +219,15 @@ class TestUsageByDrama:
         assert row["call_count"] == 2
         assert row["estimated_cost_usd"] == 0.0
 
+    def test_counts_calls_on_hosted_ollama_models(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test", translation_engine="ollama")
+        isolated_db.log_usage(did, "ollama", "gemma4:31b-cloud", "translate", 100, 50, 0.0)
+        isolated_db.log_usage(did, "ollama", "gpt-oss:120b:cloud", "translate", 100, 50, 0.0)
+        isolated_db.log_usage(did, "ollama", "translategemma:27b", "translate", 100, 50, 0.0)
+        row = next(r for r in isolated_db.get_usage_by_drama() if r["id"] == did)
+        assert row["call_count"] == 3
+        assert row["cloud_call_count"] == 2
+
     def test_a_drama_with_no_usage_has_zero_call_count(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test")
         row = next(r for r in isolated_db.get_usage_by_drama() if r["id"] == did)

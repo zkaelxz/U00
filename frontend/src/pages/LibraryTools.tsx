@@ -579,7 +579,7 @@ export default function LibraryToolsPage() {
               <li key={c.id}>
                 <span className="tool-row">
                   <a className="cost-link" href={workspaceHref(c.id)}>{dramaName(c)}</a>
-                  <span className="num">{costLabel(c.estimated_cost_usd)}</span>
+                  <span className="num">{costLabel(c.estimated_cost_usd, c)}</span>
                 </span>
                 <span className="muted num cost-meta">
                   {c.translation_engine && `${engineLabel(c.translation_engine)} · `}{costMeta(c)}
