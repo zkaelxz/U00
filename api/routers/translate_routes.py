@@ -67,8 +67,8 @@ def post_translate_estimate(payload: TranslateRequest):
 
 
 _IMAGE_TOO_LARGE = (f"The picture is larger than {page_import_limits.MAX_IMAGE_BYTES // (1024 * 1024)} MB.")
-# Uploads are PC-only (docs/remote-access-decision.md), so local_only() refuses a
-# remote caller before any of the body is read.
+# A remote device needs engines.paid like POST /api/translate, so the body is
+# only read for a caller who may spend on an engine; read_capped_form bounds it.
 # Room for the multipart boundaries and the four short text fields.
 _IMAGE_BODY_MAX = page_import_limits.MAX_IMAGE_BYTES + 64 * 1024
 _READ_IMAGE_BODY = {"requestBody": {"required": True, "content": {"multipart/form-data": {"schema": {
@@ -78,10 +78,10 @@ _READ_IMAGE_BODY = {"requestBody": {"required": True, "content": {"multipart/for
                    "language": {"type": "string"}, "free_tier": {"type": "string"}}}}}}}
 
 
-@router.post("/read-image", dependencies=[local_only()],
+@router.post("/read-image", dependencies=[require_permission("engines.paid")],
              response_model=ReadImageResponse, response_model_exclude_none=True,
              openapi_extra=_READ_IMAGE_BODY,
-             summary="PC only: read the text written in a picture with a vision engine",
+             summary="Read the text written in a picture with a vision engine",
              responses=error_responses(400, 413, 422, 429, 503))
 async def post_read_image(request: Request):
     if not request.headers.get("content-type", "").lower().startswith("multipart/form-data"):
@@ -115,7 +115,7 @@ async def post_read_image(request: Request):
             raise DependencyUnavailableError(f"The engine call failed: {reason}") from None
 
 
-@router.post("/read-image/estimate", dependencies=[local_only()],
+@router.post("/read-image/estimate", dependencies=[require_permission("engines.paid")],
              response_model=ReadImageEstimate,
              summary="What reading a picture of this size would cost, and what is left of the monthly cap",
              responses=error_responses(400, 422))

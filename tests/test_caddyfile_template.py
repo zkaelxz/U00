@@ -506,6 +506,9 @@ def test_caddy_own_log_drops_query_strings_and_credentials():
 
 
 EXTENSION_PAGE_ROUTES = ("/api/ext-bridge/page", "/api/ext-bridge/pages")
+# A member's picture for Text translate: up to the app's 30 MB image cap, which
+# the route counts itself before reading the body.
+PICTURE_READ_ROUTE = "/api/translate/read-image"
 
 
 def kind_in(decls, wanted):
@@ -516,7 +519,8 @@ def test_only_admin_upload_routes_skip_the_body_size_limit(routes):
     """The app caps an upload from away at the PC's Settings limit before it
     reads the body, so only those routes go past the proxy's 8 MB cap. The
     extension's page routes do too: a 12-page batch is larger, and the route
-    counts the body against the bridge's own cap after the token is checked."""
+    counts the body against the bridge's own cap after the token is checked.
+    So does the picture read, which a member's phone posts under engines.paid."""
     (block,) = _directive(_site(), "@not_upload")
     assert block["tokens"] == ["@not_upload", "not"]
     upload_matcher = _conditions(block)
@@ -524,11 +528,12 @@ def test_only_admin_upload_routes_skip_the_body_size_limit(routes):
     for path, methods, decls in routes:
         upload = any(kind == "permission" and "media.upload" in perm.split(" + ")
                      for kind, perm in decls) or (
-            kind_in(decls, "device_token") and path in EXTENSION_PAGE_ROUTES)
+            kind_in(decls, "device_token") and path in EXTENSION_PAGE_ROUTES) or (
+            path == PICTURE_READ_ROUTE)
         for m in methods:
             assert _matches(upload_matcher, m, _sample(path)) is upload, f"{m} {path}"
             uploads += upload
-    assert uploads == 14
+    assert uploads == 15
     assert not _matches(upload_matcher, "GET", "/api/media/dramas/7/upload")
 
 
