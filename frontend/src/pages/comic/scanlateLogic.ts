@@ -18,11 +18,11 @@ export function defaultEngine(config: ScanlateConfig | null): string {
   return usable[0]?.name ?? ''
 }
 
-// Why the run buttons are disabled (null when they can run).
-export function runBlockedReason(config: ScanlateConfig | null, engine: string): string | null {
+// Why the run buttons are disabled (null when they can run). engine null: the server picks one.
+export function runBlockedReason(config: ScanlateConfig | null, engine: string | null): string | null {
   if (!config) return null
   if (config.page_count === 0) return 'Upload pages first.'
-  if (!engine) return 'No translation engine has a key yet. Add one in Settings.'
+  if (engine === '') return 'No translation engine has a key yet. Add one in Settings.'
   return null
 }
 

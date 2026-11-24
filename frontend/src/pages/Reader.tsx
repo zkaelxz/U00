@@ -45,6 +45,7 @@ import { LINES_CHANGED_MESSAGE } from './workspace/stages/review/reviewLogic'
 import { stageLabel } from './workspace/stages'
 import { titleKind } from './workspace/titleKind'
 import { useSession } from '../hooks/useSession'
+import { useChosenForYou } from '../hooks/useChosenForYou'
 import { holds } from './diagnostics/adminUsers'
 import { useAction } from './reader/useReaderAction'
 import { ReaderPrefsControl } from './reader/ReaderPrefs'
@@ -57,6 +58,7 @@ import {
   metricsLine,
   pageCount,
   pageParams,
+  readerEngine,
   resumePage,
   savePrefs,
   spoilerBoundary,
@@ -391,9 +393,8 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
     [id, page, prefs.chapterSize],
   )
 
-  const engine = engines.some((e) => e.name === enginePref)
-    ? enginePref
-    : (engines.find((e) => e.free) ?? engines[0])?.name ?? ''
+  const chosen = useChosenForYou()
+  const engine = chosen.auto ? null : readerEngine(engines, enginePref) // null: the server picks one the account may use
 
   const known = lastIdx && lastIdx.page === page && lastIdx.size === prefs.chapterSize ? lastIdx.idx : null
   const boundary = page === null || !overview
@@ -539,7 +540,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
                 language={sourceLanguage}
                 engines={engines}
                 enginesOff={enginesOff}
-                engine={engine}
+                engine={engine} chosen={chosen}
                 onEngine={setEngine}
                 onLookedUp={() => {
                   setPageTick((n) => n + 1)
@@ -558,7 +559,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
                 spoilerFree={prefs.spoilerFree}
                 engines={engines}
                 enginesOff={enginesOff}
-                engine={engine}
+                engine={engine} chosen={chosen}
                 onEngine={setEngine}
               />
               <NotesSection dramaId={id} />

@@ -375,6 +375,30 @@ test('Edit in Translate opens the title’s Glossary, then Characters, in the Tr
   await expect(page.locator('#translate-characters')).toBeInViewport()
 })
 
+test('a member gets no AI engine picker: Story tools send no engine', async ({ page }) => {
+  await page.route('**/api/translate/engines', engines([{ name: 'claude', free: false }, { name: 'ollama', free: true }]))
+  await page.route('**/api/auth/me', (r) => r.fulfill({ json: {
+    auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet',
+    user: { id: 5, email: 'kim@example.com', display_name: 'Kim', is_admin: false, is_local_owner: false },
+    permissions: ['library.read', 'lines.read', 'jobs.start'],
+  } }))
+  const bodies: unknown[] = []
+  await page.route('**/api/reader/dramas/2/story/who', (route) => {
+    bodies.push(route.request().postDataJSON())
+    return route.fulfill({ json: { drama_id: 2, answer: 'A wandering god.' } })
+  })
+  await page.goto('/#/read/2?page=2')
+  await expect(frameRows(page)).toHaveCount(40)
+  await page.locator('summary', { hasText: 'Story tools' }).click()
+  await expect(page.getByTestId('reader-engine-chosen')).toHaveText('The AI engine is chosen for you.')
+  await expect(page.getByRole('combobox', { name: 'AI engine' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Show options' })).toHaveCount(0)
+  await page.getByLabel('Who is…').fill('Xie Lian')
+  await page.getByRole('button', { name: 'Ask', exact: true }).first().click()
+  await expect(page.getByText('A wandering god.')).toBeVisible()
+  expect(bodies[0]).toEqual({ name: 'Xie Lian', up_to_line_idx: 79 })
+})
+
 test('no Edit in Translate link without the lines.edit permission', async ({ page }) => {
   await mockEditLinks(page, ['library.read', 'lines.read'])
   await page.goto('/#/read/2?page=1')

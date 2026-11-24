@@ -264,10 +264,13 @@ def _safe_filename(stem: str, ext: str, fallback: str = "vocab") -> str:
     return f"{cleaned[:120]}.{ext}"
 
 
+DEFAULT_LLM_ENGINE = "claude"
+
+
 def llm_engine(engine_name=None, model=None):
     """A reference-capable LLM engine with its key resolved server-side.
     Claude is the default."""
-    engine_name = engine_name or "claude"
+    engine_name = engine_name or DEFAULT_LLM_ENGINE
     if model is not None and (not isinstance(model, str) or not model
                               or len(model) > MAX_MODEL_CHARS
                               or re.search(r"[\s\x00-\x1f\x7f]", model)):

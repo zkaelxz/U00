@@ -4,7 +4,9 @@ import { listenApi, listenTestVoiceUrl } from '../../api/listen'
 import { getCharacters } from '../../api/translateStage'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { withoutExceptionNames } from '../../components/errorMessages'
+import { ChosenForYouNote } from '../../components/ChosenForYou'
 import { Section } from '../../components/Section'
+import { useChosenForYou, type ChosenForYou } from '../../hooks/useChosenForYou'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { useReattachJob } from '../../hooks/useReattachJob'
 import { useSession } from '../../hooks/useSession'
@@ -59,7 +61,7 @@ function TestVoice({ dramaId, speaker, engine, language, disabled }: {
   )
 }
 
-export function ListenPicker({ dramaId, engines, engine, voices, disabled, onChange, languages = [], language = '', onLanguage }: {
+export function ListenPicker({ dramaId, engines, engine, voices, disabled, onChange, languages = [], language = '', onLanguage, chosen }: {
   dramaId: number
   engines: ListenConfig['tts_engines']
   engine: string
@@ -69,10 +71,13 @@ export function ListenPicker({ dramaId, engines, engine, voices, disabled, onCha
   languages?: string[]
   language?: string
   onLanguage?: (key: string) => void
+  // While auto, the title's default voice engine runs and the picker is hidden.
+  chosen?: ChosenForYou
 }) {
   return (
     <>
-      {engines.length > 0 && (
+      {chosen?.auto && <ChosenForYouNote text="The voice engine is chosen for you." chosen={chosen} testId="listen-engine-chosen" />}
+      {engines.length > 0 && !chosen?.auto && (
         <label className="field">
           <span>Voice engine</span>
           <select value={engine} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
@@ -132,6 +137,7 @@ export function ListenSection({ dramaId, onReady }: Props) {
 function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfig; remake: boolean }) {
   const [error, setError] = useState<unknown>(null)
   const [pickedEngine, setPickedEngine] = useState('')
+  const chosen = useChosenForYou()
   const [pickedLanguage, setPickedLanguage] = useState('')
   const [voices, setVoices] = useState<CharacterEntry[]>([])
   useEffect(() => {
@@ -170,7 +176,7 @@ function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfi
     }
     return remake ? <p className="muted" role="status">The new narration is in the player below.</p> : null
   }
-  const engine = chooseEngine(cfg.tts_engines, cfg.default_engine, pickedEngine)
+  const engine = chooseEngine(cfg.tts_engines, cfg.default_engine, chosen.auto ? '' : pickedEngine)
   const narrationLanguage = cfg.narration_language_options.includes(pickedLanguage) ? pickedLanguage : cfg.narration_language
   const blocker = listenBlocker(cfg, engine)
   const failedText = done && job && jobFailed(job) ? withoutExceptionNames(job.error || job.message || '') : null
@@ -183,7 +189,7 @@ function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfi
   return (
     <Section title={remake ? 'Make the narration again' : 'Listen'} storageKey={remake ? 'reader.listenAgain' : 'reader.listen'} defaultOpen={!remake} summary={busy ? (job?.message ?? '') : undefined}>
       <ListenPicker dramaId={dramaId} engines={cfg.tts_engines} engine={engine} voices={voices} disabled={busy} onChange={setPickedEngine}
-        languages={cfg.narration_language_options} language={narrationLanguage} onLanguage={setPickedLanguage} />
+        languages={cfg.narration_language_options} language={narrationLanguage} onLanguage={setPickedLanguage} chosen={chosen} />
       <div className="actions">
         <button type="button" className="primary" disabled={busy || blocker !== null} onClick={start}>
           {remake ? 'Make again' : 'Listen'}
