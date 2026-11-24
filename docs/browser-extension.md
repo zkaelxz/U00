@@ -317,7 +317,7 @@ Edge) reach Baihe through the household address, in three parts:
    its 8 MB cap for `/page` and `/pages` only). The caller sends only into
    a title they can edit (anything else is a 404), sees only titles they
    can see, a title made for them is theirs, text history is theirs, the
-   monthly spending cap applies, and no URL the extension sends is fetched.
+   monthly spending cap applies, and the only URLs the PC fetches are the picture addresses (`fetch_url`) of a no-save Quick read, public hosts only (`services/quick_read_fetch.py`); a saved send must carry its pictures. The PC keeps those answers in a temporary results cache (`services/quick_read_cache.py`, 400 MB, 14 days, left out of backups) that every member shares, except pages fetched with a cookie.
    `/page`, `/pages`, `/text`, `/novel`, `/title` and `/capture-summary` (it keeps a
    note on the title) also need `lines.edit`, and the three that run the engine need
    `jobs.start`, so taking either away from a member

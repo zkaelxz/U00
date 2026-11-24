@@ -24,7 +24,7 @@ import db
 import page_capture_checks
 from services import page_server
 import page_turns
-from services import ownership_service
+from services import ownership_service, quick_read_cache, quick_read_fetch
 from lib.errors import ServiceError
 
 
@@ -318,7 +318,7 @@ def _run_cancelled(run_id: str) -> bool:
         return bool(run_id) and run_id in _cancelled_runs
 
 
-def _decode_images(images) -> list:
+def _decode_images(images, allow_fetch: bool = False) -> list:
     import base64
     decoded = []
     for image in images:
@@ -327,6 +327,18 @@ def _decode_images(images) -> list:
         # Checked before decoding so an oversized payload never allocates
         # the full decoded copy.
         data = image.get("data") or ""
+        fetch_url = image.get("fetch_url")
+        if not data and fetch_url:
+            if not allow_fetch:
+                # A saved send is an import, which a member needs sources.import for: the PC only
+                # downloads the pictures of a no-save Quick read.
+                raise page_server.EndpointError(400, "picture addresses are only read for Quick read, "
+                                                     "so send the picture itself")
+            # The phone sent the address instead of the picture: the PC downloads it (see _prefetch).
+            decoded.append({"key": str(image.get("key") or ""),
+                            "url": page_capture_checks.short_url(image.get("url") or fetch_url),
+                            "content_type": "", "content": None, "fetch_url": str(fetch_url)})
+            continue
         if isinstance(data, (str, bytes)) and len(data) * 3 // 4 > page_server.MAX_IMAGE_BYTES:
             raise page_server.EndpointError(413, f"image is larger than {page_server.MAX_IMAGE_BYTES // (1024 * 1024)}MB")
         try:
@@ -355,16 +367,49 @@ _quick_read_cache: "OrderedDict[str, dict]" = OrderedDict()
 _quick_read_cache_lock = threading.Lock()
 
 
+def _glossary_version(drama_id) -> str:
+    """Changes when the terms a page is translated with change (the title's glossary and the
+    comic glossary), so an edited glossary is never answered from the cache."""
+    from services import comic_glossary_service
+    drama = db.get_drama(int(drama_id)) if drama_id else None
+    terms = db.list_run_glossary_terms(drama) if drama else []
+    return quick_read_cache.make_key(sorted(terms, key=lambda t: str(t.get("term_original"))),
+                                     comic_glossary_service.version())[:16]
+
+
 def _quick_read_key(image: dict, job: dict) -> str | None:
     """None for a saved send: the library is that send's memory, and it must store the page."""
     if job["store"]:
         return None
     config = page_server.get_translation_config()
-    parts = [hashlib.sha256(image["content"]).hexdigest(), job["drama_id"], job["source_language"],
-             job["typeset"], json.dumps(job["typeset_style"], sort_keys=True, default=str),
-             job["typeset_max_width"],
-             job["member"], config.get("engine"), config.get("model")]
-    return hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()
+    # No member in the key: a page one household member read is the same answer for the next.
+    return quick_read_cache.make_key("bytes", hashlib.sha256(image["content"]).hexdigest(),
+                                     *_key_settings(job, config))
+
+
+def _key_settings(job: dict, config: dict) -> list:
+    return [job["drama_id"], job["source_language"], job["typeset"],
+            json.dumps(job["typeset_style"], sort_keys=True, default=str), job["typeset_max_width"],
+            job["glossary_version"], config.get("engine"), config.get("model")]
+
+
+def _quick_read_url_key(image: dict, job: dict) -> str | None:
+    """The key a picture address answers to before anything is downloaded."""
+    if job["store"] or not image.get("fetch_url") or image.get("fetch_cookie"):
+        # A page fetched with someone's cookie may be one only they can see, so it is never
+        # looked up or remembered by address; the bytes key still serves a later upload.
+        return None
+    return quick_read_cache.make_key("url", image["fetch_url"], image.get("fetch_origin", ""),
+                                     *_key_settings(job, page_server.get_translation_config()))
+
+
+def _disk_cached(key: str | None) -> dict | None:
+    hit = quick_read_cache.get(key)
+    if hit and "alias" in hit:
+        hit = quick_read_cache.get(hit["alias"])
+    if not hit or "alias" in hit:
+        return None
+    return {**hit, "cached": True, "seconds": {}}
 
 
 def _cached_quick_read(key: str | None) -> dict | None:
@@ -391,6 +436,55 @@ def _remember_quick_read(key: str | None, result: dict) -> None:
             _quick_read_cache.popitem(last=False)
 
 
+def _remember_on_disk(key: str | None, url_key: str | None, result: dict) -> None:
+    """Same completeness rule as the in-memory cache; the address key only points at the bytes key,
+    so the redrawn page is written once."""
+    if key is None or result.get("untranslated_lines") or any(
+            n and n[0] == "warning" for n in result.get("notes") or []):
+        return
+    quick_read_cache.put(key, result)
+    if url_key:
+        quick_read_cache.put(url_key, {"alias": key})
+
+
+def _prefetch(decoded: list, payload: dict, job: dict, member=None) -> list:
+    """Fills in the pictures the phone named by address. A picture whose answer is already cached is
+    never downloaded; one that cannot be downloaded is dropped from the run and returned as
+    {"key","url","reason"}, so the phone uploads just those."""
+    from lib import url_guard
+    referer = str(payload.get("fetch_referer") or "")
+    wanted = {}
+    for index, image in enumerate(decoded):
+        if image["content"] is not None:
+            continue
+        # Part of the address key: a hotlink-protected CDN answers differently by referer.
+        image["fetch_origin"] = url_guard.referer_origin(referer)
+        image["fetch_cookie"] = bool(payload.get("fetch_cookie"))
+        hit = _disk_cached(_quick_read_url_key(image, job))
+        if hit is not None:
+            image["cached_result"] = hit
+        else:
+            wanted[index] = image["fetch_url"]
+    options = {"referer": str(payload.get("fetch_referer") or ""),
+               "user_agent": str(payload.get("fetch_user_agent") or ""),
+               "cookie": str(payload.get("fetch_cookie") or "")}
+    fetched = quick_read_fetch.fetch_all(wanted, options, page_server.MAX_IMAGE_BYTES, member=member)
+    unfetched = []
+    for index, (content, reason) in fetched.items():
+        image = decoded[index]
+        if content is None:
+            unfetched.append({"key": image["key"], "url": image["url"], "reason": reason})
+            image["dropped"] = True
+            continue
+        image["content"] = content
+        sniffed, _ = page_capture_checks.sniff_image(content)
+        if sniffed is None:
+            unfetched.append({"key": image["key"], "url": image["url"], "reason": quick_read_fetch.NOT_IMAGE})
+            image["dropped"] = True
+    decoded[:] = [image for image in decoded if not image.get("dropped")]
+    return unfetched
+
+
 def _log_page_time(result: dict, job: dict, started: float) -> None:
     from applog import get_logger
     seconds = result.get("seconds") or {}
@@ -405,8 +499,11 @@ def _translate_one(image: dict, job: dict, turn):
     """One page of a request as (outcome, value): ("page", result), ("failed", entry),
     ("fatal", entry) when every later page would fail the same way, or ("stopped", None)."""
     started = time.monotonic()
-    cache_key = _quick_read_key(image, job)
-    cached = _cached_quick_read(cache_key)
+    cached = image.get("cached_result")
+    cache_key = None
+    if cached is None:
+        cache_key = _quick_read_key(image, job)
+        cached = _cached_quick_read(cache_key) or _disk_cached(cache_key)
     if cached is not None:
         _log_page_time(cached, job, started)
         return "page", {**cached, "key": image["key"], "url": image["url"]}
@@ -438,6 +535,7 @@ def _translate_one(image: dict, job: dict, turn):
         result.setdefault("seconds", {})["typeset"] = round(time.monotonic() - typeset_started, 2)
     _record_run_notes(result)
     _remember_quick_read(cache_key, result)
+    _remember_on_disk(cache_key, _quick_read_url_key(image, job), result)
     _log_page_time(result, job, started)
     result["key"] = image["key"]
     result["url"] = image["url"]
@@ -525,29 +623,35 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
     typeset_style = _typeset_style(payload.get("typeset_style"))
     require_drama_access(principal, drama_id)
     source_url = str(payload.get("source_url") or "")
-    decoded = _decode_images(images)
-
-    # Let the existing page-image filter decide what is a real page,
-    # but only when there is a set worth clustering: filtering a
-    # deliberate single "translate this one" send would just refuse
-    # the very image the person picked.
-    skipped = []
-    if len(decoded) > 1 and payload.get("filter_pages", True):
-        decoded, rejected = page_capture_checks.select_page_images(decoded, source_url)
-        skipped = [{"key": image["key"], "url": image["url"], "reason": reason}
-                   for image, reason in rejected]
-        if not decoded:
-            raise page_server.EndpointError(422, "none of those images look like comic pages")
-
+    decoded = _decode_images(images, allow_fetch=not store)
     job = {"drama_id": drama_id, "source_url": source_url, "store": store,
            "source_language": str(payload.get("source_language") or ""),
            "typeset": payload.get("typeset") is True, "typeset_style": typeset_style,
            "typeset_max_width": _typeset_max_width(payload.get("typeset_max_width")),
-           "member": principal is not None, "single": len(decoded) == 1, "run_id": _run_id(payload)}
+           "glossary_version": _glossary_version(drama_id),
+           "member": principal is not None, "single": False, "run_id": _run_id(payload)}
+    unfetched = _prefetch(decoded, payload, job, member=_user_id(principal)) if any(i["content"] is None for i in decoded) else []
+
+    # Let the existing page-image filter decide what is a real page,
+    # but only when there is a set worth clustering: filtering a
+    # deliberate single "translate this one" send would just refuse
+    # the very image the person picked. A picture answered from the cache was accepted when it
+    # was first read and has no bytes to measure, so it passes through.
+    skipped = []
+    if len(decoded) > 1 and payload.get("filter_pages", True):
+        measurable = [i for i in decoded if i["content"] is not None]
+        kept, rejected = page_capture_checks.select_page_images(measurable, source_url)
+        skipped = [{"key": image["key"], "url": image["url"], "reason": reason}
+                   for image, reason in rejected]
+        kept_ids = {id(i) for i in kept}
+        decoded = [i for i in decoded if i["content"] is None or id(i) in kept_ids]
+        if not decoded and not unfetched:
+            raise page_server.EndpointError(422, "none of those images look like comic pages")
+    job["single"] = len(decoded) == 1
     # One bad page must not discard the rest of a chapter: each failure
     # is named so the person sees a mismatch instead of a short count.
     results, failed, stopped = [], [], ""
-    for outcome, value in _translate_all(decoded, job, on_page):
+    for outcome, value in (_translate_all(decoded, job, on_page) if decoded else []):
         if outcome == "page":
             results.append(value)
         elif outcome in ("failed", "fatal"):
@@ -560,6 +664,7 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
         _record_chapter(drama_id, results, source_url, job["run_id"])
     return {"pages": results, "skipped": skipped, "failed": failed,
             "received": len(images),
+            **({"unfetched": unfetched} if unfetched else {}),
             "stored": sum(1 for r in results if r.get("stored")),
             "already_stored": sum(1 for r in results if r.get("already_stored")),
             **({"stopped": stopped} if stopped else {})}
