@@ -203,5 +203,24 @@ def test_comic_glossary_edit_changes_the_cache_key(isolated_db):
     assert bridge._glossary_version(None) != before
 
 
+def test_a_change_to_the_pipeline_code_changes_the_cache_key(monkeypatch):
+    job = {"drama_id": None, "source_language": "", "typeset": True, "typeset_style": None,
+           "typeset_max_width": None, "glossary_version": "", "store": False, "member": False}
+    image = {"content": b"page"}
+    before = bridge._quick_read_key(image, job)
+    monkeypatch.setattr(quick_read_cache, "pipeline_version", lambda: "after-an-upgrade")
+    assert bridge._quick_read_key(image, job) != before
+
+
+def test_the_pipeline_version_follows_the_code_files(tmp_path, monkeypatch):
+    quick_read_cache.pipeline_version.cache_clear()
+    first = quick_read_cache.pipeline_version()
+    assert first == quick_read_cache.pipeline_version() and len(first) == 16
+    monkeypatch.setattr(quick_read_cache, "_PIPELINE_FILES", ("ocr.py",))
+    quick_read_cache.pipeline_version.cache_clear()
+    assert quick_read_cache.pipeline_version() != first
+    quick_read_cache.pipeline_version.cache_clear()
+
+
 def test_health_says_the_app_reads_picture_addresses(isolated_db):
     assert bridge.health_payload()["picture_addresses"] is True
