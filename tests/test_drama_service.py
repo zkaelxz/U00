@@ -579,3 +579,12 @@ def test_release_date_on_create_and_never_taken_from_created_at(isolated_db):
     assert ds.create_drama(source_language="ja", title_en="A")["release_date"] is None
     assert ds.create_drama(source_language="ja", title_en="B",
                            release_date="2024-02-29")["release_date"] == "2024-02-29"
+
+
+def test_find_same_titles_lists_only_what_the_caller_can_see(isolated_db):
+    a_id, a = _user("a@example.com")
+    _, b = _user("b@example.com")
+    hidden = db.get_or_create_series("Hidden", owner_user_id=a_id, is_private=True)
+    mine = ds.create_drama(source_language="zh", title_en="Moonlight", series_id=hidden, principal=a)["id"]
+    assert [t["id"] for t in ds.find_same_titles(title_en="moonlight", principal=a)] == [mine]
+    assert ds.find_same_titles(title_en="moonlight", principal=b) == []

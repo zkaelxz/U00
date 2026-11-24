@@ -15,6 +15,7 @@ import type { DramaSummary } from '../../api/types'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { humanize } from '../../components/labels'
+import { SameTitleNote } from '../../components/SameTitleNote'
 import { buttonClass } from '../../components/uiClasses'
 import { SOURCE_LANGUAGES } from '../libraryForm'
 import { dramaLabel, hiddenDramasNote, newDramaRequest } from './urlImportFormat'
@@ -111,6 +112,7 @@ export function DramaPicker({ dramas, value, onChange, newDrama, onCreated, hidd
               ))}
             </select>
           </Field>
+          <SameTitleNote titleEn={title} />
           <p className="muted">
             Made as a {humanize('mediaType', newDramaRequest('', language, newDrama.comic).media_type).toLowerCase()} title.
           </p>
