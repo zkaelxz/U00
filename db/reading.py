@@ -153,6 +153,23 @@ def set_chapter_marks(drama_id: int, chapter_ids, read: bool | None = None,
         conn.commit()
 
 
+def reading_marks_by_drama(profile_id: int | None = None) -> dict:
+    """{drama_id: (percent_complete, {read chapter ids})} for every title with a resume point
+    or a read chapter, in two queries, for the Library list's reading filter and unread count."""
+    with contextlib.closing(db.get_conn()) as conn:
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
+        percents = conn.execute(
+            "SELECT drama_id, percent_complete FROM progress WHERE profile_id = ?", (profile_id,)).fetchall()
+        read = conn.execute(
+            "SELECT drama_id, chapter_id FROM chapter_marks WHERE profile_id = ? AND read_at IS NOT NULL",
+            (profile_id,)).fetchall()
+    out = {r["drama_id"]: (r["percent_complete"] or 0.0, set()) for r in percents}
+    for r in read:
+        out.setdefault(r["drama_id"], (0.0, set()))[1].add(r["chapter_id"])
+    return out
+
+
 def get_progress(drama_id: int, profile_id: int | None = None):
     with contextlib.closing(db.get_conn()) as conn:
         if profile_id is None:

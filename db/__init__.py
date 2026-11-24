@@ -555,6 +555,7 @@ from db.comic_pages import (  # noqa: F401
     update_page,
     list_pages,
     page_progress_by_drama,
+    page_filenames_by_drama,
     get_page,
     move_pages,
     BUBBLE_EDIT_FIELDS,
@@ -629,7 +630,8 @@ from db.line_annotations import (  # noqa: E402,F401
 from db.reading import (  # noqa: E402,F401
     clear_reading_history, create_profile, delete_profile, get_chapter_marks, get_personal_notes, get_profile,
     get_progress, list_continue_reading, list_profiles, list_reading_history,
-    get_view_prefs, save_personal_notes, save_progress, save_view_prefs, set_chapter_marks)
+    get_view_prefs, reading_marks_by_drama, save_personal_notes, save_progress, save_view_prefs,
+    set_chapter_marks)
 
 
 # ---------------------------------------------------------------------------

@@ -60,6 +60,9 @@ export interface DramaSummary {
   has_cover_art?: boolean
   // Library list only: new chapters found by a source check and not yet dismissed.
   new_chapters?: number
+  // Library list only: how far the household has read (0 to 100), and a comic's chapters without a read mark.
+  read_percent?: number
+  unread_chapters?: number
 }
 
 export interface DramaDetail extends DramaSummary {

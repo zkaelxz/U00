@@ -286,6 +286,8 @@ class DramaSummary(BaseModel):
     page_count: int = Field(default=0, description="Pages a comic has. Only counted in the Library list.")
     pages_translated: int = Field(default=0, description="Comic pages with translated text. Only counted in the Library list.")
     new_chapters: int = Field(default=0, description="New chapters found by a source check and not yet dismissed, for a title linked to a tracked series. Only counted in the Library list.")
+    read_percent: float = Field(default=0, description="How far the household has read, watched or listened (0 to 100). Only set in the Library list.")
+    unread_chapters: int = Field(default=0, description="A comic's chapters without a read mark. Only counted in the Library list.")
 
 
 class DramaDetail(DramaSummary):
