@@ -74,6 +74,31 @@ def _embed_one(base_url: str, model: str, text: str):
     return [sum(v[i] for v in got) / len(got) for i in range(len(got[0]))]
 
 
+def _embed_around_nan(base_url: str, model: str, chunk: list) -> list:
+    """Vectors for a batch the server refused with a 500, in a handful of requests rather
+    than one per text: the refusal comes from its longest texts (the NaN answer above
+    starts at a length), so the shortest texts that still go through together are found
+    by halving. Each longer text then gets _embed_one, as before: the server takes some
+    of them whole when they are sent alone, and a whole text's vector is not its pieces'
+    average (up to 0.14 apart on a real stream), so the result stays what it was."""
+    order = sorted(range(len(chunk)), key=lambda i: len(chunk[i]))
+    # Every text together failed, so at most all but the longest can go through.
+    fits, fitted, too_many = 0, [], len(chunk)
+    while too_many - fits > 1:
+        mid = (fits + too_many) // 2
+        _status, got = _post_embed(base_url, model, [chunk[i] for i in order[:mid]])
+        if got:
+            fits, fitted = mid, got
+        else:
+            too_many = mid
+    vectors: list = [None] * len(chunk)
+    for i, vector in zip(order[:fits], fitted):
+        vectors[i] = vector
+    for i in order[fits:]:
+        vectors[i] = _embed_one(base_url, model, chunk[i])
+    return vectors
+
+
 def embed(base_url: str, texts: list, model: str = EMBED_MODEL, should_stop=None, on_progress=None):
     """One vector per text from Ollama's /api/embed (None in place of a text the server
     could not embed), or None when the server or the model is unusable, or `should_stop`
@@ -89,7 +114,7 @@ def embed(base_url: str, texts: list, model: str = EMBED_MODEL, should_stop=None
         try:
             status, got = _post_embed(base_url, model, chunk)
             if got is None and status == 500:
-                got = [_embed_one(base_url, model, t) for t in chunk]
+                got = _embed_around_nan(base_url, model, chunk)
             elif got is None:
                 log.warning("Source-match check skipped: Ollama returned HTTP %s for %s "
                             "(is it pulled? `ollama pull %s`)", status, model, model)
