@@ -198,6 +198,12 @@ def discard_on_failure(drama_id):
         raise
 
 
+# One page's worth of the page before it is context, not a second page to read.
+PREVIOUS_LINES_MAX = 12
+PREVIOUS_LINE_CHARS = 160
+PREVIOUS_LINES_WAIT_SECONDS = 5.0
+
+
 class Stopped(Exception):
     """The request stopped (cancelled, or a page failed in a way every later one would)
     before this page's turn to read came."""
@@ -205,6 +211,12 @@ class Stopped(Exception):
 
 class _Unordered:
     """The turn of a page that waits for no other page."""
+
+    def keep(self, bubbles):
+        pass
+
+    def previous_lines(self):
+        return []
 
     def reading(self):
         return contextlib.nullcontext()
@@ -226,6 +238,8 @@ class PageOrder:
     def __init__(self, count: int, should_stop=lambda: False, ordered_translation: bool = True):
         self._read = [threading.Event() for _ in range(count)]
         self._translated = [threading.Event() for _ in range(count)]
+        self._known = [threading.Event() for _ in range(count)]
+        self._bubbles = [None] * count
         self._should_stop = should_stop
         self.ordered_translation = ordered_translation
 
@@ -235,12 +249,37 @@ class PageOrder:
     def finish(self, index: int) -> None:
         self._read[index].set()
         self._translated[index].set()
+        self._known[index].set()
 
 
 class _PageTurn:
     def __init__(self, order: PageOrder, index: int):
         self._order = order
         self._index = index
+
+    def keep(self, bubbles) -> None:
+        """Makes this page's bubbles, read but maybe not yet translated, visible to the next
+        page. The list is shared, so the English that arrives later shows too."""
+        self._order._bubbles[self._index] = bubbles
+        self._order._known[self._index].set()
+
+    def previous_lines(self) -> list:
+        """[{"source", "english"}] for the page before this one in the request: what it said
+        and, if its translation already came back, the English. Pages translate side by side,
+        so the English is often not there yet and the source alone has to carry the story."""
+        if not self._index:
+            return []
+        before = self._index - 1
+        # A page that never reads or never translates still ends with finish(), which sets this.
+        self._order._known[before].wait(PREVIOUS_LINES_WAIT_SECONDS)
+        lines = []
+        for b in list(self._order._bubbles[before] or ()):
+            source = (b.get("source_text") or "").strip()
+            if b.get("skip") or b.get("kind") == "sfx" or not source:
+                continue
+            lines.append({"source": source[:PREVIOUS_LINE_CHARS],
+                          "english": (b.get("translated_text") or "").strip()[:PREVIOUS_LINE_CHARS]})
+        return lines[:PREVIOUS_LINES_MAX]
 
     @contextlib.contextmanager
     def reading(self):

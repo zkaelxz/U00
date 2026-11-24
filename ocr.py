@@ -384,6 +384,19 @@ def rapidocr_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
     return lines
 
 
+# RapidOCR scores each line it reads; the text-only return value of the readers has nowhere to
+# carry that, so the last read's mean is kept for the thread that made it.
+_read_state = threading.local()
+
+
+def take_read_confidence():
+    """The mean line score of this thread's last RapidOCR read, once: None when no read
+    happened since the last call or the backend gives no scores (the other backends)."""
+    value = getattr(_read_state, "confidence", None)
+    _read_state.confidence = None
+    return value
+
+
 def extract_text_rapidocr(image_path: str, source_language: str = "zh", medium: bool = False,
                          vertical: bool = False) -> str:
     """Chinese and Japanese text through RapidOCR's PP-OCRv6 models: the small pair inside its
@@ -396,6 +409,8 @@ def extract_text_rapidocr(image_path: str, source_language: str = "zh", medium: 
     key = "ko" if source_language == "ko" else ("medium" if medium else "small")
     result = _run_rapidocr(key, image_path)
     texts = result.txts or ()
+    scores = [float(s) for s in (getattr(result, "scores", None) or ())]
+    _read_state.confidence = sum(scores) / len(scores) if scores else None
     lines = ocr_layout.lines_from_boxes(texts, getattr(result, "boxes", None))
     if lines is None:
         return "\n".join(texts)
