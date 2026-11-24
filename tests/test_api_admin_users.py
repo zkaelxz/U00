@@ -1092,12 +1092,15 @@ def test_delete_refuses_an_account_reactivated_after_the_check(isolated_db, monk
     landing between the service's check and the write keeps the account."""
     m, _ = _member()
     auth_service.deactivate_user(m["id"])
-    real = db.detach_shared_glossary_owner_groups
+    real = db.auth_delete_inactive_member
+    detached = []
 
-    def reactivate_then_detach(uid):
+    def reactivate_then_delete(uid):
         db.auth_update_user(uid, is_active=1)
         return real(uid)
-    monkeypatch.setattr(db, "detach_shared_glossary_owner_groups", reactivate_then_detach)
+    monkeypatch.setattr(db, "auth_delete_inactive_member", reactivate_then_delete)
+    monkeypatch.setattr(db, "detach_shared_glossary_owner_groups", detached.append)
     with pytest.raises(ConflictError):
         auth_service.admin_delete_user(m["id"], at_pc=True)
     assert db.auth_get_user(m["id"])["is_active"] == 1 and not _audit("user.delete")
+    assert detached == []   # a refused delete leaves their shared glossary groups linked

@@ -357,10 +357,12 @@ def admin_delete_user(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
         raise ConflictError("Remove their admin rights first.")
     if row["is_active"]:
         raise ConflictError("Deactivate the account first.")
-    db.detach_shared_glossary_owner_groups(user_id)
     if not db.auth_delete_inactive_member(user_id):
         _require_user(user_id)
         raise ConflictError("That account changed just now. Reload and try again.")
+    # After the delete, so a refused one leaves an account reactivated
+    # meanwhile with its groups still linked; the groups keep the old id.
+    db.detach_shared_glossary_owner_groups(user_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "user.delete", f"user {user_id}")
     return {"user_id": user_id, "deleted": True}
