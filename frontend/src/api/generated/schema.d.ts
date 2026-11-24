@@ -12565,7 +12565,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** PC only: read the text written in a picture with a vision engine */
+        /** Read the text written in a picture with a vision engine */
         post: operations["post_read_image_api_translate_read_image_post"];
         delete?: never;
         options?: never;
