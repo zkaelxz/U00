@@ -728,9 +728,9 @@ class TestFreeEngineLabelling:
         for name in ("claude", "deepseek", "openai"):
             assert engine_registry.ENGINE_NOTES[name].startswith("Paid")
 
-    def test_ollama_note_names_local_gemma_4(self):
+    def test_ollama_note_says_local_is_free_and_hosted_gemma_4_is_paid(self):
         note = engine_registry.ENGINE_NOTES["ollama"]
-        assert "Gemma 4" in note and "GPU" in note and "private" in note and "Free" in note
+        assert "local" in note and "Gemma 4" in note and "paid" in note and "Free" in note
         assert "testing" not in note and "lower quality" not in note
 
     def test_every_note_fits_the_narrow_dropdown(self):
