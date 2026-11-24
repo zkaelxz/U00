@@ -40,6 +40,28 @@ test('Balanced captions fills large-v3 with an 8 s chunk', async ({ page }) => {
   expect(m.posts[0].body).toMatchObject({ segment_seconds: 8, overlap_seconds: 3, whisper_size: 'large-v3' })
 })
 
+test('Fast and Balanced captions use the model downloaded for the picked language', async ({ page }) => {
+  await mockLive(page, { liveOptions: { language_whisper_defaults: { zh: 'breeze-asr-25', ja: 'ja-1.5b' } } })
+  const live = await openLive(page)
+  await live.getByText('Advanced').click()
+  await live.getByLabel('Language', { exact: true }).selectOption('zh')
+  await live.getByTestId('live-fast-captions').click()
+  await expect(live.getByLabel('Whisper model', { exact: true })).toHaveValue('breeze-asr-25')
+  await expect(live.getByLabel('Chunk', { exact: true })).toHaveValue('4')
+  await live.getByLabel('Language', { exact: true }).selectOption('ja')
+  await live.getByTestId('live-balanced-captions').click()
+  await expect(live.getByLabel('Whisper model', { exact: true })).toHaveValue('ja-1.5b')
+  await live.getByLabel('Language', { exact: true }).selectOption('ko')
+  await live.getByTestId('live-balanced-captions').click()
+  await expect(live.getByLabel('Whisper model', { exact: true })).toHaveValue('large-v3')
+  // The model follows the language after a preset, until one is picked by hand.
+  await live.getByLabel('Language', { exact: true }).selectOption('zh')
+  await expect(live.getByLabel('Whisper model', { exact: true })).toHaveValue('breeze-asr-25')
+  await live.getByLabel('Whisper model', { exact: true }).selectOption('large-v3')
+  await live.getByLabel('Language', { exact: true }).selectOption('ja')
+  await expect(live.getByLabel('Whisper model', { exact: true })).toHaveValue('large-v3')
+})
+
 test('skipped chunks and catching up stay on screen', async ({ page }) => {
   const m = await mockLive(page)
   const live = await openLive(page)

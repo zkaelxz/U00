@@ -108,7 +108,7 @@ test('proxy card: closed the first time like every card after All sites, opening
   expect(s.unmocked).toEqual([])
 })
 
-test('another device: no Check now, no title link, no Manage sources tab', async ({ page }) => {
+test('another device: no Check now, no title link, Manage sources is only a read-only list', async ({ page }) => {
   const s = await mockSources(page, { tracked: TRACKED, local: false })
   await mockAccess(page, s)
   // A member without the Sources import right: Check now and auto-import need it away from the PC.

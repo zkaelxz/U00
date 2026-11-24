@@ -12,14 +12,16 @@ import { accessMethodLabel, ago, healthLine, healthTooltip, isoTime, pausedFor, 
 
 type Props = {
   name: string
-  onHealth: (name: string, h: SourceHealth) => void
-  onSignin: (name: string, has: boolean) => void
+  onHealth?: (name: string, h: SourceHealth) => void
+  onSignin?: (name: string, has: boolean) => void
   // The extension-only marker was set or cleared.
   onExtensionOnly?: (name: string, on: boolean) => void
+  // A device away from the PC reads the record only: no retry, sign-in, tests, marker or attempts (all PC only).
+  readOnly?: boolean
 }
 
 /** A source's record, loaded when Details is opened. Information only. */
-export function SourceDetail({ name, onHealth, onSignin, onExtensionOnly }: Props) {
+export function SourceDetail({ name, onHealth, onSignin, onExtensionOnly, readOnly = false }: Props) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [resetting, setResetting] = useState(false)
@@ -37,7 +39,7 @@ export function SourceDetail({ name, onHealth, onSignin, onExtensionOnly }: Prop
   }, [name, reload])
 
   const refresh = useCallback(() => setReload((n) => n + 1), [])
-  const signinChanged = useCallback((has: boolean) => onSignin(name, has), [name, onSignin])
+  const signinChanged = useCallback((has: boolean) => onSignin?.(name, has), [name, onSignin])
 
   function markChanged(mark: Mark) {
     setDetail((d) => (d ? { ...d, ...mark } : d))
@@ -50,7 +52,7 @@ export function SourceDetail({ name, onHealth, onSignin, onExtensionOnly }: Prop
     try {
       const h = await resetSourceHealth(name)
       setDetail((d) => (d ? { ...d, health_detail: h } : d))
-      onHealth(name, h)
+      onHealth?.(name, h)
     } catch (e) {
       setError(e)
     } finally {
@@ -96,7 +98,7 @@ export function SourceDetail({ name, onHealth, onSignin, onExtensionOnly }: Prop
         </div>
       </dl>
       <p className="muted" title={healthTooltip(detail.health_detail)}>{healthLine(detail.health_detail)}</p>
-      {paused && (
+      {paused && !readOnly && (
         <p className="warn">
           {paused}{' '}
           <button type="button" className={buttonClass('secondary', 'sm')} disabled={resetting} onClick={tryNow}>
@@ -105,8 +107,8 @@ export function SourceDetail({ name, onHealth, onSignin, onExtensionOnly }: Prop
         </p>
       )}
       {detail.auth_supported && <p>Sign-in: {detail.has_saved_signin ? 'saved' : 'none'}</p>}
-      <SourceAccess detail={detail} onChanged={refresh} onSignin={signinChanged} />
-      <ExtensionOnlyMark detail={detail} onChanged={markChanged} />
+      {!readOnly && <SourceAccess detail={detail} onChanged={refresh} onSignin={signinChanged} />}
+      {!readOnly && <ExtensionOnlyMark detail={detail} onChanged={markChanged} />}
       {terms.length > 0 && (
         <Section title="Terms notes" summary="Information only">
           <dl className="source-dl">
@@ -119,7 +121,7 @@ export function SourceDetail({ name, onHealth, onSignin, onExtensionOnly }: Prop
           </dl>
         </Section>
       )}
-      <Attempts name={name} />
+      {!readOnly && <Attempts name={name} />}
     </div>
   )
 }
