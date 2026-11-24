@@ -5,8 +5,14 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.util.LruCache;
+import android.view.GestureDetector;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.BaseAdapter;
 import android.widget.ImageView;
 import android.widget.ListView;
@@ -22,20 +28,129 @@ public class QuickReadActivity extends Activity {
     private final java.util.List<File> files = new java.util.ArrayList<>();
     private LruCache<Integer, Bitmap> cache;
     private PageAdapter adapter;
+    private ListView list;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         cache = new LruCache<>(6);
-        ListView list = new ListView(this);
+        // Reading has long stretches with no touch, and the screen would otherwise dim mid-page.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        list = new ListView(this);
         list.setDivider(null);
         adapter = new PageAdapter();
         list.setAdapter(adapter);
         refresh();
         // Pages arrive while the reader is open, so the list grows as the grab writes them.
         QuickReadSession.listen(() -> runOnUiThread(this::refresh));
-        setContentView(list);
-        list.setFitsSystemWindows(true);
+        ZoomFrame frame = new ZoomFrame();
+        frame.addView(list, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        setContentView(frame);
+        frame.setFitsSystemWindows(true);
+    }
+
+    /** The volume keys turn the page, so the phone can be read one-handed; most of a screen, to keep a line of overlap. */
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode != KeyEvent.KEYCODE_VOLUME_DOWN && keyCode != KeyEvent.KEYCODE_VOLUME_UP) {
+            return super.onKeyDown(keyCode, event);
+        }
+        int step = (int) (list.getHeight() * 0.85f);
+        list.smoothScrollBy(keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ? step : -step, 250);
+        return true;
+    }
+
+    /** Swallowed with its key-down, or the system would still change the volume and show its slider. */
+    @Override
+    public boolean onKeyUp(int keyCode, KeyEvent event) {
+        return keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP
+                || super.onKeyUp(keyCode, event);
+    }
+
+    /**
+     * Pinch and double-tap zoom for the page list. The list itself is scaled, so it keeps scrolling
+     * up and down by itself; this frame only adds the scale and the sideways drag.
+     */
+    private final class ZoomFrame extends FrameLayout {
+        private float scale = QuickReadZoom.MIN;
+        private float pan;
+        // A pinch's fingers would also scroll the list, so the list is cut off until they all lift.
+        private boolean pinching;
+        private final ScaleGestureDetector pinch;
+        private final GestureDetector taps;
+
+        ZoomFrame() {
+            super(QuickReadActivity.this);
+            pinch = new ScaleGestureDetector(QuickReadActivity.this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                @Override
+                public boolean onScale(ScaleGestureDetector d) {
+                    zoomTo(scale * d.getScaleFactor(), d.getFocusX(), d.getFocusY());
+                    return true;
+                }
+            });
+            // Its double-tap-and-drag zoom would fight the double-tap toggle below.
+            pinch.setQuickScaleEnabled(false);
+            taps = new GestureDetector(QuickReadActivity.this, new GestureDetector.SimpleOnGestureListener() {
+                @Override
+                public boolean onDoubleTap(MotionEvent e) {
+                    zoomTo(QuickReadZoom.afterDoubleTap(scale), e.getX(), e.getY());
+                    // The second tap is the zoom, not a tap or a scroll for the list underneath.
+                    pinching = true;
+                    return true;
+                }
+
+                @Override
+                public boolean onScroll(MotionEvent down, MotionEvent move, float dx, float dy) {
+                    if (scale > QuickReadZoom.MIN && !pinching) {
+                        pan = QuickReadZoom.clampPan(pan - dx, scale, list.getWidth());
+                        list.setTranslationX(pan);
+                    }
+                    return false;
+                }
+            });
+        }
+
+        /** focusX and focusY are in this frame; the list sits inside its padding (the system bars). */
+        private void zoomTo(float wanted, float focusX, float focusY) {
+            float next = QuickReadZoom.clampScale(wanted);
+            pan = QuickReadZoom.panAfterZoom(pan, scale, next, focusX - list.getLeft(), list.getWidth());
+            int scroll = QuickReadZoom.scrollAfterZoom(focusY - list.getTop(), scale, next);
+            scale = next;
+            list.setPivotX(0);
+            list.setPivotY(0);
+            list.setScaleX(scale);
+            list.setScaleY(scale);
+            list.setTranslationX(pan);
+            ViewGroup.LayoutParams size = list.getLayoutParams();
+            int height = scale == QuickReadZoom.MIN
+                    ? ViewGroup.LayoutParams.MATCH_PARENT
+                    : QuickReadZoom.listHeight(getHeight() - getPaddingTop() - getPaddingBottom(), scale);
+            if (size.height != height) {
+                size.height = height;
+                list.setLayoutParams(size);
+            }
+            if (scroll != 0) list.scrollListBy(scroll);
+        }
+
+        @Override
+        public boolean dispatchTouchEvent(MotionEvent event) {
+            // Before the detectors: a double-tap sets it again for its own second tap.
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) pinching = false;
+            boolean wasPinching = pinching;
+            pinch.onTouchEvent(event);
+            taps.onTouchEvent(event);
+            // The list never saw a double-tap's second press, so it has nothing to cancel.
+            if (pinching && !wasPinching) return true;
+            if (event.getPointerCount() > 1 && !pinching) {
+                pinching = true;
+                MotionEvent cancel = MotionEvent.obtain(event);
+                cancel.setAction(MotionEvent.ACTION_CANCEL);
+                super.dispatchTouchEvent(cancel);
+                cancel.recycle();
+            }
+            return pinching || super.dispatchTouchEvent(event);
+        }
     }
 
     /** Only bare names the grab itself wrote inside the cache folder are opened, never a path an intent chose. */
