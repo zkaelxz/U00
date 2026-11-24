@@ -40,6 +40,12 @@ public class QuickReadActivity extends Activity {
         list.setDivider(null);
         adapter = new PageAdapter();
         list.setAdapter(adapter);
+        list.setOnScrollListener(new android.widget.AbsListView.OnScrollListener() {
+            @Override public void onScrollStateChanged(android.widget.AbsListView view, int state) {}
+            @Override public void onScroll(android.widget.AbsListView view, int first, int visible, int total) {
+                QuickReadSession.reached(first + visible - 1);
+            }
+        });
         refresh();
         // Pages arrive while the reader is open, so the list grows as the grab writes them.
         QuickReadSession.listen(() -> runOnUiThread(this::refresh));
@@ -159,6 +165,8 @@ public class QuickReadActivity extends Activity {
         files.clear();
         for (String name : QuickReadSession.snapshot()) files.add(new File(dir, new File(name).getName()));
         adapter.notifyDataSetChanged();
+        // A reader already waiting at the end does not scroll again, so the offer is checked here too.
+        QuickReadSession.reached(list.getLastVisiblePosition());
     }
 
     @Override
