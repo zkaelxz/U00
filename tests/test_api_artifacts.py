@@ -128,6 +128,7 @@ def test_softsub_download_uses_title_episode_and_language(client, isolated_db):
     ("audio", "audiobook_{d}.m4b", "ja", "Ep 3 - audiobook (ja).m4b"),
     ("scanlate_zip", "typeset_pages.zip", "translated en", "Ep 3 - pages (translated en).zip"),
     ("scanlate_pdf", "typeset_pages.pdf", "translated en", "Ep 3 - pages (translated en).pdf"),
+    ("scanlate_cbz", "typeset_pages.cbz", "translated en", "Ep 3 - pages (translated en).cbz"),
 ])
 def test_each_media_kind_names_its_language(client, isolated_db, kind, stored, language, expected):
     did = _drama(isolated_db, title_en="Show", episode_number=3)
