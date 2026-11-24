@@ -36,21 +36,38 @@ def _lost_most_of_a_line(b: dict) -> bool:
     return long_side / short_side >= _LINE_RATIO and chars * _SHORT_SHARE < long_side / short_side
 
 
+# A box this much wider than tall is a banner or a credit line, whatever kind the detector gave it.
+_BANNER_RATIO = 6
+
+
+def _banner_shaped(b: dict) -> bool:
+    # Horizontal only: a tall narrow box is a column of vertical lettering, ordinary in manga.
+    return b["w"] / max(1, b["h"]) >= _BANNER_RATIO
+
+
 def _score(b: dict) -> float:
     return b["ocr_confidence"] if b.get("ocr_confidence") is not None else 0.0
 
 
+# Lettering drawn on the art and sign-like boxes (banners, titles) are stylised, which is where
+# OCR is confidently wrong: manga-ocr gives no score at all, and RapidOCR scored a misread title
+# 0.97. They are read again whatever the score; plain balloons are not.
+_STYLISED_KINDS = ("caption", "sign")
+
+
 def hard_regions(bubbles) -> list:
     """The bubbles worth a second look, least confident first and at most MAX_REGIONS_PER_PAGE:
-    text that was read and not skipped, and either scored under its bar or far shorter than its
-    box. A bubble with no score (another OCR backend) is picked only by the second test."""
+    text that was read and not skipped, and either scored under its bar, far shorter than its
+    box, lettering on the art, or a sign-like box with no score. A plain balloon with no score
+    (another OCR backend) is picked only by the shortness test."""
     picked = []
     for b in bubbles:
         if b.get("skip") or b.get("kind") == "sfx" or not (b.get("source_text") or "").strip():
             continue
         score = b.get("ocr_confidence")
         bar = CAPTION_CONFIDENCE if b.get("kind") == "caption" else LOW_CONFIDENCE
-        if (score is not None and score < bar) or _lost_most_of_a_line(b):
+        if ((score is not None and score < bar) or _lost_most_of_a_line(b)
+                or b.get("kind") == "caption" or (score is None and (b.get("kind") in _STYLISED_KINDS or _banner_shaped(b)))):
             picked.append(b)
     return sorted(picked, key=_score)[:MAX_REGIONS_PER_PAGE]
 

@@ -258,6 +258,8 @@ class TestExtractTextFromImagesUsesResolvedLang:
         monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
         assert ocr.extract_text_rapidocr("/fake/page.png") == "你好\n世界"
         assert built[0]["Global.use_cls"] is False, "the orientation step garbles upright lines"
+        # A balloon crop must not be blown up to a 736 px short side before its lines are found.
+        assert (built[0]["Det.limit_type"], built[0]["Det.limit_side_len"]) == ("max", 2000)
         monkeypatch.delitem(vars(ocr), "_rapidocr_instances", raising=False)
 
     def test_rapidocr_lines_give_scaled_boxes_and_skip_misaligned_results(self, monkeypatch):

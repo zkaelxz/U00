@@ -393,7 +393,8 @@ def _quick_read_key(image: dict, job: dict) -> str | None:
 def _key_settings(job: dict, config: dict) -> list:
     return [job["drama_id"], job["source_language"], job["typeset"],
             json.dumps(job["typeset_style"], sort_keys=True, default=str), job["typeset_max_width"],
-            job["glossary_version"], config.get("engine"), config.get("model")]
+            job["glossary_version"], quick_read_cache.pipeline_version(),
+            config.get("engine"), config.get("model")]
 
 
 def _quick_read_url_key(image: dict, job: dict) -> str | None:

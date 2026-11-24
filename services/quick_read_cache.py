@@ -1,5 +1,6 @@
 """Quick read's temporary results cache on disk: size- and age-limited, never a saved series or title."""
 
+import functools
 import hashlib
 import json
 import os
@@ -20,6 +21,33 @@ def _dir() -> str:
     path = os.path.join(db.LIBRARY_DIR, DIRNAME)
     os.makedirs(path, exist_ok=True)
     return path
+
+
+# The code that decides what a cached page looks like: reading, translating, erasing, lettering.
+# An entry made by older code of these is never served, so an upgrade (or an edit while developing)
+# shows the new result instead of the old redraw.
+_PIPELINE_FILES = ("ocr.py", "ocr_layout.py", "page_turns.py", "page_capture_checks.py", "en_cleanup.py",
+                   "services/page_server.py", "services/extension_bridge_service.py",
+                   "services/page_reread_service.py", "services/comic_glossary_service.py")
+_PIPELINE_DIRS = ("scanlate",)
+
+
+@functools.cache
+def pipeline_version() -> str:
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    paths = [os.path.join(root, name) for name in _PIPELINE_FILES]
+    for folder in _PIPELINE_DIRS:
+        base = os.path.join(root, folder)
+        paths += [os.path.join(base, n) for n in sorted(os.listdir(base)) if n.endswith(".py")] \
+            if os.path.isdir(base) else []
+    digest = hashlib.sha256()
+    for path in paths:
+        try:
+            with open(path, "rb") as f:
+                digest.update(os.path.relpath(path, root).encode() + b"\0" + f.read())
+        except OSError:
+            digest.update(b"missing\0")   # a changed file set still changes the version
+    return digest.hexdigest()[:16]
 
 
 def make_key(*parts) -> str:
