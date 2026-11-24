@@ -423,6 +423,25 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
           </div>
         </div>
       )}
+      {editing && editing.id === undefined ? (
+        <TermEditor
+          key="new"
+          initial={editing}
+          catalogues={catalogues}
+          onSave={save}
+          onCancel={() => setEditing(null)}
+        />
+      ) : !editing && !showStart && (
+        <div className="actions">
+          <button
+            type="button"
+            className={buttonClass('secondary')}
+            onClick={() => setEditing(EMPTY)}
+          >
+            Add term
+          </button>
+        </div>
+      )}
       {terms && terms.length > 0 && (
         <GlossaryTermsToolbar query={query} onQuery={setQuery} sort={sort} onSort={setSort} shown={shown.length} total={terms.length} />
       )}
@@ -488,25 +507,6 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
           {chosen.length === 0 && !confirming && <span className="muted">Select terms to delete.</span>}
           {deleteError && <p className="error" role="alert">{deleteError}</p>}
           <ErrorBanner error={deleteFailure} onDismiss={() => setDeleteFailure(null)} />
-        </div>
-      )}
-      {editing && editing.id === undefined ? (
-        <TermEditor
-          key="new"
-          initial={editing}
-          catalogues={catalogues}
-          onSave={save}
-          onCancel={() => setEditing(null)}
-        />
-      ) : !editing && !showStart && (
-        <div className="actions">
-          <button
-            type="button"
-            className={buttonClass('secondary')}
-            onClick={() => setEditing(EMPTY)}
-          >
-            Add term
-          </button>
         </div>
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
