@@ -23,6 +23,7 @@ import json
 from typing import Optional
 
 import core as core_module
+import media_inspect
 import db
 import source_change
 import subtitle_ass
@@ -334,3 +335,38 @@ def import_subtitle(drama_id: int, data: bytes, filename: str = "", *, encoding:
             "matched_lines": plan.get("matched_lines", 0),
             "unmatched_cues": plan.get("unmatched_cues", 0),
             "undo": handle}
+
+
+_EXTRACT_FAILED = {
+    "not_subtitle": "That isn't a subtitle track of this file.",
+    "image": "That track is made of pictures (PGS or DVD), which can't be imported as text yet.",
+    "missing": "Importing a track needs ffmpeg, which isn't installed or isn't on PATH.",
+    "timeout": "Reading the subtitle track took too long.",
+    "failed": "ffmpeg couldn't read that subtitle track.",
+    "too_large": f"That track is too large (at most {subtitle_parse.MAX_FILE_BYTES // (1024 * 1024)} MB).",
+}
+
+
+def _track_file(drama_id: int, track_index: int) -> tuple:
+    # Imported here: metadata_service sits beside this module, not below it.
+    from services import metadata_service
+    drama = ownership_service.require_drama(drama_id)
+    path = metadata_service.stored_media_path(drama_id, drama)
+    if path is None:
+        raise InvalidInputError("This title has no media file yet.")
+    try:
+        return media_inspect.extract_text_subtitle(path, track_index)
+    except media_inspect.SubtitleExtractError as e:
+        raise InvalidInputError(_EXTRACT_FAILED.get(e.reason, _EXTRACT_FAILED["failed"])) from None
+
+
+def preview_track(drama_id: int, track_index: int, **options) -> dict:
+    """preview_import for a subtitle track inside the title's own media file."""
+    data, filename = _track_file(drama_id, track_index)
+    return preview_import(drama_id, data, filename, **options)
+
+
+def import_track(drama_id: int, track_index: int, **options) -> dict:
+    """import_subtitle for a subtitle track inside the title's own media file."""
+    data, filename = _track_file(drama_id, track_index)
+    return import_subtitle(drama_id, data, filename, **options)

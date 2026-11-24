@@ -102,6 +102,8 @@ interface MediaSubtitleTrack {
   index: number | null
   codec: string
   language: string | null
+  // Text tracks can be imported as lines; picture tracks (PGS, DVD) can't.
+  importable?: boolean
 }
 
 export type AutofillRequest = Schemas['AutofillRequest']
