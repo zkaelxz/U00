@@ -300,8 +300,10 @@ class TestPrivateVoices:
         assert voice_bank_audio_service.clip_for_entry(secret, self.ADMIN)
 
         drama = db.create_drama(title_en="T")
-        with pytest.raises(NotFoundError):
+        db.upsert_character(drama, "SPEAKER_00")
+        with pytest.raises(NotFoundError, match="voice bank entry"):
             characters_service.apply_voice_bank_entry(drama, "SPEAKER_00", secret, self.MEMBER)
+        assert characters_service.apply_voice_bank_entry(drama, "SPEAKER_00", secret, self.ADMIN)
 
     def test_switch_back_to_shared(self, isolated_db, tmp_path):
         entry = self._entry(isolated_db, tmp_path, "v")

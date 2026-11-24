@@ -39,6 +39,7 @@ import time
 import unicodedata
 
 from lib import ids as lib_ids
+from lib.acting import acting_principal
 import db
 from voice import dub
 import translation_guide as tguide
@@ -339,6 +340,10 @@ def apply_series_voice(drama_id: int, speaker_label: str) -> bool:
         entry = get_voice_bank_entry(entry_id)
         if entry is None or db.voice_bank_clip_path(entry.get("clip_filename") or "") is None:
             return _series_voice_skipped(drama_id, f"bank entry {entry_id} or its clip is missing")
+        # Background runs have no acting principal, so a private voice is skipped there too.
+        acting = acting_principal()
+        if entry.get("is_private") and not (acting and ownership_service.sees_private_voices(acting)):
+            return _series_voice_skipped(drama_id, f"bank entry {entry_id} is private")
         engine = entry.get("clone_engine") or ""
         if engine and not dub.clone_engine_supports_language(engine, _source_language(drama)):
             return _series_voice_skipped(drama_id, f"{engine} can't speak the title's language")

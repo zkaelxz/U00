@@ -320,13 +320,22 @@ def list_voice_bank(principal=None) -> list:
     return out
 
 
+def voice_bank_entry_view(entry_id: int, principal=None) -> dict:
+    """The entry as `principal` sees it; a private one it can't see is a 404, so a write
+    that already happened doesn't end in an unhandled error."""
+    for e in list_voice_bank(principal):
+        if e["id"] == entry_id:
+            return e
+    raise NotFoundError(f"No voice bank entry with id {entry_id}.")
+
+
 def rename_voice_bank_entry(entry_id: int, name: str, principal=None) -> dict:
     entry_id = lib_ids.check_id_of("voice bank entry", entry_id)
     name = _clean_name(name)
     if db.get_voice_bank_entry(entry_id) is None:
         raise NotFoundError(f"No voice bank entry with id {entry_id}.")
     db.rename_voice_bank_entry(entry_id, name)
-    return next(e for e in list_voice_bank(principal) if e["id"] == entry_id)
+    return voice_bank_entry_view(entry_id, principal)
 
 
 def set_voice_bank_private(entry_id: int, private: bool, principal=None) -> dict:
@@ -335,7 +344,7 @@ def set_voice_bank_private(entry_id: int, private: bool, principal=None) -> dict
     if db.get_voice_bank_entry(entry_id) is None:
         raise NotFoundError(f"No voice bank entry with id {entry_id}.")
     db.set_voice_bank_private(entry_id, private)
-    return next(e for e in list_voice_bank(principal) if e["id"] == entry_id)
+    return voice_bank_entry_view(entry_id, principal)
 
 
 def update_voice_bank_details(entry_id: int, notes: str, ref_text: str, language, principal=None) -> dict:
@@ -349,4 +358,4 @@ def update_voice_bank_details(entry_id: int, notes: str, ref_text: str, language
     if language and language not in LINE_LANGUAGES:
         raise InvalidInputError(f"Language must be one of {', '.join(LINE_LANGUAGES)}.")
     db.update_voice_bank_details(entry_id, notes.strip(), ref_text.strip(), language or None)
-    return next(e for e in list_voice_bank(principal) if e["id"] == entry_id)
+    return voice_bank_entry_view(entry_id, principal)

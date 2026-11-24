@@ -308,8 +308,10 @@ def _voice_bank_rows(backup: _Backup) -> list:
             continue
         entry = {col: (row.get(col) if isinstance(row.get(col), str) else None)
                  for col in _VOICE_BANK_TEXT}
+        # Read as a number, not text, and kept: a private voice must not turn public on import.
+        entry["is_private"] = row.get("is_private") in (1, True)
         if not (entry["name"] or "").strip() or any(
-                v is not None and len(v) > _VOICE_BANK_TEXT[c] for c, v in entry.items()):
+                v is not None and len(v) > _VOICE_BANK_TEXT[c] for c, v in entry.items() if c in _VOICE_BANK_TEXT):
             continue
         out.append((entry, info))
     return out
@@ -560,7 +562,7 @@ def _import_voice_bank(dst, zip_path, bank, written: list) -> int:
                         (entry["name"], clip, entry["ref_text"], entry["clone_engine"],
                          entry["voice_design"], entry["language"], entry["notes"],
                          entry["source_drama"], entry["source_speaker"], now,
-                         1 if entry.get("is_private") else 0))
+                         1 if entry["is_private"] else 0))
             added += 1
     return added
 
