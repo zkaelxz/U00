@@ -371,4 +371,31 @@ public class GrabLogicTest {
         assertEquals(2, plan.get(1).size());
         assertEquals(5, plan.get(0).size() + plan.get(1).size() + plan.get(2).size());
     }
+
+    @Test
+    public void onlyPicturesWithAWebAddressAreLeftToThePcToDownload() {
+        List<PageImage> batch = new ArrayList<>();
+        batch.add(new PageImage("a", "https://cdn.example/1.jpg", "image/jpeg", ""));
+        batch.add(new PageImage("b", "", "image/png", "AAAA"));
+        List<PageImage> marked = PcFetch.mark(batch);
+        assertTrue(marked.get(0).fetchFirst);
+        assertFalse(marked.get(1).fetchFirst);
+        List<PageImage> none = new ArrayList<>();
+        none.add(new PageImage("c", "data:image/png;base64,AAAA", "image/png", "AAAA"));
+        assertNull(PcFetch.mark(none));
+    }
+
+    @Test
+    public void picturesThePcCouldNotFetchAreTheOnesSentFromThePhone() throws Exception {
+        List<PageImage> batch = new ArrayList<>();
+        batch.add(new PageImage("a", "https://cdn.example/1.jpg", "image/jpeg", ""));
+        batch.add(new PageImage("b", "https://cdn.example/2.jpg", "image/jpeg", ""));
+        batch.add(new PageImage("c", "https://cdn.example/3.jpg", "image/jpeg", ""));
+        JSONArray unfetched = new JSONArray("[{\"key\":\"c\",\"reason\":\"blocked\"},{\"key\":\"a\",\"reason\":\"missing\"}]");
+        List<PageImage> again = PcFetch.unfetched(batch, unfetched);
+        assertEquals(2, again.size());
+        assertEquals("a", again.get(0).key);
+        assertEquals("c", again.get(1).key);
+        assertTrue(PcFetch.unfetched(batch, null).isEmpty());
+    }
 }

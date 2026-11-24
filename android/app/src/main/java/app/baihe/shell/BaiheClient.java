@@ -32,6 +32,8 @@ final class BaiheClient {
     volatile int typesetMaxWidth;
     /** Quick read only: where the requests' time went. */
     volatile UploadStats stats;
+    /** The WebView's user agent, sent with a picture the PC is asked to download. */
+    volatile String fetchUserAgent;
 
     /** A refused or failed call; the message is the server's own text or a short fixed one. */
     static final class BridgeException extends Exception {
@@ -104,7 +106,8 @@ final class BaiheClient {
      */
     JSONObject streamPages(String pageUrl, List<PageImage> batch, PageListener onPage) throws BridgeException {
         try {
-            if (batch.size() == 1) {
+            // A lone picture the PC is asked to download goes the streamed route, which takes fetch_url.
+            if (batch.size() == 1 && !batch.get(0).fetchFirst) {
                 JSONObject answer = readPages(pageUrl, batch);
                 JSONArray pages = answer.optJSONArray("pages");
                 for (int i = 0; pages != null && i < pages.length(); i++) onPage.onPage(pages.getJSONObject(i));
@@ -193,12 +196,19 @@ final class BaiheClient {
     private JSONObject requestBody(String pageUrl, List<PageImage> batch, long dramaId, boolean store)
             throws JSONException {
         JSONArray images = new JSONArray();
+        boolean asksPc = false;
         for (PageImage image : batch) {
-            images.put(new JSONObject()
+            JSONObject entry = new JSONObject()
                     .put("key", image.key)
                     .put("url", image.url.startsWith("http") ? image.url : "")
-                    .put("content_type", image.contentType)
-                    .put("data", image.base64));
+                    .put("content_type", image.contentType);
+            if (image.fetchFirst) {
+                entry.put("fetch_url", image.url);
+                asksPc = true;
+            } else {
+                entry.put("data", image.base64);
+            }
+            images.put(entry);
         }
         JSONObject body = new JSONObject()
                 .put("images", images)
@@ -206,6 +216,10 @@ final class BaiheClient {
                 .put("store", store)
                 .put("filter_pages", true);
         if (runId != null) body.put("run_id", runId);
+        if (asksPc) {
+            body.put("fetch_referer", pageUrl);
+            if (fetchUserAgent != null) body.put("fetch_user_agent", fetchUserAgent);
+        }
         if (store) body.put("drama_id", dramaId);
         else {
             body.put("typeset", true);

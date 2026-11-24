@@ -731,7 +731,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     return;
                 }
                 PageImage got = image;
-                if (image.needsDownload()) {
+                // A Quick read asks the PC to download first; the phone downloads only what it could not.
+                if (image.needsDownload() && !(readOnly && PcFetch.mark(java.util.Collections.singletonList(image)) != null)) {
                     got = System.currentTimeMillis() > downloadDeadline ? null
                             : ImageFetch.download(image, url, android.webkit.CookieManager.getInstance()::getCookie, agent);
                 }
@@ -753,6 +754,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             client.runId = runId;
             client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
             client.stats = new UploadStats();
+            client.fetchUserAgent = agent;
             if (readOnly) read(client, url, ready, bad, cut);
             else upload(client, url, titles, chapterLinks, ready, bad, cut);
         });
@@ -773,7 +775,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(QUICK_READ_STREAMS);
         try {
             // A typeset answer is large, so the batch stays small however many the server allows.
-            int max = Math.min(QUICK_READ_BATCH, client.health().optInt("max_images_per_request", 12));
+            JSONObject health = client.health();
+            int max = Math.min(QUICK_READ_BATCH, health.optInt("max_images_per_request", 12));
             if (!continuing) QuickReadActivity.clear(this);
             // Clear non-pages stay home: on a slow link each one costs real time to upload.
             List<PageImage> pages = PageFilter.pagesOnly(images);
@@ -790,6 +793,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             boolean[] opened = {continuing};
             String[] firstError = {""};
             boolean[] refused = {false};
+            // Cleared when the PC turns out not to download pictures (an older Baihe): bytes go up instead.
+            // Older Baihe versions omit the flag, so they never get addresses to fetch.
+            boolean[] pcFetch = {health.optBoolean("picture_addresses", false)};
 
             // Called with `lock` held: writes a page and, the first time, opens the reader.
             java.util.function.Consumer<byte[]> show = jpeg -> {
@@ -824,7 +830,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     }
                     say("Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
                     try {
-                        JSONObject done = client.streamPages(url, ImageShrink.forUpload(batches.get(index)), page -> {
+                        BaiheClient.PageListener onPage = page -> {
                             JSONObject wrapped;
                             try {
                                 wrapped = new JSONObject().put("pages", new JSONArray().put(page));
@@ -844,7 +850,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                                     else held.get(index).add(jpeg);
                                 }
                             }
-                        });
+                        };
+                        JSONObject done = sendBatch(client, url, batches.get(index), onPage, pcFetch);
                         synchronized (lock) {
                             JSONArray failed = done.optJSONArray("failed");
                             if (firstError[0].isEmpty() && failed != null && failed.length() > 0) {
@@ -904,6 +911,60 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         } finally {
             pool.shutdown();
         }
+    }
+
+    /**
+     * One request of a Quick read. The PC is asked to download the pictures first; any it could
+     * not get (and a whole batch, when the PC is too old to know the field) go up as bytes.
+     */
+    private JSONObject sendBatch(BaiheClient client, String pageUrl, List<PageImage> batch,
+                                 BaiheClient.PageListener onPage, boolean[] pcFetch) throws BaiheClient.BridgeException {
+        if (pcFetch[0]) {
+            List<PageImage> asked = PcFetch.mark(batch);
+            if (asked != null) {
+                try {
+                    int[] delivered = {0};
+                    JSONObject done = client.streamPages(pageUrl, asked, page -> {
+                        delivered[0]++;
+                        onPage.onPage(page);
+                    });
+                    // An older Baihe ignores fetch_url and finds an empty picture: nothing comes back and no
+                    // "unfetched" list either. That is told apart from a stop by the user.
+                    boolean stopped = cancelRequested || QuickReadSession.isAbandoned();
+                    if (delivered[0] == 0 && !done.has("unfetched") && !stopped) {
+                        pcFetch[0] = false;
+                        return sendBytes(client, pageUrl, batch, onPage);
+                    }
+                    List<PageImage> again = PcFetch.unfetched(batch, done.optJSONArray("unfetched"));
+                    if (again.isEmpty()) return done;
+                    List<PageImage> bytes = withBytes(again, pageUrl);
+                    return bytes.isEmpty() ? done : client.streamPages(pageUrl, ImageShrink.forUpload(bytes), onPage);
+                } catch (BaiheClient.BridgeException e) {
+                    if (e.status != 400 && e.status != 422) throw e;
+                    pcFetch[0] = false;
+                }
+            }
+        }
+        return sendBytes(client, pageUrl, batch, onPage);
+    }
+
+    private JSONObject sendBytes(BaiheClient client, String pageUrl, List<PageImage> batch,
+                                 BaiheClient.PageListener onPage) throws BaiheClient.BridgeException {
+        List<PageImage> bytes = withBytes(batch, pageUrl);
+        if (bytes.isEmpty()) throw new BaiheClient.BridgeException(0, "The site would not let Baihe read those pictures.");
+        return client.streamPages(pageUrl, ImageShrink.forUpload(bytes), onPage);
+    }
+
+    /** The pictures with their bytes, downloading on the phone those that have only an address; unreadable ones are left out. */
+    private List<PageImage> withBytes(List<PageImage> batch, String pageUrl) {
+        List<PageImage> out = new ArrayList<>(batch.size());
+        for (PageImage image : batch) {
+            PageImage got = image.base64.isEmpty()
+                    ? ImageFetch.download(image, pageUrl, android.webkit.CookieManager.getInstance()::getCookie, pageAgent)
+                    : image;
+            if (got != null) out.add(got);
+        }
+        return out;
     }
 
     /** With the read lock held: shows what earlier batches held back, moving on past each finished batch. */
