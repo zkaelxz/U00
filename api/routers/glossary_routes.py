@@ -265,7 +265,7 @@ def get_name_report_export(request: Request):
 def post_start_spelling_suggestions(payload: SpellingSuggestRequest, request: Request,
                                     drama_id: int = Path(ge=1)):
     engine_name = glossary_spelling_service.spelling_engine(drama_id)
-    require_engines_allowed(request, engine_name)
+    require_engines_allowed(request, engine_name, model=glossary_service.glossary_model(drama_id))
     return glossary_spelling_service.start_spelling_suggestions(
         drama_id, payload.term_id, payload.english, engine_name=engine_name)
 
@@ -322,7 +322,7 @@ def post_series_instructions(payload: GlossaryInstructionsUpdate, drama_id: int 
              responses=error_responses(400, 403, 404, 409, 503))
 def post_draft_instructions(request: Request, drama_id: int = Path(ge=1)):
     engine_name = glossary_service.novel_glossary_engine(drama_id)
-    require_engines_allowed(request, engine_name)
+    require_engines_allowed(request, engine_name, model=glossary_service.glossary_model(drama_id))
     return glossary_service.draft_project_instructions(drama_id, engine_name=engine_name)
 
 
@@ -338,7 +338,7 @@ def post_start_novel_glossary(request: Request, drama_id: int = Path(ge=1),
                               fresh: bool = Query(False, description=(
                                   "Ignore replies cached by an earlier run"))):
     engine_name = glossary_service.novel_glossary_engine(drama_id)
-    require_engines_allowed(request, engine_name)
+    require_engines_allowed(request, engine_name, model=glossary_service.glossary_model(drama_id))
     # Pass the checked name: the service refuses (409) if the stored engine
     # changed since, so the run can't switch to an engine the gate didn't see.
     return glossary_service.start_novel_glossary_run(drama_id, engine_name=engine_name,
@@ -421,7 +421,7 @@ def post_restore_glossary_proposals(payload: GlossaryDismissRequest, drama_id: i
 def post_start_lines_glossary(request: Request, drama_id: int = Path(ge=1),
                               chapter: Optional[int] = Query(None, ge=1, description="Scan only this saved chapter")):
     engine_name = glossary_service.lines_glossary_engine(drama_id)
-    require_engines_allowed(request, engine_name)
+    require_engines_allowed(request, engine_name, model=glossary_service.glossary_model(drama_id))
     return glossary_service.start_lines_glossary_run(drama_id, engine_name=engine_name, chapter=chapter)
 
 
@@ -456,7 +456,7 @@ def post_cancel_lines_glossary(request: Request, payload: GlossaryRunCancelReque
              responses=error_responses(400, 403, 404, 409, 503))
 def post_start_chapters_glossary(request: Request, drama_id: int = Path(ge=1)):
     engine_name = glossary_service.lines_glossary_engine(drama_id)
-    require_engines_allowed(request, engine_name)
+    require_engines_allowed(request, engine_name, model=glossary_service.glossary_model(drama_id))
     return glossary_service.start_chapters_glossary_run(drama_id, engine_name=engine_name)
 
 
