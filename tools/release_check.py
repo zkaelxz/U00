@@ -429,7 +429,7 @@ def baseline_status(row: dict) -> str:
     # Translation falls back to a difflib ratio without sacrebleu; a chrF baseline means nothing against it.
     if row.get("metric") not in BASELINE_METRICS:
         return "fail"
-    if row.get("score") is None or worse(row.get("metric"), row["score"], row["baseline"]):
+    if row.get("score") is None or worse(row["metric"], row["score"], row["baseline"]):
         return "fail"
     return "pass"
 
