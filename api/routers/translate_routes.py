@@ -67,8 +67,8 @@ def post_translate_estimate(payload: TranslateRequest):
 
 
 _IMAGE_TOO_LARGE = (f"The picture is larger than {page_import_limits.MAX_IMAGE_BYTES // (1024 * 1024)} MB.")
-# Uploads are PC-only (docs/remote-access-decision.md), so local_only() refuses a
-# remote caller before any of the body is read.
+# A remote device needs engines.paid like POST /api/translate, so the body is
+# only read for a caller who may spend on an engine; read_capped_form bounds it.
 # Room for the multipart boundaries and the four short text fields.
 _IMAGE_BODY_MAX = page_import_limits.MAX_IMAGE_BYTES + 64 * 1024
 _READ_IMAGE_BODY = {"requestBody": {"required": True, "content": {"multipart/form-data": {"schema": {
@@ -78,31 +78,33 @@ _READ_IMAGE_BODY = {"requestBody": {"required": True, "content": {"multipart/for
                    "language": {"type": "string"}, "free_tier": {"type": "string"}}}}}}}
 
 
-@router.post("/read-image", dependencies=[local_only()],
+@router.post("/read-image", dependencies=[require_permission("engines.paid")],
              response_model=ReadImageResponse, response_model_exclude_none=True,
              openapi_extra=_READ_IMAGE_BODY,
-             summary="PC only: read the text written in a picture with a vision engine",
+             summary="Read the text written in a picture with a vision engine",
              responses=error_responses(400, 413, 422, 429, 503))
 async def post_read_image(request: Request):
     if not request.headers.get("content-type", "").lower().startswith("multipart/form-data"):
         raise InvalidInputError("Send the picture as multipart/form-data.")
-    form = await read_capped_form(
-        request, _IMAGE_BODY_MAX, "the picture", _IMAGE_TOO_LARGE,
-        "The picture form could not be read.", max_files=1, max_fields=4)
-    try:
-        upload = form.get("image")
-        engine = form.get("engine")
-        if not isinstance(upload, UploadFile) or not isinstance(engine, str) or not engine:
-            raise InvalidInputError("Send an image and an engine.")
-        content = await upload.read(page_import_limits.MAX_IMAGE_BYTES + 1)
-        if len(content) > page_import_limits.MAX_IMAGE_BYTES:
-            raise InvalidInputError(_IMAGE_TOO_LARGE)
-        fields = {k: v for k, v in form.items() if isinstance(v, str)}
-    finally:
-        await form.close()
-    free_tier = {"true": True, "false": False}.get(fields.get("free_tier", ""))
     # Synchronous provider call: capped by the shared slot pool (api/llm_slots.py).
+    # Taken before the body is read so a member's parallel 30 MB uploads are
+    # refused at once instead of each filling temp disk and memory first.
     with llm_slot(request):
+        form = await read_capped_form(
+            request, _IMAGE_BODY_MAX, "the picture", _IMAGE_TOO_LARGE,
+            "The picture form could not be read.", max_files=1, max_fields=4)
+        try:
+            upload = form.get("image")
+            engine = form.get("engine")
+            if not isinstance(upload, UploadFile) or not isinstance(engine, str) or not engine:
+                raise InvalidInputError("Send an image and an engine.")
+            content = await upload.read(page_import_limits.MAX_IMAGE_BYTES + 1)
+            if len(content) > page_import_limits.MAX_IMAGE_BYTES:
+                raise InvalidInputError(_IMAGE_TOO_LARGE)
+            fields = {k: v for k, v in form.items() if isinstance(v, str)}
+        finally:
+            await form.close()
+        free_tier = {"true": True, "false": False}.get(fields.get("free_tier", ""))
         try:
             return await run_in_threadpool(
                 image_text_service.read_image, content, engine, fields.get("model") or None,
@@ -115,7 +117,7 @@ async def post_read_image(request: Request):
             raise DependencyUnavailableError(f"The engine call failed: {reason}") from None
 
 
-@router.post("/read-image/estimate", dependencies=[local_only()],
+@router.post("/read-image/estimate", dependencies=[require_permission("engines.paid")],
              response_model=ReadImageEstimate,
              summary="What reading a picture of this size would cost, and what is left of the monthly cap",
              responses=error_responses(400, 422))

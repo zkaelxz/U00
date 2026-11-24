@@ -16,10 +16,11 @@ import db
 from engine_backends import openai_compat, local
 from engine_backends import gemini as engine_gemini
 from engine_backends import vision as engine_vision
+from api import auth as api_auth, llm_slots
 from api.api_config import ApiSettings
 from api.server import create_app
 from engine_backends import vision
-from services import image_text_service, translate_run_service
+from services import auth_service, image_text_service, translate_run_service
 
 
 def _png(size=(40, 20), fmt="PNG") -> bytes:
@@ -33,7 +34,6 @@ REMOTE = "https://baihe.example.com"
 
 @pytest.fixture
 def client(isolated_db):
-    # X-Baihe-Local is required on a multipart local_only POST.
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
                       headers={"X-Baihe-Local": "1"})
 
@@ -133,19 +133,51 @@ class TestRoute:
         assert "SECRETSECRET" not in resp.text
 
 
-class TestPcOnly:
-    def test_a_remote_device_is_refused_before_any_call(self, isolated_db, sent):
-        remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
-                            raise_server_exceptions=False, headers={"X-Baihe-Local": "1"})
-        assert _post(remote).status_code in (401, 403) and not sent
+class TestFromARemoteDevice:
+    """A phone signs in as a member: the picture read needs engines.paid, like Translate."""
+
+    def _member(self, rights=()):
+        u = auth_service.add_user("phone@example.com")
+        for right in rights:
+            auth_service.grant_permission(u["id"], right)
+        s = auth_service.create_session(u["id"], "pytest", "198.51.100.4")
+        client = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                            raise_server_exceptions=False,
+                            headers={"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+                                     api_auth.CSRF_HEADER: s["csrf_token"]})
+        return client
+
+    def test_a_member_without_the_paid_right_is_refused_before_any_call(self, isolated_db, sent):
+        remote = self._member()
+        assert _post(remote).status_code == 403 and not sent
         resp = remote.post("/api/translate/read-image/estimate",
                            json={"engine": "claude", "width": 10, "height": 10})
-        assert resp.status_code in (401, 403)
+        assert resp.status_code == 403
 
-    def test_the_pc_owner_is_let_in_with_auth_on(self, isolated_db, sent):
-        app = create_app(ApiSettings(auth_mode="on"))
-        owner = TestClient(app, raise_server_exceptions=False, headers={"X-Baihe-Local": "1"})
-        assert _post(owner).status_code == 200
+    def test_a_signed_out_device_is_refused(self, isolated_db, sent):
+        remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                            raise_server_exceptions=False)
+        assert _post(remote).status_code == 401 and not sent
+
+    def test_a_member_with_the_paid_right_can_read_and_price_a_picture(self, isolated_db, sent):
+        remote = self._member(("engines.paid",))
+        resp = _post(remote)
+        assert resp.status_code == 200 and resp.json()["text"] == "你好" and len(sent) == 1
+        resp = remote.post("/api/translate/read-image/estimate",
+                           json={"engine": "claude", "width": 10, "height": 10})
+        assert resp.status_code == 200
+
+    def test_a_member_is_held_to_the_one_call_at_a_time_cap(self, isolated_db, sent):
+        remote = self._member(("engines.paid",))
+        user_id = db.auth_get_user_by_email("phone@example.com")["id"]
+        with llm_slots.ACTIVE_LOCK:
+            llm_slots.ACTIVE_CALLERS.add(f"user:{user_id}")
+        try:
+            resp = _post(remote)
+        finally:
+            with llm_slots.ACTIVE_LOCK:
+                llm_slots.ACTIVE_CALLERS.discard(f"user:{user_id}")
+        assert resp.status_code == 429 and not sent
 
 
 class TestEstimate:
