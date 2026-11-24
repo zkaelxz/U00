@@ -296,7 +296,7 @@ def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int
         raise NotFoundError("No such speaker in this title.")
     entry = get_voice_bank_entry(voice_bank_id)
     # A private voice answers like a missing one so a member can't probe which ids exist.
-    if not ownership_service.can_see_voice_entry(principal, entry):
+    if entry is None or not ownership_service.can_see_voice_entry(principal, entry):
         raise NotFoundError(f"No voice bank entry with id {voice_bank_id}.")
     if db.voice_bank_clip_path(entry.get("clip_filename") or "") is None:
         raise NotFoundError("That voice bank entry's audio clip is missing.")
