@@ -156,7 +156,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 if (!loadingNext) return;
                 loadingNext = false;
                 web.postDelayed(() -> {
-                    if (chaptersLeft > 0 && !grabbing) startGrab(followingParts);
+                    if (chaptersLeft > 0 && !grabbing) {
+                        startGrab(followingParts);
+                        // A grab that could not start would leave the open reader waiting for pages.
+                        if (!grabbing && followingParts) cancelGrab();
+                    }
                 }, 2500);
             }
 
