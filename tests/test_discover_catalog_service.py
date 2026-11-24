@@ -102,3 +102,39 @@ def test_platforms_and_links():
         svc.search_links("  ")
     with pytest.raises(InvalidInputError):
         svc.search_links("x", "bogus")
+
+
+def _member(n="m@example.com"):
+    from services import auth_service
+    u = auth_service.add_user(n)
+    return {"user_id": u["id"], "is_admin": False, "permissions": u["permissions"]}
+
+
+def test_member_catalogue_adds_are_capped_and_admins_are_not(isolated_db, monkeypatch):
+    from services import drama_service
+    monkeypatch.setattr(drama_service, "MEMBER_TITLE_LIMIT", 2)
+    m = _member()
+    row = {"title_original": "A", "language": "zh", "media_type": "novel"}
+    for n in range(2):
+        svc.create_title(dict(row, title_original=f"T{n}"), principal=m)
+    with pytest.raises(ConflictError, match="most a member account can add"):
+        svc.create_title(dict(row, title_original="T2"), principal=m)
+    other = _member("o@example.com")      # the cap is per member
+    svc.create_title(dict(row, title_original="X"), principal=other)
+    admin = {"user_id": 99, "is_admin": True, "permissions": []}
+    for n in range(3):
+        svc.create_title(dict(row, title_original=f"A{n}"), principal=admin)
+    assert db.count_known_titles_by(m["user_id"]) == 2
+
+
+def test_a_member_can_import_a_known_title_and_the_title_cap_applies(isolated_db, monkeypatch):
+    from services import drama_service
+    monkeypatch.setattr(drama_service, "MEMBER_TITLE_LIMIT", 1)
+    m = _member()
+    first = svc.create_title({"title_original": "A", "title_en": "A", "language": "zh",
+                              "media_type": "novel"}, principal=m)
+    second = svc.create_title({"title_original": "B", "title_en": "B", "language": "zh",
+                               "media_type": "novel"}, principal={**m, "user_id": None})
+    svc.import_to_library(first["id"], principal=m)
+    with pytest.raises(ConflictError, match="most a member account can have"):
+        svc.import_to_library(second["id"], principal=m)

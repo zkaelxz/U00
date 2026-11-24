@@ -206,7 +206,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diarization/dramas/{drama_id}/reassign` | lines.edit |
 | `POST /api/diarization/dramas/{drama_id}/run` | jobs.start |
 | `POST /api/discover/baihehub-search` | library.read |
-| `POST /api/discover/bulk-commit` | admin.library |
+| `POST /api/discover/bulk-commit` | library.create |
 | `POST /api/discover/bulk-extract` | media.import_url |
 | `POST /api/discover/bulk-extract/pasted` | jobs.start |
 | `GET /api/discover/bulk-extract/result` | library.read |
@@ -216,10 +216,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/discover/platforms` | library.read |
 | `GET /api/discover/search-links` | library.read |
 | `GET /api/discover/titles` | library.read |
-| `POST /api/discover/titles` | admin.library |
+| `POST /api/discover/titles` | library.create |
 | `POST /api/discover/titles/seed` | admin.library |
 | `POST /api/discover/titles/{title_id}/delete` | local_only() |
-| `POST /api/discover/titles/{title_id}/import-to-library` | admin.library |
+| `POST /api/discover/titles/{title_id}/import-to-library` | library.create |
 | `POST /api/discover/translate-query` | library.read |
 | `POST /api/dramas` | library.create |
 | `POST /api/dramas/same` | library.create |

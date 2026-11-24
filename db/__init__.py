@@ -348,6 +348,7 @@ def init_db():
         _migrate_progress_view_prefs(conn)
         _migrate_auth_session_columns(conn)
         _grant_lines_read_for_reader_page(conn)
+        _grant_library_create_to_members(conn)
         import device_tokens   # owns its table; imports db, so not at the top
         device_tokens.create_tables(conn)
         import member_keys     # owns its table; imports db, so not at the top
@@ -381,7 +382,7 @@ from db.schema_system import (  # noqa: E402,F401
 
 
 from db.migrations import (  # noqa: E402,F401
-    _grant_lines_read_for_reader_page, _migrate_auth_session_columns, _migrate_bulk_job_columns,
+    _grant_library_create_to_members, _grant_lines_read_for_reader_page, _migrate_auth_session_columns, _migrate_bulk_job_columns,
     _add_topic_chapters_column, _migrate_chapter_marks_per_account, _migrate_drama_columns, _migrate_gpu_lock_slots, _migrate_job_records_columns,
     _create_line_ref_indexes, _migrate_line_columns, _migrate_line_refs_to_ids, _migrate_off_removed_test_engine,
     _migrate_ownership_columns, _migrate_progress_view_prefs, _migrate_scanlate_columns,
@@ -582,7 +583,7 @@ from db.comic_pages import (  # noqa: F401
 # ---------------------------------------------------------------------------
 
 from db.known_titles import (  # noqa: E402,F401
-    create_known_title, delete_known_title, list_known_titles)
+    count_known_titles_by, create_known_title, delete_known_title, list_known_titles)
 
 
 # ---------------------------------------------------------------------------

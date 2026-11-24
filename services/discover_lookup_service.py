@@ -379,7 +379,7 @@ def bulk_extract_result(principal=None) -> dict:
     return _job_result(BULK_JOB_ID, principal)
 
 
-def bulk_commit(entries, source_label="") -> dict:
+def bulk_commit(entries, source_label="", principal=None) -> dict:
     """Insert reviewed entries into known_titles. Skips entries whose title
     or source_url is already in the catalog (or repeated in this batch).
     Each entry is validated by the catalog service's own rules.
@@ -415,6 +415,8 @@ def bulk_commit(entries, source_label="") -> dict:
             if fields[k] is not None and not isinstance(fields[k], str):
                 raise InvalidInputError(f"{k} must be text.")
         prepared.append(fields)
+    # Refused as a whole, so a batch never stops half-added at the cap.
+    _catalog.check_catalogue_room(principal, len(prepared))
     added, skipped = [], 0
     for fields in prepared:
         title = (fields["title_original"] or "").strip()
@@ -424,7 +426,7 @@ def bulk_commit(entries, source_label="") -> dict:
         if title in titles or (url and url in urls and _url_is_detail(url, prepared)):
             skipped += 1
             continue
-        added.append(_catalog.create_title(dict(fields, title_original=title))["id"])
+        added.append(_catalog.create_title(dict(fields, title_original=title), principal)["id"])
         titles.add(title)
         if url:
             urls.add(url)

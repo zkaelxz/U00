@@ -393,7 +393,7 @@ export default function LibraryPage() {
   const [checked, setChecked] = useState<Set<number>>(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
   const pc = usePcOnly()
-  // POST /api/dramas needs library.create, which only an admin holds (at the PC or away). It only hides the
+  // POST /api/dramas needs library.create (a member default; an admin can take it away). It only hides the
   // buttons: the open sheet must outlive a lost session so its draft survives signing back in.
   const canCreate = useHolds('library.create')
   const canLinkRun = useHolds('media.import_url')

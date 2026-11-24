@@ -8,7 +8,7 @@ import shutil
 import db
 import novel_text
 from services import drama_service, ownership_service
-from lib.errors import ConflictError, ServiceError
+from lib.errors import ConflictError, ForbiddenError, ServiceError
 
 log = logging.getLogger(__name__)
 
@@ -101,6 +101,10 @@ def duplicate_title(source_id: int, principal=None) -> dict:
     original's files, lines, speakers and pages, in the original's series.
     Refused while a job is running on the original. The copy starts with no
     jobs, and the original is only read. On any failure the copy is removed."""
+    # Copies the whole folder inside the request and a member can't delete the copy
+    # (it has no creator), so a member can't start one.
+    if principal is not None and not principal.get("is_admin"):
+        raise ForbiddenError("Copying a title is for admins.")
     ownership_service.require_visible(principal, "drama", source_id)
     if drama_service.job_running_for_drama(source_id):
         raise ConflictError("A job is running on this title. Wait for it to finish, "

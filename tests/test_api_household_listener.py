@@ -538,7 +538,7 @@ class TestAdminOverrideIsPcOnly:
         assert h.post(f"/api/translate-run/dramas/{theirs}/run", headers=_h(s),
                       json={"engine": "ollama"}).status_code == 403
 
-    def test_admin_creates_a_title_from_away_and_a_member_cannot(self, isolated_db, monkeypatch):
+    def test_admin_and_a_member_create_a_title_from_away_until_the_right_is_taken_away(self, isolated_db, monkeypatch):
         # A link on the new title is stored but not read from away: only a
         # request at the PC makes the PC fetch it, so a nameless title gets
         # the placeholder name.
@@ -556,6 +556,10 @@ class TestAdminOverrideIsPcOnly:
         member = auth_service.add_user("kid@example.com")
         auth_service.activate_user(member["id"])
         ms = auth_service.create_session(member["id"], "pytest", "127.0.0.1")
+        # A member holds library.create by default, and an admin can take it away per person.
+        assert h.post("/api/dramas", headers=_h(ms),
+                      json={"source_language": "zh", "title_en": "Mine"}).status_code == 201
+        auth_service.revoke_permission(member["id"], "library.create")
         assert h.post("/api/dramas", headers=_h(ms),
                       json={"source_language": "zh", "title_en": "No"}).status_code == 403
 
@@ -575,6 +579,9 @@ class TestAdminOverrideIsPcOnly:
         member = auth_service.add_user("kid@example.com")
         auth_service.activate_user(member["id"])
         ms = auth_service.create_session(member["id"], "pytest", "127.0.0.1")
+        # Not their title: hidden. Without library.create the route refuses first.
+        assert h.post(f"/api/dramas/{did}/series", headers=_h(ms), json={"series_id": 0}).status_code == 404
+        auth_service.revoke_permission(member["id"], "library.create")
         assert h.post(f"/api/dramas/{did}/series", headers=_h(ms), json={"series_id": 0}).status_code == 403
 
     @pytest.mark.parametrize("where", ["admin", "single_port"])

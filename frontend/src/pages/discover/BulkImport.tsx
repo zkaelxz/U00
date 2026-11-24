@@ -14,6 +14,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
+import { useHolds } from '../../hooks/useHolds'
 import type { BulkCommitResult, BulkExtractResult } from '../../types/discover'
 import { MAX_BULK_URLS, bulkUrlsProblem, commitEntries, paginateUrls, parseUrlList } from './discoverFormat'
 import { ExternalLink } from './ExternalLink'
@@ -27,6 +28,8 @@ export function BulkImport({ engine, aiReady, onAdded }: { engine: string; aiRea
   const [from, setFrom] = useState(1)
   const [to, setTo] = useState(5)
   const job = useDiscoverJob<BulkExtractResult>(BULK_JOB_ID, getBulkExtractResult)
+  // Reading listing pages fetches addresses from the PC; pasting the text does not.
+  const mayFetch = useHolds('media.import_url')
 
   const urls = parseUrlList(urlsText)
   const problem = urlsText.trim() ? bulkUrlsProblem(urls) : null
@@ -45,6 +48,11 @@ export function BulkImport({ engine, aiReady, onAdded }: { engine: string; aiRea
         For pages that list many titles (a tag or ranking listing). Extracts title, author, tags and whether there is an
         audio drama, never chapter or episode content. Review before adding.
       </p>
+      {!mayFetch && (
+        <p className="muted">Reading pages from a link needs the Import from a link right. Ask the admin, or paste the listing text below.</p>
+      )}
+      {mayFetch && (
+      <>
       <Section title="Fill in page URLs from a pattern" summary="Optional, for paginated listings">
         <div className="discover-block">
           <p className="muted">Copy page 2's address, put {'{page}'} where the page number goes.</p>
@@ -93,6 +101,8 @@ export function BulkImport({ engine, aiReady, onAdded }: { engine: string; aiRea
           )}
         </div>
       </form>
+      </>
+      )}
       <PastedListing
         aiReady={aiReady}
         running={running}

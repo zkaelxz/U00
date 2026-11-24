@@ -62,6 +62,9 @@ _RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
     "jellyfin", "comic_save", "web_search", "remote_uploads", "remote_uploads.since",
     # This PC window's Guest PIN belongs to the PC, not to the library a backup came from.
     "pc_profile_pin", "pc_profile_pin.blocked_until",
+    # The accounts' rights stay this library's (RESTORE_LIVE_TABLES), so the marker that says the
+    # one-time library.create grant already ran must too, or a restore would re-grant over revokes.
+    "migrations.members_library_create",
     *(setting.store_key for setting in settings_schema.SETTINGS
       if setting.store == "db" and setting.type == "path"),
     *(settings_schema.BY_KEY[key].store_key for key in ("cookies_browser", "max_upload_mb")))

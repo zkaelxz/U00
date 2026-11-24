@@ -133,6 +133,22 @@ def _find_preset(preset_id):
 SENTENCE_SPLIT_DEFAULT_LANGUAGES = ("zh", "ja")
 
 
+# What a member account may own; an admin and the PC owner are not capped. Held
+# here so every way of making a title (form, copy, import, One-click translate)
+# counts against the same number.
+MEMBER_TITLE_LIMIT = 200
+TOO_MANY_TITLES = (f"You have {MEMBER_TITLE_LIMIT} titles, the most a member account can have. "
+                   "Delete one you no longer need, then try again.")
+
+
+def check_title_room(principal) -> None:
+    """409 when a member already owns `MEMBER_TITLE_LIMIT` titles."""
+    uid = principal.get("user_id") if principal else None
+    if uid is not None and not principal.get("is_admin") \
+            and db.count_dramas_owned_by(uid) >= MEMBER_TITLE_LIMIT:
+        raise ConflictError(TOO_MANY_TITLES)
+
+
 def create_drama(*, source_language, title_en="", title_zh="", author="", studio="",
                  director="", voice_actors="", summary="", media_type="audio_drama", release_date="",
                  series_id=None, new_series_name=None, preset_id=None,
@@ -159,6 +175,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
 
     if series_id is not None and new_series_name is not None:
         raise InvalidInputError("Pass series_id or new_series_name, not both.")
+    check_title_room(principal)
     owned = ownership_service.new_item_defaults(principal)
     if series_id is not None:
         lib_ids.check_id_field("series_id", series_id)

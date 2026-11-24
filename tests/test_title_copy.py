@@ -6,7 +6,7 @@ import pytest
 
 import db
 from core import Line
-from lib.errors import ConflictError, NotFoundError
+from lib.errors import ConflictError, ForbiddenError, NotFoundError
 from services import drama_service, ownership_service, title_copy_service as tcs
 
 
@@ -73,7 +73,8 @@ def test_copy_in_a_private_series_is_hidden_from_other_members_during_the_copy(
         isolated_db, monkeypatch):
     a_id = db.auth_create_user("a@example.com")
     b_id = db.auth_create_user("b@example.com")
-    a = {"user_id": a_id, "is_admin": False, "is_local_owner": False, "admin_override": False}
+    # An admin at an address without the override: only an admin may copy, and sees only what a member would.
+    a = {"user_id": a_id, "is_admin": True, "is_local_owner": False, "admin_override": False}
     b = {"user_id": b_id, "is_admin": False, "is_local_owner": False, "admin_override": False}
     ownership_service.set_share_by_default(a, True)
     series = db.create_series("Mine", owner_user_id=a_id, is_private=True)
@@ -87,6 +88,15 @@ def test_copy_in_a_private_series_is_hidden_from_other_members_during_the_copy(
     new_id = tcs.duplicate_title(did, principal=a)["id"]
     assert seen == [(True, False), (True, False)]
     assert not ownership_service.can_see_drama(b, new_id)
+
+
+def test_a_member_cannot_copy_a_title(isolated_db):
+    uid = db.auth_create_user("m@example.com")
+    member = {"user_id": uid, "is_admin": False, "is_local_owner": False, "admin_override": False}
+    did = db.create_drama(title_en="Show", owner_user_id=uid)
+    with pytest.raises(ForbiddenError):
+        tcs.duplicate_title(did, principal=member)
+    assert len(db.list_dramas()) == 1
 
 
 def test_finished_copy_keeps_series_and_media_names(isolated_db):
