@@ -43,7 +43,7 @@ def test_translate_panel_shows_what_the_queued_run_resolves(isolated_db, seen_ru
 
     assert seen_run["locale"] == "en-GB" and rows["English variant"] == seen_run["locale"]
     assert bool(seen_run["style_note"]) and rows["Style note"] == "Set"
-    assert seen_run["thinking"] is True and rows["Thinking"] == "On"
+    assert seen_run["thinking"] is False and rows["Thinking"] == "Off"
     options = translate_run_service.get_translate_config_defaults(False, "ollama")
     assert rows["Batch size"] == str(options["batch_size"])
     assert "Audio drama" in rows["Tone and character voice"]

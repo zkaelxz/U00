@@ -225,7 +225,7 @@ class SceneRunner:
                 lines, self.engine, drama_meta={"source_language": lang}, batch_size=options["batch_size"],
                 locale="en-US", glossary_terms=self.glossary, style_guidelines=guidelines,
                 context_window=options["context_window"], context_window_ahead=options["context_window_ahead"],
-                reflect=options["reflect"], scene_aware_batches=False, translate_by_sentence=False,
+                reflect=options["reflect"] and engine_registry.REFLECT_RUNS_ENABLED, scene_aware_batches=False, translate_by_sentence=False,
                 cost_cap_usd=remaining_usd, cancel_check_cb=self.is_cancelled, usage_cb=usage_cb,
                 cap_cb=refused.append, temperature=options["temperature"])
         except Exception as exc:

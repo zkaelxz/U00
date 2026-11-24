@@ -30,9 +30,13 @@ WORKFLOW_TIERS = {
                  "engine_model": "claude-sonnet-5-5", "reflect": False, "auto_qc": False},
     "release": {"label": "Release -- best quality, checked before export",
                 "translation_engine": "claude", "engine_model": "claude-opus-5-5",
-                "reflect": True, "auto_qc": True},
+                "reflect": False, "auto_qc": True},
 }
 
+
+# "Check and revise" (Reflect) was removed from the app. The pipeline stays so a
+# bulk Reflect job submitted earlier can still finish; no new run may use it.
+REFLECT_RUNS_ENABLED = False
 
 ENGINES = {
     # Paid/normal engines first, then the free-for-testing ones grouped

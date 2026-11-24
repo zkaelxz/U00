@@ -47,12 +47,12 @@ def openai_reasoning_params(model: str, context: dict) -> dict:
 def title_thinking(drama_meta) -> bool:
     """Whether a run for this title asks the model to think. Read from the
     database rather than the caller's drama dict, which can predate the choice
-    saved when this run was accepted."""
-    drama_id = (drama_meta or {}).get("id")
-    if not isinstance(drama_id, int):
-        return False
-    import db
-    return bool((db.get_drama(drama_id) or {}).get("translate_thinking"))
+    saved when this run was accepted.
+
+    Always False: the "Think harder" option was removed from the app. The
+    `translate_thinking` column is kept so old libraries and backups still
+    load, but a saved choice no longer makes a run cost more."""
+    return False
 
 
 def thinking_choice(context: dict):

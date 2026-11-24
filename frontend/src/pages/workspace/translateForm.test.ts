@@ -29,9 +29,6 @@ import {
   parseCap,
   reflectAvailable,
   sameEngineKind,
-  thinkingApplies,
-  thinkingEngines,
-  thinkingHelp,
   restoreRunOptions,
   runOptionsDraft,
   splitLines,
@@ -323,10 +320,10 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
     engine_model: null, reflect: false, auto_qc: false,
   }
 
-  it('fills engine, model and Reflect and leaves the rest alone', () => {
+  it('fills engine and model, keeps Reflect off and leaves the rest alone', () => {
     const base = { ...initialForm(withEngines), style_note: 'keep', locale: 'en-GB', genre_notes: false }
     const f = applyTierToForm(base, release, withEngines)
-    expect(f).toMatchObject({ engine: 'claude', model: 'claude-opus-5-5', reflect: true })
+    expect(f).toMatchObject({ engine: 'claude', model: 'claude-opus-5-5', reflect: false })
     expect(f).toMatchObject({ style_note: 'keep', locale: 'en-GB', genre_notes: false, force: false })
     const d = applyTierToForm(f, draft, withEngines)
     expect(d).toMatchObject({ engine: 'deepseek', model: '', reflect: false })
@@ -345,12 +342,11 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
   })
 
   it('after a tier, Default means the new engine for validation and presets', () => {
-    // The drama was on fake_mt (translation-only: no Reflect); Release saves claude.
+    // The drama was on fake_mt (translation-only); Release saves claude.
     const c = withSavedEngine(withEngines, release)
     expect(c.translation_engine).toBe('claude')
     expect(withSavedEngine(c, release)).toBe(c)
     const f = { ...applyTierToForm(initialForm(withEngines), release, withEngines), engine: '', model: '' }
-    expect(validateRun(f, withEngines.translation_engine)).toMatch(/cannot run Reflect/)
     expect(validateRun(f, c.translation_engine)).toBeNull()
     expect(buildPresetBody(f, c.translation_engine, 'Mine').translation_engine).toBe('claude')
     expect(buildRunBody(f).engine).toBeUndefined()   // server uses the drama's (new) engine
@@ -462,46 +458,9 @@ describe('Ollama reachability warning (X24)', () => {
   })
 })
 
-describe('think harder on tricky text', () => {
-  it('is off unless the title remembers it, and is sent explicitly either way', () => {
-    expect(initialForm(config).thinking).toBe(false)
-    const remembered = initialForm({ ...config, title_thinking: true })
-    expect(remembered.thinking).toBe(true)
-    expect(buildRunBody(remembered).thinking).toBe(true)
-    expect(buildRunBody({ ...remembered, thinking: false }).thinking).toBe(false)
-    expect(buildEstimateParams(remembered)).toMatchObject({ thinking: true })
-  })
-
-  it('applies only to engines with a request switch, and never to Reflect', () => {
-    expect(thinkingApplies('deepseek', false)).toBe(true)
-    expect(thinkingApplies('ollama', false)).toBe(true)
-    expect(thinkingApplies('claude', false)).toBe(false)
-    expect(thinkingApplies('deepseek', true)).toBe(false)
-    expect(thinkingApplies('claude', false, ['claude'])).toBe(true)
-  })
-
-  it('applies when any engine in the fallback chain has a switch', () => {
-    expect(thinkingApplies('claude', false, undefined, ['deepseek'])).toBe(true)
-    expect(thinkingApplies('claude', false, undefined, ['gemini', ''])).toBe(false)
-    expect(thinkingApplies('claude', true, undefined, ['deepseek'])).toBe(false)
-    expect(thinkingEngines('deepseek', ['claude', 'ollama'], false)).toEqual(['deepseek', 'ollama'])
-  })
-
-  it('names the engines it applies to, or the chain that has none', () => {
-    expect(thinkingHelp('claude', false, undefined, ['deepseek'])).toMatch(/applies to deepseek, not to the other engines/)
-    expect(thinkingHelp('deepseek', false)).not.toMatch(/applies to/)
-    expect(thinkingHelp('claude', false, undefined, ['gemini'])).toMatch(/^claude and gemini have no thinking switch/)
-  })
-
-  it('says plainly what it costs, and plainly when it does nothing', () => {
-    expect(thinkingHelp('deepseek', false)).toMatch(/Off by default/)
-    expect(thinkingHelp('deepseek', false)).toMatch(/lower bound/)
-    expect(thinkingHelp('claude', false, undefined, ['deepseek'])).not.toMatch(/lower bound/)
-    expect(thinkingHelp('claude', false, undefined, ['deepseek'])).toMatch(/does not include it/)
-    expect(thinkingHelp('claude', false)).toBe(
-      'claude has no thinking switch, so this does nothing for this run; it runs as it always has. Thinking can be switched for DeepSeek and Ollama.',
-    )
-    expect(thinkingHelp('deepseek', true)).toMatch(/^Reflect mode has no thinking switch/)
+describe('think harder (removed)', () => {
+  it('is always off, even when the title remembers it', () => {
+    expect(initialForm({ ...config, title_thinking: true }).thinking).toBe(false)
   })
 })
 
@@ -527,12 +486,12 @@ describe('remembered run options', () => {
   it('saves and restores the choices, including the glossary toggle', () => {
     save(1, {
       engine: 'claude', model: 'c2', style_preset: 'wuxia', locale: 'en-GB', style_note: 'keep puns',
-      batch_size: '30', context_window: '7', context_window_ahead: '3', cost_cap: '1.5', thinking: true,
+      batch_size: '30', context_window: '7', context_window_ahead: '3', cost_cap: '1.5',
     }, { reviewFirst: true })
     const r = restore(1)
     expect(r.form).toMatchObject({
       engine: 'claude', model: 'c2', style_preset: 'wuxia', locale: 'en-GB', style_note: 'keep puns',
-      batch_size: '30', context_window: '7', context_window_ahead: '3', cost_cap: '1.5', thinking: true,
+      batch_size: '30', context_window: '7', context_window_ahead: '3', cost_cap: '1.5',
     })
     expect(r.reviewFirst).toBe(true)
   })
@@ -552,7 +511,7 @@ describe('remembered run options', () => {
     save(2, { engine: 'claude', model: 'nope', fallbacks: ['claude', 'ghost'] })
     expect(restore(2).form).toMatchObject({ engine: 'claude', model: '', fallbacks: [] })
     save(3, { reflect: true, bulk: true, engine: 'claude' })
-    expect(restore(3).form).toMatchObject({ reflect: true, bulk: false })
+    expect(restore(3).form).toMatchObject({ reflect: false, bulk: true })
   })
 
   it('keeps a batch size the person typed that differs from the default', () => {
@@ -647,11 +606,11 @@ describe('a profile left on the title (applyStartToForm)', () => {
   it('fills every run option the profile holds', () => {
     const f = applyStartToForm(initialForm(c), {
       style_preset: 'wuxia', engine_model: 'claude-b', style_note: 'Keep honorifics.', batch_size: 12,
-      context_window: 4, context_window_ahead: 1, cost_cap: 1.5, thinking: true, fallback_engines: ['deepseek'],
+      context_window: 4, context_window_ahead: 1, cost_cap: 1.5, fallback_engines: ['deepseek'],
     }, c)
     expect(f).toMatchObject({
       style_preset: 'wuxia', model: 'claude-b', style_note: 'Keep honorifics.', batch_size: '12',
-      context_window: '4', context_window_ahead: '1', cost_cap: '1.5', thinking: true, fallbacks: ['deepseek'],
+      context_window: '4', context_window_ahead: '1', cost_cap: '1.5', fallbacks: ['deepseek'],
     })
   })
 
