@@ -824,8 +824,9 @@ class TestPaidEngines:
         _u, s = _user()
         did = db.create_drama(title_en="T", source_language="zh")
         url = f"/api/translate-run/dramas/{did}/{path}"
-        # A paid default the caller may not use runs on Ollama: its local default while the
+        # A paid default the caller may not use runs on Ollama: its own default model while the
         # owner keeps hosted models out of defaults, the model every account may use once allowed.
+        db.set_app_setting("pref.ollama_cloud_default", False)
         assert c.post(url, json=body, headers=_h(s)).status_code == 409
         assert (seen["engine_name"], seen["model"]) == ("ollama", None)
         db.set_app_setting("pref.ollama_cloud_default", True)

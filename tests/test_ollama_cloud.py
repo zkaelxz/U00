@@ -348,7 +348,8 @@ def test_engine_for_caller_unit(isolated_db):
     from api import auth as api_auth
     req = SimpleNamespace()
     with patch.object(api_auth, "holds", return_value=False):
-        # The owner's hosted-default switch is off by default: the local default model.
+        # With the owner's hosted-default switch off: Ollama's own default model.
+        db.set_app_setting("pref.ollama_cloud_default", False)
         assert api_auth.engine_for_caller(req, None, "claude", None) == ("ollama", None)
         db.set_app_setting("pref.ollama_cloud_default", True)
         assert api_auth.engine_for_caller(req, None, "claude", None) == ("ollama", CLOUD)
