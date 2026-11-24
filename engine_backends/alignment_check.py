@@ -71,19 +71,16 @@ def _embed_one(base_url: str, model: str, text: str):
     status, got = _post_embed(base_url, model, pieces)
     if not got:
         return None
-    return _averaged(got)
-
-
-def _averaged(vectors):
-    return [sum(v[i] for v in vectors) / len(vectors) for i in range(len(vectors[0]))]
+    return [sum(v[i] for v in got) / len(got) for i in range(len(got[0]))]
 
 
 def _embed_around_nan(base_url: str, model: str, chunk: list) -> list:
     """Vectors for a batch the server refused with a 500, in a handful of requests rather
     than one per text: the refusal comes from its longest texts (the NaN answer above
     starts at a length), so the shortest texts that still go through together are found
-    by halving, and the longer ones are embedded in pieces, all in one request. A text
-    left over (its pieces refused too) gets the one-text treatment of _embed_one."""
+    by halving. Each longer text then gets _embed_one, as before: the server takes some
+    of them whole when they are sent alone, and a whole text's vector is not its pieces'
+    average (up to 0.14 apart on a real stream), so the result stays what it was."""
     order = sorted(range(len(chunk)), key=lambda i: len(chunk[i]))
     # Every text together failed, so at most all but the longest can go through.
     fits, fitted, too_many = 0, [], len(chunk)
@@ -97,21 +94,8 @@ def _embed_around_nan(base_url: str, model: str, chunk: list) -> list:
     vectors: list = [None] * len(chunk)
     for i, vector in zip(order[:fits], fitted):
         vectors[i] = vector
-    long_ones = [(i, _pieces(chunk[i])) for i in order[fits:]]
-    split = [(i, pieces) for i, pieces in long_ones if len(pieces) >= 2]
-    for i, pieces in long_ones:
-        if len(pieces) < 2:
-            vectors[i] = _embed_one(base_url, model, chunk[i])
-    _status, got = (_post_embed(base_url, model, [p for _, pieces in split for p in pieces])
-                    if split else (None, None))
-    if got:
-        at = 0
-        for i, pieces in split:
-            vectors[i] = _averaged(got[at:at + len(pieces)])
-            at += len(pieces)
-    else:
-        for i, _pieces_of_text in split:
-            vectors[i] = _embed_one(base_url, model, chunk[i])
+    for i in order[fits:]:
+        vectors[i] = _embed_one(base_url, model, chunk[i])
     return vectors
 
 
