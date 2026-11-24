@@ -482,6 +482,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
               boxText={!phone}
               flashBoxes={flash?.page === n ? flash.boxes : undefined}
               onLineTap={canEdit ? (idx) => setEditing({ pageId: p.id, number: n, idx }) : undefined}
+              menu={{ dramaId: id, title: title ?? '' }}
               onProblem={onProblem}
               figureRef={figureRef(n)}
             />
