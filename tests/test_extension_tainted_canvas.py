@@ -32,6 +32,30 @@ class TestPageSideFallback:
         assert out["fetched"] == ["https://s1.bzcdn.net/p/1.jpg"]
         assert out["sent"] == [{"content_type": "image/jpeg", "url": "https://s1.bzcdn.net/p/1.jpg", "bytes": 12}]
 
+    def test_a_member_sends_the_address_and_no_picture(self):
+        out = _run("content", "member_sends_the_address_not_the_picture")
+        assert out["ok"] is True
+        [[sent]] = out["sends"]
+        assert sent["fetch_url"] == "https://s1.bzcdn.net/p/1.jpg" and sent["hasData"] is False
+
+    def test_what_the_app_could_not_fetch_is_uploaded_under_the_same_key(self):
+        out = _run("content", "member_uploads_what_the_app_could_not_fetch")
+        assert out["ok"] is True
+        [[first], [second]] = out["sends"]
+        assert first["fetch_url"] and not first["hasData"]
+        assert second["hasData"] and not second["fetch_url"] and second["key"] == first["key"]
+        # The picture counted once, not once per attempt.
+        assert out["received"] == 1
+
+    def test_the_pcs_own_extension_and_saved_sends_keep_uploading(self):
+        out = _run("content", "own_pc_and_saved_sends_still_upload")
+        assert out["own"] == [[{"fetch_url": None, "hasData": True}]]
+        assert out["saved"] == [[{"fetch_url": None, "hasData": True}]]
+
+    def test_an_older_app_gets_uploads_not_addresses(self):
+        out = _run("content", "older_app_without_address_support_gets_uploads")
+        assert out["sends"] == [[{"fetch_url": None, "hasData": True}]]
+
     def test_a_hidden_tab_does_not_hold_the_capture(self):
         # A background tab never runs animation frames; the capture must not wait for one.
         out = _run("content", "hidden_tab_capture_finishes")

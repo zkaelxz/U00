@@ -50,7 +50,7 @@ function container(children) {
   return parent;
 }
 
-function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null, frames = true, readable = false }) {
+function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null, frames = true, readable = false, serverUrl = "", sendReply = null, pictureAddresses = true }) {
   const sent = [];
   const shots = [];
   const marks = [];
@@ -82,7 +82,7 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
   };
   const sandbox = {
     document, console, URL, setTimeout, clearTimeout, setInterval, clearInterval, performance, crypto: globalThis.crypto,
-    atob, btoa, Blob, Uint8Array, Promise, Map, Set, WeakMap, WeakSet, Math, Number, String, Array, Error, Date,
+    atob, btoa, Blob, Uint8Array, TextEncoder, Promise, Map, Set, WeakMap, WeakSet, Math, Number, String, Array, Error, Date,
     // A background tab never runs animation frames.
     requestAnimationFrame: (cb) => { if (frames) setTimeout(cb, 0); },
     getComputedStyle: () => ({ visibility: "visible", display: "block", opacity: "1", backgroundImage: "none", overflowY: "visible" }),
@@ -101,7 +101,7 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
             fetched.push(message.url);
             return fetchImage(message);
           }
-          if (message.type === "getSettings") return { ok: true, data: { screenshot: !!(screenshot && screenshot.on) } };
+          if (message.type === "getSettings") return { ok: true, data: { screenshot: !!(screenshot && screenshot.on), serverUrl } };
           if (message.type === "captureTab") {
             shots.push(marks.slice());
             return screenshot.reply || { ok: true, data: { data: Buffer.from(PNG).toString("base64") } };
@@ -109,8 +109,9 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
           if (message.type === "send") {
             sent.push(message);
             if (onSend) await onSend(message, (m) => new Promise((resolve) => listener(m, {}, resolve)));
-            return { ok: true, data: { pages: [] } };
+            return { ok: true, data: sendReply ? sendReply(message, sent.length) : { pages: [] } };
           }
+          if (message.type === "health") return { ok: true, data: { picture_addresses: pictureAddresses } };
           if (message.type === "progress") progress.push(message);
           if (message.type === "captureSummary") summaries.push(message);
           return { ok: true };
@@ -171,6 +172,30 @@ async function content(scenario) {
       return run(visible, { images: [img()], fetchImage: okImage() });
     case "hidden_tab_capture_finishes":
       return run(visible, { images: [img()], fetchImage: okImage(), frames: false, readable: true });
+    case "member_sends_the_address_not_the_picture":
+    case "member_uploads_what_the_app_could_not_fetch": {
+      const unfetch = scenario === "member_uploads_what_the_app_could_not_fetch";
+      const h = loadContent({ images: [img()], fetchImage: okImage(), serverUrl: "https://home.example",
+        sendReply: (message, n) => (unfetch && n === 1
+          ? { pages: [], unfetched: [{ key: message.images[0].key, url: IMG_URL, reason: "blocked" }], received: 1 }
+          : { pages: [], received: message.images.length }) });
+      const result = await h.ask(visible);
+      return { ok: result.ok, received: result.data && result.data.received,
+               sends: h.sent.map((m) => m.images.map((i) => ({ fetch_url: i.fetch_url || null, hasData: !!i.data, key: i.key }))) };
+    }
+    case "older_app_without_address_support_gets_uploads": {
+      const h = loadContent({ images: [img()], fetchImage: okImage(), serverUrl: "https://home.example", pictureAddresses: false });
+      const result = await h.ask(visible);
+      return { ok: result.ok, sends: h.sent.map((m) => m.images.map((i) => ({ fetch_url: i.fetch_url || null, hasData: !!i.data }))) };
+    }
+    case "own_pc_and_saved_sends_still_upload": {
+      const own = loadContent({ images: [img()], fetchImage: okImage() });
+      await own.ask(visible);
+      const saved = loadContent({ images: [img()], fetchImage: okImage(), serverUrl: "https://home.example" });
+      await saved.ask({ ...visible, store: true });
+      const shape = (h) => h.sent.map((m) => m.images.map((i) => ({ fetch_url: i.fetch_url || null, hasData: !!i.data })));
+      return { own: shape(own), saved: shape(saved) };
+    }
     case "img_tainted_needs_permission":
       return run(visible, { images: [img()], fetchImage: needsPermission });
     case "img_tainted_worker_rejects":

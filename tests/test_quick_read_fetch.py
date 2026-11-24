@@ -201,3 +201,7 @@ def test_comic_glossary_edit_changes_the_cache_key(isolated_db):
     before = bridge._glossary_version(None)
     settings_service.set_settings({"comic_glossary_custom": "ドン = thud"})
     assert bridge._glossary_version(None) != before
+
+
+def test_health_says_the_app_reads_picture_addresses(isolated_db):
+    assert bridge.health_payload()["picture_addresses"] is True
