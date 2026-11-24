@@ -295,6 +295,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
     """line_ids (optional): estimate only these lines (of those the run
     would translate). batch_size (optional): the run's own batch size, which
     sets how many times the instructions are sent; omitted, the engine's default."""
+    reflect = reflect and engine_registry.REFLECT_RUNS_ENABLED
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = ownership_service.require_drama(drama_id)
     line_ids = translate_run_options.chapter_line_ids(drama_id, chapter_from, chapter_to, line_ids)
@@ -500,6 +501,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
     engine), DependencyUnavailableError (no key), ConflictError (already
     running). gemini_free_tier None means the saved Settings value.
     chapter_from / chapter_to (1-based): line_ids for those chapters' lines, the rest only context."""
+    reflect = reflect and engine_registry.REFLECT_RUNS_ENABLED
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = ownership_service.require_drama(drama_id)
     line_ids = translate_run_options.chapter_line_ids(drama_id, chapter_from, chapter_to, line_ids)

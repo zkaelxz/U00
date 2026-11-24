@@ -16,7 +16,7 @@ export const estimate = {
   knobs: [
     { key: 'batch_size', label: 'Batch size', values: [15, 30, 60], included: true, reason: null },
     { key: 'context_window', label: 'Context lines before', values: [3, 6, 10, 20], included: true, reason: null },
-    { key: 'reflect', label: 'Reflect', values: [false, true], included: false, reason: "This engine can't take Reflect instructions." },
+    { key: 'temperature', label: 'Temperature', values: [null, 0.3], included: false, reason: "This engine can't take a temperature." },
   ],
   not_swept: ['Judge scores: only chrF is compared.'],
   passes_done: 2, passes_to_run: 8, estimated_cost_usd: 1.8, cap_applies: true, monthly_cap_usd: 20, month_spend_usd: 4,

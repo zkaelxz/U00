@@ -29,7 +29,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
     await expect(est).toContainText('8 passes to run')
     await expect(est).toContainText('Held out to confirm: 2 titles')
     await expect(card.getByTestId('tsweep-cost')).toContainText('of the $16.00 left this month')
-    await expect(est.getByRole('list', { name: 'Left out of this sweep' })).toContainText('Reflect')
+    await expect(est.getByRole('list', { name: 'Left out of this sweep' })).toContainText('Temperature')
     if (SHOTS) await card.screenshot({ path: `${SHOTS}/tsweep-estimate-${theme}-desktop.png`, style: NO_HEADER })
 
     const sent = page.waitForRequest((r) => r.url().endsWith('/api/benchmark/translate-sweep') && r.method() === 'POST')

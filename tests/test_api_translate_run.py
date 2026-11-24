@@ -53,8 +53,7 @@ def test_estimate_validation(local_client):
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "validation_error"
     r = local_client.get(f"{BASE}/{did}/estimate", params={"engine": "fake_mt", "reflect": "true"})
-    assert r.status_code == 400
-    assert "error" in r.json()
+    assert r.status_code == 200   # Check and revise was removed: the flag is ignored, not refused
     r = local_client.get(f"{BASE}/{did}/estimate", params={"job_cost_cap_usd": -1})
     assert r.status_code == 422
     for bad in (0, 1000):

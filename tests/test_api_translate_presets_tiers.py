@@ -113,7 +113,7 @@ def test_api_apply_tier(client):
     assert r.status_code == 200
     body = r.json()
     assert body["translation_engine"] == "claude" and body["engine_model"] == "claude-opus-5-5"
-    assert body["reflect"] is True and body["auto_qc"] is True
+    assert body["reflect"] is False and body["auto_qc"] is True
     assert db.get_drama(did)["translation_engine"] == "claude"
 
 
