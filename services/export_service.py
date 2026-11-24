@@ -57,7 +57,8 @@ _MIN_TITLE_BYTES = 30
 _NAME_ILLEGAL = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
 # What the browser saves a download as, per artifact kind.
 ARTIFACT_WHAT = {"audio": "audiobook", "video": "burned-in", "softsub_video": "soft sub",
-                 "dubbed_video": "dubbed", "scanlate_zip": "pages", "scanlate_pdf": "pages"}
+                 "dubbed_video": "dubbed", "scanlate_zip": "pages", "scanlate_pdf": "pages",
+                 "scanlate_cbz": "pages"}
 
 
 def _name_part(text) -> str:
