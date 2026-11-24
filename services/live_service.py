@@ -68,6 +68,7 @@ WHISPER_SIZES = whisper_models.LIVE_WHISPER_SIZES
 SEGMENT_RANGE = (3, 60)
 OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
+WHISPER_NAME_TERMS = 20
 DEFAULT_MAX_MINUTES = 60
 LIVE_DEFAULT_ENGINE = "ollama"
 # A glossary note is advice for a translator, not text to repeat per chunk.
@@ -532,7 +533,11 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None):
         # Same cap the packs have; a glossary term is listed first, so it is
         # the one kept when the cap cuts.
         return [tuple(re.sub(r"\s+", " ", v) for v in row) for row in found[:language_packs.MAX_PROMPT_ENTRIES]]
-    return hints
+    # Unlike the translator's lookup, Whisper hears the audio before any text exists, so the glossary's
+    # names go in whole. Capped so the previous chunk's tail, which Whisper keeps, still has room.
+    import whisper_transcribe
+    names = whisper_transcribe.build_initial_prompt(glossary, max_terms=WHISPER_NAME_TERMS)
+    return live_translate.TermHints(hints, names)
 
 
 def start_session(url, source_language="zh", whisper_size="small", segment_seconds: float = 10,

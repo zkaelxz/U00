@@ -127,6 +127,17 @@ class TestProcessChunk:
 
         assert captured["initial_prompt"] == "previous chunk's tail"
 
+    def test_the_glossary_names_come_before_the_chunk_tail_in_the_whisper_prompt(self, monkeypatch, tmp_path):
+        import whisper_transcribe
+        captured = {}
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
+                             lambda path, **kw: captured.update(kw) or [])
+        chunk_path = tmp_path / "chunk_00001.wav"
+        chunk_path.write_bytes(b"x")
+        lt.process_chunk(str(chunk_path), 1, 20, "zh", "medium", engine=None,
+                          context_prompt="前一句", name_prompt="阿洛、希妮。")
+        assert captured["initial_prompt"] == "阿洛、希妮。前一句"
+
     def test_context_prompt_defaults_to_empty(self, monkeypatch, tmp_path):
         import whisper_transcribe
         captured = {}
