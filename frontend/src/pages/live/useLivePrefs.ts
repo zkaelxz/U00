@@ -1,14 +1,14 @@
 /** The Live form's remembered options for this browser, and how a language change treats the remembered Whisper model. */
 import { useEffect } from 'react'
 
-import { DEFAULT_FORM, type LiveOptions } from '../../api/live'
+import { DEFAULT_FORM, type LiveOptions, type StoredLiveOptions } from '../../api/live'
 import type { LiveFormOptions } from '../../types/live'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { whisperExclusionReason } from '../workspace/sourceForm'
 
 export function useLivePrefs(opts: LiveFormOptions) {
   // Only the options this browser changed, so the rest follow the server's defaults.
-  const [prefs, setPrefs] = usePersistedState<Partial<LiveOptions>>('live.options', {})
+  const [prefs, setPrefs] = usePersistedState<Partial<StoredLiveOptions>>('live.options', {})
   // An earlier version saved the form's own default model as if it were a pick whenever the
   // language changed, which kept 'small' from following the language. Dropped once; a model
   // picked since then is kept.

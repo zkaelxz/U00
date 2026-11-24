@@ -54,6 +54,12 @@ test('Fast and Balanced captions use the model downloaded for the picked languag
   await live.getByLabel('Language', { exact: true }).selectOption('ko')
   await live.getByTestId('live-balanced-captions').click()
   await expect(live.getByLabel('Whisper model', { exact: true })).toHaveValue('large-v3')
+  // The model follows the language after a preset, until one is picked by hand.
+  await live.getByLabel('Language', { exact: true }).selectOption('zh')
+  await expect(live.getByLabel('Whisper model', { exact: true })).toHaveValue('breeze-asr-25')
+  await live.getByLabel('Whisper model', { exact: true }).selectOption('large-v3')
+  await live.getByLabel('Language', { exact: true }).selectOption('ja')
+  await expect(live.getByLabel('Whisper model', { exact: true })).toHaveValue('large-v3')
 })
 
 test('skipped chunks and catching up stay on screen', async ({ page }) => {

@@ -21,7 +21,7 @@ import { useEffect, useId, useState } from 'react'
 import { api, hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP, LANGUAGE_MODEL_NOTE,
-  advancedSummary, buildStartBody, captionPreset, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
+  advancedSummary, applyCaptionPreset, buildStartBody, captionPresetModel, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
   isActive, lagLine, pickEngine, resolveLiveModel, startLive, statusLine, statusTone, type LiveForm,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
@@ -126,7 +126,10 @@ export default function LivePage() {
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
   // The delayed player records on the PC and the server refuses it from away, so a choice
   // remembered on this browser is set aside there (the PC keeps it).
-  const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
+  const language = prefs.source_language ?? opts.defaults.source_language
+  const presetModel = prefs.caption_preset && prefs.whisper_size === undefined
+    ? captionPresetModel(prefs.caption_preset, opts, language) : undefined
+  const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, ...(presetModel ? { whisper_size: presetModel } : {}), url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
 
   // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.
@@ -321,7 +324,7 @@ export default function LivePage() {
           <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(startForm, opts)}>
             <div className="preset-note-row">
               <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active || busy}
-                onClick={() => setPrefs({ ...prefs, ...captionPreset(FAST_CAPTIONS, opts, form.source_language) })}>
+                onClick={() => setPrefs(applyCaptionPreset(prefs, 'fast'))}>
                 Fast captions
               </button>
               <span className="muted">Replaces Whisper model, Chunk, Overlap and Reply without thinking.</span>
@@ -331,7 +334,7 @@ export default function LivePage() {
             </div>
             <div className="preset-note-row">
               <button type="button" className="secondary" data-testid="live-balanced-captions" disabled={active || busy}
-                onClick={() => setPrefs({ ...prefs, ...captionPreset(BALANCED_CAPTIONS, opts, form.source_language) })}>
+                onClick={() => setPrefs(applyCaptionPreset(prefs, 'balanced'))}>
                 Balanced captions
               </button>
               <span className="muted">Replaces Whisper model, Chunk, Overlap and Reply without thinking.</span>
