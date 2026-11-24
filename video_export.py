@@ -15,6 +15,7 @@ Requires ffmpeg on PATH (same requirement as the rest of the app).
 import os
 import subprocess
 import tempfile
+from lib.no_window import NO_WINDOW
 
 # What a stored source (an upload or a download with one of
 # media_upload_service's AUDIO/VIDEO_EXTENSIONS) is read as, plus aac,
@@ -75,7 +76,7 @@ def render_preview_clip(video_path: str, ass_text: str, out_path: str, start: fl
                "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac",
                "-fs", str(PREVIEW_CLIP_MAX_BYTES), out_path]
         try:
-            subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=timeout, creationflags=NO_WINDOW)
         except subprocess.TimeoutExpired:
             # subprocess.run has already killed ffmpeg; fixed text (no paths).
             raise TimeoutError("ffmpeg took too long rendering the preview clip and was "

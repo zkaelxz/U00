@@ -25,6 +25,7 @@ import time
 import db
 from services import translate_thinking_service
 from services.job_checkpoint_service import hash_text, settings_hash
+from lib.no_window import NO_WINDOW
 
 GIT_TIMEOUT_SECONDS = 3
 _version_lock = threading.Lock()
@@ -49,7 +50,7 @@ def software_version() -> str:
                 r = subprocess.run(["git", "rev-parse", "--short=10", "HEAD"],
                                    cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                    capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           timeout=GIT_TIMEOUT_SECONDS)
+                           timeout=GIT_TIMEOUT_SECONDS, creationflags=NO_WINDOW)
                 commit = (r.stdout or "").strip()
                 if r.returncode == 0 and re.fullmatch(r"[0-9a-f]{4,40}", commit):
                     _version = commit

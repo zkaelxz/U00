@@ -18,6 +18,7 @@ import subprocess
 from typing import Optional
 
 import video_export
+from lib.no_window import NO_WINDOW
 
 
 class ProbeError(Exception):
@@ -118,7 +119,7 @@ def run_ffprobe(path: str, timeout: int = 30) -> dict:
         # ffprobe writes UTF-8 JSON; text=True would decode with the locale code page (cp932,
         # cp1252), and a decode error in the reader thread leaves stdout as None.
         out = subprocess.run(cmd, check=True, capture_output=True, encoding="utf-8",
-                             errors="replace", timeout=timeout)
+                             errors="replace", timeout=timeout, creationflags=NO_WINDOW)
     except FileNotFoundError as exc:
         raise ProbeError("ffprobe isn't installed, or isn't on PATH.", "missing") from exc
     except subprocess.TimeoutExpired as exc:

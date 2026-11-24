@@ -19,6 +19,7 @@ import sys
 import types
 
 from expected_files import EXPECTED_TOP_LEVEL_FILES
+from lib.no_window import NO_WINDOW
 
 # name -> (import name, feature it powers, required vs optional)
 OPTIONAL_DEPENDENCIES = {
@@ -334,7 +335,7 @@ def check_ffmpeg():
     if not path:
         return {"found": False, "path": None, "version": None, "libass": None}
     try:
-        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, errors="replace", timeout=5)
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, errors="replace", timeout=5, creationflags=NO_WINDOW)
         version_line = result.stdout.splitlines()[0] if result.stdout else "unknown version"
         # Burned-in (hardsub) export and the styled preview need ffmpeg built
         # with libass; `-version` prints the build's configure flags.
@@ -389,7 +390,7 @@ def _warn_ytdlp_old(today=None):
 def _warn_deno_old():
     if not shutil.which("deno"):
         return None
-    out = subprocess.run(["deno", "--version"], capture_output=True, errors="replace", timeout=5).stdout
+    out = subprocess.run(["deno", "--version"], capture_output=True, errors="replace", timeout=5, creationflags=NO_WINDOW).stdout
     ver = _ints(out, 2)
     if ver and ver < DENO_MIN_VERSION:
         return (f"Deno is older than {'.'.join(map(str, DENO_MIN_VERSION))}, which yt-dlp may "
