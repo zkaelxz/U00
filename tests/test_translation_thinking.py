@@ -14,7 +14,7 @@ import db
 from engine_backends import translate_pipeline, openai_compat, shared
 from core import Line
 from engine_backends import local, thinking
-from services import (line_provenance_service, translate_run_service as run,
+from services import (translate_run_service as run,
                       translate_thinking_service as tts)
 from tests.job_helpers import wait_for_job
 
