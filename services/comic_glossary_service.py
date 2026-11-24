@@ -1,5 +1,7 @@
 """Owns the built-in comic glossary: which language-pack entries a comic page's translation carries, and the person's own lines from Settings that change or remove them."""
 
+import re
+
 import language_packs
 from services import settings_service
 
@@ -25,6 +27,35 @@ def custom_entries(text) -> dict:
     return out
 
 
+def _script(ch: str) -> str:
+    code = ord(ch)
+    if 0x30A0 <= code <= 0x30FF:
+        return "katakana"
+    if 0x3040 <= code <= 0x309F:
+        return "hiragana"
+    if 0xAC00 <= code <= 0xD7AF or 0x1100 <= code <= 0x11FF:
+        return "hangul"
+    if 0x4E00 <= code <= 0x9FFF:
+        return "han"
+    return ""
+
+
+def _stands_alone(entry: dict, text: str) -> bool:
+    """Whether a sound effect or a katakana word occurs in `text` as a word of its own. Such
+    entries are short and common inside other words, and OCR of stylised lettering produces
+    runs like シクシーンバッズ in which シーン is no longer the word for silence."""
+    source = entry["source"]
+    if entry["category"] != "sfx" and not all(_script(c) == "katakana" for c in source):
+        return True
+    first, last = _script(source[0]), _script(source[-1])
+    for match in re.finditer(re.escape(source), text):
+        before = text[match.start() - 1] if match.start() else ""
+        after = text[match.end()] if match.end() < len(text) else ""
+        if not (before and _script(before) == first) and not (after and _script(after) == last):
+            return True
+    return False
+
+
 def reference_block(language: str, bubbles, user_terms=None) -> str:
     """The prompt section for one page: the built-in entries and the person's lines whose
     source text occurs in the page. A series or title glossary term with the same source
@@ -38,7 +69,7 @@ def reference_block(language: str, bubbles, user_terms=None) -> str:
     found, _ = language_packs.select_entries(
         {k: v for k, v in choices.items() if k in language_packs.all_packs()},
         text, user_terms, language=language)
-    entries = [e for e in found if e["category"] != "streamer"]
+    entries = [e for e in found if e["category"] != "streamer" and _stands_alone(e, text)]
     own = custom_entries(settings_service.get("comic_glossary_custom"))
     taken = {t.get("term_original") for t in (user_terms or [])}
     entries = [e for e in entries if e["source"] not in own]
