@@ -245,7 +245,8 @@ def clean_options(options, principal=None) -> dict:
         options = {}
     if not isinstance(options, dict) or set(options) - set(_OPTION_DEFAULTS):
         raise InvalidInputError("Unknown Live option.")
-    out = dict(_OPTION_DEFAULTS, **{k: v for k, v in options.items() if v is not None})
+    # An explicit null time limit means no limit; for every other option null means the default.
+    out = dict(_OPTION_DEFAULTS, **{k: v for k, v in options.items() if v is not None or k == "max_minutes"})
     if out["source_language"] not in SOURCE_LANGUAGES:
         raise InvalidInputError(f"source_language must be one of {', '.join(SOURCE_LANGUAGES)}.")
     if out["whisper_size"] not in live_service.WHISPER_SIZES:
@@ -258,8 +259,9 @@ def clean_options(options, principal=None) -> dict:
         raise InvalidInputError(engine_registry.unknown_engine_message(out["engine"]))
     if out["model"] is not None and (not isinstance(out["model"], str) or len(out["model"]) > 100):
         raise InvalidInputError("model must be a short string.")
-    out["max_minutes"] = int(live_service._num("max_minutes", out["max_minutes"],
-                                               *live_service.MAX_MINUTES_RANGE))
+    if out["max_minutes"] is not None:
+        out["max_minutes"] = int(live_service._num("max_minutes", out["max_minutes"],
+                                                   *live_service.MAX_MINUTES_RANGE))
     if not isinstance(out["use_gpu"], bool):
         raise InvalidInputError("use_gpu must be true or false.")
     title = out["glossary_drama_id"]
