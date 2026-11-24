@@ -27,7 +27,7 @@ _STREAM = [require_permission("media.stream")]
                        404: {"model": ErrorResponse},
                        416: {"description": "Range not satisfiable"}})
 def get_voice_bank_audio(request: Request, entry_id: int = Path(ge=1, le=2**31 - 1)):
-    path, ctype, ext = voice_bank_audio_service.clip_for_entry(entry_id, request.state.principal)
+    path, ctype, ext = voice_bank_audio_service.clip_for_entry(entry_id, principal=request.state.principal)
     require_readable(path)
     return FileResponse(path, media_type=ctype, filename=f"voice_{entry_id}{ext}",
                         content_disposition_type="inline",

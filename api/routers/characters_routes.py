@@ -79,7 +79,7 @@ def get_series_characters(series_id: int = Path(ge=1)):
 @router.get("/voice-bank", dependencies=[require_permission("library.read")], response_model=List[CharactersVoiceBankEntry],
             summary="Voice bank picklist (metadata only)")
 def get_voice_bank(request: Request):
-    return characters_service.list_voice_bank(request.state.principal)
+    return characters_service.list_voice_bank(principal=request.state.principal)
 
 
 @router.post("/dramas/{drama_id}/voice-bank/apply", dependencies=[require_permission("lines.edit")], response_model=CharactersEntry,
@@ -87,7 +87,7 @@ def get_voice_bank(request: Request):
              responses=error_responses(404, 422))
 def post_voice_bank_apply(payload: CharactersVoiceBankApply, request: Request, drama_id: int = Path(ge=1)):
     return characters_service.apply_voice_bank_entry(
-        drama_id, payload.speaker_label, payload.voice_bank_id, request.state.principal)
+        drama_id, payload.speaker_label, payload.voice_bank_id, principal=request.state.principal)
 
 
 @router.get("/dramas/{drama_id}/voice-suggestions", dependencies=[require_permission("library.read")],
