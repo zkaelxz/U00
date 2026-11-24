@@ -44,7 +44,6 @@ from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenErro
                                      InvalidInputError, NotFoundError, RateLimitedError)
 from sources import live_follow_store as follow_store
 
-MAX_PER_MEMBER = 5
 DEFAULT_POLL_MINUTES = 60
 MIN_POLL_MINUTES = 30
 MAX_BACKOFF_MINUTES = 6 * 60
@@ -319,8 +318,7 @@ def view(row, principal=None) -> dict:
 
 def list_follows(principal=None) -> dict:
     rows = [r for r in follow_store.list_all() if _can_see(principal, r)]
-    return {"items": [view(r, principal) for r in rows], "can_auto_start": is_pc_owner(principal),
-            "max_per_member": MAX_PER_MEMBER}
+    return {"items": [view(r, principal) for r in rows], "can_auto_start": is_pc_owner(principal)}
 
 
 # --- changes -----------------------------------------------------------------
@@ -364,9 +362,6 @@ def add_follow(channel, mode="notify", options=None, auto_check=False, principal
             raise RateLimitedError("Too many channels added in the last hour. Try again later.")
         if follow_store.find(owner, url) is not None:
             raise ConflictError("You already follow that channel.")
-        if not is_pc_owner(principal) and follow_store.count(owner) >= MAX_PER_MEMBER:
-            raise ConflictError(
-                f"You can follow at most {MAX_PER_MEMBER} channels. Remove one first.")
         follow_id = follow_store.add(owner, is_pc_owner(principal), url, label[:MAX_NAME_LEN],
                                      mode, opts, DEFAULT_POLL_MINUTES, auto_check=auto_check)
         _adds[owner] = recent + [now]
