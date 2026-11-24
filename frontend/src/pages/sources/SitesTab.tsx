@@ -25,7 +25,7 @@ type Props = {
 const ADULT_HELP =
   'Sends this site\'s own "I\'m an adult" switch with its requests. Off by default; this site only.'
 
-function SiteState({ light, extensionOnly }: { light: string; extensionOnly?: boolean }) {
+export function SiteState({ light, extensionOnly }: { light: string; extensionOnly?: boolean }) {
   // Old request failures are not news for a site the person reads through the extension.
   if (extensionOnly) return <Badge tone="info">Extension only</Badge>
   return <Badge tone={healthTone(light)}>{healthText(light)}</Badge>

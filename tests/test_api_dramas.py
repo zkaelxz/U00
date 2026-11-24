@@ -605,3 +605,28 @@ def test_a_title_with_a_bulk_batch_waiting_is_not_deleted_from_away(isolated_db)
     r = away.post(f"/api/dramas/{did}/delete-mine", json=_DELETE, headers=kim_h)
     assert r.status_code == 409 and "bulk translation" in r.text
     assert db.get_drama(did) is not None
+
+
+def test_same_titles_match_by_name_and_by_link_without_its_query(client):
+    named = client.post("/api/dramas", json={"source_language": "zh", "title_en": "Night  Rain", "title_zh": "夜雨"}).json()
+    linked = client.post("/api/dramas", json={"source_language": "ja", "title_en": "Other"}).json()
+    from services import drama_service
+    assert drama_service.set_source_url_once(linked["id"], "https://example.com/series/7?token=abc")
+
+    by_name = client.post("/api/dramas/same", json={"title_en": " night rain "})
+    assert by_name.status_code == 200, by_name.text
+    assert by_name.json() == {"items": [{"id": named["id"], "title": "Night  Rain", "same": "name"}]}
+    # Full-width letters are the same name once normalised.
+    assert client.post("/api/dramas/same", json={"title_en": "Ｎｉｇｈｔ Ｒａｉｎ"}).json()["items"][0]["id"] == named["id"]
+    assert client.post("/api/dramas/same", json={"title_zh": "夜雨"}).json()["items"][0]["id"] == named["id"]
+
+    by_link = client.post("/api/dramas/same", json={"source_url": "https://example.com/series/7/?other=1"}).json()
+    assert by_link == {"items": [{"id": linked["id"], "title": "Other", "same": "link"}]}
+    assert "token" not in str(by_link)
+
+
+def test_same_titles_empty_for_a_new_name_or_nothing_typed(client):
+    client.post("/api/dramas", json={"source_language": "zh", "title_en": "Hello"})
+    assert client.post("/api/dramas/same", json={"title_en": "Hello there"}).json() == {"items": []}
+    assert client.post("/api/dramas/same", json={}).json() == {"items": []}
+    assert client.post("/api/dramas/same", json={"nope": 1}).status_code == 422
