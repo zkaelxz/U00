@@ -100,11 +100,11 @@ for (const [theme, size] of [['light', 'desktop'], ['dark', 'desktop'], ['sepia'
   })
 }
 
-test('another device has no screenshot button, only typed text', async ({ page }) => {
+test('another device gets the screenshot button too', async ({ page }) => {
   await mock(page, [])
   await page.route('**/api/meta', (r) =>
     r.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }))
   await page.goto('/#/translate')
   await expect(page.getByLabel('Text to translate')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Read from a screenshot…' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Read from a screenshot…' })).toBeVisible()
 })
