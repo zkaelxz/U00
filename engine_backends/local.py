@@ -635,9 +635,9 @@ class OllamaCloudLimitError(Exception):
     status_code = 429
 
     def __init__(self, detail: str, own_key: bool = False):
-        whose = ("Your Ollama account is rate-limited or over its free usage cap right now. "
+        whose = ("Your Ollama account is rate-limited or over its usage limit right now. "
                  if own_key else
-                 "Ollama's cloud models are rate-limited or over the free usage cap right now. ")
+                 "Ollama's cloud models are rate-limited or over its usage limit right now. ")
         super().__init__(
             whose + "Wait and resume the run later, use a local model, or check your Ollama plan."
             + (f" Ollama said: {detail}" if detail else ""))
