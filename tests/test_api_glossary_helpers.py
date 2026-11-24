@@ -700,8 +700,9 @@ class TestAuthOn:
                                                                     monkeypatch):
         started = []
         monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: started.append(a) or True)
+        # gemma4:31b-cloud is one every account may use; this tag is not.
         did, _ = _lines_drama(isolated_db, engine="ollama")
-        isolated_db.update_drama(did, translate_start_json='{"engine_model": "gemma4:31b-cloud"}')
+        isolated_db.update_drama(did, translate_start_json='{"engine_model": "gpt-oss:120b-cloud"}')
         c, household = _remote(), _session()
         for path in (_gl(did), f"/api/glossary/dramas/{did}/from-chapters",
                      f"/api/glossary/dramas/{did}/from-novel",
@@ -719,7 +720,7 @@ class TestAuthOn:
 
         def gate_then_switch(drama_id):
             model = real(drama_id)
-            isolated_db.update_drama(drama_id, translate_start_json='{"engine_model": "gemma4:31b-cloud"}')
+            isolated_db.update_drama(drama_id, translate_start_json='{"engine_model": "gpt-oss:120b-cloud"}')
             return model
         monkeypatch.setattr(gs, "glossary_model", gate_then_switch)
         r = _remote().post(_gl(did), headers=_session())

@@ -387,11 +387,11 @@ def test_a_queued_names_step_is_held_to_the_titles_picked_cloud_model(isolated_d
     started = []
     monkeypatch.setattr(glossary_extract_service, "start_lines_glossary_run",
                         lambda did, **kw: started.append(kw) or {"job_id": "j"})
-    did = _bare("Names", translate_start_json='{"engine_model": "gemma4:31b-cloud"}')
+    did = _bare("Names", translate_start_json='{"engine_model": "gpt-oss:120b-cloud"}')
     free_member = {"user_id": 7, "permissions": ("lines.edit", "jobs.start")}
     with pytest.raises(ForbiddenError):
         runs.start_step(free_member, db.get_drama(did), q.NAMES, {})
     assert started == []
     paid_member = {**free_member, "permissions": (*free_member["permissions"], "engines.paid")}
     assert runs.start_step(paid_member, db.get_drama(did), q.NAMES, {}) == "j"
-    assert started == [{"engine_name": "ollama", "model": "gemma4:31b-cloud"}]
+    assert started == [{"engine_name": "ollama", "model": "gpt-oss:120b-cloud"}]
