@@ -5,13 +5,13 @@ about 460% CPU, a health check took 3 s and a long Review page would not load. I
 its own process the reader can't take the server's GIL or cores, it runs at a
 lower priority, and a crash in a native library ends only the helper.
 
-The parent decides everything (which engine, GPU or CPU, the settings); the child
-builds the engine it is handed and reads. The GPU path uses the app's own PyTorch
-(see ocr.RAPIDOCR_TORCH_MEDIUM_*). It gives way like the balloon detector and
-LaMa do: only while Settings allows the GPU, the card has room and the GPU guard
+Two helpers: one reads on the CPU, the other loads the GPU engine and reads once it is
+ready, so neither start-up holds the other up. The parent decides which reads where.
+The GPU path uses the app's own PyTorch (see ocr.RAPIDOCR_TORCH_MEDIUM_*). It gives
+way like the balloon detector and LaMa do: only while Settings allows the GPU, the card has room and the GPU guard
 isn't holding jobs; an out-of-memory read is redone on the CPU, and any other GPU
-fault keeps the CPU for the rest of the process. The helper exits after
-IDLE_EXIT_SECONDS without a read, and ocr.release_models() stops it, so its GPU
+fault keeps the CPU for the rest of the process. A helper exits after
+IDLE_EXIT_SECONDS without a read, and ocr.release_models() stops both, so the GPU
 memory goes back whenever the app frees its models (before Whisper loads, and
 when the GPU guard finds the card short).
 """
@@ -35,16 +35,28 @@ GPU_NEED_MB = 2500
 # reading can take seconds, and a Quick read makes several reads a page.
 GPU_RECHECK_SECONDS = 60
 IDLE_EXIT_SECONDS = 600
-# The first read also imports torch and loads the models.
+# The first CPU read also loads its models.
 READ_TIMEOUT_SECONDS = 300
 _PARENT_CHECK_SECONDS = 5
 
-_lock = threading.Lock()
-_child = None
-_gpu_loaded = False
-# The card had room and the helper is loading the GPU engine (or is about to); reads go to
-# the CPU engine meanwhile, so the first pages don't wait on torch's start-up.
-_gpu_pending = False
+class _Helper:
+    """One helper process: the CPU one reads with onnxruntime, the GPU one with torch."""
+
+    def __init__(self, device: str):
+        self.device = device
+        self.lock = threading.Lock()
+        self.child: tuple | None = None
+        # GPU only: the engine was asked to load and has (ready) or hasn't answered yet.
+        self.loading = False
+        self.ready = False
+        self.load_started = 0.0
+
+    def alive(self) -> bool:
+        return self.child is not None and self.child[0].is_alive()
+
+
+_cpu = _Helper("cpu")
+_gpu = _Helper("gpu")
 _gpu_off_reason = None
 _gpu_checked_at = None
 _params_cache: dict = {}
@@ -53,32 +65,26 @@ inline = False
 
 
 def on_gpu() -> bool:
-    return _gpu_loaded and _child is not None
+    return _gpu.ready and _gpu.alive()
 
 
 def read(key: str, source):
-    """One RapidOCR pass (image path or BGR array) as an object with txts, scores and boxes."""
-    import ocr
-    gpu = _gpu_allowed(key)
-    params = None
-    if gpu:
-        try:
-            params = _params(key, True)
-        except ocr.RapidOcrModelUnavailable as exc:
-            _gpu_off(f"its GPU models could not be fetched ({exc})")
-            gpu = False
-    if params is None:
-        params = _params(key, False)
-    with _lock:
-        reply = _ask(("read", f"{key}:{'gpu' if gpu else 'cpu'}", params, source))
-        if reply[0] in ("gpu_loading", "gpu_oom", "gpu_failed"):
-            if reply[0] == "gpu_failed":
-                _gpu_off(reply[1])
-            elif reply[0] == "gpu_oom":
-                _gpu_retry_later()
-            reply = _ask(("read", f"{key}:cpu", _params(key, False), source))
-        elif gpu:
-            globals()["_gpu_loaded"] = True
+    """One RapidOCR pass (image path or BGR array) as an object with txts, scores and boxes.
+
+    The GPU engine loads in its own helper while reads go to the CPU one: loaded in the
+    same process, torch's import held the CPU reads up (V100: a 63 s first page)."""
+    reply = None
+    if _gpu_allowed(key) and _gpu_ready(key):
+        reply = _ask(_gpu, ("read", f"{key}:gpu", None, source))
+        if reply[0] == "gpu_failed":
+            _gpu_off(reply[1])
+            _stop_helper(_gpu)
+        elif reply[0] == "gpu_oom":
+            _gpu_retry_later()
+        if reply[0] not in ("ok", "error"):
+            reply = None
+    if reply is None:
+        reply = _ask(_cpu, ("read", f"{key}:cpu", _params(key), source))
     if reply[0] == "error":
         raise RuntimeError(reply[1])
     _, txts, scores, boxes = reply
@@ -86,21 +92,26 @@ def read(key: str, source):
 
 
 def stop() -> None:
-    """Ends the helper and frees what it holds; the next read starts a new one."""
-    global _child, _gpu_loaded, _gpu_pending
-    with _lock:
-        child, _child, _gpu_loaded, _gpu_pending = _child, None, False, False
-        _inline_engines().clear()
+    """Ends the helpers and frees what they hold; the next read starts them again."""
+    _stop_helper(_gpu)
+    _stop_helper(_cpu)
+    _inline_engines().clear()
+
+
+def _stop_helper(helper: _Helper) -> None:
+    with helper.lock:
+        child, helper.child = helper.child, None
+        helper.loading = helper.ready = False
     if child is not None:
         _end(child)
 
 
-def _params(key: str, gpu: bool) -> dict:
+def _params(key: str) -> dict:
     # Building them checks the model files on disk; once per process is enough.
-    if (key, gpu) not in _params_cache:
+    if key not in _params_cache:
         import ocr
-        _params_cache[(key, gpu)] = ocr._rapidocr_params(key, gpu=gpu)
-    return _params_cache[(key, gpu)]
+        _params_cache[key] = ocr._rapidocr_params(key)
+    return _params_cache[key]
 
 
 def _gpu_off(reason: str) -> None:
@@ -111,12 +122,52 @@ def _gpu_off(reason: str) -> None:
 
 
 def _gpu_retry_later() -> None:
-    global _gpu_pending, _gpu_checked_at
-    _gpu_pending, _gpu_checked_at = False, time.monotonic()
+    global _gpu_checked_at
+    _stop_helper(_gpu)
+    _gpu_checked_at = time.monotonic()
+
+
+def _gpu_ready(key: str) -> bool:
+    """True once the GPU helper has its engine; otherwise starts or checks on its load without
+    waiting, so the caller reads on the CPU meanwhile."""
+    if inline or multiprocessing.current_process().daemon:
+        return True
+    with _gpu.lock:
+        if _gpu.ready and _gpu.alive():
+            return True
+        if not (_gpu.loading and _gpu.alive()):
+            if _gpu.child is not None:
+                _end(_gpu.child)
+            child = _start()
+            _gpu.child, _gpu.ready, _gpu.load_started = child, False, time.monotonic()
+            child[1].send(("load", f"{key}:gpu", key))
+            _gpu.loading = True
+            return False
+        assert _gpu.child is not None
+        conn = _gpu.child[1]
+        try:
+            if not conn.poll(0):
+                return False
+            reply = conn.recv()
+        except (EOFError, OSError):
+            reply = ("gpu_failed", "the GPU helper stopped while loading")
+        _gpu.loading = False
+        if reply[0] == "ready":
+            _gpu.ready = True
+            log.info("Text reader: GPU engine ready %.1f s after its load started",
+                     time.monotonic() - _gpu.load_started)
+            _gpu.load_started = 0.0
+            return True
+    if reply[0] == "gpu_oom":
+        _gpu_retry_later()
+    else:
+        _gpu_off(reply[1] if len(reply) > 1 else "the GPU engine did not load")
+        _stop_helper(_gpu)
+    return False
 
 
 def _gpu_allowed(key: str) -> bool:
-    global _gpu_checked_at, _gpu_pending
+    global _gpu_checked_at
     if key not in GPU_KEYS or _gpu_off_reason is not None:
         return False
     try:
@@ -128,8 +179,8 @@ def _gpu_allowed(key: str) -> bool:
             return False
     except Exception:
         return False
-    if on_gpu() or _gpu_pending:
-        return True
+    if _gpu.alive():
+        return True     # its load or reads already passed the check below
     now = time.monotonic()
     if _gpu_checked_at is not None and now - _gpu_checked_at < GPU_RECHECK_SECONDS:
         return False
@@ -143,41 +194,56 @@ def _gpu_allowed(key: str) -> bool:
         vram.check_fits("RapidOCR text reader", required_mb=GPU_NEED_MB, free_mb=free)
     except Exception:
         return False
-    _gpu_checked_at, _gpu_pending = None, True
+    _gpu_checked_at = None
     return True
 
 
-def _ask(message) -> tuple:
-    """Sends one request and waits for its reply, starting the helper when needed. A helper
-    that went away (its idle exit, or a crash) is started again once."""
-    global _child
+def _ask(helper: _Helper, message) -> tuple:
+    """Sends one request to `helper` and waits for its reply, starting it when needed. A helper
+    that went away (its idle exit, or a crash) is started again once; the GPU one is not,
+    since its engine would have to load again (the caller then reads on the CPU)."""
     # A job already running in its own process (a daemon, which may not start one) reads there.
     if inline or multiprocessing.current_process().daemon:
         return _serve(_inline_engines(), *message[1:])
-    for attempt in (1, 2):
-        if _child is None or not _child[0].is_alive():
-            if _child is not None:
-                _end(_child)
-            globals()["_gpu_loaded"] = False
-            globals()["_gpu_pending"] = False
-            _child = _start()
-        process, conn = _child
-        try:
-            conn.send(message)
-            if not conn.poll(READ_TIMEOUT_SECONDS):
-                _child = None
+    with helper.lock:
+        for attempt in (1, 2):
+            if not helper.alive():
+                if helper.device == "gpu":
+                    if helper.child is not None:
+                        _end(helper.child)
+                    helper.child, helper.ready, helper.loading = None, False, False
+                    return ("gpu_lost",)
+                if helper.child is not None:
+                    _end(helper.child)
+                helper.child = _start()
+                helper.load_started = time.monotonic()
+            child = helper.child
+            assert child is not None
+            process, conn = child
+            try:
+                conn.send(message)
+                if not conn.poll(READ_TIMEOUT_SECONDS):
+                    helper.child = None
+                    helper.ready = False
+                    _end((process, conn))
+                    return ("error", "Reading the text took too long and was stopped.")
+                reply = conn.recv()
+                if helper.load_started:
+                    log.info("Text reader: first %s read answered %.1f s after its helper started",
+                             helper.device, time.monotonic() - helper.load_started)
+                    helper.load_started = 0.0
+                return reply
+            except (EOFError, OSError):
+                helper.child = None
+                helper.ready = False
                 _end((process, conn))
-                return ("error", "Reading the text took too long and was stopped.")
-            return conn.recv()
-        except (EOFError, OSError, BrokenPipeError):
-            _child = None
-            _end((process, conn))
-            if attempt == 2:
-                return ("error", "The text reader stopped unexpectedly.")
-    return ("error", "The text reader stopped unexpectedly.")
+                if attempt == 2 or helper.device == "gpu":
+                    break
+    return ("error", "The text reader stopped unexpectedly.") if helper.device == "cpu" else ("gpu_lost",)
 
 
 def _start():
+    started = time.monotonic()
     ctx = multiprocessing.get_context("spawn")
     parent_conn, child_conn = ctx.Pipe()
     threads = max(1, (os.cpu_count() or 2) // 2)
@@ -185,6 +251,7 @@ def _start():
                           name="baihe-ocr-worker", daemon=True)
     process.start()
     child_conn.close()
+    log.info("Text reader: helper process started in %.1f s", time.monotonic() - started)
     return process, parent_conn
 
 
@@ -220,7 +287,6 @@ def _child_main(conn, threads: int) -> None:
     _lower_priority()
     parent = multiprocessing.parent_process()
     engines: dict = {}
-    loading: dict = {}
     last = time.monotonic()
     while True:
         if conn.poll(_PARENT_CHECK_SECONDS):
@@ -230,7 +296,10 @@ def _child_main(conn, threads: int) -> None:
                 return
             if message[0] == "stop":
                 return
-            conn.send(_serve(engines, *message[1:], threads=threads, loading=loading))
+            if message[0] == "load":
+                conn.send(_load_gpu_engine(engines, message[1], message[2], threads))
+            else:
+                conn.send(_serve(engines, *message[1:]))
             last = time.monotonic()
         elif parent is not None and not parent.is_alive():
             return
@@ -238,75 +307,57 @@ def _child_main(conn, threads: int) -> None:
             return
 
 
-def _serve(engines: dict, engine_id: str, params: dict, source, threads: int | None = None,
-           loading: dict | None = None) -> tuple:
-    """One read. In the helper (`loading` given) a GPU engine is built on a thread while the
-    parent reads on the CPU: on the V100 the first page otherwise waited about two minutes
-    for torch's import and the model load."""
+def _serve(engines: dict, engine_id: str, params, source) -> tuple:
+    """One read with the engine `engine_id`, built from `params` on first use (a GPU engine
+    without params builds its own, as in tests and in a job's own process)."""
     on_gpu = engine_id.endswith(":gpu")
-    if on_gpu and loading is not None and engine_id not in engines:
-        state = loading.get(engine_id)
-        if state is None:
-            loading[engine_id] = "loading"
-            threading.Thread(target=_load_gpu_engine, args=(engines, loading, engine_id, params, threads),
-                             daemon=True, name="ocr-gpu-load").start()
-            return ("gpu_loading",)
-        if state == "loading":
-            return ("gpu_loading",)
-        del loading[engine_id]
-        return state
     try:
         if engine_id not in engines:
-            if on_gpu and threads:
-                import torch
-                torch.set_num_threads(threads)
+            if params is None:
+                import ocr
+                params = ocr._rapidocr_params(engine_id.split(":")[0], gpu=on_gpu)
             from rapidocr import RapidOCR
             engines[engine_id] = RapidOCR(params=params)
         result = engines[engine_id](source)
         return ("ok", result.txts, getattr(result, "scores", None), getattr(result, "boxes", None))
     except Exception as exc:
-        from engine_backends.redaction import redact_secrets
         if not on_gpu:
+            from engine_backends.redaction import redact_secrets
             return ("error", redact_secrets(f"{type(exc).__name__}: {exc}"))
-        torch = sys.modules.get("torch")
-        oom = torch is not None and isinstance(exc, getattr(torch.cuda, "OutOfMemoryError", ()))
-        if not oom:
-            engines.pop(engine_id, None)
-        if torch is not None:
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-        if oom:
-            return ("gpu_oom",)
-        return ("gpu_failed", redact_secrets(f"{type(exc).__name__}: {exc}"))
+        return _gpu_fault(engines, engine_id, exc)
 
 
-def _load_gpu_engine(engines: dict, loading: dict, engine_id: str, params: dict, threads) -> None:
-    """Builds the GPU engine and loads both models (RapidOCR loads them on first use), then
-    leaves in `loading` the reply a failure gives: OOM is tried again later, anything else
-    keeps the CPU."""
+def _gpu_fault(engines: dict, engine_id: str, exc: Exception) -> tuple:
+    """The reply for a GPU failure: OOM keeps the engine and is tried again later, anything
+    else drops it and keeps the CPU."""
+    from engine_backends.redaction import redact_secrets
+    torch = sys.modules.get("torch")
+    oom = torch is not None and isinstance(exc, getattr(torch.cuda, "OutOfMemoryError", ()))
+    if not oom:
+        engines.pop(engine_id, None)
+    if torch is not None:
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+    return ("gpu_oom",) if oom else ("gpu_failed", redact_secrets(f"{type(exc).__name__}: {exc}"))
+
+
+def _load_gpu_engine(engines: dict, engine_id: str, key: str, threads) -> tuple:
+    """Builds the GPU engine and loads both models now (RapidOCR loads them on first use). The
+    PyTorch weights are fetched here on first use, so that download never holds a read up."""
     try:
         import torch
-        if threads:
-            torch.set_num_threads(threads)
+        torch.set_num_threads(threads)
+        import ocr
         from rapidocr import RapidOCR
-        engine = RapidOCR(params=params)
+        engine = RapidOCR(params=ocr._rapidocr_params(key, gpu=True))
         for name in ("_load_det_model", "_load_rec_model"):
             getattr(engine, name, lambda: None)()
         engines[engine_id] = engine
-        loading.pop(engine_id, None)
+        return ("ready",)
     except Exception as exc:
-        from engine_backends.redaction import redact_secrets
-        torch = sys.modules.get("torch")
-        oom = torch is not None and isinstance(exc, getattr(torch.cuda, "OutOfMemoryError", ()))
-        if torch is not None:
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-        loading[engine_id] = ("gpu_oom",) if oom else (
-            "gpu_failed", redact_secrets(f"{type(exc).__name__}: {exc}"))
+        return _gpu_fault(engines, engine_id, exc)
 
 
 def _lower_priority() -> None:
