@@ -6,8 +6,9 @@ a household member's own computer, behind a per-device token
 The same work as the PC-only bridge in `services/page_server.py` (that module's
 functions are called, so there is one pipeline), with the caller's rights:
 a title is sent into only when the member can edit it, the title list shows
-only what they can see, the monthly spending cap applies, and nothing is
-fetched from a URL the extension sends. The PC's own extension keeps using
+only what they can see, the monthly spending cap applies, and the only URLs
+fetched are the picture addresses of a no-save Quick read (`fetch_url`), public
+hosts only (services/quick_read_fetch.py). The PC's own extension keeps using
 the loopback bridge with the shared token.
 
 Answers keep the bridge's `{"error": text}` shape so the extension reads
