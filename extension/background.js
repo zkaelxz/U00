@@ -436,7 +436,7 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
   }
   const cap = await batchCap();
   const { typeset, typesetStyle } = await settings();
-  const merged = { pages: [], skipped: [], failed: [], sent: images.length, received: 0, stored: 0, alreadyStored: 0 };
+  const merged = { pages: [], skipped: [], failed: [], unfetched: [], sent: images.length, received: 0, stored: 0, alreadyStored: 0 };
   let firstError = null;
   const batches = planBatches(images, cap, filterPages !== false ? 2 : 1);
   for (const [index, batch] of batches.entries()) {
@@ -453,6 +453,10 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
         store: store !== false,
         filter_pages: filterPages !== false,
         run_id: runId,
+        // Only when a picture is named by address: the app downloads it with these, as the page's own
+        // reader would have (a CDN that checks the referer or the browser).
+        ...(batch.some((image) => image.fetch_url)
+          ? { fetch_referer: sourceUrl || "", fetch_user_agent: navigator.userAgent } : {}),
         // Only sent when on, so an older app never sees the key.
         ...(typeset ? { typeset: true } : {}),
         // Only when something differs from the plain render, so an older app never sees the key.
@@ -501,6 +505,7 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
     }
     merged.pages.push(...(data.pages || []));
     merged.skipped.push(...(data.skipped || []));
+    merged.unfetched.push(...(data.unfetched || []));
     merged.failed.push(...(data.failed || []));
     merged.received += Number.isFinite(data.received) ? data.received : batch.length;
     merged.stored += Number.isFinite(data.stored) ? data.stored : 0;
