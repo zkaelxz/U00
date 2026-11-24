@@ -502,6 +502,7 @@ Thread unless marked process.
 | `dub_<id>` | `listen_service` | process | when a local clone/TTS model is used |
 | `resegment_<id>`, `resegpreview_<id>` | `resegmentation_service` | process with Ollama, otherwise thread | with Ollama |
 | `resplit_<id>` | `resplit_service` | thread | yes |
+| `picsub_<id>` | `picture_subtitle_service` | thread | yes |
 | `translate_<id>`, `bulk_translate_<id>` | `translate_run_service`, `workspace_job_service` | thread | with Ollama |
 | `comparetx_<id>`, `fixflag_<id>` | `compare_transcription_service`, `fixflag_transcribe` (the hear step in `compare_hear_worker`, via `gpu_process_job.run_in_child`) | thread with a process stage | yes |
 | `flag_<id>`, `consistency_`, `emotion_`, `notes_` and their `bulk_*` | `review_jobs_service` and others | thread | no |

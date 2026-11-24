@@ -53,6 +53,7 @@ class SubtitleTrack:
 # (PGS, DVD, DVB, XSUB) hold bitmaps, which need OCR, not a format conversion.
 _ASS_CODECS = ("ass", "ssa")
 _TEXT_CODECS = _ASS_CODECS + ("subrip", "srt", "webvtt", "mov_text", "text")
+_PICTURE_CODECS = ("hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle")
 MAX_SUBTITLE_BYTES = 2 * 1024 * 1024
 EXTRACT_TIMEOUT_SECONDS = 120
 
@@ -61,12 +62,47 @@ def is_text_subtitle(codec: str) -> bool:
     return (codec or "").lower() in _TEXT_CODECS
 
 
+def is_picture_subtitle(codec: str) -> bool:
+    return (codec or "").lower() in _PICTURE_CODECS
+
+
 class SubtitleExtractError(Exception):
-    """`reason` is "not_subtitle", "image", "missing", "timeout", "failed" or "too_large"."""
+    """`reason` is "not_subtitle", "image" (a picture track), "text" (not a picture track), "missing", "timeout", "failed" or "too_large"."""
 
     def __init__(self, reason: str):
         super().__init__(reason)
         self.reason = reason
+
+
+def picture_track_info(path: str, stream_index: int) -> dict:
+    """{"index", "size": (width, height), "duration"} of a picture subtitle track, for drawing it over a
+    canvas. The stream is looked up in the file's own probe, as extract_text_subtitle does."""
+    try:
+        probe = run_ffprobe(path)
+    except ProbeError as exc:
+        raise SubtitleExtractError("missing" if exc.reason == "missing" else "failed") from exc
+    streams = [s for s in probe.get("streams") or [] if isinstance(s, dict)]
+    stream = next((s for s in streams if s.get("index") == stream_index), None)
+    if stream is None or stream.get("codec_type") != "subtitle":
+        raise SubtitleExtractError("not_subtitle")
+    if not is_picture_subtitle(str(stream.get("codec_name") or "")):
+        raise SubtitleExtractError("text")
+    # The track's own size is what its caption positions are written in; a file that omits it
+    # falls back to the picture's size, then to full HD.
+    video = next((s for s in streams if s.get("codec_type") == "video"), {})
+    width = _pixels(stream.get("width")) or _pixels(video.get("width")) or 1920
+    height = _pixels(stream.get("height")) or _pixels(video.get("height")) or 1080
+    try:
+        duration = float((probe.get("format") or {}).get("duration") or 0.0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    if not math.isfinite(duration) or duration <= 0:
+        raise SubtitleExtractError("failed")
+    return {"index": stream_index, "size": (width, height), "duration": duration}
+
+
+def _pixels(value):
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
 def extract_text_subtitle(path: str, stream_index: int) -> tuple[bytes, str]:

@@ -41,6 +41,7 @@ import cv2
 import numpy as np
 
 import ocr as ocr_module
+from lib import proc
 from engine_backends.redaction import redact_secrets
 import segment
 import storage
@@ -80,6 +81,30 @@ def extract_frames(video_path: str, out_dir: str, interval_sec: float = 1.0,
     else:
         subprocess.run(cmd, check=True, capture_output=True,
                        timeout=EXTRACT_FRAMES_TIMEOUT_SECONDS, creationflags=NO_WINDOW)
+    frames = sorted(f for f in os.listdir(out_dir) if f.startswith("frame_"))
+    return [(i * interval_sec, os.path.join(out_dir, f)) for i, f in enumerate(frames)]
+
+
+def extract_picture_subtitle_frames(video_path: str, stream_index: int, out_dir: str, interval_sec: float,
+                                    size: tuple, duration: float, job_id: str | None = None):
+    """Like extract_frames, but for a picture subtitle track (PGS, DVD): the track is drawn over a
+    black canvas of its own size, so each sampled frame holds only the caption on screen then. Same
+    return shape as extract_frames. A caption shorter than the interval can fall between samples."""
+    os.makedirs(out_dir, exist_ok=True)
+    width, height = size
+    canvas = f"color=c=black:s={width}x{height}:r=1/{interval_sec}:d={duration}"
+    cmd = ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", canvas,
+           *video_export.local_input(), "-i", video_path,
+           "-filter_complex",
+           f"[0:v][1:{stream_index}]overlay=shortest=1,scale='min({FRAME_MAX_WIDTH},iw)':-2",
+           "-q:v", "2", os.path.join(out_dir, "frame_%06d.jpg")]
+    import background_jobs
+    if job_id:
+        background_jobs.run_cancellable(job_id, cmd, timeout=EXTRACT_FRAMES_TIMEOUT_SECONDS)
+    else:
+        run = proc.run_captured(cmd, EXTRACT_FRAMES_TIMEOUT_SECONDS)
+        if run.timed_out or run.returncode != 0:
+            raise subprocess.CalledProcessError(run.returncode or -1, cmd, stderr=run.stderr)
     frames = sorted(f for f in os.listdir(out_dir) if f.startswith("frame_"))
     return [(i * interval_sec, os.path.join(out_dir, f)) for i, f in enumerate(frames)]
 
@@ -358,13 +383,26 @@ def _to_title_script(text: str, language: str, chinese_script: str) -> str:
         return text
 
 
+def _frames_and_band(video_path, frame_dir, sample_interval, picture_track, job_id):
+    """The sampled frames and the (top, bottom) band of the frame to read."""
+    if picture_track is not None:
+        frames = extract_picture_subtitle_frames(
+            video_path, picture_track["index"], frame_dir, sample_interval,
+            picture_track["size"], picture_track["duration"], job_id=job_id)
+        return frames, (0.0, 1.0)
+    frames = extract_frames(video_path, frame_dir, interval_sec=sample_interval, job_id=job_id)
+    band = detect_caption_band([p for _, p in frames]) if frames else None
+    return frames, band or (0.75, 1.0)  # fallback: bottom quarter, the common default
+
+
 def extract_hardsub_subtitles(video_path: str, language: str = "zh",
                                sample_interval: float = 1.0,
                                ocr_backend: str = "tesseract",
                                chinese_script: str = "simplified",
                                progress_cb=None, tmp_dir=None, tesseract_cmd: str | None = None,
                                min_consecutive_samples: int = 2, job_id: str | None = None,
-                               cancel_check=None, info: dict | None = None):
+                               cancel_check=None, info: dict | None = None,
+                               picture_track: dict | None = None):
     """
     Full pipeline: sample frames, auto-detect the caption band, OCR each
     sampled frame in that band, collapse the results into timed cues.
@@ -382,6 +420,10 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
     cues), but pass 1 to disable the filter entirely if a source is
     dropping genuinely short captions because of it.
 
+    picture_track ({"index", "size": (w, h), "duration"}) reads a picture subtitle track of the
+    file instead of the picture itself: the caption can be anywhere on an otherwise black frame,
+    so the whole frame is read and no caption band is searched for.
+
     ocr_backend is "tesseract", "paddle", "rapidocr" or "auto" (see resolve_backend).
     info, when given, is filled with {"backend": the engine that ran,
     "note": a fallback note or None, "dropped_frames": how many sampled
@@ -398,13 +440,9 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
     else:
         lang = ocr_module.resolve_tesseract_lang(language, chinese_script)
     with storage.job_workdir(job_id, dir=tmp_dir) as frame_dir:
-        frames = extract_frames(video_path, frame_dir, interval_sec=sample_interval, job_id=job_id)
+        frames, band = _frames_and_band(video_path, frame_dir, sample_interval, picture_track, job_id)
         if not frames:
             return []
-
-        band = detect_caption_band([p for _, p in frames])
-        if band is None:
-            band = (0.75, 1.0)  # fallback: bottom quarter, the common default
 
         timed_texts = []
         total = len(frames)
