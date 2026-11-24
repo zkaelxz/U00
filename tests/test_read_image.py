@@ -7,6 +7,9 @@ import pytest
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
+pytestmark = pytest.mark.usefixtures("local_ollama_default")
+
+
 PIL = pytest.importorskip("PIL")
 
 from fastapi.testclient import TestClient

@@ -167,7 +167,7 @@ def test_local_tag_on_a_tool_route_is_not_refused_by_the_cloud_gate(remote, dram
     assert r.status_code != 403
 
 
-def test_omitted_model_is_treated_as_the_local_default():
+def test_omitted_model_is_let_through_and_a_named_cloud_tag_is_not():
     from types import SimpleNamespace
     from unittest.mock import patch
     with patch.object(api_auth, "holds", return_value=False):
@@ -178,10 +178,11 @@ def test_omitted_model_is_treated_as_the_local_default():
 
 def test_restored_cloud_default_override_is_ignored_on_read(isolated_db):
     from engine_backends import engine_registry, local
+    db.set_app_setting("pref.ollama_cloud_default", False)
     db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": "qwen3-coder:cloud", "claude": "claude-sonnet-5-5"})
     assert engine_registry.model_override_for_default("ollama") is None
     assert engine_registry.model_override_for_default("claude") == "claude-sonnet-5-5"
-    assert not local.is_ollama_cloud_model(engine_registry.effective_default_model("ollama"))
+    assert engine_registry.effective_default_model("ollama") == local.OLLAMA_DEFAULT_MODEL
 
 
 # --- a member's own Ollama key -------------------------------------------------
@@ -247,6 +248,7 @@ def test_hosted_default_is_used_only_after_the_owner_opts_in(isolated_db, monkey
     from engine_backends import engine_registry
     from services import model_registry_service, profile_service
     db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": CLOUD})
+    db.set_app_setting("pref.ollama_cloud_default", False)
     drama = {"id": 1, "translate_start_json": json.dumps({"engine_model": CLOUD})}
     monkeypatch.setattr(model_registry_service, "_listed_extras", lambda engine: {CLOUD})
     assert engine_registry.model_override_for_default("ollama") is None
@@ -260,7 +262,7 @@ def test_hosted_default_is_used_only_after_the_owner_opts_in(isolated_db, monkey
     assert engine_registry.model_override_for_default("ollama") is None
 
 
-def test_account_without_paid_permission_gets_the_local_default_not_the_hosted_one(isolated_db):
+def test_account_without_paid_permission_gets_the_built_in_default_not_the_override(isolated_db):
     from engine_backends import engine_registry, local
     from lib import acting
     db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": CLOUD})

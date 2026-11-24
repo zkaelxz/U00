@@ -47,13 +47,12 @@ const FEED_SHOWN = 50
 const CUES_KEPT = 1000
 export const POLL_MS = 2000
 
-// What the form starts on: Ollama with this model, so the audio's text stays on
-// this PC. Another engine is one pick away.
+// What the form starts on: Ollama with its hosted default. Another engine is one pick away.
 /** The picture sizes the delayed player can record (live_player.HEIGHTS). */
 export const PLAYER_HEIGHTS = [360, 480, 720, 1080]
 export const LIVE_DEFAULT_ENGINE = 'ollama'
-// The server picks 27b on a card of 20 GB or more; until it answers, the model that fits most cards.
-export const LIVE_DEFAULT_MODEL = 'translategemma:12b'
+// Until the server answers: the model it will start on.
+export const LIVE_DEFAULT_MODEL = 'gemma4:31b-cloud'
 /** What a paid engine may cost one session when no monthly cap is set (live_spend_service). */
 export const SPEND_LIMIT_RANGE: [number, number] = [0.1, 100]
 // Engines whose request can switch thinking off (engine_backends/thinking.py).

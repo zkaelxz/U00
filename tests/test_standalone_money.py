@@ -13,6 +13,9 @@ from engine_backends.shared import LLMTaskTimeout
 from services import translate_run_service, translate_service
 from lib.errors import InvalidInputError
 
+pytestmark = pytest.mark.usefixtures("local_ollama_default")
+
+
 PARAGRAPH = "段" * 1400  # one chunk each; 8 chunks go out per request
 TEXT = "\n\n".join(PARAGRAPH for _ in range(10))  # 10 chunks: a request of 8, then one of 2
 

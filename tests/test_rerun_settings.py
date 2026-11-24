@@ -266,6 +266,12 @@ def test_library_batch_with_a_chosen_variant_uses_it_for_every_title(isolated_db
 CLOUD = "gpt-oss:120b-cloud"
 
 
+@pytest.fixture(autouse=True)
+def _hosted_defaults_off(isolated_db):
+    # These pin the opt-out: a remembered hosted tag is not carried into a run.
+    db.set_app_setting("pref.ollama_cloud_default", False)
+
+
 def _ollama_title_that_last_ran_on_cloud():
     did = db.create_drama(title_zh="D", translation_engine="ollama")
     db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])

@@ -19,6 +19,9 @@ from services import (translate_run_service as run,
 from tests.job_helpers import wait_for_job
 
 
+pytestmark = pytest.mark.usefixtures("local_ollama_default")
+
+
 def _ctx(**kw):
     return translate_pipeline.build_translation_context(types.SimpleNamespace(supports_reference=True), {}, **kw)
 
