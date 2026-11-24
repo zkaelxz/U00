@@ -1,6 +1,7 @@
 // Import a timed subtitle or lyric file into a title (api/routers/subtitle_import_routes.py).
 // Preview and apply are uploads (media.upload).
 import type {
+  PictureSubtitleStarted,
   SubtitleImportOptions,
   SubtitleImportPreview,
   SubtitleImportResult,
@@ -41,6 +42,14 @@ export const previewTrack = (id: number, trackIndex: number, f?: Fetch) =>
 export const applyTrack = (id: number, trackIndex: number, replaceLines: boolean, f?: Fetch) =>
   postJson<SubtitleImportResult>(
     `${base(id)}/track/apply`,
+    { track_index: trackIndex, confirm_replace_lines: replaceLines },
+    f,
+  )
+
+/** Starts the picsub_<id> job that reads a picture track (PGS, DVD) into lines with OCR. */
+export const readPictureTrack = (id: number, trackIndex: number, replaceLines: boolean, f?: Fetch) =>
+  postJson<PictureSubtitleStarted>(
+    `${base(id)}/picture-track/read`,
     { track_index: trackIndex, confirm_replace_lines: replaceLines },
     f,
   )

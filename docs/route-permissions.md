@@ -744,6 +744,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/stronger-engine/dramas/{drama_id}` | lines.read |
 | `POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try` | review.use + lines.read |
 | `POST /api/subtitle-import/dramas/{drama_id}/apply` | media.upload |
+| `POST /api/subtitle-import/dramas/{drama_id}/picture-track/read` | lines.edit |
 | `POST /api/subtitle-import/dramas/{drama_id}/preview` | media.upload |
 | `POST /api/subtitle-import/dramas/{drama_id}/track/apply` | lines.edit |
 | `POST /api/subtitle-import/dramas/{drama_id}/track/preview` | lines.edit |

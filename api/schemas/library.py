@@ -465,6 +465,8 @@ class MediaSubtitleTrack(BaseModel):
     language: Optional[str] = None
     # Text tracks can be imported as lines; picture tracks (PGS, DVD) can't.
     importable: bool = False
+    # Picture tracks (PGS, DVD) can be read into text with OCR, as a background job.
+    picture: bool = False
 
 
 MediaAnalysis.model_rebuild()
