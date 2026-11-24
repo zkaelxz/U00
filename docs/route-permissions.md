@@ -594,6 +594,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/saved-comics/page` | media.stream |
 | `GET /api/saved-comics/pages` | library.read |
 | `GET /api/saved-comics/series` | library.read |
+| `POST /api/scanlate/dramas/{drama_id}/chapters/marks` | lines.edit |
 | `GET /api/scanlate/dramas/{drama_id}/config` | library.read |
 | `POST /api/scanlate/dramas/{drama_id}/export` | jobs.start |
 | `GET /api/scanlate/dramas/{drama_id}/pages` | library.read |

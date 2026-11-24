@@ -130,6 +130,9 @@ def list_pages(drama_id: int) -> dict:
             "hidden": page.get("filename") in hidden,
         })
     media_type = drama.get("media_type") or "other"
+    marks = db.get_chapter_marks(drama_id)
+    for g in groups:
+        g.update(marks.get(g["id"], {"read": False, "bookmarked": False}))
     return {"drama_id": drama_id, "media_type": media_type,
             "reading_mode_default": "paged" if media_type in _PAGED_MEDIA_TYPES else "vertical",
             "page_count": len(pages), "pages": pages,

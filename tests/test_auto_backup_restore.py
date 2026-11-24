@@ -36,7 +36,7 @@ LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug
                    "edit_samples", "source_edits")
 
 
-PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
+PROFILE_TABLES = ("progress", "personal_notes", "reading_history", "chapter_marks")
 
 
 def _fk_child_tables():

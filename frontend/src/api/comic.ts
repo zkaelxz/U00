@@ -3,6 +3,8 @@
 // lines.edit, and the page images media.stream (so an <img> can fail with 403).
 
 import type {
+  ComicChapterMarks,
+  ComicChapterMarksRequest,
   ComicPagesResponse,
   ComicProgress,
   ComicRegionsResponse,
@@ -73,6 +75,8 @@ export const comicApi = {
   sourceChapters: (id: number, f?: Fetch) => getJson<ComicSourceChapters>(`${root(id)}/source-chapters`, f),
   setVisibility: (id: number, body: ComicVisibilityRequest, f?: Fetch) =>
     postJson<ComicVisibilityResult>(`${root(id)}/pages/visibility`, body, f),
+  markChapters: (id: number, body: ComicChapterMarksRequest, f?: Fetch) =>
+    postJson<ComicChapterMarks>(`${root(id)}/chapters/marks`, body, f),
   startChapter: (id: number, body: ComicStartChapterRequest, f?: Fetch) =>
     postJson<ComicStartChapterResult>(`${root(id)}/pages/start-chapter`, body, f),
 }

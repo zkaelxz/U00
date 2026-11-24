@@ -52,7 +52,7 @@ _MAX_MEMBER_BYTES = lrs.MAX_RESTORE_MEMBER_BYTES
 CHILD_TABLES = ("lines", "pages", "characters", "translation_notes", "line_emotions",
                  "consistency_issues", "vocab_lookups", "line_history", "translation_versions",
                  "bug_reports", "wiki_entries", "edit_samples", "source_edits", "voice_suggestion_dismissals",
-                 "misheard_keeps", "progress", "personal_notes", "reading_history", "metadata_field_provenance")
+                 "misheard_keeps", "progress", "personal_notes", "reading_history", "chapter_marks", "metadata_field_provenance")
 _SKIPPED_TABLES = {
     "usage_log": "ON DELETE SET NULL: the spending rows survive a delete, so restoring them "
                  "would count the cost twice",
@@ -70,7 +70,7 @@ _SKIPPED_TABLES = {
 _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports",
                     "edit_samples", "source_edits")
 _FIRST_SEEN_TABLES = ("vocab_lookups", "wiki_entries")
-_PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
+_PROFILE_TABLES = ("progress", "personal_notes", "reading_history", "chapter_marks")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 _MAX_LINES_JSON = 64 * 1024 ** 2    # older line_history values are gzip (db.PLAIN_SNAPSHOTS)
 SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory", "word_replacements",

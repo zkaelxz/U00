@@ -71,7 +71,8 @@ def test_list_pages_shape(client, comic):
     # No chapter data (an old title): one "unknown" group, never an error.
     assert body["hidden_count"] == 0 and len(body["chapters"]) == 1
     assert body["chapters"][0] == {"id": "unknown", "title": "", "known": False,
-                                   "first_page": 1, "page_count": 2, "hidden_count": 0, "url": ""}
+                                   "first_page": 1, "page_count": 2, "hidden_count": 0, "url": "",
+                                   "read": False, "bookmarked": False}
     p1, p2 = body["pages"]
     assert set(p1) == {"id", "ordinal", "width", "height", "has_rendered", "has_regions",
                        "image_version", "chapter_id", "chapter_page", "hidden"}
@@ -314,6 +315,70 @@ def test_progress_422_and_404(client, isolated_db, comic):
     assert client.post(f"/api/scanlate/dramas/{empty}/progress", json={"page": 1}).status_code == 422
     assert client.get("/api/scanlate/dramas/9999/progress").status_code == 404
     assert client.post("/api/scanlate/dramas/9999/progress", json={"page": 1}).status_code == 404
+
+
+def _two_chapters(comic):
+    import comic_chapters
+    comic_chapters.start_chapter(comic["drama"], ["pages/page_0000.png"], "One")
+    comic_chapters.start_chapter(comic["drama"], ["pages/page_0001.jpg"], "Two")
+
+
+def test_chapter_marks_read_unread_and_bookmark_independently(client, isolated_db, comic):
+    _two_chapters(comic)
+    d = comic["drama"]
+    url = f"/api/scanlate/dramas/{d}/chapters/marks"
+    one, two = [c["id"] for c in client.get(f"/api/scanlate/dramas/{d}/pages").json()["chapters"]]
+
+    r = client.post(url, json={"chapter_ids": [one, two], "read": True})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"chapters": [{"id": one, "read": True, "bookmarked": False},
+                                     {"id": two, "read": True, "bookmarked": False}]}
+    # A bookmark alone leaves read as it is, and unread alone leaves the bookmark.
+    client.post(url, json={"chapter_ids": [two], "bookmarked": True})
+    r = client.post(url, json={"chapter_ids": [two], "read": False})
+    assert r.json()["chapters"][1] == {"id": two, "read": False, "bookmarked": True}
+    listed = client.get(f"/api/scanlate/dramas/{d}/pages").json()["chapters"]
+    assert [(c["read"], c["bookmarked"]) for c in listed] == [(True, False), (False, True)]
+    # Clearing the last mark removes the row, so nothing is left behind.
+    client.post(url, json={"chapter_ids": [one, two], "read": False, "bookmarked": False})
+    import db
+    assert db.get_chapter_marks(d) == {}
+
+
+def test_chapter_marks_reject_unknown_chapters_empty_requests_and_other_titles(client, isolated_db, comic):
+    import db
+    _two_chapters(comic)
+    d = comic["drama"]
+    url = f"/api/scanlate/dramas/{d}/chapters/marks"
+    one = client.get(f"/api/scanlate/dramas/{d}/pages").json()["chapters"][0]["id"]
+    assert client.post(url, json={"chapter_ids": [one, "nope"], "read": True}).status_code == 404
+    assert db.get_chapter_marks(d) == {}                       # refused before any write
+    assert client.post(url, json={"chapter_ids": [one]}).status_code == 422
+    assert client.post(url, json={"chapter_ids": [], "read": True}).status_code == 422
+    assert client.post("/api/scanlate/dramas/9999/chapters/marks",
+                       json={"chapter_ids": [one], "read": True}).status_code == 404
+
+
+def test_chapter_marks_keep_the_first_read_time_and_go_with_the_title(client, isolated_db, comic, monkeypatch):
+    import db
+    from lib import clock
+    import datetime
+    _two_chapters(comic)
+    d = comic["drama"]
+    one = client.get(f"/api/scanlate/dramas/{d}/pages").json()["chapters"][0]["id"]
+
+    def read_at():
+        import contextlib
+        with contextlib.closing(db.get_conn()) as conn:
+            return [r[0] for r in conn.execute("SELECT read_at FROM chapter_marks WHERE drama_id = ?", (d,))]
+
+    db.set_chapter_marks(d, [one], read=True)
+    first = read_at()
+    monkeypatch.setattr(clock, "utcnow", lambda: datetime.datetime(2099, 1, 1))
+    db.set_chapter_marks(d, [one], read=True)
+    assert read_at() == first
+    db.delete_drama(d)
+    assert read_at() == []
 
 
 def test_view_prefs_round_trip_without_touching_the_resume_point(client, isolated_db, comic):

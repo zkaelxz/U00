@@ -44,7 +44,39 @@ function shownCount(chapter: ComicChapter, showHidden: boolean): number {
 
 export function optionText(chapter: ComicChapter, index: number, showHidden: boolean): string {
   const n = shownCount(chapter, showHidden)
-  return `${chapterLabel(chapter, index)} (${n} ${n === 1 ? 'page' : 'pages'})`
+  // Marks sit in the text because a <select> option can hold nothing else.
+  return `${chapter.read ? '✓ ' : ''}${chapterLabel(chapter, index)} (${n} ${n === 1 ? 'page' : 'pages'})${chapter.bookmarked ? ' ★' : ''}`
+}
+
+/** The next chapter not yet read: the first one after `at`, else the earliest one before it; -1 when none. */
+export function nextUnread(chapters: ComicChapter[], at: number): number {
+  const later = chapters.findIndex((c, i) => i > at && !c.read)
+  if (later >= 0) return later
+  return chapters.findIndex((c, i) => i < at && !c.read)
+}
+
+/**
+ * The chapter to mark read because its last listed page is among the pages on screen; null when
+ * it is read already or no chapter ends here. A two-page spread can end a chapter on its second
+ * page, which is never the current page.
+ */
+export function finishedChapter(pages: ComicPageInfo[], chapters: ComicChapter[], onScreen: number[], visible: number[]): string | null {
+  for (const n of onScreen) {
+    const id = pages[n - 1]?.chapter_id
+    const chapter = chapters.find((c) => c.id === id)
+    if (!chapter || chapter.read) continue
+    if (visible.filter((v) => pages[v - 1]?.chapter_id === id).at(-1) === n) return chapter.id
+  }
+  return null
+}
+
+/** The chapter list with the server's answer to a marks change laid over it. */
+export function withMarks(chapters: ComicChapter[], marks: { id: string; read: boolean; bookmarked: boolean }[]): ComicChapter[] {
+  const by = new Map(marks.map((m) => [m.id, m]))
+  return chapters.map((c) => {
+    const m = by.get(c.id)
+    return m ? { ...c, read: m.read, bookmarked: m.bookmarked } : c
+  })
 }
 
 /** Ordinals in the reading list, in order. Hidden pages drop out unless shown; a chapter limit keeps one chapter. */

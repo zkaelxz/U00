@@ -15,11 +15,12 @@ import { SourceLink } from '../discover/ExternalLink'
 import { featureOn } from '../../api/features'
 import { useFeatures } from '../../hooks/useFeatures'
 import { SourceChapterList } from './SourceChapterList'
-import type { ComicChapter, ComicPageInfo } from '../../types/comic'
+import type { ComicChapter, ComicChapterMarks, ComicPageInfo } from '../../types/comic'
 import {
   chapterIndex,
   chapterLabel,
   chapterStart,
+  nextUnread,
   optionText,
   positionOf,
   type ChapterPrefs,
@@ -37,9 +38,11 @@ type Props = {
   onGo: (ordinal: number) => void
   // Pages were hidden or restored: reload the list.
   onChanged: () => void
+  // Chapters were marked read, unread or bookmarked.
+  onMarks: (marks: ComicChapterMarks) => void
 }
 
-export function ChapterBar({ dramaId, pages, chapters, current, visible, prefs, hiddenCount, onPrefs, onGo, onChanged }: Props) {
+export function ChapterBar({ dramaId, pages, chapters, current, visible, prefs, hiddenCount, onPrefs, onGo, onChanged, onMarks }: Props) {
   const features = useFeatures()
   // The page and chapter the sheet was opened on: opening a modal can shift the
   // layout and move the reading position, and "Hide" must act on what was seen.
@@ -99,6 +102,21 @@ export function ChapterBar({ dramaId, pages, chapters, current, visible, prefs, 
     }
   }
 
+  const mark = async (chapterIds: string[], change: { read?: boolean; bookmarked?: boolean }) => {
+    setBusy(true)
+    setError(null)
+    try {
+      onMarks(await comicApi.markChapters(dramaId, { chapter_ids: chapterIds, ...change }))
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const unreadAt = nextUnread(chapters, at)
+  // The sheet keeps the chapter it was opened on; its marks are read from the live list.
+  const marked = target?.chapter ? chapters.find((c) => c.id === target.chapter?.id) ?? null : null
+
   const sheetPage = target?.page
   const sheetChapter = target?.chapter ?? null
   const chapterHidden = sheetChapter?.hidden_count ?? 0
@@ -113,6 +131,9 @@ export function ChapterBar({ dramaId, pages, chapters, current, visible, prefs, 
             ))}
           </select>
           <button type="button" aria-label="Next chapter" disabled={at < 0 || at >= chapters.length - 1} onClick={() => jump(at + 1)}>›</button>
+          {unreadAt >= 0 && (
+            <button type="button" data-testid="comic-next-unread" onClick={() => jump(unreadAt)}>Next unread</button>
+          )}
         </>
       )}
       {multi && (
@@ -153,6 +174,21 @@ export function ChapterBar({ dramaId, pages, chapters, current, visible, prefs, 
                 onChange={(e) => onPrefs({ ...prefs, chapterOnly: e.target.checked })}
               />
             </Field>
+          )}
+          {marked && (
+            <div className="actions" data-testid="comic-chapter-marks">
+              <button type="button" disabled={busy} onClick={() => void mark([marked.id], { read: !marked.read })}>
+                {marked.read ? 'Mark unread' : 'Mark read'}
+              </button>
+              <button type="button" disabled={busy} onClick={() => void mark([marked.id], { bookmarked: !marked.bookmarked })}>
+                {marked.bookmarked ? 'Remove bookmark' : 'Bookmark'}
+              </button>
+              {(target?.index ?? 0) > 0 && (
+                <button type="button" disabled={busy} onClick={() => void mark(chapters.slice(0, (target?.index ?? 0) + 1).map((c) => c.id), { read: true })}>
+                  Mark this and earlier read
+                </button>
+              )}
+            </div>
           )}
           {open && featureOn('sources', features) && <SourceChapterList dramaId={dramaId} onImported={onChanged} />}
           <p className="muted">
