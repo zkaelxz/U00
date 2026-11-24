@@ -553,9 +553,9 @@ class TestMemberLimitInTheRunBudget:
         cap(10.0)
         with db.spending_for(member):
             db.log_usage(None, "claude", "m", "translate", 1, 1, 0.5)
-        with pytest.raises(UnsupportedOperationError, match="limit for paid engines"):
+        with pytest.raises(UnsupportedOperationError, match="monthly spending limit"):
             self._caps(member)
-        with pytest.raises(UnsupportedOperationError, match="limit for paid engines"):
+        with pytest.raises(UnsupportedOperationError, match="monthly spending limit"):
             self._caps(member, engine="ollama", model="gpt-oss:120b-cloud")
         # Free engines keep working once the limit is used up.
         assert self._caps(member, engine="ollama", model="qwen3:8b") == [None]
