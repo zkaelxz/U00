@@ -21,11 +21,13 @@ import { useEffect, useId, useState } from 'react'
 import { api, hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP, LANGUAGE_MODEL_NOTE,
-  advancedSummary, applyCaptionPreset, buildStartBody, captionPresetModel, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
-  isActive, lagLine, pickEngine, resolveLiveModel, startLive, statusLine, statusTone, type LiveForm,
+  advancedSummary, applyCaptionPreset, buildStartBody, captionPresetModel, checkLiveUrl, chosenForYou, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
+  isActive, lagLine, liveEngineView, pickEngine, resolveLiveModel, startLive, statusLine, statusTone, type LiveForm,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
+import { ChosenForYouNote } from '../components/ChosenForYou'
+import { useChosenForYou } from '../hooks/useChosenForYou'
 import { Field } from '../components/Field'
 import { HelpTip } from '../components/HelpTip'
 import { SettingsMentions } from '../components/SettingLink'
@@ -34,7 +36,7 @@ import { ModelSelect } from '../components/ModelSelect'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
 import { useLivePrefs } from './live/useLivePrefs'
-import { useCloudModelsAllowed, useHolds } from '../hooks/useHolds'
+import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { useReadiness } from '../hooks/useReadiness'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -60,7 +62,7 @@ import { AI_ENGINE_LABEL } from '../helpText'
 import { buttonClass } from '../components/uiClasses'
 import { routeHref } from '../router'
 
-const numValue = (n: number) => (Number.isFinite(n) ? n : '')
+const numValue = (n: number | null) => (n !== null && Number.isFinite(n) ? n : '')
 
 /** "A and B", "A, B and C": engine names as the picker shows them. */
 const listNames = (names: string[]) => {
@@ -111,7 +113,11 @@ export default function LivePage() {
   const pc = usePcOnly()
   // What Start accepts; the built-in copy until the server answers (Start checks again anyway).
   const [opts, setOpts] = useState(LIVE_FORM_FALLBACK)
-  const { prefs, setPrefs, setOpt, changeLanguage } = useLivePrefs(opts)
+  const { prefs: savedPrefs, setPrefs, setOpt, changeLanguage } = useLivePrefs(opts)
+  // Only the stream link, language and glossary are shown; Start sends the server's defaults for the rest.
+  const chosen = useChosenForYou()
+  const auto = chosen.auto
+  const prefs = auto ? chosenForYou(savedPrefs) : savedPrefs
   useEffect(() => {
     let alive = true
     getLiveOptions().then((o) => { if (alive) setOpts(o) }, () => {})
@@ -163,11 +169,12 @@ export default function LivePage() {
   const glossary = glossaryIds(glossaryPick)
 
   const usable = engines ? usableEngines(engines) : []
-  const engine = pickEngine(usable, form.engine, opts.default_engine)
+  // Chosen for the viewer: Live's own default (free for every account), even when this browser's engine list
+  // lacks it, so Start never falls back to a paid engine they may not use; the server says if it isn't ready.
+  const engine = auto ? opts.default_engine : pickEngine(usable, form.engine, opts.default_engine)
 
   const canSwitchThinking = opts.thinking_switch_engines.includes(engine)
-  const cloudAllowed = useCloudModelsAllowed()
-  const { entry: engineEntry, onlyCloud, defaultModel, model, fellBack } = resolveLiveModel(usable.find((e) => e.name === engine), cloudAllowed, form.model, opts)
+  const { entry: engineEntry, onlyCloud, defaultModel, model, fellBack } = resolveLiveModel(usable.find((e) => e.name === engine), form.model, opts)
   const modelNote = enginesFailed
     ? "Couldn't load the model list; the engine's default model will be used."
     : fellBack ? "That model isn't offered any more; the engine's default model will be used." : null
@@ -275,7 +282,7 @@ export default function LivePage() {
                 ))}
               </select>
             </Field>
-            <Field label={AI_ENGINE_LABEL} help="Engines without a key are hidden; add keys in Settings.">
+            {!auto && <Field label={AI_ENGINE_LABEL} help="Engines without a key are hidden; add keys in Settings.">
               <select value={engine} disabled={active || busy || !usable.length} onChange={(e) => setOpt('engine', e.target.value)}>
                 {!usable.length && <option value="">{engines ? '' : 'Loading…'}</option>}
                 {usable.map((en) => (
@@ -285,30 +292,31 @@ export default function LivePage() {
                   </option>
                 ))}
               </select>
-            </Field>
-            {engineEntry && !engineEntry.free && !opts.monthly_cap_set && (
+            </Field>}
+            {!auto && engineEntry && !engineEntry.free && !opts.monthly_cap_set && (
               <SpendLimitField range={opts.spend_limit_range} value={form.spend_limit_usd} disabled={active || busy} onChange={(v) => setOpt('spend_limit_usd', v)} />
             )}
-            <ModelSelect engine={engineEntry} value={model} disabled={active || busy} onChange={(m) => setOpt('model', m)}
+            {!auto && <ModelSelect engine={engineEntry} value={model} disabled={active || busy} onChange={(m) => setOpt('model', m)}
               defaultModel={engine === opts.default_engine ? defaultModel ?? undefined : undefined}
               help={engine === opts.default_engine
                 ? (onlyCloud
                   ? "Runs on Ollama's servers, so the text leaves this PC and the graphics card stays free for Whisper. Pick another engine above for a different service."
                   : 'Runs on this PC through Ollama. Pick another engine above to send the text to a hosted service instead.')
-                : 'Engine default uses the model the engine runs on its own.'} />
+                : 'Engine default uses the model the engine runs on its own.'} />}
           </div>
-          {engines && !usable.length && (
+          {auto && <ChosenForYouNote text="The engine and caption settings are chosen for you." chosen={chosen} testId="live-chosen-note" />}
+          {!auto && engines && !usable.length && (
             <p className="muted" data-testid="live-no-engine-note">
               <a href={routeHref({ name: 'settings' })}>Add a key in Settings</a>
             </p>
           )}
-          {engines && !usable.length && developerMode && (
+          {!auto && engines && !usable.length && developerMode && (
             <p className="muted" data-testid="live-echo-note">Echo (testing) is available in Developer Mode</p>
           )}
           <Field label="Use glossary and packs from"
             help="Optional. The glossary always comes from a series. Pick a series (uses the packs of its newest title that has a pack choice) or a title (uses its series' glossary and its own packs). Terms found in the stream are sent with each translation. Nothing is written to the library.">
             <select value={glossaryPick} disabled={active || busy} data-testid="live-glossary-title"
-              onChange={(e) => setPrefs({ ...prefs, ...glossaryIds(e.target.value) })}>
+              onChange={(e) => setPrefs({ ...savedPrefs, ...glossaryIds(e.target.value) })}>
               <option value="">None</option>
               {glossaryGroups.map((g) => (
                 <optgroup key={g} label={g}>
@@ -321,7 +329,7 @@ export default function LivePage() {
           </Field>
           {ollama.note && <OllamaNote check={ollama} alert={startPressed && !ollama.fitWarning} onStartAnyway={() => void start(undefined, true)} />}
           {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
-          <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(startForm, opts)}>
+          {!auto && <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(startForm, opts)}>
             <div className="preset-note-row">
               <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active || busy}
                 onClick={() => setPrefs(applyCaptionPreset(prefs, 'fast'))}>
@@ -364,9 +372,9 @@ export default function LivePage() {
                 <input type="number" min={opts.overlap_range[0]} max={opts.overlap_range[1]} step={1} value={numValue(form.overlap_seconds)} disabled={active || busy}
                   onChange={(e) => setOpt('overlap_seconds', e.target.valueAsNumber)} />
               </Field>
-              <Field label="Stop after" unit="min" help="A hard cap on how long the session runs (and spends).">
+              <Field label="Stop after" unit="min" help="A hard cap on how long the session runs (and spends). Leave it blank to caption until the stream ends; the spend limit still applies.">
                 <input type="number" min={opts.max_minutes_range[0]} max={opts.max_minutes_range[1]} step={1} value={numValue(form.max_minutes)} disabled={active || busy}
-                  onChange={(e) => setOpt('max_minutes', e.target.valueAsNumber)} />
+                  placeholder="no limit" onChange={(e) => setOpt('max_minutes', Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : null)} />
               </Field>
             </div>
             {opts.whisper_sizes.map((w) => {
@@ -403,7 +411,7 @@ export default function LivePage() {
                 {engineShortName({ name: engine })} can't switch thinking off from here, so this setting doesn't apply to it.
               </p>
             )}
-          </Section>
+          </Section>}
           <div className="actions">
             {active ? (
               <button type="button" className={buttonClass('secondary')} onClick={() => void stop()} disabled={stopping === 'now'} aria-busy={stopping === 'now' || undefined}>
@@ -426,7 +434,7 @@ export default function LivePage() {
             {error}
           </p>
         )}
-        <FollowedChannels liveOptions={followOptions(buildStartBody(startForm, opts))} />
+        <FollowedChannels liveOptions={followOptions(buildStartBody(startForm, opts))} formOptions={opts} engines={engines && usable.map((e) => liveEngineView(e) ?? e)} gpuReason={gpuReason} />
 
         {session && (
           <div className={videoLive ? (theater ? 'live-body has-video theater' : 'live-body has-video') : 'live-body'}>

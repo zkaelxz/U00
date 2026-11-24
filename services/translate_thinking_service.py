@@ -67,8 +67,7 @@ def annotate_estimate(estimate: dict, drama_id: int, thinking, reflect=False) ->
     """Adds whether thinking applies to the estimated run. The estimate is made
     from the visible text, and hidden reasoning is billed as output, so it is
     a lower bound when thinking is on (Ollama is free, so nothing is billed)."""
-    if thinking is None:
-        thinking = get_title_choice(drama_id)
+    thinking = False   # removed option: nothing hidden to bill
     on = effective([estimate.get("engine")], thinking, reflect)
     return {**estimate, "thinking": on,
             "estimate_is_lower_bound": on and not estimate.get("free")}
@@ -80,9 +79,7 @@ def start_with_thinking(start, drama_id: int, thinking, remember: bool, *args, *
     agree whatever the title's file says meanwhile. A start that refuses raises
     before anything is saved; only an accepted run changes the title's choice,
     and only when `remember` allows it."""
-    run_thinking = get_title_choice(drama_id) if thinking is None else bool(thinking)
+    run_thinking = False   # "Think harder" was removed: a request or saved choice is ignored
     started = start(drama_id, *args, thinking=run_thinking, **kwargs)
-    if remember:
-        save_title_choice(drama_id, thinking)
     chain = [started.get("engine")] + list(started.get("fallback_engines") or [])
     return {**started, "thinking": effective(chain, run_thinking, started.get("reflect"))}

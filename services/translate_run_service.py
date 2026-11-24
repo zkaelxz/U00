@@ -295,6 +295,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
     """line_ids (optional): estimate only these lines (of those the run
     would translate). batch_size (optional): the run's own batch size, which
     sets how many times the instructions are sent; omitted, the engine's default."""
+    reflect = reflect and engine_registry.REFLECT_RUNS_ENABLED
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = ownership_service.require_drama(drama_id)
     line_ids = translate_run_options.chapter_line_ids(drama_id, chapter_from, chapter_to, line_ids)
@@ -500,6 +501,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
     engine), DependencyUnavailableError (no key), ConflictError (already
     running). gemini_free_tier None means the saved Settings value.
     chapter_from / chapter_to (1-based): line_ids for those chapters' lines, the rest only context."""
+    reflect = reflect and engine_registry.REFLECT_RUNS_ENABLED
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = ownership_service.require_drama(drama_id)
     line_ids = translate_run_options.chapter_line_ids(drama_id, chapter_from, chapter_to, line_ids)
@@ -728,7 +730,8 @@ def _build_engine_chain(engine_name, model, fallback_chain, gemini_free_tier, jo
         if free_tier and c["model"] in engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS:
             raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
         cap = None
-        if engine_cap_applies(name, gemini_free_tier, c["model"]):
+        # An omitted model runs the engine's default, which may be a hosted tag every account may use.
+        if engine_cap_applies(name, gemini_free_tier, c["model"] or engine_registry.effective_default_model(name)):
             cap, refusal = pricing.resolve_cost_cap(
                 job_cost_cap_usd, monthly_cap, month_spend)
             if refusal:

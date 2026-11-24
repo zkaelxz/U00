@@ -59,6 +59,8 @@
 	# before it reads the body (api/remote_uploads.py). The extension's
 	# /api/ext-bridge/page and /pages carry up to 12 base64 images: the app
 	# checks the device token first, then counts the body against its own cap.
+	# /api/translate/read-image takes a picture up to the app's 30 MB image cap
+	# from any member who may start work, counted the same way.
 	@not_upload not {
 		method POST
 		path /api/dramas/*/cover
@@ -69,6 +71,7 @@
 		path /api/novel/dramas/*/reference /api/novel/dramas/*/reference/text
 		path /api/scanlate/dramas/*/pages
 		path /api/ext-bridge/page /api/ext-bridge/pages
+		path /api/translate/read-image
 	}
 	request_body @not_upload {
 		max_size 8MB
@@ -197,7 +200,6 @@
 		path /api/voices/*/*/clear /api/voices/*/*/retrain /api/voices/*/*/remove-sample
 		path /api/language-packs/defaults/*
 		path /api/vdb-names/fetch
-		path /api/translate/read-image /api/translate/read-image/estimate
 	}
 	@pc_only_delete {
 		method DELETE

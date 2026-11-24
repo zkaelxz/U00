@@ -100,6 +100,22 @@ def _admin_anywhere(principal) -> bool:
     return bool(principal.get("is_admin"))
 
 
+def sees_private_voices(principal) -> bool:
+    """Private voice bank entries are for admins (at the PC or away); the PC's Guest
+    profile narrows to a member's view like it does for titles."""
+    return _sees_everything(principal) and not guest_view(principal)
+
+
+def visible_voice_entries(principal, entries: list) -> list:
+    if sees_private_voices(principal):
+        return entries
+    return [e for e in entries if not e.get("is_private")]
+
+
+def can_see_voice_entry(principal, entry: dict | None) -> bool:
+    return entry is not None and (sees_private_voices(principal) or not entry.get("is_private"))
+
+
 def _everything(principal, writing: bool) -> bool:
     return may_override(principal) if writing else _sees_everything(principal)
 

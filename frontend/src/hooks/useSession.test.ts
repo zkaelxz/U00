@@ -4,7 +4,7 @@ import type { AuthMe } from '../api/auth'
 import { ApiError, getJson } from '../api/client'
 import { RUN_KEY_PREFIX, writeStored } from './useStoredRun'
 import {
-  canReadSettings, canSignOut, cancelsAnyJob, gateView, getSession, isRemoteAdmin, loadSession, markSignedOut, ME_RETRY_MS, menuUser, recheckSession,
+  canReadSettings, canSignOut, cancelsAnyJob, gateView, getSession, isMember, isRemoteAdmin, pickedForYou, loadSession, markSignedOut, ME_RETRY_MS, menuUser, recheckSession,
   resetSessionForTests, sessionExpired, signOut, subscribeSession,
   type SessionState,
 } from './useSession'
@@ -241,6 +241,35 @@ describe('isRemoteAdmin', () => {
     expect(isRemoteAdmin(ready({ auth_enabled: false }))).toBe(false)
     expect(isRemoteAdmin({ status: 'unavailable' })).toBe(false)
     expect(isRemoteAdmin({ status: 'loading' })).toBe(false)
+  })
+})
+
+describe('isMember', () => {
+  it('is a signed-in account that is neither an admin nor the PC owner', () => {
+    expect(isMember(ready({ user: { ...user, is_admin: false } }))).toBe(true)
+  })
+  it('is not an admin, the PC owner, auth off, signed out, or unknown', () => {
+    expect(isMember(ready())).toBe(false)
+    expect(isMember(ready({ user: { ...user, is_admin: false, is_local_owner: true } }))).toBe(false)
+    expect(isMember(ready({ auth_enabled: false, user: { ...user, is_admin: false } }))).toBe(false)
+    expect(isMember(ready({ signed_in: false, user: { ...user, is_admin: false } }))).toBe(false)
+    expect(isMember({ status: 'unavailable' })).toBe(false)
+  })
+})
+
+describe('pickedForYou', () => {
+  it('picks for a member anywhere and for anyone away from the PC', () => {
+    const member = ready({ user: { ...user, is_admin: false } })
+    expect(pickedForYou(member, 'local')).toBe('member')
+    expect(pickedForYou(member, 'remote')).toBe('member')
+    expect(pickedForYou(ready(), 'remote')).toBe('away')
+  })
+  it('leaves the pickers to an admin at the PC, the PC owner, and auth off', () => {
+    expect(pickedForYou(ready(), 'local')).toBeNull()
+    expect(pickedForYou(ready(), 'unknown')).toBeNull()
+    expect(pickedForYou(ready({ user: { ...user, is_admin: false, is_local_owner: true } }), 'local')).toBeNull()
+    expect(pickedForYou(ready({ auth_enabled: false }), 'local')).toBeNull()
+    expect(pickedForYou(ready({ auth_enabled: false }), 'remote')).toBeNull()
   })
 })
 

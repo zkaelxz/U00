@@ -51,7 +51,7 @@ export function followOptions(b: LiveSessionStart): LiveFollowOptions {
     whisper_size: b.whisper_size,
     engine: b.engine ?? null,
     model: b.model ?? null,
-    max_minutes: Math.round(b.max_minutes ?? DEFAULT_FOLLOW_MAX_MINUTES),
+    max_minutes: b.max_minutes === null ? null : Math.round(b.max_minutes ?? DEFAULT_FOLLOW_MAX_MINUTES),
     use_gpu: b.use_gpu,
     glossary_drama_id: b.glossary_drama_id ?? null,
     series_id: b.series_id ?? null,
@@ -60,7 +60,7 @@ export function followOptions(b: LiveSessionStart): LiveFollowOptions {
 
 /** One line naming a follow's saved Live options. */
 export function optionsSummary(o: LiveFollowOptions): string {
-  return `${o.source_language} · ${o.engine || 'Ollama'}${o.model ? ` ${o.model}` : ''} · Whisper ${o.whisper_size} · ${o.use_gpu ? 'GPU' : 'CPU'} · stop after ${o.max_minutes} min`
+  return `${o.source_language} · ${o.engine || 'Ollama'}${o.model ? ` ${o.model}` : ''} · Whisper ${o.whisper_size} · ${o.use_gpu ? 'GPU' : 'CPU'} · ${o.max_minutes === null ? 'no time limit' : `stop after ${o.max_minutes} min`}`
 }
 
 /** Why Follow can't be pressed with this text yet, or null. The server checks again. */
@@ -76,6 +76,26 @@ export function checkChannelInput(text: string): string | null {
     return 'Paste a YouTube or Twitch channel link or an @handle.'
   }
   if (!HOSTS.includes(parsed.hostname.toLowerCase())) return 'Only YouTube and Twitch channels can be followed.'
+  return null
+}
+
+// Channels one paste may follow, so a stray paste of a whole page can't queue hundreds of adds.
+export const MAX_CHANNELS_PER_ADD = 50
+
+/** The channels in the box: one per line (spaces and commas also separate them), duplicates dropped. */
+export function splitChannels(text: string): string[] {
+  return [...new Set(text.split(/[\s,]+/).filter(Boolean))]
+}
+
+/** Why Follow can't be pressed with this box yet, or null. Names the first bad line. */
+export function checkChannelsInput(text: string): string | null {
+  const channels = splitChannels(text)
+  if (!channels.length) return checkChannelInput('')
+  if (channels.length > MAX_CHANNELS_PER_ADD) return `Up to ${MAX_CHANNELS_PER_ADD} channels at a time.`
+  for (const c of channels) {
+    const why = checkChannelInput(c)
+    if (why) return channels.length > 1 ? `${c}: ${why}` : why
+  }
   return null
 }
 

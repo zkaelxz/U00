@@ -666,7 +666,7 @@ COPIED = {
                "include_genre_notes", "whisper_repeat_guard", "split_by_sentences",
                "vocabulary_hint", "translate_thinking", "source_url_full", "keep_original",
                "translate_by_sentence", "translate_start_json", "transcribe_start_json", "release_date",
-               "difficult_audio", "ass_styles", "episode_brief"},
+               "difficult_audio", "ass_styles", "episode_brief", "topic_chapters"},
     "lines": {"idx", "start", "end", "zh", "en", "speaker", "flag", "flag_note",
               "speaker_manual", "sfx", "lang", "word_timings", "reviewed", "ass_event", "confidence"},
     "characters": {"speaker_label", "character_name", "voice_actor", "tts_voice", "offline_voice",
@@ -1529,6 +1529,19 @@ def test_voice_bank_comes_in_when_asked_and_a_same_entry_is_skipped(local_client
     assert hero["notes"] == "calm"
     with open(db.voice_bank_clip_path(hero["clip_filename"]), "rb") as fh:
         assert fh.read() == b"hero"
+
+
+def test_a_private_voice_stays_private_on_import(local_client, tmp_path):
+    a, b, g = _world()
+    private = db.save_voice_bank_entry("Secret", _bank_clip(tmp_path, "s.wav", b"secret"))
+    db.save_voice_bank_entry("Open", _bank_clip(tmp_path, "o.wav", b"open"))
+    db.set_voice_bank_private(private, True)
+    data = _manual_zip()
+    for entry in db.list_voice_bank_entries():
+        db.delete_voice_bank_entry(entry["id"])
+    r = _post_import(local_client, data, [g], voice_bank="true")
+    assert r.status_code == 200, r.text
+    assert {e["name"]: e["is_private"] for e in db.list_voice_bank_entries()} == {"Secret": 1, "Open": 0}
 
 
 def test_a_renamed_entry_is_not_imported_again(local_client, tmp_path):

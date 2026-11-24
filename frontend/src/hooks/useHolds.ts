@@ -13,6 +13,10 @@ export function useHolds(permission: string): boolean {
   return !s.me.auth_enabled || s.me.permissions.includes(permission)
 }
 
+// Hosted Ollama models every account may run on the PC's Ollama account, without
+// engines.paid (owner decision 2026-11-24). Mirrors engine_backends/local.py MEMBER_CLOUD_MODELS.
+export const MEMBER_CLOUD_MODELS: readonly string[] = ['gemma4:31b-cloud']
+
 // Ollama cloud models: with engines.paid they use the PC's own Ollama account;
 // with their own key saved in Settings, a member uses theirs instead.
 export function useCloudModelsAllowed(): boolean {

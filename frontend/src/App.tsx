@@ -65,6 +65,7 @@ const SeriesPage = lazy(() => import('./pages/series/SeriesPage'))
 const SeriesListPage = lazy(() => import('./pages/series/SeriesList'))
 const SettingsPage = lazy(() => import('./pages/Settings'))
 const SourcesPage = lazy(() => import('./pages/Sources'))
+const UpdatesPage = lazy(() => import('./pages/Updates'))
 const MakeSubtitlesPage = lazy(() => import('./pages/MakeSubtitlesPage'))
 const TranslatePage = lazy(() => import('./pages/Translate'))
 const WorkspaceShell = lazy(() => import('./pages/workspace/WorkspaceShell'))
@@ -379,10 +380,11 @@ export default function App() {
       {route.name === 'translate' && <TranslatePage />}
       {route.name === 'make-subtitles' && <MakeSubtitlesPage />}
       {(route.name === 'sources' || route.name === 'sources-manage') && featureOn('sources', features) && (
-        <SourcesPage tab={route.name === 'sources' ? route.tab : 'manage'} sharedUrl={route.name === 'sources' ? route.url : undefined} area={route.name === 'sources-manage' ? route.tab : undefined} />
+        <SourcesPage tab={route.name === 'sources' ? route.tab : 'manage'} sharedUrl={route.name === 'sources' ? route.url : undefined} openSeries={route.name === 'sources' ? route.open : undefined} area={route.name === 'sources-manage' ? route.tab : undefined} />
       )}
       {route.name === 'discover' && <DiscoverPage />}
       {route.name === 'live' && <LivePage />}
+      {route.name === 'updates' && <UpdatesPage />}
       {route.name === 'diagnostics' && <DiagnosticsPage />}
       {route.name === 'assistant' && <AssistantPage />}
       {route.name === 'benchmark' && <BenchmarkPage compare={route.compare} />}

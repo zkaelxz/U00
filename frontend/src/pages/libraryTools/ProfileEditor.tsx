@@ -172,9 +172,7 @@ export function ProfileEditor({ data, initial, existing, onSaved, onCancel }: {
         <div className="field-row">
           <Field label="Genre notes in the prompt"><Toggle checked={f.genre_notes} onChange={(v) => set('genre_notes', v)} /></Field>
           <Field label="Default to she/her"><Toggle checked={f.female_pronouns} onChange={(v) => set('female_pronouns', v)} /></Field>
-          <Field label="Reflect"><Toggle checked={f.reflect} onChange={(v) => set('reflect', v)} /></Field>
           <Field label="Bulk"><Toggle checked={f.bulk} onChange={(v) => set('bulk', v)} /></Field>
-          <Field label="Think harder"><Toggle checked={f.thinking} onChange={(v) => set('thinking', v)} /></Field>
         </div>
         <div className="field-row">
           <Field label="Batch size" help="Blank = the engine's default."><input inputMode="numeric" value={f.batch_size} onChange={(e) => set('batch_size', e.target.value)} /></Field>

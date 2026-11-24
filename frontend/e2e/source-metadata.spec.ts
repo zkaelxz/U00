@@ -99,3 +99,53 @@ test('analyze media shows resolution, subtitle tracks, the suggested steps, and 
   await expect(page.getByRole('button', { name: 'Use this content type' })).toHaveCount(0)
   await expect(page.getByTestId('analysis-suggestion')).toContainText('This title already uses it.')
 })
+
+test('an embedded text subtitle track can be imported from Analyze media; a picture track is read with OCR', async ({ page }) => {
+  const calls: string[] = []
+  await page.route('**/api/media/dramas/1/status', (route) =>
+    route.fulfill({ json: { drama_id: 1, has_audio: true, has_source_video: true, upload_max_mb: 500 } }),
+  )
+  await page.route('**/api/metadata/dramas/1/analyze-media', (route) =>
+    route.fulfill({
+      json: {
+        drama_id: 1, duration_seconds: 60, has_video: true, has_audio: true, audio_track_count: 1, sample_rate: 48000,
+        subtitle_tracks: [
+          { index: 2, codec: 'subrip', language: 'chi', importable: true },
+          { index: 3, codec: 'hdmv_pgs_subtitle', language: 'jpn', importable: false, picture: true },
+        ],
+        suggested_pipeline: ['Import existing subtitle track (chi, jpn) instead of transcribing'],
+      },
+    }),
+  )
+  await page.route('**/api/subtitle-import/dramas/1/track/preview', (route) => {
+    calls.push('preview')
+    return route.fulfill({
+      json: {
+        format: 'srt', encoding: 'utf-8', encoding_guessed: false, cue_count: 2, duration_seconds: 4, detected_language: null,
+        bilingual_suspected: false, problems: [], blocking: false, sample: [], mode: 'source', existing_line_count: 0,
+        unsplit_cues: 0, replaces_lines: 0, kept_lines: 0, notes_removed: 0, matched_lines: 0, unmatched_cues: 0,
+        overwrites: 0, blocked_reason: null,
+      },
+    })
+  })
+  await page.route('**/api/subtitle-import/dramas/1/track/apply', (route) => {
+    calls.push(JSON.stringify(route.request().postDataJSON()))
+    return route.fulfill({
+      json: { mode: 'source', format: 'srt', encoding: 'utf-8', lines_written: 2, line_ids: [1, 2], replaced_lines: 0, kept_lines: 0, matched_lines: 0, unmatched_cues: 0, undo: null },
+    })
+  })
+  await page.goto('/#/drama/1/source')
+  await openFillIn(page, 'From the audio')
+  await page.getByRole('button', { name: 'Analyze media' }).click()
+  const tracks = page.getByTestId('analysis-tracks')
+  await expect(tracks).toContainText('is made of pictures')
+  await page.route('**/api/subtitle-import/dramas/1/picture-track/read', (route) => {
+    calls.push(`picture ${JSON.stringify(route.request().postDataJSON())}`)
+    return route.fulfill({ json: { job_id: 'picsub_1', drama_id: 1 } })
+  })
+  await tracks.getByRole('button', { name: /Import Chinese SubRip track/ }).click()
+  await page.getByRole('button', { name: 'Import now' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Imported 2 lines.' })).toBeVisible()
+  await tracks.getByRole('button', { name: /Read Japanese PGS/ }).click()
+  await expect.poll(() => calls).toEqual(['preview', '{"track_index":2,"confirm_replace_lines":false}', 'picture {"track_index":3,"confirm_replace_lines":false}'])
+})

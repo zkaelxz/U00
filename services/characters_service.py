@@ -39,6 +39,7 @@ import time
 import unicodedata
 
 from lib import ids as lib_ids
+from lib.acting import acting_principal
 import db
 from voice import dub
 import translation_guide as tguide
@@ -46,7 +47,7 @@ from db import (apply_voice_bank_entry as _db_apply_voice_bank_entry, drama_dir,
                 get_voice_bank_entry, list_characters_with_series_names,
                 list_series_characters as _db_list_series_characters,
                 list_voice_bank_entries, load_lines, upsert_character)
-from services import drama_service
+from services import drama_service, ownership_service
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 
 log = logging.getLogger(__name__)
@@ -259,9 +260,9 @@ def get_clone_engine_options(drama_id: int) -> dict:
             "engines": engines}
 
 
-def list_voice_bank() -> list:
+def list_voice_bank(principal=None) -> list:
     """Voice bank picklist (alphabetical): metadata only, never the clip
-    filename or path."""
+    filename or path. Private voices only for those who may see them."""
     return [{
         "id": e["id"],
         "name": e["name"],
@@ -270,10 +271,10 @@ def list_voice_bank() -> list:
         "language": e.get("language") or "",
         "notes": e.get("notes") or "",
         "ref_text_present": bool((e.get("ref_text") or "").strip()),
-    } for e in list_voice_bank_entries()]
+    } for e in ownership_service.visible_voice_entries(principal, list_voice_bank_entries())]
 
 
-def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int) -> dict:
+def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int, principal=None) -> dict:
     """db.apply_voice_bank_entry copies the
     bank's clip into this drama's own folder and sets the speaker's
     ref audio / ref_text / clone_engine / voice_design (only this
@@ -294,7 +295,8 @@ def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int
     if speaker_label not in known_speakers(drama_id):
         raise NotFoundError("No such speaker in this title.")
     entry = get_voice_bank_entry(voice_bank_id)
-    if entry is None:
+    # A private voice answers like a missing one so a member can't probe which ids exist.
+    if entry is None or not ownership_service.can_see_voice_entry(principal, entry):
         raise NotFoundError(f"No voice bank entry with id {voice_bank_id}.")
     if db.voice_bank_clip_path(entry.get("clip_filename") or "") is None:
         raise NotFoundError("That voice bank entry's audio clip is missing.")
@@ -338,6 +340,10 @@ def apply_series_voice(drama_id: int, speaker_label: str) -> bool:
         entry = get_voice_bank_entry(entry_id)
         if entry is None or db.voice_bank_clip_path(entry.get("clip_filename") or "") is None:
             return _series_voice_skipped(drama_id, f"bank entry {entry_id} or its clip is missing")
+        # Background runs have no acting principal, so a private voice is skipped there too.
+        acting = acting_principal()
+        if entry.get("is_private") and not (acting and ownership_service.sees_private_voices(acting)):
+            return _series_voice_skipped(drama_id, f"bank entry {entry_id} is private")
         engine = entry.get("clone_engine") or ""
         if engine and not dub.clone_engine_supports_language(engine, _source_language(drama)):
             return _series_voice_skipped(drama_id, f"{engine} can't speak the title's language")

@@ -562,11 +562,14 @@ class TestModelOverrides:
         item = self._default_item("deepseek")
         assert item["candidates"] == ["deepseek-v4-pro"]
 
-    def test_ollama_default_can_be_switched_to_another_picker_model(self, isolated_db):
-        item = self._default_item("ollama")
-        assert item["candidates"] == ["translategemma:12b"]
-        svc.set_model_override("default", "ollama", item["model"], "translategemma:12b")
-        assert engine_registry.get_engine("ollama", None).model == "translategemma:12b"
+    def test_ollama_has_no_local_picker_model_to_switch_to(self, isolated_db):
+        assert self._default_item("ollama")["candidates"] == []
+
+    def test_a_saved_removed_local_default_falls_back_to_the_builtin(self, isolated_db):
+        isolated_db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY,
+                                    {"ollama": "translategemma:27b"})
+        assert engine_registry.model_override_for_default("ollama") is None
+        assert engine_registry.get_engine("ollama", None).model == "gemma4:31b-cloud"
 
 
 def test_an_oversized_model_list_is_refused(monkeypatch):

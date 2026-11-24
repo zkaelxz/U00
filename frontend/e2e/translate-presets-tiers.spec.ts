@@ -15,7 +15,7 @@ test('applying a tier fills the form and starts nothing', async ({ page }) => {
     await route.fulfill({
       json: {
         drama_id: 1, tier: 'release', label: 'Release -- best quality, checked before export',
-        translation_engine: 'claude', engine_model: 'claude-opus-5-5', reflect: true, auto_qc: true,
+        translation_engine: 'claude', engine_model: 'claude-opus-5-5', reflect: false, auto_qc: true,
       },
     })
   })
@@ -33,7 +33,7 @@ test('applying a tier fills the form and starts nothing', async ({ page }) => {
 
   await expect(run.getByLabel('AI engine', { exact: true })).toHaveValue('claude')
   await run.getByText('More options', { exact: true }).click()
-  await expect(run.getByRole('switch', { name: 'Check and revise (3 passes)', exact: true })).toBeChecked()
+  await expect(run.getByRole('switch', { name: 'Check and revise (3 passes)' })).toHaveCount(0)
   expect(runs).toEqual([])
   await page.screenshot({ path: 'test-results/translate-tier-applied.png', fullPage: true })
 })

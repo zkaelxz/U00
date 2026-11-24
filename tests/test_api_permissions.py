@@ -794,7 +794,6 @@ class TestPaidEngines:
         did = db.create_drama(title_en="T", source_language="zh")   # the B2 guard 404s a missing one
         url = f"/api/translate-run/dramas/{did}/run"
         assert c.post(url, json={"engine": "claude"}, headers=_h(s)).status_code == 403
-        assert c.post(url, json={}, headers=_h(s)).status_code == 403   # default: maybe paid
         assert c.post(url, json={"engine": "ollama",
                                  "fallback_chain": [{"engine": "claude"}]},
                       headers=_h(s)).status_code == 403
@@ -809,6 +808,7 @@ class TestPaidEngines:
         ("glossary-affected/run", {"line_ids": [1], "preview_hash": "x"}),
         ("source-changed/run", {"line_ids": [1]}),
         ("retry-failed/run", {}),
+        ("chapters/1/retranslate/run", {}),
     ])
     def test_default_engine_run_passes_the_checked_engine_on(self, isolated_db, monkeypatch,
                                                              path, body):
@@ -824,7 +824,15 @@ class TestPaidEngines:
         _u, s = _user()
         did = db.create_drama(title_en="T", source_language="zh")
         url = f"/api/translate-run/dramas/{did}/{path}"
-        assert c.post(url, json=body, headers=_h(s)).status_code == 403   # default is paid
+        # A paid default the caller may not use runs on Ollama: its own default model while the
+        # owner keeps hosted models out of defaults, the model every account may use once allowed.
+        db.set_app_setting("pref.ollama_cloud_default", False)
+        assert c.post(url, json=body, headers=_h(s)).status_code == 409
+        assert (seen["engine_name"], seen["model"]) == ("ollama", None)
+        db.set_app_setting("pref.ollama_cloud_default", True)
+        assert c.post(url, json=body, headers=_h(s)).status_code == 409
+        assert (seen["engine_name"], seen["model"]) == ("ollama", "gemma4:31b-cloud")
+        db.set_app_setting("pref.ollama_cloud_default", False)
         db.update_drama(did, translation_engine="ollama")
         assert c.post(url, json=body, headers=_h(s)).status_code == 409
         # The service must run what was checked, not re-read the title's engine.

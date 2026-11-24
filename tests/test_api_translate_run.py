@@ -53,8 +53,7 @@ def test_estimate_validation(local_client):
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "validation_error"
     r = local_client.get(f"{BASE}/{did}/estimate", params={"engine": "fake_mt", "reflect": "true"})
-    assert r.status_code == 400
-    assert "error" in r.json()
+    assert r.status_code == 200   # Check and revise was removed: the flag is ignored, not refused
     r = local_client.get(f"{BASE}/{did}/estimate", params={"job_cost_cap_usd": -1})
     assert r.status_code == 422
     for bad in (0, 1000):
@@ -187,7 +186,7 @@ def test_offered_or_default_models_pass_the_check():
     from services import translate_run_service as svc
     from lib.errors import InvalidInputError
     svc._require_offered_model("fake", None)
-    svc._require_offered_model("ollama", next(iter(local.OLLAMA_MODELS)))
+    svc._require_offered_model("ollama", local.OLLAMA_DEFAULT_MODEL)
     svc._require_offered_model("claude", next(iter(pricing.CLAUDE_MODELS)))
     svc._require_offered_model("deepseek", engine_registry.effective_default_model("deepseek"))
     with pytest.raises(InvalidInputError):

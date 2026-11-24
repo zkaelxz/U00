@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { updateDramaMetadata } from '../../../api/library'
+import { applyTrack, previewTrack, readPictureTrack } from '../../../api/subtitleImport'
+import { useJob } from '../../../hooks/useJob'
+import { useHolds } from '../../../hooks/useHolds'
 import { analyzeMedia, applyMetadata, listPlatforms, suggestMetadata } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
@@ -21,8 +24,11 @@ import {
   defaultSelection,
   pipelineSteps,
   suggestionRows,
+  trackName,
   type SuggestionRow,
 } from '../metadataForm'
+import { confirmLabel, fileSummary, impactLine, needsConfirm } from './subtitleImportModel'
+import type { SubtitleImportPreview } from '../../../types/subtitleImport'
 import { useStage } from '../StageContext'
 import { ResearchPanel } from './ResearchPanel'
 import './preamble.css'
@@ -169,6 +175,119 @@ function AutofillBody({ arrived }: { arrived: boolean }) {
   )
 }
 
+// A picture track (PGS, DVD) is read with OCR in a background job, which can take a while on a long video.
+function PictureTrackRead({ index, track }: { index: number; track: { codec: string; language: string | null } }) {
+  const { dramaId, drama, refetchDrama } = useStage()
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const { job, done } = useJob(jobId, { onDone: () => refetchDrama() })
+  const hasLines = (drama.line_count ?? 0) > 0
+  const running = starting || (jobId !== null && !done)
+  const start = () => {
+    setStarting(true)
+    readPictureTrack(dramaId, index, confirmed).then(
+      (r) => { setError(null); setStarting(false); setJobId(r.job_id) },
+      (e: unknown) => { setError(e); setStarting(false) },
+    )
+  }
+  return (
+    <div className="source-suggestion" data-testid={`picture-track-${index}`}>
+      <p className="muted">
+        {trackName(track)} is made of pictures. Baihe can read it with OCR (it may take a few minutes and can
+        misread a character); caption times are accurate to about half a second.
+      </p>
+      {hasLines && (
+        <label className="check">
+          <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+          Replace the {drama.line_count} current lines (saved to history first)
+        </label>
+      )}
+      <button
+        type="button"
+        className={buttonClass('secondary', 'sm')}
+        disabled={running || (hasLines && !confirmed)}
+        onClick={start}
+      >
+        Read {trackName(track)} track
+      </button>
+      {job && !done && <p role="status">{job.message || 'Reading picture subtitles…'}</p>}
+      {job && done && <p role="status">{job.outcome_message || 'Picture subtitles read. The previous text is saved to history.'}</p>}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
+    </div>
+  )
+}
+
+// "Import this track" for a subtitle track inside the media file: reads it,
+// shows what it would do, then writes it as the title's lines.
+function TrackImport({ track }: { track: { index: number | null; codec: string; language: string | null; importable?: boolean; picture?: boolean } }) {
+  const { dramaId, refetchDrama } = useStage()
+  const canEdit = useHolds('lines.edit')
+  const [preview, setPreview] = useState<SubtitleImportPreview | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const index = track.index
+  if (index === null) return null
+  if (track.picture) return canEdit ? <PictureTrackRead index={index} track={track} /> : null
+  if (!track.importable) return null
+  if (!canEdit) return null
+  const check = () => {
+    setBusy(true)
+    setDone(null)
+    setConfirmed(false)
+    previewTrack(dramaId, index).then(
+      (p) => { setError(null); setPreview(p); setBusy(false) },
+      (e: unknown) => { setError(e); setPreview(null); setBusy(false) },
+    )
+  }
+  const confirmKind = preview ? needsConfirm(preview) : null
+  const run = () => {
+    setBusy(true)
+    applyTrack(dramaId, index, confirmKind === 'replace' && confirmed).then(
+      (r) => {
+        setError(null)
+        setPreview(null)
+        setBusy(false)
+        setDone(`Imported ${r.lines_written} line${r.lines_written === 1 ? '' : 's'}. The previous text is saved to history.`)
+        refetchDrama()
+      },
+      (e: unknown) => { setError(e); setBusy(false) },
+    )
+  }
+  return (
+    <div className="source-suggestion" data-testid={`track-import-${index}`}>
+      <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy} onClick={check}>
+        Import {trackName(track)} track
+      </button>
+      {preview && (
+        <>
+          <p>{fileSummary(preview)}</p>
+          <p>{impactLine(preview)}</p>
+          {confirmKind === 'replace' && (
+            <label className="check">
+              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+              {confirmLabel(preview)}
+            </label>
+          )}
+          <button
+            type="button"
+            className={buttonClass('primary', 'sm')}
+            disabled={busy || preview.blocking || !!preview.blocked_reason || (!!confirmKind && !confirmed)}
+            onClick={run}
+          >
+            Import now
+          </button>
+        </>
+      )}
+      {done && <p role="status">{done}</p>}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
+    </div>
+  )
+}
+
 function AnalyzeBody({ hasMedia, onNeedMedia }: { hasMedia: boolean; onNeedMedia?: () => void }) {
   const { dramaId, drama, refetchDrama } = useStage()
   const [result, setResult] = useState<MediaAnalysis | null>(null)
@@ -253,6 +372,11 @@ function AnalyzeBody({ hasMedia, onNeedMedia }: { hasMedia: boolean; onNeedMedia
               ) : (
                 result.content_type_guess === drama.media_type && <p className="muted">This title already uses it.</p>
               )}
+            </div>
+          )}
+          {result && (result.subtitle_tracks ?? []).length > 0 && (
+            <div data-testid="analysis-tracks">
+              {(result.subtitle_tracks ?? []).map((t, i) => <TrackImport key={t.index ?? i} track={t} />)}
             </div>
           )}
           {result && (result.suggested_pipeline ?? []).length > 0 && (

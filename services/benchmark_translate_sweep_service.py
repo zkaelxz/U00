@@ -15,7 +15,6 @@ import db
 from engine_backends import engine_registry, pricing
 from engine_backends import local as engine_local
 import translation_guide
-from engine_backends.engine_registry import CAP_INSTRUCTIONS, engine_capabilities
 from engine_backends.temperature import TEMPERATURE_ENGINES
 from jobs import job_launch
 from services import benchmark_lab_service as lab
@@ -41,7 +40,6 @@ KNOBS = (
     ("batch_size", "Batch size", (15, 30, 60)),
     ("context_window", "Context lines before", (3, 6, 10, 20)),
     ("context_window_ahead", "Context lines after", (1, 3, 6, 10)),
-    ("reflect", "Reflect", (False, True)),
     ("style_preset", "Style preset", None),
     ("memory_examples", "Translation-memory examples", (False, True)),
     ("temperature", "Temperature", (None, 0.3)),
@@ -104,8 +102,7 @@ class _Plan:
         self.knobs = [{"key": key, "label": label, "included": True, "reason": None,
                        "values": list(values if values is not None else translation_guide.STYLE_PRESETS)}
                       for key, label, values in KNOBS
-                      if (key != "reflect" or CAP_INSTRUCTIONS in engine_capabilities(engine))
-                      and (key != "memory_examples" or series_id)
+                      if (key != "memory_examples" or series_id)
                       and (key != "temperature" or engine in TEMPERATURE_ENGINES)]
         self._identity, self._configs = {}, {}
         context = lab.run_context(STAGE, self.config(self.default), cases, False)

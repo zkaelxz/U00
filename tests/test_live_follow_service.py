@@ -127,10 +127,21 @@ def test_members_see_only_their_own_follows_and_others_are_404(follows):
         with pytest.raises(NotFoundError):
             call()
     assert live_follow_store.get(b["id"]) is not None
-    # The local owner and admins see everyone's (the existing ownership rules).
-    assert len(svc.list_follows(OWNER)["items"]) == 2
-    assert len(svc.list_follows(REMOTE_ADMIN)["items"]) == 2
-    assert all(not f["mine"] for f in svc.list_follows(REMOTE_ADMIN)["items"])
+
+
+def test_the_owner_lists_only_the_owners_follows(follows, monkeypatch):
+    """A member's channels never fill the owner's list: the PC, auth off
+    and the admin accounts are the owner, everyone else is someone else."""
+    import db
+    monkeypatch.setattr(db, "auth_list_users", lambda: [
+        {"id": 1, "is_admin": 1}, {"id": 2, "is_admin": 1}, {"id": 11, "is_admin": 0}])
+    pc = svc.add_follow("@pc_ch", principal=OWNER)["id"]
+    away = svc.add_follow("@away_ch", principal=REMOTE_ADMIN)["id"]
+    svc.add_follow("@alice_ch", principal=ALICE)
+    for who in (OWNER, PC_ADMIN, REMOTE_ADMIN, None):
+        items = svc.list_follows(who)["items"]
+        assert sorted(f["id"] for f in items) == [pc, away]
+    assert [f["channel"] for f in svc.list_follows(ALICE)["items"]] == ["@alice_ch"]
 
 
 def test_an_admin_away_from_the_pc_changes_only_their_own(follows):
@@ -178,6 +189,11 @@ def test_auto_start_is_the_pc_owners_only_and_only_on_their_own(follows):
     assert svc.list_follows(OWNER)["can_auto_start"] is True
     assert svc.list_follows(ALICE)["can_auto_start"] is False
     assert svc.list_follows(REMOTE_ADMIN)["can_auto_start"] is False
+
+
+def test_a_follow_can_have_no_time_limit(follows, isolated_db):
+    v = svc.add_follow("@name", principal=OWNER, options={"engine": "fake", "max_minutes": None})
+    assert v["options"]["max_minutes"] is None
 
 
 def test_options_are_bounded_like_a_live_start(follows, isolated_db):
@@ -250,8 +266,11 @@ def test_check_all_queues_only_what_the_caller_may_change(follows):
     assert svc.check_all(ALICE, now=1030.0) == {"queued": 1, "skipped": 1}
     assert live_follow_poller._requested == [a1]
     assert svc.check_all(REMOTE_ADMIN, now=1030.0) == {"queued": 0, "skipped": 0}
-    assert svc.check_all(OWNER, now=1030.0) == {"queued": 1, "skipped": 2}
-    assert live_follow_poller._requested == [a1, b]
+    # The owner's Check all covers the owner's list, not the members' channels.
+    assert svc.check_all(OWNER, now=1030.0) == {"queued": 0, "skipped": 0}
+    mine = svc.add_follow("@owner_ch", principal=OWNER)["id"]
+    assert svc.check_all(OWNER, now=1030.0) == {"queued": 1, "skipped": 0}
+    assert live_follow_poller._requested == [a1, mine]
 
 
 def test_remove_forgets_the_poller_state(follows):
