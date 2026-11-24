@@ -330,7 +330,6 @@ def decoration_blocks(page, box: dict) -> list:
         return []
     crop = page[y0:y1, x0:x1].astype(np.int16)
     coloured = ((crop.max(axis=2) - crop.min(axis=2)) > _TAG_SATURATION).astype(np.uint8)
-    tinted = (crop.max(axis=2) - crop.min(axis=2)) > _TAG_SATURATION // 2
     count, _, stats, _ = cv2.connectedComponentsWithStats(coloured, connectivity=8)
     blocks = []
     for i in range(1, count):
