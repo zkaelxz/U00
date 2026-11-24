@@ -410,6 +410,29 @@ def require_engines_allowed(request: Request, *engine_names, model=None):
     require_cloud_model_allowed(request, *[(name, model) for name in engine_names])
 
 
+def engine_for_caller(request: Request, named_engine, engine, model):
+    """(engine, model) a run uses. When the client named no engine and the resolved
+    default is one the caller may not use, it runs on Ollama instead of being refused
+    (owner decision 2026-11-24: settings for members and other devices are chosen for
+    them): on the hosted model every account may use while the owner allows a hosted
+    default, else on the local default model, so a default never sends text off the
+    PC against that switch. A named engine is never switched, so the gate still
+    refuses an engine the client picked; a member whose own paid limit is used up is
+    still told so."""
+    if named_engine or holds(request, "engines.paid"):
+        return engine, model
+    from engine_backends.engine_registry import FREE_ENGINES, hosted_default_allowed
+    from engine_backends.local import MEMBER_DEFAULT_CLOUD_MODEL, cloud_model_needs_paid
+    from services import member_key_service
+    principal = getattr(getattr(request, "state", None), "principal", None) or {}
+    if engine in FREE_ENGINES and (not cloud_model_needs_paid(model)
+                                   or member_key_service.has_usable_key(principal.get("user_id"))):
+        return engine, model
+    _refuse_if_paid_limit_reached(principal)
+    return "ollama", (MEMBER_DEFAULT_CLOUD_MODEL if hosted_default_allowed(MEMBER_DEFAULT_CLOUD_MODEL)
+                      else None)
+
+
 def require_cloud_model_allowed(request: Request, *engine_models):
     """Raises 403 unless the caller holds `engines.paid`, none of the
     (engine, model) pairs names an Ollama cloud tag, or the caller saved

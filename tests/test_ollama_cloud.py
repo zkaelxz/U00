@@ -315,3 +315,76 @@ def test_cloud_models_are_priced_so_the_spend_cap_counts_them():
     for tag in engine_local.OLLAMA_CLOUD_MODELS:
         assert pricing.estimate_cost(tag, 1_000_000, 1_000_000) == pytest.approx(0.54)
     assert pricing.estimate_cost("gemma4:12b", 1_000_000, 1_000_000) == 0.0
+
+
+def test_a_member_naming_no_engine_runs_on_the_member_model_not_a_refused_default(remote, run_url, monkeypatch):
+    import db
+    from lib.errors import ConflictError
+    from services import translate_thinking_service
+    seen = {}
+
+    def fake_start(fn, drama_id, thinking, remember, *a, **kw):
+        seen.update(kw)
+        raise ConflictError("stop here")
+
+    monkeypatch.setattr(translate_thinking_service, "start_with_thinking", fake_start)
+    drama_id = int(run_url.split("/")[-2])
+    db.update_drama(drama_id, translation_engine="claude")
+    db.set_app_setting("pref.ollama_cloud_default", True)
+    member = _household("auto@example.com")
+    assert remote.post(run_url, json={}, headers=member).status_code == 409
+    assert (seen["engine_name"], seen["model"]) == ("ollama", CLOUD)
+    # A named paid engine is never switched: it stays refused.
+    assert remote.post(run_url, json={"engine": "claude"}, headers=member).status_code == 403
+    paid = _household("paid-auto@example.com", ["engines.paid"])
+    assert remote.post(run_url, json={}, headers=paid).status_code == 409
+    assert seen["engine_name"] == "claude"
+
+
+def test_engine_for_caller_unit(isolated_db):
+    import db
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from api import auth as api_auth
+    req = SimpleNamespace()
+    with patch.object(api_auth, "holds", return_value=False):
+        # With the owner's hosted-default switch off: Ollama's own default model.
+        db.set_app_setting("pref.ollama_cloud_default", False)
+        assert api_auth.engine_for_caller(req, None, "claude", None) == ("ollama", None)
+        db.set_app_setting("pref.ollama_cloud_default", True)
+        assert api_auth.engine_for_caller(req, None, "claude", None) == ("ollama", CLOUD)
+        assert api_auth.engine_for_caller(req, None, "ollama", "gemma4:12b") == ("ollama", "gemma4:12b")
+        assert api_auth.engine_for_caller(req, None, "ollama", PAID_CLOUD) == ("ollama", CLOUD)
+        assert api_auth.engine_for_caller(req, "claude", "claude", None) == ("claude", None)
+    with patch.object(api_auth, "holds", return_value=True):
+        assert api_auth.engine_for_caller(req, None, "claude", "m") == ("claude", "m")
+
+
+def test_line_tool_with_no_engine_runs_on_ollama_for_a_member(remote, monkeypatch):
+    import db
+    from services import line_ai_service
+    seen = {}
+
+    def fake_improve(drama_id, line_id, engine, model, *a, **kw):
+        seen.update(engine=engine, model=model)
+        return {"suggestion": "x", "reason": "y"}
+
+    monkeypatch.setattr(line_ai_service, "improve_line", fake_improve)
+    drama_id = db.create_drama(title_en="T", source_language="zh", translation_engine="claude")
+    db.set_app_setting("pref.ollama_cloud_default", True)
+    h = _household("tool@example.com", ["lines.read"])
+    remote.post(f"/api/line-ai/dramas/{drama_id}/lines/1/improve", json={}, headers=h)
+    assert seen == {"engine": "ollama", "model": CLOUD}
+
+
+def test_a_member_over_their_own_limit_is_still_refused(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from api import auth as api_auth
+    from lib.errors import ForbiddenError
+    from services import auth_service
+    monkeypatch.setattr(auth_service, "paid_engines_held_back", lambda uid: True)
+    req = SimpleNamespace(state=SimpleNamespace(principal={"user_id": 7, "permissions": []}))
+    with patch.object(api_auth, "holds", return_value=False):
+        with pytest.raises(ForbiddenError):
+            api_auth.engine_for_caller(req, None, "claude", None)

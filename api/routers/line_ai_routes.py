@@ -17,7 +17,7 @@ worker thread on a network call.
 """
 
 from fastapi import APIRouter, Path, Request
-from api.auth import require_engines_allowed, require_permission
+from api.auth import engine_for_caller, require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
 from api.schemas import (LineAlternatives, LineExplainRequest, LineExplanation,
                          LineGrammar, LineImproveRequest, LineImprovement, error_responses)
@@ -32,10 +32,11 @@ router = APIRouter(prefix="/api/line-ai", tags=["line-ai"])
              responses=error_responses(400, 404, 422, 429, 503, 403))
 def post_improve(body: LineImproveRequest, request: Request, drama_id: int = Path(ge=1),
                  line_id: int = Path(ge=1)):
-    engine = line_ai_service.tool_engine_name(drama_id, body.engine)
-    require_engines_allowed(request, engine, model=body.model)
+    engine, model = engine_for_caller(
+        request, body.engine, line_ai_service.tool_engine_name(drama_id, body.engine), body.model)
+    require_engines_allowed(request, engine, model=model)
     with llm_slot(request):
-        return line_ai_service.improve_line(drama_id, line_id, engine, body.model,
+        return line_ai_service.improve_line(drama_id, line_id, engine, model,
                                             body.gemini_free_tier, body.issue)
 
 
@@ -45,10 +46,11 @@ def post_improve(body: LineImproveRequest, request: Request, drama_id: int = Pat
              responses=error_responses(400, 404, 422, 429, 503, 403))
 def post_explain(body: LineExplainRequest, request: Request, drama_id: int = Path(ge=1),
                  line_id: int = Path(ge=1)):
-    engine = line_ai_service.tool_engine_name(drama_id, body.engine)
-    require_engines_allowed(request, engine, model=body.model)
+    engine, model = engine_for_caller(
+        request, body.engine, line_ai_service.tool_engine_name(drama_id, body.engine), body.model)
+    require_engines_allowed(request, engine, model=model)
     with llm_slot(request):
-        return line_ai_service.explain_line(drama_id, line_id, engine, body.model,
+        return line_ai_service.explain_line(drama_id, line_id, engine, model,
                                             body.gemini_free_tier)
 
 
@@ -58,10 +60,11 @@ def post_explain(body: LineExplainRequest, request: Request, drama_id: int = Pat
              responses=error_responses(400, 404, 422, 429, 503, 403))
 def post_alternatives(body: LineExplainRequest, request: Request, drama_id: int = Path(ge=1),
                       line_id: int = Path(ge=1)):
-    engine = line_ai_service.tool_engine_name(drama_id, body.engine)
-    require_engines_allowed(request, engine, model=body.model)
+    engine, model = engine_for_caller(
+        request, body.engine, line_ai_service.tool_engine_name(drama_id, body.engine), body.model)
+    require_engines_allowed(request, engine, model=model)
     with llm_slot(request):
-        return line_ai_service.alternatives_for_line(drama_id, line_id, engine, body.model,
+        return line_ai_service.alternatives_for_line(drama_id, line_id, engine, model,
                                                      body.gemini_free_tier)
 
 
@@ -71,8 +74,9 @@ def post_alternatives(body: LineExplainRequest, request: Request, drama_id: int 
              responses=error_responses(400, 404, 422, 429, 503, 403))
 def post_grammar(body: LineExplainRequest, request: Request, drama_id: int = Path(ge=1),
                  line_id: int = Path(ge=1)):
-    engine = line_ai_service.tool_engine_name(drama_id, body.engine)
-    require_engines_allowed(request, engine, model=body.model)
+    engine, model = engine_for_caller(
+        request, body.engine, line_ai_service.tool_engine_name(drama_id, body.engine), body.model)
+    require_engines_allowed(request, engine, model=model)
     with llm_slot(request):
-        return line_ai_service.grammar_for_line(drama_id, line_id, engine, body.model,
+        return line_ai_service.grammar_for_line(drama_id, line_id, engine, model,
                                                 body.gemini_free_tier)
