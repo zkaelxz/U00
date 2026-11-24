@@ -17,6 +17,7 @@ import functools
 import importlib.util
 import re
 import shutil
+import sys
 import threading
 from typing import Any, NamedTuple, Optional
 
@@ -276,6 +277,31 @@ RAPIDOCR_MEDIUM_REC_MODEL = {
     "sha256": "eef444829dbbe18d7fea59a3f6eb75647518d2b3a9568d27c92e42940204894b",
     "max_bytes": 128 * 1024 * 1024,
 }
+# The same PP-OCRv6 medium weights as PyTorch files, so pages can be read on the GPU through
+# the app's own torch: onnxruntime's GPU build needs a CUDA that clashes with that torch.
+# The PyTorch recognizer has no character list inside it, hence the separate dictionary.
+# On 5 real Chinese pages (150 lines) both read exactly the same text.
+RAPIDOCR_TORCH_MEDIUM_DET_MODEL = {
+    "file": "PP-OCRv6_det_medium.pth",
+    "url": ("https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/"
+            "torch/PP-OCRv6/det/PP-OCRv6_det_medium.pth"),
+    "sha256": "40c40ff2d432888f53697d73b37d8b280c65ad66696d6412834a90b40cebc81d",
+    "max_bytes": 96 * 1024 * 1024,
+}
+RAPIDOCR_TORCH_MEDIUM_REC_MODEL = {
+    "file": "PP-OCRv6_rec_medium.pth",
+    "url": ("https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/"
+            "torch/PP-OCRv6/rec/PP-OCRv6_rec_medium.pth"),
+    "sha256": "c2a2a7aa73892e1efc90cccd2aecc7e670ce01610490bbef7626abb3a3df52aa",
+    "max_bytes": 128 * 1024 * 1024,
+}
+RAPIDOCR_MEDIUM_DICT = {
+    "file": "ppocrv6_dict.txt",
+    "url": ("https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/"
+            "paddle/PP-OCRv6/rec/PP-OCRv6_rec_medium/ppocrv6_dict.txt"),
+    "sha256": "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
+    "max_bytes": 1024 * 1024,
+}
 _RAPIDOCR_DOWNLOAD_TIMEOUT = (15, 60)
 _RAPIDOCR_DOWNLOAD_DEADLINE = 15 * 60
 # Separate from _MODEL_LOCK so a slow download doesn't hold every other OCR model's inference.
@@ -327,7 +353,10 @@ def ensure_rapidocr_model(spec: dict) -> str:
     return path
 
 
-def _rapidocr_params(key: str) -> dict:
+def _rapidocr_params(key: str, gpu: bool = False) -> dict:
+    """The engine settings for `key`; with `gpu`, the medium pair on PyTorch's CUDA instead of
+    onnxruntime on the CPU (only "medium" has PyTorch weights here)."""
+    import os
     # The text-orientation classifier flips some upright lines and they come back as
     # garbage (on Korean webtoon pages it lost 8 of 13 checked phrases); comic and
     # subtitle lines are upright, so it is left off.
@@ -336,13 +365,26 @@ def _rapidocr_params(key: str) -> dict:
               # finding lines, so a 430x70 balloon was read at about 4500x740: 3 to 10 s a
               # balloon on a CPU. Only shrinking a larger image keeps the text the same
               # (34 Chinese balloons: 6.7 s -> 1.1 s each; full pages found the same lines).
-              "Det.limit_type": "max", "Det.limit_side_len": 2000}
+              "Det.limit_type": "max", "Det.limit_side_len": 2000,
+              # onnxruntime takes every core by default: a Quick read held the V100 PC at
+              # about 460% CPU, and the app's own requests waited seconds behind it.
+              "EngineConfig.onnxruntime.intra_op_num_threads": max(1, (os.cpu_count() or 2) // 2),
+              "EngineConfig.onnxruntime.inter_op_num_threads": 1}
     if key != "small":
         from rapidocr import LangRec, ModelType, OCRVersion
     if key == "ko":
         params.update({"Rec.model_path": ensure_rapidocr_model(RAPIDOCR_KOREAN_MODEL),
                        "Rec.ocr_version": OCRVersion.PPOCRV5, "Rec.model_type": ModelType.MOBILE,
                        "Rec.lang_type": LangRec.KOREAN})
+    elif key == "medium" and gpu:
+        from rapidocr import EngineType
+        params.update({"Det.engine_type": EngineType.TORCH, "Rec.engine_type": EngineType.TORCH,
+                       "Det.ocr_version": OCRVersion.PPOCRV6, "Rec.ocr_version": OCRVersion.PPOCRV6,
+                       "Det.model_type": ModelType.MEDIUM, "Rec.model_type": ModelType.MEDIUM,
+                       "Det.model_path": ensure_rapidocr_model(RAPIDOCR_TORCH_MEDIUM_DET_MODEL),
+                       "Rec.model_path": ensure_rapidocr_model(RAPIDOCR_TORCH_MEDIUM_REC_MODEL),
+                       "Rec.rec_keys_path": ensure_rapidocr_model(RAPIDOCR_MEDIUM_DICT),
+                       "EngineConfig.torch.use_cuda": True})
     elif key == "medium":
         params.update({"Det.model_path": ensure_rapidocr_model(RAPIDOCR_MEDIUM_DET_MODEL),
                        "Det.model_type": ModelType.MEDIUM,
@@ -351,17 +393,12 @@ def _rapidocr_params(key: str) -> dict:
     return params
 
 
-def _run_rapidocr(key: str, source):
+def _run_rapidocr(key: str, source, allow_download: bool = True):
     """One RapidOCR pass over an image path or BGR array with the engine for `key`
-    ("small", "medium" or "ko"), built on first use."""
-    from rapidocr import RapidOCR
-    engines = globals().setdefault("_rapidocr_instances", {})
-    # Fetched before taking _MODEL_LOCK: a minutes-long download must not block other OCR models.
-    params = _rapidocr_params(key) if key not in engines else None
-    with _MODEL_LOCK:
-        if key not in engines:
-            engines[key] = RapidOCR(params=params or _rapidocr_params(key))
-        return engines[key](source)
+    ("small", "medium" or "ko"), in the text reader's own process (ocr_worker).
+    `allow_download=False` (warming) keeps the GPU engine off until its weights are on disk."""
+    import ocr_worker
+    return ocr_worker.read(key, source, allow_download=allow_download)
 
 
 def rapidocr_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
@@ -725,6 +762,9 @@ def loaded_gpu_models() -> list:
             out.append(("PaddleOCR-VL for manga", str(getattr(model, "device", "cpu"))))
         if "_manga_ocr_instance" in globals():
             out.append(("Manga OCR", "cuda" if _manga_ocr_on_gpu() else "cpu"))
+    ocr_worker = sys.modules.get("ocr_worker")
+    if ocr_worker is not None and ocr_worker.on_gpu():
+        out.append(("RapidOCR text reader", "cuda"))
     return out
 
 
@@ -739,13 +779,15 @@ def release_models(empty_cuda: bool = True) -> None:
     no other place that lists or frees them. They reload on next use.
     `empty_cuda=False` for a caller that empties CUDA's cache itself afterwards."""
     import gc
-    import sys
     with _MODEL_LOCK:
         globals().get("_qwen3_vl_models", {}).clear()
         for name in ("_paddle_vl_manga_model", "_paddle_vl_manga_processor", "_manga_ocr_instance"):
             globals().pop(name, None)
         for name in ("_paddle_instances", "_paddle_line_instances", "_rapidocr_instances"):
             globals().get(name, {}).clear()
+    ocr_worker = sys.modules.get("ocr_worker")
+    if ocr_worker is not None:
+        ocr_worker.stop()
     gc.collect()
     torch = sys.modules.get("torch")
     if empty_cuda and torch is not None:
