@@ -9,6 +9,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/admin/audit` | admin.users.read |
 | `GET /api/admin/users` | admin.users.read |
 | `POST /api/admin/users` | admin.users |
+| `DELETE /api/admin/users/{user_id}` | admin.users |
 | `POST /api/admin/users/{user_id}/activate` | admin.users |
 | `POST /api/admin/users/{user_id}/deactivate` | admin.users |
 | `DELETE /api/admin/users/{user_id}/ollama-key` | admin.users |
@@ -183,6 +184,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/pending-install/restart` | local_only() |
 | `GET /api/diagnostics/ports` | local_only() |
 | `GET /api/diagnostics/pyannote` | admin.diagnostics |
+| `GET /api/diagnostics/quality` | admin.diagnostics |
 | `GET /api/diagnostics/real-model-check` | admin.diagnostics |
 | `POST /api/diagnostics/real-model-check` | local_only() |
 | `GET /api/diagnostics/remote-health` | admin.diagnostics |
@@ -746,6 +748,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try` | review.use + lines.read |
 | `POST /api/subtitle-import/dramas/{drama_id}/apply` | media.upload |
 | `POST /api/subtitle-import/dramas/{drama_id}/preview` | media.upload |
+| `POST /api/subtitle-import/dramas/{drama_id}/track/apply` | lines.edit |
+| `POST /api/subtitle-import/dramas/{drama_id}/track/preview` | lines.edit |
 | `POST /api/system/android-app/fetch` | local_only() |
 | `POST /api/system/shutdown` | local_only() |
 | `GET /api/system/update` | local_only() |

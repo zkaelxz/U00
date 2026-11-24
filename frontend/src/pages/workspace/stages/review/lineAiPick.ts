@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { withSignal } from '../../../../api/client'
 import type { LineAiPick } from '../../../../api/review'
 import { getTranslateConfig } from '../../../../api/translateStage'
-import { useCloudModelsAllowed, useHolds } from '../../../../hooks/useHolds'
+import { MEMBER_CLOUD_MODELS, useCloudModelsAllowed, useHolds } from '../../../../hooks/useHolds'
 import type { TranslateEngine } from '../../../../types/translate'
 import { useEngineGate } from '../useEngineGate'
 
@@ -53,7 +53,7 @@ export function engineBlockReason(engine: TranslateEngine, holdsPaid: boolean): 
 // An Ollama cloud tag sends the text off this PC and spends the owner's quota, so
 // it is held to engines.paid too, unless the person saved their own Ollama key.
 export function modelBlockReason(engine: TranslateEngine, model: string, cloudAllowed: boolean): string | null {
-  return !cloudAllowed && engine.cloud_models?.includes(model) ? CLOUD_NEEDS_REASON : null
+  return !cloudAllowed && !MEMBER_CLOUD_MODELS.includes(model.toLowerCase()) && engine.cloud_models?.includes(model) ? CLOUD_NEEDS_REASON : null
 }
 
 // The remembered pick, minus whatever no longer works (engine removed or without

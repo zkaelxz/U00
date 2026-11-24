@@ -175,4 +175,4 @@ def test_the_cost_read_refuses_a_hosted_ollama_tag_without_paid_permission(isola
 
     member = SimpleNamespace(state=SimpleNamespace(principal={"user_id": 7, "permissions": ["jobs.start"]}))
     with pytest.raises(ForbiddenError):
-        queue_routes.step_settings(member, drama_id=1, step="translate", model="gemma4:31b-cloud", batch_size=None)
+        queue_routes.step_settings(member, drama_id=1, step="translate", model="gpt-oss:120b-cloud", batch_size=None)
