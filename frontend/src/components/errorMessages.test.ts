@@ -273,7 +273,7 @@ describe('error text by who is reading', () => {
 
   it('a member over their own paid-engine limit sees the server\'s sentence', () => {
     resetSessionForTests(me([]))
-    const msg = "You've used this month's limit for paid engines, so they're off for you until next month."
+    const msg = "You've reached your monthly spending limit, so AI runs are paused for you until next month."
     expect(describeError(new ApiError(403, {
       code: 'forbidden', message: msg, details: { reason: PAID_LIMIT_REASON },
     }, 'POST')).title).toBe(msg)

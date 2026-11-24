@@ -77,6 +77,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "navigator.py",
     "ocr.py",
     "ocr_layout.py",
+    "ocr_worker.py",
     "ollama_unload.py",
     "page_fetch.py",
     "page_fetch_browser.py",
