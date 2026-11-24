@@ -12,6 +12,7 @@ from types import EllipsisType
 
 import db
 from lib.errors import DependencyUnavailableError, InvalidInputError, NotFoundError, ServiceError
+from lib.no_window import NO_WINDOW
 
 
 MAX_TOOL_OUTPUT_CHARS = 12000
@@ -105,7 +106,7 @@ def _tracked_files():
     try:
         out = subprocess.run(["git", "-c", "core.fsmonitor=", "ls-files", "-z"], cwd=repo_root(),
                              capture_output=True, timeout=GIT_TIMEOUT_SECONDS,
-                             stdin=subprocess.DEVNULL, env=_git_env())
+                             stdin=subprocess.DEVNULL, env=_git_env(), creationflags=NO_WINDOW)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if out.returncode != 0:
@@ -193,7 +194,7 @@ def _git(*args: str) -> str:
     try:
         proc = subprocess.run(cmd, cwd=repo_root(), capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=GIT_TIMEOUT_SECONDS,
-                              env=env, stdin=subprocess.DEVNULL)
+                              env=env, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
     except FileNotFoundError:
         raise DependencyUnavailableError("git isn't installed or isn't on PATH.") from None
     except subprocess.TimeoutExpired:

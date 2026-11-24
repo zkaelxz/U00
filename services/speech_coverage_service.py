@@ -34,6 +34,7 @@ import video_export
 from services import jobs_service, ownership_service, timing_settings_service
 from lib.errors import (ConflictError, InvalidInputError, UnsupportedOperationError)
 from engine_backends.shared import redact_secrets
+from lib.no_window import NO_WINDOW
 
 # Low on purpose: the transcription default (0.5) is what may be dropping quiet speech.
 VAD_THRESHOLD = 0.3
@@ -185,7 +186,7 @@ def _decode_chunk(path: str, start: float, seconds: float):
     cmd = ["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(seconds),
            *video_export.local_input(), "-i", path,
            "-f", "f32le", "-ac", "1", "-ar", str(_SAMPLE_RATE), "-"]
-    out = subprocess.run(cmd, check=True, capture_output=True, timeout=_DECODE_TIMEOUT_SECONDS)
+    out = subprocess.run(cmd, check=True, capture_output=True, timeout=_DECODE_TIMEOUT_SECONDS, creationflags=NO_WINDOW)
     return np.frombuffer(out.stdout, dtype=np.float32)
 
 

@@ -23,6 +23,7 @@ from services.benchmark_hardsub_read_service import remove_files, remove_frames
 from services.benchmark_reference_service import MAX_LINE_SECONDS, adding_to_set
 from services.media_upload_service import check_room_for
 from lib.errors import DependencyUnavailableError, InvalidInputError, NotFoundError
+from lib.no_window import NO_WINDOW
 
 SET_NAME = "hard-sub"
 # Where in the line's time span the three pictures are taken. A hard sub often appears a moment after the
@@ -93,7 +94,7 @@ def _grab(video: str, at: float, band: tuple) -> str:
            "-map_metadata", "-1", "-f", "image2", "-c:v", "png", part]
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                       timeout=FRAME_TIMEOUT_SECONDS)
+                       timeout=FRAME_TIMEOUT_SECONDS, creationflags=NO_WINDOW)
         if not 0 < os.path.getsize(part) <= MAX_FRAME_BYTES:
             raise OSError("bad frame size")
         os.replace(part, final)
