@@ -362,7 +362,8 @@ export function SeriesCast({ seriesId, refresh = 0 }: {
       count={cast.length}
       summary={cast.length ? 'shared by every title in the series' : 'no one yet'}
     >
-      {cast.length === 0 && <p className="muted">No one yet. Add the series' recurring people below.</p>}
+      <AddPerson seriesId={seriesId} onAdded={added} />
+      {cast.length === 0 && <p className="muted">No one yet. Add the series' recurring people above.</p>}
       {cast.length > 0 && (
         <ul className="series-cast" data-testid="series-cast">
           {cast.map((c) => (
@@ -419,7 +420,6 @@ export function SeriesCast({ seriesId, refresh = 0 }: {
           }}
         />
       )}
-      <AddPerson seriesId={seriesId} onAdded={added} />
       {notice && <p role="status">{notice}</p>}
       <ErrorBanner error={removeError} describe={{ pcOnly: true }} onDismiss={() => setRemoveError(null)} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
