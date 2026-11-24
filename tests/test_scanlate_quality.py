@@ -532,3 +532,17 @@ class TestStripWideningAndRulesOnSky:
         box = {"x": 0, "y": 0, "w": 300, "h": 120}
         room = art.between_rules(page, box)
         assert room["y"] > 22
+
+
+class TestDarkStripErase:
+    def test_lettering_on_a_dark_strip_is_painted_out_with_the_strip_kept_dark(self):
+        roi = np.full((40, 400, 3), (200, 190, 230), np.uint8)             # pink art round the strip
+        roi[4:36] = (12, 0, 0)
+        cv2.putText(roi, "ABCDEFG", (20, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        out = scanlate_inpaint._dark_strip_inpaint(roi)
+        assert (cv2.cvtColor(out[4:36], cv2.COLOR_BGR2GRAY) < 60).all()
+        assert (out[:3] == roi[:3]).all()                                   # art above the strip untouched
+
+    def test_a_crop_that_is_not_a_dark_strip_is_left_to_the_other_erasers(self):
+        assert scanlate_inpaint._dark_strip_inpaint(np.full((40, 400, 3), 220, np.uint8)) is None
+        assert scanlate_inpaint._dark_strip_inpaint(np.zeros((200, 200, 3), np.uint8)) is None
