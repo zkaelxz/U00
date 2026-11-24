@@ -22,7 +22,7 @@ import { api, hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP,
   advancedSummary, buildStartBody, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
-  LIVE_CLOUD_MODEL, isActive, lagLine, liveEngineView, pickEngine, resolveModel, startLive, statusLine, statusTone, type LiveForm, type LiveOptions,
+  isActive, lagLine, pickEngine, resolveLiveModel, startLive, statusLine, statusTone, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
@@ -172,10 +172,7 @@ export default function LivePage() {
 
   const canSwitchThinking = opts.thinking_switch_engines.includes(engine)
   const cloudAllowed = useCloudModelsAllowed()
-  const engineEntry = liveEngineView(usable.find((e) => e.name === engine), cloudAllowed)
-  const onlyCloud = engineEntry?.name === 'ollama' && engineEntry.models?.length === 1 && engineEntry.models[0] === LIVE_CLOUD_MODEL
-  const modelOpts = onlyCloud ? { ...opts, default_model: LIVE_CLOUD_MODEL } : opts
-  const { model, fellBack } = resolveModel(engineEntry, form.model, modelOpts)
+  const { entry: engineEntry, onlyCloud, defaultModel, model, fellBack } = resolveLiveModel(usable.find((e) => e.name === engine), cloudAllowed, form.model, opts)
   const modelNote = enginesFailed
     ? "Couldn't load the model list; the engine's default model will be used."
     : fellBack ? "That model isn't offered any more; the engine's default model will be used." : null
@@ -296,7 +293,7 @@ export default function LivePage() {
               <SpendLimitField range={opts.spend_limit_range} value={form.spend_limit_usd} disabled={active || busy} onChange={(v) => setOpt('spend_limit_usd', v)} />
             )}
             <ModelSelect engine={engineEntry} value={model} disabled={active || busy} onChange={(m) => setOpt('model', m)}
-              defaultModel={engine === opts.default_engine ? modelOpts.default_model ?? undefined : undefined}
+              defaultModel={engine === opts.default_engine ? defaultModel ?? undefined : undefined}
               help={engine === opts.default_engine
                 ? (onlyCloud
                   ? "Runs on Ollama's servers, so the text leaves this PC and the graphics card stays free for Whisper. Pick another engine above for a different service."
