@@ -927,8 +927,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         onPage.onPage(page);
                     });
                     // An older Baihe ignores fetch_url and finds an empty picture: nothing comes back and no
-                    // "unfetched" list either. That is told apart from a stop by the user or the server.
-                    boolean stopped = cancelRequested || QuickReadSession.isAbandoned() || done.has("stopped");
+                    // "unfetched" list either. That is told apart from a stop by the user.
+                    boolean stopped = cancelRequested || QuickReadSession.isAbandoned();
                     if (delivered[0] == 0 && !done.has("unfetched") && !stopped) {
                         pcFetch[0] = false;
                         return sendBytes(client, pageUrl, batch, onPage);
