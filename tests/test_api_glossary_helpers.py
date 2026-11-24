@@ -180,7 +180,7 @@ class TestLinesGlossaryService:
                 "create": staticmethod(lambda **k: release.wait(10))})()})()})()})()
         monkeypatch.setattr(glossary_extract, "extract_terms_llm", hang)
         monkeypatch.setattr(glossary_extract_service, "_glossary_engine",
-                            lambda d, n=None: ("deepseek", engine))
+                            lambda d, n=None, m=None: ("deepseek", engine))
         out = gs.start_lines_glossary_run(did)
         time.sleep(0.5)
         background_jobs.request_cancel(out["job_id"])
@@ -695,6 +695,36 @@ class TestAuthOn:
         did, _ = _lines_drama(isolated_db, engine="ollama")
         r = _remote().post(_gl(did), headers=_session())
         assert r.status_code == 200, r.text
+
+    def test_household_refused_a_cloud_model_picked_for_the_title(self, isolated_db, fake_engine,
+                                                                    monkeypatch):
+        started = []
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: started.append(a) or True)
+        did, _ = _lines_drama(isolated_db, engine="ollama")
+        isolated_db.update_drama(did, translate_start_json='{"engine_model": "gemma4:31b-cloud"}')
+        c, household = _remote(), _session()
+        for path in (_gl(did), f"/api/glossary/dramas/{did}/from-chapters",
+                     f"/api/glossary/dramas/{did}/from-novel",
+                     f"/api/glossary/dramas/{did}/instructions/draft"):
+            assert c.post(path, headers=household).status_code == 403, path
+        assert started == []
+        r = c.post(_gl(did), headers=_session("paid@example.com", "engines.paid"))
+        assert r.status_code == 200, r.text
+
+    def test_model_switched_after_gate_is_409(self, isolated_db, fake_engine, monkeypatch):
+        started = []
+        monkeypatch.setattr(job_launch, "start_job", lambda *a, **k: started.append(a) or True)
+        did, _ = _lines_drama(isolated_db, engine="ollama")
+        real = gs.glossary_model
+
+        def gate_then_switch(drama_id):
+            model = real(drama_id)
+            isolated_db.update_drama(drama_id, translate_start_json='{"engine_model": "gemma4:31b-cloud"}')
+            return model
+        monkeypatch.setattr(gs, "glossary_model", gate_then_switch)
+        r = _remote().post(_gl(did), headers=_session())
+        assert r.status_code == 409, r.text
+        assert started == [] and fake_engine.get("model") is None
 
     def test_engine_switched_after_gate_is_409(self, isolated_db, monkeypatch):
         did, _ = _lines_drama(isolated_db, engine="ollama")

@@ -14,7 +14,7 @@ from tests.test_queue_service import _drama, _items, jobs  # noqa: F401  (fixtur
 @pytest.fixture
 def names(jobs, monkeypatch):  # noqa: F811
     monkeypatch.setattr(glossary_extract_service, "start_lines_glossary_run",
-                        lambda drama_id, engine_name=None: jobs._start(f"lines_glossary_{drama_id}"))
+                        lambda drama_id, engine_name=None, model=None: jobs._start(f"lines_glossary_{drama_id}"))
     return jobs
 
 
@@ -208,7 +208,7 @@ def novel(names, monkeypatch):
     calls["cost"] = {"has_key": True, "cap_applies": False, "monthly_cap_set": False, "estimated_usd": 0.0}
     monkeypatch.setattr(narration_service, "estimate_tag_cost", lambda *a, **kw: dict(calls["cost"]))
     monkeypatch.setattr(glossary_extract_service, "start_novel_glossary_run",
-                        lambda drama_id, engine_name=None: names._start(f"novel_glossary_{drama_id}"))
+                        lambda drama_id, engine_name=None, model=None: names._start(f"novel_glossary_{drama_id}"))
     monkeypatch.setattr(runs, "_novel_state", lambda drama_id: dict(calls["state"]))
     monkeypatch.setattr(narration_service, "get_narration_config", lambda drama_id: {"default_engine": "ollama"})
     names.calls = calls
@@ -377,3 +377,19 @@ def test_a_queued_cloud_step_runs_on_the_adders_own_ollama_key(isolated_db, monk
         runs._require_free_or_paid(free_member, "claude", None, "makes lines")
     with pytest.raises(ForbiddenError):
         runs._require_free_or_paid({**free_member, "user_id": 8}, "ollama", "gpt-oss:120b-cloud", "makes lines")
+
+
+def test_a_queued_names_step_is_held_to_the_titles_picked_cloud_model(isolated_db, monkeypatch):
+    """The names step runs on the title's Translate model; a cloud tag there needs
+    engines.paid (or the adder's own key) even though Ollama itself is free."""
+    started = []
+    monkeypatch.setattr(glossary_extract_service, "start_lines_glossary_run",
+                        lambda did, **kw: started.append(kw) or {"job_id": "j"})
+    did = _bare("Names", translate_start_json='{"engine_model": "gemma4:31b-cloud"}')
+    free_member = {"user_id": 7, "permissions": ("lines.edit", "jobs.start")}
+    with pytest.raises(ForbiddenError):
+        runs.start_step(free_member, db.get_drama(did), q.NAMES, {})
+    assert started == []
+    paid_member = {**free_member, "permissions": (*free_member["permissions"], "engines.paid")}
+    assert runs.start_step(paid_member, db.get_drama(did), q.NAMES, {}) == "j"
+    assert started == [{"engine_name": "ollama", "model": "gemma4:31b-cloud"}]

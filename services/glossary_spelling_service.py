@@ -189,7 +189,7 @@ def _run_job(job_id, run_id, drama_id, engine, engine_name, term_text, aliases, 
 
 
 def start_spelling_suggestions(drama_id: int, term_id: int, english: str,
-                               engine_name: Optional[str] = None) -> dict:
+                               engine_name: Optional[str] = None, model=extract.UNCHECKED) -> dict:
     """Starts one bounded model call proposing how `english` (a glossary term's known
     name) may be spelled in the title's language. Paid-engine spend: yes, unless the
     engine is in FREE_ENGINES; refused first when this month's cap is spent.
@@ -203,7 +203,7 @@ def start_spelling_suggestions(drama_id: int, term_id: int, english: str,
     drama = _drama(drama_id)
     english = _clean_english(english)
     term = _find_term(drama_id, term_id)
-    engine_name, engine = extract._glossary_engine(drama, engine_name)
+    engine_name, engine = extract._glossary_engine(drama, engine_name, model)
     translate_run_service.refuse_when_cap_spent(
         engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
     other_terms = {_norm(t["term_original"]) for t in glossary_service.list_glossary_terms(drama_id)
