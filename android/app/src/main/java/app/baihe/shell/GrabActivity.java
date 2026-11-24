@@ -775,7 +775,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(QUICK_READ_STREAMS);
         try {
             // A typeset answer is large, so the batch stays small however many the server allows.
-            int max = Math.min(QUICK_READ_BATCH, client.health().optInt("max_images_per_request", 12));
+            JSONObject health = client.health();
+            int max = Math.min(QUICK_READ_BATCH, health.optInt("max_images_per_request", 12));
             if (!continuing) QuickReadActivity.clear(this);
             // Clear non-pages stay home: on a slow link each one costs real time to upload.
             List<PageImage> pages = PageFilter.pagesOnly(images);
@@ -793,7 +794,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             String[] firstError = {""};
             boolean[] refused = {false};
             // Cleared when the PC turns out not to download pictures (an older Baihe): bytes go up instead.
-            boolean[] pcFetch = {true};
+            // Older Baihe versions omit the flag, so they never get addresses to fetch.
+            boolean[] pcFetch = {health.optBoolean("picture_addresses", false)};
 
             // Called with `lock` held: writes a page and, the first time, opens the reader.
             java.util.function.Consumer<byte[]> show = jpeg -> {
