@@ -851,3 +851,23 @@ def test_another_device_gets_the_video_id_but_never_the_link(live):
     s = live_service.get_session(sid)
     assert s["stream"] == {"kind": "youtube", "id": "dQw4w9WgXcQ"}
     assert "PLsecret" not in repr(s) and "youtube.com" not in repr(s)
+
+
+def test_drop_name_list_echo_removes_only_a_bare_run_of_primed_names():
+    names = "阿洛、希妮·亞里絲、瓦西瓦瓦。"
+    segs = [{"text": "阿洛、希妮·亞里絲、瓦西瓦瓦"}, {"text": "阿洛，你好"}, {"text": "阿洛 瓦西瓦瓦"}]
+    kept = live_translate.drop_name_list_echo(segs, names)
+    assert [s["text"] for s in kept] == ["阿洛，你好", "阿洛 瓦西瓦瓦"]
+    assert live_translate.drop_name_list_echo(segs, "") is segs
+
+
+def test_the_session_glossary_primes_whisper_with_its_names_in_front_of_the_chunk_tail(live, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(live_translate, "run_live_job", lambda *a, **k: seen.update(k=k))
+    hints = live_service._hint_function(None, None, "zh", glossary_title={"id": 1})
+    assert hints.names == ""
+    monkeypatch.setattr(live_service.db, "list_run_glossary_terms",
+                        lambda title: [{"term_original": "阿洛", "term_translation": "RLuo", "aliases": "阿羅"}])
+    hints = live_service._hint_function(None, None, "zh", glossary_title={"id": 1})
+    assert hints.names == "阿洛、阿羅。"
+    assert hints(["阿洛来了"]) == [("阿洛", "RLuo", "")]
