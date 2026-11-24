@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
 import android.webkit.CookieManager;
 import android.content.SharedPreferences;
@@ -106,6 +107,9 @@ public class MainActivity extends Activity {
                 customViewCallback = callback;
                 setContentView(view);
                 hideSystemBars(view);
+                // Turned sideways for the video and back on exit, whatever the page asks for, so the
+                // picture fills the screen instead of sitting small above the captions.
+                setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
             }
 
             @Override
@@ -166,6 +170,7 @@ public class MainActivity extends Activity {
         ViewGroup parent = (ViewGroup) view.getParent();
         if (parent != null) parent.removeView(view);
         setContentView(page());
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         web.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
         callback.onCustomViewHidden();
     }
