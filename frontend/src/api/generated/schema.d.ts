@@ -3685,6 +3685,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/export/dramas/{drama_id}/chapters-text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The topic chapters as a YouTube-style timestamp list (plain-text download) */
+        get: operations["get_chapters_text_api_export_dramas__drama_id__chapters_text_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/export/dramas/{drama_id}/clear-reading-speed-flags": {
         parameters: {
             query?: never;
@@ -12413,6 +12430,41 @@ export interface paths {
         put?: never;
         /** Re-translate the lines whose source changed after they were translated */
         post: operations["start_source_changed_run_api_translate_run_dramas__drama_id__source_changed_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/translate-run/dramas/{drama_id}/topic-chapters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This title's timed topic chapters and the engines that can make them */
+        get: operations["get_topic_chapters_api_translate_run_dramas__drama_id__topic_chapters_get"];
+        put?: never;
+        /** Replace this title's topic chapters (an empty list clears them) */
+        post: operations["save_topic_chapters_api_translate_run_dramas__drama_id__topic_chapters_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/translate-run/dramas/{drama_id}/topic-chapters/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make the timed topic chapters from the lines and save them */
+        post: operations["generate_topic_chapters_api_translate_run_dramas__drama_id__topic_chapters_generate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -31569,6 +31621,41 @@ export interface components {
             /** Enabled */
             enabled: boolean;
         };
+        /** TopicChapter */
+        TopicChapter: {
+            /** Start */
+            start: number;
+            /** Title */
+            title: string;
+        };
+        /** TopicChaptersGenerated */
+        TopicChaptersGenerated: {
+            /** Chapters */
+            chapters: components["schemas"]["TopicChapter"][];
+            /** Drama Id */
+            drama_id: number;
+            /** Engine */
+            engine: string;
+        };
+        /** TopicChaptersSave */
+        TopicChaptersSave: {
+            /** Chapters */
+            chapters: components["schemas"]["TopicChapter"][];
+        };
+        /** TopicChaptersSaved */
+        TopicChaptersSaved: {
+            /** Chapters */
+            chapters: components["schemas"]["TopicChapter"][];
+        };
+        /** TopicChaptersState */
+        TopicChaptersState: {
+            /** Chapters */
+            chapters: components["schemas"]["TopicChapter"][];
+            /** Engine */
+            engine: string;
+            /** Engines */
+            engines: string[];
+        };
         /** TrackedSeries */
         TrackedSeries: {
             /** Drama Id */
@@ -43620,6 +43707,46 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_chapters_text_api_export_dramas__drama_id__chapters_text_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -71162,6 +71289,161 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_topic_chapters_api_translate_run_dramas__drama_id__topic_chapters_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicChaptersState"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_topic_chapters_api_translate_run_dramas__drama_id__topic_chapters_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TopicChaptersSave"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicChaptersSaved"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    generate_topic_chapters_api_translate_run_dramas__drama_id__topic_chapters_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EpisodeSummaryGenerate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopicChaptersGenerated"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -241,6 +241,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/export/dramas/{drama_id}/ass` | lines.read |
 | `POST /api/export/dramas/{drama_id}/audiobook` | jobs.start |
 | `POST /api/export/dramas/{drama_id}/burned-video` | jobs.start |
+| `GET /api/export/dramas/{drama_id}/chapters-text` | lines.read |
 | `POST /api/export/dramas/{drama_id}/clear-reading-speed-flags` | lines.edit |
 | `POST /api/export/dramas/{drama_id}/dubbed-video` | jobs.start |
 | `GET /api/export/dramas/{drama_id}/epub` | lines.read |
@@ -808,6 +809,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/translate-run/dramas/{drama_id}/retry-failed/run` | jobs.start |
 | `POST /api/translate-run/dramas/{drama_id}/run` | jobs.start |
 | `POST /api/translate-run/dramas/{drama_id}/source-changed/run` | jobs.start |
+| `GET /api/translate-run/dramas/{drama_id}/topic-chapters` | library.read |
+| `POST /api/translate-run/dramas/{drama_id}/topic-chapters` | lines.edit |
+| `POST /api/translate-run/dramas/{drama_id}/topic-chapters/generate` | lines.edit + lines.read |
 | `POST /api/translate-run/dramas/{drama_id}/workflow-tier` | lines.edit |
 | `POST /api/translate-run/presets` | admin.library |
 | `POST /api/translate-run/presets/{preset_id}/default` | admin.library |

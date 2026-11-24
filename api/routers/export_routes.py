@@ -23,7 +23,7 @@ from api.schemas import (AssExportRequest, AssStyleOptions, AutoQcFlagResult, Du
                          ExportReadiness, FlagActionResult, MarkExportedResult,
                          MediaExportStarted, ReadingSpeedMode, ReadingSpeedModeUpdate,
                          ClearReadingSpeedFlagsResult, SoftsubVideoRequest, error_responses)
-from services import export_service, media_export_service
+from services import export_service, media_export_service, topic_chapter_service
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
@@ -76,6 +76,15 @@ def get_subtitle_text(
                  "X-Cues-Trimmed": str(result["cues_trimmed"]),
                  # Cue numbers, capped so a badly timed title can't make a huge header.
                  "X-Cues-Left-Long": ",".join(map(str, result["cues_left_long"][:_MAX_LONG_CUES_REPORTED]))})
+
+
+@router.get("/dramas/{drama_id}/chapters-text", dependencies=[require_permission("lines.read")],
+            summary="The topic chapters as a YouTube-style timestamp list (plain-text download)",
+            responses=error_responses(404, 422))
+def get_chapters_text(drama_id: int = Path(ge=1)):
+    return Response(
+        content=topic_chapter_service.timestamp_text(drama_id), media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, "en", "txt", "chapters")})
 
 
 @router.post("/dramas/{drama_id}/flag-overlaps", dependencies=[require_permission("lines.edit")], response_model=FlagActionResult,

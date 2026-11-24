@@ -31,6 +31,7 @@ import { ADD_SOURCE_LINK_EVENT, SOURCE_URL_FIELD_ID } from '../AddSourceLink'
 import { useStage, useStageFocus } from '../StageContext'
 import { CreditsCover } from './CreditsCoverPanel'
 import { EpisodeSummaryGenerate } from './EpisodeSummaryGenerate'
+import { TopicChaptersPanel } from './TopicChaptersPanel'
 import { FillFromLink } from './FillFromLink'
 import { MediaTabPanel } from './MediaTabPanel'
 import { TitleRestructurePanel } from './TitleRestructurePanel'
@@ -282,7 +283,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
                 storageKey="source.details.more"
                 openSignal={moreSignal}
                 title="More details"
-                summary="Tags, episode summary"
+                summary="Tags, episode summary, chapters"
               >
                 {text('custom_tags', 'Comma-separated, e.g. bl, favorite.')}
                 <Field
@@ -296,6 +297,9 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
                   dramaId={dramaId}
                   onGenerated={(text) => set('episode_summary')({ target: { value: text } })}
                 />
+                <h4>Topic chapters</h4>
+                <p className="muted">Timed chapters for a long stream, made with the summary engine. Shown on the Watch page; the timestamp list and the subtitled-video export use them too.</p>
+                <TopicChaptersPanel dramaId={dramaId} />
                 <Field
                   label={FIELD_LABELS.episode_brief}
                   help="Written by one extra request that reads the whole episode before translating (Settings > Translation style: Read the whole episode before translating) and given to every batch. Edit it freely; it is used as written. Empty means the next run writes a new one. A wrong brief colours every line."

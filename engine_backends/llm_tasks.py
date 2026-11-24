@@ -744,6 +744,24 @@ def generate_episode_summary(lines, engine, usage_cb=None, character_names=None)
     return ""
 
 
+def generate_topic_chapters(lines, engine, duration: float, usage_cb=None) -> list:
+    """One LLM call over the whole timed transcript; [] for an engine that cannot follow a
+    prompt, no text, or a failed or unreadable reply (the caller says why)."""
+    from . import topic_chapters
+    if not getattr(engine, "supports_reference", False) or not any(
+            (ln.en or ln.zh or "").strip() for ln in lines):
+        return []
+    try:
+        text = call_llm_json(engine, topic_chapters.build_prompt(lines, duration),
+                             max_tokens=topic_chapters.TOPIC_CHAPTERS_MAX_TOKENS, fallback=None,
+                             usage_cb=usage_cb)
+    except Exception as e:
+        import applog
+        applog.get_logger().warning(f"topic chapter generation failed: {redact_secrets(str(e))}")
+        return []
+    return topic_chapters.parse_reply(text or "", duration)
+
+
 # One pre-read must fit a single request; a very long episode is cut here
 # rather than refused, and the brief is cut to what a prompt can carry in every batch.
 EPISODE_BRIEF_SOURCE_CHARS = 24000
