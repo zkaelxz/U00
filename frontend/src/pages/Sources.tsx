@@ -108,6 +108,8 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
   // A chapter to tick in the series opened from a pasted chapter link.
   const [preselect, setPreselect] = useState<{ source: string; series_id: string; chapter_id: string } | null>(null)
   // A web-search result handed to the Paste a link box (n: a new hand-off each time).
+  // A source tapped in the phone Sources list: the Find search covers just that one.
+  const [onlyPick, setOnlyPick] = useState<{ name: string; n: number } | null>(null)
   const [linkHandoff, setLinkHandoff] = useState<{ url: string; n: number } | null>(null)
 
   const search = useSourcesJob<SearchResult>(SEARCH_JOB_ID)
@@ -209,6 +211,12 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
     }
   }
 
+  function searchOnly(name: string) {
+    setOnlyPick((p) => ({ name, n: (p?.n ?? 0) + 1 }))
+    setStoredMode('search')
+    selectTab('find')
+  }
+
   const seriesShown = !!open && (view.status !== 'idle' || view.busyOther || wasBusy || cleared || !!series.startError)
   const openTracked = open
     ? tracked.find((t) => t.source === open.source && t.series_id === open.series_id) ?? null
@@ -282,6 +290,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
                   resultsHidden={seriesShown && !wide}
                   onOpen={openSeries}
                   onUseLink={useWebLink}
+                  only={onlyPick}
                 />
               </div>
             )}
@@ -353,7 +362,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
       ))}
 
       {!remote && manageVisited && panel('manage', <SourcesManagePanel area={area} />, 'sources-manage-panel')}
-      {remote && panel('manage', sources ? <SourcesReadList sources={sources} /> : <p className="muted">Loading…</p>, 'sources-list-panel')}
+      {remote && panel('manage', sources ? <SourcesReadList sources={sources} onSearchOnly={searchOnly} /> : <p className="muted">Loading…</p>, 'sources-list-panel')}
     </PageShell>
   )
 }
