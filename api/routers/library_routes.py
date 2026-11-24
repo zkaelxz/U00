@@ -28,11 +28,11 @@ router = APIRouter(prefix="/api/library", tags=["library"])
 
 _SUMMARY_FIELDS = tuple(f for f in DramaSummary.model_fields
                         if f not in ("custom_tags", "is_private", "owned_by_me", "made_by_me", "has_cover_art", "line_count", "translated_count", "page_count",
-                                    "pages_translated", "new_chapters"))
+                                    "pages_translated", "new_chapters", "read_percent", "unread_chapters"))
 _DETAIL_FIELDS = tuple(f for f in DramaDetail.model_fields
                        if f not in ("custom_tags", "is_private", "owned_by_me", "made_by_me", "has_audio", "has_novel_reference",
                                     "has_cover_art", "source_url", "keep_original", "line_count", "translated_count", "page_count",
-                                    "pages_translated", "new_chapters"))
+                                    "pages_translated", "new_chapters", "read_percent", "unread_chapters"))
 
 
 def _to_summary(drama: dict) -> DramaSummary:
@@ -48,6 +48,8 @@ def _to_summary(drama: dict) -> DramaSummary:
                         page_count=drama.get("page_count") or 0,
                         pages_translated=drama.get("pages_translated") or 0,
                         new_chapters=drama.get("new_chapters") or 0,
+                        read_percent=drama.get("read_percent") or 0,
+                        unread_chapters=drama.get("unread_chapters") or 0,
                         custom_tags=library_service.split_custom_tags(drama))
 
 

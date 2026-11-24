@@ -12,6 +12,7 @@ it takes plain values and returns plain dicts, so any caller can use it.
 """
 
 from core import LINE_LANGUAGES
+import comic_chapters
 import os
 import sqlite3
 
@@ -67,16 +68,28 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
 
 
 def _with_progress(dramas: list) -> list:
-    """Add `line_count`, `translated_count`, `page_count`, `pages_translated` and
-    `new_chapters` so a card can show where a title stands without opening it."""
+    """Add `line_count`, `translated_count`, `page_count`, `pages_translated`,
+    `new_chapters`, `read_percent` and `unread_chapters` so a card can show where a
+    title stands without opening it."""
     counts = db.line_progress_by_drama() if dramas else {}
     pages = db.page_progress_by_drama() if dramas else {}
     new = _new_chapter_counts() if dramas else {}
-    return [{**d, "line_count": counts.get(d["id"], (0, 0))[0],
+    reading = db.reading_marks_by_drama() if dramas else {}
+    return [{**d, "read_percent": reading.get(d["id"], (0.0, ()))[0],
+             "unread_chapters": _unread_chapters(d["id"], reading.get(d["id"], (0.0, ()))[1])
+             if pages.get(d["id"], (0, 0))[0] else 0,
+             "line_count": counts.get(d["id"], (0, 0))[0],
              "translated_count": counts.get(d["id"], (0, 0))[1],
              "page_count": pages.get(d["id"], (0, 0))[0],
              "pages_translated": pages.get(d["id"], (0, 0))[1],
              "new_chapters": new.get(d["id"], 0)} for d in dramas]
+
+
+def _unread_chapters(drama_id: int, read_ids) -> int:
+    """A comic's chapters that carry pages and no read mark. Pages saved before chapters were
+    recorded belong to no chapter, so a title made only of those counts none."""
+    chapters = comic_chapters.load(drama_id)["chapters"]
+    return sum(1 for c in chapters if c["files"] and c["key"] not in read_ids)
 
 
 def _new_chapter_counts() -> dict:

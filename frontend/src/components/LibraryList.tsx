@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 
 import { api } from '../api/client'
 import { getFilterOptions, searchLines } from '../api/library'
@@ -24,7 +24,7 @@ import {
   NO_MORE_FILTERS, listQuery, moreFilterCount, toggleTag, withCurrent,
   type MoreFilters,
 } from './libraryFilters'
-import { countDramas, dramaName, hideLibraryBar, listDelay, readAction, workspaceHref } from './libraryView'
+import { countDramas, dramaName, hideLibraryBar, listDelay, matchesReading, READING_FILTERS, readAction, workspaceHref, type ReadingFilter } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { Sheet } from './Sheet'
 import { buttonClass } from './uiClasses'
@@ -90,6 +90,7 @@ export function LibraryList({
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [quickFilter, setQuickFilter] = useState('')
+  const [reading, setReading] = useState<ReadingFilter>('')
   const [scope, setScope] = useState<Scope>('titles')
   const [view, setView] = usePersistedState<View>('library.view', 'grid')
   const [more, setMore] = useState<MoreFilters>(NO_MORE_FILTERS)
@@ -126,7 +127,7 @@ export function LibraryList({
   // Phones always get cards; List view is the desktop table.
   const table = view === 'list' && !phone
   const titleSearch = scope === 'titles' ? search : ''
-  const filtered = !!(titleSearch.trim() || status || quickFilter) || moreFilterCount(more) > 0
+  const filtered = !!(titleSearch.trim() || status || quickFilter || reading) || moreFilterCount(more) > 0
   // Hidden, not unmounted: the saved search, sort and view still apply once the first title exists.
   const emptyLibrary = scope === 'titles' && hideLibraryBar(items?.length ?? null, filtered)
 
@@ -158,7 +159,9 @@ export function LibraryList({
     }
   }, [titleSearch, status, quickFilter, more, reloadKey, onItemsRef, onLoadErrorRef])
 
-  const groups = items ? groupTitles(items, groupBy, sort, series ?? []) : []
+  // The reading filter is applied here, not by the server: the list already carries what it needs.
+  const shown = useMemo(() => (items && reading ? items.filter((d) => matchesReading(d, reading)) : items), [items, reading])
+  const groups = shown ? groupTitles(shown, groupBy, sort, series ?? []) : []
   // Select all, the bulk-action count and delete only ever see what is on screen: a collapsed group's titles are not.
   const visible = visibleTitles(groups, collapsed)
   const allChecked = !!checked && allSelected(checked, visible)
@@ -185,6 +188,7 @@ export function LibraryList({
     setSearch('')
     setStatus('')
     setQuickFilter('')
+    setReading('')
     setMore(NO_MORE_FILTERS)
   }
 
@@ -284,7 +288,7 @@ export function LibraryList({
                 </div>
   )
 
-  const activeFilters = (status ? 1 : 0) + (quickFilter ? 1 : 0) + moreFilterCount(more)
+  const activeFilters = (status ? 1 : 0) + (quickFilter ? 1 : 0) + (reading ? 1 : 0) + moreFilterCount(more)
   const statusSelects = (
     <div className="toolbar-filters">
       <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -296,6 +300,9 @@ export function LibraryList({
         {QUICK_FILTERS.map((q) => (
           <option key={q} value={q}>{q ? tagLabel(q) : 'All titles'}</option>
         ))}
+      </select>
+      <select aria-label="Reading" value={reading} onChange={(e) => setReading(e.target.value as ReadingFilter)}>
+        {READING_FILTERS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
       </select>
     </div>
   )
@@ -386,14 +393,14 @@ export function LibraryList({
             </p>
           )}
           {!error && items === null && <SkeletonGrid />}
-          {!error && items !== null && (
+          {!error && shown && (
             <>
-              <p className="muted list-count" data-testid="drama-count">{countDramas(items.length)}</p>
-              {selecting && items.length > MAX_SELECTION && (
+              <p className="muted list-count" data-testid="drama-count">{countDramas(shown.length)}</p>
+              {selecting && shown.length > MAX_SELECTION && (
                 <p className="muted">At most {MAX_SELECTION} at a time.</p>
               )}
               {/* A member's empty library is explained once, by the page's own note. */}
-              {items.length === 0 && !filtered && onCreate && (
+              {shown.length === 0 && !filtered && onCreate && (
                 <Card title="No titles yet" meta="Add one to start transcribing, translating or reading.">
                   <div className="actions">
                     {/* A phone's header already has the primary Add; a computer's Add box has none until something is given. */}
@@ -401,13 +408,13 @@ export function LibraryList({
                   </div>
                 </Card>
               )}
-              {items.length === 0 && filtered && (
+              {shown.length === 0 && filtered && (
                 <div className="empty-note">
                   <p>No titles match.</p>
                   <button type="button" className={buttonClass('ghost', 'sm')} onClick={clearFilters}>Clear filters</button>
                 </div>
               )}
-              {items.length > 0 && groups.map((g) => (
+              {shown.length > 0 && groups.map((g) => (
                 g.label === '' ? <div key={g.key}>{listView(g.items)}</div> : (
                   <section key={g.key} className="title-group" aria-label={g.label} data-testid="title-group">
                     <h3 className="title-group-head">

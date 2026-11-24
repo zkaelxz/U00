@@ -464,3 +464,21 @@ def test_permissions_with_auth_on(isolated_db, comic):
         assert getattr(c, method)(url, headers=no, **kw).status_code == 403, url
         yes = headers(perm, email=f"yes{i}@example.com")
         assert getattr(c, method)(url, headers=yes, **kw).status_code == 200, url
+
+
+def test_library_list_carries_reading_percent_and_unread_chapters(client, isolated_db, comic):
+    import db
+    _two_chapters(comic)
+    d = comic["drama"]
+    other = db.create_drama(title_en="Audio", media_type="audio_drama")
+
+    def row(drama_id):
+        return next(r for r in client.get("/api/library/dramas").json()["items"] if r["id"] == drama_id)
+
+    assert (row(d)["read_percent"], row(d)["unread_chapters"]) == (0, 2)
+    one = client.get(f"/api/scanlate/dramas/{d}/pages").json()["chapters"][0]["id"]
+    client.post(f"/api/scanlate/dramas/{d}/chapters/marks", json={"chapter_ids": [one], "read": True})
+    client.post(f"/api/scanlate/dramas/{d}/progress", json={"page": 1})
+    assert (row(d)["read_percent"], row(d)["unread_chapters"]) == (50.0, 1)
+    # A title without pages has no chapters to count.
+    assert (row(other)["read_percent"], row(other)["unread_chapters"]) == (0, 0)
