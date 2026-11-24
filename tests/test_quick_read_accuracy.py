@@ -204,3 +204,33 @@ class TestMisreadsSeenOnRealPages:
 
     def test_a_short_read_is_picked_even_when_the_backend_gives_no_score(self):
         assert len(reread.hard_regions([_bubble("的", None, w=300, h=40)])) == 1
+
+
+class TestStylisedLettering:
+    def test_lettering_on_the_art_is_read_again_whatever_its_score(self):
+        title = _bubble("突然の追放宣告", 0.988, kind="caption", w=300, h=60)
+        assert reread.hard_regions([title]) == [title]
+
+    def test_a_sign_with_no_score_is_read_again_but_a_balloon_with_none_is_not(self):
+        banner = _bubble("シクシーンバッズ部の人は", None, kind="sign", w=800, h=60)
+        balloon = _bubble("こんにちは", None, w=200, h=60)
+        assert reread.hard_regions([banner, balloon]) == [banner]
+
+    def test_a_scored_sign_is_left_to_its_score(self):
+        assert reread.hard_regions([_bubble("看板", 0.97, kind="sign", w=200, h=60)]) == []
+
+    def test_the_least_certain_go_first_when_the_page_has_more_than_the_cap(self):
+        sure = [_bubble(f"題{i}", 0.99, kind="caption", w=300, h=60) for i in range(4)]
+        shaky = _bubble("怪しい", 0.3, w=300, h=60)
+        picked = reread.hard_regions(sure + [shaky])
+        assert picked[0] is shaky and len(picked) == reread.MAX_REGIONS_PER_PAGE
+
+
+def test_an_unscored_banner_shaped_box_is_read_again_even_as_a_balloon():
+    banner = _bubble("シクシーンバッズ部の人は", None, w=800, h=60)
+    assert reread.hard_regions([banner]) == [banner]
+    assert reread.hard_regions([_bubble("シクシーンバッズ部の人は", 0.97, w=800, h=60)]) == []
+
+
+def test_a_tall_unscored_column_is_not_taken_for_a_banner():
+    assert reread.hard_regions([_bubble("縦書きの文字です", None, w=40, h=400)]) == []
