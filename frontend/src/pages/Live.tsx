@@ -21,7 +21,7 @@ import { useEffect, useId, useState } from 'react'
 import { api, hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP,
-  advancedSummary, buildStartBody, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, languageWhisperDefault, glossaryChoices, glossaryIds, glossaryValue,
+  advancedSummary, buildStartBody, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
   isActive, lagLine, pickEngine, resolveModel, startLive, statusLine, statusTone, type LiveForm, type LiveOptions,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
@@ -129,10 +129,12 @@ export default function LivePage() {
   const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
-  // A Japanese-only model must not stay selected for another language: Start would refuse it.
+  // A model this browser picked stays across languages unless Start would refuse it; otherwise
+  // the model is left unset so it follows the new language's default.
   const changeLanguage = (language: string) => {
-    const excluded = whisperExclusionReason(opts.whisper_exclusions, form.whisper_size, language)
-    setPrefs({ ...prefs, source_language: language, ...(excluded ? { whisper_size: languageWhisperDefault(opts, language) } : {}) })
+    const { whisper_size: picked, ...rest } = prefs
+    const keep = picked !== undefined && !whisperExclusionReason(opts.whisper_exclusions, picked, language)
+    setPrefs({ ...rest, source_language: language, ...(keep ? { whisper_size: picked } : {}) })
   }
 
   // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.

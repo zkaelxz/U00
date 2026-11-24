@@ -98,6 +98,15 @@ class TestRegistry:
         monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: False)
         assert live_service.form_options()["language_whisper_defaults"] == {}
 
+    def test_live_starts_japanese_and_korean_on_their_models_with_a_gpu(self, monkeypatch):
+        from services import live_service
+        monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
+        monkeypatch.setattr(live_service.diagnostics_torch, "nvidia_driver_info", lambda: {"name": "gpu"})
+        assert live_service.form_options()["language_whisper_defaults"] == {
+            "zh": KEY, "ja": "ja-1.5b", "ko": "large-v3"}
+        monkeypatch.setattr(live_service.diagnostics_torch, "nvidia_driver_info", lambda: None)
+        assert live_service.form_options()["language_whisper_defaults"] == {"zh": KEY}
+
     @pytest.mark.parametrize("language,allowed", [("zh", True), ("ja", False), ("ko", False)])
     def test_selectable_only_for_chinese(self, language, allowed):
         assert wm.whisper_model_fits_language(KEY, language) is allowed

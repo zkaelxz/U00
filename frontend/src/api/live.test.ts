@@ -382,9 +382,10 @@ describe('chat messages', () => {
 
 describe('languageWhisperDefault', () => {
   it('uses the language\'s downloaded model and otherwise the form default', () => {
-    const opts = { ...LIVE_FORM_FALLBACK, language_whisper_defaults: { zh: 'breeze-asr-25' } }
+    const opts = { ...LIVE_FORM_FALLBACK, language_whisper_defaults: { zh: 'breeze-asr-25', ko: 'large-v3' } }
     expect(languageWhisperDefault(opts, 'zh')).toBe('breeze-asr-25')
-    expect(languageWhisperDefault(opts, 'ko')).toBe('small')
+    expect(languageWhisperDefault(opts, 'ko')).toBe('large-v3')
+    expect(languageWhisperDefault(opts, 'en')).toBe('small')
     expect(languageWhisperDefault(LIVE_FORM_FALLBACK, 'zh')).toBe('small')
   })
 })
