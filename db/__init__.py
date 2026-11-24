@@ -868,4 +868,5 @@ from db.auth import (  # noqa: F401
     auth_list_audit_actions,
     auth_deactivate_user_keeping_an_admin,
     auth_revoke_admin_keeping_an_admin,
+    auth_delete_inactive_member,
 )

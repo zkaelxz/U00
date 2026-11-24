@@ -16,6 +16,9 @@ on:
       tag:
         description: "The pre-release to promote (e.g. v0.1.5)"
         required: true
+      release_check:
+        description: "Stamp of a passing V100 release check from the last 7 days (e.g. 20261124-101500; the report's last line gives it)"
+        required: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ inputs.tag }}
@@ -33,10 +36,40 @@ jobs:
     with:
       ref: refs/tags/${{ inputs.tag }}
 
+  # The quality numbers stay on the V100 (the repository is public), so this
+  # can only check the date of the passing run it is given, not read the run:
+  # it stops a release that nobody checked this week, not a made-up stamp.
+  release-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the release check is a recent one
+        env:
+          STAMP: ${{ inputs.release_check }}
+          MAX_AGE_DAYS: "7"
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$STAMP" | grep -Eq '^[0-9]{8}-[0-9]{6}$'; then
+            echo "::error::'$STAMP' is not a release check stamp such as 20261124-101500 (the name of its release-check-<stamp>.md). Nothing was promoted."
+            exit 1
+          fi
+          if ! ran="$(date -u -d "${STAMP:0:8}" +%s 2>/dev/null)"; then
+            echo "::error::$STAMP is not a real date. Nothing was promoted."
+            exit 1
+          fi
+          today="$(date -u -d "$(date -u +%Y-%m-%d)" +%s)"
+          age=$(( (today - ran) / 86400 ))
+          # The stamp is the PC's local day, which can be a day ahead of UTC.
+          if [ "$age" -lt -1 ] || [ "$age" -gt "$MAX_AGE_DAYS" ]; then
+            echo "::error::The release check $STAMP is $age days old; a release needs a passing run on the V100 within $MAX_AGE_DAYS days (docs/runbook.md, section 1). Nothing was promoted."
+            exit 1
+          fi
+          echo "Release check $STAMP is $age days old."
+
   # Runs nothing from the repository (no checkout): only gh against the
   # release that the tag's own run published.
   promote:
-    needs: audit
+    needs: [audit, release-check]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: release-main

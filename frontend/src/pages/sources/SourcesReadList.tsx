@@ -8,10 +8,10 @@ import { SiteLink } from './SiteLink'
 import { SiteState } from './SitesTab'
 import { SourceDetail } from './SourceDetail'
 
-type Props = { sources: SourceSummary[] }
+type Props = { sources: SourceSummary[]; onSearchOnly: (name: string) => void }
 
 /** Editing a site (on/off, pace, sign-in, tests) is PC only, so this shows the same rows with Details read-only. */
-export function SourcesReadList({ sources }: Props) {
+export function SourcesReadList({ sources, onSearchOnly }: Props) {
   const [open, setOpen] = useState<string | null>(null)
   if (sources.length === 0) return <p className="muted">No sources are set up yet.</p>
   return (
@@ -27,6 +27,16 @@ export function SourcesReadList({ sources }: Props) {
             <SiteState light={s.health} extensionOnly={s.extension_only} />
           </div>
           <div className="source-card-line">
+            {s.enabled && s.supports.search && (
+              <button
+                type="button"
+                className={buttonClass('primary', 'sm')}
+                aria-label={`Search ${s.display_name}`}
+                onClick={() => onSearchOnly(s.name)}
+              >
+                Search this source
+              </button>
+            )}
             <button
               type="button"
               className={buttonClass('secondary', 'sm')}

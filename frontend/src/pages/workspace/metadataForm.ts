@@ -84,7 +84,7 @@ function subtitleTrackList(a: MediaAnalysis): string {
   return `${tracks.length} (${tracks.map(trackName).join(', ')})`
 }
 
-const trackName = (t: { codec: string; language: string | null }) =>
+export const trackName = (t: { codec: string; language: string | null }) =>
   `${t.language ? languageName(t.language) : 'unknown language'} ${codecName(t.codec)}`
 
 const CODECS: Record<string, string> = {

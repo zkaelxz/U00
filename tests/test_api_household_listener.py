@@ -1458,20 +1458,21 @@ class TestRunServers:
 
 
 @pytest.mark.parametrize("settings,listener,expected", [
-    (ApiSettings(serve_frontend=False), "admin", ["LocalOnlyCrossSiteGate", "LoopbackOnlyGate", "JsonBodyCapGate"]),
+    (ApiSettings(serve_frontend=False), "admin", ["LocalOnlyCrossSiteGate", "LoopbackOnlyGate", "JsonBodyCapGate", "GZipMiddleware"]),
     (ApiSettings(serve_frontend=False, environment="development",
                  cors_origins=("http://localhost:5173",)), "admin",
-     ["CORSMiddleware", "LocalOnlyCrossSiteGate", "LoopbackOnlyGate", "JsonBodyCapGate"]),
+     ["CORSMiddleware", "LocalOnlyCrossSiteGate", "LoopbackOnlyGate", "JsonBodyCapGate", "GZipMiddleware"]),
     (ApiSettings(serve_frontend=False, auth_mode="on", **SIGN_IN), "admin",
      ["LocalOnlyCrossSiteGate", "EarlyAuthGate", "RemoteUploadGate",
-      "ActingPrincipalMiddleware", "JsonBodyCapGate"]),
+      "ActingPrincipalMiddleware", "JsonBodyCapGate", "GZipMiddleware"]),
     (ADMIN, "household",
      ["HouseholdGate", "LocalOnlyCrossSiteGate", "EarlyAuthGate",
-      "RemoteUploadGate", "ActingPrincipalMiddleware", "JsonBodyCapGate"]),
+      "RemoteUploadGate", "ActingPrincipalMiddleware", "JsonBodyCapGate", "GZipMiddleware"]),
 ])
 def test_middleware_order_outermost_first(settings, listener, expected):
     """The gates' order is the security boundary: the Host check and headers
     wrap everything, the cross-site refusal runs before auth reads a body,
-    and the acting principal is set innermost."""
+    and the acting principal is set innermost. Compression is last, so it
+    only touches the app's own replies."""
     app = create_app(settings, listener=listener)
     assert [m.cls.__name__ for m in app.user_middleware] == expected

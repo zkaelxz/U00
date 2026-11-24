@@ -39,6 +39,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a deactivated member account (PC only) */
+        delete: operations["delete_user_api_admin_users__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/users/{user_id}/activate": {
         parameters: {
             query?: never;
@@ -2768,6 +2785,23 @@ export interface paths {
         };
         /** pyannote installed / HF token set / (check_access=true) gated models open */
         get: operations["get_pyannote_api_diagnostics_pyannote_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/quality": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The newest release check result in the data folder, each score against its baseline */
+        get: operations["get_quality_api_diagnostics_quality_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6098,7 +6132,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Followed channels the caller can see (never a URL) */
+        /** The caller's own followed channels (never a URL) */
         get: operations["list_follows_api_live_follows_get"];
         put?: never;
         /** Follow a YouTube or Twitch channel for live streams */
@@ -6118,7 +6152,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Queue a check of every channel the caller may change, one after another */
+        /** Queue a check of every channel in the caller's own list, one after another */
         post: operations["check_all_api_live_follows_check_all_post"];
         delete?: never;
         options?: never;
@@ -11461,6 +11495,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/subtitle-import/dramas/{drama_id}/track/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import a text subtitle track inside the title's media file instead of transcribing
+         * @description Same confirmations and undo handle as the file import. Picture tracks (PGS, DVD) are refused with 422.
+         */
+        post: operations["post_track_apply_api_subtitle_import_dramas__drama_id__track_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/subtitle-import/dramas/{drama_id}/track/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read a text subtitle track inside the title's media file; says what importing it would do, changes nothing */
+        post: operations["post_track_preview_api_subtitle_import_dramas__drama_id__track_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/android-app/fetch": {
         parameters: {
             query?: never;
@@ -13095,6 +13166,13 @@ export interface components {
             monthly_paid_cap_usd: number | null;
             /** Permissions */
             permissions: string[];
+        };
+        /** AdminUserDeleted */
+        AdminUserDeleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** User Id */
+            user_id: number;
         };
         /** AdminUserList */
         AdminUserList: {
@@ -23087,6 +23165,11 @@ export interface components {
         MediaSubtitleTrack: {
             /** Codec */
             codec: string;
+            /**
+             * Importable
+             * @default false
+             */
+            importable: boolean;
             /** Index */
             index: number | null;
             /** Language */
@@ -24886,6 +24969,88 @@ export interface components {
             status: string;
             /** Value */
             value: string;
+        };
+        /** QualityCheck */
+        QualityCheck: {
+            /** Age Days */
+            age_days: number | null;
+            /** Clips */
+            clips: components["schemas"]["QualityClip"][];
+            /**
+             * Found
+             * @description False when the data folder holds no release check result.
+             */
+            found: boolean;
+            /**
+             * Fresh
+             * @description True when the check ran within max_age_days.
+             */
+            fresh: boolean;
+            /** Gpu */
+            gpu: string | null;
+            /**
+             * Machine
+             * @description The PC's name, to tell a V100 run from another PC's.
+             */
+            machine: string | null;
+            /** Margin */
+            margin: number | null;
+            /** Max Age Days */
+            max_age_days: number;
+            /**
+             * Passed
+             * @description The release gate: nothing failed or fell below its baseline.
+             */
+            passed: boolean;
+            /** Repeats */
+            repeats: number | null;
+            /**
+             * Unreadable
+             * @description True when the newest result file can't be read.
+             */
+            unreadable: boolean;
+            /**
+             * When
+             * @description When the check ran, the PC's local time (YYYY-MM-DD HH:MM).
+             */
+            when: string | null;
+        };
+        /** QualityClip */
+        QualityClip: {
+            /** Baseline */
+            baseline: number | null;
+            /** Failed */
+            failed: boolean;
+            /** Fixed Decoding */
+            fixed_decoding: boolean;
+            /**
+             * Id
+             * @description The clip's id from the private manifest, such as title59-transcription.
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Metric
+             * @description cer or wer (scored as 1 - error), der (lower is better) or chrf.
+             */
+            metric: string | null;
+            /**
+             * Runs
+             * @description How many times the clip ran; the score is the median.
+             */
+            runs: number;
+            /**
+             * Score
+             * @description None when the clip failed.
+             */
+            score: number | null;
+            /**
+             * Status
+             * @description fail: the clip failed or is worse than its baseline by more than the margin; none: no baseline.
+             * @enum {string}
+             */
+            status: "pass" | "fail" | "none";
         };
         /** QueueAddAllSteps */
         QueueAddAllSteps: {
@@ -31713,6 +31878,39 @@ export interface components {
             /** Engines */
             engines: string[];
         };
+        /** TrackImportRequest */
+        TrackImportRequest: {
+            /**
+             * Confirm Overwrite
+             * @default false
+             */
+            confirm_overwrite?: boolean;
+            /**
+             * Confirm Replace Lines
+             * @default false
+             */
+            confirm_replace_lines?: boolean;
+            /**
+             * Mode
+             * @default source
+             */
+            mode?: string;
+            /**
+             * Split Bilingual
+             * @default false
+             */
+            split_bilingual?: boolean;
+            /**
+             * Track Index
+             * @description The track's index from analyze-media.
+             */
+            track_index: number;
+            /**
+             * Translation First
+             * @default false
+             */
+            translation_first?: boolean;
+        };
         /** TrackedSeries */
         TrackedSeries: {
             /** Drama Id */
@@ -33615,6 +33813,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_user_api_admin_users__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUserDeleted"];
                 };
             };
             /** @description Validation Error */
@@ -41016,6 +41245,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_quality_api_diagnostics_quality_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityCheck"];
                 };
             };
         };
@@ -68007,6 +68256,130 @@ export interface operations {
                     split_bilingual?: string;
                     translation_first?: string;
                 };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubtitleImportPreview"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_track_apply_api_subtitle_import_dramas__drama_id__track_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubtitleImportResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_track_preview_api_subtitle_import_dramas__drama_id__track_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackImportRequest"];
             };
         };
         responses: {

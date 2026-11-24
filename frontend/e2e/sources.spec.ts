@@ -239,6 +239,18 @@ test('remote: search is offered, Manage sources becomes a read-only Sources list
   expect(s.unmocked).toEqual([])
 })
 
+test('remote: tapping a source in the Sources list searches just that source', async ({ page }) => {
+  const s = await mockSources(page, { local: false })
+  await page.goto('/#/sources')
+  await page.getByRole('tab', { name: 'Sources list' }).click()
+  await page.getByRole('list', { name: 'Sources' }).getByRole('button', { name: 'Search Alpha Comics' }).click()
+  await expect(page.getByText('Searching only Alpha Comics.')).toBeVisible()
+  await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
+  await page.getByRole('searchbox', { name: 'Title' }).press('Enter')
+  await expect.poll(() => posted(s, '/api/sources/search').length).toBe(1)
+  expect(posted(s, '/api/sources/search')[0].body).toEqual({ query: 'Heaven', sources: ['alpha'] })
+})
+
 test('series B on the same source while A is still running never shows A', async ({ page }) => {
   const s = await mockSources(page, { searchBody: { ...searchResult(3), errors: {} }, seriesHold: true })
   await page.goto('/#/sources')
