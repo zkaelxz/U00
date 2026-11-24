@@ -3,16 +3,23 @@ import { Field } from '../../components/Field'
 import { routeHref } from '../../router'
 import type { TranslateEngine } from '../../types/translate'
 import { AI_ENGINE_LABEL } from '../../helpText'
+import { ChosenForYouNote } from '../../components/ChosenForYou'
+import type { ChosenForYou } from '../../hooks/useChosenForYou'
+
+const CHOSEN_TEXT = 'The AI engine is chosen for you.'
 
 // The AI engine picker shared by Words and Story tools. The server treats an
-// omitted engine as Claude (paid), so a request always names the chosen one.
-export function EnginePicker({ engines, off = [], engine, onChange }: {
+// omitted engine as Claude (paid), so a request names the chosen one, unless
+// the engine is chosen for the viewer (engine null), when the server picks.
+export function EnginePicker({ engines, off = [], engine, chosen, onChange }: {
   engines: TranslateEngine[]
   // Engines that cannot run yet: shown switched off with the reason, so nobody wonders where Ollama went.
   off?: TranslateEngine[]
-  engine: string
+  engine: string | null
+  chosen: ChosenForYou
   onChange: (name: string) => void
 }) {
+  if (engine === null) return <ChosenForYouNote text={CHOSEN_TEXT} chosen={chosen} testId="reader-engine-chosen" />
   if (engines.length === 0) {
     return (
       <>
@@ -80,7 +87,8 @@ function focusPicker() {
 }
 
 // One muted line for Sections that use the Story tools engine: "Uses Ollama · Change".
-export function EngineLine({ engines, engine }: { engines: TranslateEngine[]; engine: string }) {
+export function EngineLine({ engines, engine }: { engines: TranslateEngine[]; engine: string | null }) {
+  if (engine === null) return <p className="muted reader-engine-line">{CHOSEN_TEXT}</p>
   const current = engines.find((e) => e.name === engine)
   return (
     <p className="muted reader-engine-line">

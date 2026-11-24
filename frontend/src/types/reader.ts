@@ -34,8 +34,9 @@ export type CaptionTrack = 'Source' | 'English' | 'Bilingual'
 
 export type ReaderMediaAvailability = Schemas['ReaderMediaAvailability']
 
-// Every LLM request. An omitted engine means Claude on the server and
-// counts as paid, so the page always sends the chosen engine.
+// Every LLM request. An omitted engine means Claude on the server, or Ollama for an
+// account without paid engines, so the page sends the chosen engine unless the
+// engine is chosen for the viewer (hooks/useChosenForYou).
 export interface ReaderEngineFields {
   engine?: string
   model?: string

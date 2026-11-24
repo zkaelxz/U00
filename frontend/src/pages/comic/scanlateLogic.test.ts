@@ -72,6 +72,7 @@ describe('scanlate panel logic', () => {
     expect(runBlockedReason(config({ page_count: 0 }), 'ollama')).toBe('Upload pages first.')
     expect(runBlockedReason(config(), '')).toMatch(/Settings/)
     expect(runBlockedReason(null, '')).toBeNull()
+    expect(runBlockedReason(config(), null)).toBeNull()
   })
 
   it('summarises tools and progress', () => {

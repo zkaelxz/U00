@@ -16,7 +16,7 @@ list and the original/typeset images.
 - GET  /dramas/{id}/run-notes               library.read
 - POST /dramas/{id}/pages                   media.upload (admin only; away from the PC only
                                               while the remote-uploads switch is on)
-- POST /dramas/{id}/run                     jobs.start + require_engines_allowed
+- POST /dramas/{id}/run                     jobs.start + the engine check (_require_scanlate_engine)
 - POST /dramas/{id}/render                  jobs.start   (no engine)
 - POST /dramas/{id}/export                  jobs.start   (ZIP/PDF artifacts)
 
@@ -31,7 +31,7 @@ from fastapi import APIRouter, Path, Query, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
-from api.auth import is_at_pc, require_engines_allowed, require_permission
+from api.auth import engine_for_caller, is_at_pc, require_engines_allowed, require_permission
 from api.scanlate_schemas import (ScanlateRegionRedoRequest, ScanlateConfig, ScanlateExportRequest, ScanlateJobStarted,
                                   ScanlatePageDetail, ScanlateRenderRequest, ScanlateRunNotes,
                                   ScanlateRunRequest, ScanlateUploadResult)
@@ -107,6 +107,17 @@ def delete_region(drama_id: int = Path(ge=1, le=2**31 - 1),
     return scanlate_pages_service.delete_region(drama_id, page_id, region_id, expected_rev)
 
 
+def _require_scanlate_engine(request: Request, named) -> tuple[str, bool]:
+    """The engine a run or redo uses: an omitted one is the configured default, or Ollama for an
+    account that may not use it (`engine_for_caller`), so a member's comic needs no engine picker;
+    a named engine is held to `engines.paid`. Scanlate picks its own model for the engine.
+    Also says whether the engine was swapped in, for the read-ahead's cap check."""
+    default = named or scanlate_pages_service.default_engine()
+    engine, _model = engine_for_caller(request, named, default, None)
+    require_engines_allowed(request, engine)
+    return engine, engine != default
+
+
 @router.post("/dramas/{drama_id}/pages/{page_id}/regions/{region_id}/redo",
              dependencies=[require_permission("jobs.start")],
              response_model=ScanlatePageDetail, responses=_REDO_ERRS,
@@ -115,8 +126,7 @@ def delete_region(drama_id: int = Path(ge=1, le=2**31 - 1),
 def post_region_redo(body: ScanlateRegionRedoRequest, request: Request,
                      drama_id: int = Path(ge=1, le=2**31 - 1), page_id: int = Path(ge=1, le=2**31 - 1),
                      region_id: int = Path(ge=1, le=2**31 - 1)):
-    engine = body.engine or scanlate_pages_service.default_engine()
-    require_engines_allowed(request, engine)
+    engine, _swapped = _require_scanlate_engine(request, body.engine)
     return scanlate_region_redo_service.redo_region(
         drama_id, page_id, region_id, body.expected_rev, body.mode, engine)
 
@@ -181,10 +191,7 @@ async def post_pages(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1))
              summary="Detect, OCR, translate and typeset pages as one job "
                      "(missing = skip pages with regions; page = redo one; all = redo every page)")
 def post_run(body: ScanlateRunRequest, request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
-    # The configured default is resolved first, so a household user can run
-    # a drama whose default engine is a free one.
-    engine = body.engine or scanlate_pages_service.default_engine()
-    require_engines_allowed(request, engine)
+    engine, swapped = _require_scanlate_engine(request, body.engine)
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_scanlate, drama_id, body.detect_backend,
         body.art_captions)
@@ -192,7 +199,7 @@ def post_run(body: ScanlateRunRequest, request: Request, drama_id: int = Path(ge
         drama_id, mode=body.mode, page_id=body.page_id, confirm=body.confirm, engine=engine,
         detect_backend=body.detect_backend, chapter_id=body.chapter_id,
         art_captions=body.art_captions, read_ahead_from=body.read_ahead_from,
-        page_ids=body.page_ids, keep_text=body.keep_text)
+        page_ids=body.page_ids, keep_text=body.keep_text, engine_swapped=swapped)
 
 
 @router.post("/dramas/{drama_id}/render", dependencies=[require_permission("jobs.start")],

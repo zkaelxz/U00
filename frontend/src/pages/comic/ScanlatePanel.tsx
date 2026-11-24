@@ -21,6 +21,8 @@ import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { useCanUpload } from '../../hooks/useHolds'
+import { useChosenForYou } from '../../hooks/useChosenForYou'
+import { ChosenForYouNote } from '../../components/ChosenForYou'
 import { useReadiness } from '../../hooks/useReadiness'
 import { useStageDraft } from '../../hooks/useStageDraft'
 import type { JobRecord } from '../../types/jobs'
@@ -87,6 +89,8 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
   const { draft, save: saveDraft } = useStageDraft(dramaId, 'scanlate', SCANLATE_DRAFT)
   const draftRef = useRef(draft)
   const [engine, setEngine] = useState(draft.engine ?? '')
+  // While auto, no engine is sent (the server picks one this account may use) and the detector stays on Auto.
+  const picked = useChosenForYou()
   const [detector, setDetector] = useState<ScanlateDetectBackend>(
     DETECTORS.find((d) => d.value === draft.detector)?.value ?? 'auto',
   )
@@ -158,8 +162,9 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
 
   // A missing package or program blocks every run button; the server would refuse the run anyway.
   const need = config ? scanlateNeed(readiness, config.ocr_backend, config.ocr_backend_installed) : null
-  const detectorNeed = config ? mlDetectorNeed(readiness, detector, config.ml_weights_cached) : null
-  const blocked = runBlockedReason(config, engine) ?? need?.reason ?? null
+  const detectorUsed: ScanlateDetectBackend = picked.auto ? 'auto' : detector
+  const detectorNeed = config ? mlDetectorNeed(readiness, detectorUsed, config.ml_weights_cached) : null
+  const blocked = runBlockedReason(config, picked.auto ? null : engine) ?? need?.reason ?? null
   const usable = usableEngines(config)
   const selectedEngine = usable.find((e) => e.name === engine)
 
@@ -177,8 +182,8 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
         page_id: mode === 'page' && pageId ? pageId : undefined,
         chapter_id: mode !== 'page' && chapterScope ? chapterScope.id : undefined,
         confirm: mode === 'all' ? true : undefined,
-        engine,
-        detect_backend: detector,
+        engine: picked.auto ? undefined : engine,
+        detect_backend: detectorUsed,
         art_captions: artCaptions,
       })
       setJobKind('run')
@@ -209,8 +214,8 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
           chapter_id: redoScope === 'all' && chapterScope ? chapterScope.id : undefined,
           confirm: redoScope === 'page' ? undefined : true,
           keep_text: keep,
-          engine,
-          detect_backend: detector,
+          engine: picked.auto ? undefined : engine,
+          detect_backend: detectorUsed,
           art_captions: artCaptions,
         })
       }
@@ -425,7 +430,8 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
               Glossary and characters
             </a>
           </p>
-          <div className="scanlate-run-row">
+          {picked.auto && <ChosenForYouNote text="The engine and text detector are chosen for you." chosen={picked} testId="scanlate-engine-chosen" />}
+          {!picked.auto && <div className="scanlate-run-row">
             <Field
               label={AI_ENGINE_LABEL}
               help={`${recommendedModelNote('comic')} Keys stay on the PC; engines without a key are not listed.${selectedEngine ? ` ${engineShortName(selectedEngine)}: ${selectedEngine.label}` : ''}`}
@@ -439,7 +445,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
                 ))}
               </select>
             </Field>
-          </div>
+          </div>}
           <div className="toggle-list">
             <Field
               label="Translate captions on the art"
@@ -449,7 +455,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
             </Field>
           </div>
           {config && <p className="muted">{toolsSummary(config)}</p>}
-          <Field label="Text detector" help="Auto uses the ML model once it is downloaded, else the OpenCV heuristic.">
+          {!picked.auto && <Field label="Text detector" help="Auto uses the ML model once it is downloaded, else the OpenCV heuristic.">
             <select value={detector} onChange={(e) => setDetector(e.target.value as ScanlateDetectBackend)}>
               {DETECTORS.map((d) => (
                 <option key={d.value} value={d.value}>
@@ -457,7 +463,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
                 </option>
               ))}
             </select>
-          </Field>
+          </Field>}
           {detectorNeed && <NeedsInstall need={detectorNeed} />}
         </div>
       </Section>
