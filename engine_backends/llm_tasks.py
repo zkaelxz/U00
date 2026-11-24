@@ -207,15 +207,24 @@ def _engine_key(engine) -> str:
     return getattr(engine, "name", None) or type(engine).__name__
 
 
-def _jobless_cap(engine) -> int:
-    if isinstance(engine, OllamaEngine) and not is_ollama_cloud_model(getattr(engine, "model", "")):
-        return min(_MAX_ABANDONED_JOBLESS, _MAX_JOBLESS_ON_LOCAL_OLLAMA)
-    return _MAX_ABANDONED_JOBLESS
+def _jobless_slots_for(engine) -> tuple[list, int]:
+    """The slot list a jobless call on `engine` takes a place in, and how many places it has.
+    A fallback chain counts as the engine it currently leads with. A model on this PC and a
+    hosted one keep separate lists even under one engine name, so busy hosted calls never hold
+    up a local one, nor the other way round."""
+    lead = engine
+    if isinstance(engine, FallbackEngine):
+        with contextlib.suppress(Exception):
+            lead = engine.engines[engine.active]
+    local = isinstance(lead, OllamaEngine) and not is_ollama_cloud_model(getattr(lead, "model", ""))
+    cap = min(_MAX_ABANDONED_JOBLESS, _MAX_JOBLESS_ON_LOCAL_OLLAMA) if local else _MAX_ABANDONED_JOBLESS
+    key = f"{_engine_key(engine)}:{'local' if local else 'hosted'}"
+    return _abandoned_jobless.setdefault(key, []), cap
 
 
-def _wait_for_jobless_slot_locked(slots: list, cap: int) -> bool:
-    """True once fewer than `cap` workers hold the engine's slots, False after
-    JOBLESS_SLOT_WAIT_SECONDS. Called and returns with _abandoned_lock held."""
+def _wait_for_jobless_slot_locked(slots: list, cap: int, cancel_check) -> bool:
+    """True once fewer than `cap` workers hold `slots`, False after JOBLESS_SLOT_WAIT_SECONDS.
+    Called and returns with _abandoned_lock held. Raises TranslationCancelled on a cancel."""
     give_up = time.monotonic() + JOBLESS_SLOT_WAIT_SECONDS
     while True:
         slots[:] = [w for w in slots if w.is_alive()]
@@ -225,14 +234,22 @@ def _wait_for_jobless_slot_locked(slots: list, cap: int) -> bool:
         if left <= 0:
             return False
         # A worker hands its slot back as it finishes (_free_jobless_slot); the timeout also
-        # catches one that died without reaching that.
+        # catches one that died without reaching that, and lets a cancel be seen.
         _jobless_slot_freed.wait(min(left, 1.0))
+        # The caller's cancel check is foreign code: it must not run while this lock is held.
+        _abandoned_lock.release()
+        try:
+            cancelled = bool(cancel_check())
+        finally:
+            _abandoned_lock.acquire()
+        if cancelled:
+            raise TranslationCancelled("cancelled")
 
 
-def _free_jobless_slot(engine, worker) -> None:
+def _free_jobless_slot(slots: list, worker) -> None:
     with _abandoned_lock:
         with contextlib.suppress(ValueError):
-            _abandoned_jobless.get(_engine_key(engine), []).remove(worker)
+            slots.remove(worker)
         _jobless_slot_freed.notify_all()
 
 
@@ -286,14 +303,15 @@ def _run_bounded(scope: _BoundedScope, fn, engine=None, deadline: float | None =
             if abandon.is_set():
                 record_late_result()
         finally:
-            if scope.job_id is None:
-                _free_jobless_slot(engine, worker)
+            if slots is not None:
+                _free_jobless_slot(slots, worker)
 
     worker = threading.Thread(target=work, daemon=True, name=f"llm-task-{scope.job_id}")
+    slots = None
     with _abandoned_lock:
         if scope.job_id is None:
-            slots = _abandoned_jobless.setdefault(_engine_key(engine), [])
-            busy = not _wait_for_jobless_slot_locked(slots, _jobless_cap(engine))
+            slots, cap = _jobless_slots_for(engine)
+            busy = not _wait_for_jobless_slot_locked(slots, cap, scope.cancel_check)
         else:
             busy = _abandoned_alive_locked(scope.job_id)
             if not busy:

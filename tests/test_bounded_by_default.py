@@ -259,7 +259,7 @@ def test_usage_of_an_abandoned_batch_is_still_logged(monkeypatch):
     _, errors = _run(engine, usage_cb=lambda inp, out, *rest: logged.append((inp, out)))
     assert "did not answer within" in errors[0]["error"] and logged == []
     engine.release.set()
-    for worker in llm_tasks._abandoned_jobless["deepseek"]:
+    for worker in llm_tasks._abandoned_jobless["deepseek:hosted"]:
         worker.join(5)
     assert logged == [(11, 7)]  # the request was billed although its result was dropped
 
@@ -358,10 +358,37 @@ def test_a_jobless_call_waits_for_a_slot_instead_of_failing(monkeypatch):
 
 
 def test_a_model_on_this_pc_takes_fewer_calls_at_once_than_a_hosted_one():
+    from engine_backends.fallback import FallbackEngine
     from engine_backends.local import OllamaEngine
     local, cloud = OllamaEngine.__new__(OllamaEngine), OllamaEngine.__new__(OllamaEngine)
     local.model, cloud.model = "gemma4:31b", "gemma4:31b-cloud"
-    assert llm_tasks._jobless_cap(local) == llm_tasks._MAX_JOBLESS_ON_LOCAL_OLLAMA
-    assert llm_tasks._jobless_cap(cloud) == llm_tasks._MAX_ABANDONED_JOBLESS
-    assert llm_tasks._jobless_cap(HangingEngine()) == llm_tasks._MAX_ABANDONED_JOBLESS
-    assert llm_tasks._MAX_JOBLESS_ON_LOCAL_OLLAMA < llm_tasks._MAX_ABANDONED_JOBLESS
+    local_slots, local_cap = llm_tasks._jobless_slots_for(local)
+    cloud_slots, cloud_cap = llm_tasks._jobless_slots_for(cloud)
+    assert local_cap == llm_tasks._MAX_JOBLESS_ON_LOCAL_OLLAMA < cloud_cap == llm_tasks._MAX_ABANDONED_JOBLESS
+    assert local_slots is not cloud_slots   # busy hosted calls never hold up a local one
+    assert llm_tasks._jobless_slots_for(HangingEngine())[1] == llm_tasks._MAX_ABANDONED_JOBLESS
+    chain = FallbackEngine([local, cloud], ["local", "cloud"])
+    assert llm_tasks._jobless_slots_for(chain) == (local_slots, local_cap)
+    chain.active = 1
+    assert llm_tasks._jobless_slots_for(chain) == (cloud_slots, cloud_cap)
+
+
+def test_a_call_waiting_for_a_slot_stops_on_cancel(monkeypatch):
+    monkeypatch.setattr(llm_tasks, "batch_deadline_for", lambda engine: 5)
+    monkeypatch.setattr(llm_tasks, "_MAX_ABANDONED_JOBLESS", 1)
+    monkeypatch.setattr(llm_tasks, "JOBLESS_SLOT_WAIT_SECONDS", 10)
+    first, second = HangingEngine(), HangingEngine()
+    t = threading.Thread(target=lambda: llm_tasks.call_batch_bounded(
+        first, lambda: first.translate_batch(["a"], {})))
+    t.start()
+    deadline = time.monotonic() + 5
+    while first.calls == 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    slots, _ = llm_tasks._jobless_slots_for(second)
+    scope = type("Scope", (), {"cancel_check": staticmethod(lambda: True)})()
+    started = time.monotonic()
+    with llm_tasks._abandoned_lock, pytest.raises(llm_tasks.TranslationCancelled):
+        llm_tasks._wait_for_jobless_slot_locked(slots, 1, scope.cancel_check)
+    assert time.monotonic() - started < 3
+    first.release.set()
+    t.join(5)
