@@ -292,8 +292,7 @@ export default function TranslatePage() {
                 >
                   Clear
                 </button>
-                {/* A picture upload is PC-only (docs/remote-access-decision.md); typed text still works anywhere. */}
-                {pc !== 'remote' && (
+                {canTranslate && (
                   <button
                     type="button"
                     className={buttonClass('secondary')}
@@ -304,7 +303,7 @@ export default function TranslatePage() {
                   </button>
                 )}
               </div>
-              {readOpen && pc !== 'remote' && (
+              {readOpen && canTranslate && (
                 <TranslateReadImage
                   engines={engines}
                   pageEngine={engine}

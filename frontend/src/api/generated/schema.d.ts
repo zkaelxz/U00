@@ -12599,7 +12599,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** PC only: read the text written in a picture with a vision engine */
+        /** Read the text written in a picture with a vision engine */
         post: operations["post_read_image_api_translate_read_image_post"];
         delete?: never;
         options?: never;
@@ -22447,9 +22447,10 @@ export interface components {
             glossary_drama_id?: number | null;
             /**
              * Max Minutes
+             * @description None = no limit.
              * @default 60
              */
-            max_minutes?: number;
+            max_minutes?: number | null;
             /** Model */
             model?: string | null;
             /** Series Id */
@@ -22607,9 +22608,10 @@ export interface components {
             glossary_drama_id?: number | null;
             /**
              * Max Minutes
+             * @description None = no limit: captions until the stream ends.
              * @default 60
              */
-            max_minutes?: number;
+            max_minutes?: number | null;
             /** Model */
             model?: string | null;
             /**
