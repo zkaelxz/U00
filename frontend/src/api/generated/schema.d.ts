@@ -9088,7 +9088,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Write the chapter as a ZIP and/or PDF (download from /api/artifacts, kinds scanlate_zip / scanlate_pdf) */
+        /** Write the chapter as a ZIP, PDF and/or CBZ (download from /api/artifacts, kinds scanlate_zip / scanlate_pdf / scanlate_cbz) */
         post: operations["post_export_api_scanlate_dramas__drama_id__export_post"];
         delete?: never;
         options?: never;
@@ -27612,7 +27612,7 @@ export interface components {
         /** ScanlateExportRequest */
         ScanlateExportRequest: {
             /** Formats */
-            formats?: ("zip" | "pdf")[];
+            formats?: ("zip" | "pdf" | "cbz")[];
             /**
              * Typeset
              * @default true

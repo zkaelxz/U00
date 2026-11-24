@@ -18,7 +18,7 @@ export type ScanlateRunMode = 'missing' | 'page' | 'pages' | 'all'
 
 export type ScanlateRunRequest = Schemas['ScanlateRunRequest']
 
-export type ScanlateExportFormat = 'zip' | 'pdf'
+export type ScanlateExportFormat = 'zip' | 'pdf' | 'cbz'
 
 export type ScanlateJobStarted = Schemas['ScanlateJobStarted']
 export type ScanlateRegion = Schemas['ScanlateRegion']

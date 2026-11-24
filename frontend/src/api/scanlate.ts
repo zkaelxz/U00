@@ -55,4 +55,4 @@ export const scanlateApi = {
 
 // Download links for the export job's files (media.stream).
 export const scanlateExportUrl = (id: number, format: ScanlateExportFormat) =>
-  artifactUrl(id, format === 'zip' ? 'scanlate_zip' : 'scanlate_pdf')
+  artifactUrl(id, `scanlate_${format}`)

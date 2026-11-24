@@ -141,8 +141,8 @@ class ScanlateRenderRequest(BaseModel):
 
 class ScanlateExportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    formats: List[Literal["zip", "pdf"]] = Field(default_factory=lambda: ["zip", "pdf"],
-                                                 min_length=1, max_length=2)
+    formats: List[Literal["zip", "pdf", "cbz"]] = Field(default_factory=lambda: ["zip", "pdf"],
+                                                        min_length=1, max_length=3)
     # False writes every page as the original image, whatever has been typeset.
     typeset: bool = True
 
