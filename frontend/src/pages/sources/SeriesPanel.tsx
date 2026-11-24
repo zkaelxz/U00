@@ -19,8 +19,9 @@ import { SourceErrorLine } from './SearchPanel'
 import { CHAPTERS_PAGE, describeSourceError, sourceProgressPercent } from './sourcesFormat'
 import { groupChapters, limitGroups, seriesSafeHref, seriesExtra, seriesLinks, seriesMeta, type SeriesView } from './sourcesSeries'
 import type { SourcesJob } from './useSourcesJob'
+import { canImportSources, useSession } from '../../hooks/useSession'
 import {
-  IMPORT_REMOTE_ALLOWED, allSelected, chapterMarks, selectAllLabel, selectableChapters, toggleUrlId, type ChapterMark,
+  allSelected, chapterMarks, selectAllLabel, selectableChapters, toggleUrlId, type ChapterMark,
 } from './urlImportFormat'
 
 type Props = {
@@ -60,6 +61,8 @@ export function SeriesPanel({
   open, display, job, view, tracked, remote, cleared, busyEnded, focusKey, showBack, onReload, onClose, onUntrack, untrackBusy,
   sourceInfo, preselect, phone = false, onTracked, moveCandidates = [],
 }: Props) {
+  const session = useSession()
+  const mayImport = !remote || canImportSources(session)
   const headRef = useRef<HTMLHeadingElement>(null)
   const [more, setMore] = useState(false)
   const [shown, setShown] = useState(CHAPTERS_PAGE)
@@ -99,11 +102,11 @@ export function SeriesPanel({
   }
   const { readiness } = useReadiness()
   const browserNeed = sourceInfo?.needs_browser ? browserTierNeed(readiness) : null
-  const canImport = !!sourceInfo?.import_supported && (!remote || IMPORT_REMOTE_ALLOWED) && !browserNeed
+  const canImport = !!sourceInfo?.import_supported && mayImport && !browserNeed
   const imp = useChapterImport(open.source, open.series_id, !!sourceInfo?.supports.get_pages, canImport)
   const importing = !!result && chapters.length > 0 && canImport
   // Tracking (R4) works for any source, not only those with import; same remote rule.
-  const canTrack = !!result && !tracked && (!remote || IMPORT_REMOTE_ALLOWED)
+  const canTrack = !!result && !tracked && mayImport
   // Chapters already in the chosen drama are marked and left out of Select all.
   const selectable = selectableChapters(chapters, imp.importState.state)
 
@@ -265,7 +268,7 @@ export function SeriesPanel({
       )}
       {result && chapters.length > 0 && browserNeed && sourceInfo?.import_supported && <NeedsInstall need={browserNeed} />}
       {result && chapters.length > 0 && !canImport && sourceInfo?.import_supported && remote && (
-        <p className="muted">Importing chapters is PC only for now.</p>
+        <p className="muted">Importing chapters needs the Sources import right. Ask the admin to turn it on for you.</p>
       )}
 
       {result?.notice && <p className="warn" role="status">{result.notice}</p>}
