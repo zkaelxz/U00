@@ -116,9 +116,6 @@ export function TranslateOptionsFields({ options, config, onChange }: Props) {
             <Field label="Translation-memory examples">
               <Toggle checked={translateValue(config, choices, 'memory_examples')} onChange={(v) => set('memory_examples', v)} />
             </Field>
-            <Field label="Reflect" help="Three passes per batch: translate, critique, rewrite. Slower and about three times the cost.">
-              <Toggle checked={translateValue(config, choices, 'reflect')} onChange={(v) => set('reflect', v)} />
-            </Field>
           </div>
           {changed > 0 && (
             <div className="actions">

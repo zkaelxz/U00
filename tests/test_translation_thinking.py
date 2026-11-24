@@ -173,280 +173,37 @@ def test_a_default_pipeline_run_is_off():
     assert engine.contexts[0]["reply_without_thinking"] is True
 
 
-class TestTitleChoice:
-    def test_default_is_off_and_unset_is_null(self, isolated_db):
-        did = db.create_drama(title_zh="D")
-        assert tts.get_title_choice(did) is False
-        assert db.get_drama(did)["translate_thinking"] is None
+class TestThinkHarderRemoved:
+    """The Translate "Think harder" option was removed: a saved or sent choice is read as off."""
 
-    def test_the_choice_lives_in_the_drama_row_not_a_file(self, isolated_db):
+    def test_a_saved_choice_is_not_read(self, isolated_db):
         did = db.create_drama(title_zh="D")
-        tts.save_title_choice(did, True)
-        assert db.get_drama(did)["translate_thinking"] == 1
-        assert not os.path.exists(os.path.join(db.DRAMAS_DIR, str(did)))
-
-    def test_an_explicit_choice_is_remembered_and_none_leaves_it(self, isolated_db):
-        did = db.create_drama(title_zh="D")
-        tts.save_title_choice(did, True)
-        assert tts.get_title_choice(did) is True
-        tts.save_title_choice(did, None)
-        assert tts.get_title_choice(did) is True
-        tts.save_title_choice(did, False)
+        db.update_drama(did, translate_thinking=1)
+        assert thinking.title_thinking({"id": did}) is False
         assert tts.get_title_choice(did) is False
 
-    def test_an_unknown_drama_is_left_alone(self, isolated_db):
-        tts.save_title_choice(9999, True)
-        assert tts.get_title_choice(9999) is False
+    def test_a_run_ignores_the_request_and_saves_nothing(self, isolated_db, monkeypatch):
+        from tests import fake_engine
+        seen = []
+        real = fake_engine.FakeEngine.translate_batch
 
-    def test_a_run_context_follows_the_title_unless_told(self, isolated_db):
+        def capture(self, zh_lines, context):
+            seen.append(context.get("reply_with_thinking"))
+            return real(self, zh_lines, context)
+        monkeypatch.setattr(fake_engine.FakeEngine, "translate_batch", capture)
         did = db.create_drama(title_zh="D")
-        tts.save_title_choice(did, True)
-        engine = types.SimpleNamespace(supports_reference=True)
-        assert translate_pipeline.build_translation_context(engine, {"id": did})["reply_with_thinking"] is True
-        assert translate_pipeline.build_translation_context(engine, {"id": did}, thinking=False)["reply_with_thinking"] is False
+        db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
+        started = tts.start_with_thinking(run.start_translate_run, did, True, True, engine_name="fake")
+        wait_for_job(started["job_id"], timeout=20.0)
+        assert seen == [False] and started["thinking"] is False
+        assert not db.get_drama(did).get("translate_thinking")
 
-    def test_the_choice_is_saved_with_the_other_toggles(self, isolated_db):
-        did = db.create_drama(title_zh="D")
-        run.save_style_toggles(did, thinking=True)
-        assert tts.get_title_choice(did) is True
-        run.save_style_toggles(did, thinking=None)
-        assert tts.get_title_choice(did) is True
-        run.save_style_toggles(did, thinking=False)
-        assert tts.get_title_choice(did) is False
-
-    def test_engines_without_a_switch_and_reflect_never_think(self):
-        assert tts.effective(["claude"], True) is False
-        assert tts.effective(["deepseek"], True, reflect=True) is False
-        assert tts.effective(["claude", "ollama"], True) is True
-
-    def test_the_config_reports_the_remembered_choice_and_the_engines(self, isolated_db):
-        did = db.create_drama(title_zh="D")
-        tts.save_title_choice(did, True)
-        assert tts.config_fields(did) == {"thinking_switch_engines": ["deepseek", "ollama"],
-                                          "title_thinking": True}
-
-
-def test_the_estimate_is_a_lower_bound_only_when_thinking_costs_money(isolated_db):
-    did = db.create_drama(title_zh="D")
-    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好世界" * 20, en="")])
-    est = run.estimate_translate_cost(did, "deepseek")
-    off = tts.annotate_estimate(est, did, None)
-    on = tts.annotate_estimate(est, did, True)
-    assert on["thinking"] is True and on["estimate_is_lower_bound"] is True
-    assert off["thinking"] is False and off["estimate_is_lower_bound"] is False
-    assert on["estimated_usd"] == off["estimated_usd"]
-    assert tts.annotate_estimate(run.estimate_translate_cost(did, "claude"), did, True)["thinking"] is False
-    ollama = tts.annotate_estimate(run.estimate_translate_cost(did, "ollama"), did, True)
-    assert ollama["thinking"] is True and ollama["estimate_is_lower_bound"] is False
-
-
-def test_provenance_keeps_the_default_hash_and_separates_a_thinking_run(isolated_db, monkeypatch):
-    did = db.create_drama(title_zh="D")
-    seen = []
-    monkeypatch.setattr(line_provenance_service, "tracker",
-                        lambda *a, settings=None, **k: seen.append(settings))
-
-    def settings_for(engine_choice, **kw):
-        line_provenance_service.translate_run_tracker(
-            did, [], types.SimpleNamespace(), engine_choice, None, locale="en-US", **kw)
-        return seen[-1](engine_choice)
-    default = settings_for("deepseek")
-    assert "thinking" not in default
-    tts.save_title_choice(did, True)
-    assert settings_for("deepseek")["thinking"] is True
-    assert "thinking" not in settings_for("claude")
-    assert "thinking" not in settings_for("deepseek", reflect=True)
-
-
-def test_a_thinking_fallback_gets_the_thinking_hash_and_a_claude_primary_does_not(isolated_db, monkeypatch):
-    did = db.create_drama(title_zh="D")
-    seen = []
-    monkeypatch.setattr(line_provenance_service, "tracker",
-                        lambda *a, settings=None, **k: seen.append(settings))
-    line_provenance_service.translate_run_tracker(
-        did, [], types.SimpleNamespace(), "claude", None, thinking=True, locale="en-US")
-    for_engine = seen[-1]
-    assert "thinking" not in for_engine("claude")
-    assert for_engine("deepseek")["thinking"] is True
-
-
-def _client():
-    pytest.importorskip("fastapi")
-    from fastapi.testclient import TestClient
-    from api.api_config import ApiSettings
-    from api.server import create_app
-    return TestClient(create_app(ApiSettings()), headers={"X-Baihe-Local": "1"})
-
-
-# The Translate form's run body, as buildRunBody sends it.
-UI_RUN_BODY = {
-    "engine": "deepseek", "model": "deepseek-flash", "style_preset": "audio_drama",
-    "style_note": "", "locale": "en-US", "force_retranslate": False,
-    "context_window": 6, "context_window_ahead": 3, "batch_size": 20,
-    "thinking": True, "default_female_pronouns": False, "include_genre_notes": True,
-}
-UI_AFFECTED_BODY = {
-    **{k: v for k, v in UI_RUN_BODY.items() if k != "force_retranslate"},
-    "line_ids": [1], "preview_hash": "abc", "include_hand_edited": False, "term_ids": [1],
-}
-
-
-def test_the_ui_bodies_are_accepted_by_both_run_routes(isolated_db, monkeypatch):
-    from services import glossary_retranslate_service as gls
-    did = db.create_drama(title_zh="D")
-    seen = {}
-    monkeypatch.setattr(run, "start_translate_run",
-                        lambda drama_id, **kw: seen.update(run=kw) or {
-                            "job_id": "j", "drama_id": drama_id, "engine": "deepseek",
-                            "target_line_count": 1, "reflect": False})
-    monkeypatch.setattr(gls, "start_affected_retranslate",
-                        lambda drama_id, *a, **kw: seen.update(glossary=kw) or {
-                            "job_id": "j", "drama_id": drama_id, "engine": "deepseek",
-                            "target_line_count": 1, "reflect": False, "line_ids": [1],
-                            "skipped_hand_edited_count": 0})
-    client = _client()
-    assert client.post(f"/api/translate-run/dramas/{did}/run", json=UI_RUN_BODY).status_code == 200
-    resp = client.post(f"/api/translate-run/dramas/{did}/glossary-affected/run", json=UI_AFFECTED_BODY)
-    assert resp.status_code == 200, resp.text
-    assert seen["run"]["thinking"] is True and seen["glossary"]["thinking"] is True
-
-
-def _fake_run(did, thinking=None, remember=True):
-    return tts.start_with_thinking(run.start_translate_run, did, thinking, remember,
-                                   engine_name="fake")
-
-
-@pytest.fixture
-def run_contexts(monkeypatch):
-    """The reply_with_thinking value of every batch the fake engine translates."""
-    from tests import fake_engine
-    seen = []
-    real = fake_engine.FakeEngine.translate_batch
-
-    def capture(self, zh_lines, context):
-        seen.append(context.get("reply_with_thinking"))
-        return real(self, zh_lines, context)
-    monkeypatch.setattr(fake_engine.FakeEngine, "translate_batch", capture)
-    return seen
-
-
-def _drama_with_lines():
-    did = db.create_drama(title_zh="D")
-    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
-    return did
-
-
-def test_a_run_uses_its_own_choice_and_saves_it_once_accepted(isolated_db, run_contexts):
-    did = _drama_with_lines()
-    started = _fake_run(did, thinking=True)
-    wait_for_job(started["job_id"], timeout=20.0)
-    assert run_contexts == [True] and tts.get_title_choice(did) is True
-    assert started["thinking"] is False  # the fake engine has no switch
-
-
-def test_a_refused_request_leaves_the_saved_choice_alone(isolated_db, monkeypatch):
-    import background_jobs
-    from lib.errors import ConflictError
-    did = _drama_with_lines()
-    tts.save_title_choice(did, False)
-    monkeypatch.setattr(background_jobs, "is_running", lambda job_id: True)
-    with pytest.raises(ConflictError):
-        _fake_run(did, thinking=True)
-    assert tts.get_title_choice(did) is False
-    client = _client()
-    resp = client.post(f"/api/translate-run/dramas/{did}/run",
-                       json={"engine": "fake", "thinking": True})
-    assert resp.status_code == 409
-    assert tts.get_title_choice(did) is False
-
-
-def test_a_caller_without_paid_engines_cannot_make_thinking_stick_for_paid_runs(
-        isolated_db, run_contexts):
-    did = _drama_with_lines()
-    started = _fake_run(did, thinking=True, remember=False)
-    wait_for_job(started["job_id"], timeout=20.0)
-    assert run_contexts == [True]  # this run still thinks
-    assert tts.get_title_choice(did) is False
-
-
-def test_may_remember_turning_on_needs_paid_engines():
-    assert tts.may_remember(True, True)
-    assert not tts.may_remember(False, True)
-    assert tts.may_remember(False, False)
-
-
-def test_a_household_user_without_paid_engines_cannot_turn_the_saved_choice_on(isolated_db, monkeypatch):
-    pytest.importorskip("fastapi")
-    from fastapi.testclient import TestClient
-    from api import auth as api_auth
-    from api.api_config import ApiSettings
-    from api.server import create_app
-    from services import auth_service
-    did = _drama_with_lines()
-    seen = []
-    monkeypatch.setattr(run, "start_translate_run",
-                        lambda drama_id, **kw: seen.append(kw["thinking"]) or {
-                            "job_id": "j", "drama_id": drama_id, "engine": "ollama",
-                            "target_line_count": 1, "reflect": False})
-    user = auth_service.add_user("kid@example.com")
-    auth_service.grant_permission(user["id"], "jobs.start")
-    session = auth_service.create_session(user["id"], "pytest", "203.0.113.9")
-    client = TestClient(create_app(ApiSettings(auth_mode="on")),
-                        base_url="https://baihe.example.com", raise_server_exceptions=False)
-    headers = {"Cookie": f"{api_auth.COOKIE_NAME}={session['session_token']}",
-               api_auth.CSRF_HEADER: session["csrf_token"]}
-    url = f"/api/translate-run/dramas/{did}/run"
-    assert client.post(url, json={"engine": "ollama", "thinking": True}, headers=headers).status_code == 200
-    assert seen == [True] and tts.get_title_choice(did) is False  # this run only
-    tts.save_title_choice(did, True)
-    assert client.post(url, json={"engine": "ollama", "thinking": False}, headers=headers).status_code == 200
-    assert seen == [True, False] and tts.get_title_choice(did) is False
-
-
-def test_the_config_route_reports_the_remembered_choice(isolated_db):
-    did = db.create_drama(title_zh="D")
-    cfg = _client().get(f"/api/translate-run/dramas/{did}/config").json()
-    assert cfg["title_thinking"] is False and cfg["thinking_switch_engines"] == ["deepseek", "ollama"]
-
-
-def test_the_provenance_follows_the_runs_own_choice(isolated_db, monkeypatch):
-    did = db.create_drama(title_zh="D")
-    seen = []
-    monkeypatch.setattr(line_provenance_service, "tracker",
-                        lambda *a, settings=None, **k: seen.append(settings))
-    line_provenance_service.translate_run_tracker(
-        did, [], types.SimpleNamespace(), "deepseek", None, thinking=True, locale="en-US")
-    assert seen[-1]("deepseek")["thinking"] is True and tts.get_title_choice(did) is False
-
-
-def test_saving_never_raises(isolated_db, monkeypatch):
-    did = db.create_drama(title_zh="D")
-    monkeypatch.setattr(db, "update_drama", lambda *a, **k: (_ for _ in ()).throw(OSError("no disk")))
-    tts.save_title_choice(did, True)
+    def test_the_estimate_is_never_a_lower_bound(self, isolated_db):
+        out = tts.annotate_estimate({"engine": "deepseek", "free": False}, 1, True)
+        assert out["thinking"] is False and out["estimate_is_lower_bound"] is False
 
 
 def test_the_deepseek_request_sets_no_output_cap_so_reasoning_cannot_truncate_the_reply():
     engine, seen = _deepseek('{"1": "Hello"}')
     engine.translate_batch(["你好"], {**_ctx(thinking=True), "line_ids": [1]})
     assert "max_tokens" not in seen[0] and "max_completion_tokens" not in seen[0]
-
-
-def test_the_deepseek_off_peak_job_reads_the_title_when_it_runs(isolated_db):
-    did = db.create_drama(title_zh="D")
-    tts.save_title_choice(did, True)
-    engine = types.SimpleNamespace(supports_reference=True)
-    assert translate_pipeline.build_translation_context(engine, db.get_drama(did))["reply_with_thinking"] is True
-
-
-def test_a_glossary_retranslate_run_gets_the_same_thinking_value(isolated_db, monkeypatch):
-    from services import glossary_retranslate_service as gls
-    did = _drama_with_lines()
-    monkeypatch.setattr(gls, "_affected", lambda *a: ([], [{"id": 1, "hand_edited": False, "en": ""}], "h"))
-    monkeypatch.setattr(db, "load_lines", lambda d: [{"id": 1}])
-    seen = {}
-    monkeypatch.setattr(run, "start_translate_run",
-                        lambda drama_id, **kw: seen.update(kw) or {"job_id": "j", "engine": "fake"})
-    out = tts.start_with_thinking(gls.start_affected_retranslate, did, True, False, [1], "h",
-                                  engine_name="fake")
-    assert seen["thinking"] is True and out["thinking"] is False
-    assert tts.get_title_choice(did) is False
