@@ -4,6 +4,7 @@
 import multiprocessing
 import sys
 import threading
+import time
 import types
 
 import pytest
@@ -22,7 +23,7 @@ class _Result:
 @pytest.fixture
 def worker(monkeypatch):
     """A fresh worker state with the GPU allowed and params that only say which device they are for."""
-    for name, value in (("_child", None), ("_gpu_loaded", False), ("_gpu_off_reason", None),
+    for name, value in (("_child", None), ("_gpu_loaded", False), ("_gpu_pending", False), ("_gpu_off_reason", None),
                         ("_gpu_checked_at", None)):
         monkeypatch.setattr(ocr_worker, name, value)
     monkeypatch.setattr(ocr_worker, "_params_cache", {})
@@ -111,7 +112,7 @@ class TestGpuAllowed:
         import stored_settings
         import vram
         from jobs import gpu_guard
-        for name, value in (("_child", None), ("_gpu_loaded", False), ("_gpu_off_reason", None),
+        for name, value in (("_child", None), ("_gpu_loaded", False), ("_gpu_pending", False), ("_gpu_off_reason", None),
                             ("_gpu_checked_at", None)):
             monkeypatch.setattr(ocr_worker, name, value)
         self.settings = {"use_gpu": True}
@@ -251,3 +252,66 @@ def test_the_childs_loop_reads_until_told_to_stop(monkeypatch):
     assert not loop.is_alive()
     import os
     assert os.environ["OMP_NUM_THREADS"] == "2"
+
+
+def test_pages_are_read_on_the_cpu_while_the_gpu_engine_loads(worker):
+    worker.setattr(ocr_worker, "inline", False)
+    checks = []
+    worker.setattr(ocr_worker, "_gpu_allowed", lambda key: checks.append(key) or True)
+    conn = _FakeConn([("gpu_loading",), ("ok", ("cpu",), None, None),
+                      ("ok", ("gpu",), None, None)])
+    worker.setattr(ocr_worker, "_start", lambda: (_FakeProcess(), conn))
+    assert ocr_worker.read("medium", "/fake/a.png").txts == ("cpu",)
+    assert not ocr_worker.on_gpu()
+    assert ocr_worker.read("medium", "/fake/b.png").txts == ("gpu",)
+    assert ocr_worker.on_gpu()
+    assert [m[1] for m in conn.sent] == ["medium:gpu", "medium:cpu", "medium:gpu"]
+
+
+def test_a_card_that_fills_while_loading_is_asked_again_later(worker):
+    worker.setattr(ocr_worker, "inline", False)
+    conn = _FakeConn([("gpu_oom",), ("ok", ("cpu",), None, None)])
+    worker.setattr(ocr_worker, "_start", lambda: (_FakeProcess(), conn))
+    assert ocr_worker.read("medium", "/fake/a.png").txts == ("cpu",)
+    assert ocr_worker._gpu_pending is False and ocr_worker._gpu_checked_at is not None
+    assert ocr_worker._gpu_off_reason is None
+
+
+def test_the_helper_loads_its_gpu_engine_on_a_thread(monkeypatch):
+    gate = threading.Event()
+    built = []
+
+    class Engine:
+        def __init__(self, params=None):
+            gate.wait(10)
+            built.append(params)
+
+        def __call__(self, source):
+            return _Result("gpu")
+    monkeypatch.setitem(sys.modules, "rapidocr", types.SimpleNamespace(RapidOCR=Engine))
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(
+        set_num_threads=lambda n: None,
+        cuda=types.SimpleNamespace(OutOfMemoryError=MemoryError, empty_cache=lambda: None)))
+    engines, loading = {}, {}
+    assert ocr_worker._serve(engines, "medium:gpu", {}, "a", threads=2, loading=loading) == ("gpu_loading",)
+    assert ocr_worker._serve(engines, "medium:gpu", {}, "b", threads=2, loading=loading) == ("gpu_loading",)
+    gate.set()
+    for _ in range(200):
+        if "medium:gpu" in engines:
+            break
+        time.sleep(0.01)
+    assert ocr_worker._serve(engines, "medium:gpu", {}, "c", threads=2, loading=loading)[1] == ("gpu",)
+    assert len(built) == 1
+
+
+def test_a_gpu_engine_that_cannot_load_keeps_the_cpu(monkeypatch):
+    def broken(params=None):
+        raise RuntimeError("CUDA is not available.")
+    monkeypatch.setitem(sys.modules, "rapidocr", types.SimpleNamespace(RapidOCR=broken))
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(
+        set_num_threads=lambda n: None,
+        cuda=types.SimpleNamespace(OutOfMemoryError=MemoryError, empty_cache=lambda: None)))
+    loading: dict = {}
+    ocr_worker._load_gpu_engine({}, loading, "medium:gpu", {}, 2)
+    reply = ocr_worker._serve({}, "medium:gpu", {}, "a", loading=loading)
+    assert reply[0] == "gpu_failed" and "CUDA is not available" in reply[1]

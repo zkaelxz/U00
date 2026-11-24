@@ -42,6 +42,9 @@ _PARENT_CHECK_SECONDS = 5
 _lock = threading.Lock()
 _child = None
 _gpu_loaded = False
+# The card had room and the helper is loading the GPU engine (or is about to); reads go to
+# the CPU engine meanwhile, so the first pages don't wait on torch's start-up.
+_gpu_pending = False
 _gpu_off_reason = None
 _gpu_checked_at = None
 _params_cache: dict = {}
@@ -68,9 +71,11 @@ def read(key: str, source):
         params = _params(key, False)
     with _lock:
         reply = _ask(("read", f"{key}:{'gpu' if gpu else 'cpu'}", params, source))
-        if reply[0] in ("gpu_oom", "gpu_failed"):
+        if reply[0] in ("gpu_loading", "gpu_oom", "gpu_failed"):
             if reply[0] == "gpu_failed":
                 _gpu_off(reply[1])
+            elif reply[0] == "gpu_oom":
+                _gpu_retry_later()
             reply = _ask(("read", f"{key}:cpu", _params(key, False), source))
         elif gpu:
             globals()["_gpu_loaded"] = True
@@ -82,9 +87,9 @@ def read(key: str, source):
 
 def stop() -> None:
     """Ends the helper and frees what it holds; the next read starts a new one."""
-    global _child, _gpu_loaded
+    global _child, _gpu_loaded, _gpu_pending
     with _lock:
-        child, _child, _gpu_loaded = _child, None, False
+        child, _child, _gpu_loaded, _gpu_pending = _child, None, False, False
         _inline_engines().clear()
     if child is not None:
         _end(child)
@@ -105,8 +110,13 @@ def _gpu_off(reason: str) -> None:
     _gpu_off_reason = reason
 
 
+def _gpu_retry_later() -> None:
+    global _gpu_pending, _gpu_checked_at
+    _gpu_pending, _gpu_checked_at = False, time.monotonic()
+
+
 def _gpu_allowed(key: str) -> bool:
-    global _gpu_checked_at
+    global _gpu_checked_at, _gpu_pending
     if key not in GPU_KEYS or _gpu_off_reason is not None:
         return False
     try:
@@ -118,7 +128,7 @@ def _gpu_allowed(key: str) -> bool:
             return False
     except Exception:
         return False
-    if on_gpu():
+    if on_gpu() or _gpu_pending:
         return True
     now = time.monotonic()
     if _gpu_checked_at is not None and now - _gpu_checked_at < GPU_RECHECK_SECONDS:
@@ -133,7 +143,7 @@ def _gpu_allowed(key: str) -> bool:
         vram.check_fits("RapidOCR text reader", required_mb=GPU_NEED_MB, free_mb=free)
     except Exception:
         return False
-    _gpu_checked_at = None
+    _gpu_checked_at, _gpu_pending = None, True
     return True
 
 
@@ -149,6 +159,7 @@ def _ask(message) -> tuple:
             if _child is not None:
                 _end(_child)
             globals()["_gpu_loaded"] = False
+            globals()["_gpu_pending"] = False
             _child = _start()
         process, conn = _child
         try:
@@ -209,6 +220,7 @@ def _child_main(conn, threads: int) -> None:
     _lower_priority()
     parent = multiprocessing.parent_process()
     engines: dict = {}
+    loading: dict = {}
     last = time.monotonic()
     while True:
         if conn.poll(_PARENT_CHECK_SECONDS):
@@ -218,7 +230,7 @@ def _child_main(conn, threads: int) -> None:
                 return
             if message[0] == "stop":
                 return
-            conn.send(_serve(engines, *message[1:], threads=threads))
+            conn.send(_serve(engines, *message[1:], threads=threads, loading=loading))
             last = time.monotonic()
         elif parent is not None and not parent.is_alive():
             return
@@ -226,8 +238,23 @@ def _child_main(conn, threads: int) -> None:
             return
 
 
-def _serve(engines: dict, engine_id: str, params: dict, source, threads: int | None = None) -> tuple:
+def _serve(engines: dict, engine_id: str, params: dict, source, threads: int | None = None,
+           loading: dict | None = None) -> tuple:
+    """One read. In the helper (`loading` given) a GPU engine is built on a thread while the
+    parent reads on the CPU: on the V100 the first page otherwise waited about two minutes
+    for torch's import and the model load."""
     on_gpu = engine_id.endswith(":gpu")
+    if on_gpu and loading is not None and engine_id not in engines:
+        state = loading.get(engine_id)
+        if state is None:
+            loading[engine_id] = "loading"
+            threading.Thread(target=_load_gpu_engine, args=(engines, loading, engine_id, params, threads),
+                             daemon=True, name="ocr-gpu-load").start()
+            return ("gpu_loading",)
+        if state == "loading":
+            return ("gpu_loading",)
+        del loading[engine_id]
+        return state
     try:
         if engine_id not in engines:
             if on_gpu and threads:
@@ -253,6 +280,33 @@ def _serve(engines: dict, engine_id: str, params: dict, source, threads: int | N
         if oom:
             return ("gpu_oom",)
         return ("gpu_failed", redact_secrets(f"{type(exc).__name__}: {exc}"))
+
+
+def _load_gpu_engine(engines: dict, loading: dict, engine_id: str, params: dict, threads) -> None:
+    """Builds the GPU engine and loads both models (RapidOCR loads them on first use), then
+    leaves in `loading` the reply a failure gives: OOM is tried again later, anything else
+    keeps the CPU."""
+    try:
+        import torch
+        if threads:
+            torch.set_num_threads(threads)
+        from rapidocr import RapidOCR
+        engine = RapidOCR(params=params)
+        for name in ("_load_det_model", "_load_rec_model"):
+            getattr(engine, name, lambda: None)()
+        engines[engine_id] = engine
+        loading.pop(engine_id, None)
+    except Exception as exc:
+        from engine_backends.redaction import redact_secrets
+        torch = sys.modules.get("torch")
+        oom = torch is not None and isinstance(exc, getattr(torch.cuda, "OutOfMemoryError", ()))
+        if torch is not None:
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+        loading[engine_id] = ("gpu_oom",) if oom else (
+            "gpu_failed", redact_secrets(f"{type(exc).__name__}: {exc}"))
 
 
 def _lower_priority() -> None:
