@@ -131,11 +131,14 @@ describe('read marks', () => {
 
   it('counts a chapter finished only on its last listed page, and only once', () => {
     const all = [1, 2, 3, 4, 5]
-    expect(finishedChapter(pages, chapters, 1, all)).toBeNull()
-    expect(finishedChapter(pages, chapters, 2, all)).toBe('a')
+    expect(finishedChapter(pages, chapters, [1], all)).toBeNull()
+    expect(finishedChapter(pages, chapters, [2], all)).toBe('a')
     // A hidden last page is not in the list, so the page before it ends the chapter.
-    expect(finishedChapter(pages, chapters, 1, [1, 3, 4, 5])).toBe('a')
-    expect(finishedChapter(pages, chapters, 4, all)).toBeNull()
+    expect(finishedChapter(pages, chapters, [1], [1, 3, 4, 5])).toBe('a')
+    expect(finishedChapter(pages, chapters, [4], all)).toBeNull()
+    // In a two-page spread the chapter can end on the second page.
+    expect(finishedChapter(pages, chapters, [1, 2], all)).toBe('a')
+    expect(finishedChapter(pages, chapters, [4, 5], all)).toBe('c')
   })
 
   it('lays the saved marks over the list and leaves other chapters alone', () => {

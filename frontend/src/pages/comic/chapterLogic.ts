@@ -55,13 +55,19 @@ export function nextUnread(chapters: ComicChapter[], at: number): number {
   return chapters.findIndex((c, i) => i < at && !c.read)
 }
 
-/** The chapter to mark read because `current` is its last listed page; null when it is read already or not at an end. */
-export function finishedChapter(pages: ComicPageInfo[], chapters: ComicChapter[], current: number, visible: number[]): string | null {
-  const id = pages[current - 1]?.chapter_id
-  const chapter = chapters.find((c) => c.id === id)
-  if (!chapter || chapter.read) return null
-  const last = visible.filter((n) => pages[n - 1]?.chapter_id === id).at(-1)
-  return last === current ? chapter.id : null
+/**
+ * The chapter to mark read because its last listed page is among the pages on screen; null when
+ * it is read already or no chapter ends here. A two-page spread can end a chapter on its second
+ * page, which is never the current page.
+ */
+export function finishedChapter(pages: ComicPageInfo[], chapters: ComicChapter[], onScreen: number[], visible: number[]): string | null {
+  for (const n of onScreen) {
+    const id = pages[n - 1]?.chapter_id
+    const chapter = chapters.find((c) => c.id === id)
+    if (!chapter || chapter.read) continue
+    if (visible.filter((v) => pages[v - 1]?.chapter_id === id).at(-1) === n) return chapter.id
+  }
+  return null
 }
 
 /** The chapter list with the server's answer to a marks change laid over it. */

@@ -317,7 +317,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     )
   })
 
-  const applyMarks = useChapterMarks(id, setData, current === null || !moved ? null : finishedChapter(pages, chapters, current, visibleAll))
+  const applyMarks = useChapterMarks(id, setData, current === null || !moved ? null : finishedChapter(pages, chapters, spread ?? [current], visibleAll))
 
   // Text boxes for the page(s) in view, fetched once each.
   const wantText = prefs.text || linesOpen
