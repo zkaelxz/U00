@@ -129,8 +129,7 @@ def get_title_flow(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
              responses=error_responses(400, 403, 404, 409, 422, 503))
 def start_title_flow(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
     # The names step's engine is held to the same gate as the Glossary tab's own start.
-    require_engines_allowed(request, glossary_extract_service.lines_glossary_engine(drama_id),
-                            model=glossary_extract_service.glossary_model(drama_id))
+    require_engines_allowed(request, glossary_extract_service.lines_glossary_engine(drama_id))
     return page_run_service.start_title_flow(request.state.principal, drama_id, holds_paid_engines(request),
                                             at_pc=is_at_pc(request))
 
@@ -146,8 +145,7 @@ def get_novel_flow(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
              responses=error_responses(400, 403, 404, 409, 422, 503))
 def start_novel_flow(body: NovelFlowStart, request: Request, drama_id: int = Path(ge=1, lt=2**63)):
     # Each step's engine is held to the gate of the button it replaces (narration run, Glossary tab).
-    require_engines_allowed(request, glossary_extract_service.novel_glossary_engine(drama_id),
-                            model=glossary_extract_service.glossary_model(drama_id))
+    require_engines_allowed(request, glossary_extract_service.novel_glossary_engine(drama_id))
     lines = page_run_service.lines_choice(drama_id, body.model_dump(exclude={"url"}))
     if "lines" in page_run_service.novel_steps(drama_id) and not lines["one_narrator"]:
         require_engines_allowed(request, lines["engine"], model=lines.get("model"))

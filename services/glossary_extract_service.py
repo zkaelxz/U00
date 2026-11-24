@@ -62,26 +62,6 @@ def novel_glossary_engine(drama_id: int) -> str:
     return _drama(drama_id).get("translation_engine") or _default_engine()
 
 
-def _title_model(drama: dict) -> Optional[str]:
-    from services import profile_service
-    model = profile_service.translate_start(drama).get("engine_model")
-    return model if isinstance(model, str) and model else None
-
-
-def touches_gpu(engine_name: str, engine) -> bool:
-    """Only a local Ollama model loads onto this PC's GPU; a cloud tag must not wait
-    in the GPU queue behind Live and transcription."""
-    from engine_backends.local import is_ollama_cloud_model
-    return engine_name == "ollama" and not is_ollama_cloud_model(getattr(engine, "model", None))
-
-
-def glossary_model(drama_id: int) -> Optional[str]:
-    """The model a glossary run uses: the one the title's Translate runs on (its last
-    run's pick), else None for the engine's Settings default. Routes pass it to the
-    paid-engine gate, because a picked Ollama cloud tag is held to engines.paid."""
-    return _title_model(_drama(drama_id))
-
-
 # A proposal is High confidence when the term turns up at least this often
 # in the source and every window that proposed it agreed on one rendering;
 # anything else is Low. Deliberately simple so a reviewer can predict it.
@@ -324,10 +304,8 @@ def _glossary_engine(drama: dict, engine_name: Optional[str]):
     api_key = translate_service.resolve_api_key(engine_name)
     if not api_key:
         raise MissingKeyError(engine_name)
-    # The title's own model, as Translate uses: scanning on the Settings default
-    # ran a different (and often slower, local) model than the one picked.
     engine = engine_registry.get_engine(
-        engine_name, api_key, model=_title_model(drama),
+        engine_name, api_key,
         free_tier=engine_name == "gemini" and bool(settings_service.get("gemini_free_tier")),
         base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
@@ -374,7 +352,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     started = _start_extraction_job(
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
         en_text, drama.get("source_language") or "zh", db.list_run_glossary_terms(drama),
-        gpu_touching=touches_gpu(engine_name, engine),
+        gpu_touching=engine_name == "ollama",
         description=f"Glossary from novel (title #{drama_id})", fresh=bool(fresh),
         conventions=split_term_conventions(drama.get("project_instructions"))[1])
     if not started:
@@ -693,7 +671,7 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     started = _start_extraction_job(
         job_id, _run_lines_glossary_job, drama_id, engine, engine_name, source_lines,
         drama.get("source_language") or "zh", db.list_run_glossary_terms(drama),
-        gpu_touching=touches_gpu(engine_name, engine),
+        gpu_touching=engine_name == "ollama",
         description=f"Glossary from lines (title #{drama_id})")
     if not started:
         raise ConflictError("A glossary extraction is already running for this title.")

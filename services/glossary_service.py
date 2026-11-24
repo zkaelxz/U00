@@ -459,7 +459,6 @@ from services.glossary_extract_service import (  # noqa: E402,F401
     RAW_NOVEL_FILENAME,
     novel_glossary_job_id,
     novel_glossary_engine,
-    glossary_model,
     _normalize_proposals,
     _novel_glossary_cache,
     _start_extraction_job,

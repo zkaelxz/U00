@@ -40,10 +40,6 @@ MAX_DURATION_SECONDS = 6 * 60 * 60
 HARD_MAX_DURATION_SECONDS = 12 * 60 * 60
 SOCKET_TIMEOUT = 30
 PROGRESS_SECONDS = 0.5
-# Stream VODs come as hundreds of short fragments; fetching one at a time leaves
-# most of the line idle. Four is yt-dlp's usual advice and well under the egress
-# proxy's connection limit.
-FRAGMENTS_AT_ONCE = 4
 _PREFIX = "@@ytdlp-"
 _DESKTOP_SESSION_ENV = ("DBUS_SESSION_BUS_ADDRESS", "DESKTOP_SESSION", "KDE_SESSION_VERSION", "XAUTHORITY")
 _SPEC_NAME = "ytdlp_spec.json"
@@ -173,7 +169,7 @@ def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts
         "socket_timeout": SOCKET_TIMEOUT,
         "retries": 3,
         "fragment_retries": 3,
-        "concurrent_fragment_downloads": FRAGMENTS_AT_ONCE,
+        "concurrent_fragment_downloads": 1,
         "external_downloader": {"default": "native"},
         "paths": {"home": tmp_dir, "temp": tmp_dir},
         "restrictfilenames": True,

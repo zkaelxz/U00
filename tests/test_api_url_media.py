@@ -279,7 +279,7 @@ def test_ydl_options_caps_filters_and_no_cookies(client, env):
     assert o["noplaylist"] is True and o["playlistend"] == 1
     assert "max_filesize" not in o
     assert o["socket_timeout"] == 30 and o["retries"] == 3
-    assert o["concurrent_fragment_downloads"] == 4
+    assert o["concurrent_fragment_downloads"] == 1
     assert o["external_downloader"] == {"default": "native"}
     assert o["restrictfilenames"] is True
     # yt-dlp's own thumbnail writer has no size or time limit; video_download.save_thumbnail reads it instead.
