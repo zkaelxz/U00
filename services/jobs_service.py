@@ -665,7 +665,7 @@ JOB_KIND_BY_PREFIX = {
     "flag_": "review", "fixflag_": "review", "timingchk_": "review", "consistency_": "review",
     "emotion_": "review", "notes_": "review", "bulk_consistency_": "review",
     "bulk_emotion_": "review", "bulk_notes_": "review", "bulk_flag_": "review",
-    "transcribe_": "transcribe", "retranscribe_": "transcribe",
+    "transcribe_": "transcribe", "retranscribe_": "transcribe", "picsub_": "transcribe",
     "autotune_": "transcribe", "sensevoice_": "transcribe", "comparetx_": "transcribe",
     "speechcov_": "transcribe",
     "diarize_": "transcribe", "ocrchapter_": "transcribe",

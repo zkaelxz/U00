@@ -102,19 +102,16 @@ def _refuses_schema(exc) -> bool:
     return bool(_SCHEMA_REFUSAL_RE.search(getattr(exc, "body_text", None) or ""))
 
 
-# Local Ollama models offered in the picker. translategemma:27b is the default
-# (about 17 GB: it fits a 24 GB or larger card, and 12b is the pick for smaller ones).
-# Both load on every Ollama version in use, including 0.24.0, which cannot load the
-# gemma4 architecture (newer Ollama needs an NVIDIA driver over 550).
-# A title or preset that saved another tag (an old Qwen one, say) keeps it and
-# still runs if Ollama has it; it is just no longer offered here.
-OLLAMA_DEFAULT_MODEL = "translategemma:27b"
+# The default is Ollama's hosted Gemma 4 31B: no local model is offered any more.
+# A title, preset or setting that saved a removed local tag (TranslateGemma 27B or
+# 12B, an old Qwen one) keeps working only if Ollama still has the tag; it is
+# no longer offered, and a saved default override that names one is ignored.
+OLLAMA_DEFAULT_MODEL = "gemma4:31b-cloud"
 
+# Models that no longer have a place in a picker or as a default.
+REMOVED_LOCAL_MODELS = frozenset({"translategemma:27b", "translategemma:12b"})
 
-OLLAMA_MODELS = {
-    "translategemma:27b": "TranslateGemma 27B -- recommended default, translation-only model, about 17 GB; needs a card with 24 GB or more",
-    "translategemma:12b": "TranslateGemma 12B -- translation-only model, about 8 GB; fits a 12 GB card",
-}
+OLLAMA_MODELS: dict = {}
 
 
 # Ollama's hosted models, reached through the local app once the owner has
@@ -129,6 +126,19 @@ OLLAMA_CLOUD_MODELS = {
 
 def is_ollama_cloud_model(model) -> bool:
     return isinstance(model, str) and model.lower().endswith(("-cloud", ":cloud"))
+
+
+# Hosted tags every account may run on the PC's Ollama account without
+# engines.paid (owner decision 2026-11-24): the model chosen for members and
+# away devices has to just work. Other hosted tags still need engines.paid or
+# the member's own Ollama key. Spend still counts against the monthly cap.
+MEMBER_DEFAULT_CLOUD_MODEL = "gemma4:31b-cloud"
+MEMBER_CLOUD_MODELS = frozenset({MEMBER_DEFAULT_CLOUD_MODEL})
+
+
+def cloud_model_needs_paid(model) -> bool:
+    """A hosted tag outside MEMBER_CLOUD_MODELS: held to engines.paid like a paid engine."""
+    return is_ollama_cloud_model(model) and model.lower() not in MEMBER_CLOUD_MODELS
 
 
 # A member's own key sends cloud tags straight to Ollama's hosted API, so the
@@ -623,9 +633,9 @@ class OllamaCloudLimitError(Exception):
     status_code = 429
 
     def __init__(self, detail: str, own_key: bool = False):
-        whose = ("Your Ollama account is rate-limited or over its free usage cap right now. "
+        whose = ("Your Ollama account is rate-limited or over its usage limit right now. "
                  if own_key else
-                 "Ollama's cloud models are rate-limited or over the free usage cap right now. ")
+                 "Ollama's cloud models are rate-limited or over its usage limit right now. ")
         super().__init__(
             whose + "Wait and resume the run later, use a local model, or check your Ollama plan."
             + (f" Ollama said: {detail}" if detail else ""))

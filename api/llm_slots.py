@@ -2,7 +2,7 @@
 api/llm_slots.py -- the shared concurrency cap for SYNCHRONOUS long work
 in a request handler (an LLM call, ffmpeg): the Reader's LLM tools and rich
 export (api/routers/reader_routes.py) and the Review blocked-line retry
-(api/routers/blocked_retry_routes.py), POST /api/translate, the line-ai
+(api/routers/blocked_retry_routes.py), POST /api/translate and its picture read, the line-ai
 improve/explain routes, Discover translate-query, import-suggestion and
 Romanize credits, metadata autofill, and a pasted link's probe from away from
 the PC (a yt-dlp read of up to 45 s).

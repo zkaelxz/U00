@@ -49,6 +49,7 @@ __all__ = [
     "LibraryVoice",
     "LibraryVoiceBankResponse",
     "LibraryVoiceDetails",
+    "LibraryVoicePrivate",
     "LibraryRename",
     "MediaAnalysis",
     "MediaSubtitleTrack",
@@ -351,6 +352,7 @@ class LibraryCostRow(BaseModel):
     cache_read_tokens: int
     estimated_cost_usd: float
     call_count: int
+    cloud_call_count: int = 0
 
 
 class LibraryCostResponse(BaseModel):
@@ -418,6 +420,14 @@ class LibraryVoice(BaseModel):
     # The caller can't see the title the voice came from, so source_drama
     # and ref_text are left out (and must not be saved back as blanks).
     source_hidden: bool = False
+    # Only admins see a private voice, so a member never receives one of these as true.
+    is_private: bool = False
+
+
+class LibraryVoicePrivate(BaseModel):
+    """Hide a voice bank entry from members, or show it again."""
+    model_config = ConfigDict(extra="forbid")
+    private: bool
 
 
 class LibraryVoiceBankResponse(BaseModel):
@@ -465,6 +475,8 @@ class MediaSubtitleTrack(BaseModel):
     language: Optional[str] = None
     # Text tracks can be imported as lines; picture tracks (PGS, DVD) can't.
     importable: bool = False
+    # Picture tracks (PGS, DVD) can be read into text with OCR, as a background job.
+    picture: bool = False
 
 
 MediaAnalysis.model_rebuild()
@@ -603,6 +615,9 @@ class MediaUrlDownloadRequest(BaseModel):
     # "Download again, keep the lines": the same video at another quality; the
     # job refuses a file whose length doesn't match the title's current media.
     keep_lines: StrictBool = False
+    # "Use the site's captions": make the video site's own captions the title's lines (when it
+    # has none) instead of recognizing the speech. Without it they are kept only as hints.
+    use_site_captions: StrictBool = False
 
 
 class MediaUrlDownloadStarted(BaseModel):

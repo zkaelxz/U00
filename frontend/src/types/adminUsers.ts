@@ -10,6 +10,7 @@ export type AdminUser = Omit<Schemas['AdminUser'], LaterFields> & Partial<Pick<S
 export type AdminUserList = Omit<Schemas['AdminUserList'], 'users'> & { users: AdminUser[] }
 export type AdminAddUserRequest = Schemas['AdminAddUserRequest']
 export type AdminSessionsRevoked = Schemas['AdminSessionsRevoked']
+export type AdminUserDeleted = Schemas['AdminUserDeleted']
 export type AuditEvent = Schemas['AuditEvent']
 export type AuditPage = Schemas['AuditPage']
 

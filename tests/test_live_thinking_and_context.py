@@ -258,8 +258,8 @@ class TestLiveServiceWiring:
         import memory_headroom
         monkeypatch.setattr(memory_headroom, "total_mb", lambda memory: 24 * 1024)
         out = live_service.check_ollama()
-        assert out["ok"] is False and out["model"] == "translategemma:27b"
-        assert "ollama pull translategemma:27b" in out["message"] and "localhost" not in out["message"]
+        assert out["ok"] is False and out["model"] == "gemma4:31b-cloud"
+        assert "ollama pull gemma4:31b-cloud" in out["message"] and "localhost" not in out["message"]
 
     def test_ollama_check_without_a_model_uses_the_model_start_would_use(self, monkeypatch):
         seen = []
@@ -321,8 +321,8 @@ class TestOllamaCheckGraphicsMemory:
         assert out["ok"] is False and out["gpu_fit"] is True
         assert out["message"] == (
             "translategemma:27b and Whisper large-v3 may not fit in graphics memory (need about 27.4 GB, "
-            "22.0 GB free, 5.0 GB kept free for other programs). Pick a smaller model, such as "
-            "translategemma:12b, or turn off Use GPU.")
+            "22.0 GB free, 5.0 GB kept free for other programs). Pick a smaller model, "
+            "or turn off Use GPU.")
 
     def test_room_enough_is_ok(self, gpu):
         gpu(free_gb=33, model_gb=17)
@@ -380,7 +380,7 @@ class TestOllamaCheckGraphicsMemory:
         out = live_service.check_ollama("translategemma:27b", "large-v3", False)
         assert out["ok"] is False and out["message"] == (
             "translategemma:27b may not fit in graphics memory (need about 21.8 GB, 11.0 GB free). "
-            "Pick a smaller model, such as translategemma:12b.")
+            "Pick a smaller model.")
         # Whisper stays on the CPU, so its size does not count.
         gpu(free_gb=23, model_gb=17)
         assert live_service.check_ollama("translategemma:27b", "large-v3", False)["ok"] is True

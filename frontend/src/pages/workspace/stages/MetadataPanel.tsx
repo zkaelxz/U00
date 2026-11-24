@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { updateDramaMetadata } from '../../../api/library'
-import { applyTrack, previewTrack } from '../../../api/subtitleImport'
+import { applyTrack, previewTrack, readPictureTrack } from '../../../api/subtitleImport'
+import { useJob } from '../../../hooks/useJob'
 import { useHolds } from '../../../hooks/useHolds'
 import { analyzeMedia, applyMetadata, listPlatforms, suggestMetadata } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -174,9 +175,53 @@ function AutofillBody({ arrived }: { arrived: boolean }) {
   )
 }
 
+// A picture track (PGS, DVD) is read with OCR in a background job, which can take a while on a long video.
+function PictureTrackRead({ index, track }: { index: number; track: { codec: string; language: string | null } }) {
+  const { dramaId, drama, refetchDrama } = useStage()
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [confirmed, setConfirmed] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const { job, done } = useJob(jobId, { onDone: () => refetchDrama() })
+  const hasLines = (drama.line_count ?? 0) > 0
+  const running = starting || (jobId !== null && !done)
+  const start = () => {
+    setStarting(true)
+    readPictureTrack(dramaId, index, confirmed).then(
+      (r) => { setError(null); setStarting(false); setJobId(r.job_id) },
+      (e: unknown) => { setError(e); setStarting(false) },
+    )
+  }
+  return (
+    <div className="source-suggestion" data-testid={`picture-track-${index}`}>
+      <p className="muted">
+        {trackName(track)} is made of pictures. Baihe can read it with OCR (it may take a few minutes and can
+        misread a character); caption times are accurate to about half a second.
+      </p>
+      {hasLines && (
+        <label className="check">
+          <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+          Replace the {drama.line_count} current lines (saved to history first)
+        </label>
+      )}
+      <button
+        type="button"
+        className={buttonClass('secondary', 'sm')}
+        disabled={running || (hasLines && !confirmed)}
+        onClick={start}
+      >
+        Read {trackName(track)} track
+      </button>
+      {job && !done && <p role="status">{job.message || 'Reading picture subtitles…'}</p>}
+      {job && done && <p role="status">{job.outcome_message || 'Picture subtitles read. The previous text is saved to history.'}</p>}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
+    </div>
+  )
+}
+
 // "Import this track" for a subtitle track inside the media file: reads it,
 // shows what it would do, then writes it as the title's lines.
-function TrackImport({ track }: { track: { index: number | null; codec: string; language: string | null; importable?: boolean } }) {
+function TrackImport({ track }: { track: { index: number | null; codec: string; language: string | null; importable?: boolean; picture?: boolean } }) {
   const { dramaId, refetchDrama } = useStage()
   const canEdit = useHolds('lines.edit')
   const [preview, setPreview] = useState<SubtitleImportPreview | null>(null)
@@ -186,9 +231,8 @@ function TrackImport({ track }: { track: { index: number | null; codec: string; 
   const [error, setError] = useState<unknown>(null)
   const index = track.index
   if (index === null) return null
-  if (!track.importable) {
-    return <p className="muted">Picture subtitles can't be imported as text yet.</p>
-  }
+  if (track.picture) return canEdit ? <PictureTrackRead index={index} track={track} /> : null
+  if (!track.importable) return null
   if (!canEdit) return null
   const check = () => {
     setBusy(true)

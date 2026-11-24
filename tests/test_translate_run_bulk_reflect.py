@@ -26,6 +26,12 @@ from lib.errors import (ConflictError, InvalidInputError,
 from tests.job_helpers import wait_for_job
 
 
+@pytest.fixture(autouse=True)
+def _reflect_runs_enabled(monkeypatch):
+    # New Reflect runs are switched off in the app; these tests cover the pipeline a job submitted earlier still finishes through.
+    monkeypatch.setattr(engine_registry, "REFLECT_RUNS_ENABLED", True)
+
+
 def _seed(texts, engine="claude"):
     did = db.create_drama(title_zh="D", translation_engine=engine)
     db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=z, en=en)

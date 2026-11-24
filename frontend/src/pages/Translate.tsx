@@ -15,11 +15,13 @@ import {
 } from '../api/translate'
 import { PageShell } from '../components/PageShell'
 import { Card } from '../components/Card'
+import { ChosenForYouNote } from '../components/ChosenForYou'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { copyText } from '../components/clipboard'
 import { humanize } from '../components/labels'
 import { buttonClass } from '../components/uiClasses'
+import { useChosenForYou } from '../hooks/useChosenForYou'
 import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -76,8 +78,10 @@ export default function TranslatePage() {
   const [clearing, setClearing] = useState(false)
   const [clearError, setClearError] = useState<unknown>(null)
   const pc = usePcOnly()
-  // POST /api/translate needs engines.paid for every engine, free ones included.
-  const canTranslate = useHolds('engines.paid')
+  // The server holds a named paid engine to engines.paid and runs an omitted one on what the account may use.
+  const canTranslate = useHolds('jobs.start')
+  const chosen = useChosenForYou()
+  const auto = chosen.auto
   // Keys are written on the main PC only, so a remote viewer has no key UI to be sent to.
   const canAddKey = pc !== 'remote'
 
@@ -108,13 +112,13 @@ export default function TranslatePage() {
   const other = pickLanguage(otherPref)
   const pair = languagePair(direction, other)
   const sourceLabel = humanize('language', pair.source_language)
-  const noKey = selected !== undefined && !selected.key_configured
+  const noKey = !auto && selected !== undefined && !selected.key_configured
   // The reason follows the cause: a stopped Ollama or a missing SDK is not a missing key. The engine list is
   // probed for Ollama, so key_configured false there means it did not answer.
   const offGate = noKey ? engineGate(engines, engine, selected.name === 'ollama' ? false : null) : null
 
   // Read-only price check, so a long file shows its cost before it is sent.
-  const paidEngine = selected !== undefined && !selected.free
+  const paidEngine = !auto && selected !== undefined && !selected.free
   useEffect(() => {
     setEstimate(null)
     if (!canTranslate || !paidEngine || !engine || !text.trim() || text.length > MAX_TRANSLATE_TEXT_CHARS) return
@@ -138,7 +142,7 @@ export default function TranslatePage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    const invalid = validateTranslateInput(text, engine)
+    const invalid = validateTranslateInput(text, auto ? null : engine)
     if (invalid) {
       setError(new ApiError(422, { code: 'validation_error', message: invalid }))
       return
@@ -148,7 +152,7 @@ export default function TranslatePage() {
     setStopNotice(null)
     setLoading(true)
     try {
-      const done = await translateApi.translateWithNotice({
+      const done = await translateApi.translateWithNotice(auto ? { text, ...pair } : {
         text,
         engine,
         ...pair,
@@ -194,7 +198,7 @@ export default function TranslatePage() {
 
   return (
     <PageShell width="standard" title="Text" label="Text" className="translate-page" meta="Quick text translation, outside any title. One side is always English.">
-      {showLocalOnlyNote(engines, engine) && (
+      {!auto && showLocalOnlyNote(engines, engine) && (
         <p className="translate-note" role="note" data-testid="local-only-note">
           No cloud translator is set up. Text translation is using Ollama on this PC. Start Ollama, or {canAddKey
             ? <>add a key in <a href="#/settings">Settings</a></>
@@ -204,8 +208,8 @@ export default function TranslatePage() {
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <Card className="translate-card" as="div">
         <form onSubmit={submit} className="translate-form">
-          <div className={selected?.models ? 'translate-toolbar has-model' : 'translate-toolbar'}>
-            <label className="field translate-engine">
+          <div className={!auto && selected?.models ? 'translate-toolbar has-model' : 'translate-toolbar'}>
+            {!auto && <label className="field translate-engine">
               <span>Engine</span>
               <select
                 aria-label="Engine"
@@ -221,8 +225,8 @@ export default function TranslatePage() {
                   </option>
                 ))}
               </select>
-            </label>
-            {selected?.models && (
+            </label>}
+            {!auto && selected?.models && (
               <label className="field translate-model">
                 <span>Model</span>
                 <select value={model} onChange={(e) => setModelPref(e.target.value)}>
@@ -251,7 +255,9 @@ export default function TranslatePage() {
               </div>
             </div>
           </div>
-          {selected && (
+          {auto ? (
+            <ChosenForYouNote text="The engine is chosen for you." chosen={chosen} testId="engine-note" />
+          ) : selected && (
             <p className="muted translate-engine-note" data-testid="engine-note">
               {engineShortName(selected)}: {engineSummary(selected.label)}
             </p>
@@ -279,7 +285,7 @@ export default function TranslatePage() {
                 <button
                   type="submit"
                   className={buttonClass('primary')}
-                  disabled={loading || !enginesLoaded || noKey || !canTranslate}
+                  disabled={loading || (!auto && !enginesLoaded) || noKey || !canTranslate}
                   aria-describedby={!canTranslate ? 'translate-needs-permission' : noKey ? 'translate-needs-key' : undefined}
                 >
                   {loading ? 'Translating…' : 'Translate'}
@@ -309,6 +315,7 @@ export default function TranslatePage() {
                   pageEngine={engine}
                   language={direction === 'to_english' ? pair.source_language : ''}
                   allowed={canTranslate}
+                  auto={auto}
                   onText={(read) => setText((current) => appendRead(current, read))}
                   onClose={() => setReadOpen(false)}
                 />

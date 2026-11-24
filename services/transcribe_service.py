@@ -63,6 +63,7 @@ from asr_backend import audio_coverage_fraction, coverage_warning  # noqa: F401 
 from ocr import default_hardsub_backend
 import job_timing
 from services import difficult_audio_service as difficult
+from services import site_captions_service
 from services import (asr_options_service, diarization_service, ownership_service, run_settings_service,
                       name_fix_service, settings_service, source_service, speech_coverage_service, timing_check_service, timing_settings_service,
                       transcribe_checkpoint_service, transcribe_pipeline,
@@ -111,6 +112,10 @@ def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
         with open(novel_path, "r", encoding="utf-8") as f:
             prompt = core_module.combine_initial_prompt(
                 prompt, core_module.extract_novel_excerpt_for_prompt(f.read()))
+    else:
+        # The video site's own captions spell this title's names and terms the way its speakers say them.
+        prompt = core_module.combine_initial_prompt(
+            prompt, site_captions_service.hint_text(drama_id, site_captions_service.ASR_HINT_CHARS))
     return prompt
 
 

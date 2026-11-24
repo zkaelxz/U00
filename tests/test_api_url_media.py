@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 import background_jobs
 from jobs import job_launch
 import db
+from core import Line
 import storage
 import video_export
 from api import auth as api_auth
@@ -26,6 +27,7 @@ from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service, jobs_service, media_upload_service
 from lib import url_guard
+from services import site_captions_service
 from services import url_media_service as svc
 from services import ytdlp_child
 
@@ -79,6 +81,12 @@ class FakeYDL:
             path = os.path.splitext(path)[0] + ".flac"
         with open(path, "wb") as f:
             f.write(b"x" * s.get("size", 100))
+        # yt-dlp saves each wanted caption track beside the media as <name>.<lang>.vtt.
+        for lang, text in s.get("captions", {}).items():
+            if lang in self.opts.get("subtitleslangs", []):
+                with open(f"{os.path.splitext(self.prepare_filename(info))[0]}.{lang}.vtt", "w",
+                          encoding="utf-8") as f:
+                    f.write(text)
         return info
 
 
@@ -182,6 +190,55 @@ def test_audio_only_download(client, env):
     assert j.status_code == 200
     assert SECRET not in j.text and "video.example" not in j.text and "Clip" not in j.text
     assert jobs_service.project_result(st["result"]) == {}
+
+
+_VTT = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n你好，小明\n\n00:00:04.000 --> 00:00:06.000\n再见\n"
+
+
+def test_the_sites_captions_are_asked_for_and_kept_as_hints(client, env):
+    FakeYDL.script = {"captions": {"zh": _VTT, "ja": _VTT.replace("你好", "こんにちは")}}
+    did = _drama(source_language="zh")
+    st = _run(client, did)
+    assert st["status"] == "done", st
+    assert FakeYDL.last_opts["subtitleslangs"][0] == "zh" and FakeYDL.last_opts["writesubtitles"]
+    assert site_captions_service.hint_text(did, 100) == "你好，小明 再见"
+    assert not db.load_line_ids(did)
+    assert st["result"]["site_captions"] is True and st["result"]["site_captions_used"] is False
+    _no_tmp(did)
+
+
+def test_a_title_without_site_captions_downloads_as_before(client, env):
+    did = _drama(source_language="zh")
+    assert _run(client, did)["status"] == "done"
+    assert not site_captions_service.has_captions(did)
+
+
+def test_use_site_captions_makes_them_the_lines_of_a_title_with_none(client, env):
+    FakeYDL.script = {"captions": {"zh": _VTT}}
+    did = _drama(source_language="zh")
+    st = _run(client, did, use_site_captions=True)
+    assert st["status"] == "done", st
+    assert [(ln.start, ln.zh) for ln in db.load_line_objects(did)] == [(1.0, "你好，小明"), (4.0, "再见")]
+    assert db.get_drama(did)["status"] == "aligned" and st["result"]["site_captions_used"] is True
+
+
+def test_use_site_captions_leaves_existing_lines_alone(client, env):
+    FakeYDL.script = {"captions": {"zh": _VTT}}
+    did = _drama(source_language="zh")
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="mine")])
+    st = _run(client, did, use_site_captions=True, confirm_replace_audio=True)
+    assert st["status"] == "done"
+    assert [ln.zh for ln in db.load_line_objects(did)] == ["mine"]
+    assert st["result"]["site_captions"] is True and st["result"]["site_captions_used"] is False
+
+
+def test_a_part_or_download_again_does_not_take_captions(client, env):
+    FakeYDL.script = {"captions": {"zh": _VTT}}
+    did = _drama(source_language="zh")
+    assert _run(client, did, part_start="0:00:01")["status"] == "done"
+    assert "writesubtitles" not in FakeYDL.last_opts and not site_captions_service.has_captions(did)
+    r = _start(client, did, keep_lines=True, use_site_captions=True)
+    assert r.status_code == 422
 
 
 def test_a_download_fills_blank_author_and_date_from_the_video(client, env):
@@ -1641,3 +1698,30 @@ def test_download_again_refusals(client, env):
     # Without keep_lines an empty link is refused as before.
     assert _start(client, did, url="", confirm_replace_audio=True).status_code == 422
     assert FakeYDL.calls == []
+
+
+def test_a_caption_failure_does_not_fail_the_download(client, env):
+    did = _drama(source_language="zh")
+    real = FakeYDL.extract_info
+
+    def extract(self, url, download=True):
+        if self.opts.get("writesubtitles"):
+            raise RuntimeError("Unable to download video subtitles for 'zh': HTTP Error 429")
+        return real(self, url, download=download)
+    FakeYDL.extract_info = extract
+    try:
+        st = _run(client, did)
+    finally:
+        FakeYDL.extract_info = real
+    assert st["status"] == "done", st
+    assert "writesubtitles" not in FakeYDL.last_opts
+
+
+def test_new_media_without_captions_drops_the_old_ones(client, env):
+    FakeYDL.script = {"captions": {"zh": _VTT}}
+    did = _drama(source_language="zh")
+    assert _run(client, did)["status"] == "done"
+    assert site_captions_service.has_captions(did)
+    FakeYDL.script = {}
+    assert _run(client, did, confirm_replace_audio=True)["status"] == "done"
+    assert not site_captions_service.has_captions(did)

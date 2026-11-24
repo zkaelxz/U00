@@ -166,7 +166,9 @@ def read_image(content: bytes, engine_name: str, model: Optional[str] = None,
     api_key = resolve_api_key(engine_name, env_path)
     if api_key is None:
         raise MissingKeyError(engine_name)
-    translate_run_service.refuse_when_cap_spent(engine_name, use_free_tier, model)
+    # The model the call will run, so an omitted Ollama model (hosted by default) meets the member limit.
+    translate_run_service.refuse_when_cap_spent(
+        engine_name, use_free_tier, model or engine_registry.effective_default_model(engine_name))
     priced = _estimate(engine_name, model, use_free_tier, width, height)
     if priced["cap_applies"] and not priced["fits_cap"]:
         raise UnsupportedOperationError(CAP_MESSAGE)

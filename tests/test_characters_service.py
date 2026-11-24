@@ -178,6 +178,27 @@ class TestVoiceBank:
         assert sorted(os.listdir(tmp_path)) == ["clip.wav"]
         assert os.path.isfile(os.path.join(isolated_db.drama_dir(did), ref))
 
+    def test_a_private_remembered_voice_is_not_copied_for_a_member_or_a_background_run(self, isolated_db, tmp_path):
+        from lib import acting
+        clip = tmp_path / "clip.wav"
+        clip.write_bytes(b"RIFF")
+        eid = isolated_db.save_voice_bank_entry("V", str(clip), clone_engine="omnivoice")
+        isolated_db.set_voice_bank_private(eid, True)
+        sid = isolated_db.get_or_create_series("S")
+        sc = isolated_db.insert_series_character(sid, "Lin")
+        isolated_db.set_series_character_voice(sc, eid)
+        did = _drama(isolated_db, speakers=("A",), series_id=sid)
+        isolated_db.upsert_character(did, "A", series_character_id=sc)
+        assert cs.apply_series_voice(did, "A") is False
+        token = acting.bind_request()
+        try:
+            acting.note_acting_principal({"user_id": 5, "is_admin": False, "is_local_owner": False})
+            assert cs.apply_series_voice(did, "A") is False
+            acting.note_acting_principal({"user_id": 1, "is_admin": True, "is_local_owner": False})
+            assert cs.apply_series_voice(did, "A") is True
+        finally:
+            acting.unbind_request(token)
+
     def test_a_plain_label_keeps_its_readable_file_name(self, isolated_db, tmp_path):
         clip = tmp_path / "clip.wav"
         clip.write_bytes(b"RIFF")

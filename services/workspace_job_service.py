@@ -35,7 +35,7 @@ import core as core_module
 import job_timing
 from services import (language_pack_service, line_provenance_service,
                       novel_files_service, ownership_service, profile_service, run_settings_service,
-                      settings_service, timing_settings_service, vdb_names_service)
+                      settings_service, site_captions_service, timing_settings_service, vdb_names_service)
 from lib.errors import ConflictError, InvalidInputError
 
 
@@ -371,7 +371,8 @@ def _with_episode_context(job_id, drama_id, lines, engine, engine_choice, drama_
     try:
         with llm_tasks.bounded_job_calls(job_id, lambda: background_jobs.is_cancel_requested(job_id)):
             brief = llm_tasks.generate_episode_brief(
-                lines, engine, meta, character_names,
+                lines, engine, {**meta, "site_captions": site_captions_service.hint_text(
+                    drama_id, site_captions_service.BRIEF_REFERENCE_CHARS)}, character_names,
                 usage_cb=_logged_and_counted(
                     paid_calls.usage_logger(drama_id, engine_choice, engine, "episode_brief"),
                     engine, spent_cb),

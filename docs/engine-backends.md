@@ -158,7 +158,8 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
     flags those. They are kept out of `ENGINE_MODEL_DICTS["ollama"]`, refused as a Diagnostics
     default replacement, and ignored on read if a restored backup carries one as the default
     (`model_override_for_default`). A household user needs `engines.paid`, or their own saved
-    Ollama key, to use one: every
+    Ollama key, to use one outside `MEMBER_CLOUD_MODELS` (gemma4:31b-cloud, open to every
+    account since 2026-11-24): every
     route that takes a client-chosen `model` passes it to `require_engines_allowed(request,
     engine, model=...)` (or calls `require_cloud_model_allowed`), and a sweep test fails any
     such route that doesn't. Routes that need `engines.paid` or are PC-only, and the
@@ -388,8 +389,9 @@ backward. 0 disables this.
 6. **Ollama context.** `estimate_ollama_num_ctx` sizes `num_ctx` per request
    (floor `OLLAMA_MIN_NUM_CTX = 16384`) because an undersized window truncates
    the prompt from the start, silently dropping instructions and glossary.
-7. **Ollama models and reasoning.** The picker list is `OLLAMA_MODELS` (default `OLLAMA_DEFAULT_MODEL`,
-   `translategemma:27b`); the API also accepts any tag typed by hand, and a title
+7. **Ollama models and reasoning.** `OLLAMA_DEFAULT_MODEL` is the hosted `gemma4:31b-cloud`; `OLLAMA_MODELS`
+   (the local picker list) is empty, and `REMOVED_LOCAL_MODELS` (TranslateGemma 27B and 12B)
+   resolve to the default through `engine_registry.drop_removed_model`; the API also accepts any tag typed by hand, and a title
    or preset that saved an older tag (Qwen, say) keeps it. Models too big for a 12 GB card
    (tags such as `gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
    `<think>` blocks in a reply are stripped before parsing; a separate
