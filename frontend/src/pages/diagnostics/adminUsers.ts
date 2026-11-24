@@ -63,6 +63,11 @@ export function showRevokeAdmin(user: AdminUser, pc: PcMode): boolean {
   return user.is_admin && pc === 'local'
 }
 
+/** Delete is for a deactivated member, at the main PC only (the server refuses it elsewhere). */
+export function showDeleteUser(user: AdminUser, pc: PcMode): boolean {
+  return !user.is_active && !user.is_admin && !user.is_self && pc === 'local'
+}
+
 /** A plain name and what it allows, for each member permission; the server's
  * list decides which are shown, and an unknown one is shown by its own name. */
 const RIGHTS: Record<string, { name: string; about: string }> = {
@@ -141,6 +146,7 @@ const ACTIONS: Record<string, string> = {
   'user.add': 'User added',
   'user.activate': 'User activated',
   'user.deactivate': 'User deactivated',
+  'user.delete': 'User deleted',
   'user.grant_admin_local': 'Admin granted on the PC',
   'user.revoke_admin': 'Admin rights removed',
   'user.bind_google': 'Google account linked',

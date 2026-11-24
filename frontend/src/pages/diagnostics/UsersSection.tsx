@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import {
-  addAdminUser, listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive, setUserPaidLimit, setUserPermission,
+  addAdminUser, deleteAdminUser, listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive, setUserPaidLimit, setUserPermission,
 } from '../../api/adminUsers'
 import { removeUserOllamaKey } from '../../api/memberKey'
 import { Badge } from '../../components/Badge'
@@ -15,19 +15,19 @@ import { useSession } from '../../hooks/useSession'
 import type { AdminUser } from '../../types/adminUsers'
 import {
   canChangeUsers, canViewUsers, CHANGES_AT_PC, MAX_DISPLAY_NAME_CHARS, MAX_EMAIL_CHARS, MAX_PAID_LIMIT_USD, paidSpendText, parsePaidLimit, revokeAdminBlock,
-  rowBlocks, sessionsText, showRevokeAdmin, rightAbout, rightName, showRights, userName,
+  rowBlocks, sessionsText, showDeleteUser, showRevokeAdmin, rightAbout, rightName, showRights, userName,
 } from './adminUsers'
 import { useDetailsOpen } from './diagnosticsAdmin'
 import { buttonClass } from '../../components/uiClasses'
 
-type Action = 'active' | 'revoke' | 'admin' | 'ollama-key'
+type Action = 'active' | 'revoke' | 'admin' | 'ollama-key' | 'delete'
 type Busy = { id: number; what: Action | 'right' | 'limit' } | null
 
 /**
  * "People": the household's accounts. An admin can deactivate or activate
  * one, end its sessions, remove the Ollama key they saved (never see it), or
- * (on the PC only; not shown elsewhere) remove an admin's rights, each after
- * a confirm step, and give or take a member account's rights (one
+ * (on the PC only; not shown elsewhere) remove an admin's rights or delete a
+ * deactivated member account, each after a confirm step, and give or take a member account's rights (one
  * toggle each, no confirm: each is undone by the same toggle). Admin accounts
  * hold every right and can only be changed on the PC (off elsewhere, with
  * the reason). "Add a person" is shown on the main PC only, where the server
@@ -67,7 +67,10 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen, openSignal }: { sign
     setNote('')
     setError(null)
     try {
-      if (what === 'ollama-key') {
+      if (what === 'delete') {
+        await deleteAdminUser(user.id)
+        setNote(`${user.email} was deleted. They can be added again as a new person.`)
+      } else if (what === 'ollama-key') {
         await removeUserOllamaKey(user.id)
         setNote(`${user.email}: removed their Ollama key.`)
       } else if (what === 'admin') {
@@ -204,6 +207,11 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, 
           <ConfirmButton name={u.email} label="Remove Ollama key…" verb="remove the Ollama key of"
             busy={mine && busy?.what === 'ollama-key'} disabled={busy !== null || !!keyBlock}
             describedBy={keyBlock ? whyId : undefined} onConfirm={() => onRun('ollama-key')} />
+        )}
+        {canChange && showDeleteUser(u, pc) && (
+          <ConfirmButton name={u.email} label="Delete…" verb="delete"
+            busy={mine && busy?.what === 'delete'} disabled={busy !== null}
+            onConfirm={() => onRun('delete')} />
         )}
         {demote && (
           <ConfirmButton name={u.email} label="Remove admin…" verb="remove admin rights from"
