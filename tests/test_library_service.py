@@ -263,3 +263,48 @@ class TestVoiceBankListForCaller:
         edited = library_service.update_voice_bank_details(entry, "n", "new words", None, guest)
         assert edited["ref_text"] is None and edited["source_hidden"]
         assert library_service.rename_voice_bank_entry(entry, "s3")["source_drama"] == "Secret"
+
+
+class TestPrivateVoices:
+    """A private voice is for admins: members don't get it in the list, the
+    picker, the clip or an apply, and it answers like a missing entry."""
+
+    MEMBER = {"user_id": 5, "is_admin": False, "is_local_owner": False}
+    ADMIN = {"user_id": 1, "is_admin": True, "is_local_owner": False}
+
+    @staticmethod
+    def _entry(db, tmp_path, name):
+        clip = tmp_path / f"{name}.wav"
+        clip.write_bytes(b"RIFF")
+        return db.save_voice_bank_entry(name, str(clip))
+
+    def test_member_never_sees_a_private_voice(self, isolated_db, tmp_path):
+        from lib.errors import NotFoundError
+        from services import characters_service, voice_bank_audio_service
+        db = isolated_db
+        shared = self._entry(db, tmp_path, "shared")
+        secret = self._entry(db, tmp_path, "secret")
+        library_service.set_voice_bank_private(secret, True, self.ADMIN)
+
+        names = lambda rows: sorted(e["name"] for e in rows)  # noqa: E731
+        assert names(library_service.list_voice_bank(self.MEMBER)) == ["shared"]
+        assert names(characters_service.list_voice_bank(self.MEMBER)) == ["shared"]
+        assert names(library_service.list_voice_bank(self.ADMIN)) == ["secret", "shared"]
+        assert names(library_service.list_voice_bank(None)) == ["secret", "shared"]
+        assert {e["name"]: e["is_private"] for e in library_service.list_voice_bank(self.ADMIN)} == {
+            "shared": False, "secret": True}
+
+        assert voice_bank_audio_service.clip_for_entry(shared, self.MEMBER)
+        with pytest.raises(NotFoundError):
+            voice_bank_audio_service.clip_for_entry(secret, self.MEMBER)
+        assert voice_bank_audio_service.clip_for_entry(secret, self.ADMIN)
+
+        drama = db.create_drama(title_en="T")
+        with pytest.raises(NotFoundError):
+            characters_service.apply_voice_bank_entry(drama, "SPEAKER_00", secret, self.MEMBER)
+
+    def test_switch_back_to_shared(self, isolated_db, tmp_path):
+        entry = self._entry(isolated_db, tmp_path, "v")
+        library_service.set_voice_bank_private(entry, True)
+        assert library_service.set_voice_bank_private(entry, False)["is_private"] is False
+        assert [e["name"] for e in library_service.list_voice_bank(self.MEMBER)] == ["v"]

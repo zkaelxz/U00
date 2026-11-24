@@ -277,7 +277,7 @@ def rename_preset(preset_id: int, name: str) -> dict:
 
 
 _VOICE_FIELDS = ("id", "name", "language", "clone_engine", "source_drama", "source_speaker",
-                 "notes", "ref_text", "created_at")
+                 "notes", "ref_text", "created_at", "is_private")
 
 
 def _voice_source_shown(principal):
@@ -309,8 +309,9 @@ def list_voice_bank(principal=None) -> list:
     the principal may not see are left out (`source_hidden`)."""
     shown = _voice_source_shown(principal)
     out = []
-    for e in db.list_voice_bank_entries():
-        entry = {**{k: e.get(k) for k in _VOICE_FIELDS},
+    for e in ownership_service.visible_voice_entries(principal, db.list_voice_bank_entries()):
+        entry = {**{k: e.get(k) for k in _VOICE_FIELDS if k != "is_private"},
+                 "is_private": bool(e.get("is_private")),
                  "clip_available": os.path.exists(os.path.join(db.VOICE_BANK_DIR, e["clip_filename"])),
                  "source_hidden": False}
         if not shown(e.get("source_drama")):
@@ -325,6 +326,15 @@ def rename_voice_bank_entry(entry_id: int, name: str, principal=None) -> dict:
     if db.get_voice_bank_entry(entry_id) is None:
         raise NotFoundError(f"No voice bank entry with id {entry_id}.")
     db.rename_voice_bank_entry(entry_id, name)
+    return next(e for e in list_voice_bank(principal) if e["id"] == entry_id)
+
+
+def set_voice_bank_private(entry_id: int, private: bool, principal=None) -> dict:
+    """Hides a voice from members (or shows it again). Admin-only by its route."""
+    entry_id = lib_ids.check_id_of("voice bank entry", entry_id)
+    if db.get_voice_bank_entry(entry_id) is None:
+        raise NotFoundError(f"No voice bank entry with id {entry_id}.")
+    db.set_voice_bank_private(entry_id, private)
     return next(e for e in list_voice_bank(principal) if e["id"] == entry_id)
 
 

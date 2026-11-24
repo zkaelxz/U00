@@ -555,11 +555,12 @@ def _import_voice_bank(dst, zip_path, bank, written: list) -> int:
                 continue
             live.add(digest.hexdigest())
             dst.execute("INSERT INTO voice_bank (name, clip_filename, ref_text, clone_engine, "
-                        "voice_design, language, notes, source_drama, source_speaker, created_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "voice_design, language, notes, source_drama, source_speaker, created_at, "
+                        "is_private) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (entry["name"], clip, entry["ref_text"], entry["clone_engine"],
                          entry["voice_design"], entry["language"], entry["notes"],
-                         entry["source_drama"], entry["source_speaker"], now))
+                         entry["source_drama"], entry["source_speaker"], now,
+                         1 if entry.get("is_private") else 0))
             added += 1
     return added
 
