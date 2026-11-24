@@ -934,7 +934,7 @@ def test_paid_work_for_a_member_over_their_limit_is_refused_before_each_call(iso
     with db.spending_for(m["id"]):
         translate_run_service.refuse_when_cap_spent("claude", False, None)
         db.log_usage(None, "claude", "m", "translate", 1, 1, 1)
-        with pytest.raises(UnsupportedOperationError, match="limit for paid engines"):
+        with pytest.raises(UnsupportedOperationError, match="monthly spending limit"):
             translate_run_service.refuse_when_cap_spent("claude", False, None)
         translate_run_service.refuse_when_cap_spent("ollama", False, None)   # a free engine is not capped
     translate_run_service.refuse_when_cap_spent("claude", False, None)       # the PC owner's own work goes on
