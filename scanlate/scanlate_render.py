@@ -160,6 +160,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         to_render = [b for b in to_render if b.get("kind") != "caption"]
         to_render, art_signs = _split_art_signs(page, to_render)
         caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
+        caption_rooms = [scanlate_art_text.clear_of_decoration(page, b) for b in captions]
         caption_styles = [dict(s, fill=chosen_color(b)) if chosen_color(b) else s
                           for b, s in zip(captions, caption_styles)]
         # The ink is read before the erase below removes it.
@@ -177,8 +178,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
                               "were painted out with plain OpenCV, which leaves faint ghosts."))
 
         pil_img = Image.fromarray(np.ascontiguousarray(page[:, :, ::-1]))
-        for b, style in zip(captions, caption_styles):
-            scanlate_art_text.draw_caption(pil_img, b, b["translated_text"], style,
+        for b, style, room in zip(captions, caption_styles, caption_rooms):
+            scanlate_art_text.draw_caption(pil_img, room, b["translated_text"], style,
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
         _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks,

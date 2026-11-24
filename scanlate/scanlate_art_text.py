@@ -19,6 +19,9 @@ _DETECT_LIMIT_SIDE = 1280
 
 _MIN_LINE_HEIGHT = 28          # px; smaller marks are watermarks, not captions
 _MIN_CONFIDENCE = 0.6
+_NEUTRAL_INK_SATURATION = 50   # below this channel spread, ink is black or grey
+_NEUTRAL_INK_SHARE = 0.4       # the share of neutral ink from which the lettering counts as neutral
+_TAG_SATURATION = 100          # decoration this colourful is kept when the lettering is neutral
 _MASK_GROW = 27                # covers the glow around the letters
 # Stroke thickness over line height from which lettering counts as bold. CJK
 # print strokes run about 0.07-0.08 of the glyph height, heavy weights 0.12+.
@@ -164,9 +167,19 @@ def caption_mask(page, box: dict):
         ink = gray > 180
     else:
         ink = gray < 110
+        colour = page[y0:y1, x0:x1].astype(np.int16)
+        # Channel spread, not HSV saturation: near-black ink on a blue sky has a high
+        # saturation although it is neutral.
+        saturation = colour.max(axis=2) - colour.min(axis=2)
+        # Neutral lettering over a box that also holds a red tag or rule: the dark red
+        # counted as ink and was painted out with the title.
+        if ink.any() and float((saturation[ink] < _NEUTRAL_INK_SATURATION).mean()) >= _NEUTRAL_INK_SHARE:
+            ink &= saturation <= _TAG_SATURATION
     mask = np.zeros((ph, pw), np.uint8)
     inner = (ink & _inside(gray.shape, box, x0, y0)).astype(np.uint8) * 255
     mask[y0:y1, x0:x1] = cv2.dilate(inner, np.ones((_MASK_GROW, _MASK_GROW), np.uint8))
+    for bx0, by0, bx1, by1 in decoration_blocks(page, box):
+        mask[by0:by1, bx0:bx1] = 0
     return mask
 
 
@@ -291,6 +304,51 @@ def caption_style(page, box: dict) -> dict:
             "weight": _stroke_weight(ink, line_h)}
 
 
+# The title's box also takes in the blank margin and its neighbours' padding, so English that
+# filled the whole height ran into the credit line under it.
+_CAPTION_MAX_HEIGHT_SHARE = 0.88
+_DECOR_MIN_AREA = 800
+_DECOR_MIN_FILL = 0.5
+_DECOR_GAP_PX = 8
+
+
+def decoration_blocks(page, box: dict) -> list:
+    """Bounding rectangles (x0, y0, x1, y1, page pixels) of the solid coloured blocks inside
+    `box`, such as the red chapter tag beside a logo title. The title's box spans the whole
+    logo, so the tag was painted out with it and the new title was set over it."""
+    import cv2
+    ph, pw = page.shape[:2]
+    x0, y0 = max(0, box["x"]), max(0, box["y"])
+    x1, y1 = min(pw, box["x"] + box["w"]), min(ph, box["y"] + box["h"])
+    if x1 <= x0 or y1 <= y0:
+        return []
+    crop = page[y0:y1, x0:x1].astype(np.int16)
+    coloured = ((crop.max(axis=2) - crop.min(axis=2)) > _TAG_SATURATION).astype(np.uint8)
+    count, _, stats, _ = cv2.connectedComponentsWithStats(coloured, connectivity=8)
+    blocks = []
+    for i in range(1, count):
+        x, y, w, h, area = stats[i]
+        if area >= _DECOR_MIN_AREA and area >= _DECOR_MIN_FILL * w * h and w <= 0.5 * (x1 - x0):
+            blocks.append((x0 + x, y0 + y, x0 + x + w, y0 + y + h))
+    return blocks
+
+
+def clear_of_decoration(page, box: dict) -> dict:
+    """`box` narrowed so the English stays clear of its decoration blocks; each stays on the
+    side it is on. `box` itself is kept when there are none, or when little room would
+    be left."""
+    left, right = box["x"], box["x"] + box["w"]
+    middle = (left + right) / 2
+    for bx0, _, bx1, _ in decoration_blocks(page, box):
+        if (bx0 + bx1) / 2 >= middle:
+            right = min(right, bx0 - _DECOR_GAP_PX)
+        else:
+            left = max(left, bx1 + _DECOR_GAP_PX)
+    if right - left < 0.3 * box["w"]:
+        return box
+    return {**box, "x": left, "w": right - left}
+
+
 def draw_caption(pil_img, box: dict, text: str, style: dict | None = None, font_path: str | None = None):
     """Sets `text` over a painted-out caption the way the original was lettered:
     same colour and glow, a size matched to the original glyphs (shrunk only to
@@ -325,7 +383,7 @@ def draw_caption(pil_img, box: dict, text: str, style: dict | None = None, font_
         lines.append(cur)
         line_h = int(size * 1.2)
         if (all(draw.textlength(l, font=font) <= max_w for l in lines)
-                and line_h * len(lines) <= max(box["h"], line_h)):
+                and line_h * len(lines) <= max(box["h"] * _CAPTION_MAX_HEIGHT_SHARE, line_h)):
             break
     cx = box["x"] + box["w"] / 2
     top = box["y"] + (box["h"] - line_h * len(lines)) // 2

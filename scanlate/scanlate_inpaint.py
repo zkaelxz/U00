@@ -199,12 +199,16 @@ _COLOURED_ART_MEDIAN_SATURATION = 100
 # lettering to be mistaken for, so any bright pixel on it is lettering: yellow headlines on a
 # black disclaimer page were left under the English when only pale strokes were taken.
 _PLAIN_GROUND_MAX_GRAY = 40
-_PLAIN_GROUND_MAX_SATURATION = 40
+_PLAIN_GROUND_MAX_SPREAD = 40
 
 
-def _on_plain_dark_ground(gray, saturation) -> bool:
+def _on_plain_dark_ground(gray, colour) -> bool:
+    """`colour` is a per-pixel measure of how coloured the crop is: HSV saturation for the
+    fill choice, channel spread (_channel_spread) for the lettering mask. HSV saturation
+    reads a near-black strip with olive stripes as strongly coloured, so for the mask a
+    black banner over art never counted as a plain ground and its yellow lettering was kept."""
     return (float(np.median(gray)) <= _PLAIN_GROUND_MAX_GRAY
-            and float(np.median(saturation)) <= _PLAIN_GROUND_MAX_SATURATION)
+            and float(np.median(colour)) <= _PLAIN_GROUND_MAX_SPREAD)
 
 
 def _fill_enclosed_holes(mask):
@@ -225,7 +229,7 @@ def _pale_pixels(crop):
     import cv2
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     saturation = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1]
-    if _on_plain_dark_ground(gray, saturation):
+    if _on_plain_dark_ground(gray, _channel_spread(crop)):
         return gray > 150
     return (gray > 150) & (saturation <= _ART_FILL_SATURATION)
 
@@ -233,6 +237,9 @@ def _pale_pixels(crop):
 def is_coloured_art(crop) -> bool:
     import cv2
     return float(np.median(cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1])) > _COLOURED_ART_MEDIAN_SATURATION
+
+
+_GLOW_REACH_OF_SHORT_SIDE = 0.4
 
 
 def _dark_art_lettering_mask(crop):
@@ -246,7 +253,10 @@ def _dark_art_lettering_mask(crop):
     core = _fill_enclosed_holes(core)
     core = cv2.morphologyEx(core, cv2.MORPH_CLOSE,
                             cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)))
-    return cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (33, 33)))
+    # The glow reach shrinks with the box so a thin strip keeps some of its own dark ground:
+    # the full reach covered a banner strip entirely and LaMa painted the art over it.
+    reach = min(33, max(9, int(_GLOW_REACH_OF_SHORT_SIDE * min(crop.shape[:2]))) | 1)
+    return cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (reach, reach)))
 
 
 def _tone_from_clear_pixels(area, clear):
@@ -366,6 +376,29 @@ def _resolve_inpaint_backend(backend: str) -> str:
     if backend == "auto":
         return "ml" if lama_ml_weights_cached() else "cv"
     return backend
+
+
+# Lettering on the art is erased from a crop of its own box; a mask that fills most of a
+# narrow crop leaves the model no clear pixels to copy, and it painted a smear. A margin of
+# untouched art round the box gives it the picture to continue.
+_ML_CONTEXT_PX = 32
+
+
+def _try_ml_inpaint_with_context(img, window, mask, hf_token, backend, context: int):
+    """_try_ml_inpaint over the window (x, y, w, h) of `img` widened by `context` px each
+    side, returning only the window's part."""
+    x, y, bw, bh = window
+    if context <= 0:
+        return _try_ml_inpaint(img[y:y + bh, x:x + bw], mask, hf_token, backend)
+    h, w = img.shape[:2]
+    x0, y0 = max(0, x - context), max(0, y - context)
+    x1, y1 = min(w, x + bw + context), min(h, y + bh + context)
+    wide_mask = np.zeros((y1 - y0, x1 - x0), np.uint8)
+    wide_mask[y - y0:y - y0 + bh, x - x0:x - x0 + bw] = mask
+    wide, error = _try_ml_inpaint(img[y0:y1, x0:x1], wide_mask, hf_token, backend)
+    if wide is None:
+        return None, error
+    return wide[y - y0:y - y0 + bh, x - x0:x - x0 + bw], error
 
 
 def _try_ml_inpaint(roi, mask, hf_token, backend):
@@ -647,15 +680,21 @@ _BRIGHT_STROKE_LIFT = 70
 _BRIGHT_STROKE_GROW_PX = 5
 _BRIGHT_STROKE_MIN_SHARE = 0.04
 _BRIGHT_STROKE_MAX_MEDIAN = 200
+# A glow is a coloured halo within this reach of the strokes; left behind it showed as a
+# dark-red smudge under the English.
+_GLOW_SPREAD = 60
+_GLOW_REACH_PX = 31
+_GLOW_MAX_SHARE = 0.6
 # A sign whose paper-relative mask covers more of its box than this is taking the art for
 # lettering, and repainting that much erased a blurry rectangle over the picture.
 BRIGHT_STROKE_MASK_SHARE = 0.5
 
 
-def _bright_strokes(gray_roi):
+def _bright_strokes(gray_roi, roi=None):
     """uint8 mask (255 = erase) of the pale strokes of lettering set on mid-tone art with a
     glow round it, found as pixels much brighter than the window round them, or None when
-    there are none."""
+    there are none. With the colour crop `roi`, a coloured glow round the strokes is taken
+    too, unless the art is coloured everywhere (then the glow can't be told from it)."""
     import cv2
     lift = cv2.morphologyEx(gray_roi, cv2.MORPH_TOPHAT, cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE, (_BRIGHT_STROKE_WINDOW_PX, _BRIGHT_STROKE_WINDOW_PX)))
@@ -667,8 +706,16 @@ def _bright_strokes(gray_roi):
     # The corners of a dark mark on paper also lift a little; real lettering is far more.
     if (mask > 0).mean() < _BRIGHT_STROKE_MIN_SHARE:
         return None
-    return cv2.dilate(mask, cv2.getStructuringElement(
+    strokes = cv2.dilate(mask, cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE, (_BRIGHT_STROKE_GROW_PX, _BRIGHT_STROKE_GROW_PX)))
+    if roi is None:
+        return strokes
+    saturated = _channel_spread(roi) > _GLOW_SPREAD
+    if saturated.mean() > _GLOW_MAX_SHARE:
+        return strokes
+    reach = cv2.dilate(strokes, cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (_GLOW_REACH_PX, _GLOW_REACH_PX))) > 0
+    return strokes | ((saturated & reach).astype(np.uint8) * 255)
 
 
 def sign_text_line(page_bgr, box: dict):
@@ -695,7 +742,37 @@ def sign_text_line(page_bgr, box: dict):
     return corridor > 0, angle, round(scanlate_tuning.LINE_TEXT_SIZE_OF_GLYPH * typical)
 
 
-def _erase_mask(gray_roi, keep, spare_art: bool, on_art: bool):
+_RULE_MAX_THICKNESS_PX = 6
+_RULE_MIN_LENGTH_PX = 40
+_RULE_SPREAD = 100
+
+
+def _channel_spread(bgr):
+    """Per pixel largest minus smallest colour channel: how coloured it is. HSV saturation
+    is high for near-black ink, which is neutral."""
+    bgr = bgr.astype(np.int16)
+    return bgr.max(axis=2) - bgr.min(axis=2)
+
+
+def drop_colour_rules(mask, roi) -> None:
+    """Clears, in place, the part of the mask that lies on a thin coloured line, such as the
+    red rules a credit line sits between. They are decoration, not lettering, and erasing
+    one left the layout missing half its frame. The line is found in the colour crop, not
+    the mask: the mask's halo joins it to the lettering beside it. Lettering is not this
+    thin, long and coloured (a dash is dark ink), so it is never taken for one."""
+    import cv2
+    coloured = (_channel_spread(roi) > _RULE_SPREAD).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(coloured, connectivity=8)
+    rules = np.zeros(mask.shape, np.uint8)
+    for i in range(1, count):
+        w, h = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
+        if min(w, h) <= _RULE_MAX_THICKNESS_PX and max(w, h) >= _RULE_MIN_LENGTH_PX:
+            rules[labels == i] = 1
+    if rules.any():
+        mask[cv2.dilate(rules, np.ones((5, 5), np.uint8)) > 0] = 0
+
+
+def _erase_mask(gray_roi, keep, spare_art: bool, on_art: bool, roi=None):
     """(uint8 mask of the lettering to erase in a crop, whether it is a single line's strokes).
     `keep` is the balloon's inside, or None for a box with no outline."""
     if keep is not None:
@@ -708,7 +785,7 @@ def _erase_mask(gray_roi, keep, spare_art: bool, on_art: bool):
     line = _strokes_on_a_line(gray_roi) if on_art and share > scanlate_tuning.LINE_ONLY_MASK_SHARE else None
     if line is not None:
         return line[0], True
-    strokes = (_bright_strokes(gray_roi)
+    strokes = (_bright_strokes(gray_roi, roi)
                if on_art and not background_is_dark(gray_roi) and share > BRIGHT_STROKE_MASK_SHARE else None)
     if strokes is not None:
         return strokes, False
@@ -771,7 +848,8 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     roi = img[y:y + bh, x:x + bw]
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     keep = _inside_in_crop(inside, box, x, y, bw, bh) if inside is not None else None
-    mask, line_only = _erase_mask(gray_roi, keep, spare_art, on_art)
+    mask, line_only = _erase_mask(gray_roi, keep, spare_art, on_art, roi)
+    drop_colour_rules(mask, roi)
     mask = _grown_erase_mask(mask, grow, keep if inside is not None else None)
 
     inpainted_roi = None
@@ -783,7 +861,9 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     fallback_error = None
     resolved = "cv" if inpainted_roi is not None else _resolve_inpaint_backend(backend)
     if resolved == "ml" and inpainted_roi is None:
-        inpainted_roi, fallback_error = _try_ml_inpaint(roi, mask, hf_token, backend)
+        context = _ML_CONTEXT_PX if inside is None and on_art else 0
+        inpainted_roi, fallback_error = _try_ml_inpaint_with_context(
+            img, (x, y, bw, bh), mask, hf_token, backend, context)
 
     if inpainted_roi is None:
         inpainted_roi = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)

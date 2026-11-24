@@ -467,8 +467,9 @@ def drop_parts_of_captions(regions: list, captions: list) -> list:
         return _overlap(region, caption) >= _CAPTION_PART_SHARE
 
     def is_caption_lettering(region, caption):
-        text = (region.get("source_text") or "").strip()
-        return bool(text) and text in (caption.get("source_text") or "")
+        # Letters only: OCR adds a stray digit or mark to a lone glyph ("的\n7").
+        letters = [c for c in (region.get("source_text") or "") if c.isalpha()]
+        return bool(letters) and all(c in (caption.get("source_text") or "") for c in letters)
 
     return [r for r in regions
             if not any(inside(r, c) and (r.get("kind") not in SHAPE_FITTED_KINDS
