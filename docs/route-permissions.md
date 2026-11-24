@@ -9,6 +9,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/admin/audit` | admin.users.read |
 | `GET /api/admin/users` | admin.users.read |
 | `POST /api/admin/users` | admin.users |
+| `DELETE /api/admin/users/{user_id}` | admin.users |
 | `POST /api/admin/users/{user_id}/activate` | admin.users |
 | `POST /api/admin/users/{user_id}/deactivate` | admin.users |
 | `DELETE /api/admin/users/{user_id}/ollama-key` | admin.users |
@@ -183,6 +184,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/pending-install/restart` | local_only() |
 | `GET /api/diagnostics/ports` | local_only() |
 | `GET /api/diagnostics/pyannote` | admin.diagnostics |
+| `GET /api/diagnostics/quality` | admin.diagnostics |
 | `GET /api/diagnostics/real-model-check` | admin.diagnostics |
 | `POST /api/diagnostics/real-model-check` | local_only() |
 | `GET /api/diagnostics/remote-health` | admin.diagnostics |
@@ -242,6 +244,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/export/dramas/{drama_id}/ass` | lines.read |
 | `POST /api/export/dramas/{drama_id}/audiobook` | jobs.start |
 | `POST /api/export/dramas/{drama_id}/burned-video` | jobs.start |
+| `GET /api/export/dramas/{drama_id}/chapters-text` | lines.read |
 | `POST /api/export/dramas/{drama_id}/clear-reading-speed-flags` | lines.edit |
 | `POST /api/export/dramas/{drama_id}/dubbed-video` | jobs.start |
 | `GET /api/export/dramas/{drama_id}/epub` | lines.read |
@@ -378,6 +381,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/library/voice-bank/{entry_id}/clip` | local_only() |
 | `POST /api/library/voice-bank/{entry_id}/delete` | local_only() |
 | `POST /api/library/voice-bank/{entry_id}/details` | admin.library |
+| `POST /api/library/voice-bank/{entry_id}/private` | admin.library |
 | `POST /api/library/voice-bank/{entry_id}/rename` | admin.library |
 | `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/alternatives` | lines.read |
 | `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/explain` | lines.read |
@@ -744,7 +748,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/stronger-engine/dramas/{drama_id}` | lines.read |
 | `POST /api/stronger-engine/dramas/{drama_id}/lines/{line_id}/try` | review.use + lines.read |
 | `POST /api/subtitle-import/dramas/{drama_id}/apply` | media.upload |
+| `POST /api/subtitle-import/dramas/{drama_id}/picture-track/read` | lines.edit |
 | `POST /api/subtitle-import/dramas/{drama_id}/preview` | media.upload |
+| `POST /api/subtitle-import/dramas/{drama_id}/track/apply` | lines.edit |
+| `POST /api/subtitle-import/dramas/{drama_id}/track/preview` | lines.edit |
 | `POST /api/system/android-app/fetch` | local_only() |
 | `POST /api/system/shutdown` | local_only() |
 | `GET /api/system/update` | local_only() |
@@ -791,7 +798,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/transcribe/dramas/{drama_id}/speech-coverage` | library.read + lines.read |
 | `POST /api/transcribe/dramas/{drama_id}/speech-coverage` | jobs.start |
 | `POST /api/transcribe/dramas/{drama_id}/talk-over/add-lines` | lines.edit |
-| `POST /api/translate` | engines.paid |
+| `POST /api/translate` | jobs.start |
 | `POST /api/translate-run/dramas/{drama_id}/apply-preset` | lines.edit |
 | `GET /api/translate-run/dramas/{drama_id}/bulk` | library.read |
 | `POST /api/translate-run/dramas/{drama_id}/bulk/resume` | jobs.start |
@@ -809,17 +816,20 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/translate-run/dramas/{drama_id}/retry-failed/run` | jobs.start |
 | `POST /api/translate-run/dramas/{drama_id}/run` | jobs.start |
 | `POST /api/translate-run/dramas/{drama_id}/source-changed/run` | jobs.start |
+| `GET /api/translate-run/dramas/{drama_id}/topic-chapters` | library.read |
+| `POST /api/translate-run/dramas/{drama_id}/topic-chapters` | lines.edit |
+| `POST /api/translate-run/dramas/{drama_id}/topic-chapters/generate` | lines.edit + lines.read |
 | `POST /api/translate-run/dramas/{drama_id}/workflow-tier` | lines.edit |
 | `POST /api/translate-run/presets` | admin.library |
 | `POST /api/translate-run/presets/{preset_id}/default` | admin.library |
 | `POST /api/translate-run/presets/{preset_id}/update` | admin.library |
 | `GET /api/translate-run/profile-fields` | library.read |
 | `GET /api/translate/engines` | library.read |
-| `POST /api/translate/estimate` | engines.paid |
+| `POST /api/translate/estimate` | jobs.start |
 | `DELETE /api/translate/history` | local_only() |
 | `GET /api/translate/history` | library.read |
-| `POST /api/translate/read-image` | local_only() |
-| `POST /api/translate/read-image/estimate` | local_only() |
+| `POST /api/translate/read-image` | jobs.start |
+| `POST /api/translate/read-image/estimate` | jobs.start |
 | `GET /api/update/source` | system.update |
 | `POST /api/update/source/apply` | system.update |
 | `POST /api/update/source/check` | system.update |

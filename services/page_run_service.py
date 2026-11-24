@@ -10,7 +10,7 @@ import uuid
 from typing import Optional
 
 import db
-from engine_backends import engine_registry
+from engine_backends import engine_registry, local as engine_local
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnsupportedOperationError
 from services import glossary_extract_service, queue_service as q
 
@@ -236,8 +236,9 @@ def _require_free_or_paid(principal, engine: str, model, what: str) -> None:
     from services.translate_run_service import engine_cap_applies
     if q._holds(principal, "engines.paid"):
         return
-    cloud = engine in engine_registry.FREE_ENGINES and engine_cap_applies(
-        engine, False, model or engine_registry.effective_default_model(engine))
+    run_model = model or engine_registry.effective_default_model(engine)
+    cloud = (engine in engine_registry.FREE_ENGINES and engine_cap_applies(engine, False, run_model)
+             and engine_local.cloud_model_needs_paid(run_model))
     if engine not in engine_registry.FREE_ENGINES or (
             cloud and not member_key_service.has_usable_key((principal or {}).get("user_id"))):
         raise ForbiddenError(f"This title {what} with a paid engine, which the account that added it can't use.")

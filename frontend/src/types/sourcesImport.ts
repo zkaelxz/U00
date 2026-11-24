@@ -123,6 +123,8 @@ export interface UrlDownloadRequest {
   max_height?: VideoHeight
   // "Download the same video again": replaces only the media, keeps the lines; url may be empty.
   keep_lines?: boolean
+  // Make the video site's own captions the lines (the title must have none); they are kept as hints either way.
+  use_site_captions?: boolean
 }
 
 export const VIDEO_HEIGHTS = [2160, 1440, 1080, 720, 480, 360] as const

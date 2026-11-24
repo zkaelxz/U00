@@ -20,7 +20,7 @@ from api.auth import local_only, require_permission
 from api.schemas import (
     CaptureNoteList, DramaDetail, DramaListResponse, DramaSummary, LibraryCostResponse,
     LibraryContinueResponse, LibraryDashboard, LibraryFilterOptions, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
-    LibraryRecentResponse, LibraryRename, LibraryVoiceDetails, LibrarySearchResponse, LibrarySeriesResponse,
+    LibraryRecentResponse, LibraryRename, LibraryVoiceDetails, LibraryVoicePrivate, LibrarySearchResponse, LibrarySeriesResponse,
     LibraryVoice, LibraryVoiceBankResponse, error_responses)
 from services import library_service, novel_files_service, voice_clone_service
 
@@ -188,6 +188,13 @@ def add_voice(file: UploadFile = File(...), name: str = Form(..., min_length=1, 
              responses=_ERR_WRITE, summary="Rename a voice bank entry")
 def rename_voice(body: LibraryRename, request: Request, entry_id: int = Path(ge=1, le=2**31 - 1)):
     return library_service.rename_voice_bank_entry(entry_id, body.name, principal=request.state.principal)
+
+
+@router.post("/voice-bank/{entry_id}/private", dependencies=[require_permission("admin.library")],
+             response_model=LibraryVoice, responses=_ERR_WRITE,
+             summary="Hide a voice bank entry from members, or show it again")
+def set_voice_private(body: LibraryVoicePrivate, request: Request, entry_id: int = Path(ge=1, le=2**31 - 1)):
+    return library_service.set_voice_bank_private(entry_id, body.private, principal=request.state.principal)
 
 
 @router.post("/voice-bank/{entry_id}/details", dependencies=[require_permission("admin.library")],

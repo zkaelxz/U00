@@ -4,10 +4,11 @@ import { mediaTypeLabel, statusLabel } from '../labels'
 // One ordering for every list of titles (Library, its groups, the Series page), so
 // "watch in order" means the same thing everywhere.
 
-export type TitleSort = 'added' | 'date-asc' | 'date-desc' | 'title'
+export type TitleSort = 'added' | 'added-asc' | 'date-asc' | 'date-desc' | 'title'
 
 export const TITLE_SORTS: [TitleSort, string][] = [
   ['added', 'Date added (newest first)'],
+  ['added-asc', 'Date added (oldest first)'],
   ['date-asc', 'Stream / release date (oldest first)'],
   ['date-desc', 'Stream / release date (newest first)'],
   ['title', 'Title (A-Z)'],
@@ -25,12 +26,13 @@ interface Sortable {
 
 const hasDate = (t: Sortable) => !!t.release_date
 
-/** A sorted copy. 'added' keeps the order given (the server sends newest added first).
+/** A sorted copy. 'added' keeps the order given (the server sends newest added first); 'added-asc' reverses it.
  *  Titles without a date go last in both date directions, in the order given. */
 export function sortTitles<T extends Sortable>(items: readonly T[], sort: TitleSort): T[] {
   const indexed = items.map((t, i) => ({ t, i }))
   const byIndex = (a: { i: number }, b: { i: number }) => a.i - b.i
   if (sort === 'added') return items.slice()
+  if (sort === 'added-asc') return items.slice().reverse()
   if (sort === 'title') {
     const key = (t: Sortable) => dramaName({ id: t.id, title_en: t.title_en ?? null, title_zh: t.title_zh ?? null })
     return indexed.sort((a, b) => key(a.t).localeCompare(key(b.t)) || byIndex(a, b)).map((x) => x.t)

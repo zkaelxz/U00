@@ -128,12 +128,17 @@ def undo_handle(drama_id: int, history_id: int | None) -> dict:
 
 
 @contextlib.contextmanager
-def exclusive_write(drama_id: int):
+def exclusive_write(drama_id: int, own_job_id: str | None = None):
     """The structural-write guard (drama exists, no job running, drama lock
     held) for a writer that saves only some fields and so can't use
     structural_write's full sync."""
     _require_drama(drama_id)
-    _refuse_if_job_running(drama_id)
+    if own_job_id is None:
+        _refuse_if_job_running(drama_id)
+    elif drama_service.job_running_for_drama(drama_id, own_job_id):
+        # A job writing its own result is not "another job".
+        raise ConflictError("Another background job started on this title -- nothing was changed; "
+                            "wait for it to finish and try again.")
     with _drama_lock(drama_id):
         yield
 

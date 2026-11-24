@@ -8,7 +8,7 @@ import { agoText } from './deviceSessionsModel'
 export const OLLAMA_KEY_TITLE = 'Your Ollama key'
 export const OLLAMA_KEYS_URL = 'https://ollama.com/settings/keys'
 export const OLLAMA_KEY_NOTE =
-  "Ollama's cloud models normally run on the main PC's Ollama account and use its free allowance. "
+  "Ollama's cloud models normally run on the main PC's Ollama account and are billed per token to its account. "
   + 'Save your own Ollama API key and your cloud runs use your account instead. '
   + 'Baihe keeps it encrypted on the main PC and never shows it again, not even to the owner.'
 // Mirrors _MIN_KEY_LENGTH and _MAX_KEY_LENGTH in services/member_key_service.py and settings_service.py.

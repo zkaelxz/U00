@@ -78,8 +78,8 @@ def test_analyze_media_resolution_subtitles_pipeline(local_client, drama, monkey
     assert len(calls) == 1                                  # ffprobe runs once
     assert (body["width"], body["height"]) == (1920, 1080)
     assert round(body["fps"], 2) == 29.97 and body["has_video"] is True
-    assert body["subtitle_tracks"] == [{"index": 2, "codec": "ass", "language": "chi"},
-                                       {"index": 3, "codec": "subrip", "language": None}]
+    assert body["subtitle_tracks"] == [{"index": 2, "codec": "ass", "language": "chi", "importable": True, "picture": False},
+                                       {"index": 3, "codec": "subrip", "language": None, "importable": True, "picture": False}]
     assert body["suggested_pipeline"][0].startswith("Import existing subtitle track")
     assert body["content_type_guess"] == "video_drama"
     assert body["content_type_reason"] == "has a video track"

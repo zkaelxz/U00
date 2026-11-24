@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 
-__all__ = ["AdminUser", "AdminUserList", "AdminSessionsRevoked", "AuditEvent", "AuditPage"]
+__all__ = ["AdminUser", "AdminUserList", "AdminSessionsRevoked", "AdminUserDeleted", "AuditEvent", "AuditPage"]
 
 
 class AdminUser(BaseModel):
@@ -38,6 +38,11 @@ class AdminUserList(BaseModel):
 class AdminSessionsRevoked(BaseModel):
     user_id: int
     revoked: int
+
+
+class AdminUserDeleted(BaseModel):
+    user_id: int
+    deleted: bool
 
 
 class AuditEvent(BaseModel):

@@ -482,6 +482,21 @@ def test_push_goes_out_only_when_asked_and_with_its_own_text(isolated_db, monkey
     notification_service.reset_for_tests()
 
 
+def test_a_members_live_notice_is_theirs_alone(isolated_db, monkeypatch):
+    import db
+    notification_service.reset_for_tests()
+    monkeypatch.setattr(db, "auth_list_users", lambda: [{"id": 1, "is_admin": 1}])
+    notification_service.notify_live_follow("Member ch is live now", 11, 1)
+    notification_service.notify_live_follow("Mine is live now", None, 2)
+    notification_service.notify_live_follow("Mine from away is live now", 1, 3)
+    texts = lambda who: [e["text"] for e in notification_service.list_recent(who)]
+    owner_view = ["Mine from away is live now", "Mine is live now"]
+    assert texts(OWNER) == owner_view and texts(None) == owner_view
+    assert texts({"user_id": 1, "is_admin": True}) == owner_view
+    assert texts(ALICE) == ["Member ch is live now"]
+    notification_service.reset_for_tests()
+
+
 def test_a_check_that_cannot_run_counts_as_a_failure(env):
     fid = _follow()
     env["answers"][fid] = OSError("proxy did not start")

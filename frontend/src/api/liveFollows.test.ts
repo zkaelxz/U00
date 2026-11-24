@@ -6,6 +6,9 @@ import {
   autoStartBlocker,
   checkAllFollows,
   checkChannelInput,
+  checkChannelsInput,
+  splitChannels,
+  MAX_CHANNELS_PER_ADD,
   checkedText,
   describeFollowError,
   followOptions,
@@ -33,6 +36,20 @@ describe('checkChannelInput', () => {
     expect(checkChannelInput('https://evil.example/@x')).toMatch(/Only YouTube and Twitch/)
     expect(checkChannelInput('https://www.youtube.com.evil.example/@x')).toMatch(/Only YouTube and Twitch/)
     expect(checkChannelInput('x'.repeat(MAX_CHANNEL_INPUT + 1))).toMatch(/too long/)
+  })
+})
+
+describe('several channels at once', () => {
+  it('splits on lines, spaces and commas and drops repeats', () => {
+    expect(splitChannels(' @one\n\n@two, https://www.twitch.tv/three @one ')).toEqual(['@one', '@two', 'https://www.twitch.tv/three'])
+  })
+  it('names the first bad line, and caps how many', () => {
+    expect(checkChannelsInput('@one\n@two')).toBeNull()
+    expect(checkChannelsInput('@one\nhttps://evil.example/@x')).toMatch(/^https:\/\/evil\.example\/@x: Only YouTube/)
+    expect(checkChannelsInput('@ab')).toMatch(/3 characters/)
+    expect(checkChannelsInput('\n ')).toMatch(/Still needed/)
+    const many = Array.from({ length: MAX_CHANNELS_PER_ADD + 1 }, (_, i) => `@chan${i}`).join('\n')
+    expect(checkChannelsInput(many)).toMatch(/Up to/)
   })
 })
 

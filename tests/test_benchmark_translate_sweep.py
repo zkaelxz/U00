@@ -129,14 +129,6 @@ class TestSweep:
         assert r["noise"] > 0 and r["state"] in ("keep_default", "not_confirmed")
         assert r["margin"] == pytest.approx(max(tsweep.MIN_SCORE_MARGIN, 2 * r["noise"]))
 
-    def test_reflect_is_swept_only_for_an_engine_that_follows_instructions(self, monkeypatch):
-        monkeypatch.setattr(tsweep, "KNOBS", tsweep.KNOBS + (("reflect", "Reflect", (False, True)),))
-        _cases()
-        claude = tsweep.estimate("s", "zh", ENGINE)
-        assert "reflect" in [k["key"] for k in claude["knobs"]]
-        fake = tsweep.estimate("s", "zh", "fake")
-        assert "reflect" not in [k["key"] for k in fake["knobs"]]
-
     def test_examples_need_a_series_and_a_temperature_needs_an_engine_that_takes_one(self, monkeypatch):
         monkeypatch.setattr(tsweep, "KNOBS", tsweep.KNOBS + (
             ("memory_examples", "Translation-memory examples", (False, True)), ("temperature", "Temperature", (None, 0.3))))

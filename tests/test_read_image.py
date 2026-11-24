@@ -7,6 +7,9 @@ import pytest
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
+pytestmark = pytest.mark.usefixtures("local_ollama_default")
+
+
 PIL = pytest.importorskip("PIL")
 
 from fastapi.testclient import TestClient
@@ -16,10 +19,11 @@ import db
 from engine_backends import openai_compat, local
 from engine_backends import gemini as engine_gemini
 from engine_backends import vision as engine_vision
+from api import auth as api_auth, llm_slots
 from api.api_config import ApiSettings
 from api.server import create_app
 from engine_backends import vision
-from services import image_text_service, translate_run_service
+from services import auth_service, image_text_service, translate_run_service
 
 
 def _png(size=(40, 20), fmt="PNG") -> bytes:
@@ -33,7 +37,6 @@ REMOTE = "https://baihe.example.com"
 
 @pytest.fixture
 def client(isolated_db):
-    # X-Baihe-Local is required on a multipart local_only POST.
     return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
                       headers={"X-Baihe-Local": "1"})
 
@@ -133,19 +136,71 @@ class TestRoute:
         assert "SECRETSECRET" not in resp.text
 
 
-class TestPcOnly:
-    def test_a_remote_device_is_refused_before_any_call(self, isolated_db, sent):
-        remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
-                            raise_server_exceptions=False, headers={"X-Baihe-Local": "1"})
-        assert _post(remote).status_code in (401, 403) and not sent
+class TestFromARemoteDevice:
+    """A phone signs in as a member: a paid engine needs engines.paid; with no engine named
+    the picture is read on Ollama (owner decision 2026-11-24: settings are chosen for members)."""
+
+    def _member(self, rights=()):
+        u = auth_service.add_user("phone@example.com")
+        for right in rights:
+            auth_service.grant_permission(u["id"], right)
+        s = auth_service.create_session(u["id"], "pytest", "198.51.100.4")
+        client = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                            raise_server_exceptions=False,
+                            headers={"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+                                     api_auth.CSRF_HEADER: s["csrf_token"]})
+        return client
+
+    def test_a_member_without_the_paid_right_is_refused_before_any_call(self, isolated_db, sent):
+        remote = self._member()
+        assert _post(remote).status_code == 403 and not sent
         resp = remote.post("/api/translate/read-image/estimate",
                            json={"engine": "claude", "width": 10, "height": 10})
-        assert resp.status_code in (401, 403)
+        assert resp.status_code == 403
 
-    def test_the_pc_owner_is_let_in_with_auth_on(self, isolated_db, sent):
-        app = create_app(ApiSettings(auth_mode="on"))
-        owner = TestClient(app, raise_server_exceptions=False, headers={"X-Baihe-Local": "1"})
-        assert _post(owner).status_code == 200
+    def test_a_member_naming_no_engine_reads_on_ollama_and_a_free_estimate(self, isolated_db, sent):
+        db.set_app_setting("default_engine", "claude")
+        db.set_app_setting("pref.ollama_cloud_default", True)
+        remote = self._member()
+        resp = remote.post("/api/translate/read-image", data={"language": "zh"},
+                           files={"image": ("shot.png", _png(), "image/png")})
+        assert resp.status_code == 200 and sent[0]["engine"].name == "ollama"
+        assert sent[0]["engine"].model == local.MEMBER_DEFAULT_CLOUD_MODEL
+        resp = remote.post("/api/translate/read-image/estimate", json={"width": 10, "height": 10})
+        assert resp.status_code == 200 and resp.json()["engine"] == "ollama"
+
+    def test_a_member_without_the_start_right_is_refused(self, isolated_db, sent):
+        remote = self._member()
+        user_id = db.auth_get_user_by_email("phone@example.com")["id"]
+        auth_service.revoke_permission(user_id, "jobs.start")
+        resp = remote.post("/api/translate/read-image", data={},
+                           files={"image": ("shot.png", _png(), "image/png")})
+        assert resp.status_code == 403 and not sent
+
+    def test_a_signed_out_device_is_refused(self, isolated_db, sent):
+        remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                            raise_server_exceptions=False)
+        assert _post(remote).status_code == 401 and not sent
+
+    def test_a_member_with_the_paid_right_can_read_and_price_a_picture(self, isolated_db, sent):
+        remote = self._member(("engines.paid",))
+        resp = _post(remote)
+        assert resp.status_code == 200 and resp.json()["text"] == "你好" and len(sent) == 1
+        resp = remote.post("/api/translate/read-image/estimate",
+                           json={"engine": "claude", "width": 10, "height": 10})
+        assert resp.status_code == 200
+
+    def test_a_member_is_held_to_the_one_call_at_a_time_cap(self, isolated_db, sent):
+        remote = self._member(("engines.paid",))
+        user_id = db.auth_get_user_by_email("phone@example.com")["id"]
+        with llm_slots.ACTIVE_LOCK:
+            llm_slots.ACTIVE_CALLERS.add(f"user:{user_id}")
+        try:
+            resp = _post(remote)
+        finally:
+            with llm_slots.ACTIVE_LOCK:
+                llm_slots.ACTIVE_CALLERS.discard(f"user:{user_id}")
+        assert resp.status_code == 429 and not sent
 
 
 class TestEstimate:
@@ -333,3 +388,38 @@ def test_on_done_reports_usage_and_zero_on_failure():
     with pytest.raises(RuntimeError):
         vision.read_image_text(engine, b"x", "image/png", on_done=got.append)
     assert got[-1] == {}
+
+
+class TestMemberPicks:
+    """A member's read: what is refused, and that a slow body can't hold the shared slot."""
+
+    def _member(self):
+        return TestFromARemoteDevice._member(None)
+
+    def test_a_hosted_tag_outside_the_member_list_is_refused_before_any_call(self, isolated_db, sent):
+        remote = self._member()
+        resp = remote.post("/api/translate/read-image", data={"engine": "ollama", "model": "gpt-oss:120b-cloud"},
+                           files={"image": ("shot.png", _png(), "image/png")})
+        assert resp.status_code == 403 and not sent
+        resp = remote.post("/api/translate/read-image/estimate",
+                           json={"engine": "ollama", "model": "gpt-oss:120b-cloud", "width": 10, "height": 10})
+        assert resp.status_code == 403
+
+    def test_an_empty_engine_field_is_the_default_not_a_paid_engine(self, isolated_db, sent):
+        db.set_app_setting("default_engine", "claude")
+        resp = self._member().post("/api/translate/read-image", data={"engine": ""},
+                                   files={"image": ("shot.png", _png(), "image/png")})
+        assert resp.status_code == 200 and sent[0]["engine"].name == "ollama"
+
+    def test_a_picture_that_takes_too_long_to_arrive_is_refused(self, isolated_db, sent, monkeypatch):
+        import asyncio
+        from api.routers import translate_routes
+
+        async def slow(*a, **k):
+            await asyncio.sleep(5)
+
+        monkeypatch.setattr(translate_routes, "read_capped_form", slow)
+        monkeypatch.setattr(translate_routes, "_IMAGE_READ_SECONDS", 0.05)
+        resp = self._member().post("/api/translate/read-image", data={},
+                                   files={"image": ("shot.png", _png(), "image/png")})
+        assert resp.status_code == 422 and "too long" in resp.text and not sent

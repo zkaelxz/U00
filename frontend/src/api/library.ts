@@ -68,6 +68,8 @@ export function replaceVoiceBankClip(id: number, file: File, f?: Fetch) {
   form.append('file', file, file.name)
   return postMultipart<LibraryVoice>(`/api/library/voice-bank/${id}/clip`, form, f)
 }
+export const setVoiceBankPrivate = (id: number, priv: boolean, f?: Fetch) =>
+  postJson<LibraryVoice>(`/api/library/voice-bank/${id}/private`, { private: priv }, f)
 export const renameVoiceBankEntry = (id: number, name: string, f?: Fetch) =>
   postJson<LibraryVoice>(`/api/library/voice-bank/${id}/rename`, { name }, f)
 export const searchLines =(q: string, f?: Fetch) =>

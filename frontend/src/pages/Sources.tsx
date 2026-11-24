@@ -47,6 +47,7 @@ import type {
   TrackedSeries,
 } from '../types/sources'
 import SourcesManagePanel from './SourcesManage'
+import { SourcesReadList } from './sources/SourcesReadList'
 import { FindModeSwitch, type FindMode } from './sources/FindModeSwitch'
 import { SOURCES_TABS, sourcesHref, type ManageTab, type SourcesTab } from './sources/manageTabs'
 import { NewChapters } from './sources/NewChapters'
@@ -67,7 +68,7 @@ function validSeries(v: unknown): OpenSeries | null {
 const PREFIX = 'sources'
 
 // tab comes from the URL; area is the old "#/sources/manage?tab=network" link's target within Manage.
-export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: { tab?: SourcesTab; area?: ManageTab; sharedUrl?: string }) {
+export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl, openSeries: linkedSeries }: { tab?: SourcesTab; area?: ManageTab; sharedUrl?: string; openSeries?: OpenSeries }) {
   const pc = usePcOnly()
   const remote = pc === 'remote'
   const session = useSession()
@@ -107,6 +108,8 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
   // A chapter to tick in the series opened from a pasted chapter link.
   const [preselect, setPreselect] = useState<{ source: string; series_id: string; chapter_id: string } | null>(null)
   // A web-search result handed to the Paste a link box (n: a new hand-off each time).
+  // A source tapped in the phone Sources list: the Find search covers just that one.
+  const [onlyPick, setOnlyPick] = useState<{ name: string; n: number } | null>(null)
   const [linkHandoff, setLinkHandoff] = useState<{ url: string; n: number } | null>(null)
 
   const search = useSourcesJob<SearchResult>(SEARCH_JOB_ID)
@@ -208,6 +211,12 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
     }
   }
 
+  function searchOnly(name: string) {
+    setOnlyPick((p) => ({ name, n: (p?.n ?? 0) + 1 }))
+    setStoredMode('search')
+    selectTab('find')
+  }
+
   const seriesShown = !!open && (view.status !== 'idle' || view.busyOther || wasBusy || cleared || !!series.startError)
   const openTracked = open
     ? tracked.find((t) => t.source === open.source && t.series_id === open.series_id) ?? null
@@ -234,9 +243,17 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
     }
   }
 
-  // Manage sources is PC only: away from the PC the tab, its link and its panel are left out.
-  const shownTab = remote && tab === 'manage' ? 'find' : tab
-  const tabs = SOURCES_TABS.filter((t) => !(remote && t.id === 'manage'))
+  // A link from the Updates page names a series: open it once per link, as if its Open button had been pressed.
+  const linkedKey = linkedSeries ? `${linkedSeries.source}:${linkedSeries.series_id}` : null
+  useEffect(() => {
+    if (linkedSeries) openSeries(linkedSeries)
+    // Only a new link opens a series; openSeries changes identity every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedKey])
+
+  // Editing sites is PC only, so away from the PC the Manage tab becomes a read-only list of the sources.
+  const shownTab = tab
+  const tabs = SOURCES_TABS.map((t) => (remote && t.id === 'manage' ? { ...t, label: 'Sources list' } : t))
   const panel = (id: SourcesTab, children: ReactNode, className?: string) => (
     <div id={tabPanelId(PREFIX, id)} role="tabpanel" aria-labelledby={tabButtonId(PREFIX, id)} className={`sources-panel${className ? ` ${className}` : ''}`} hidden={shownTab !== id}>
       {children}
@@ -281,6 +298,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
                   resultsHidden={seriesShown && !wide}
                   onOpen={openSeries}
                   onUseLink={useWebLink}
+                  only={onlyPick}
                 />
               </div>
             )}
@@ -352,6 +370,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
       ))}
 
       {!remote && manageVisited && panel('manage', <SourcesManagePanel area={area} />, 'sources-manage-panel')}
+      {remote && panel('manage', sources ? <SourcesReadList sources={sources} onSearchOnly={searchOnly} /> : <p className="muted">Loading…</p>, 'sources-list-panel')}
     </PageShell>
   )
 }
