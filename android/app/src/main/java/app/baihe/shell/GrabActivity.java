@@ -93,6 +93,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     | android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         }
 
+        root.addView(ShellTabs.strip(this, palette, true), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         address = new EditText(this);
         address.setSingleLine(true);
         address.setHint("Enter a comic site address");
@@ -465,7 +467,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void openBaihe() {
-        startActivity(new Intent(this, MainActivity.class));
+        ShellTabs.show(this, MainActivity.class);
     }
 
     private void showSettings() {
