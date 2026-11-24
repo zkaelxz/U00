@@ -104,7 +104,7 @@ def test_url_check_does_not_fetch(live, monkeypatch):
 
 
 @pytest.mark.parametrize("kw", [{"source_language": "xx"}, {"whisper_size": "huge"},
-                                {"segment_seconds": "abc"}, {"max_minutes": None},
+                                {"segment_seconds": "abc"}, {"max_minutes": "abc"},
                                 {"engine": "nope"}])
 def test_bad_options_rejected(live, kw):
     with pytest.raises(InvalidInputError):
@@ -408,6 +408,13 @@ def test_stale_chunks_never_processed(live, monkeypatch, tmp_path):
     assert _wait(lambda: background_jobs.get_status("live_stale")["status"] != "running")
     assert seen == []
     assert not list(tmp_path.glob("*.wav"))
+
+
+def test_a_blank_time_limit_runs_until_the_stream_ends(live, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(live_translate, "run_live_job", lambda *a, **k: seen.update(k=k))
+    assert _terminal(_start(max_minutes=None))
+    assert seen["k"]["max_seconds"] is None
 
 
 def test_max_minutes_stops_job(live, monkeypatch):
