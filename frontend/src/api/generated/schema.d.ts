@@ -6064,7 +6064,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Followed channels the caller can see (never a URL) */
+        /** The caller's own followed channels (never a URL) */
         get: operations["list_follows_api_live_follows_get"];
         put?: never;
         /** Follow a YouTube or Twitch channel for live streams */
@@ -6084,7 +6084,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Queue a check of every channel the caller may change, one after another */
+        /** Queue a check of every channel in the caller's own list, one after another */
         post: operations["check_all_api_live_follows_check_all_post"];
         delete?: never;
         options?: never;
