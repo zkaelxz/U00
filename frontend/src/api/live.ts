@@ -150,6 +150,28 @@ export const LIVE_FORM_FALLBACK: LiveFormOptions = {
 export const languageWhisperDefault = (opts: LiveFormOptions, language: string): string =>
   opts.language_whisper_defaults?.[language] ?? opts.defaults.whisper_size
 
+/** For the presets' help: what each language's model is, when already downloaded (see language_whisper_defaults). */
+export const LANGUAGE_MODEL_NOTE = 'Chinese breeze-asr-25, Japanese ja-1.5b, Korean large-v3'
+
+export type CaptionPresetName = 'fast' | 'balanced'
+const CAPTION_PRESETS: Record<CaptionPresetName, Partial<LiveOptions>> = { fast: FAST_CAPTIONS, balanced: BALANCED_CAPTIONS }
+
+/** The model a caption preset runs for `language`: the one this PC has for it (the one the form starts on),
+ * else the preset's all-language model. */
+export const captionPresetModel = (name: CaptionPresetName, opts: LiveFormOptions, language: string): string | undefined =>
+  opts.language_whisper_defaults?.[language] ?? CAPTION_PRESETS[name].whisper_size
+
+/** Remembered options after pressing a preset. The model is left unset and the preset noted, so the model
+ * follows the language until one is picked by hand. */
+export const applyCaptionPreset = (prefs: Partial<StoredLiveOptions>, name: CaptionPresetName): Partial<StoredLiveOptions> => {
+  const { whisper_size: _model, ...rest } = CAPTION_PRESETS[name]
+  const { whisper_size: _picked, ...kept } = prefs
+  return { ...kept, ...rest, caption_preset: name }
+}
+
+/** What this browser remembers: the options plus which preset, if any, set them. */
+export type StoredLiveOptions = LiveOptions & { caption_preset: CaptionPresetName }
+
 /** The form a browser starts on: the server's defaults over DEFAULT_FORM, with the model that suits `language` (the form's own language when omitted). */
 export const formDefaults = (opts: LiveFormOptions, language?: string): LiveForm => ({
   ...DEFAULT_FORM, ...opts.defaults, whisper_size: languageWhisperDefault(opts, language ?? opts.defaults.source_language),
