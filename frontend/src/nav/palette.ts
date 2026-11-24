@@ -36,6 +36,7 @@ const PAGE_KEYWORDS: Record<string, string> = {
   'make-subtitles': 'transcribe srt whisper audio video file link new title quick translate',
   discover: 'find titles online discover sources download novel chapters comics sites',
   live: 'stream youtube captions',
+  updates: 'new chapters live channels scheduled streams whats new',
   benchmark: 'compare models arena golden',
   assistant: 'help maintain fix',
 }

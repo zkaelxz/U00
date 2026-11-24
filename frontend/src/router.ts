@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import type { OpenSeries } from './types/sources'
 import { isSharedLink } from './shareTarget'
 import { isLibraryToolsTab, type LibraryToolsTab } from './pages/libraryTools/libraryToolsTabs'
 import { reviewToolsGroupForLink, type ReviewToolsGroup } from './pages/workspace/stages/review/reviewToolsTabs'
@@ -47,12 +48,15 @@ export type Route =
   | { name: 'make-subtitles' }
   // tab: "#/sources?tab=new"; no tab opens Find.
   // url: "#/sources?url=<link>" (the installed app's Share to Baihe) fills the Paste a link box.
-  | { name: 'sources'; tab?: SourcesTab; url?: string }
+  // open: "#/sources?source=mh&series=12&title=Name" opens that series' chapter list (the Updates page's New chapters rows).
+  | { name: 'sources'; tab?: SourcesTab; url?: string; open?: OpenSeries }
   // The old Manage sources page, kept as a deep link: it opens the Manage sources tab of Sources and
   // scrolls to the area named by "?tab=network".
   | { name: 'sources-manage'; tab?: ManageTab }
   | { name: 'discover' }
   | { name: 'live' }
+  // Everything new in one list: new chapters and followed channels that are live or scheduled.
+  | { name: 'updates' }
   | { name: 'assistant' }
   // tab: "#/series/3?tab=glossary" opens that tab of a series' page.
   | { name: 'series'; id: number; tab?: SeriesTab }
@@ -75,6 +79,10 @@ export type Route =
 // A package key from diagnostics.OPTIONAL_DEPENDENCIES ("audio-separator", "pyannote.audio"): nothing else is read from a link.
 const PACKAGE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/
 // A job id as background_jobs makes them ("transcribe_3", "lines_glossary_12").
+// A source's registry name, and the longest series id or title a link may carry.
+const SOURCE_KEY = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,59}$/
+const SERIES_ID_MAX = 300
+const TITLE_MAX = 200
 const JOB_KEY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/
 
 export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare' | 'all' | 'sourceLink' | 'voices' | 'source'
@@ -134,7 +142,13 @@ export function parseRoute(hash: string): Route {
     const q = new URLSearchParams(qs)
     const tab = q.get('tab')
     const url = q.get('url')
-    return { name: 'sources', ...(isSourcesTab(tab) ? { tab } : {}), ...(url && isSharedLink(url) ? { url } : {}) }
+    const source = q.get('source')
+    const series = q.get('series')
+    const title = q.get('title') ?? ''
+    const open = source && series && SOURCE_KEY.test(source) && series.length <= SERIES_ID_MAX
+      ? { source, series_id: series, title: title.slice(0, TITLE_MAX) }
+      : null
+    return { name: 'sources', ...(isSourcesTab(tab) ? { tab } : {}), ...(url && isSharedLink(url) ? { url } : {}), ...(open ? { open } : {}) }
   }
   if (head === 'sources' && a === 'manage' && parts.length === 2) {
     const tab = new URLSearchParams(qs).get('tab')
@@ -142,6 +156,7 @@ export function parseRoute(hash: string): Route {
   }
   if (head === 'discover' && parts.length === 1) return { name: 'discover' }
   if (head === 'live' && parts.length === 1) return { name: 'live' }
+  if (head === 'updates' && parts.length === 1) return { name: 'updates' }
   if (head === 'assistant' && parts.length === 1) return { name: 'assistant' }
   if (head === 'series' && parts.length === 1) {
     const streamer = new URLSearchParams(qs).get('streamer')
@@ -229,6 +244,10 @@ export function routeHref(r: Route): string {
     return r.pkg && PACKAGE_KEY.test(r.pkg) ? `#/diagnostics?card=${r.card}&package=${encodeURIComponent(r.pkg)}` : `#/diagnostics?card=${r.card}`
   }
   if (r.name === 'sources-manage') return manageHref(r.tab)
+  if (r.name === 'sources' && r.open) {
+    const q = `source=${encodeURIComponent(r.open.source)}&series=${encodeURIComponent(r.open.series_id)}${r.open.title ? `&title=${encodeURIComponent(r.open.title.slice(0, TITLE_MAX))}` : ''}`
+    return `#/sources?${q}`
+  }
   if (r.name === 'sources' && r.tab) return sourcesHref(r.tab)
   if (r.name === 'jobs' && r.job) return `#/jobs?job=${encodeURIComponent(r.job)}`
   if (r.name === 'admin' && r.card) return `#/admin?card=${r.card}`

@@ -334,6 +334,40 @@ def admin_add_user(email: str, display_name: str = "", extension_send: bool = Fa
     return _admin_view(user, actor_id, time.time())
 
 
+DELETE_AT_PC_ONLY = "People can only be deleted at the main PC."
+
+
+def admin_delete_user(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
+    """The People screen's "Delete…" on a deactivated member: removes the
+    account for good, so the email can be added again as a new person.
+    PC-only (403 elsewhere, checked first): it can't be undone and a remote
+    admin session has no second factor. Checks: 404, own account (409), an
+    admin (409: remove their admin rights first), still active (409:
+    deactivate first, so every deactivation cleanup has already run).
+    Titles, series and audit rows keep the old id; with no account behind
+    it only admins see that person's private items. The shared-glossary
+    detach is repeated because an account deactivated before that cleanup
+    existed would otherwise keep its groups attached."""
+    if not at_pc:
+        raise ForbiddenError(DELETE_AT_PC_ONLY)
+    row = _require_user(user_id)
+    if actor_id is not None and user_id == actor_id:
+        raise ConflictError("You can't delete your own account.")
+    if row["is_admin"]:
+        raise ConflictError("Remove their admin rights first.")
+    if row["is_active"]:
+        raise ConflictError("Deactivate the account first.")
+    if not db.auth_delete_inactive_member(user_id):
+        _require_user(user_id)
+        raise ConflictError("That account changed just now. Reload and try again.")
+    # After the delete, so a refused one leaves an account reactivated
+    # meanwhile with its groups still linked; the groups keep the old id.
+    db.detach_shared_glossary_owner_groups(user_id)
+    _recheck_streams(user_id)
+    write_audit(actor_id, "user.delete", f"user {user_id}")
+    return {"user_id": user_id, "deleted": True}
+
+
 def admin_set_active(user_id: int, active: bool, actor_id=None, at_pc: bool = False) -> dict:
     """Admin activate/deactivate; returns the admin_list_users row. The
     caller can't deactivate their own account (409); an admin target needs

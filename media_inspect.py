@@ -14,10 +14,13 @@ import dataclasses
 import json
 import math
 import os
+import shutil
 import subprocess
+import tempfile
 from typing import Optional
 
 import video_export
+from lib import proc
 from lib.no_window import NO_WINDOW
 
 
@@ -44,6 +47,64 @@ class SubtitleTrack:
     index: int | None
     codec: str
     language: str | None
+
+
+# Text subtitle codecs ffmpeg can write back out as SRT or ASS. Picture codecs
+# (PGS, DVD, DVB, XSUB) hold bitmaps, which need OCR, not a format conversion.
+_ASS_CODECS = ("ass", "ssa")
+_TEXT_CODECS = _ASS_CODECS + ("subrip", "srt", "webvtt", "mov_text", "text")
+MAX_SUBTITLE_BYTES = 2 * 1024 * 1024
+EXTRACT_TIMEOUT_SECONDS = 120
+
+
+def is_text_subtitle(codec: str) -> bool:
+    return (codec or "").lower() in _TEXT_CODECS
+
+
+class SubtitleExtractError(Exception):
+    """`reason` is "not_subtitle", "image", "missing", "timeout", "failed" or "too_large"."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def extract_text_subtitle(path: str, stream_index: int) -> tuple[bytes, str]:
+    """(file bytes, a filename ending .ass or .srt) for one embedded text track.
+    The stream is looked up in the file's own probe, never taken on trust, so a
+    client can't point ffmpeg at a video or audio stream."""
+    try:
+        probe = run_ffprobe(path)
+    except ProbeError as exc:
+        raise SubtitleExtractError("missing" if exc.reason == "missing" else "failed") from exc
+    stream = next((s for s in probe.get("streams") or []
+                   if isinstance(s, dict) and s.get("index") == stream_index), None)
+    if stream is None or stream.get("codec_type") != "subtitle":
+        raise SubtitleExtractError("not_subtitle")
+    codec = str(stream.get("codec_name") or "").lower()
+    if not is_text_subtitle(codec):
+        raise SubtitleExtractError("image")
+    # ASS keeps its styles and positions; everything else becomes plain SRT.
+    fmt, name = ("ass", "track.ass") if codec in _ASS_CODECS else ("srt", "track.srt")
+    if shutil.which("ffmpeg") is None:
+        raise SubtitleExtractError("missing")
+    # Written to a file, not piped: lib.proc.run_captured decodes stdout as text.
+    with tempfile.TemporaryDirectory() as folder:
+        out_path = os.path.join(folder, name)
+        cmd = ["ffmpeg", "-y", "-v", "error", *video_export.local_input(), "-i", path,
+               "-map", f"0:{stream_index}", "-fs", str(MAX_SUBTITLE_BYTES + 1), out_path]
+        try:
+            run = proc.run_captured(cmd, timeout=EXTRACT_TIMEOUT_SECONDS)
+        except OSError as exc:
+            raise SubtitleExtractError("missing") from exc
+        if run.timed_out:
+            raise SubtitleExtractError("timeout")
+        if run.returncode != 0 or not os.path.exists(out_path):
+            raise SubtitleExtractError("failed")
+        if os.path.getsize(out_path) > MAX_SUBTITLE_BYTES:
+            raise SubtitleExtractError("too_large")
+        with open(out_path, "rb") as f:
+            return f.read(), name
 
 
 @dataclasses.dataclass
