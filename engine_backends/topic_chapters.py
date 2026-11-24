@@ -11,6 +11,8 @@ MIN_GAP_SECONDS = 30.0
 TRANSCRIPT_MAX_CHARS = 60_000
 _BUCKET_LINE_CHARS = 140
 TOPIC_CHAPTERS_MAX_TOKENS = 2500
+# A NUL ends a line in ffmpeg's metadata file, so a title carrying one could start a fake [CHAPTER].
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def format_clock(seconds: float) -> str:
@@ -91,7 +93,7 @@ def parse_reply(text: str, duration: float) -> list[dict]:
         if not isinstance(item, dict) or not isinstance(item.get("title"), str):
             continue
         start = parse_clock(item.get("start"))
-        title = " ".join(item["title"].split())[:MAX_TITLE_CHARS]
+        title = " ".join(_CONTROL.sub(" ", item["title"]).split())[:MAX_TITLE_CHARS]
         if start is None or not title or (duration and start >= duration):
             continue
         found.append({"start": round(start, 1), "title": title})

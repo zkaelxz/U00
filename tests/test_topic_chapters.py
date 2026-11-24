@@ -28,6 +28,10 @@ class TestParser:
                                     ("99:00", "Past the end"), ("x", "Bad time")), duration=1800)
         assert out == [{"start": 0.0, "title": "First"}, {"start": 600.0, "title": "Second"}]
 
+    def test_control_characters_in_a_title_are_dropped(self):
+        out = tc.parse_reply(_reply(("0:00", "Intro\u0000[CHAPTER]\x07")), duration=100)
+        assert out == [{"start": 0.0, "title": "Intro [CHAPTER]"}]
+
     def test_unreadable_reply_gives_nothing(self):
         assert tc.parse_reply("sorry, no", 100) == [] and tc.parse_reply('{"chapters": 3}', 100) == []
 
