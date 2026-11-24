@@ -11,6 +11,7 @@ PC's remote-uploads switch is on (docs/remote-access-decision.md).
 """
 
 from fastapi import APIRouter, Path, Request
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
@@ -97,3 +98,33 @@ async def post_apply(request: Request, drama_id: int = Path(ge=1)):
         svc.import_subtitle, drama_id, data, filename, encoding=opts["encoding"], mode=opts["mode"],
         split_bilingual=opts["split_bilingual"], translation_first=opts["translation_first"],
         confirm_replace_lines=opts["confirm_replace_lines"], confirm_overwrite=opts["confirm_overwrite"])
+
+
+class TrackImportRequest(BaseModel):
+    track_index: int = Field(ge=0, description="The track's index from analyze-media.")
+    mode: str = "source"
+    split_bilingual: bool = False
+    translation_first: bool = False
+    confirm_replace_lines: bool = False
+    confirm_overwrite: bool = False
+
+
+@router.post("/dramas/{drama_id}/track/preview", dependencies=[require_permission("media.upload")],
+             response_model=SubtitleImportPreview, responses=_ERRORS,
+             summary="Read a text subtitle track inside the title's media file; says what importing it would do, changes nothing")
+async def post_track_preview(body: TrackImportRequest, drama_id: int = Path(ge=1)):
+    return await run_in_threadpool(
+        svc.preview_track, drama_id, body.track_index, mode=body.mode,
+        split_bilingual=body.split_bilingual, translation_first=body.translation_first)
+
+
+@router.post("/dramas/{drama_id}/track/apply", dependencies=[require_permission("media.upload")],
+             response_model=SubtitleImportResult, responses=_ERRORS,
+             summary="Import a text subtitle track inside the title's media file instead of transcribing",
+             description="Same confirmations and undo handle as the file import. Picture tracks "
+                         "(PGS, DVD) are refused with 422.")
+async def post_track_apply(body: TrackImportRequest, drama_id: int = Path(ge=1)):
+    return await run_in_threadpool(
+        svc.import_track, drama_id, body.track_index, mode=body.mode,
+        split_bilingual=body.split_bilingual, translation_first=body.translation_first,
+        confirm_replace_lines=body.confirm_replace_lines, confirm_overwrite=body.confirm_overwrite)

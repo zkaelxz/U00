@@ -11427,6 +11427,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/subtitle-import/dramas/{drama_id}/track/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import a text subtitle track inside the title's media file instead of transcribing
+         * @description Same confirmations and undo handle as the file import. Picture tracks (PGS, DVD) are refused with 422.
+         */
+        post: operations["post_track_apply_api_subtitle_import_dramas__drama_id__track_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/subtitle-import/dramas/{drama_id}/track/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read a text subtitle track inside the title's media file; says what importing it would do, changes nothing */
+        post: operations["post_track_preview_api_subtitle_import_dramas__drama_id__track_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/android-app/fetch": {
         parameters: {
             query?: never;
@@ -23016,6 +23053,11 @@ export interface components {
         MediaSubtitleTrack: {
             /** Codec */
             codec: string;
+            /**
+             * Importable
+             * @default false
+             */
+            importable: boolean;
             /** Index */
             index: number | null;
             /** Language */
@@ -31568,6 +31610,39 @@ export interface components {
         TitleVdbNamesChoice: {
             /** Enabled */
             enabled: boolean;
+        };
+        /** TrackImportRequest */
+        TrackImportRequest: {
+            /**
+             * Confirm Overwrite
+             * @default false
+             */
+            confirm_overwrite?: boolean;
+            /**
+             * Confirm Replace Lines
+             * @default false
+             */
+            confirm_replace_lines?: boolean;
+            /**
+             * Mode
+             * @default source
+             */
+            mode?: string;
+            /**
+             * Split Bilingual
+             * @default false
+             */
+            split_bilingual?: boolean;
+            /**
+             * Track Index
+             * @description The track's index from analyze-media.
+             */
+            track_index: number;
+            /**
+             * Translation First
+             * @default false
+             */
+            translation_first?: boolean;
         };
         /** TrackedSeries */
         TrackedSeries: {
@@ -67790,6 +67865,130 @@ export interface operations {
                     split_bilingual?: string;
                     translation_first?: string;
                 };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubtitleImportPreview"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_track_apply_api_subtitle_import_dramas__drama_id__track_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubtitleImportResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_track_preview_api_subtitle_import_dramas__drama_id__track_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackImportRequest"];
             };
         };
         responses: {
