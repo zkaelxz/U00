@@ -316,6 +316,7 @@ _DECOR_MIN_FILL = 0.5
 _DECOR_GAP_PX = 8
 _RULE_MAX_THICKNESS = 6
 _RULE_MIN_LENGTH = 40
+_RULE_SAME_COLOUR = 40
 
 
 def decoration_blocks(page, box: dict) -> list:
@@ -339,11 +340,16 @@ def decoration_blocks(page, box: dict) -> list:
     return blocks
 
 
-def _stands_alone(coloured, x: int, y: int, w: int, h: int) -> bool:
-    """True when little colour sits just above and below the strip: a rule has clear paper
-    either side, while a band of a colour fade only borders the rest of its fade."""
-    above, below = coloured[max(0, y - 2):y, x:x + w], coloured[y + h:y + h + 2, x:x + w]
-    return all(side.size == 0 or side.mean() < 0.2 for side in (above, below))
+def _stands_alone(crop, coloured, x: int, y: int, w: int, h: int) -> bool:
+    """True when the strip (a thin coloured component of `crop`) has little of its own colour
+    just above and below: a rule has plain ground either side, while a band of a colour fade
+    borders rows of nearly the same colour."""
+    inside = crop[y:y + h, x:x + w][coloured[y:y + h, x:x + w] > 0]
+    colour = np.median(inside, axis=0)
+    for side in (crop[max(0, y - 2):y, x:x + w], crop[y + h:y + h + 2, x:x + w]):
+        if side.size and (np.abs(side - colour).max(axis=2) <= _RULE_SAME_COLOUR).mean() >= 0.2:
+            return False
+    return True
 
 
 def between_rules(page, box: dict) -> dict:
@@ -357,13 +363,12 @@ def between_rules(page, box: dict) -> dict:
         return box
     crop = page[y0:y1, x0:x1].astype(np.int16)
     coloured = ((crop.max(axis=2) - crop.min(axis=2)) > _TAG_SATURATION).astype(np.uint8)
-    tinted = (crop.max(axis=2) - crop.min(axis=2)) > _TAG_SATURATION // 2
     count, _, stats, _ = cv2.connectedComponentsWithStats(coloured, connectivity=8)
     edges = [(0, 0)]
     for i in range(1, count):
         x, y, w, h, _area = stats[i]
         if h <= _RULE_MAX_THICKNESS and w >= _RULE_MIN_LENGTH and w >= 4 * h \
-                and _stands_alone(tinted, x, y, w, h):
+                and _stands_alone(crop, coloured, x, y, w, h):
             edges.append((y, y + h))
     if len(edges) == 1:
         return box
