@@ -539,6 +539,13 @@ class TestMemberLimitInTheRunBudget:
         assert self._caps(member, engine="ollama", model="gpt-oss:120b-cloud") == [pytest.approx(0.5)]
         assert self._caps(None) == [pytest.approx(10.0)]
 
+    def test_an_omitted_model_on_a_hosted_default_gets_the_budget(self, member, cap, monkeypatch):
+        from engine_backends import engine_registry
+        cap(10.0)
+        monkeypatch.setattr(engine_registry, "effective_default_model",
+                            lambda name: "gemma4:31b-cloud" if name == "ollama" else None)
+        assert self._caps(member, engine="ollama", model=None) == [pytest.approx(0.5)]
+
     def test_a_used_up_limit_refuses_the_run(self, member, cap):
         cap(10.0)
         with db.spending_for(member):

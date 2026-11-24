@@ -728,7 +728,8 @@ def _build_engine_chain(engine_name, model, fallback_chain, gemini_free_tier, jo
         if free_tier and c["model"] in engine_gemini.GEMINI_FREE_TIER_UNAVAILABLE_MODELS:
             raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
         cap = None
-        if engine_cap_applies(name, gemini_free_tier, c["model"]):
+        # An omitted model runs the engine's default, which may be a hosted tag every account may use.
+        if engine_cap_applies(name, gemini_free_tier, c["model"] or engine_registry.effective_default_model(name)):
             cap, refusal = pricing.resolve_cost_cap(
                 job_cost_cap_usd, monthly_cap, month_spend)
             if refusal:

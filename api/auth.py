@@ -400,7 +400,8 @@ def require_engines_allowed(request: Request, *engine_names, model=None):
     "use the configured default") counts as possibly paid. Pass the request's
     `model` whenever it has one: an Ollama cloud tag is held to
     `engines.paid` too (`require_cloud_model_allowed`); an omitted model
-    resolves to the local default, which is never a cloud tag."""
+    resolves to the default, which for an account without `engines.paid` is
+    local or a MEMBER_CLOUD_MODELS tag (`engine_registry.hosted_default_allowed`)."""
     if not holds(request, "engines.paid"):
         from engine_backends.engine_registry import FREE_ENGINES
         if any(not name or name not in FREE_ENGINES for name in engine_names):
