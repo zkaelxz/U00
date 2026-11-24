@@ -16,7 +16,6 @@ memory goes back whenever the app frees its models (before Whisper loads, and
 when the GPU guard finds the card short).
 """
 
-import logging
 import multiprocessing
 import os
 import sys
@@ -24,7 +23,14 @@ import threading
 import time
 from types import SimpleNamespace
 
-log = logging.getLogger(__name__)
+def _log(text: str, warning: bool = False) -> None:
+    """To the app's log file (applog); a log that can't be written never stops a read."""
+    try:
+        import applog
+        logger = applog.get_logger()
+        (logger.warning if warning else logger.info)(text)
+    except Exception:
+        pass
 
 # Only the medium pair has PyTorch weights here; balloons and pages use it.
 GPU_KEYS = frozenset({"medium"})
@@ -117,7 +123,7 @@ def _params(key: str) -> dict:
 def _gpu_off(reason: str) -> None:
     global _gpu_off_reason
     if _gpu_off_reason is None:
-        log.warning("Text reader: using the CPU for the rest of this run: %s", reason)
+        _log(f"Text reader: using the CPU for the rest of this run: {reason}", warning=True)
     _gpu_off_reason = reason
 
 
@@ -154,8 +160,8 @@ def _gpu_ready(key: str) -> bool:
         _gpu.loading = False
         if reply[0] == "ready":
             _gpu.ready = True
-            log.info("Text reader: GPU engine ready %.1f s after its load started",
-                     time.monotonic() - _gpu.load_started)
+            _log(f"Text reader: GPU engine ready {time.monotonic() - _gpu.load_started:.1f} s "
+                 "after its load started")
             _gpu.load_started = 0.0
             return True
     if reply[0] == "gpu_oom":
@@ -229,8 +235,8 @@ def _ask(helper: _Helper, message) -> tuple:
                     return ("error", "Reading the text took too long and was stopped.")
                 reply = conn.recv()
                 if helper.load_started:
-                    log.info("Text reader: first %s read answered %.1f s after its helper started",
-                             helper.device, time.monotonic() - helper.load_started)
+                    _log(f"Text reader: first {helper.device} read answered "
+                         f"{time.monotonic() - helper.load_started:.1f} s after its helper started")
                     helper.load_started = 0.0
                 return reply
             except (EOFError, OSError):
@@ -251,7 +257,7 @@ def _start():
                           name="baihe-ocr-worker", daemon=True)
     process.start()
     child_conn.close()
-    log.info("Text reader: helper process started in %.1f s", time.monotonic() - started)
+    _log(f"Text reader: helper process started in {time.monotonic() - started:.1f} s")
     return process, parent_conn
 
 
