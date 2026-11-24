@@ -21446,6 +21446,11 @@ export interface components {
             cache_read_tokens: number;
             /** Call Count */
             call_count: number;
+            /**
+             * Cloud Call Count
+             * @default 0
+             */
+            cloud_call_count: number;
             /** Estimated Cost Usd */
             estimated_cost_usd: number;
             /** Id */
