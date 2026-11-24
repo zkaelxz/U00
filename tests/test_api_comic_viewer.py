@@ -486,3 +486,45 @@ def test_library_list_carries_reading_percent_and_unread_chapters(client, isolat
     assert row(d)["unread_chapters"] == 1
     # A title without pages has no chapters to count.
     assert (row(other)["read_percent"], row(other)["unread_chapters"]) == (0, 0)
+
+
+def _signed_in(email, admin=False):
+    from api import auth as api_auth
+    from services import auth_service
+    u = auth_service.grant_admin_local(email) if admin else auth_service.add_user(email)
+    s = auth_service.create_session(u["id"])
+    return u, {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}", api_auth.CSRF_HEADER: s["csrf_token"]}
+
+
+def test_each_account_keeps_its_own_chapter_marks_and_unread_count(client, isolated_db, comic):
+    import db
+    _two_chapters(comic)
+    d = comic["drama"]
+    away = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com",
+                      raise_server_exceptions=False)
+    kim, kim_h = _signed_in("kim@example.com", admin=True)
+    bo, bo_h = _signed_in("bo@example.com")
+    pages, marks = f"/api/scanlate/dramas/{d}/pages", f"/api/scanlate/dramas/{d}/chapters/marks"
+    one, two = [c["id"] for c in client.get(pages).json()["chapters"]]
+
+    def read(c, **kw):
+        return [ch["read"] for ch in c.get(pages, **kw).json()["chapters"]]
+
+    def unread(c, **kw):
+        return next(r for r in c.get("/api/library/dramas", **kw).json()["items"] if r["id"] == d)["unread_chapters"]
+
+    r = away.post(marks, json={"chapter_ids": [one], "read": True}, headers=kim_h)
+    assert r.status_code == 200, r.text
+    assert [c["read"] for c in r.json()["chapters"]] == [True, False]
+    assert away.post(marks, json={"chapter_ids": [one, two], "read": True}, headers=bo_h).status_code == 200
+    client.post(marks, json={"chapter_ids": [two], "bookmarked": True})          # at the PC, no sign-in
+
+    assert (read(away, headers=kim_h), unread(away, headers=kim_h)) == ([True, False], 1)
+    assert (read(away, headers=bo_h), unread(away, headers=bo_h)) == ([True, True], 0)
+    assert (read(client), unread(client)) == ([False, False], 2)
+    # Marking unread touches the caller's marks only.
+    away.post(marks, json={"chapter_ids": [one, two], "read": False}, headers=bo_h)
+    assert read(away, headers=kim_h) == [True, False]
+    assert db.get_chapter_marks(d, bo["id"]) == {}
+    assert db.get_chapter_marks(d, kim["id"]) == {one: {"read": True, "bookmarked": False}}
+    assert db.get_chapter_marks(d) == {two: {"read": False, "bookmarked": True}}

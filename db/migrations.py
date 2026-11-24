@@ -1,7 +1,7 @@
 """Migrations that bring an existing library.db up to the current schema: the column
 adds (ALTER TABLE ... ADD COLUMN through db._safe_alter), the one-off data fixes, and the
 table rebuilds SQLite can't do in place (GPU lock slots, line refs to line ids, reading
-profiles). init_db in db/__init__.py runs them in a fixed order; each is idempotent."""
+profiles, chapter marks per account). init_db in db/__init__.py runs them in a fixed order; each is idempotent."""
 
 from lib import clock
 
@@ -628,6 +628,54 @@ def _create_line_ref_indexes():
             if "line_id" in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
                 conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_line ON {table}(line_id)")
         conn.commit()
+    finally:
+        conn.close()
+
+
+def _migrate_chapter_marks_per_account():
+    """One-time: chapter read marks were kept per household profile and are now kept per
+    sign-in account, which changes the primary key, so the table is rebuilt. The marks made
+    so far become the PC's own (user_id 0) and every active admin account also starts
+    from a copy of them; other accounts start with none."""
+    conn = db.get_conn()
+    conn.isolation_level = None  # explicit BEGIN/COMMIT below
+
+    def old_shape():
+        return "user_id" not in {r[1] for r in conn.execute("PRAGMA table_info(chapter_marks)").fetchall()}
+
+    try:
+        if not old_shape():
+            return
+        # IMMEDIATE, then look again: another process starting at the same
+        # time may have rebuilt the table while this one waited.
+        conn.execute("BEGIN IMMEDIATE")
+        if not old_shape():
+            conn.execute("ROLLBACK")
+            return
+        conn.execute("DROP TABLE IF EXISTS chapter_marks_per_account")
+        conn.execute(db.CHAPTER_MARKS_DDL.format(name="chapter_marks_per_account"))
+        # Several profiles' marks for one chapter fold into one row: read if any read it.
+        conn.execute("""
+            INSERT INTO chapter_marks_per_account (drama_id, user_id, chapter_id, read_at, bookmarked)
+            SELECT drama_id, 0, chapter_id, MIN(read_at), MAX(bookmarked)
+            FROM chapter_marks
+            -- A row left behind by a title deleted with foreign keys off would fail the new
+            -- table's foreign key and stop the app from starting.
+            WHERE drama_id IN (SELECT id FROM dramas)
+            GROUP BY drama_id, chapter_id""")
+        conn.execute("""
+            INSERT INTO chapter_marks_per_account (drama_id, user_id, chapter_id, read_at, bookmarked)
+            SELECT m.drama_id, u.id, m.chapter_id, m.read_at, m.bookmarked
+            FROM chapter_marks_per_account m JOIN users u
+              ON COALESCE(u.is_admin, 0) != 0 AND COALESCE(u.is_active, 0) != 0
+            WHERE m.user_id = 0""")
+        conn.execute("DROP TABLE chapter_marks")
+        conn.execute("ALTER TABLE chapter_marks_per_account RENAME TO chapter_marks")
+        conn.execute("COMMIT")
+    except BaseException:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
     finally:
         conn.close()
 

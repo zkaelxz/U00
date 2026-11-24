@@ -604,3 +604,31 @@ def test_followed_channels_pass_to_the_pc_owner_when_live_accounts_are_kept(isol
     row = live_follow_store.get(fid)
     assert (row["owner_user_id"], row["pc_owner"], row["auto_check"], row["mode"]) == \
         (None, 0, 0, "notify")
+
+
+def test_restored_chapter_marks_follow_the_email_match_and_a_strangers_are_dropped(isolated_db):
+    a = auth_service.add_user("a@example.com")["id"]
+    b = auth_service.add_user("b@example.com")["id"]
+    gone = auth_service.add_user("gone@example.com")["id"]
+    did = db.create_drama(title_zh="comic")
+    db.set_chapter_marks(did, ["pc"], read=True)
+    db.set_chapter_marks(did, ["a", "both"], read=True, user_id=a)
+    db.set_chapter_marks(did, ["b", "both"], bookmarked=True, user_id=b)
+    db.set_chapter_marks(did, ["gone"], read=True, user_id=gone)
+    data = _backup_bytes()
+    _fresh_pc()
+    live_b = auth_service.add_user("b@example.com")["id"]
+    live_a = auth_service.add_user("a@example.com")["id"]
+    stranger = auth_service.add_user("stranger@example.com")["id"]
+    assert (live_a, live_b, stranger) == (b, a, gone)           # the ids collide
+
+    _restore(data)
+
+    assert set(db.get_chapter_marks(did)) == {"pc"}
+    assert db.get_chapter_marks(did, live_a) == {"a": {"read": True, "bookmarked": False},
+                                                 "both": {"read": True, "bookmarked": False}}
+    assert db.get_chapter_marks(did, live_b) == {"b": {"read": False, "bookmarked": True},
+                                                 "both": {"read": False, "bookmarked": True}}
+    assert db.get_chapter_marks(did, stranger) == {}
+    # The next new account must not get an id the restored rows still name.
+    assert auth_service.add_user("new@example.com")["id"] > max(a, b, gone)
