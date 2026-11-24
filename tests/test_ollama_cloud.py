@@ -244,26 +244,30 @@ def run_url(isolated_db):
     return f"/api/translate-run/dramas/{db.create_drama(title_en='T', source_language='zh')}/run"
 
 
+# A hosted tag outside MEMBER_CLOUD_MODELS: the paid gate applies to it.
+PAID_CLOUD = "gpt-oss:120b-cloud"
+
+
 def test_cloud_tag_run_is_refused_without_engines_paid(remote, run_url):
     h = _household("kid@example.com")
-    r = remote.post(run_url, json={"engine": "ollama", "model": CLOUD}, headers=h)
+    r = remote.post(run_url, json={"engine": "ollama", "model": PAID_CLOUD}, headers=h)
     assert r.status_code == 403
     assert "paid-engine permission" in r.json()["error"]["message"]
     r = remote.post(run_url, json={"engine": "ollama", "model": "gemma4:12b",
-                                   "fallback_chain": [{"engine": "ollama", "model": CLOUD}]}, headers=h)
+                                   "fallback_chain": [{"engine": "ollama", "model": PAID_CLOUD}]}, headers=h)
     assert r.status_code == 403
 
 
 def test_cloud_tag_run_is_allowed_with_engines_paid_and_local_tags_stay_free(remote, run_url):
     paid = _household("paid@example.com", ["engines.paid"])
-    assert remote.post(run_url, json={"engine": "ollama", "model": CLOUD}, headers=paid).status_code != 403
+    assert remote.post(run_url, json={"engine": "ollama", "model": PAID_CLOUD}, headers=paid).status_code != 403
     free = _household("free@example.com")
     assert remote.post(run_url, json={"engine": "ollama", "model": "gemma4:12b"}, headers=free).status_code != 403
 
 
 def test_cloud_tag_live_start_needs_engines_paid(remote):
     h = _household("kid@example.com", ["media.import_url"])
-    body = {"url": "https://example.com/v", "engine": "ollama", "model": CLOUD}
+    body = {"url": "https://example.com/v", "engine": "ollama", "model": PAID_CLOUD}
     assert remote.post("/api/live/sessions", json=body, headers=h).status_code == 403
 
 
@@ -274,10 +278,35 @@ def test_cloud_tag_gate_unit():
     from lib.errors import ForbiddenError
     with patch.object(api_auth, "holds", return_value=False):
         with pytest.raises(ForbiddenError):
-            api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", CLOUD))
+            api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", PAID_CLOUD))
         api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", "gemma4:12b"), ("claude", None))
     with patch.object(api_auth, "holds", return_value=True):
+        api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", PAID_CLOUD))
+
+
+def test_member_cloud_model_needs_no_engines_paid(remote, run_url):
+    free = _household("member@example.com")
+    assert remote.post(run_url, json={"engine": "ollama", "model": CLOUD}, headers=free).status_code != 403
+    live = _household("viewer@example.com", ["media.import_url"])
+    body = {"url": "https://example.com/v", "engine": "ollama", "model": CLOUD}
+    r = remote.post("/api/live/sessions", json=body, headers=live)
+    # Past the paid gate; the fake PC has no Whisper model, which is refused later.
+    assert r.json()["error"]["code"] != "forbidden"
+
+
+def test_member_cloud_model_gate_unit():
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from api import auth as api_auth
+    from lib.errors import ForbiddenError
+    with patch.object(api_auth, "holds", return_value=False):
         api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", CLOUD))
+        api_auth.require_engines_allowed(SimpleNamespace(), "ollama", model=CLOUD)
+        with pytest.raises(ForbiddenError):
+            api_auth.require_cloud_model_allowed(SimpleNamespace(), ("ollama", CLOUD), ("ollama", PAID_CLOUD))
+    assert not engine_local.cloud_model_needs_paid(CLOUD)
+    assert engine_local.cloud_model_needs_paid(PAID_CLOUD)
+    assert not engine_local.cloud_model_needs_paid("gemma4:12b")
 
 
 def test_cloud_models_are_priced_so_the_spend_cap_counts_them():
