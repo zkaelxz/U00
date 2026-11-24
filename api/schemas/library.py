@@ -49,6 +49,7 @@ __all__ = [
     "LibraryVoice",
     "LibraryVoiceBankResponse",
     "LibraryVoiceDetails",
+    "LibraryVoicePrivate",
     "LibraryRename",
     "MediaAnalysis",
     "MediaSubtitleTrack",
@@ -419,6 +420,14 @@ class LibraryVoice(BaseModel):
     # The caller can't see the title the voice came from, so source_drama
     # and ref_text are left out (and must not be saved back as blanks).
     source_hidden: bool = False
+    # Only admins see a private voice, so a member never receives one of these as true.
+    is_private: bool = False
+
+
+class LibraryVoicePrivate(BaseModel):
+    """Hide a voice bank entry from members, or show it again."""
+    model_config = ConfigDict(extra="forbid")
+    private: bool
 
 
 class LibraryVoiceBankResponse(BaseModel):

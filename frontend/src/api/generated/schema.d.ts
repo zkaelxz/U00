@@ -5750,6 +5750,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/voice-bank/{entry_id}/private": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hide a voice bank entry from members, or show it again */
+        post: operations["set_voice_private_api_library_voice_bank__entry_id__private_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/voice-bank/{entry_id}/rename": {
         parameters: {
             query?: never;
@@ -21866,6 +21883,11 @@ export interface components {
             created_at: string | null;
             /** Id */
             id: number;
+            /**
+             * Is Private
+             * @default false
+             */
+            is_private: boolean;
             /** Language */
             language: string | null;
             /** Name */
@@ -21906,6 +21928,14 @@ export interface components {
              * @default
              */
             ref_text?: string;
+        };
+        /**
+         * LibraryVoicePrivate
+         * @description Hide a voice bank entry from members, or show it again.
+         */
+        LibraryVoicePrivate: {
+            /** Private */
+            private: boolean;
         };
         /** LineAlternative */
         LineAlternative: {
@@ -49665,6 +49695,59 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["LibraryVoiceDetails"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryVoice"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_voice_private_api_library_voice_bank__entry_id__private_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryVoicePrivate"];
             };
         };
         responses: {
