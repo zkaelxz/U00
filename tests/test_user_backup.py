@@ -357,7 +357,7 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
         # Only what the restored library's first open writes: the version stamp and the
         # data-migration marker, no carried-over setting.
         assert sorted(r[0] for r in conn.execute("SELECT key FROM app_settings")) == \
-            [db.APP_VERSION_SETTING, "migrations.separate_vocals_unset"]
+            [db.APP_VERSION_SETTING, "migrations.members_library_create", "migrations.separate_vocals_unset"]
     finally:
         conn.close()
     _assert_clean_db_file(db.DB_PATH)
