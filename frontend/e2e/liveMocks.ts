@@ -157,7 +157,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
     const r = route.request()
     const f = m.follows
     if (r.method() === 'GET') {
-      const body = { items: f.items.map((x) => ({ ...x })), can_auto_start: f.can_auto_start, max_per_member: 5, max_total: 20 }
+      const body = { items: f.items.map((x) => ({ ...x })), can_auto_start: f.can_auto_start }
       // A queued check is reported once as "checking", then its result.
       for (const x of f.items) {
         if (x.checking) Object.assign(x, { checking: false, last_checked_at: Date.now() / 1000, state: 'not_live', last_status: 'Not live' })

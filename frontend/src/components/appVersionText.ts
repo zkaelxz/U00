@@ -28,3 +28,12 @@ export function phoneAppText(userAgent: string): string | null {
   const built = shortDate(m[2])
   return `Phone app build ${m[1]}${built ? ` · built ${built}` : ''}`
 }
+
+/** The first phone build whose shell turns baihegrab://open into opening Baihe Grab; older builds ignore the link. */
+const FIRST_GRAB_LINK_BUILD = 1092
+
+/** True inside a phone app new enough to open Baihe Grab from a link; no browser can, so it is not offered there. */
+export function canOpenGrab(userAgent: string): boolean {
+  const m = /\bBaiheAndroid\/(\d+)/.exec(userAgent)
+  return !!m && Number(m[1]) >= FIRST_GRAB_LINK_BUILD
+}

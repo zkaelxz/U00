@@ -137,7 +137,7 @@ describe('modelOptionLabel', () => {
   })
   it('labels any server-flagged cloud model, even without a server label', () => {
     const cloud = { cloud_models: ['gpt-oss:120b-cloud'] }
-    expect(modelOptionLabel(cloud, 'gpt-oss:120b-cloud')).toMatch(/CLOUD: sends text off this PC/)
+    expect(modelOptionLabel(cloud, 'gpt-oss:120b-cloud')).toMatch(/\(Cloud\)/)
     expect(modelOptionLabel(cloud, 'gemma4:12b')).toBe('gemma4:12b')
   })
   it('falls back to the id', () => {

@@ -13,11 +13,6 @@ import type {
   TierTestResult,
 } from '../../types/sources'
 
-// While false, other devices cannot search sources from the UI (search stays
-// PC only). The server's permissions (docs/remote-access-decision.md) still
-// decide what a request may do; this is the owner's call on the UI side.
-export const SEARCH_REMOTE_ALLOWED = false
-
 export const RESULTS_PAGE = 30
 export const CHAPTERS_PAGE = 100
 

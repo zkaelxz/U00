@@ -111,9 +111,8 @@ export function FollowedChannels({ liveOptions }: Props) {
   }
 
   const blocker = checkChannelInput(text)
-  const atLimit = !!list && items.filter((f) => f.mine).length >= list.max_per_member && !list.can_auto_start
   const waiting = busy ? 'Wait for the current request to finish.' : null
-  const addReason = waiting ?? (atLimit ? `You follow ${list?.max_per_member} channels, the most allowed. Remove one first.` : blocker)
+  const addReason = waiting ?? blocker
   const changeable = items.filter((f) => f.mine || list?.can_auto_start)
   const checkAllReason = waiting ?? (changeable.length === 0 ? 'Follow a channel first.' : anyChecking ? 'Checking… wait for the current checks to finish.' : null)
   const addReasonShown = !!text.trim() && !!addReason

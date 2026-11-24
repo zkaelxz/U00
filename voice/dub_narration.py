@@ -21,6 +21,7 @@ from novel_text import (  # noqa: F401 (re-exported)
 from audio_levelling import level_clip
 from voice.dub import (NO_VOICE_ERROR, engine_refusal, M4B_ENCODE_TIMEOUT_SECONDS, VENV_ENGINES, VENV_LINE_FAILED,
                  clip_signature, speak_in_venv, _voice_for_signature)
+from lib.no_window import NO_WINDOW
 
 
 # Novel narration generates a text unit of up to this many characters in
@@ -158,7 +159,7 @@ _DEFAULT_FORMAT = (24000, 1, 2)
 
 
 def _start_ffmpeg(cmd, stderr):
-    return subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=stderr)
+    return subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=stderr, creationflags=NO_WINDOW)
 
 
 class _FlacStream:
@@ -648,7 +649,7 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
         background_jobs.run_cancellable(cancel_job_id, cmd, timeout=M4B_ENCODE_TIMEOUT_SECONDS)
     else:
         subprocess.run(cmd, check=True, capture_output=True,
-                       timeout=M4B_ENCODE_TIMEOUT_SECONDS)
+                       timeout=M4B_ENCODE_TIMEOUT_SECONDS, creationflags=NO_WINDOW)
     return out_path
 
 

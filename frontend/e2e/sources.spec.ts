@@ -219,11 +219,11 @@ test('new chapters: dismiss and two-step stop tracking', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('remote: search is PC only and Manage sources is left out, no settings request', async ({ page }) => {
+test('remote: search is offered, Manage sources is left out, no settings request', async ({ page }) => {
   const s = await mockSources(page, { local: false })
   await page.goto('/#/sources')
-  await expect(page.getByText('Searching sources is PC only for now.')).toBeVisible()
-  await expect(page.getByRole('search')).toHaveCount(0)
+  await expect(page.getByText('Searching sources is PC only for now.')).toHaveCount(0)
+  await expect(page.getByRole('search')).toHaveCount(1)
   await expect(page.getByRole('tab', { name: 'Manage sources' })).toHaveCount(0)
   await expect(page.locator('.sources-manage-panel')).toHaveCount(0)
   // The page's own mount reads are issued in the same commit as a settings read would be.

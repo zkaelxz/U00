@@ -31,6 +31,27 @@ test('a PC with everything installed starts as before', async ({ page }) => {
   expect(m.unmocked).toEqual([])
 })
 
+test('the GPU box starts ticked when a GPU is found, and unticking it is remembered', async ({ page }) => {
+  const m = await mockLive(page, { readiness: { gpu_found: true } })
+  const live = await openLive(page)
+  await live.getByText('Advanced').click()
+  const box = live.getByLabel('Use GPU for Whisper', { exact: true })
+  await expect(box).toBeChecked()
+  await box.uncheck()
+  await live.getByLabel('Stream link', { exact: true }).fill(LINK)
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  await expect.poll(() => m.posts.length).toBe(1)
+  expect(m.posts[0].body).toMatchObject({ use_gpu: false })
+})
+
+test('a model saved as the form default by an older version follows the language again, once', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ whisper_size: 'small', source_language: 'ko' })))
+  await mockLive(page, { liveOptions: { language_whisper_defaults: { ko: 'large-v3' } } })
+  const live = await openLive(page)
+  await live.getByText('Advanced').click()
+  await expect(live.getByLabel('Whisper model', { exact: true })).toHaveValue('large-v3')
+})
+
 test('the GPU box is off with a reason when no NVIDIA GPU is found, and Start sends it off', async ({ page }) => {
   // Ticked on a PC that had a GPU: the box shows unticked here, so Start must not send it.
   await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ use_gpu: true })))

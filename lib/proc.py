@@ -24,10 +24,12 @@ import threading
 import time
 from dataclasses import dataclass
 
+from lib.no_window import NO_WINDOW
 from lib.proc_kill import kill_tree
 
 KILL_DRAIN_SECONDS = 5.0
 _POLL_SECONDS = 0.5
+_EXIT_GRACE_SECONDS = 1.0
 # A runaway child must not fill memory: run_captured keeps the newest output.
 _CAPTURE_LIMIT_CHARS = 4_000_000
 _EOF = object()
@@ -47,12 +49,11 @@ def secretless_env(drop_prefixes: tuple = ("BAIHE_",), keep: tuple = ()) -> dict
 
 def group_kwargs(own_group: bool = True) -> dict:
     """Popen kwargs that start the child in a process group of its own, so
-    kill_tree reaches everything it starts."""
-    if not own_group:
-        return {}
+    kill_tree reaches everything it starts. Windows children never get a
+    console window, even without a group of their own."""
     if os.name == "nt":
-        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-    return {"start_new_session": True}
+        return {"creationflags": NO_WINDOW | (subprocess.CREATE_NEW_PROCESS_GROUP if own_group else 0)}
+    return {"start_new_session": True} if own_group else {}
 
 
 def _child_env(env: dict, utf8_env: bool) -> dict:
@@ -134,6 +135,14 @@ def _events(cmd: list, timeout: float, drain_seconds: float, cancel, merge_stder
         # A same-group grandchild can outlive the parent and still hold a pipe
         # open; killpg reaches it after the parent is reaped, so callers that
         # clean up afterwards (browser install) don't race with it.
+        if open_streams == 0 and proc.poll() is None:
+            # Both pipes closed because the child is exiting; the exit may
+            # just not be visible yet. Killing it here ran taskkill (a
+            # console flash) after a quick probe such as nvidia-smi.
+            try:
+                proc.wait(timeout=_EXIT_GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
         if proc.poll() is None or open_streams:
             kill()
         try:
