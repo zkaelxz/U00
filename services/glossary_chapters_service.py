@@ -91,7 +91,8 @@ def _run_job(job_id, run_id, drama_id, engine, engine_name, chapters):
                                         **paid_job_service.stop_fields(limits)})
 
 
-def start_chapters_glossary_run(drama_id: int, engine_name: Optional[str] = None) -> dict:
+def start_chapters_glossary_run(drama_id: int, engine_name: Optional[str] = None,
+                                model=extract.UNCHECKED) -> dict:
     """Starts scanning each saved chapter in turn. UnsupportedOperationError when the title has no
     chapters or the engine can't do this, ConflictError when a glossary scan is already running
     (the engine rule and the spending cap are start_lines_glossary_run's)."""
@@ -101,12 +102,12 @@ def start_chapters_glossary_run(drama_id: int, engine_name: Optional[str] = None
     chapters = _chapter_texts(drama_id)
     if len(chapters) < 2:
         raise UnsupportedOperationError("This title has no saved chapters to scan one by one.")
-    engine_name, engine = extract._glossary_engine(drama, engine_name)
+    engine_name, engine = extract._glossary_engine(drama, engine_name, model)
     translate_run_service.refuse_when_cap_spent(
         engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
     job_id = chapters_glossary_job_id(drama_id)
     started = extract._start_extraction_job(
-        job_id, _run_job, drama_id, engine, engine_name, chapters, gpu_touching=engine_name == "ollama",
+        job_id, _run_job, drama_id, engine, engine_name, chapters, gpu_touching=extract.touches_gpu(engine_name, engine),
         description=f"Glossary from every chapter (title #{drama_id})")
     if not started:
         raise ConflictError("A glossary extraction is already running for this title.")

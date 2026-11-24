@@ -4,7 +4,7 @@ import type { JobRecord } from '../types/jobs'
 import { testJob } from '../types/jobFixture'
 import {
   upsertJob, isFinished, orderJobs,
-  describeGpu, formatJobDuration, formatSeconds, jobTimeLeftText, hasActiveJobs, jobBaseName, jobDetail, jobStatusLabel, jobTitledName,
+  describeGpu, formatJobDuration, formatSeconds, jobTimeLeftText, noteStageClocks, hasActiveJobs, jobBaseName, jobDetail, jobStatusLabel, jobTitledName,
   plainJobText, pollWhenSettled, shouldRefreshGpu, splitDependencies,
 } from './diagnosticsFormat'
 
@@ -196,6 +196,22 @@ describe('jobTimeLeftText', () => {
     expect(jobTimeLeftText(run({ stalled: true }), 1882)).toBeNull()
     expect(jobTimeLeftText(run({ started_at: null }), 1882)).toBeNull()
     expect(jobTimeLeftText(run({ message: 'Loading model (no progress is available yet)' }), 1882)).toBeNull()
+  })
+
+  it('times a later stage from when its percent restarted, not from the job start', () => {
+    // Separation took 1000-1510 and ended at 100%; transcription then restarts at 0%.
+    noteStageClocks([run({ progress: 1, message: 'Separating vocals on GPU, 100%' })], [run({ progress: 0 })], 1510)
+    // 600s into transcription at 30%: about 1400s (23 min) left, not the
+    // (1110 * 0.7 / 0.3) = 43 min the job's start would give.
+    expect(jobTimeLeftText(run({ progress: 0.3 }), 2110)).toBe('about 23 min left')
+    noteStageClocks([run({ progress: 0.3 })], [], 2200)
+    expect(jobTimeLeftText(run({ progress: 0.3 }), 2110)).toBe('about 43 min left')
+  })
+
+  it('keeps the stage clock through small wobbles in progress', () => {
+    noteStageClocks([run({ progress: 0.3 })], [run({ progress: 0.295 })], 1500)
+    expect(jobTimeLeftText(run({}), 1882)).toBe('about 36 min left')
+    noteStageClocks([], [], 1900)
   })
 })
 
