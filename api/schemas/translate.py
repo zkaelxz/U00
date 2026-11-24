@@ -36,6 +36,7 @@ __all__ = [
     "EpisodeSummaryOptions",
     "EpisodeSummaryGenerate",
     "EpisodeSummaryGenerated",
+    "TopicChapter", "TopicChaptersGenerated", "TopicChaptersSave", "TopicChaptersSaved", "TopicChaptersState",
     "GlossaryAffectedTerm",
     "GlossaryAffectedMatch",
     "GlossaryAffectedLine",
@@ -625,6 +626,32 @@ class EpisodeSummaryGenerate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     engine: str = Field(max_length=40)
     model: Optional[str] = Field(None, max_length=200)
+
+
+class TopicChapter(BaseModel):
+    start: float = Field(ge=0, le=10 * 24 * 3600)
+    title: str = Field(min_length=1, max_length=200)
+
+
+class TopicChaptersState(BaseModel):
+    engine: str
+    engines: List[str]
+    chapters: List[TopicChapter]
+
+
+class TopicChaptersGenerated(BaseModel):
+    drama_id: int
+    chapters: List[TopicChapter]
+    engine: str
+
+
+class TopicChaptersSave(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    chapters: List[TopicChapter] = Field(max_length=200)
+
+
+class TopicChaptersSaved(BaseModel):
+    chapters: List[TopicChapter]
 
 
 class EpisodeSummaryGenerated(BaseModel):

@@ -122,6 +122,13 @@ def _migrate_line_columns(conn):
         db._safe_alter(conn, "ALTER TABLE lines ADD COLUMN mark TEXT")
 
 
+def _add_topic_chapters_column(conn):
+    # JSON [{"start": seconds, "title": text}] (services/topic_chapter_service.py); NULL: none made.
+    # Apart from the column list: _migrate_drama_columns is at its length limit.
+    if "topic_chapters" not in {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}:
+        db._safe_alter(conn, "ALTER TABLE dramas ADD COLUMN topic_chapters TEXT")
+
+
 def _migrate_drama_columns(conn):
     drama_cols = {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}
     if "whisper_repeat_guard" not in drama_cols and "hallucination_silence_sec" in drama_cols:
