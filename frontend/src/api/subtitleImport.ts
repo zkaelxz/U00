@@ -5,7 +5,7 @@ import type {
   SubtitleImportPreview,
   SubtitleImportResult,
 } from '../types/subtitleImport'
-import { postMultipart, type Fetch } from './client'
+import { postJson, postMultipart, type Fetch } from './client'
 
 const base = (id: number) => `/api/subtitle-import/dramas/${id}`
 
@@ -33,3 +33,14 @@ export const applySubtitle = (
   confirm: { replaceLines: boolean; overwrite: boolean },
   f?: Fetch,
 ) => postMultipart<SubtitleImportResult>(`${base(id)}/apply`, form(file, o, confirm), f)
+
+/** A subtitle track inside the title's own media file, by its index from Analyze media. */
+export const previewTrack = (id: number, trackIndex: number, f?: Fetch) =>
+  postJson<SubtitleImportPreview>(`${base(id)}/track/preview`, { track_index: trackIndex }, f)
+
+export const applyTrack = (id: number, trackIndex: number, replaceLines: boolean, f?: Fetch) =>
+  postJson<SubtitleImportResult>(
+    `${base(id)}/track/apply`,
+    { track_index: trackIndex, confirm_replace_lines: replaceLines },
+    f,
+  )

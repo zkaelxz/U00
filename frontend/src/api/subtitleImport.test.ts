@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { applySubtitle, previewSubtitle } from './subtitleImport'
+import { applySubtitle, applyTrack, previewSubtitle, previewTrack } from './subtitleImport'
 
 const ok = (body: unknown) => vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }))
 const file = new File(['1\n00:00:01,000 --> 00:00:02,000\nhi\n'], 'a.srt')
@@ -37,5 +37,14 @@ describe('subtitle import api', () => {
     expect(form.get('mode')).toBe('translation')
     expect(form.get('confirm_overwrite')).toBe('true')
     expect(form.has('confirm_replace_lines')).toBe(false)
+  })
+
+  it('a track in the media file is sent by its index, with the replace confirmation only when given', async () => {
+    const mock = ok({})
+    await previewTrack(3, 2, mock as unknown as typeof fetch)
+    await applyTrack(3, 2, true, mock as unknown as typeof fetch)
+    expect(mock.mock.calls[0][0]).toBe('/api/subtitle-import/dramas/3/track/preview')
+    expect(JSON.parse(mock.mock.calls[0][1].body)).toEqual({ track_index: 2 })
+    expect(JSON.parse(mock.mock.calls[1][1].body)).toEqual({ track_index: 2, confirm_replace_lines: true })
   })
 })
