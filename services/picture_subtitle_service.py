@@ -5,7 +5,6 @@ the way a subtitle file import writes them (history snapshot, undo). UI-free.
 """
 import background_jobs
 import db
-import hardsub_ocr
 import media_inspect
 import ocr
 from jobs import job_launch
@@ -75,8 +74,16 @@ def _cancel_check(job_id: str):
 
 
 def _run_job(job_id, drama_id, path, track, language, backend, chinese_script, tesseract_cmd):
+    # Imported here: hardsub_ocr needs OpenCV, which an install without the OCR extras lacks, and
+    # the API must still start (the job then reports the missing package).
+    try:
+        import hardsub_ocr
+    except ImportError:
+        hardsub_ocr = None
     info = {}
     try:
+        if hardsub_ocr is None:
+            raise ImportError("opencv")
         cues = hardsub_ocr.extract_hardsub_subtitles(
             path, language=language, sample_interval=SAMPLE_INTERVAL_SECONDS, ocr_backend=backend,
             chinese_script=chinese_script, tesseract_cmd=tesseract_cmd, job_id=job_id, info=info,
