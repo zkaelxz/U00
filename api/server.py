@@ -30,6 +30,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES, GZipMiddleware
 
 from api.api_config import ApiSettings, check_bind_safety, household_settings, load_settings
 from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, HouseholdGate,
@@ -282,10 +283,26 @@ def _active_router_modules(features_off) -> tuple:
     return tuple(m for m in _ROUTER_MODULES if m not in off)
 
 
+# Phones on the LAN reach the app directly, not through Caddy (which does its
+# own `encode` for remote traffic), so JSON, HTML and JS go out uncompressed
+# unless the app does it. Starlette's default skip list already covers SSE,
+# images, audio, video and 206 range replies; these are the downloads and
+# the NDJSON stream it doesn't know are already compressed or need to flush
+# line by line. Level 5 because the built JS is compressed on every request.
+_GZIP_MIN_BYTES = 1024
+_GZIP_LEVEL = 5
+_GZIP_SKIP_TYPES = (*DEFAULT_EXCLUDED_CONTENT_TYPES, "application/octet-stream",
+                    "application/x-ndjson", "application/epub+zip",
+                    "application/vnd.android.package-archive")
+
+
 def _install_middleware(app: FastAPI, settings: ApiSettings) -> None:
     """Each add_middleware wraps the ones added before it, so the last one
     added runs first on a request."""
-    # Innermost, so a sign-in or cross-site refusal comes before a size one.
+    # Innermost, so only the app's own replies are compressed.
+    app.add_middleware(GZipMiddleware, minimum_size=_GZIP_MIN_BYTES, compresslevel=_GZIP_LEVEL,
+                       exclude_content_types=_GZIP_SKIP_TYPES)
+    # Next in, so a sign-in or cross-site refusal comes before a size one.
     app.add_middleware(JsonBodyCapGate, multipart_routes_fn=lambda: multipart_matchers(app))
     if settings.auth_enabled:
         # Innermost: gives each request a holder for "who started this job"

@@ -20,12 +20,12 @@ from fastapi import APIRouter, Request
 from starlette.concurrency import run_in_threadpool
 from api.auth import local_only, require_permission
 from api.routers.settings_routes import read_body, require_confirm, require_local_admin
-from api.schemas import (DiagnosticsOverview, GpuReading, PortsOverview, RemoteHealth, ResourceReadings,
+from api.schemas import (DiagnosticsOverview, GpuReading, PortsOverview, QualityCheck, RemoteHealth, ResourceReadings,
                          RemoteIpCheckClearRequest, RemoteIpCheckSetRequest,
                          RemoteIpCheckStatus, RemoteIpCheckTestResult, RemoteSetup,
                          RemoteSetupSignInRequest,
                          error_responses)
-from services import (diagnostics_service, remote_health_service, remote_setup_service,
+from services import (diagnostics_service, quality_check_service, remote_health_service, remote_setup_service,
                       resource_monitor_service, settings_service)
 
 router = APIRouter(prefix="/api/diagnostics", tags=["diagnostics"])
@@ -48,6 +48,12 @@ def get_gpu():
             summary="The resource monitor's last readings (GPU, RAM, CPU, disk) and each alert rule's standing")
 def get_resources():
     return resource_monitor_service.snapshot()
+
+
+@router.get("/quality", dependencies=[require_permission("admin.diagnostics")], response_model=QualityCheck,
+            summary="The newest release check result in the data folder, each score against its baseline")
+def get_quality():
+    return quality_check_service.latest()
 
 
 @router.get("/remote-health", dependencies=[require_permission("admin.diagnostics")],

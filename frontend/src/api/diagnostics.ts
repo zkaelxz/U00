@@ -16,6 +16,7 @@ import type {
   DiagnosticsSetupChecks,
   DiagnosticsSupportReport,
   PortsOverview,
+  QualityCheck,
   ResourceReadings,
   RemoteHealth,
   RemoteIpCheckStatus,
@@ -55,6 +56,7 @@ export const saveRemoteSignIn = (body: RemoteSignInDraft, f?: Fetch) =>
 export const getPorts = (f?: Fetch) => getJson<PortsOverview>(`${BASE}/ports`, f)
 
 export const getResources = (f?: Fetch) => getJson<ResourceReadings>(`${BASE}/resources`, f)
+export const getQuality = (f?: Fetch) => getJson<QualityCheck>(`${BASE}/quality`, f)
 
 export const getModelCache = (f?: Fetch) => getJson<DiagnosticsModelCache>(`${BASE}/model-cache`, f)
 
