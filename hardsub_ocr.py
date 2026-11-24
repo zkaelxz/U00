@@ -45,6 +45,7 @@ from engine_backends.redaction import redact_secrets
 import segment
 import storage
 import video_export
+from lib.no_window import NO_WINDOW
 
 
 # Frame sampling decodes the whole video once; generous for a multi-hour file.
@@ -78,7 +79,7 @@ def extract_frames(video_path: str, out_dir: str, interval_sec: float = 1.0,
         background_jobs.run_cancellable(job_id, cmd, timeout=EXTRACT_FRAMES_TIMEOUT_SECONDS)
     else:
         subprocess.run(cmd, check=True, capture_output=True,
-                       timeout=EXTRACT_FRAMES_TIMEOUT_SECONDS)
+                       timeout=EXTRACT_FRAMES_TIMEOUT_SECONDS, creationflags=NO_WINDOW)
     frames = sorted(f for f in os.listdir(out_dir) if f.startswith("frame_"))
     return [(i * interval_sec, os.path.join(out_dir, f)) for i, f in enumerate(frames)]
 

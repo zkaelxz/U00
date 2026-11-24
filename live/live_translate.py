@@ -77,6 +77,7 @@ from typing import Any
 
 import background_jobs
 from lib.errors import DependencyUnavailableError
+from lib.no_window import NO_WINDOW
 from live import live_cue_feed
 from live import live_fetch
 from live import live_pipeline
@@ -150,7 +151,7 @@ def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 
     # Its own process group/session, so background_jobs.kill_tree (the cancel
     # path) takes down anything ffmpeg started along with it.
     group: dict[str, Any]
-    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | NO_WINDOW} if os.name == "nt"
              else {"start_new_session": True})
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL, **group)

@@ -23,6 +23,7 @@ import subprocess
 from typing import Any
 
 import background_jobs
+from lib.no_window import NO_WINDOW
 from live import live_fetch
 
 SEGMENT_SECONDS = 4
@@ -87,7 +88,7 @@ def start_recorder(kind: str, source_url: str, folder: str, proxy: str | None = 
                    align: live_fetch.SequenceAlign | None = None) -> Recorder:
     from live.live_translate import FFMPEG_FORMAT_WHITELIST
     group: dict[str, Any]
-    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | NO_WINDOW} if os.name == "nt"
              else {"start_new_session": True})
     proc = subprocess.Popen(ffmpeg_cmd(kind, folder, FFMPEG_FORMAT_WHITELIST), stdin=subprocess.PIPE,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **group)

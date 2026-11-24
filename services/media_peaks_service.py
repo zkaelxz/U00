@@ -17,6 +17,7 @@ import video_export
 from services import media_playback_service
 from lib.errors import (
     DependencyUnavailableError, InvalidInputError, NotFoundError, RateLimitedError)
+from lib.no_window import NO_WINDOW
 
 MAX_WINDOW_SECONDS = 120.0
 MIN_WINDOW_SECONDS = 0.5
@@ -86,7 +87,7 @@ def _decode(path: str, start: float, end: float) -> bytes:
            "-t", span, "-f", "s16le", "-"]
     try:
         out = subprocess.run(cmd, check=True, stdout=subprocess.PIPE,
-                             stderr=subprocess.DEVNULL, timeout=DECODE_TIMEOUT_SECONDS).stdout
+                             stderr=subprocess.DEVNULL, timeout=DECODE_TIMEOUT_SECONDS, creationflags=NO_WINDOW).stdout
     except subprocess.TimeoutExpired:
         raise DependencyUnavailableError("Reading the audio took too long.")
     except (subprocess.CalledProcessError, OSError):
