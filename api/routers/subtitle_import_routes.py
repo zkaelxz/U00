@@ -109,7 +109,7 @@ class TrackImportRequest(BaseModel):
     confirm_overwrite: bool = False
 
 
-@router.post("/dramas/{drama_id}/track/preview", dependencies=[require_permission("media.upload")],
+@router.post("/dramas/{drama_id}/track/preview", dependencies=[require_permission("lines.edit")],
              response_model=SubtitleImportPreview, responses=_ERRORS,
              summary="Read a text subtitle track inside the title's media file; says what importing it would do, changes nothing")
 async def post_track_preview(body: TrackImportRequest, drama_id: int = Path(ge=1)):
@@ -118,7 +118,7 @@ async def post_track_preview(body: TrackImportRequest, drama_id: int = Path(ge=1
         split_bilingual=body.split_bilingual, translation_first=body.translation_first)
 
 
-@router.post("/dramas/{drama_id}/track/apply", dependencies=[require_permission("media.upload")],
+@router.post("/dramas/{drama_id}/track/apply", dependencies=[require_permission("lines.edit")],
              response_model=SubtitleImportResult, responses=_ERRORS,
              summary="Import a text subtitle track inside the title's media file instead of transcribing",
              description="Same confirmations and undo handle as the file import. Picture tracks "

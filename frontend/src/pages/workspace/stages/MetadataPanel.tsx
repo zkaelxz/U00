@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { updateDramaMetadata } from '../../../api/library'
 import { applyTrack, previewTrack } from '../../../api/subtitleImport'
-import { useCanUpload } from '../../../hooks/useHolds'
+import { useHolds } from '../../../hooks/useHolds'
 import { analyzeMedia, applyMetadata, listPlatforms, suggestMetadata } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
@@ -178,7 +178,7 @@ function AutofillBody({ arrived }: { arrived: boolean }) {
 // shows what it would do, then writes it as the title's lines.
 function TrackImport({ track }: { track: { index: number | null; codec: string; language: string | null; importable?: boolean } }) {
   const { dramaId, refetchDrama } = useStage()
-  const canUpload = useCanUpload()
+  const canEdit = useHolds('lines.edit')
   const [preview, setPreview] = useState<SubtitleImportPreview | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -189,7 +189,7 @@ function TrackImport({ track }: { track: { index: number | null; codec: string; 
   if (!track.importable) {
     return <p className="muted">Picture subtitles can't be imported as text yet.</p>
   }
-  if (!canUpload) return null
+  if (!canEdit) return null
   const check = () => {
     setBusy(true)
     setDone(null)
