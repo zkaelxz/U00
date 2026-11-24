@@ -128,6 +128,31 @@ export function newChaptersText(n: number | undefined): string | null {
   return n === 1 ? '1 new chapter' : `${n.toLocaleString()} new chapters`
 }
 
+/** The card's badge for a comic's chapters without a read mark; null when there are none. */
+export function unreadChaptersText(n: number | undefined): string | null {
+  if (!n || n < 1) return null
+  return n === 1 ? '1 unread chapter' : `${n.toLocaleString()} unread chapters`
+}
+
+export type ReadingFilter = '' | 'unread' | 'started' | 'finished' | 'new'
+export const READING_FILTERS: [ReadingFilter, string][] = [
+  ['', 'Any reading state'], ['unread', 'Unread'], ['started', 'Started'], ['finished', 'Finished'], ['new', 'Has new chapters'],
+]
+// The Continue shelf's line: a title this far along counts as finished (the last page or line is rarely reached exactly).
+const FINISHED_PERCENT = 99
+
+type Reading = { read_percent?: number; new_chapters?: number }
+
+/** Whether a title belongs under a Reading filter. Unread, Started and Finished go by how far the household has got. */
+export function matchesReading(d: Reading, filter: ReadingFilter): boolean {
+  const percent = d.read_percent ?? 0
+  if (filter === 'unread') return percent <= 0
+  if (filter === 'started') return percent > 0 && percent < FINISHED_PERCENT
+  if (filter === 'finished') return percent >= FINISHED_PERCENT
+  if (filter === 'new') return (d.new_chapters ?? 0) > 0
+  return true
+}
+
 /** The stage a card offers next: Translate while lines wait, Review once they are all done, nothing once exported. */
 export function cardNext(d: Progress & { id: number }): { label: string; href: string } | null {
   const total = d.line_count ?? 0

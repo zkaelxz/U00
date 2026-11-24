@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  cardProgress, continueAction, continueItems, countDramas, hideLibraryBar, listDelay, needsCheckCount, parseTime, readAction, readHref, readVerb,
+  cardProgress, continueAction, continueItems, countDramas, hideLibraryBar, listDelay, matchesReading, needsCheckCount, parseTime, readAction, readHref, readVerb,
+  unreadChaptersText,
   shownTags, tileText, workspaceHref, type ContinueItem, type ShelfRow,
 } from './libraryView'
 
@@ -180,5 +181,28 @@ describe('listDelay', () => {
     expect(listDelay(null, 0)).toBe(0)
     expect(listDelay(0, 1)).toBe(0)
     expect(listDelay(1, 1)).toBe(200)
+  })
+})
+
+describe('reading filter', () => {
+  it('sorts titles into unread, started and finished by how far the household has read', () => {
+    const states = (percent: number | undefined) =>
+      (['unread', 'started', 'finished'] as const).filter((f) => matchesReading({ read_percent: percent }, f))
+    expect(states(undefined)).toEqual(['unread'])
+    expect(states(0)).toEqual(['unread'])
+    expect(states(40)).toEqual(['started'])
+    expect(states(98.9)).toEqual(['started'])
+    expect(states(99)).toEqual(['finished'])
+    expect(states(100)).toEqual(['finished'])
+  })
+  it('keeps only titles with new chapters under that choice, and everything with no choice', () => {
+    expect(matchesReading({ new_chapters: 2 }, 'new')).toBe(true)
+    expect(matchesReading({ new_chapters: 0 }, 'new')).toBe(false)
+    expect(matchesReading({}, '')).toBe(true)
+  })
+  it('words the unread badge', () => {
+    expect(unreadChaptersText(0)).toBeNull()
+    expect(unreadChaptersText(1)).toBe('1 unread chapter')
+    expect(unreadChaptersText(12)).toBe('12 unread chapters')
   })
 })

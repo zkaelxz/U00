@@ -577,6 +577,17 @@ def move_pages(source_id: int, target_id: int, moves) -> bool:
         conn.close()
 
 
+def page_filenames_by_drama() -> dict:
+    """{drama_id: [page filename, ...] in reading order} for every drama with pages, in one query,
+    for the Library list's unread chapter count."""
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute("SELECT drama_id, filename FROM pages ORDER BY drama_id, idx").fetchall()
+    out: dict = {}
+    for r in rows:
+        out.setdefault(r["drama_id"], []).append(r["filename"])
+    return out
+
+
 def page_progress_by_drama() -> dict:
     """{drama_id: (page_count, pages_with_translated_text)} for every drama with pages, in one query,
     for the Library list's per-comic progress."""

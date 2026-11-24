@@ -18981,6 +18981,12 @@ export interface components {
             /** Publication Status */
             publication_status: string | null;
             /**
+             * Read Percent
+             * @description How far the household has read, watched or listened (0 to 100). Only set in the Library list.
+             * @default 0
+             */
+            read_percent: number;
+            /**
              * Release Date
              * @description Stream / release date, YYYY-MM-DD; empty or null = unknown.
              */
@@ -19021,6 +19027,12 @@ export interface components {
             translated_count: number;
             /** Translation Engine */
             translation_engine: string | null;
+            /**
+             * Unread Chapters
+             * @description A comic's chapters without a read mark. Only counted in the Library list.
+             * @default 0
+             */
+            unread_chapters: number;
             /** Updated At */
             updated_at: string | null;
             /**
@@ -19135,6 +19147,12 @@ export interface components {
             /** Publication Status */
             publication_status: string | null;
             /**
+             * Read Percent
+             * @description How far the household has read, watched or listened (0 to 100). Only set in the Library list.
+             * @default 0
+             */
+            read_percent: number;
+            /**
              * Release Date
              * @description Stream / release date, YYYY-MM-DD; empty or null = unknown.
              */
@@ -19173,6 +19191,12 @@ export interface components {
             translated_count: number;
             /** Translation Engine */
             translation_engine: string | null;
+            /**
+             * Unread Chapters
+             * @description A comic's chapters without a read mark. Only counted in the Library list.
+             * @default 0
+             */
+            unread_chapters: number;
             /** Updated At */
             updated_at: string | null;
             /**
@@ -19358,6 +19382,12 @@ export interface components {
              */
             pages_translated: number;
             /**
+             * Read Percent
+             * @description How far the household has read, watched or listened (0 to 100). Only set in the Library list.
+             * @default 0
+             */
+            read_percent: number;
+            /**
              * Release Date
              * @description Stream / release date, YYYY-MM-DD; empty or null = unknown.
              */
@@ -19388,6 +19418,12 @@ export interface components {
             translated_count: number;
             /** Translation Engine */
             translation_engine: string | null;
+            /**
+             * Unread Chapters
+             * @description A comic's chapters without a read mark. Only counted in the Library list.
+             * @default 0
+             */
+            unread_chapters: number;
             /** Updated At */
             updated_at: string | null;
             /**
