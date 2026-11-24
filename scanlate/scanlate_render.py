@@ -24,7 +24,7 @@ from scanlate.scanlate_page_decode import decode_page, page_gray
 from scanlate.scanlate_fonts import _CJK_PUNCTUATION, _PLAIN, TypesetStyle, _find_font, _note_missing_cjk_font
 from scanlate.scanlate_ink import _fade_lettering, _sampled_inks, _text_fill, chosen_color
 from scanlate.scanlate_inpaint import (
-    erase_box, InpaintModelUnavailable, inpaint_region, is_art_mistaken_for_sign, sign_text_line,
+    erase_box, InpaintModelUnavailable, inpaint_region, widen_to_dark_strip, is_art_mistaken_for_sign, sign_text_line,
 )
 from scanlate.scanlate_lama import lama_ml_weights_cached
 from scanlate.scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
@@ -416,5 +416,7 @@ def erase_lettering(image_path: str, b: dict, page, gray, grow: float = 1.0) -> 
     if gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS:
         inside = bubble_erase_mask(image_path, b, image=gray)
     shape_fitted = gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS
+    if b.get("kind") == "sign":
+        b = widen_to_dark_strip(page, b)
     inpaint_region(image_path, b, image=page, inside=inside, spare_art=shape_fitted,
                    on_art=b.get("kind") == "sign", grow=grow)

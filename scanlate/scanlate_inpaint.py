@@ -211,6 +211,40 @@ def _on_plain_dark_ground(gray, colour) -> bool:
             and float(np.median(colour)) <= _PLAIN_GROUND_MAX_SPREAD)
 
 
+_STRIP_MIN_ASPECT = 6
+_STRIP_DARK_GRAY = 70
+_STRIP_DARK_SHARE = 0.5
+_STRIP_GAP_COLUMNS = 6
+
+
+def widen_to_dark_strip(img, box: dict) -> dict:
+    """`box` stretched sideways to the ends of the dark banner strip it sits on, or `box`
+    itself when it is not a wide, short, dark strip. OCR often stops short of the last glyphs
+    of a banner line, and the lettering left past the box showed under the English."""
+    import cv2
+    h, w = img.shape[:2]
+    x0, y0 = max(0, box["x"]), max(0, box["y"])
+    x1, y1 = min(w, box["x"] + box["w"]), min(h, box["y"] + box["h"])
+    if x1 <= x0 or y1 <= y0 or (x1 - x0) < _STRIP_MIN_ASPECT * (y1 - y0):
+        return box
+    gray = cv2.cvtColor(img[y0:y1], cv2.COLOR_BGR2GRAY)
+    if float(np.median(gray[:, x0:x1])) > _PLAIN_GROUND_MAX_GRAY:
+        return box
+    dark = (gray < _STRIP_DARK_GRAY).mean(axis=0) >= _STRIP_DARK_SHARE
+
+    def reach(columns) -> int:
+        end = gaps = 0
+        for step, is_dark in enumerate(columns, 1):
+            gaps = 0 if is_dark else gaps + 1
+            if gaps >= _STRIP_GAP_COLUMNS:
+                break
+            end = step if is_dark else end
+        return end
+
+    right, left = reach(dark[x1:]), reach(dark[:x0][::-1])
+    return {**box, "x": x0 - left, "w": (x1 - x0) + left + right}
+
+
 def _fill_enclosed_holes(mask):
     """`mask` with every 0-region that does not reach its edge set to 255: the
     inside of a letter whose outline is the only part that was masked. The

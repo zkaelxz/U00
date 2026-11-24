@@ -505,3 +505,30 @@ class TestGlowSpillAndRules:
         room = art.between_rules(page, box)
         assert room["y"] > 40 and room["y"] + room["h"] < 220
         assert art.between_rules(np.full((300, 300, 3), 20, np.uint8), box) == box
+
+
+class TestStripWideningAndRulesOnSky:
+    def test_a_box_that_stops_short_of_a_banner_strip_is_stretched_to_its_ends(self):
+        page = np.full((120, 400, 3), (180, 190, 230), np.uint8)
+        page[30:60, 20:300] = (10, 0, 0)                                   # the black strip
+        page[40:50, 200:280] = (255, 255, 255)                             # lettering the box missed
+        box = {"x": 20, "y": 35, "w": 150, "h": 20}
+        wide = scanlate_inpaint.widen_to_dark_strip(page, box)
+        assert wide["x"] == 20 and wide["x"] + wide["w"] >= 298
+
+    def test_a_box_on_light_paper_or_a_tall_box_is_left_alone(self):
+        page = np.full((200, 400, 3), 240, np.uint8)
+        page[:, 100:300] = (10, 0, 0)
+        assert scanlate_inpaint.widen_to_dark_strip(page, {"x": 120, "y": 20, "w": 60, "h": 60}) == \
+            {"x": 120, "y": 20, "w": 60, "h": 60}
+        assert scanlate_inpaint.widen_to_dark_strip(np.full((80, 400, 3), 240, np.uint8),
+                                                    {"x": 10, "y": 10, "w": 300, "h": 30}) == \
+            {"x": 10, "y": 10, "w": 300, "h": 30}
+
+    def test_a_rule_over_a_blue_tinted_sky_still_bounds_the_credit(self):
+        from scanlate import scanlate_art_text as art
+        page = np.full((120, 300, 3), (230, 200, 190), np.uint8)           # lavender sky (BGR)
+        cv2.line(page, (100, 20), (180, 20), (30, 30, 220), 3)
+        box = {"x": 0, "y": 0, "w": 300, "h": 120}
+        room = art.between_rules(page, box)
+        assert room["y"] > 22
