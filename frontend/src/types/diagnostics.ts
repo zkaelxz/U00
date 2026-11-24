@@ -102,6 +102,11 @@ export type ResourceMetric = Schemas['ResourceMetric']
 
 export type ResourceReadings = Schemas['ResourceReadings']
 
+/** GET /api/diagnostics/quality: the newest release check result, each score against its baseline. */
+export type QualityCheck = Schemas['QualityCheck']
+
+export type QualityClip = Schemas['QualityClip']
+
 export type RemoteHealth = Schemas['RemoteHealth']
 
 export type RemoteSetup = Schemas['RemoteSetup']
