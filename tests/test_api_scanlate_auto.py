@@ -1059,6 +1059,23 @@ def test_export_zip_and_pdf(client):
                        json={"formats": ["docx"]}).status_code == 422
 
 
+def test_export_cbz_has_ordered_pages_and_comic_info(client):
+    series_id = db.create_series("My Series")
+    did = _drama(series_id=series_id, episode_number=12)
+    _page(did, 0), _page(did, 1)
+    r = client.post(f"/api/scanlate/dramas/{did}/export", json={"formats": ["cbz"]})
+    assert r.status_code == 200, r.text
+    assert wait_for_job(f"scanlate_{did}", timeout=20)["status"] == "done"
+    c = client.get(f"/api/artifacts/dramas/{did}/scanlate_cbz")
+    assert c.status_code == 200
+    assert ".cbz" in c.headers["content-disposition"]
+    zf = zipfile.ZipFile(io.BytesIO(c.content))
+    assert zf.namelist() == ["0001.png", "0002.png", "ComicInfo.xml"]
+    info = zf.read("ComicInfo.xml").decode()
+    assert "<Series>My Series</Series>" in info and "<Number>12</Number>" in info
+    assert "<Title>Comic</Title>" in info and "<LanguageISO>en</LanguageISO>" in info
+
+
 def test_export_one_bad_page_does_not_stop_the_rest(client):
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
