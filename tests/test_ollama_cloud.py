@@ -156,7 +156,7 @@ def test_installed_check_does_not_require_cloud_tag_in_local_list(monkeypatch):
 def test_cloud_models_are_labelled_in_engine_list(isolated_db):
     ollama = next(e for e in translate_service.list_engines() if e["name"] == "ollama")
     assert CLOUD in ollama["models"] and CLOUD in ollama["cloud_models"]
-    assert "off this PC" in ollama["model_labels"][CLOUD]
+    assert ollama["model_labels"][CLOUD] == f"{CLOUD} (Cloud)"
     assert "gemma4:12b" not in ollama["cloud_models"]
     assert "gemma4:12b" not in ollama["model_labels"]
 
@@ -210,7 +210,7 @@ def test_cloud_flag_covers_any_cloud_shaped_tag_including_saved_presets(isolated
     ollama = next(e for e in translate_service.list_engines() if e["name"] == "ollama")
     assert "gpt-oss:120b-cloud" in ollama["models"]
     assert "gpt-oss:120b-cloud" in ollama["cloud_models"]
-    assert "off this PC" in ollama["model_labels"]["gpt-oss:120b-cloud"]
+    assert ollama["model_labels"]["gpt-oss:120b-cloud"] == "gpt-oss:120b-cloud (Cloud)"
     for m in ollama["models"]:
         assert (m in ollama["cloud_models"]) == engine_local.is_ollama_cloud_model(m)
 

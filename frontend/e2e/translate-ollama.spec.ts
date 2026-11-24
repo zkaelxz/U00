@@ -76,7 +76,7 @@ test('a cloud model is labelled and explains that text leaves the PC; local mode
     const ollama = {
       name: 'ollama', label: 'Ollama', free: true, key_configured: true,
       models: ['gemma4:12b', 'gemma4:31b-cloud'],
-      model_labels: { 'gemma4:31b-cloud': 'gemma4:31b-cloud -- CLOUD: sends text off this PC' },
+      model_labels: { 'gemma4:31b-cloud': 'gemma4:31b-cloud (Cloud)' },
       cloud_models: ['gemma4:31b-cloud'],
     }
     await route.fulfill({
