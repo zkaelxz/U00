@@ -39,6 +39,7 @@ import { playerKeyAction } from '../workspace/stages/review/playerLogic'
 import '../workspace/stages/review/review.css'
 import { titleKind } from '../workspace/titleKind'
 import { NowCard } from './NowCard'
+import { TopicChapterList } from './TopicChapterList'
 import { useWatchMarks } from './useWatchMarks'
 import {
   attentionIndex, currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, loopLineAt, openFix, ownScrollUntil,
@@ -335,6 +336,7 @@ export default function WatchPage({ id }: { id: number }) {
             )}
           </div>
           <div className="watch-side">
+            {original && <TopicChapterList dramaId={id} at={current?.start ?? null} onPick={playFrom} />}
             <section className="card watch-lines" aria-labelledby="watch-lines-title">
               <header className="watch-lines-head">
                 <h2 className="card-title" id="watch-lines-title">Lines</h2>

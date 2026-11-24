@@ -25,7 +25,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import (is_auth_enabled, holds_paid_engines, is_local_request,
                       require_cloud_model_allowed, require_engines_allowed, require_permission)
-from api.schemas import (EpisodeSummaryGenerate, LibraryPreset, ProfileEditorFields, EpisodeSummaryGenerated, EpisodeSummaryOptions,
+from api.schemas import (TopicChaptersGenerated, TopicChaptersSave, TopicChaptersSaved, TopicChaptersState, EpisodeSummaryGenerate, LibraryPreset, ProfileEditorFields, EpisodeSummaryGenerated, EpisodeSummaryOptions,
                          GlossaryFlaggedRedoStart, GlossaryFlaggedRedoStarted,
                          RetryFailedLinesStart, RetryFailedLinesStarted, GlossaryAffectedPreview, GlossaryAffectedRunStart,
                          GlossaryAffectedRunStarted, NovelChapterRetranslatePreview,
@@ -38,7 +38,7 @@ from api.schemas import (EpisodeSummaryGenerate, LibraryPreset, ProfileEditorFie
                          TranslateRunEstimate, TranslateRunStart, TranslateRunStarted,
                          WorkflowTierApplied, WorkflowTierApply, error_responses)
 from api.llm_slots import llm_slot
-from services import (episode_summary_service, failed_lines_service, glossary_flagged_service,
+from services import (topic_chapter_service, episode_summary_service, failed_lines_service, glossary_flagged_service,
                       glossary_retranslate_service, novel_chapter_retranslate_service,
                       ownership_service, settings_service,
                       source_change_service,
@@ -279,6 +279,36 @@ def generate_episode_summary(body: EpisodeSummaryGenerate, request: Request,
     require_cloud_model_allowed(request, (body.engine, body.model))
     with llm_slot(request):
         return episode_summary_service.generate(drama_id, body.engine, body.model)
+
+
+@router.get("/dramas/{drama_id}/topic-chapters", dependencies=[require_permission("library.read")],
+            response_model=TopicChaptersState,
+            summary="This title's timed topic chapters and the engines that can make them",
+            responses=error_responses(404))
+def get_topic_chapters(drama_id: int = Path(ge=1)):
+    return topic_chapter_service.get(drama_id)
+
+
+@router.post("/dramas/{drama_id}/topic-chapters/generate",
+             dependencies=[require_permission("lines.edit", "lines.read")],
+             response_model=TopicChaptersGenerated,
+             summary="Make the timed topic chapters from the lines and save them",
+             responses=error_responses(400, 404, 422, 429, 503))
+def generate_topic_chapters(body: EpisodeSummaryGenerate, request: Request,
+                            drama_id: int = Path(ge=1, le=2**31 - 1)):
+    ownership_service.require_visible(request.state.principal, "drama", drama_id)
+    require_engines_allowed(request, body.engine)
+    require_cloud_model_allowed(request, (body.engine, body.model))
+    with llm_slot(request):
+        return topic_chapter_service.generate(drama_id, body.engine, body.model)
+
+
+@router.post("/dramas/{drama_id}/topic-chapters", dependencies=[require_permission("lines.edit")],
+            response_model=TopicChaptersSaved,
+            summary="Replace this title's topic chapters (an empty list clears them)",
+            responses=error_responses(404, 422))
+def save_topic_chapters(body: TopicChaptersSave, drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return {"chapters": topic_chapter_service.save(drama_id, [c.model_dump() for c in body.chapters])}
 
 
 @router.post("/dramas/{drama_id}/bulk/resume", dependencies=[require_permission("jobs.start")], response_model=TranslateBulkResumeResult,
