@@ -90,7 +90,7 @@ class TranslateRequest(BaseModel):
     itself; see services/translate_service.py's own resolve logic."""
     # Mirrored by MAX_TRANSLATE_TEXT_CHARS in frontend/src/api/translate.ts.
     text: str = Field(max_length=2_000_000)
-    engine: str
+    engine: Optional[str] = None  # None: the owner's default, or Ollama where that isn't allowed
     source_language: str
     target_language: str
     model: Optional[str] = None
@@ -118,7 +118,7 @@ class TranslateEstimate(BaseModel):
 
 class ReadImageEstimateRequest(BaseModel):
     """The picture's size, not the picture: the price depends on nothing else."""
-    engine: str
+    engine: Optional[str] = None
     model: Optional[str] = None
     free_tier: Optional[bool] = None
     width: int = Field(ge=1, le=100_000)

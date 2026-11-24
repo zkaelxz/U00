@@ -892,6 +892,9 @@ def test_an_admin_has_no_limit_of_their_own(isolated_db):
     assert not _audit("user.paid_limit")
 
 
+_PAID_TEXT = {"text": "你好", "engine": "claude", "source_language": "zh", "target_language": "en"}
+
+
 def test_a_member_over_their_limit_loses_paid_engines_until_it_is_raised(isolated_db):
     c = _remote(_app())
     m, ms = _paid_member(limit=1)
@@ -906,7 +909,7 @@ def test_a_member_over_their_limit_loses_paid_engines_until_it_is_raised(isolate
     assert "engines.paid" in auth_service.effective_permissions(m["id"])
     me = c.get("/api/auth/me", headers=_h(ms)).json()
     assert me["paid_limit_reached"] is True and "engines.paid" not in me["permissions"]
-    r = c.post("/api/translate", headers=_h(ms), json={"text": "你好"})
+    r = c.post("/api/translate", headers=_h(ms), json=_PAID_TEXT)
     assert r.status_code == 403
     assert r.json()["error"] == {"code": "forbidden", "message": paid_limits.PAID_LIMIT_MESSAGE,
                                  "details": {"reason": "paid_limit_reached"}}
@@ -920,7 +923,7 @@ def test_a_member_without_the_right_still_gets_the_plain_refusal(isolated_db):
     auth_service.admin_set_paid_limit(m["id"], 1)
     with db.spending_for(m["id"]):
         db.log_usage(None, "claude", "m", "translate", 1, 1, 2)
-    r = c.post("/api/translate", headers=_h(ms), json={"text": "你好"})
+    r = c.post("/api/translate", headers=_h(ms), json=_PAID_TEXT)
     assert r.status_code == 403 and r.json()["error"]["message"] != paid_limits.PAID_LIMIT_MESSAGE
 
 

@@ -25452,7 +25452,7 @@ export interface components {
          */
         ReadImageEstimateRequest: {
             /** Engine */
-            engine: string;
+            engine?: string | null;
             /** Free Tier */
             free_tier?: boolean | null;
             /** Height */
@@ -32626,7 +32626,7 @@ export interface components {
          */
         TranslateRequest: {
             /** Engine */
-            engine: string;
+            engine?: string | null;
             /** Free Tier */
             free_tier?: boolean | null;
             /** Model */
@@ -70952,6 +70952,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Unprocessable Content */
             422: {
                 headers: {
@@ -72388,6 +72397,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Unprocessable Content */
             422: {
                 headers: {
@@ -72471,7 +72489,7 @@ export interface operations {
         requestBody: {
             content: {
                 "multipart/form-data": {
-                    engine: string;
+                    engine?: string;
                     free_tier?: string;
                     /** Format: binary */
                     image: string;
@@ -72492,6 +72510,15 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -72561,6 +72588,15 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

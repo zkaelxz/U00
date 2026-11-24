@@ -44,6 +44,7 @@ export function TranslateReadImage({
   pageEngine,
   language,
   allowed,
+  auto = false,
   onText,
   onClose,
   frame,
@@ -59,8 +60,10 @@ export function TranslateReadImage({
   pageEngine: string
   /** Source language code (zh, ja, ko) the engine is told to expect; '' for none. */
   language: string
-  /** Holds engines.paid, like Translate itself. */
+  /** May start the read at all (jobs.start); a paid engine is still checked by the server. */
   allowed: boolean
+  /** Engine, model and enlargement are picked for this account: none are shown and no engine is sent. */
+  auto?: boolean
   onText: (read: string) => void
   onClose: () => void
   /** A picture handed in by the page (a video frame); a new `seq` loads it again. */
@@ -93,7 +96,7 @@ export function TranslateReadImage({
   const engine = pickVisionEngine(engines, enginePref, pageEngine)
   const selected = offered.find((e) => e.name === engine)
   const model = modelPref && selected?.models?.includes(modelPref) ? modelPref : ''
-  const noKey = selected !== undefined && !selected.key_configured
+  const noKey = !auto && selected !== undefined && !selected.key_configured
   const plan = source ? cropPlan(source.width, source.height, rect, zoom) : null
 
   // The object URL is the only copy of the picture kept; nothing is stored.
@@ -137,7 +140,7 @@ export function TranslateReadImage({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load only touches state setters
   }, [])
 
-  const paidEngine = selected !== undefined && !selected.free
+  const paidEngine = !auto && selected !== undefined && !selected.free
   useEffect(() => {
     setEstimate(null)
     if (!allowed || !paidEngine || !engine || !plan) return
@@ -159,15 +162,17 @@ export function TranslateReadImage({
     return { x: (e.clientX - box.left) / box.width, y: (e.clientY - box.top) / box.height }
   }
 
+  const sent = auto ? { language } : { engine, model: model || null, language }
+
   const read = async (then?: (read: string) => Promise<void>) => {
     const img = imgRef.current
-    if (!img || !plan || !engine) return
+    if (!img || !plan || (!auto && !engine)) return
     setBusy(true)
     setError(null)
     setNotice(null)
     try {
       const blob = await croppedPng(img, plan)
-      const done = await translateApi.readImage(blob, { engine, model: model || null, language })
+      const done = await translateApi.readImage(blob, sent)
       if (done.text) await (then ?? (async (t: string) => onText(t)))(done.text)
       setNotice(done.text ? addedNotice : (done.message ?? 'No text was found in the picture.'))
     } catch (err) {
@@ -188,7 +193,7 @@ export function TranslateReadImage({
         img.src = url
       })
       const cropped = await croppedPng(img, cropPlan(img.naturalWidth, img.naturalHeight, rect, zoom))
-      return (await translateApi.readImage(cropped, { engine, model: model || null, language })).text ?? ''
+      return (await translateApi.readImage(cropped, sent)).text ?? ''
     } finally {
       URL.revokeObjectURL(url)
     }
@@ -283,7 +288,7 @@ export function TranslateReadImage({
           )}
         </p>
       )}
-      <div className="translate-read-controls">
+      {!auto && <div className="translate-read-controls">
         <label className="field">
           <span>Read with</span>
           <select aria-label="Read with" value={engine} onChange={(e) => { setEnginePref(e.target.value); setModelPref('') }}>
@@ -317,18 +322,18 @@ export function TranslateReadImage({
             ))}
           </select>
         </label>
-      </div>
+      </div>}
       <div className="actions">
-        <button type="button" className={buttonClass('primary')} disabled={!source || busy || noKey || !allowed || !engine} onClick={() => void read()}>
+        <button type="button" className={buttonClass('primary')} disabled={!source || busy || noKey || !allowed || (!auto && !engine)} onClick={() => void read()}>
           {busy ? 'Reading…' : readLabel}
         </button>
         {alsoTranslate && (
-          <button type="button" className={buttonClass('secondary')} disabled={!source || busy || noKey || !allowed || !engine} onClick={() => void read(alsoTranslate.run)}>
+          <button type="button" className={buttonClass('secondary')} disabled={!source || busy || noKey || !allowed || (!auto && !engine)} onClick={() => void read(alsoTranslate.run)}>
             {alsoTranslate.label}
           </button>
         )}
         {readEach && (
-          <button type="button" className={buttonClass('secondary')} disabled={busy || noKey || !allowed || !engine} onClick={() => void readAll(readEach.run)}>
+          <button type="button" className={buttonClass('secondary')} disabled={busy || noKey || !allowed || (!auto && !engine)} onClick={() => void readAll(readEach.run)}>
             {readEach.label}
           </button>
         )}
@@ -347,7 +352,7 @@ export function TranslateReadImage({
       {allowed && noKey && selected && (
         <p className="translate-warning">No key for that engine. Add a key in Settings or pick another.</p>
       )}
-      {selected?.name === 'ollama' && (
+      {!auto && selected?.name === 'ollama' && (
         <p className="muted translate-read-hint">A local model must support pictures (Gemma 4 does). It is free but slower.</p>
       )}
       {notice && <p className="muted" role="status">{notice}</p>}

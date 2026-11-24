@@ -798,7 +798,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/transcribe/dramas/{drama_id}/speech-coverage` | library.read + lines.read |
 | `POST /api/transcribe/dramas/{drama_id}/speech-coverage` | jobs.start |
 | `POST /api/transcribe/dramas/{drama_id}/talk-over/add-lines` | lines.edit |
-| `POST /api/translate` | engines.paid |
+| `POST /api/translate` | jobs.start |
 | `POST /api/translate-run/dramas/{drama_id}/apply-preset` | lines.edit |
 | `GET /api/translate-run/dramas/{drama_id}/bulk` | library.read |
 | `POST /api/translate-run/dramas/{drama_id}/bulk/resume` | jobs.start |
@@ -825,11 +825,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/translate-run/presets/{preset_id}/update` | admin.library |
 | `GET /api/translate-run/profile-fields` | library.read |
 | `GET /api/translate/engines` | library.read |
-| `POST /api/translate/estimate` | engines.paid |
+| `POST /api/translate/estimate` | jobs.start |
 | `DELETE /api/translate/history` | local_only() |
 | `GET /api/translate/history` | library.read |
-| `POST /api/translate/read-image` | engines.paid |
-| `POST /api/translate/read-image/estimate` | engines.paid |
+| `POST /api/translate/read-image` | jobs.start |
+| `POST /api/translate/read-image/estimate` | jobs.start |
 | `GET /api/update/source` | system.update |
 | `POST /api/update/source/apply` | system.update |
 | `POST /api/update/source/check` | system.update |

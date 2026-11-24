@@ -348,7 +348,7 @@ def test_engine_for_caller_unit(isolated_db):
     from api import auth as api_auth
     req = SimpleNamespace()
     with patch.object(api_auth, "holds", return_value=False):
-        # With the owner's hosted-default switch off: Ollama's own default model.
+        # With the owner's hosted-default switch off: Ollama's own default model (override, else built-in).
         db.set_app_setting("pref.ollama_cloud_default", False)
         assert api_auth.engine_for_caller(req, None, "claude", None) == ("ollama", None)
         db.set_app_setting("pref.ollama_cloud_default", True)
@@ -388,3 +388,40 @@ def test_a_member_over_their_own_limit_is_still_refused(monkeypatch):
     with patch.object(api_auth, "holds", return_value=False):
         with pytest.raises(ForbiddenError):
             api_auth.engine_for_caller(req, None, "claude", None)
+
+
+def test_text_page_with_no_engine_runs_on_ollama_for_a_member(remote, monkeypatch):
+    import db
+    from services import translate_service
+    seen = {}
+
+    def fake_translate(text, engine_name, source, target, model=None, **kw):
+        seen.update(engine=engine_name, model=model)
+        return {"translated_text": "hi"}
+
+    monkeypatch.setattr(translate_service, "translate", fake_translate)
+    db.set_app_setting("default_engine", "claude")
+    db.set_app_setting("pref.ollama_cloud_default", True)
+    body = {"text": "你好", "source_language": "zh", "target_language": "en"}
+    member = _household("text@example.com")
+    assert remote.post("/api/translate", json=body, headers=member).status_code == 200
+    assert seen == {"engine": "ollama", "model": CLOUD}
+    # A named paid engine or hosted tag stays refused; the owner's default runs for a paid holder.
+    assert remote.post("/api/translate", json={**body, "engine": "claude"}, headers=member).status_code == 403
+    assert remote.post("/api/translate", json={**body, "engine": "ollama", "model": PAID_CLOUD},
+                       headers=member).status_code == 403
+    paid = _household("text-paid@example.com", ["engines.paid"])
+    assert remote.post("/api/translate", json=body, headers=paid).status_code == 200
+    assert seen["engine"] == "claude"
+
+
+def test_text_price_check_with_no_engine_prices_ollama_for_a_member(remote):
+    import db
+    db.set_app_setting("default_engine", "claude")
+    body = {"text": "你好", "source_language": "zh", "target_language": "en"}
+    member = _household("price@example.com")
+    resp = remote.post("/api/translate/estimate", json=body, headers=member)
+    assert resp.status_code == 200
+    assert remote.post("/api/translate/estimate", json={**body, "engine": "claude"}, headers=member).status_code == 403
+    assert remote.post("/api/translate/estimate", json={**body, "engine": "ollama", "model": PAID_CLOUD},
+                       headers=member).status_code == 403
