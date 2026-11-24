@@ -37,7 +37,9 @@ import {
   snapToVisible,
   visibleOrdinals,
   type ChapterPrefs,
+  finishedChapter,
 } from './comic/chapterLogic'
+import { useChapterMarks } from './comic/useChapterMarks'
 import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicLines } from './comic/ComicText'
 import { LineEditSheet, type TappedLine } from './comic/LineEditSheet'
@@ -315,6 +317,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     )
   })
 
+  const applyMarks = useChapterMarks(id, setData, current === null || !moved ? null : finishedChapter(pages, chapters, current, visibleAll))
+
   // Text boxes for the page(s) in view, fetched once each.
   const wantText = prefs.text || linesOpen
   const textKey = current === null || !wantText ? '' : (spread ?? textPages(current, count, prefs.mode)).join(',')
@@ -510,6 +514,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           reanchor.current = true
           refreshPages()
         }}
+        onMarks={applyMarks}
       />
     ) : null
 

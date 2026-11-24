@@ -44,7 +44,33 @@ function shownCount(chapter: ComicChapter, showHidden: boolean): number {
 
 export function optionText(chapter: ComicChapter, index: number, showHidden: boolean): string {
   const n = shownCount(chapter, showHidden)
-  return `${chapterLabel(chapter, index)} (${n} ${n === 1 ? 'page' : 'pages'})`
+  // Marks sit in the text because a <select> option can hold nothing else.
+  return `${chapter.read ? '✓ ' : ''}${chapterLabel(chapter, index)} (${n} ${n === 1 ? 'page' : 'pages'})${chapter.bookmarked ? ' ★' : ''}`
+}
+
+/** The next chapter not yet read: the first one after `at`, else the earliest one before it; -1 when none. */
+export function nextUnread(chapters: ComicChapter[], at: number): number {
+  const later = chapters.findIndex((c, i) => i > at && !c.read)
+  if (later >= 0) return later
+  return chapters.findIndex((c, i) => i < at && !c.read)
+}
+
+/** The chapter to mark read because `current` is its last listed page; null when it is read already or not at an end. */
+export function finishedChapter(pages: ComicPageInfo[], chapters: ComicChapter[], current: number, visible: number[]): string | null {
+  const id = pages[current - 1]?.chapter_id
+  const chapter = chapters.find((c) => c.id === id)
+  if (!chapter || chapter.read) return null
+  const last = visible.filter((n) => pages[n - 1]?.chapter_id === id).at(-1)
+  return last === current ? chapter.id : null
+}
+
+/** The chapter list with the server's answer to a marks change laid over it. */
+export function withMarks(chapters: ComicChapter[], marks: { id: string; read: boolean; bookmarked: boolean }[]): ComicChapter[] {
+  const by = new Map(marks.map((m) => [m.id, m]))
+  return chapters.map((c) => {
+    const m = by.get(c.id)
+    return m ? { ...c, read: m.read, bookmarked: m.bookmarked } : c
+  })
 }
 
 /** Ordinals in the reading list, in order. Hidden pages drop out unless shown; a chapter limit keeps one chapter. */

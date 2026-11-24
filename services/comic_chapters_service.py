@@ -74,6 +74,23 @@ def start_chapter(drama_id: int, page_id: int, title: str = "") -> dict:
     return {"changed": group["page_count"] - at}
 
 
+def set_marks(drama_id: int, chapter_ids, read=None, bookmarked=None) -> dict:
+    """Marks chapters read or unread, and bookmarks them, for the household's default
+    profile (the one the resume page belongs to). Every id must be a chapter of this
+    title, so a stale page list can't leave marks nothing will ever show."""
+    if read is None and bookmarked is None:
+        raise InvalidInputError("Send read or bookmarked.")
+    _, groups = _groups(drama_id)
+    known = {g["id"] for g in groups}
+    wanted = list(dict.fromkeys(chapter_ids))
+    if any(c not in known for c in wanted):
+        raise NotFoundError("No such chapter in this title.")
+    db.set_chapter_marks(drama_id, wanted, read=read, bookmarked=bookmarked)
+    marks = db.get_chapter_marks(drama_id)
+    return {"chapters": [dict(id=g["id"], **marks.get(g["id"], {"read": False, "bookmarked": False}))
+                         for g in groups]}
+
+
 def run_page_ids(drama_id: int, chapter_id=None) -> list:
     """Ids of the pages an automatic run covers, in reading order: every
     visible page, or only the visible pages of `chapter_id`."""

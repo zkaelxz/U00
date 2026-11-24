@@ -12,6 +12,9 @@ import {
   scopeCounts,
   snapToVisible,
   visibleOrdinals,
+  finishedChapter,
+  nextUnread,
+  withMarks,
 } from './chapterLogic'
 
 const page = (n: number, chapter: string, over: Partial<ComicPageInfo> = {}): ComicPageInfo => ({
@@ -19,7 +22,7 @@ const page = (n: number, chapter: string, over: Partial<ComicPageInfo> = {}): Co
   chapter_id: chapter, ...over,
 })
 const ch = (id: string, title: string, first: number, count: number, hidden = 0, known = true): ComicChapter => ({
-  id, title, known, first_page: first, page_count: count, hidden_count: hidden, url: '',
+  id, title, known, first_page: first, page_count: count, hidden_count: hidden, url: '', read: false, bookmarked: false,
 })
 
 // Chapter a: pages 1-3 (page 1 hidden), chapter b: pages 4-5.
@@ -88,7 +91,7 @@ describe('chapter prefs', () => {
 
 describe('chapterRows', () => {
   const chap = (id: string, first: number, count: number, over: Partial<ComicChapter> = {}): ComicChapter => ({
-    id, title: '', known: true, first_page: first, page_count: count, hidden_count: 0, url: '', ...over,
+    id, title: '', known: true, first_page: first, page_count: count, hidden_count: 0, url: '', read: false, bookmarked: false, ...over,
   })
   const page = (ordinal: number, chapter_id: string, over: Partial<ComicPageInfo> = {}): ComicPageInfo => ({
     id: ordinal, ordinal, width: 1, height: 1, has_rendered: false, has_regions: false, image_version: null, chapter_id, ...over,
@@ -106,5 +109,37 @@ describe('chapterRows', () => {
   it('shows no list when the pages have no chapter data', () => {
     expect(chapterRows([page(1, 'unknown')], [chap('unknown', 1, 1, { known: false })])).toEqual([])
     expect(chapterRows([], [])).toEqual([])
+  })
+})
+
+describe('read marks', () => {
+  const chapters = [ch('a', 'One', 1, 2), { ...ch('b', 'Two', 3, 2), read: true }, ch('c', 'Three', 5, 1)]
+  const pages = [page(1, 'a'), page(2, 'a'), page(3, 'b'), page(4, 'b'), page(5, 'c')]
+
+  it('shows a tick for read and a star for bookmarked in the chapter list', () => {
+    expect(optionText({ ...ch('a', 'One', 1, 2), read: true, bookmarked: true }, 0, false)).toBe('✓ One (2 pages) ★')
+    expect(optionText(ch('a', 'One', 1, 2), 0, false)).toBe('One (2 pages)')
+  })
+
+  it('finds the next unread chapter after this one, then wraps to earlier ones', () => {
+    expect(nextUnread(chapters, 0)).toBe(2)
+    expect(nextUnread(chapters, 2)).toBe(0)
+    expect(nextUnread(chapters.map((c) => ({ ...c, read: true })), 1)).toBe(-1)
+    // The chapter being read is not offered as its own next.
+    expect(nextUnread([ch('a', 'One', 1, 2)], 0)).toBe(-1)
+  })
+
+  it('counts a chapter finished only on its last listed page, and only once', () => {
+    const all = [1, 2, 3, 4, 5]
+    expect(finishedChapter(pages, chapters, 1, all)).toBeNull()
+    expect(finishedChapter(pages, chapters, 2, all)).toBe('a')
+    // A hidden last page is not in the list, so the page before it ends the chapter.
+    expect(finishedChapter(pages, chapters, 1, [1, 3, 4, 5])).toBe('a')
+    expect(finishedChapter(pages, chapters, 4, all)).toBeNull()
+  })
+
+  it('lays the saved marks over the list and leaves other chapters alone', () => {
+    const next = withMarks(chapters, [{ id: 'a', read: true, bookmarked: true }])
+    expect(next.map((c) => [c.read, c.bookmarked])).toEqual([[true, true], [true, false], [false, false]])
   })
 })
