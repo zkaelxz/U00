@@ -24,7 +24,7 @@ from services import ownership_service
 from lib.errors import InvalidInputError, NotFoundError, ServiceError
 
 ARTIFACT_KINDS = ("subtitle", "epub", "audio", "video", "softsub_video", "dubbed_video",
-                  "archive", "scanlate_zip", "scanlate_pdf")
+                  "archive", "scanlate_zip", "scanlate_pdf", "scanlate_cbz")
 
 _BAD_NAME = "Invalid artifact filename."
 _MISSING = "No artifact available."
