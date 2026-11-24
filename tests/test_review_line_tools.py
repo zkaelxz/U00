@@ -518,7 +518,6 @@ class TestPermissions:
         assert remote.post(url, json={"engine": "ollama"}, headers=session_headers(nobody)).status_code == 403
         reader = _user("r@example.com", "lines.read")
         assert remote.post(url, json={"engine": "claude"}, headers=session_headers(reader)).status_code == 403
-        assert remote.post(url, json={}, headers=session_headers(reader)).status_code == 403
         assert remote.post(url, json={"engine": "ollama"}, headers=session_headers(reader)).status_code == 200
         paid = _user("p@example.com", "lines.read", "engines.paid")
         assert remote.post(url, json={"engine": "claude"}, headers=session_headers(paid)).status_code == 200
@@ -582,14 +581,19 @@ class TestPermissions:
         monkeypatch.setattr(engine_registry, "get_engine",
                             lambda name, *a, **k: built.append(name) or FakeEngine())
         household = _user("h@example.com", "lines.read", "lines.edit")
-        for engine, status in (("ollama", 200), ("claude", 403)):
+        # A paid drama engine the caller may not use runs on Ollama instead of being refused
+        # (api.auth.engine_for_caller); a named paid engine is still refused.
+        for engine, body_engine, status in (("ollama", None, 200), ("claude", None, 200),
+                                            ("ollama", "claude", 403)):
             did, ids = _overlong_drama()
             db.update_drama(did, translation_engine=engine)
             url = _shorten(did) if tool == "shorten" else _ai(did, ids[0], tool)
             body = {"confirm": True} if tool == "shorten" else {}
+            if body_engine:
+                body["engine"] = body_engine
             assert remote.post(url, json=body, headers=session_headers(household)).status_code == status
         # the call runs on the engine the gate checked
-        assert built == ["ollama"]
+        assert built == ["ollama", "ollama"]
 
     def test_speaker_suggestions_need_lines_read(self, remote):
         did, ids = _seed()
