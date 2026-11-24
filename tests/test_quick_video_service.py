@@ -7,7 +7,7 @@ import pytest
 import db
 from core import Line
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError
-from services import profile_service, quick_video_service as qv, queue_service as q, url_media_service
+from services import drama_service, profile_service, quick_video_service as qv, queue_service as q, url_media_service
 from tests.test_queue_service import jobs  # noqa: F401  (fixture)
 
 pytestmark = pytest.mark.usefixtures("local_ollama_default")
@@ -280,16 +280,16 @@ def test_losing_import_from_a_link_stops_a_waiting_download(jobs, started_downlo
 def test_a_member_stops_at_the_title_limit_and_an_admin_does_not(jobs, started_downloads, monkeypatch):
     from services import auth_service
     u, member = _away_member(monkeypatch)
-    for n in range(qv.MEMBER_TITLE_LIMIT - 1):
+    for n in range(drama_service.MEMBER_TITLE_LIMIT - 1):
         db.create_drama(title_en=f"T{n}", owner_user_id=u["id"])
     pid = _profile()
     assert qv.start(member, URL, pid, False, holds_paid=False, at_pc=False)["drama_id"]
     before = len(db.list_dramas())
-    with pytest.raises(ConflictError, match="100 titles"):
+    with pytest.raises(ConflictError, match="200 titles"):
         qv.start(member, URL, pid, False, holds_paid=False, at_pc=False)
     assert len(db.list_dramas()) == before
     admin = auth_service.add_user("a@example.com")
-    for n in range(qv.MEMBER_TITLE_LIMIT):
+    for n in range(drama_service.MEMBER_TITLE_LIMIT):
         db.create_drama(title_en=f"A{n}", owner_user_id=admin["id"])
     assert qv.start({**member, "user_id": admin["id"], "is_admin": True}, URL, pid, False,
                     holds_paid=False, at_pc=False)["drama_id"]

@@ -252,7 +252,12 @@ def test_auth_on_permissions():
     assert c.post(tq[0], json=tq[1], headers=kid).status_code == 403        # paid engine
     assert c.post(tq_free[0], json=tq_free[1], headers=kid).status_code == 200
     assert c.post(sug_free[0], json=sug_free[1], headers=kid).status_code == 403  # no import_url
-    assert c.post(commit[0], json=commit[1], headers=kid).status_code == 403
+    # Adding to the catalogue is library.create, a member default an admin can take away.
+    assert c.post(commit[0], json=commit[1], headers=kid).status_code == 200
+    limited = _headers(email="limited@example.com")
+    auth_service.revoke_permission(auth_service.find_user_by_email("limited@example.com")["id"],
+                                   "library.create")
+    assert c.post(commit[0], json={"entries": [{"title": "Y"}]}, headers=limited).status_code == 403
     importer = _headers("media.import_url", email="imp@example.com")
     assert c.post(sug[0], json=sug[1], headers=importer).status_code == 403  # paid
     assert c.post(sug_free[0], json=sug_free[1], headers=importer).status_code == 200

@@ -16,6 +16,7 @@ import { readAction, workspaceHref } from './libraryView'
 import { buttonClass } from './uiClasses'
 import { useCancellableEffect } from '../hooks/useCancellableEffect'
 import { useHolds } from '../hooks/useHolds'
+import { isMember, useSession } from '../hooks/useSession'
 
 function credit(name: string | null, romanized: string | null) {
   if (!name) return null
@@ -40,8 +41,9 @@ export function DramaDetailPanel({ dramaId, onDeleted, away = false }: Props) {
   const [deleting, setDeleting] = useState(false)
   const [moreSummary, setMoreSummary] = useState(false)
   const [copying, setCopying] = useState(false)
-  // The copy route needs library.create, which members don't hold.
-  const canCopy = useHolds('library.create')
+  // The copy route needs library.create and an admin: a member's copy would fill the disk with no way to delete it.
+  const session = useSession()
+  const canCopy = useHolds('library.create') && (session.status !== 'ready' || !isMember(session))
   const [copyError, setCopyError] = useState<unknown>(null)
 
   const copy = () => {

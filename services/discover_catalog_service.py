@@ -82,7 +82,21 @@ def list_titles(q="", language="", media_type="") -> dict:
     return {"titles": [_public(r) for r in rows], "total": total}
 
 
-def create_title(fields: dict) -> dict:
+def _member_id(principal):
+    """The id of a member account (None for the PC owner, auth off and admins, who aren't capped)."""
+    uid = principal.get("user_id") if principal else None
+    return uid if uid is not None and not principal.get("is_admin") else None
+
+
+def check_catalogue_room(principal, adding=1) -> None:
+    """409 when adding `adding` entries would take a member over `MEMBER_TITLE_LIMIT`."""
+    uid = _member_id(principal)
+    if uid is not None and db.count_known_titles_by(uid) + adding > drama_service.MEMBER_TITLE_LIMIT:
+        raise ConflictError(f"You have added {drama_service.MEMBER_TITLE_LIMIT} titles to Discover, "
+                            "the most a member account can add.")
+
+
+def create_title(fields: dict, principal=None) -> dict:
     """Manual add. `title_original` is required; unknown keys are rejected."""
     if not isinstance(fields, dict):
         raise InvalidInputError("Expected an object of title fields.")
@@ -107,7 +121,8 @@ def create_title(fields: dict) -> dict:
     clean["source_name"] = clean["source_name"] or "manual"
     clean["language"] = _check_language(fields.get("language", ""), allow_blank=False)
     clean["media_type"] = _check_media_type(fields.get("media_type", ""), allow_blank=False)
-    new_id = db.create_known_title(**clean)
+    check_catalogue_room(principal)
+    new_id = db.create_known_title(**clean, created_by_user_id=_member_id(principal))
     return _public(_find(new_id))
 
 

@@ -984,6 +984,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
     "edit_samples": ("line_id", "engine", "model", "prompt_version", "flag", "mark",
                      "deleted_drama_id", "deleted_title"),
     "users": ("share_by_default", "monthly_paid_cap_usd"),
+    "known_titles": ("created_by_user_id",),
     "progress": ("view_prefs",),
     "translate_history": ("user_id",),
     "auth_sessions": ("device_label", "signed_in_at"),
@@ -1324,6 +1325,9 @@ class TestInitDbSchema:
         conn = sqlite3.connect(isolated_db.DB_PATH)
         try:   # as before the migration ran
             conn.execute("DELETE FROM app_settings WHERE key = 'migrations.reader_page_lines_read'")
+            # The later library.create grant has already run, so it adds nothing here.
+            conn.execute("INSERT OR IGNORE INTO app_settings (key, value) "
+                         "VALUES ('migrations.members_library_create', 'true')")
             conn.commit()
         finally:
             conn.close()
@@ -1334,6 +1338,35 @@ class TestInitDbSchema:
         isolated_db.auth_revoke_permission(reader, "lines.read")
         isolated_db.init_db()
         assert set(isolated_db.auth_get_permissions(reader)) == {"library.read"}
+
+    def test_library_read_holders_get_library_create_once(self, isolated_db):
+        from services import auth_service
+        member = auth_service.add_user("member@example.com")["id"]
+        nobody = auth_service.add_user("nobody@example.com")["id"]
+        for p in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+            isolated_db.auth_revoke_permission(nobody, p)
+        isolated_db.auth_revoke_permission(member, "library.create")   # as before this right was a default
+        conn = sqlite3.connect(isolated_db.DB_PATH)
+        try:
+            conn.execute("DELETE FROM app_settings WHERE key = 'migrations.members_library_create'")
+            conn.commit()
+        finally:
+            conn.close()
+        isolated_db.init_db()
+        assert "library.create" in isolated_db.auth_get_permissions(member)
+        assert not isolated_db.auth_get_permissions(nobody)
+        # Once only: a later revoke of one person survives the next start.
+        isolated_db.auth_revoke_permission(member, "library.create")
+        isolated_db.init_db()
+        assert "library.create" not in isolated_db.auth_get_permissions(member)
+
+    def test_library_create_grant_with_no_accounts_still_sets_its_marker(self, isolated_db):
+        # A revoke made after the first account appears must survive the next start.
+        from services import auth_service
+        member = auth_service.add_user("late@example.com")["id"]
+        isolated_db.auth_revoke_permission(member, "library.create")
+        isolated_db.init_db()
+        assert "library.create" not in isolated_db.auth_get_permissions(member)
 
 
 class TestJobRecordCancelAcrossRuns:

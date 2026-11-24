@@ -45,3 +45,9 @@ def delete_known_title(title_id: int):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("DELETE FROM known_titles WHERE id = ?", (title_id,))
         conn.commit()
+
+
+def count_known_titles_by(user_id: int) -> int:
+    with contextlib.closing(db.get_conn()) as conn:
+        return conn.execute("SELECT COUNT(*) FROM known_titles WHERE created_by_user_id = ?",
+                            (user_id,)).fetchone()[0]
