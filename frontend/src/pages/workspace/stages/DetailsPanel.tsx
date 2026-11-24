@@ -297,7 +297,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
                   dramaId={dramaId}
                   onGenerated={(text) => set('episode_summary')({ target: { value: text } })}
                 />
-                <h4>Topic chapters</h4>
+                <strong>Topic chapters</strong>
                 <p className="muted">Timed chapters for a long stream, made with the summary engine. Shown on the Watch page; the timestamp list and the subtitled-video export use them too.</p>
                 <TopicChaptersPanel dramaId={dramaId} />
                 <Field
