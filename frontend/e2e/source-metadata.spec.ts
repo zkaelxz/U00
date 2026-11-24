@@ -100,7 +100,7 @@ test('analyze media shows resolution, subtitle tracks, the suggested steps, and 
   await expect(page.getByTestId('analysis-suggestion')).toContainText('This title already uses it.')
 })
 
-test('an embedded text subtitle track can be imported from Analyze media; a picture track says it cannot', async ({ page }) => {
+test('an embedded text subtitle track can be imported from Analyze media; a picture track is read with OCR', async ({ page }) => {
   const calls: string[] = []
   await page.route('**/api/media/dramas/1/status', (route) =>
     route.fulfill({ json: { drama_id: 1, has_audio: true, has_source_video: true, upload_max_mb: 500 } }),
@@ -111,7 +111,7 @@ test('an embedded text subtitle track can be imported from Analyze media; a pict
         drama_id: 1, duration_seconds: 60, has_video: true, has_audio: true, audio_track_count: 1, sample_rate: 48000,
         subtitle_tracks: [
           { index: 2, codec: 'subrip', language: 'chi', importable: true },
-          { index: 3, codec: 'hdmv_pgs_subtitle', language: 'jpn', importable: false },
+          { index: 3, codec: 'hdmv_pgs_subtitle', language: 'jpn', importable: false, picture: true },
         ],
         suggested_pipeline: ['Import existing subtitle track (chi, jpn) instead of transcribing'],
       },
@@ -138,9 +138,14 @@ test('an embedded text subtitle track can be imported from Analyze media; a pict
   await openFillIn(page, 'From the audio')
   await page.getByRole('button', { name: 'Analyze media' }).click()
   const tracks = page.getByTestId('analysis-tracks')
-  await expect(tracks).toContainText("Picture subtitles can't be imported as text yet.")
+  await expect(tracks).toContainText('is made of pictures')
+  await page.route('**/api/subtitle-import/dramas/1/picture-track/read', (route) => {
+    calls.push(`picture ${JSON.stringify(route.request().postDataJSON())}`)
+    return route.fulfill({ json: { job_id: 'picsub_1', drama_id: 1 } })
+  })
   await tracks.getByRole('button', { name: /Import Chinese SubRip track/ }).click()
   await page.getByRole('button', { name: 'Import now' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Imported 2 lines.' })).toBeVisible()
-  expect(calls).toEqual(['preview', '{"track_index":2,"confirm_replace_lines":false}'])
+  await tracks.getByRole('button', { name: /Read Japanese PGS/ }).click()
+  await expect.poll(() => calls).toEqual(['preview', '{"track_index":2,"confirm_replace_lines":false}', 'picture {"track_index":3,"confirm_replace_lines":false}'])
 })

@@ -11461,6 +11461,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/subtitle-import/dramas/{drama_id}/picture-track/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start reading a picture subtitle track (PGS, DVD) inside the title's media file as lines
+         * @description Runs the picsub_<id> job (poll GET /api/jobs/{job_id}). Replacing existing lines needs confirm_replace_lines=true (422 with details.reason otherwise); the old lines are saved to history first.
+         */
+        post: operations["post_picture_track_read_api_subtitle_import_dramas__drama_id__picture_track_read_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/subtitle-import/dramas/{drama_id}/preview": {
         parameters: {
             query?: never;
@@ -23127,6 +23147,11 @@ export interface components {
             index: number | null;
             /** Language */
             language: string | null;
+            /**
+             * Picture
+             * @default false
+             */
+            picture: boolean;
         };
         /** MediaUploadResult */
         MediaUploadResult: {
@@ -24708,6 +24733,26 @@ export interface components {
             problem: string | null;
             restart: components["schemas"]["PendingInstallRestart"];
             result: components["schemas"]["PendingInstallOutcome"] | null;
+        };
+        /** PictureSubtitleStarted */
+        PictureSubtitleStarted: {
+            /** Drama Id */
+            drama_id: number;
+            /** Job Id */
+            job_id: string;
+        };
+        /** PictureTrackRequest */
+        PictureTrackRequest: {
+            /**
+             * Confirm Replace Lines
+             * @default false
+             */
+            confirm_replace_lines?: boolean;
+            /**
+             * Track Index
+             * @description The track's index from analyze-media.
+             */
+            track_index: number;
         };
         /**
          * PortEntry
@@ -68094,6 +68139,59 @@ export interface operations {
             };
             /** @description Content Too Large */
             413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_picture_track_read_api_subtitle_import_dramas__drama_id__picture_track_read_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PictureTrackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PictureSubtitleStarted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

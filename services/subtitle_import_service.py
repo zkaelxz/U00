@@ -274,7 +274,7 @@ def preview_import(drama_id: int, data: bytes, filename: str = "", *, encoding: 
 def import_subtitle(drama_id: int, data: bytes, filename: str = "", *, encoding: Optional[str] = None,
                     mode: str = "source", split_bilingual: bool = False,
                     translation_first: bool = False, confirm_replace_lines: bool = False,
-                    confirm_overwrite: bool = False) -> dict:
+                    confirm_overwrite: bool = False, own_job_id: Optional[str] = None) -> dict:
     """Write the file into the title. Returns the counts, the ids of the
     lines written or changed and an undo handle. Raises InvalidInputError for
     an unusable file or a missing confirmation (details.reason names which),
@@ -284,7 +284,7 @@ def import_subtitle(drama_id: int, data: bytes, filename: str = "", *, encoding:
     if parsed.blocking:
         raise InvalidInputError("This file has problems that stop the import: "
                                 + " ".join(p.message for p in parsed.problems if p.severity == "error"))
-    with restructure_service.exclusive_write(drama_id):
+    with restructure_service.exclusive_write(drama_id, own_job_id):
         current = db.load_line_objects(drama_id)
         plan = _plan(drama_id, parsed, mode, split_bilingual, translation_first, current)
         if mode == "source":

@@ -104,6 +104,8 @@ interface MediaSubtitleTrack {
   language: string | null
   // Text tracks can be imported as lines; picture tracks (PGS, DVD) can't.
   importable?: boolean
+  // Picture tracks (PGS, DVD) can be read into text with OCR, as a background job.
+  picture?: boolean
 }
 
 export type AutofillRequest = Schemas['AutofillRequest']
