@@ -11,6 +11,7 @@ import {
   metricsLine,
   pageCount,
   pageParams,
+  readerEngine,
   resumePage,
   roundChapterSize,
   sanitizePrefs,
@@ -18,6 +19,7 @@ import {
   spoilerBoundary,
   trimHistory,
 } from './readerPrefsStore'
+import type { TranslateEngine } from '../../types/translate'
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const data = { ...initial }
@@ -163,5 +165,16 @@ describe('reader error copy', () => {
     const leak = new ApiError(400, { code: 'validation_error', message: 'bad file /home/alex/library/x.db' })
     expect(readerErrorText(leak).detail).toBeNull()
     expect(readerErrorText(leak).retry).toBe(false)
+  })
+})
+
+describe('reader engine', () => {
+  const eng = (name: string, free: boolean) => ({ name, free }) as TranslateEngine
+  it('keeps the remembered engine while it can run, else the first free one', () => {
+    const engines = [eng('claude', false), eng('ollama', true)]
+    expect(readerEngine(engines, 'claude')).toBe('claude')
+    expect(readerEngine(engines, 'gone')).toBe('ollama')
+    expect(readerEngine([eng('claude', false)], '')).toBe('claude')
+    expect(readerEngine([], 'claude')).toBe('')
   })
 })

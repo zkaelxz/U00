@@ -14,8 +14,8 @@ on 2026-09-29):
 - reader-data writes (progress, notes, lookup, rich-export queue, clear
   wiki): `lines.edit`;
 - LLM tools (who-is, explain, recap, relationships, wiki update, Q&A):
-  `jobs.start` plus `require_engines_allowed(request, body.engine)`; an
-  omitted engine means Claude and counts as paid. The lookup route is
+  `jobs.start` plus the engine check (`_require_reader_engine`); an omitted
+  engine means Claude, or Ollama for an account that may not use it. The lookup route is
   `lines.edit` and, only with `use_llm`, also needs `jobs.start` and the
   engine check.
 
@@ -42,7 +42,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Path, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from api import llm_slots
-from api.auth import require_engines_allowed, require_permission
+from api.auth import engine_for_caller, require_engines_allowed, require_permission
 from api.security_headers import READER_PAGE_HEADERS
 from api.llm_slots import LLM_MAX_IN_FLIGHT, ACTIVE_CALLERS, ACTIVE_LOCK, SLOTS  # noqa: F401 -- re-exported for tests
 from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderExplainRequest,
@@ -83,12 +83,21 @@ def _download(content, media_type: str, disposition: str) -> Response:
                              "X-Content-Type-Options": "nosniff"})
 
 
-def _require_llm_allowed(request: Request, engine: Optional[str], model: Optional[str] = None):
+def _require_reader_engine(request: Request, engine: Optional[str], model: Optional[str]) -> tuple:
+    """(engine, model) a Reader LLM call runs: an omitted engine is the Reader's default (Claude),
+    or Ollama for an account that may not use it (`engine_for_caller`), so a member's Reader needs
+    no engine picker; a named engine is held to `engines.paid`."""
+    engine, model = engine_for_caller(request, engine, engine or reader_service.DEFAULT_LLM_ENGINE, model)
+    require_engines_allowed(request, engine, model=model)
+    return engine, model
+
+
+def _require_llm_allowed(request: Request, engine: Optional[str], model: Optional[str] = None) -> tuple:
     """For a route whose declared permission isn't jobs.start (the lookup):
     an LLM call still needs jobs.start, then the paid-engine check."""
     if not _holds(request, "jobs.start"):
         raise ForbiddenError("Not allowed.")
-    require_engines_allowed(request, engine, model=model)
+    return _require_reader_engine(request, engine, model)
 
 
 @router.get("/dramas/{drama_id}/page", dependencies=[require_permission("lines.read")], response_model=ReaderPageResponse,
@@ -195,11 +204,11 @@ def get_caption_track(track: Track, drama_id: int = Path(ge=1)):
 def post_lookup(body: ReaderLookupRequest, request: Request, drama_id: int = Path(ge=1)):
     if not body.use_llm:
         return reader_service.lookup_page_definitions(drama_id, body.page, body.chapter_size)
-    _require_llm_allowed(request, body.engine, body.model)
+    engine, model = _require_llm_allowed(request, body.engine, body.model)
     with _llm_slot(request):
         return reader_service.lookup_page_definitions(
             drama_id, body.page, body.chapter_size, use_llm=True,
-            engine_name=body.engine, model=body.model)
+            engine_name=engine, model=model)
 
 
 @router.get("/dramas/{drama_id}/vocab", dependencies=[require_permission("library.read")], response_model=ReaderVocabList,
@@ -255,38 +264,38 @@ def get_vocab_apkg(request: Request, drama_id: int = Path(ge=1), rich: bool = Qu
              summary="Who is this character (spoiler-scoped when up_to_line_idx is set)",
              responses=_LLM_ERRS)
 def post_story_who(body: ReaderWhoRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine, model=body.model)
+    engine, model = _require_reader_engine(request, body.engine, body.model)
     with _llm_slot(request):
         return reader_service.who_is_character(drama_id, body.name, body.up_to_line_idx,
-                                               engine_name=body.engine, model=body.model)
+                                               engine_name=engine, model=model)
 
 
 @router.post("/dramas/{drama_id}/story/explain", dependencies=[require_permission("jobs.start")], response_model=ReaderAnswer,
              summary="Explain a reference or phrase", responses=_LLM_ERRS)
 def post_story_explain(body: ReaderExplainRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine, model=body.model)
+    engine, model = _require_reader_engine(request, body.engine, body.model)
     with _llm_slot(request):
         return reader_service.explain_reference(drama_id, body.phrase, body.up_to_line_idx,
-                                                engine_name=body.engine, model=body.model)
+                                                engine_name=engine, model=model)
 
 
 @router.post("/dramas/{drama_id}/story/recap", dependencies=[require_permission("jobs.start")], response_model=ReaderRecap,
              summary="Recap what came before a page", responses=_LLM_ERRS)
 def post_story_recap(body: ReaderRecapRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine, model=body.model)
+    engine, model = _require_reader_engine(request, body.engine, body.model)
     with _llm_slot(request):
         return reader_service.recap(drama_id, body.page, body.chapter_size,
-                                    engine_name=body.engine, model=body.model)
+                                    engine_name=engine, model=model)
 
 
 @router.post("/dramas/{drama_id}/story/relationships", dependencies=[require_permission("jobs.start")], response_model=ReaderRelationshipMap,
              summary="Character relationship map (with Mermaid text)", responses=_LLM_ERRS)
 def post_story_relationships(body: ReaderScopedLlmRequest, request: Request,
                              drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine, model=body.model)
+    engine, model = _require_reader_engine(request, body.engine, body.model)
     with _llm_slot(request):
         return reader_service.relationship_map(drama_id, body.up_to_line_idx,
-                                               engine_name=body.engine, model=body.model)
+                                               engine_name=engine, model=model)
 
 
 # --- universe wiki ---------------------------------------------------------------
@@ -304,10 +313,10 @@ def get_wiki(drama_id: int = Path(ge=1),
              summary="Extract wiki entries from the lines up to the boundary (LLM)",
              responses=_LLM_ERRS)
 def post_wiki_update(body: ReaderWikiUpdateRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine, model=body.model)
+    engine, model = _require_reader_engine(request, body.engine, body.model)
     with _llm_slot(request):
         return reader_service.update_wiki(drama_id, body.up_to_line_idx,
-                                          engine_name=body.engine, model=body.model,
+                                          engine_name=engine, model=model,
                                           from_line_idx=body.from_line_idx)
 
 
@@ -335,8 +344,8 @@ def get_wiki_markdown(drama_id: int = Path(ge=1),
              summary="One grounded Q&A turn (stateless; the client sends the history)",
              responses=_LLM_ERRS)
 def post_ask(body: ReaderAskRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine, model=body.model)
+    engine, model = _require_reader_engine(request, body.engine, body.model)
     history = [t.model_dump() for t in body.chat_history]
     with _llm_slot(request):
         return reader_service.ask_about_drama(drama_id, body.question, history,
-                                              engine_name=body.engine, model=body.model)
+                                              engine_name=engine, model=model)

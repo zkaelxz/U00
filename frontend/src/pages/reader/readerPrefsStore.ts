@@ -4,6 +4,7 @@
 import type { ThemeLook } from '../../theme'
 import type { StorageLike } from '../../components/sectionStorage'
 import type { ReaderChatTurn, ReaderOverview, ReaderPageParams } from '../../types/reader'
+import type { TranslateEngine } from '../../types/translate'
 
 export type ReaderTheme = 'auto' | 'light' | 'sepia' | 'dark'
 export type ReaderFont = 'system' | 'serif' | 'sans-serif' | 'monospace'
@@ -209,4 +210,10 @@ export function trimHistory(
 /** "3m" -> "3 min", "2h 10m" -> "2 h 10 min"; other text unchanged. */
 export function formatLength(display: string): string {
   return display.replace(/(\d+)h\b/g, '$1 h').replace(/(\d+)m\b/g, '$1 min')
+}
+
+// The remembered engine while it can still run, else the first free one, else the first.
+export function readerEngine(engines: TranslateEngine[], remembered: string): string {
+  if (engines.some((e) => e.name === remembered)) return remembered
+  return (engines.find((e) => e.free) ?? engines[0])?.name ?? ''
 }
