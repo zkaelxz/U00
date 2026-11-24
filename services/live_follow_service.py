@@ -5,10 +5,14 @@ may also let a stream start Live on its own. The checks themselves run in
 services/live_follow_poller.py; rows live in sources.db
 (sources/live_follow_store.py). No FastAPI import.
 
-Who sees what: a follow is owned like a job that is not tied to a title
-(`ownership_service.can_see_job`): its owner, and the local owner and
-admins, see it; changing it needs the admin override (an admin away from
-the PC changes only their own). Another user's follow is a 404.
+Who sees what: the list, Check all and the bell's live notices show each
+account only its own follows (`is_own`), so a member's channels never fill
+the owner's list (owner decision 2026-11-24). The PC owner, the admin
+accounts and auth off count as one person there: only the owner is an
+admin, and a follow made at the PC has no user id. Acting on one follow by
+id keeps the job rule (`ownership_service.can_see_job`): the local owner
+and admins may still reach a member's follow, and changing it needs the
+admin override. Another user's follow is a 404 to a member.
 
 Checks are manual unless the channel's "check automatically every hour"
 toggle (`auto_check`, off by default) is on; see live_follow_poller.py.
@@ -95,6 +99,26 @@ def is_pc_owner(principal) -> bool:
 def _can_see(principal, row, writing=False) -> bool:
     return ownership_service.can_see_job(principal, "", row.get("owner_user_id"),
                                          writing=writing)
+
+
+def is_own(principal, owner_user_id, admin_ids=None) -> bool:
+    """Is a follow owned by `owner_user_id` the caller's own? `admin_ids`:
+    the admin accounts' ids, read once for a whole list."""
+    uid = ownership_service.user_id(principal)
+    if uid is not None and owner_user_id == uid:
+        return True
+    if not (principal is None or principal.get("is_local_owner") or principal.get("is_admin")):
+        return False
+    if owner_user_id is None:
+        return True
+    if admin_ids is None:
+        admin_ids = owner_account_ids()
+    return owner_user_id in admin_ids
+
+
+def owner_account_ids() -> frozenset:
+    import db
+    return frozenset(u["id"] for u in db.auth_list_users() if u.get("is_admin"))
 
 
 def _require(principal, follow_id, writing=False) -> dict:
@@ -314,12 +338,15 @@ def view(row, principal=None) -> dict:
             "starts_at": row.get("starts_at"), "live_now": row.get("last_state") == "live",
             "stream_title": row.get("stream_title") or "",
             "checking": _poller().is_checking(row["id"]),
+            # Exact account match: only then may the PC owner turn on the automatic start.
             "mine": ownership_service.user_id(principal) == row.get("owner_user_id"),
             "created_at": row["created_at"]}
 
 
 def list_follows(principal=None) -> dict:
-    rows = [r for r in follow_store.list_all() if _can_see(principal, r)]
+    admin_ids = owner_account_ids()
+    rows = [r for r in follow_store.list_all()
+            if is_own(principal, r.get("owner_user_id"), admin_ids)]
     return {"items": [view(r, principal) for r in rows], "can_auto_start": is_pc_owner(principal)}
 
 
@@ -435,13 +462,15 @@ def check_now(follow_id, principal=None, now=None) -> dict:
 
 
 def check_all(principal=None, now=None) -> dict:
-    """Queues a manual check of every channel the caller may change (a
-    member: their own; the PC owner: all), checked one after another.
+    """Queues a manual check of every channel in the caller's own list,
+    checked one after another.
     Channels checked in the last minute or already queued are skipped."""
     now = time.time() if now is None else now
     queued = skipped = 0
+    admin_ids = owner_account_ids()
     for row in follow_store.list_all():
-        if not _can_see(principal, row, writing=True):
+        if not is_own(principal, row.get("owner_user_id"), admin_ids) \
+                or not _can_see(principal, row, writing=True):
             continue
         if not valid_url(row) or _poller().is_checking(row["id"]) or _cooling(row, now) \
                 or not _poller().request_check(row["id"], channel_url=row["channel_url"], now=now):
