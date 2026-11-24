@@ -550,7 +550,6 @@ class LiveFollowList(BaseModel):
     items: List[LiveFollow]
     can_auto_start: bool
     max_per_member: int
-    max_total: int
 
 
 class LiveFollowRemoved(BaseModel):

@@ -22386,8 +22386,6 @@ export interface components {
             items: components["schemas"]["LiveFollow"][];
             /** Max Per Member */
             max_per_member: number;
-            /** Max Total */
-            max_total: number;
         };
         /**
          * LiveFollowOptions
