@@ -1,21 +1,8 @@
-/*
- * Engine and model picked for the viewer (owner decision 2026-11-24): a member's always, and anyone's on another
- * device until an admin there presses Show options. The page hides its pickers while `auto` is true and sends
- * no engine, so the server chooses one the account may use.
- */
-import { useState } from 'react'
-
-import { usePcOnly } from '../hooks/usePcOnly'
-import { pickedForYou, useSession } from '../hooks/useSession'
+/* The line a page shows in place of its engine pickers while they are chosen for the viewer (hooks/useChosenForYou). */
+import type { ChosenForYou } from '../hooks/useChosenForYou'
 import { buttonClass } from './uiClasses'
 
-export function useChosenForYou() {
-  const picked = pickedForYou(useSession(), usePcOnly())
-  const [showOptions, setShowOptions] = useState(false)
-  return { auto: picked === 'member' || (picked === 'away' && !showOptions), canShow: picked === 'away', show: () => setShowOptions(true) }
-}
-
-export function ChosenForYouNote({ text, chosen, testId }: { text: string; chosen: ReturnType<typeof useChosenForYou>; testId: string }) {
+export function ChosenForYouNote({ text, chosen, testId }: { text: string; chosen: ChosenForYou; testId: string }) {
   return (
     <p className="muted translate-engine-note" data-testid={testId}>
       {text}{' '}
