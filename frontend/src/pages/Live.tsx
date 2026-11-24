@@ -118,6 +118,18 @@ export default function LivePage() {
     return () => { alive = false }
   }, [])
   const [fastHelpId, balancedHelpId] = [useId(), useId()]
+  // An earlier version saved the form's own default model as if it were a pick whenever the
+  // language changed, which kept 'small' from following the language. Dropped once; a model
+  // picked since then is kept.
+  const [whisperPrefChecked, setWhisperPrefChecked] = usePersistedState<boolean>('live.whisperPrefChecked', false)
+  useEffect(() => {
+    if (whisperPrefChecked) return
+    setWhisperPrefChecked(true)
+    if (prefs.whisper_size === DEFAULT_FORM.whisper_size) {
+      const { whisper_size: _stale, ...rest } = prefs
+      setPrefs(rest)
+    }
+  }, [whisperPrefChecked, setWhisperPrefChecked, prefs, setPrefs])
   const [url, setUrl] = useState('')
   const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
   const [captionsOn, setCaptionsOn] = usePersistedState<boolean>('live.captions', true)
@@ -179,8 +191,10 @@ export default function LivePage() {
 
   const { readiness } = useReadiness()
   const gpuReason = liveGpuReason(readiness)
-  // With no NVIDIA GPU the box shows unticked, so a remembered tick is not sent either.
-  const useGpu = form.use_gpu && !gpuReason
+  // GPU is on unless this browser unticked it: a CPU Whisper can't keep up with a stream, so
+  // an untouched form must not start there. With no NVIDIA GPU the box shows unticked, so a
+  // remembered tick is not sent either.
+  const useGpu = (prefs.use_gpu ?? readiness?.gpu_found === true) && !gpuReason
   const startForm: LiveForm = { ...form, engine, model, ...glossary, use_gpu: useGpu }
   // Ollama is the default and runs on this PC: say plainly when it is not
   // there, instead of failing at Start. Nothing switches engine for the user.
