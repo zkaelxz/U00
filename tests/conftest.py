@@ -267,7 +267,8 @@ def _uploads_not_probed():
 @pytest.fixture(autouse=True)
 def _ocr_reads_in_this_process():
     """The text reader's helper process can't see a test's fake RapidOCR, so reads stay here;
-    tests/test_ocr_worker.py runs a real helper. Set by hand for the same ordering reason."""
+    tests/test_ocr_worker.py drives the helper bookkeeping and the child's loop with fakes (no
+    real spawn). Set by hand for the same ordering reason."""
     import ocr_worker
     ocr_worker.inline = True
     yield

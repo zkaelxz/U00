@@ -393,11 +393,12 @@ def _rapidocr_params(key: str, gpu: bool = False) -> dict:
     return params
 
 
-def _run_rapidocr(key: str, source):
+def _run_rapidocr(key: str, source, allow_download: bool = True):
     """One RapidOCR pass over an image path or BGR array with the engine for `key`
-    ("small", "medium" or "ko"), in the text reader's own process (ocr_worker)."""
+    ("small", "medium" or "ko"), in the text reader's own process (ocr_worker).
+    `allow_download=False` (warming) keeps the GPU engine off until its weights are on disk."""
     import ocr_worker
-    return ocr_worker.read(key, source)
+    return ocr_worker.read(key, source, allow_download=allow_download)
 
 
 def rapidocr_lines(image, lang: str = "zh", scale: float = 1.0) -> list:

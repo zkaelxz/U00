@@ -66,7 +66,7 @@ def warm_models(detect_backend: str = "auto") -> list:
         warmed.append("text eraser")
     if _chinese_reader_on_disk():
         import ocr
-        ocr._run_rapidocr("medium", blank)
+        ocr._run_rapidocr("medium", blank, allow_download=False)
         warmed.append("Chinese text reader")
     return warmed
 
