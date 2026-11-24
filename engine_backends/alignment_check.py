@@ -94,7 +94,7 @@ def _embed_around_nan(base_url: str, model: str, chunk: list) -> list:
             fits, fitted = mid, got
         else:
             too_many = mid
-    vectors = [None] * len(chunk)
+    vectors: list = [None] * len(chunk)
     for i, vector in zip(order[:fits], fitted):
         vectors[i] = vector
     long_ones = [(i, _pieces(chunk[i])) for i in order[fits:]]
