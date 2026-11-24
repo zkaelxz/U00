@@ -668,8 +668,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                                                      notes, member, data, store, source_language, turn)
         if typeset and temp_path and page is None:
             typeset_started = time.monotonic()
-            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style,
-                                             typeset_max_width)
+            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style, typeset_max_width)
             seconds["typeset"] = round(time.monotonic() - typeset_started, 2)
         if page is not None:
             notes.extend(read_notes)
