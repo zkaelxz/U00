@@ -71,6 +71,10 @@ public class MainActivity extends Activity {
                 }
                 if (address != null && ServerAddress.sameOrigin(address, url)) return false;
                 String scheme = request.getUrl().getScheme();
+                if ("baihegrab".equals(scheme)) {
+                    startActivity(new Intent(MainActivity.this, GrabActivity.class));
+                    return true;
+                }
                 if ("http".equals(scheme) || "https".equals(scheme)) {
                     try {
                         if (ServerAddress.opensInGrab(url)) {
