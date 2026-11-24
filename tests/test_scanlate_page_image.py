@@ -498,3 +498,40 @@ def test_the_extension_tries_gemma_then_haiku_and_a_gemma_failure_starts_the_ski
     scanlate_translate.translate_page_bubbles(bubbles, _Engine(), {}, **extras)
     assert asked == ["gemma4:31b-cloud", "claude-haiku-5-5"] and bubbles[0]["translated_text"] == "EN"
     assert run_svc.picture_readers(_Engine(), "claude")[0][1] == "claude"
+
+
+def test_a_chapter_keeps_the_names_its_pages_reported(monkeypatch):
+    # Quick read pages translate side by side, so a name spelled on one page is sent with the
+    # next; only a name written on the page itself is kept, and the first spelling stays.
+    from engine_backends import llm_tasks
+    prompts, replies = [], [
+        {"translations": {"0": "Aro, wait!"}, "context_summary": "x",
+         "names": {"아로": "Aro", "유령": "Ghost"}},
+        {"translations": {"0": "Aro runs."}, "context_summary": "y", "names": {"아로": "Arrow"}},
+    ]
+
+    def call(engine, prompt, **kw):
+        prompts.append(prompt)
+        return json.dumps(replies[len(prompts) - 1])
+    monkeypatch.setattr(llm_tasks, "call_llm_json", call)
+    names = {}
+    scanlate_translate.translate_page_bubbles([_region("아로, 기다려!")], _Engine(),
+                                              {"source_language": "ko"}, chapter_names=names)
+    assert names == {"아로": "Aro"}
+    assert '"names"' in prompts[0] and "spell them exactly the same" not in prompts[0]
+    scanlate_translate.translate_page_bubbles([_region("아로가 달린다.")], _Engine(),
+                                              {"source_language": "ko"}, chapter_names=names)
+    assert "아로 → Aro" in prompts[1]
+    assert names == {"아로": "Aro"}
+
+
+def test_a_page_outside_a_chapter_is_not_asked_for_names(monkeypatch):
+    from engine_backends import llm_tasks
+    prompts = []
+
+    def call(engine, prompt, **kw):
+        prompts.append(prompt)
+        return json.dumps({"translations": {"0": "Hi."}, "context_summary": "x"})
+    monkeypatch.setattr(llm_tasks, "call_llm_json", call)
+    scanlate_translate.translate_page_bubbles([_region("안녕")], _Engine(), {"source_language": "ko"})
+    assert '"names"' not in prompts[0]
