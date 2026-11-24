@@ -725,6 +725,22 @@ def auth_deactivate_user_keeping_an_admin(user_id: int, member_only: bool = Fals
         return cur.rowcount > 0
 
 
+def auth_delete_inactive_member(user_id: int) -> bool:
+    """Deletes a deactivated non-admin account; its permissions, sessions,
+    extension device tokens and saved keys go with it (ON DELETE CASCADE).
+    One statement, so an activate or grant-admin landing after the caller's
+    check makes it refuse instead of deleting a live account. Ids are never
+    reused (AUTOINCREMENT), so titles and audit rows that still name this id
+    can't pass to a later account. False when refused or already gone."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute(
+            # Flag truthiness as in auth_deactivate_user_keeping_an_admin.
+            "DELETE FROM users WHERE id = ? AND COALESCE(is_active, 0) = 0 "
+            "AND COALESCE(is_admin, 0) = 0", (user_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
+
 def auth_revoke_admin_keeping_an_admin(user_id: int) -> bool:
     """Sets is_admin=0 on an admin unless that would leave no active admin.
     One statement, so two admins demoting each other at once can't both

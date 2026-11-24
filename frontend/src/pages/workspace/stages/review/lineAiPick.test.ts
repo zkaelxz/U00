@@ -38,6 +38,7 @@ describe('modelBlockReason', () => {
     expect(modelBlockReason(ollama, 'cloud-x', false)).toBe(CLOUD_NEEDS_REASON)
     expect(modelBlockReason(ollama, 'cloud-x', true)).toBeNull()
     expect(modelBlockReason(ollama, 'gemma', false)).toBeNull()
+    expect(modelBlockReason({ ...ollama, cloud_models: ['gemma4:31b-cloud'] }, 'gemma4:31b-cloud', false)).toBeNull()
   })
 })
 

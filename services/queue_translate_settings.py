@@ -52,8 +52,8 @@ def _translate_cost(drama_id: int, engine: str, model=None, batch_size=None) -> 
     return f"About ${est['estimated_usd']:.2f}; uses your API key and costs money"
 
 
-def _is_cloud(engine: str, model) -> bool:
-    return engine == "ollama" and local.is_ollama_cloud_model(model)
+def _cloud_needs_paid(engine: str, model) -> bool:
+    return engine == "ollama" and local.cloud_model_needs_paid(model)
 
 
 def translate_fields(drama: dict, run_args: dict, holds_paid: bool, holds_edit: bool = True) -> list:
@@ -70,7 +70,7 @@ def translate_fields(drama: dict, run_args: dict, holds_paid: bool, holds_edit: 
                   novel, engine, model)["batch_size"]}
     models = next((e["models"] for e in translate_service.list_engines() if e["name"] == engine), None)
     offered = {
-        "model": [m for m in (models or []) if holds_paid or not _is_cloud(engine, m)],
+        "model": [m for m in (models or []) if holds_paid or not _cloud_needs_paid(engine, m)],
         "style_preset": {k: p["label"] for k, p in translation_guide.STYLE_PRESETS.items()},
         "locale": list(settings_service.LOCALE_CHOICES)}
     fields = []
@@ -121,7 +121,7 @@ def check_translate_settings(drama: dict, engine: str, overrides, holds_paid: bo
     if "model" in given:
         translate_run_service._require_offered_model(engine, given["model"])
         # A hosted Ollama model sends the text off this PC on the owner's quota, as a paid engine does.
-        if _is_cloud(engine, given["model"]) and not holds_paid:
+        if _cloud_needs_paid(engine, given["model"]) and not holds_paid:
             raise ForbiddenError("Hosted Ollama models need paid-engine permission.")
     return given
 

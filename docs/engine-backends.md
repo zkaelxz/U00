@@ -158,7 +158,8 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
     flags those. They are kept out of `ENGINE_MODEL_DICTS["ollama"]`, refused as a Diagnostics
     default replacement, and ignored on read if a restored backup carries one as the default
     (`model_override_for_default`). A household user needs `engines.paid`, or their own saved
-    Ollama key, to use one: every
+    Ollama key, to use one outside `MEMBER_CLOUD_MODELS` (gemma4:31b-cloud, open to every
+    account since 2026-11-24): every
     route that takes a client-chosen `model` passes it to `require_engines_allowed(request,
     engine, model=...)` (or calls `require_cloud_model_allowed`), and a sweep test fails any
     such route that doesn't. Routes that need `engines.paid` or are PC-only, and the

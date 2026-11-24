@@ -68,7 +68,7 @@ function validSeries(v: unknown): OpenSeries | null {
 const PREFIX = 'sources'
 
 // tab comes from the URL; area is the old "#/sources/manage?tab=network" link's target within Manage.
-export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: { tab?: SourcesTab; area?: ManageTab; sharedUrl?: string }) {
+export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl, openSeries: linkedSeries }: { tab?: SourcesTab; area?: ManageTab; sharedUrl?: string; openSeries?: OpenSeries }) {
   const pc = usePcOnly()
   const remote = pc === 'remote'
   const session = useSession()
@@ -242,6 +242,14 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl }: {
       setStoredMode('link')
     }
   }
+
+  // A link from the Updates page names a series: open it once per link, as if its Open button had been pressed.
+  const linkedKey = linkedSeries ? `${linkedSeries.source}:${linkedSeries.series_id}` : null
+  useEffect(() => {
+    if (linkedSeries) openSeries(linkedSeries)
+    // Only a new link opens a series; openSeries changes identity every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedKey])
 
   // Editing sites is PC only, so away from the PC the Manage tab becomes a read-only list of the sources.
   const shownTab = tab

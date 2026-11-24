@@ -63,6 +63,11 @@ export function showRevokeAdmin(user: AdminUser, pc: PcMode): boolean {
   return user.is_admin && pc === 'local'
 }
 
+/** Delete is for a deactivated member, at the main PC only (the server refuses it elsewhere). */
+export function showDeleteUser(user: AdminUser, pc: PcMode): boolean {
+  return !user.is_active && !user.is_admin && !user.is_self && pc === 'local'
+}
+
 /** A plain name and what it allows, for each member permission; the server's
  * list decides which are shown, and an unknown one is shown by its own name. */
 const RIGHTS: Record<string, { name: string; about: string }> = {
@@ -74,7 +79,7 @@ const RIGHTS: Record<string, { name: string; about: string }> = {
   'review.use': { name: 'Use Review', about: 'Use the Review tools: line history, notes, versions and checks.' },
   'media.import_url': { name: 'Import from a link', about: 'Add media from a web link, start Live from a stream link, and make subtitles from a video link with One-click translate. These run on the PC; a paid engine also needs Paid engines and stays under the monthly cap and their own limit.' },
   'sources.import': { name: 'Import from sources', about: 'Add chapters from novel and comic sites, and follow series for new chapters.' },
-  'engines.paid': { name: 'Paid engines', about: 'Use engines that cost money, such as Claude, Gemini, OpenAI, DeepSeek or Ollama cloud models.' },
+  'engines.paid': { name: 'Paid engines', about: 'Use engines that cost money, such as Claude, Gemini, OpenAI, DeepSeek or Ollama cloud models other than Gemma 31B cloud, which everyone may use.' },
   'extension.send': { name: 'Browser extension', about: 'Connect the browser extension and send pages to Baihe from their own browser.' },
   'media.stream': { name: 'Play media', about: 'Play audio and video and view comic pages from the PC.' },
 }
@@ -141,6 +146,7 @@ const ACTIONS: Record<string, string> = {
   'user.add': 'User added',
   'user.activate': 'User activated',
   'user.deactivate': 'User deactivated',
+  'user.delete': 'User deleted',
   'user.grant_admin_local': 'Admin granted on the PC',
   'user.revoke_admin': 'Admin rights removed',
   'user.bind_google': 'Google account linked',

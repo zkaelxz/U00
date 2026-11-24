@@ -400,8 +400,8 @@ def require_engines_allowed(request: Request, *engine_names, model=None):
     "use the configured default") counts as possibly paid. Pass the request's
     `model` whenever it has one: an Ollama cloud tag is held to
     `engines.paid` too (`require_cloud_model_allowed`); an omitted model
-    resolves to the engine default (for Ollama, hosted Gemma 4 31B), which this
-    check lets through: members may use that default (owner decision 2026-11-24)."""
+    resolves to the engine default, which for Ollama is hosted Gemma 4 31B, a
+    MEMBER_CLOUD_MODELS tag every account may use."""
     if not holds(request, "engines.paid"):
         from engine_backends.engine_registry import FREE_ENGINES
         if any(not name or name not in FREE_ENGINES for name in engine_names):
@@ -417,12 +417,15 @@ def require_cloud_model_allowed(request: Request, *engine_models):
     the owner's Ollama quota, so it is held to the same permission as a paid
     engine even though Ollama is free; with their own key the quota is the
     member's, so that alone is enough (owner decision 2026-10-14). The key
-    lifts this check only: a paid engine still needs `engines.paid`. A key
+    lifts this check only: a paid engine still needs `engines.paid`. The tags in
+    `engine_backends.local.MEMBER_CLOUD_MODELS` pass for every account (owner
+    decision 2026-11-24), so the model chosen for members just works. A key
     saved but no longer readable is refused even with `engines.paid`: that
     member's cloud runs would otherwise land on the owner's account."""
-    from engine_backends.local import is_ollama_cloud_model
-    if not any(engine in (None, "ollama") and is_ollama_cloud_model(model)
-               for engine, model in engine_models):
+    from engine_backends.local import cloud_model_needs_paid, is_ollama_cloud_model
+    cloud = [model for engine, model in engine_models
+             if engine in (None, "ollama") and is_ollama_cloud_model(model)]
+    if not cloud:
         return
     from services import member_key_service
     principal = getattr(getattr(request, "state", None), "principal", None) or {}
@@ -431,6 +434,8 @@ def require_cloud_model_allowed(request: Request, *engine_models):
         raise ForbiddenError("Your own Ollama key is saved but can't be read any more, so "
                              "cloud models are off for you until you paste it again in "
                              "Settings > Your Ollama key, or remove it there.")
+    if not any(cloud_model_needs_paid(model) for model in cloud):
+        return
     if holds(request, "engines.paid") or member_key_service.has_usable_key(user_id):
         return
     raise ForbiddenError("Ollama cloud models send your text off this PC and use the "

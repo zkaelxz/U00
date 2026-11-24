@@ -128,6 +128,18 @@ def is_ollama_cloud_model(model) -> bool:
     return isinstance(model, str) and model.lower().endswith(("-cloud", ":cloud"))
 
 
+# Hosted tags every account may run on the PC's Ollama account without
+# engines.paid (owner decision 2026-11-24): the model chosen for members and
+# away devices has to just work. Other hosted tags still need engines.paid or
+# the member's own Ollama key. Spend still counts against the monthly cap.
+MEMBER_CLOUD_MODELS = frozenset({"gemma4:31b-cloud"})
+
+
+def cloud_model_needs_paid(model) -> bool:
+    """A hosted tag outside MEMBER_CLOUD_MODELS: held to engines.paid like a paid engine."""
+    return is_ollama_cloud_model(model) and model.lower() not in MEMBER_CLOUD_MODELS
+
+
 # A member's own key sends cloud tags straight to Ollama's hosted API, so the
 # member's runs spend their account, not the PC's signed-in one.
 OLLAMA_CLOUD_URL = "https://ollama.com"

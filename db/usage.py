@@ -314,7 +314,9 @@ def get_usage_by_drama(visible_to: int | None = None):
                    COALESCE(SUM(u.output_tokens),0) as output_tokens,
                    COALESCE(SUM(u.cache_read_tokens),0) as cache_read_tokens,
                    COALESCE(SUM(u.estimated_cost_usd),0) as estimated_cost_usd,
-                   COUNT(u.id) as call_count
+                   COUNT(u.id) as call_count,
+                   COALESCE(SUM(lower(u.model) LIKE '%-cloud' OR lower(u.model) LIKE '%:cloud'), 0)
+                       as cloud_call_count
             FROM dramas d LEFT JOIN usage_log u ON u.drama_id = d.id
             {where}
             GROUP BY d.id ORDER BY estimated_cost_usd DESC

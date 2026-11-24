@@ -351,6 +351,7 @@ class LibraryCostRow(BaseModel):
     cache_read_tokens: int
     estimated_cost_usd: float
     call_count: int
+    cloud_call_count: int = 0
 
 
 class LibraryCostResponse(BaseModel):
@@ -463,6 +464,8 @@ class MediaSubtitleTrack(BaseModel):
     index: Optional[int] = None
     codec: str
     language: Optional[str] = None
+    # Text tracks can be imported as lines; picture tracks (PGS, DVD) can't.
+    importable: bool = False
 
 
 MediaAnalysis.model_rebuild()

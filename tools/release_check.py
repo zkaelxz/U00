@@ -5,10 +5,13 @@ transcription, speaker detection and translation code on this PC, and writes one
 table plus a JSON file. A transcription clip with "title_settings" runs the app's whole
 transcription pipeline with those stored title settings; one without runs plain Whisper.
 "fixed_decoding": true on such a clip pins Whisper's temperature at 0, so its score repeats exactly.
---repeats runs each transcription clip several times and scores the median, because Whisper's
-default decoding differs from run to run. Scores: 1 - CER (1 - WER for spaced languages), diarization error rate,
+Each transcription clip runs 5 times (--repeats) and scores the median, because Whisper's
+default decoding differs from run to run (one title has scored 0.23 and 0.72 on the same audio). Scores: 1 - CER (1 - WER for spaced languages), diarization error rate,
 translation chrF against a reference, speed as a multiple of real time, and peak GPU memory.
-With --previous it flags every score that got worse than the last run. Nothing is saved to the library.
+With --previous it flags every score that got worse than the last run. A clip's "baseline" is the
+score it must keep (within REGRESSION_MARGIN); the run passes the release gate only when no clip
+failed or fell below its baseline, and Diagnostics > Quality shows the newest result from the data
+folder. Nothing is saved to the library.
 
 Without --yes it is a dry run: it lists the clips and what each would load and writes nothing.
 Paid translation engines also need --allow-paid; a run stops adding paid lines once --max-usd is spent.
@@ -16,6 +19,7 @@ Paid translation engines also need --allow-paid; a run stops adding paid lines o
 import argparse
 import datetime
 import json
+import math
 import multiprocessing
 import os
 import platform
@@ -44,7 +48,8 @@ import whisper_models
 from engine_backends import engine_registry, pricing
 from engine_backends import shared as engine_shared
 from lib.errors import ServiceError
-from services import benchmark_scoring_service, settings_service, transcribe_service, translate_service
+from services import (benchmark_scoring_service, quality_check_service, settings_service, transcribe_service,
+                      translate_service)
 from tools import release_check_worker, self_test
 from tools.asr_bench import Refusal, gpu_guard
 
@@ -52,6 +57,12 @@ REPORT_TITLE = "# Baihe real-hardware release check"
 KINDS = ("transcription", "diarization", "translation")
 # A drop bigger than this between runs is flagged; smaller moves are within run-to-run noise on one clip.
 REGRESSION_MARGIN = 0.02
+# One default-decoding run can land anywhere in its spread, so it can't pass the gate.
+GATE_MIN_REPEATS = 5
+DEFAULT_REPEATS = GATE_MIN_REPEATS
+BASELINE_METRICS = frozenset(("cer", "wer", "der", "chrf"))
+RESULT_PREFIX = quality_check_service.RESULT_PREFIX
+GATE_MAX_AGE_DAYS = quality_check_service.GATE_MAX_AGE_DAYS
 DIARIZATION_FRAME_S = 0.01
 TRANSLATE_BATCH = 20
 MAX_CELL_CHARS = 120
@@ -110,6 +121,10 @@ def load_manifest(path: str) -> dict:
         if clip.get("fixed_decoding") is not None and (
                 not isinstance(clip["fixed_decoding"], bool) or not (clip["kind"] == "transcription" and settings is not None)):
             raise Refusal(f'Clip "{cid}": "fixed_decoding" is true or false, and only a transcription clip with "title_settings" takes it.')
+        baseline = clip.get("baseline")
+        if baseline is not None and (isinstance(baseline, bool) or not isinstance(baseline, (int, float))
+                                     or not math.isfinite(baseline) or baseline < 0):
+            raise Refusal(f'Clip "{cid}": "baseline" must be a score of 0 or more.')
         if clip.get("backend") is not None and clip["backend"] not in diarize.SPEAKER_MODELS:
             raise Refusal(f'Clip "{cid}": "backend" must be one of {", ".join(diarize.SPEAKER_MODELS)}.')
     return data
@@ -405,6 +420,30 @@ def _baseline(row: dict):
     return max(scores) if row.get("metric") == "der" else min(scores)
 
 
+def baseline_status(row: dict) -> str:
+    """"pass", "fail" (failed, or worse than its baseline by more than the margin) or "none" (no baseline)."""
+    if row.get("error"):
+        return "fail"
+    if row.get("baseline") is None:
+        return "none"
+    # Translation falls back to a difflib ratio without sacrebleu; a chrF baseline means nothing against it.
+    if row.get("metric") not in BASELINE_METRICS:
+        return "fail"
+    if row.get("score") is None or worse(row["metric"], row["score"], row["baseline"]):
+        return "fail"
+    return "pass"
+
+
+def gate_passed(run: dict) -> bool:
+    """The release gate: something was compared with a baseline, nothing failed or fell below one,
+    and every default-decoding clip ran often enough for its median to mean something."""
+    rows = run.get("results") or []
+    if not any(r.get("baseline") is not None for r in rows) or any(baseline_status(r) == "fail" for r in rows):
+        return False
+    return all(r.get("kind") != "transcription" or r.get("fixed_decoding")
+               or len(r.get("scores") or [r.get("score")]) >= GATE_MIN_REPEATS for r in rows)
+
+
 def _fmt(value, digits=3) -> str:
     return "-" if value is None else f"{value:.{digits}f}"
 
@@ -425,22 +464,35 @@ def format_report(run: dict, previous: dict | None) -> str:
         lines += [f"Compared with the run of {_cell(previous.get('when', '?'))}; a score is flagged when it "
                   f"is worse than Previous by more than {REGRESSION_MARGIN}. For a clip that ran several times, "
                   "Previous is the worst of the last run's scores.", ""]
-    lines += ["| Clip | Kind | Metric | Score | Previous | Speed | VRAM MB | Result |",
-              "|---|---|---|---|---|---|---|---|"]
+    lines += [f"Baseline is the score the clip must keep; Result says BELOW BASELINE when it is worse by more "
+              f"than {REGRESSION_MARGIN}.", ""]
+    lines += ["| Clip | Kind | Metric | Score | Baseline | Previous | Speed | VRAM MB | Result |",
+              "|---|---|---|---|---|---|---|---|---|"]
     flagged = 0
     for r in run["results"]:
         prev = before.get(r["id"])
         prev_score = _baseline(prev) if prev else None
         if r.get("error"):
             result = "FAILED: " + _cell(r["error"])
+        elif baseline_status(r) == "fail":
+            result = "BELOW BASELINE"
         elif prev and worse(r["metric"], r["score"], prev_score):
             result, flagged = "WORSE", flagged + 1
         else:
             result = "ok"
         lines.append(f"| {_cell(r['id'])} | {r['kind']} | {r.get('metric') or '-'} | {_fmt(r.get('score'))} | "
-                     f"{_fmt(prev_score)} | {_fmt(r.get('speed_x'), 1)} | {r.get('vram_mb') or '-'} | {result} |")
+                     f"{_fmt(r.get('baseline'))} | {_fmt(prev_score)} | {_fmt(r.get('speed_x'), 1)} | "
+                     f"{r.get('vram_mb') or '-'} | {result} |")
     failed = sum(1 for r in run["results"] if r.get("error"))
-    lines += ["", f"{len(run['results'])} clips, {failed} failed, {flagged} worse than the previous run.", ""]
+    below = sum(1 for r in run["results"] if not r.get("error") and baseline_status(r) == "fail")
+    lines += ["", f"{len(run['results'])} clips, {failed} failed, {flagged} worse than the previous run, "
+                  f"{below} below baseline.", ""]
+    if gate_passed(run):
+        lines += [f"Release gate: passed. Promote Release takes `{run.get('stamp', '?')}` as its release check "
+                  f"for {GATE_MAX_AGE_DAYS} days.", ""]
+    else:
+        lines += ["Release gate: not passed (a clip failed or fell below its baseline, no clip has a baseline, "
+                  f"or a clip without fixed decoding ran fewer than {GATE_MIN_REPEATS} times).", ""]
     notes = [f"- {_cell(r['id'])}: {_cell(r['detail'])}" for r in run["results"] if r.get("detail")]
     return "\n".join(lines + (["Details", ""] + notes + [""] if notes else []))
 
@@ -472,11 +524,12 @@ def run_repeated(run, clip: dict, opts, times: int) -> dict:
 def run_all(manifest: dict, opts) -> dict:
     spend = Spend(opts.max_usd)
     results = []
-    repeats = getattr(opts, "repeats", 1)
+    repeats = getattr(opts, "repeats", DEFAULT_REPEATS)
     with gpu_guard(opts.use_gpu, "Release check"):
         for n, clip in enumerate(manifest["clips"]):
             print(f"[{n + 1}/{len(manifest['clips'])}] {clip['id']} ({clip['kind']}) ...", flush=True)
-            row = {"id": clip["id"], "kind": clip["kind"]}
+            row = {"id": clip["id"], "kind": clip["kind"], "baseline": clip.get("baseline"),
+                   "fixed_decoding": bool(clip.get("fixed_decoding"))}
             try:
                 if clip["kind"] == "transcription":
                     row.update(run_repeated(run_transcription, clip, opts, repeats))
@@ -489,10 +542,13 @@ def run_all(manifest: dict, opts) -> dict:
                 row.update({"score": None, "metric": None, "error": _clean(f"{type(exc).__name__}: {exc}")})
             print("    " + (f"failed: {row['error']}" if row.get("error") else f"score {_fmt(row['score'])}"),
                   flush=True)
+            row["status"] = baseline_status(row)
             results.append(row)
-    return {"when": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "machine": platform.node() or "unknown",
+    run = {"when": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "machine": platform.node() or "unknown",
             "gpu": gpu_name() if opts.use_gpu else None, "whisper_model": opts.whisper_model,
-            "repeats": repeats, "paid_usd": round(spend.used, 4), "results": results}
+            "repeats": repeats, "margin": REGRESSION_MARGIN, "paid_usd": round(spend.used, 4), "results": results}
+    run["passed"] = gate_passed(run)
+    return run
 
 
 def main(argv=None) -> int:
@@ -501,8 +557,9 @@ def main(argv=None) -> int:
     parser.add_argument("--previous", metavar="RESULTS.json", help="the JSON of the last run, to flag regressions")
     parser.add_argument("--whisper-model", default="large-v3", help="transcription model (default large-v3)")
     parser.add_argument("--engine", default="ollama", help="translation engine for clips that name none (default: free local)")
-    parser.add_argument("--repeats", type=int, default=1,
-                        help="run each transcription clip this many times and score the median (default 1)")
+    parser.add_argument("--repeats", type=int, default=DEFAULT_REPEATS,
+                        help=f"run each transcription clip this many times and score the median (default {DEFAULT_REPEATS}; "
+                             f"the release gate needs {GATE_MIN_REPEATS} unless the clip has fixed decoding)")
     parser.add_argument("--cpu", action="store_true", help="run on the CPU instead of the GPU")
     parser.add_argument("--allow-paid", action="store_true", help="let translation use a paid engine")
     parser.add_argument("--max-usd", type=float, default=1.0, help="stop paid translation past this spend (default 1.00)")
@@ -529,10 +586,11 @@ def main(argv=None) -> int:
             return 0
         out_dir = opts.out or default_out_dir()
         stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        report_path = os.path.join(out_dir, f"release-check-{stamp}.md")
+        report_path = os.path.join(out_dir, f"{RESULT_PREFIX}{stamp}.md")
         if self_test._refuse_to_overwrite(report_path, REPORT_TITLE):
             raise Refusal("Refusing to write the report: that file exists and is not a release check report.")
         run = run_all(manifest, opts)
+        run["stamp"] = stamp
         report = format_report(run, previous)
         os.makedirs(out_dir, exist_ok=True)
         Path(report_path).write_text(report, encoding="utf-8")

@@ -21,7 +21,8 @@ from api.server import create_app
 from lib.errors import ForbiddenError
 from services import auth_service
 
-CLOUD = "gemma4:31b-cloud"
+# A hosted tag outside MEMBER_CLOUD_MODELS, so the paid gate applies to it.
+CLOUD = "qwen3-coder:480b-cloud"
 MODEL_FIELDS = ("model", "models", "engine_model", "review_model")
 GATE_CALLS = {"require_cloud_model_allowed", "require_engines_allowed"}
 
@@ -284,3 +285,20 @@ def test_hosted_tag_stays_refused_for_an_account_without_paid_permission_even_wh
     req = SimpleNamespace(state=SimpleNamespace(principal={"user_id": 7, "permissions": ["lines.read"]}))
     with pytest.raises(ForbiddenError):
         api_auth.require_engines_allowed(req, "ollama", model=CLOUD)
+
+
+def test_member_cloud_model_is_a_default_for_an_account_without_paid_permission(isolated_db):
+    from engine_backends import engine_registry, local
+    from lib import acting
+    member_model = next(iter(local.MEMBER_CLOUD_MODELS))
+    db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": member_model})
+    db.set_app_setting("pref.ollama_cloud_default", True)
+    token = acting.bind_request()
+    try:
+        acting.note_acting_principal({"user_id": 7, "permissions": ["lines.read"]})
+        assert engine_registry.effective_default_model("ollama") == member_model
+        # The owner's opt-in still decides whether a hosted tag may be a default at all.
+        db.set_app_setting("pref.ollama_cloud_default", False)
+        assert engine_registry.effective_default_model("ollama") == local.OLLAMA_DEFAULT_MODEL
+    finally:
+        acting.unbind_request(token)
