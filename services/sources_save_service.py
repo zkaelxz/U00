@@ -176,14 +176,17 @@ def chapter_path(root: str, source_label: str, series_title: str, series_id, num
     return path
 
 
-def _comic_info(series: str, title: str, number: int, language: str, note: str = "") -> str:
+def comic_info(series: str, title: str, number, language: str, note: str = "") -> str:
+    """`number` may be None for a chapter with no known order: the tag is left out
+    rather than guessed."""
     notes = f"  <Notes>{escape(note)}</Notes>\n" if note else ""
+    number_tag = f"  <Number>{number}</Number>\n" if number is not None else ""
     lang = f"  <LanguageISO>{escape(language)}</LanguageISO>\n" if language else ""
     return ('<?xml version="1.0" encoding="utf-8"?>\n'
             '<ComicInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n'
             f"  <Series>{escape(series)}</Series>\n"
             f"  <Title>{escape(title)}</Title>\n"
-            f"  <Number>{number}</Number>\n"
+            f"{number_tag}"
             f"{lang}"
             f"{notes}"
             "</ComicInfo>\n")
@@ -218,7 +221,7 @@ def write_cbz(path: str, images, series: str, title: str, number: int, language:
             for i, (data, ext) in enumerate(images, start=1):
                 ext = str(ext or "").lower()
                 zf.writestr(f"{i:0{width}d}{ext if ext in IMAGE_EXTS else '.jpg'}", data)
-            zf.writestr("ComicInfo.xml", _comic_info(series, title, number, language, note),
+            zf.writestr("ComicInfo.xml", comic_info(series, title, number, language, note),
                         compress_type=zipfile.ZIP_DEFLATED)
         os.replace(part, path)
     except BaseException:
