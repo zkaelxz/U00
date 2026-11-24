@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { SourcesSettings, SourceSummary } from '../../types/sources'
-import { SEARCH_REMOTE_ALLOWED, browserHeldSources, excludedAfterBulkPick, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, sourceProgressPercent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, groupSourcesByLanguageAndKind, searchableSources, selectedSources, accessMethodLabel, isoDay, sourceStatusLabel, tierLines } from './sourcesFormat'
+import { browserHeldSources, excludedAfterBulkPick, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, sourceProgressPercent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, groupSourcesByLanguageAndKind, searchableSources, selectedSources, accessMethodLabel, isoDay, sourceStatusLabel, tierLines } from './sourcesFormat'
 import { groupChapters, limitGroups, seriesSafeHref, seriesView, type SeriesJobLike, seriesLinks, seriesMeta } from './sourcesSeries'
 import { cacheLabel, draftFrom, fieldProblem, CHECK_FIELD, pacingErrors, pacingSummary, profileLine, settingsChanges, settingsSummary } from './sourcesSettings'
 
@@ -42,10 +42,6 @@ const SETTINGS: SourcesSettings = {
 }
 
 describe('search form', () => {
-  it('stays off for remote viewers until step 133', () => {
-    expect(SEARCH_REMOTE_ALLOWED).toBe(false)
-  })
-
   it('spots links', () => {
     expect(looksLikeUrl('https://x')).toBe(true)
     expect(looksLikeUrl('  WWW.example.com')).toBe(true)
