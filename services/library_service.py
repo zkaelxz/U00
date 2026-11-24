@@ -64,17 +64,17 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
                   if all(t in [x.strip() for x in (d.get("custom_tags") or "").split(",")]
                          for t in custom_tags)]
     dramas = _with_sharing(dramas, principal)
-    return _with_progress(dramas) if with_progress else dramas
+    return _with_progress(dramas, principal) if with_progress else dramas
 
 
-def _with_progress(dramas: list) -> list:
+def _with_progress(dramas: list, principal=None) -> list:
     """Add `line_count`, `translated_count`, `page_count`, `pages_translated`,
     `new_chapters`, `read_percent` and `unread_chapters` so a card can show where a
     title stands without opening it."""
     counts = db.line_progress_by_drama() if dramas else {}
     pages = db.page_progress_by_drama() if dramas else {}
     new = _new_chapter_counts() if dramas else {}
-    reading = db.reading_marks_by_drama() if dramas else {}
+    reading = db.reading_marks_by_drama(ownership_service.user_id(principal) or 0) if dramas else {}
     filenames = db.page_filenames_by_drama() if dramas else {}
     return [{**d, "read_percent": reading.get(d["id"], (0.0, ()))[0],
              "unread_chapters": _unread_chapters(d["id"], filenames.get(d["id"], ()),
