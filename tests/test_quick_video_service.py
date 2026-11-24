@@ -10,6 +10,9 @@ from lib.errors import ConflictError, ForbiddenError, InvalidInputError
 from services import profile_service, quick_video_service as qv, queue_service as q, url_media_service
 from tests.test_queue_service import jobs  # noqa: F401  (fixture)
 
+pytestmark = pytest.mark.usefixtures("local_ollama_default")
+
+
 URL = "https://example.com/watch?v=abc"
 
 

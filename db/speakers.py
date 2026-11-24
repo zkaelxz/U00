@@ -837,6 +837,12 @@ def get_series_character_voice(series_character_id: int) -> int | None:
     return row[0] if row else None
 
 
+def set_voice_bank_private(entry_id: int, private: bool):
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE voice_bank SET is_private = ? WHERE id = ?", (1 if private else 0, entry_id))
+        conn.commit()
+
+
 def rename_voice_bank_entry(entry_id: int, new_name: str):
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("UPDATE voice_bank SET name = ? WHERE id = ?", (new_name, entry_id))

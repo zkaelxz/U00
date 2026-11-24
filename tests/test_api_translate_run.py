@@ -186,7 +186,7 @@ def test_offered_or_default_models_pass_the_check():
     from services import translate_run_service as svc
     from lib.errors import InvalidInputError
     svc._require_offered_model("fake", None)
-    svc._require_offered_model("ollama", next(iter(local.OLLAMA_MODELS)))
+    svc._require_offered_model("ollama", local.OLLAMA_DEFAULT_MODEL)
     svc._require_offered_model("claude", next(iter(pricing.CLAUDE_MODELS)))
     svc._require_offered_model("deepseek", engine_registry.effective_default_model("deepseek"))
     with pytest.raises(InvalidInputError):

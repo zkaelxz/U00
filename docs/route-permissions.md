@@ -381,6 +381,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/library/voice-bank/{entry_id}/clip` | local_only() |
 | `POST /api/library/voice-bank/{entry_id}/delete` | local_only() |
 | `POST /api/library/voice-bank/{entry_id}/details` | admin.library |
+| `POST /api/library/voice-bank/{entry_id}/private` | admin.library |
 | `POST /api/library/voice-bank/{entry_id}/rename` | admin.library |
 | `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/alternatives` | lines.read |
 | `POST /api/line-ai/dramas/{drama_id}/lines/{line_id}/explain` | lines.read |

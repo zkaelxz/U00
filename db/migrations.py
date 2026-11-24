@@ -302,6 +302,11 @@ def _migrate_series_and_character_columns(conn):
         # unnamed one. NULL/"" means unset -- no hint is added for that
         # character, distinct from "unspecified" as a deliberate choice.
         db._safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN gender TEXT")
+    bank_cols = {r[1] for r in conn.execute("PRAGMA table_info(voice_bank)").fetchall()}
+    if "is_private" not in bank_cols:
+        # 1: only admins see the voice (list, picker, clip playback, apply); NULL/0 is the
+        # household-wide default every entry had before this column existed.
+        db._safe_alter(conn, "ALTER TABLE voice_bank ADD COLUMN is_private INTEGER DEFAULT 0")
     usage_cols = {r[1] for r in conn.execute("PRAGMA table_info(usage_log)").fetchall()}
     if "cache_read_tokens" not in usage_cols:
         # The part of input_tokens served from a provider prompt

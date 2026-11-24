@@ -540,6 +540,7 @@ from db.speakers import (  # noqa: F401
     voice_bank_clip_path,
     apply_voice_bank_entry,
     rename_voice_bank_entry,
+    set_voice_bank_private,
     set_series_character_voice,
     update_voice_bank_details,
     replace_voice_bank_clip,

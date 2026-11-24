@@ -1531,6 +1531,19 @@ def test_voice_bank_comes_in_when_asked_and_a_same_entry_is_skipped(local_client
         assert fh.read() == b"hero"
 
 
+def test_a_private_voice_stays_private_on_import(local_client, tmp_path):
+    a, b, g = _world()
+    private = db.save_voice_bank_entry("Secret", _bank_clip(tmp_path, "s.wav", b"secret"))
+    db.save_voice_bank_entry("Open", _bank_clip(tmp_path, "o.wav", b"open"))
+    db.set_voice_bank_private(private, True)
+    data = _manual_zip()
+    for entry in db.list_voice_bank_entries():
+        db.delete_voice_bank_entry(entry["id"])
+    r = _post_import(local_client, data, [g], voice_bank="true")
+    assert r.status_code == 200, r.text
+    assert {e["name"]: e["is_private"] for e in db.list_voice_bank_entries()} == {"Secret": 1, "Open": 0}
+
+
 def test_a_renamed_entry_is_not_imported_again(local_client, tmp_path):
     a, b, g = _world()
     narrator = db.save_voice_bank_entry("Narrator", _bank_clip(tmp_path, "n.wav", b"narrator"))

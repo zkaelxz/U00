@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from './client'
-import { addVoiceBankEntry, editVoiceBankDetails, replaceVoiceBankClip, createDrama, deleteDrama, getStats, openDramaFolder, searchLines } from './library'
+import { addVoiceBankEntry, editVoiceBankDetails, replaceVoiceBankClip, setVoiceBankPrivate, createDrama, deleteDrama, getStats, openDramaFolder, searchLines } from './library'
 
 function reply(status: number, body: unknown) {
   const mock = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status }))
@@ -18,6 +18,13 @@ describe('library api', () => {
     await replaceVoiceBankClip(3, new File(['x'], 'n.wav'), b.f)
     expect(b.mock.mock.calls[0][0]).toBe('/api/library/voice-bank/3/clip')
     expect(b.mock.mock.calls[0][1].body).toBeInstanceOf(FormData)
+  })
+
+  it('sets a voice private as json', async () => {
+    const { mock, f } = reply(200, { id: 3, name: 'V', clip_available: true, is_private: true })
+    await setVoiceBankPrivate(3, true, f)
+    expect(mock.mock.calls[0][0]).toBe('/api/library/voice-bank/3/private')
+    expect(JSON.parse(mock.mock.calls[0][1].body)).toEqual({ private: true })
   })
 
   it('uploads a voice as a form and leaves blank optional fields out', async () => {
