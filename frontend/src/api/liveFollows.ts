@@ -79,6 +79,26 @@ export function checkChannelInput(text: string): string | null {
   return null
 }
 
+// Channels one paste may follow, so a stray paste of a whole page can't queue hundreds of adds.
+export const MAX_CHANNELS_PER_ADD = 50
+
+/** The channels in the box: one per line (spaces and commas also separate them), duplicates dropped. */
+export function splitChannels(text: string): string[] {
+  return [...new Set(text.split(/[\s,]+/).filter(Boolean))]
+}
+
+/** Why Follow can't be pressed with this box yet, or null. Names the first bad line. */
+export function checkChannelsInput(text: string): string | null {
+  const channels = splitChannels(text)
+  if (!channels.length) return checkChannelInput('')
+  if (channels.length > MAX_CHANNELS_PER_ADD) return `Up to ${MAX_CHANNELS_PER_ADD} channels at a time.`
+  for (const c of channels) {
+    const why = checkChannelInput(c)
+    if (why) return channels.length > 1 ? `${c}: ${why}` : why
+  }
+  return null
+}
+
 /** "Live now: <title>", "Starts at 14:05", "Not live", the error words, or "Not checked yet". */
 export function followStatusText(f: Pick<LiveFollow, 'state' | 'last_status' | 'starts_at' | 'last_checked_at'> & { stream_title?: string }): string {
   if (f.last_checked_at === null && !f.state) return 'Not checked yet'

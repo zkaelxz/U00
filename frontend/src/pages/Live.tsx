@@ -22,7 +22,7 @@ import { api, hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP, LANGUAGE_MODEL_NOTE,
   advancedSummary, applyCaptionPreset, buildStartBody, captionPresetModel, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
-  isActive, lagLine, pickEngine, resolveLiveModel, startLive, statusLine, statusTone, type LiveForm,
+  isActive, lagLine, liveEngineView, pickEngine, resolveLiveModel, startLive, statusLine, statusTone, type LiveForm,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
@@ -425,7 +425,7 @@ export default function LivePage() {
             {error}
           </p>
         )}
-        <FollowedChannels liveOptions={followOptions(buildStartBody(startForm, opts))} />
+        <FollowedChannels liveOptions={followOptions(buildStartBody(startForm, opts))} formOptions={opts} engines={engines && usable.map((e) => liveEngineView(e, cloudAllowed) ?? e)} gpuReason={gpuReason} />
 
         {session && (
           <div className={videoLive ? (theater ? 'live-body has-video theater' : 'live-body has-video') : 'live-body'}>
