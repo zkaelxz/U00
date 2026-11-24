@@ -879,6 +879,55 @@ class TestFunctionLength:
             warnings.warn(f"remove from OVERLONG_FUNCTION_LINES (split or deleted): {stale}")
 
 
+def _find_calls_missing_creationflags(source):
+    """Line numbers of subprocess.run/Popen/check_output/check_call/call
+    calls with no creationflags= (or **kwargs that may carry it)."""
+    problems = []
+    for call in ast.walk(ast.parse(source)):
+        if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                and call.func.attr in _SUBPROCESS_CALLS
+                and isinstance(call.func.value, ast.Name) and call.func.value.id == "subprocess"):
+            continue
+        if not any(kw.arg in ("creationflags", None) for kw in call.keywords):
+            problems.append(call.lineno)
+    return problems
+
+
+# Not the running app: installer, build and dev tooling, and Explorer (a GUI
+# program, which opens no console).
+_NO_WINDOW_SCAN_SKIP_PREFIXES = ("installer/", "tools/", "scripts/", "tests/")
+_NO_WINDOW_SCAN_SKIP_FILES = {"run_tests.py", "lib/file_manager.py"}
+
+
+class TestSubprocessNoWindow:
+    """The app runs windowless on a desktop, so a console child started without
+    CREATE_NO_WINDOW flashes a cmd window. Retired when every call goes through
+    one runner that sets the flag."""
+
+    def test_no_subprocess_call_without_creationflags(self):
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library"}
+        problems = {}
+        for root, dirs, files in os.walk(PROJECT_ROOT):
+            dirs[:] = [d for d in dirs if d not in skip]
+            for name in files:
+                if not name.endswith(".py"):
+                    continue
+                path = os.path.join(root, name)
+                rel = os.path.relpath(path, PROJECT_ROOT).replace(os.sep, "/")
+                if rel.startswith(_NO_WINDOW_SCAN_SKIP_PREFIXES) or rel in _NO_WINDOW_SCAN_SKIP_FILES:
+                    continue
+                found = _find_calls_missing_creationflags(open(path, encoding="utf-8").read())
+                if found:
+                    problems[rel] = found
+        assert problems == {}, f"subprocess calls without creationflags=NO_WINDOW (lib.no_window): {problems}"
+
+    def test_checker_catches_a_missing_flag(self):
+        bad = "import subprocess\nsubprocess.run(['x'])\n"
+        assert _find_calls_missing_creationflags(bad) == [2]
+        assert _find_calls_missing_creationflags(bad.replace("['x']", "['x'], creationflags=0")) == []
+        assert _find_calls_missing_creationflags(bad.replace("['x']", "['x'], **kw")) == []
+
+
 # ---------------------------------------------------------------------------
 # Capturing subprocess calls go through lib.proc.
 # ---------------------------------------------------------------------------

@@ -31,6 +31,7 @@ from services.media_upload_service import check_room_for
 from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 from services.transcribe_service import _drama_audio_path
+from lib.no_window import NO_WINDOW
 
 # Speech just outside a line's edges is kept so a clip does not start mid-syllable.
 CLIP_PAD_SECONDS = 0.25
@@ -191,7 +192,7 @@ def _cut_clip(source: str, start: float, end: float, what: str = "a line") -> st
            "-ar", str(CLIP_SAMPLE_RATE), "-map_metadata", "-1", "-bitexact", "-f", "wav", part]
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                       timeout=CLIP_TIMEOUT_SECONDS)
+                       timeout=CLIP_TIMEOUT_SECONDS, creationflags=NO_WINDOW)
         # Half the expected PCM: a source that ends early gives a short clip, not a usable one.
         if os.path.getsize(part) < WAV_HEADER_BYTES + (end - start) * CLIP_SAMPLE_RATE:
             raise OSError("short clip")
