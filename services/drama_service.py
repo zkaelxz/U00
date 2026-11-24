@@ -410,6 +410,8 @@ def find_same_titles(*, title_en="", title_zh="", source_url="", principal=None)
         else:
             continue
         found.append({"id": row["id"], "title": row.get("title_en") or row.get("title_zh") or "", "same": same})
+    # The same link is the surer sign, so it must survive the cut when many titles share a name.
+    found.sort(key=lambda t: t["same"] != "link")
     return found[:MAX_SAME_TITLES]
 
 
