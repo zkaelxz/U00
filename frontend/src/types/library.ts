@@ -109,6 +109,8 @@ export interface ProfileOptions {
 export type LibraryVoice = Schemas['LibraryVoice']
 
 export type DramaCreateRequest = Schemas['DramaCreateRequest']
+export type SameTitleQuery = Schemas['SameTitleQuery']
+export type SameTitle = Schemas['SameTitle']
 
 // api/schemas/library.py DramaMetadataUpdate: partial, only sent keys are written.
 export type DramaMetadataUpdate = Schemas['DramaMetadataUpdate']

@@ -3374,6 +3374,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/same": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Titles already in the library with this name or link (for the add forms' warning) */
+        post: operations["post_same_titles_api_dramas_same_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/{drama_id}": {
         parameters: {
             query?: never;
@@ -9105,7 +9122,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Write the chapter as a ZIP and/or PDF (download from /api/artifacts, kinds scanlate_zip / scanlate_pdf) */
+        /** Write the chapter as a ZIP, PDF and/or CBZ (download from /api/artifacts, kinds scanlate_zip / scanlate_pdf / scanlate_cbz) */
         post: operations["post_export_api_scanlate_dramas__drama_id__export_post"];
         delete?: never;
         options?: never;
@@ -12582,7 +12599,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** PC only: read the text written in a picture with a vision engine */
+        /** Read the text written in a picture with a vision engine */
         post: operations["post_read_image_api_translate_read_image_post"];
         delete?: never;
         options?: never;
@@ -22424,9 +22441,10 @@ export interface components {
             glossary_drama_id?: number | null;
             /**
              * Max Minutes
+             * @description None = no limit.
              * @default 60
              */
-            max_minutes?: number;
+            max_minutes?: number | null;
             /** Model */
             model?: string | null;
             /** Series Id */
@@ -22584,9 +22602,10 @@ export interface components {
             glossary_drama_id?: number | null;
             /**
              * Max Minutes
+             * @description None = no limit: captions until the stream ends.
              * @default 60
              */
-            max_minutes?: number;
+            max_minutes?: number | null;
             /** Model */
             model?: string | null;
             /**
@@ -27505,6 +27524,44 @@ export interface components {
             /** Status */
             status: string | null;
         };
+        /** SameTitle */
+        SameTitle: {
+            /** Id */
+            id: number;
+            /**
+             * Same
+             * @enum {string}
+             */
+            same: "link" | "name";
+            /** Title */
+            title: string;
+        };
+        /** SameTitleList */
+        SameTitleList: {
+            /** Items */
+            items: components["schemas"]["SameTitle"][];
+        };
+        /**
+         * SameTitleQuery
+         * @description What an add form has typed so far, to ask which titles already carry it.
+         */
+        SameTitleQuery: {
+            /**
+             * Source Url
+             * @default
+             */
+            source_url?: string;
+            /**
+             * Title En
+             * @default
+             */
+            title_en?: string;
+            /**
+             * Title Zh
+             * @default
+             */
+            title_zh?: string;
+        };
         /** SavedChapter */
         SavedChapter: {
             /** Chapter */
@@ -27636,7 +27693,7 @@ export interface components {
         /** ScanlateExportRequest */
         ScanlateExportRequest: {
             /** Formats */
-            formats?: ("zip" | "pdf")[];
+            formats?: ("zip" | "pdf" | "cbz")[];
             /**
              * Typeset
              * @default true
@@ -42611,6 +42668,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_same_titles_api_dramas_same_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SameTitleQuery"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SameTitleList"];
                 };
             };
             /** @description Unprocessable Content */

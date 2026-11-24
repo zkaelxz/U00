@@ -221,6 +221,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/discover/titles/{title_id}/import-to-library` | admin.library |
 | `POST /api/discover/translate-query` | library.read |
 | `POST /api/dramas` | library.create |
+| `POST /api/dramas/same` | library.create |
 | `DELETE /api/dramas/{drama_id}` | local_only() |
 | `GET /api/dramas/{drama_id}/cover` | library.read |
 | `POST /api/dramas/{drama_id}/cover` | media.upload |
@@ -818,8 +819,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/translate/estimate` | engines.paid |
 | `DELETE /api/translate/history` | local_only() |
 | `GET /api/translate/history` | library.read |
-| `POST /api/translate/read-image` | local_only() |
-| `POST /api/translate/read-image/estimate` | local_only() |
+| `POST /api/translate/read-image` | engines.paid |
+| `POST /api/translate/read-image/estimate` | engines.paid |
 | `GET /api/update/source` | system.update |
 | `POST /api/update/source/apply` | system.update |
 | `POST /api/update/source/check` | system.update |

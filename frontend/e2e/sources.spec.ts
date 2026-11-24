@@ -219,13 +219,20 @@ test('new chapters: dismiss and two-step stop tracking', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('remote: search is offered, Manage sources is left out, no settings request', async ({ page }) => {
+test('remote: search is offered, Manage sources becomes a read-only Sources list, no settings request', async ({ page }) => {
   const s = await mockSources(page, { local: false })
   await page.goto('/#/sources')
   await expect(page.getByText('Searching sources is PC only for now.')).toHaveCount(0)
   await expect(page.getByRole('search')).toHaveCount(1)
   await expect(page.getByRole('tab', { name: 'Manage sources' })).toHaveCount(0)
   await expect(page.locator('.sources-manage-panel')).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Sources list' }).click()
+  const list = page.getByRole('list', { name: 'Sources' })
+  await expect(list.getByText('Alpha Comics')).toBeVisible()
+  await expect(list.getByRole('switch')).toHaveCount(0)
+  await list.getByRole('button', { name: 'Details: Alpha Comics' }).click()
+  await expect(list.getByText('Access method')).toBeVisible()
+  await expect(list.getByRole('button', { name: /Sign in|Test|Try again/ })).toHaveCount(0)
   // The page's own mount reads are issued in the same commit as a settings read would be.
   await expect.poll(() => s.calls.some((c) => c.path === '/api/sources/notifications')).toBe(true)
   expect(s.calls.filter((c) => c.path.startsWith('/api/sources/settings'))).toEqual([])

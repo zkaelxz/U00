@@ -20,8 +20,8 @@ import { useEffect, useId, useState } from 'react'
 
 import { api, hasStatus } from '../api/client'
 import {
-  DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP,
-  advancedSummary, buildStartBody, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
+  DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP, LANGUAGE_MODEL_NOTE,
+  advancedSummary, applyCaptionPreset, buildStartBody, captionPresetModel, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
   isActive, lagLine, pickEngine, resolveLiveModel, startLive, statusLine, statusTone, type LiveForm,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
@@ -60,7 +60,7 @@ import { AI_ENGINE_LABEL } from '../helpText'
 import { buttonClass } from '../components/uiClasses'
 import { routeHref } from '../router'
 
-const numValue = (n: number) => (Number.isFinite(n) ? n : '')
+const numValue = (n: number | null) => (n !== null && Number.isFinite(n) ? n : '')
 
 /** "A and B", "A, B and C": engine names as the picker shows them. */
 const listNames = (names: string[]) => {
@@ -126,7 +126,10 @@ export default function LivePage() {
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
   // The delayed player records on the PC and the server refuses it from away, so a choice
   // remembered on this browser is set aside there (the PC keeps it).
-  const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
+  const language = prefs.source_language ?? opts.defaults.source_language
+  const presetModel = prefs.caption_preset && prefs.whisper_size === undefined
+    ? captionPresetModel(prefs.caption_preset, opts, language) : undefined
+  const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, ...(presetModel ? { whisper_size: presetModel } : {}), url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
 
   // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.
@@ -321,22 +324,22 @@ export default function LivePage() {
           <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(startForm, opts)}>
             <div className="preset-note-row">
               <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active || busy}
-                onClick={() => setPrefs({ ...prefs, ...FAST_CAPTIONS })}>
+                onClick={() => setPrefs(applyCaptionPreset(prefs, 'fast'))}>
                 Fast captions
               </button>
               <span className="muted">Replaces Whisper model, Chunk, Overlap and Reply without thinking.</span>
               <HelpTip label="Fast captions" id={fastHelpId}>
-                {`Chunk ${FAST_CAPTIONS.segment_seconds} s, overlap ${FAST_CAPTIONS.overlap_seconds} s, Whisper ${FAST_CAPTIONS.whisper_size}, ${FAST_CAPTIONS.reply_without_thinking ? 'no thinking' : 'thinking allowed'}: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk ${opts.defaults.segment_seconds} s, overlap ${opts.defaults.overlap_seconds} s, Whisper ${opts.defaults.whisper_size}, ${DEFAULT_FORM.reply_without_thinking ? 'no thinking' : 'thinking allowed'}).`}
+                {`Chunk ${FAST_CAPTIONS.segment_seconds} s, overlap ${FAST_CAPTIONS.overlap_seconds} s, Whisper ${FAST_CAPTIONS.whisper_size} (or, for the language picked, the model this PC has downloaded: ${LANGUAGE_MODEL_NOTE}), ${FAST_CAPTIONS.reply_without_thinking ? 'no thinking' : 'thinking allowed'}: lines show sooner, but Whisper hears less context, so wording is rougher. It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand (the app's defaults are chunk ${opts.defaults.segment_seconds} s, overlap ${opts.defaults.overlap_seconds} s, Whisper ${opts.defaults.whisper_size}, ${DEFAULT_FORM.reply_without_thinking ? 'no thinking' : 'thinking allowed'}).`}
               </HelpTip>
             </div>
             <div className="preset-note-row">
               <button type="button" className="secondary" data-testid="live-balanced-captions" disabled={active || busy}
-                onClick={() => setPrefs({ ...prefs, ...BALANCED_CAPTIONS })}>
+                onClick={() => setPrefs(applyCaptionPreset(prefs, 'balanced'))}>
                 Balanced captions
               </button>
               <span className="muted">Replaces Whisper model, Chunk, Overlap and Reply without thinking.</span>
               <HelpTip label="Balanced captions" id={balancedHelpId}>
-                {`Chunk ${BALANCED_CAPTIONS.segment_seconds} s, overlap ${BALANCED_CAPTIONS.overlap_seconds} s, Whisper ${BALANCED_CAPTIONS.whisper_size}, no thinking: lines show about 10 s after they are spoken with far fewer mistakes than Fast captions. Needs a GPU for Whisper large-v3 (about 3 GB download the first time). It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand.`}
+                {`Chunk ${BALANCED_CAPTIONS.segment_seconds} s, overlap ${BALANCED_CAPTIONS.overlap_seconds} s, Whisper ${BALANCED_CAPTIONS.whisper_size} (or, for the language picked, the model this PC has downloaded: ${LANGUAGE_MODEL_NOTE}), no thinking: lines show about 10 s after they are spoken with far fewer mistakes than Fast captions. Needs a GPU for Whisper large-v3 (about 3 GB download the first time). It replaces your current values for these four options, and this browser remembers them; to go back, set them by hand.`}
               </HelpTip>
             </div>
             <div className="field-row">
@@ -361,9 +364,9 @@ export default function LivePage() {
                 <input type="number" min={opts.overlap_range[0]} max={opts.overlap_range[1]} step={1} value={numValue(form.overlap_seconds)} disabled={active || busy}
                   onChange={(e) => setOpt('overlap_seconds', e.target.valueAsNumber)} />
               </Field>
-              <Field label="Stop after" unit="min" help="A hard cap on how long the session runs (and spends).">
+              <Field label="Stop after" unit="min" help="A hard cap on how long the session runs (and spends). Leave it blank to caption until the stream ends; the spend limit still applies.">
                 <input type="number" min={opts.max_minutes_range[0]} max={opts.max_minutes_range[1]} step={1} value={numValue(form.max_minutes)} disabled={active || busy}
-                  onChange={(e) => setOpt('max_minutes', e.target.valueAsNumber)} />
+                  placeholder="no limit" onChange={(e) => setOpt('max_minutes', Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : null)} />
               </Field>
             </div>
             {opts.whisper_sizes.map((w) => {

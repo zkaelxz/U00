@@ -15,6 +15,7 @@ import { RetryBanner } from '../components/RetryBanner'
 import { serverReachable } from '../chunkReload'
 import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
+import { SameTitleNote } from '../components/SameTitleNote'
 import { Section } from '../components/Section'
 import { PageShell } from '../components/PageShell'
 import { Sheet } from '../components/Sheet'
@@ -171,19 +172,21 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
           return (
             <li key={`${x.kind}-${x.dramaId}`} className="continue-item">
               <div className="continue-row">
-                <span className={`continue-tile ${tileHue(x.dramaId)}`} aria-hidden="true">
-                  {x.kind === 'read' && x.cover
-                    ? <img src={coverUrl(x.dramaId)} alt="" loading="lazy" />
-                    : tileText({ title_en: x.title, title_zh: x.titleZh })}
-                </span>
-                <div className="continue-text">
-                  <span className="continue-title">{x.title}</span>
-                  <span className="continue-meta">
-                    {x.kind === 'read'
-                      ? <>Reading{x.page ? ` · page ${x.page}` : ''}{x.percent != null && ` · ${Math.round(x.percent)}%`}</>
-                      : <>{x.status && <Badge kind="status" value={x.status} />}{!x.status && <span>Workspace</span>}</>}
+                <a className="continue-open" href={workspaceHref(x.dramaId)}>
+                  <span className={`continue-tile ${tileHue(x.dramaId)}`} aria-hidden="true">
+                    {x.kind === 'read' && x.cover
+                      ? <img src={coverUrl(x.dramaId)} alt="" loading="lazy" />
+                      : tileText({ title_en: x.title, title_zh: x.titleZh })}
                   </span>
-                </div>
+                  <div className="continue-text">
+                    <span className="continue-title">{x.title}</span>
+                    <span className="continue-meta">
+                      {x.kind === 'read'
+                        ? <>Reading{x.page ? ` · page ${x.page}` : ''}{x.percent != null && ` · ${Math.round(x.percent)}%`}</>
+                        : <>{x.status && <Badge kind="status" value={x.status} />}{!x.status && <span>Workspace</span>}</>}
+                    </span>
+                  </div>
+                </a>
                 <ButtonLink size="sm" href={next.href} aria-label={`${next.label}: ${x.title}`} className="continue-next">
                   {next.label}
                 </ButtonLink>
@@ -307,6 +310,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
       <Field label="Original title">
         <input value={form.title_zh} onChange={set('title_zh')} />
       </Field>
+      <SameTitleNote titleEn={form.title_en} titleZh={form.title_zh} link={form.source_url} />
       <Field label="Stream / release date" help="Leave empty if unknown.">
         <input type="date" value={form.release_date ?? ''} onChange={set('release_date')} />
       </Field>

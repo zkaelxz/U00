@@ -402,6 +402,14 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
         >
           Export PDF
         </button>
+        <button
+          type="button"
+          className={buttonClass('ghost')}
+          disabled={!config?.page_count || running}
+          onClick={() => void startExport(['cbz'])}
+        >
+          Export CBZ
+        </button>
         {exported.map((f) => (
           <a key={f} className={buttonClass('secondary')} href={scanlateExportUrl(dramaId, f)} download>
             Download {f.toUpperCase()}

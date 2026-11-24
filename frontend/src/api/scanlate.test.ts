@@ -73,5 +73,6 @@ describe('scanlate api', () => {
   it('points downloads at the artifact kinds', () => {
     expect(scanlateExportUrl(4, 'zip')).toBe('/api/artifacts/dramas/4/scanlate_zip')
     expect(scanlateExportUrl(4, 'pdf')).toBe('/api/artifacts/dramas/4/scanlate_pdf')
+    expect(scanlateExportUrl(4, 'cbz')).toBe('/api/artifacts/dramas/4/scanlate_cbz')
   })
 })

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
+  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, captionPresetModel, applyCaptionPreset, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
   LIVE_CLOUD_MODEL, LIVE_FORM_FALLBACK, SPEND_LIMIT_RANGE, liveEngineView, chatReadFrom, mergeChat, formDefaults, languageWhisperDefault, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, statusTone, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
@@ -112,9 +112,10 @@ describe('buildStartBody', () => {
     expect(DEFAULT_FORM.whisper_size).toBe('small')
   })
 
-  it('falls back to defaults for blank (NaN or null) numbers', () => {
+  it('falls back to defaults for blank (NaN or null) numbers, except the time limit, where blank means none', () => {
     const b = buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', segment_seconds: NaN, overlap_seconds: null as unknown as number, max_minutes: NaN })
-    expect(b).toMatchObject({ segment_seconds: 10, overlap_seconds: 3, max_minutes: 60 })
+    expect(b).toMatchObject({ segment_seconds: 10, overlap_seconds: 3, max_minutes: null })
+    expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', max_minutes: null }).max_minutes).toBeNull()
   })
 })
 
@@ -192,8 +193,8 @@ describe('sessions', () => {
 
   it('summarises the advanced options', () => {
     expect(advancedSummary({ ...DEFAULT_FORM })).toBe('Whisper small · chunk 10s · overlap 3s · stop after 60 min · CPU · no thinking')
-    // A cleared field and an overlap over half the chunk read as what Start sends.
-    expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: Number.NaN, max_minutes: Number.NaN })).toBe('Whisper small · chunk 10s · overlap 3s · stop after 60 min · CPU · no thinking')
+    // A cleared field (no limit, for the time limit) and an overlap over half the chunk read as what Start sends.
+    expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: Number.NaN, max_minutes: Number.NaN })).toBe('Whisper small · chunk 10s · overlap 3s · no time limit · CPU · no thinking')
     expect(advancedSummary({ ...DEFAULT_FORM, segment_seconds: 4, overlap_seconds: 8 })).toBe('Whisper small · chunk 4s · overlap 2s · stop after 60 min · CPU · no thinking')
     expect(DEFAULT_OPTIONS).not.toHaveProperty('url')
   })
@@ -377,6 +378,20 @@ describe('chat messages', () => {
   it('reads again from before the oldest pending message, else from the last id', () => {
     expect(chatReadFrom([msg(4), msg(5, 'pending'), msg(6, 'pending')], 6)).toBe(4)
     expect(chatReadFrom([msg(4), msg(5)], 5)).toBe(5)
+  })
+})
+
+describe('caption presets', () => {
+  const opts = { ...LIVE_FORM_FALLBACK, language_whisper_defaults: { zh: 'breeze-asr-25', ja: 'ja-1.5b', ko: 'large-v3' } }
+  it('uses the language\'s model and otherwise the preset\'s own', () => {
+    expect(captionPresetModel('fast', opts, 'zh')).toBe('breeze-asr-25')
+    expect(captionPresetModel('balanced', opts, 'ja')).toBe('ja-1.5b')
+    expect(captionPresetModel('fast', opts, 'en')).toBe('small')
+    expect(captionPresetModel('balanced', LIVE_FORM_FALLBACK, 'zh')).toBe('large-v3')
+  })
+  it('stores chunk values and the preset, not a model, and drops an earlier pick', () => {
+    const stored = applyCaptionPreset({ whisper_size: 'medium', use_gpu: true }, 'balanced')
+    expect(stored).toEqual({ use_gpu: true, segment_seconds: 8, overlap_seconds: 3, reply_without_thinking: true, caption_preset: 'balanced' })
   })
 })
 
