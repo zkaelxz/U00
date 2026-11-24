@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, captionPresetModel, applyCaptionPreset, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
+  chosenForYou, DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, captionPresetModel, applyCaptionPreset, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
   LIVE_CLOUD_MODEL, LIVE_FORM_FALLBACK, SPEND_LIMIT_RANGE, liveEngineView, chatReadFrom, mergeChat, formDefaults, languageWhisperDefault, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, statusTone, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
@@ -306,6 +306,15 @@ describe('Whisper model choice', () => {
     expect(WHISPER_SIZES).toContain('medium')
     expect(DEFAULT_FORM.whisper_size).toBe('small')
     expect(buildStartBody({ ...DEFAULT_FORM, url: 'https://a.test', whisper_size: 'large-v3-turbo' }).whisper_size).toBe('large-v3-turbo')
+  })
+})
+
+describe('chosenForYou', () => {
+  it('keeps the language and glossary and drops the engine, model and caption options', () => {
+    expect(chosenForYou({ source_language: 'ja', series_id: 3, glossary_drama_id: null, engine: 'claude', model: 'm',
+      whisper_size: 'small', segment_seconds: 4, caption_preset: 'fast', use_gpu: false })).toEqual(
+      { source_language: 'ja', series_id: 3, glossary_drama_id: null })
+    expect(chosenForYou({})).toEqual({})
   })
 })
 
