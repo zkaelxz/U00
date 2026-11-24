@@ -91,6 +91,7 @@ from services import (
     media_upload_service,
     ownership_service,
     settings_service,
+    site_captions_service,
     ytdlp_child,
 )
 from lib.errors import (ConflictError, DependencyUnavailableError,
@@ -623,6 +624,8 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict |
     for key in ("part_start", "part_end", "exact_cuts", "max_height"):
         if options.get(key) is not None:
             spec[key] = options[key]
+    if options.get("captions"):
+        spec["captions"] = list(options["captions"])
     watch = _SpaceWatch(tmp, floor=_free_floor)
     with egress_proxy.GuardedProxy() as proxy:
         spec["proxy"] = proxy.url
@@ -782,6 +785,21 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool,
         _leave_queue(job_id)
 
 
+def _keep_site_captions(drama_id: int, path: str | None, use: bool) -> dict:
+    """Saves the site's captions as hints, and as the lines when asked. Never fails the download: the
+    media is already installed, so a problem here only means the captions are not used."""
+    result = {"site_captions": False, "site_captions_used": False}
+    if path is None:
+        return result
+    try:
+        result["site_captions"] = site_captions_service.save(drama_id, path)
+        if use and result["site_captions"]:
+            result["site_captions_used"] = site_captions_service.use_as_lines(drama_id) > 0
+    except (OSError, sqlite3.Error, InvalidInputError):
+        applog.get_logger().warning("The site's captions could not be kept for title %s.", drama_id)
+    return result
+
+
 def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, options: dict | None = None):
     with storage.job_workdir(job_id) as tmp:
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
@@ -811,6 +829,7 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
             new_files = {"source_video_filename": (path, "source", ext),
                          "audio_filename": (audio, "audio", ".flac")}
         options = options or {}
+        captions_file = None if direct_ext else site_captions_service.pick(tmp, options.get("captions") or ())
         if options.get("keep_lines"):
             background_jobs.update_progress(job_id, 0.9, "Checking it is the same video...")
             _check_same_video(drama_id, new_files["audio_filename"][0])
@@ -840,10 +859,11 @@ def _run_download_job(job_id: str, drama_id: int, url: str, audio_only: bool, op
             raise
         drama_service.set_source_url_once(drama_id, url)
         filled = link_details_service.fill_after_download(drama_id, link) if link is not None else []
+        captions = _keep_site_captions(drama_id, captions_file, bool(options.get("use_site_captions")))
         background_jobs.set_result(job_id, {"kind": "url_media", "audio_only": bool(audio_only),
                                             "title_filled": "title_zh" in fields,
                                             "details_filled": filled,
-                                            "kept_lines": bool(options.get("keep_lines"))})
+                                            "kept_lines": bool(options.get("keep_lines")), **captions})
         background_jobs.update_progress(job_id, 1.0, "Downloaded again. The lines were kept."
                                         if options.get("keep_lines") else "Downloaded.")
 
@@ -874,7 +894,7 @@ def _title_link(drama_id) -> str:
 
 def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, allow_long=False,
                        part_start=None, part_end=None, exact_cuts=False, max_height=None,
-                       keep_lines=False, use_saved_cookies=True) -> dict:
+                       keep_lines=False, use_saved_cookies=True, use_site_captions=False) -> dict:
     """Starts `urlmedia_<drama_id>`; poll GET /api/jobs/{job_id}. The job
     waits in line when MAX_PARALLEL_DOWNLOADS are running or the last start
     was under START_SPACING_SECONDS ago. 422 bad or private URL, wrong
@@ -889,11 +909,16 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
     downloads the title's video again (module docstring): it replaces the
     media without confirm_replace_audio, and an empty url means the title's
     own link. use_saved_cookies False leaves out the Settings yt-dlp cookies
-    (a link given from away from the PC)."""
-    flags = (audio_only, confirm_replace_audio, allow_long, exact_cuts, keep_lines)
+    (a link given from away from the PC). The site's own captions come with every
+    video-site download of a whole video and are kept as hints for recognition and
+    translation; use_site_captions also makes them the lines of a title that has none,
+    which skips recognition."""
+    flags = (audio_only, confirm_replace_audio, allow_long, exact_cuts, keep_lines, use_site_captions)
     if not all(isinstance(f, bool) for f in flags):
-        raise InvalidInputError("audio_only, confirm_replace_audio, allow_long, exact_cuts and "
-                                "keep_lines must be true or false.")
+        raise InvalidInputError("audio_only, confirm_replace_audio, allow_long, exact_cuts, "
+                                "keep_lines and use_site_captions must be true or false.")
+    if use_site_captions and keep_lines:
+        raise InvalidInputError("Downloading again keeps the lines, so it can't also take them from the site's captions.")
     if keep_lines:
         drama = ownership_service.require_drama(drama_id)
         if not media_upload_service.has_media(drama, drama_id):
@@ -927,7 +952,10 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
     options = {"allow_long": allow_long, "part_start": start if ranged else None,
                "part_end": end, "exact_cuts": exact_cuts if ranged else None,
                "max_height": None if audio_only else max_height, "keep_lines": keep_lines,
-               "use_saved_cookies": use_saved_cookies is True}
+               "use_saved_cookies": use_saved_cookies is True, "use_site_captions": use_site_captions,
+               # A part's cues would start at the part's zero, and a direct file has no site.
+               "captions": () if ranged or direct_media_ext(url) is not None else ytdlp_child.caption_languages(
+                   (db.get_drama(drama_id) or {}).get("source_language"))}
     with media_upload_service.claims_lock:
         if drama_id in media_upload_service.claimed:
             raise ConflictError("Another upload is in progress for this title.")
@@ -945,7 +973,7 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False, a
                 started = job_launch.start_job(
                     job_id, _download_job, job_id, drama_id, url, audio_only,
                     confirm_replace_audio, options, description=f"URL download (title #{drama_id})",
-                    line_fields=())
+                    line_fields=db.FULL_SYNC if use_site_captions else ())
             except BaseException:
                 _leave_queue(job_id)
                 raise
