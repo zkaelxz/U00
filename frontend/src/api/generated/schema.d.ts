@@ -2776,6 +2776,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/quality": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The newest release check result in the data folder, each score against its baseline */
+        get: operations["get_quality_api_diagnostics_quality_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/real-model-check": {
         parameters: {
             query?: never;
@@ -24877,6 +24894,88 @@ export interface components {
             /** Value */
             value: string;
         };
+        /** QualityCheck */
+        QualityCheck: {
+            /** Age Days */
+            age_days: number | null;
+            /** Clips */
+            clips: components["schemas"]["QualityClip"][];
+            /**
+             * Found
+             * @description False when the data folder holds no release check result.
+             */
+            found: boolean;
+            /**
+             * Fresh
+             * @description True when the check ran within max_age_days.
+             */
+            fresh: boolean;
+            /** Gpu */
+            gpu: string | null;
+            /**
+             * Machine
+             * @description The PC's name, to tell a V100 run from another PC's.
+             */
+            machine: string | null;
+            /** Margin */
+            margin: number | null;
+            /** Max Age Days */
+            max_age_days: number;
+            /**
+             * Passed
+             * @description The release gate: nothing failed or fell below its baseline.
+             */
+            passed: boolean;
+            /** Repeats */
+            repeats: number | null;
+            /**
+             * Unreadable
+             * @description True when the newest result file can't be read.
+             */
+            unreadable: boolean;
+            /**
+             * When
+             * @description When the check ran, the PC's local time (YYYY-MM-DD HH:MM).
+             */
+            when: string | null;
+        };
+        /** QualityClip */
+        QualityClip: {
+            /** Baseline */
+            baseline: number | null;
+            /** Failed */
+            failed: boolean;
+            /** Fixed Decoding */
+            fixed_decoding: boolean;
+            /**
+             * Id
+             * @description The clip's id from the private manifest, such as title59-transcription.
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Metric
+             * @description cer or wer (scored as 1 - error), der (lower is better) or chrf.
+             */
+            metric: string | null;
+            /**
+             * Runs
+             * @description How many times the clip ran; the score is the median.
+             */
+            runs: number;
+            /**
+             * Score
+             * @description None when the clip failed.
+             */
+            score: number | null;
+            /**
+             * Status
+             * @description fail: the clip failed or is worse than its baseline by more than the margin; none: no baseline.
+             * @enum {string}
+             */
+            status: "pass" | "fail" | "none";
+        };
         /** QueueAddAllSteps */
         QueueAddAllSteps: {
             /** Drama Id */
@@ -41004,6 +41103,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_quality_api_diagnostics_quality_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityCheck"];
                 };
             };
         };
