@@ -203,7 +203,7 @@ class _PipelineRun:
     def __init__(self, rep, o):
         self.rep = rep
         self.o = o
-        self.audio_path = o.audio_path
+        self.audio_path: str = o.audio_path
         self.tuning = (timing_settings_service.asr_tuning(o.timing) if o.timing is not None
                        else asr_backend.DEFAULT_TUNING)
         self.tuning = _tuning_for_preset(self.tuning, o.asr_backend_choice, o.sensitivity_preset)
