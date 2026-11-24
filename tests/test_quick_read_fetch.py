@@ -114,7 +114,7 @@ def test_another_member_gets_the_cached_page(pipeline, monkeypatch):
     _serve(monkeypatch, {"https://cdn.example.com/1.png": (200, _png_bytes())})
     _run([{"key": "a", "fetch_url": "https://cdn.example.com/1.png"}])
     bridge._quick_read_cache.clear()
-    job = {"drama_id": None, "source_language": "", "typeset": True, "typeset_style": None, "typeset_max_width": None, "glossary_version": "",
+    job = {"drama_id": None, "source_language": "", "typeset": True, "typeset_style": None, "typeset_max_width": None, "glossary_version": bridge._glossary_version(None),
            "store": False, "member": True}
     assert bridge._disk_cached(bridge._quick_read_url_key(
         {"fetch_url": "https://cdn.example.com/1.png"}, job)) is not None
@@ -193,4 +193,11 @@ def test_edited_glossary_changes_the_cache_key(isolated_db, monkeypatch):
     monkeypatch.setattr(isolated_db, "list_run_glossary_terms",
                         lambda d: [{"term_original": "阿洛", "term_translation": "RLuo"}])
     assert bridge._glossary_version(drama) != before
-    assert bridge._glossary_version(None) == ""
+    assert bridge._glossary_version(None) != ""
+
+
+def test_comic_glossary_edit_changes_the_cache_key(isolated_db):
+    from services import settings_service
+    before = bridge._glossary_version(None)
+    settings_service.set_settings({"comic_glossary_custom": "ドン = thud"})
+    assert bridge._glossary_version(None) != before

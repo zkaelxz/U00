@@ -1,5 +1,7 @@
 """Owns the built-in comic glossary: which language-pack entries a comic page's translation carries, and the person's own lines from Settings that change or remove them."""
 
+import hashlib
+import json
 import re
 
 import language_packs
@@ -54,6 +56,16 @@ def _stands_alone(entry: dict, text: str) -> bool:
         if not (before and _script(before) == first) and not (after and _script(after) == last):
             return True
     return False
+
+
+def version() -> str:
+    """Changes when the built-in packs Quick read uses or the person's own lines change, so the
+    results cache never answers with a page translated under the old glossary."""
+    packs = language_packs.all_packs()
+    used = sorted((k, packs[k].get("version")) for k in packs
+                  if k.rsplit("-", 1)[-1] in _PACK_SUFFIXES)
+    return hashlib.sha256(json.dumps([used, str(settings_service.get("comic_glossary_custom") or "")]).encode()
+                          ).hexdigest()[:16]
 
 
 def reference_block(language: str, bubbles, user_terms=None) -> str:

@@ -368,13 +368,13 @@ _quick_read_cache_lock = threading.Lock()
 
 
 def _glossary_version(drama_id) -> str:
-    """Changes when the terms a page is translated with change, so an edited glossary is never
-    answered from the cache. Quick read without a title has none."""
-    if not drama_id:
-        return ""
-    drama = db.get_drama(int(drama_id))
+    """Changes when the terms a page is translated with change (the title's glossary and the
+    comic glossary), so an edited glossary is never answered from the cache."""
+    from services import comic_glossary_service
+    drama = db.get_drama(int(drama_id)) if drama_id else None
     terms = db.list_run_glossary_terms(drama) if drama else []
-    return quick_read_cache.make_key(sorted(terms, key=lambda t: str(t.get("term_original"))))[:16]
+    return quick_read_cache.make_key(sorted(terms, key=lambda t: str(t.get("term_original"))),
+                                     comic_glossary_service.version())[:16]
 
 
 def _quick_read_key(image: dict, job: dict) -> str | None:
