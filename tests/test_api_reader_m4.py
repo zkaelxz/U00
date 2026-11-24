@@ -476,12 +476,29 @@ def test_auth_on_401_without_session(on_client):
         assert r.status_code == 401, path
 
 
+def _engine_used(monkeypatch):
+    """Records the engine a Reader call builds, then stops it there (409)."""
+    from lib.errors import ConflictError
+    from services import reader_service
+    seen = []
+
+    def stop(engine_name=None, model=None):
+        seen.append(engine_name)
+        raise ConflictError("stop here")
+    monkeypatch.setattr(reader_service, "llm_engine", stop)
+    return seen
+
+
 @pytest.mark.parametrize("path,body", LLM_ROUTES)
-def test_household_llm_routes_free_engines_only(on_client, drama, path, body):
+def test_household_llm_routes_free_engines_only(on_client, drama, path, body, monkeypatch):
     s = _session("kid@example.com")
+    seen = _engine_used(monkeypatch)
     # The engine gate runs after the B2 path guard, so it needs a real drama.
     real = f"{BASE}/{drama}{path}"
-    assert on_client.post(real, json=body, headers=_h(s)).status_code == 403         # omitted
+    # Omitted: the default (Claude) is one this account may not use, so it runs on Ollama
+    # (owner decision 2026-11-24: settings for members are chosen for them).
+    assert on_client.post(real, json=body, headers=_h(s)).status_code == 409
+    assert seen == ["ollama"]
     assert on_client.post(real, json={**body, "engine": "claude"},
                           headers=_h(s)).status_code == 403
     url = f"{BASE}/99999{path}"
@@ -499,13 +516,21 @@ def test_engines_paid_allows_claude(on_client, path, body):
     assert r.status_code == 404
 
 
-def test_household_lookup(on_client, drama):
+def test_household_lookup(on_client, drama, monkeypatch):
+    from services import reader_service
+    seen = {}
+
+    def lookup(drama_id, page, chapter_size, use_llm=False, engine_name=None, model=None):
+        seen.update(engine=engine_name)
+        return {"items": []}
+    monkeypatch.setattr(reader_service, "lookup_page_definitions", lookup)
     s = _session("kid@example.com")
     url = f"{BASE}/99999/lookup"
     real = f"{BASE}/{drama}/lookup"
     assert on_client.post(url, json={"page": 1}, headers=_h(s)).status_code == 404
-    assert on_client.post(real, json={"page": 1, "use_llm": True},
-                          headers=_h(s)).status_code == 403
+    # Omitted: runs on Ollama, not the Claude default this account may not use.
+    on_client.post(real, json={"page": 1, "use_llm": True}, headers=_h(s))
+    assert seen == {"engine": "ollama"}
     assert on_client.post(real, json={"page": 1, "use_llm": True, "engine": "claude"},
                           headers=_h(s)).status_code == 403
     assert on_client.post(url, json={"page": 1, "use_llm": True, "engine": "ollama"},

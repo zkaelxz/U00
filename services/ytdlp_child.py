@@ -145,13 +145,19 @@ _CAPTION_LANGS = {
 }
 
 
+# yt-dlp's native HLS downloader stops on a playlist that starts a new init
+# segment after media segments (fMP4 HLS, as Twitch highlights and some VODs
+# serve); ffmpeg reads the same playlist fine.
+HLS_NATIVE_REFUSAL = "Initialization fragment found after media fragments"
+
+
 def caption_languages(source_language) -> tuple:
     """The caption languages to fetch with a download; () for a language not listed."""
     return _CAPTION_LANGS.get(source_language or "", ())
 
 
 def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts=False,
-                audio_only=True, proxy=None, max_height=None, captions=()) -> dict:
+                audio_only=True, proxy=None, max_height=None, captions=(), hls_ffmpeg=False) -> dict:
     """The options merged over video_download's own (they win). Never any
     cookie option, and every default extractor except `generic`. `part`
     (start, end-or-None seconds) downloads that section only. `proxy`: every
@@ -159,7 +165,8 @@ def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts
     after the parent's URL check and a rebinding answer would otherwise
     reach a private address. `max_height` keeps the tallest picture no
     taller than it. `captions`: caption languages to save beside the media (manual ones win over
-    machine ones in yt-dlp); a missing track is only a warning there, so it can't fail the download."""
+    machine ones in yt-dlp); a missing track is only a warning there, so it can't fail the download.
+    `hls_ffmpeg` hands HLS to ffmpeg, for a playlist the native downloader refuses (HLS_NATIVE_REFUSAL)."""
     opts = {
         "allowed_extractors": ["default", "-generic"],
         "noplaylist": True,
@@ -178,6 +185,8 @@ def ydl_options(tmp_dir: str, progress_hook, match_filter, part=None, exact_cuts
     }
     if proxy:
         opts["proxy"] = proxy
+    if hls_ffmpeg:
+        opts["external_downloader"] = {"default": "native", "m3u8": "ffmpeg"}
     if captions and not part:
         # A section's cues would start at the section's zero, not the video's.
         opts.update({"writesubtitles": True, "writeautomaticsub": True,
@@ -362,7 +371,8 @@ def run_worker(spec: dict, emit) -> None:
             extra_opts=ydl_options(spec["tmp"], hook, match_filter, part=part,
                                    exact_cuts=bool(spec.get("exact_cuts")), audio_only=audio_only,
                                    proxy=spec.get("proxy"), max_height=max_height,
-                                   captions=_spec_captions(spec)),
+                                   captions=_spec_captions(spec),
+                                   hls_ffmpeg=spec.get("hls_ffmpeg") is True),
             cookies_browser=spec.get("cookies_browser"), cookies_file=spec.get("cookies_file"),
             thumbnail_path=os.path.join(spec["tmp"], THUMBNAIL_NAME))
     except ImportError:

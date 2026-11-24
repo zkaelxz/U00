@@ -24,6 +24,7 @@ import { useStoredState } from '../../hooks/useStoredRun'
 import { useAction } from './useReaderAction'
 import { ENGINE_PICKER_ID, EngineLine, EnginePicker } from './ReaderEngine'
 import { trimHistory } from './readerPrefsStore'
+import type { ChosenForYou } from '../../hooks/useChosenForYou'
 
 type Common = {
   dramaId: number
@@ -32,7 +33,8 @@ type Common = {
   boundary: number | undefined
   engines: TranslateEngine[]
   enginesOff?: TranslateEngine[]
-  engine: string
+  engine: string | null
+  chosen: ChosenForYou
   onEngine: (name: string) => void
 }
 
@@ -50,17 +52,17 @@ function Answer({ text }: { text: string | null | undefined }) {
 const isAnswer = (v: unknown): v is string | undefined => v === undefined || typeof v === 'string'
 const isObject = <T extends object>(v: unknown): v is T => typeof v === 'object' && v !== null && !Array.isArray(v)
 
-function WhoExplain({ dramaId, boundary, engine, paid }: { dramaId: number; boundary: number | undefined; engine: string; paid: boolean }) {
+function WhoExplain({ dramaId, boundary, engine, paid }: { dramaId: number; boundary: number | undefined; engine: string | null; paid: boolean }) {
   const [name, setName] = useState('')
   const [phrase, setPhrase] = useState('')
   // The last answers are kept per story (cleared at sign-out): they are paid AI calls.
   const [who, setWho] = useStoredState<string | undefined>(`reader.who.${dramaId}`, undefined, isAnswer)
   const [explained, setExplained] = useStoredState<string | undefined>(`reader.explain.${dramaId}`, undefined, isAnswer)
   const whoAct = useAction(async () => {
-    setWho((await readerApi.who(dramaId, { name: name.trim(), engine, ...scope(boundary) })).answer ?? '')
+    setWho((await readerApi.who(dramaId, { name: name.trim(), engine: engine ?? undefined, ...scope(boundary) })).answer ?? '')
   })
   const explainAct = useAction(async () => {
-    setExplained((await readerApi.explain(dramaId, { phrase: phrase.trim(), engine, ...scope(boundary) })).answer ?? '')
+    setExplained((await readerApi.explain(dramaId, { phrase: phrase.trim(), engine: engine ?? undefined, ...scope(boundary) })).answer ?? '')
   })
   const submit = (fn: () => void) => (e: FormEvent) => {
     e.preventDefault()
@@ -72,7 +74,7 @@ function WhoExplain({ dramaId, boundary, engine, paid }: { dramaId: number; boun
         <Field label="Who is…">
           <input value={name} maxLength={200} placeholder="A character's name" onChange={(e) => setName(e.target.value)} />
         </Field>
-        <button type="submit" disabled={!name.trim() || !engine || whoAct.busy}>
+        <button type="submit" disabled={!name.trim() || engine === '' || whoAct.busy}>
           {whoAct.busy ? 'Asking…' : 'Ask'}
         </button>
       </form>
@@ -82,7 +84,7 @@ function WhoExplain({ dramaId, boundary, engine, paid }: { dramaId: number; boun
         <Field label="Explain">
           <input value={phrase} maxLength={200} placeholder="A phrase or reference" onChange={(e) => setPhrase(e.target.value)} />
         </Field>
-        <button type="submit" disabled={!phrase.trim() || !engine || explainAct.busy}>
+        <button type="submit" disabled={!phrase.trim() || engine === '' || explainAct.busy}>
           {explainAct.busy ? 'Explaining…' : 'Explain'}
         </button>
       </form>
@@ -92,22 +94,22 @@ function WhoExplain({ dramaId, boundary, engine, paid }: { dramaId: number; boun
   )
 }
 
-function RecapAndMap({ dramaId, page, chapterSize, boundary, engine, paid }: Omit<Common, 'engines' | 'enginesOff' | 'onEngine'> & { paid: boolean }) {
+function RecapAndMap({ dramaId, page, chapterSize, boundary, engine, paid }: Omit<Common, 'engines' | 'enginesOff' | 'onEngine' | 'chosen'> & { paid: boolean }) {
   const [recap, setRecap] = useStoredState<ReaderRecap | null>(`reader.recap.${dramaId}`, null, isObject)
   const [map, setMap] = useStoredState<ReaderRelationshipMap | null>(`reader.map.${dramaId}`, null, isObject)
   const recapAct = useAction(async () => {
-    setRecap(await readerApi.recap(dramaId, { page, chapter_size: chapterSize, engine }))
+    setRecap(await readerApi.recap(dramaId, { page, chapter_size: chapterSize, engine: engine ?? undefined }))
   })
   const mapAct = useAction(async () => {
-    setMap(await readerApi.relationships(dramaId, { engine, ...scope(boundary) }))
+    setMap(await readerApi.relationships(dramaId, { engine: engine ?? undefined, ...scope(boundary) }))
   })
   return (
     <>
       <div className="actions">
-        <button type="button" disabled={!engine || recapAct.busy || page <= 1} onClick={() => void recapAct.run()}>
+        <button type="button" disabled={engine === '' || recapAct.busy || page <= 1} onClick={() => void recapAct.run()}>
           {recapAct.busy ? 'Summarising…' : 'Recap before this page'}
         </button>
-        <button type="button" disabled={!engine || mapAct.busy} onClick={() => void mapAct.run()}>
+        <button type="button" disabled={engine === '' || mapAct.busy} onClick={() => void mapAct.run()}>
           {mapAct.busy ? 'Mapping…' : 'Map relationships'}
         </button>
       </div>
@@ -168,7 +170,7 @@ function WikiSection({ dramaId, boundary, engines, engine, paid }: {
   dramaId: number
   boundary: number | undefined
   engines: TranslateEngine[]
-  engine: string
+  engine: string | null
   paid: boolean
 }) {
   const [wiki, setWiki] = useState<ReaderWikiList | null>(null)
@@ -212,7 +214,7 @@ function WikiSection({ dramaId, boundary, engines, engine, paid }: {
     try {
       while (next !== null) {
         setResumeAt(next)
-        const r = await readerApi.updateWiki(dramaId, { engine, from_line_idx: next, ...scope(boundary) })
+        const r = await readerApi.updateWiki(dramaId, { engine: engine ?? undefined, from_line_idx: next, ...scope(boundary) })
         total += r.updated
         next = r.remaining > 0 ? r.next_line_idx : null
         if (next === null) {
@@ -247,7 +249,7 @@ function WikiSection({ dramaId, boundary, engines, engine, paid }: {
       <ErrorBanner error={loadError} />
       <EngineLine engines={engines} engine={engine} />
       <div className="actions">
-        <button type="button" disabled={!engine || update.busy} onClick={() => void update.run(0)}>
+        <button type="button" disabled={engine === '' || update.busy} onClick={() => void update.run(0)}>
           {update.busy ? 'Updating…' : 'Update wiki'}
         </button>
         {update.busy && (
@@ -304,11 +306,11 @@ function WikiSection({ dramaId, boundary, engines, engine, paid }: {
 
 const NO_TURNS: ReaderChatTurn[] = []
 
-function AskSection({ dramaId, engines, engine, paid }: { dramaId: number; engines: TranslateEngine[]; engine: string; paid: boolean }) {
+function AskSection({ dramaId, engines, engine, paid }: { dramaId: number; engines: TranslateEngine[]; engine: string | null; paid: boolean }) {
   const [history, setHistory] = useStoredState<ReaderChatTurn[]>(`reader.ask.${dramaId}`, NO_TURNS, Array.isArray as (v: unknown) => v is ReaderChatTurn[])
   const [question, setQuestion] = useState('')
   const ask = useAction(async (q: string) => {
-    const r = await readerApi.ask(dramaId, { question: q, chat_history: trimHistory(history), engine })
+    const r = await readerApi.ask(dramaId, { question: q, chat_history: trimHistory(history), engine: engine ?? undefined })
     setHistory((h) => trimHistory([...h, { role: 'user', content: q }, { role: 'assistant', content: r.answer ?? '' }]))
     setQuestion('')
   })
@@ -339,7 +341,7 @@ function AskSection({ dramaId, engines, engine, paid }: { dramaId: number; engin
           <textarea rows={2} maxLength={2000} value={question} onChange={(e) => setQuestion(e.target.value)} />
         </Field>
         <div className="actions">
-          <button type="submit" disabled={!question.trim() || !engine || ask.busy}>
+          <button type="submit" disabled={!question.trim() || engine === '' || ask.busy}>
             {ask.busy ? 'Asking…' : 'Ask'}
           </button>
           {history.length > 0 && (
@@ -353,12 +355,12 @@ function AskSection({ dramaId, engines, engine, paid }: { dramaId: number; engin
 }
 
 export function StorySection(p: Common & { spoilerFree: boolean }) {
-  const paid = !p.engines.find((e) => e.name === p.engine)?.free
+  const paid = p.engine !== null && !p.engines.find((e) => e.name === p.engine)?.free
   return (
     <>
       <Section title="Story tools" storageKey="reader.story" summary={p.spoilerFree ? 'Spoiler-free' : 'Spoiler-free off'}>
         <div id={ENGINE_PICKER_ID}>
-          <EnginePicker engines={p.engines} off={p.enginesOff} engine={p.engine} onChange={p.onEngine} />
+          <EnginePicker engines={p.engines} off={p.enginesOff} engine={p.engine} chosen={p.chosen} onChange={p.onEngine} />
         </div>
         {!p.spoilerFree && (
           <p className="muted">Spoiler-free is off: Who is, Explain, relationships and the wiki may use later lines.</p>

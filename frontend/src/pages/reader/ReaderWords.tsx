@@ -18,11 +18,12 @@ import { ankiNeed, cardAudioNeed, wordSplitterNeed } from '../readiness/needs'
 import { ActionError, EditInTranslate } from './ReaderAction'
 import { useAction } from './useReaderAction'
 import { EnginePicker } from './ReaderEngine'
+import type { ChosenForYou } from '../../hooks/useChosenForYou'
 import { lookupSummary } from './lookupSummary'
 
 const isText = (v: unknown): v is string | null => typeof v === 'string'
 
-export function WordsSection({ dramaId, page, chapterSize, language, engines, enginesOff, engine, onEngine, onLookedUp }: {
+export function WordsSection({ dramaId, page, chapterSize, language, engines, enginesOff, engine, chosen, onEngine, onLookedUp }: {
   dramaId: number
   /** The title's source language: which word splitter a lookup needs. */
   language: string
@@ -30,7 +31,8 @@ export function WordsSection({ dramaId, page, chapterSize, language, engines, en
   chapterSize: number
   engines: TranslateEngine[]
   enginesOff?: TranslateEngine[]
-  engine: string
+  engine: string | null
+  chosen: ChosenForYou
   onEngine: (name: string) => void
   onLookedUp: () => void
 }) {
@@ -39,7 +41,7 @@ export function WordsSection({ dramaId, page, chapterSize, language, engines, en
   const splitterNeed = wordSplitterNeed(readiness, language)
   // Per page, because the line says what was saved for this page's words.
   const [result, setResult] = useStoredState<string | null>(`reader.words.${dramaId}.${page}`, null, isText)
-  const paid = useLlm && !engines.find((e) => e.name === engine)?.free
+  const paid = useLlm && engine !== null && !engines.find((e) => e.name === engine)?.free
   const lookup = useAction(async () => {
     setResult(null)
     const r = await readerApi.lookup(dramaId, {
@@ -57,9 +59,9 @@ export function WordsSection({ dramaId, page, chapterSize, language, engines, en
         <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
         Use AI for words the dictionary doesn't have
       </label>
-      {useLlm && <EnginePicker engines={engines} off={enginesOff} engine={engine} onChange={onEngine} />}
+      {useLlm && <EnginePicker engines={engines} off={enginesOff} engine={engine} chosen={chosen} onChange={onEngine} />}
       <div className="actions">
-        <button type="button" className="primary" onClick={() => void lookup.run()} disabled={lookup.busy || !!splitterNeed || (useLlm && !engine)}>
+        <button type="button" className="primary" onClick={() => void lookup.run()} disabled={lookup.busy || !!splitterNeed || (useLlm && engine === '')}>
           {lookup.busy ? 'Looking up…' : 'Look up words on this page'}
         </button>
         {result && <span className="muted" role="status">{result}</span>}

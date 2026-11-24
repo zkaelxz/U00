@@ -425,3 +425,27 @@ def test_text_price_check_with_no_engine_prices_ollama_for_a_member(remote):
     assert remote.post("/api/translate/estimate", json={**body, "engine": "claude"}, headers=member).status_code == 403
     assert remote.post("/api/translate/estimate", json={**body, "engine": "ollama", "model": PAID_CLOUD},
                        headers=member).status_code == 403
+
+
+def test_scanlate_run_with_no_engine_runs_on_ollama_for_a_member(remote, monkeypatch):
+    import db
+    from lib.errors import ConflictError
+    from services import model_readiness_service, scanlate_pages_service, scanlate_run_service
+    seen = {}
+
+    def fake_start(drama_id, **kw):
+        seen.update(engine=kw["engine"], swapped=kw["engine_swapped"])
+        raise ConflictError("stop here")
+
+    monkeypatch.setattr(scanlate_run_service, "start_run", fake_start)
+    monkeypatch.setattr(scanlate_pages_service, "default_engine", lambda engines=None: "claude")
+    monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **k: None)
+    drama_id = db.create_drama(title_en="T", source_language="zh", media_type="comic")
+    url = f"/api/scanlate/dramas/{drama_id}/run"
+    member = _household("comic@example.com")
+    assert remote.post(url, json={}, headers=member).status_code == 409
+    assert seen == {"engine": "ollama", "swapped": True}
+    assert remote.post(url, json={"engine": "claude"}, headers=member).status_code == 403
+    paid = _household("comic-paid@example.com", ["engines.paid"])
+    assert remote.post(url, json={}, headers=paid).status_code == 409
+    assert seen == {"engine": "claude", "swapped": False}
