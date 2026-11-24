@@ -331,6 +331,32 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str,
 _SUBSCRIBE_RE = re.compile(r"チャンネル登録|subscribe|구독", re.IGNORECASE)
 
 
+class TermHints:
+    """The glossary a session translates with: calling it looks terms up in some texts (for the
+    translator), and `names` is the glossary's own names as a Whisper prompt ("" when there are none)."""
+
+    def __init__(self, lookup, names: str = ""):
+        self.lookup = lookup
+        self.names = names
+
+    def __call__(self, texts):
+        return self.lookup(texts)
+
+
+def drop_name_list_echo(segments: list, names: str) -> list:
+    """Drops a line that is only three or more of the primed names in a row. Whisper reads
+    the name prompt back as a line over music or silence; a streamer calling out three names
+    in a row with nothing else is rare, and the one line is the cost."""
+    known = {n for n in re.split(r"[、。\s]+", names or "") if n}
+    if not known:
+        return segments
+
+    def echo(text):
+        pieces = [p for p in re.split(r"[、，,。.!！?？\s]+", text or "") if p]
+        return len(pieces) >= 3 and all(p in known for p in pieces)
+    return [seg for seg in segments if not echo(seg.get("text"))]
+
+
 def drop_stock_phrases(segments: list) -> list:
     """Drops a line that is only a credit or outro phrase ("ご視聴ありがとうございました").
     Whisper invents these on laughter and pauses mid-stream, and the file pipeline's
@@ -519,7 +545,7 @@ MAX_BACKLOG_CHUNKS = 2
 
 def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
                    source_language: str, whisper_size: str, engine, use_gpu: bool = False,
-                   context_prompt: str = "", overlap_seconds: float = 0.0,
+                   context_prompt: str = "", overlap_seconds: float = 0.0, name_prompt: str = "",
                    overlap_tail_text: str = "", on_stage=None, is_cancelled=None,
                    translator=None, first_id: int = 0, on_cues=None, guard=None,
                    audio_shift: float = 0.0, on_transcribed=None, translate: bool = True,
@@ -576,11 +602,12 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     started = time.monotonic()
     segments = (guard or (lambda call: call(None)))(lambda progress_cb: whisper_transcribe.transcribe_for_timing(
         chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu,
-        initial_prompt=context_prompt, progress_cb=progress_cb, prompt_every_window=False))
+        initial_prompt=name_prompt + context_prompt, progress_cb=progress_cb, prompt_every_window=False))
     if on_transcribed:
         on_transcribed(time.monotonic() - started)
     checkpoint()
     segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text, overlap_covered_seconds)
+    segments = drop_name_list_echo(segments, name_prompt)
     segments = join_trailing_fragments(split_long_caption_lines(drop_repeated_lines(drop_stock_phrases(segments))))
     offset = chunk_index * segment_seconds - overlap_seconds + audio_shift
     cues = live_cue_feed.pending_cues(segments, offset, first_id)
@@ -1143,7 +1170,7 @@ class _LiveRun(ChunkCaptioner):
         new_cues = process_chunk(
             window.path, idx, self.segment_seconds, self.source_language, self.whisper_size,
             self.engine, use_gpu=self.use_gpu, context_prompt=self.state["context"],
-            translator=self.translator, first_id=len(self.board.cues), translate=False,
+            name_prompt=getattr(self.term_hints, "names", ""), translator=self.translator, first_id=len(self.board.cues), translate=False,
             overlap_seconds=window.pad_seconds, overlap_tail_text=window.tail_text,
             audio_shift=window.trimmed_seconds + shift, overlap_covered_seconds=covered,
             guard=lambda call: self.runner.run(call, self.limit, f"chunk {idx}"),
