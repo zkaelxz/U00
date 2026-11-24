@@ -22,7 +22,7 @@ import { api, hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP,
   advancedSummary, buildStartBody, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
-  isActive, lagLine, pickEngine, resolveModel, startLive, statusLine, statusTone, type LiveForm, type LiveOptions,
+  isActive, lagLine, pickEngine, resolveModel, startLive, statusLine, statusTone, type LiveForm,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
@@ -33,6 +33,7 @@ import { PageShell } from '../components/PageShell'
 import { ModelSelect } from '../components/ModelSelect'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
+import { useLivePrefs } from './live/useLivePrefs'
 import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { useReadiness } from '../hooks/useReadiness'
@@ -108,10 +109,9 @@ function SpendLimitField({ range, value, disabled, onChange }: { range: readonly
 
 export default function LivePage() {
   const pc = usePcOnly()
-  // Only the options this browser changed, so the rest follow the server's defaults.
-  const [prefs, setPrefs] = usePersistedState<Partial<LiveOptions>>('live.options', {})
   // What Start accepts; the built-in copy until the server answers (Start checks again anyway).
   const [opts, setOpts] = useState(LIVE_FORM_FALLBACK)
+  const { prefs, setPrefs, setOpt, changeLanguage } = useLivePrefs(opts)
   useEffect(() => {
     let alive = true
     getLiveOptions().then((o) => { if (alive) setOpts(o) }, () => {})
@@ -128,14 +128,6 @@ export default function LivePage() {
   // remembered on this browser is set aside there (the PC keeps it).
   const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
-  const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
-  // A model this browser picked stays across languages unless Start would refuse it; otherwise
-  // the model is left unset so it follows the new language's default.
-  const changeLanguage = (language: string) => {
-    const { whisper_size: picked, ...rest } = prefs
-    const keep = picked !== undefined && !whisperExclusionReason(opts.whisper_exclusions, picked, language)
-    setPrefs({ ...rest, source_language: language, ...(keep ? { whisper_size: picked } : {}) })
-  }
 
   // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.
   const [titles, setTitles] = useState<{ id: number; name: string; series_id: number | null }[] | null>(null)
@@ -179,8 +171,10 @@ export default function LivePage() {
 
   const { readiness } = useReadiness()
   const gpuReason = liveGpuReason(readiness)
-  // With no NVIDIA GPU the box shows unticked, so a remembered tick is not sent either.
-  const useGpu = form.use_gpu && !gpuReason
+  // GPU is on unless this browser unticked it: a CPU Whisper can't keep up with a stream, so
+  // an untouched form must not start there. With no NVIDIA GPU the box shows unticked, so a
+  // remembered tick is not sent either.
+  const useGpu = (prefs.use_gpu ?? readiness?.gpu_found === true) && !gpuReason
   const startForm: LiveForm = { ...form, engine, model, ...glossary, use_gpu: useGpu }
   // Ollama is the default and runs on this PC: say plainly when it is not
   // there, instead of failing at Start. Nothing switches engine for the user.
