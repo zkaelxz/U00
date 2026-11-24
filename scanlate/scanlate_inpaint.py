@@ -245,6 +245,25 @@ def widen_to_dark_strip(img, box: dict) -> dict:
     return {**box, "x": x0 - left, "w": (x1 - x0) + left + right}
 
 
+_STRIP_LETTER_GRAY = 70
+
+
+def _dark_strip_inpaint(roi):
+    """`roi` (BGR) with the lettering of a dark banner strip painted out from the strip's own
+    dark ground, or None when the crop is not a wide, short, dark strip. LaMa painted the
+    surrounding art over a strip like this, so the English lost its dark ground."""
+    import cv2
+    h, w = roi.shape[:2]
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    if w < _STRIP_MIN_ASPECT * h or float(np.median(gray)) > _PLAIN_GROUND_MAX_GRAY:
+        return None
+    rows = (gray < _STRIP_DARK_GRAY).mean(axis=1) >= _STRIP_DARK_SHARE
+    mask = ((gray >= _STRIP_LETTER_GRAY) & rows[:, None]).astype(np.uint8) * 255
+    mask = cv2.dilate(mask, np.ones((5, 5), np.uint8))
+    mask[~rows] = 0
+    return cv2.inpaint(roi, mask, 3, cv2.INPAINT_TELEA)
+
+
 def _fill_enclosed_holes(mask):
     """`mask` with every 0-region that does not reach its edge set to 255: the
     inside of a letter whose outline is the only part that was masked. The
@@ -908,8 +927,10 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     drop_colour_rules(mask, roi)
     mask = _grown_erase_mask(mask, grow, keep if inside is not None else None)
 
-    inpainted_roi = None
-    if inside is None and on_art and is_coloured_art(roi) and _pale_pixels(roi).any():
+    inpainted_roi = _dark_strip_inpaint(roi) if inside is None and on_art else None
+    if inpainted_roi is not None:
+        pass
+    elif inside is None and on_art and is_coloured_art(roi) and _pale_pixels(roi).any():
         # An outline-only mask left the letters' fill and glow behind as ghosts.
         mask = _dark_art_lettering_mask(roi)
     elif inside is None and (spare_art or on_art) and background_is_dark(gray_roi):
