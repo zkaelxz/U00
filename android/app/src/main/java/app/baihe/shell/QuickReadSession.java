@@ -12,6 +12,10 @@ final class QuickReadSession {
     private static String summary = "";
     private static Runnable cancelHook;
     private static Runnable listener;
+    // Reading ahead: what fetches the chapter after this one, and the first page of the newest chapter.
+    private static Runnable nextHook;
+    private static int newestFrom;
+    private static final int PAGES_BEFORE_END = 3;
 
     private QuickReadSession() {}
 
@@ -21,6 +25,39 @@ final class QuickReadSession {
         abandoned = false;
         cancelled = false;
         summary = "";
+        nextHook = null;
+        newestFrom = 0;
+    }
+
+    /** Offers the chapter after a finished one; the reader takes it up once the last pages are near. */
+    static synchronized void offerNext(Runnable hook) {
+        if (!complete || abandoned || cancelled) return;
+        nextHook = hook;
+        notifyListener();
+    }
+
+    /**
+     * The reader reports the last page on screen. The offered chapter is fetched once, and only
+     * after the reader has reached the newest chapter: otherwise a run of very short chapters
+     * would keep fetching, and spending, with nobody reading.
+     */
+    static void reached(int lastVisiblePage) {
+        Runnable hook;
+        synchronized (QuickReadSession.class) {
+            if (nextHook == null || !complete || abandoned || cancelled) return;
+            if (lastVisiblePage < Math.max(names.size() - PAGES_BEFORE_END, newestFrom)) return;
+            hook = nextHook;
+            nextHook = null;
+        }
+        hook.run();
+    }
+
+    /** The next chapter is on its way: its pages join the ones already open. */
+    static synchronized void resume() {
+        if (abandoned || cancelled) return;
+        complete = false;
+        newestFrom = names.size();
+        notifyListener();
     }
 
     /** What stopping the grab does (tell the server, end the batches); set while the grab runs. */
@@ -34,6 +71,7 @@ final class QuickReadSession {
         synchronized (QuickReadSession.class) {
             cancelled = true;
             complete = true;
+            nextHook = null;
             hook = cancelHook;
             notifyListener();
         }
@@ -71,6 +109,7 @@ final class QuickReadSession {
             names.clear();
             summary = "";
             listener = null;
+            nextHook = null;
         }
         if (hook != null) hook.run();
     }

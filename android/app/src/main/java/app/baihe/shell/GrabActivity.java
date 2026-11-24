@@ -48,6 +48,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private static final String KEY_TOKEN = "token";
     private static final String KEY_QUEUE = "queue";
     private static final String KEY_HISTORY = "history";
+    private static final String KEY_READ_AHEAD = "read_ahead";
 
     private WebView web;
     private EditText address;
@@ -684,6 +685,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         form.addView(server);
         form.addView(token);
+        android.widget.CheckBox ahead = new android.widget.CheckBox(this);
+        ahead.setText("Quick read: translate the next chapter before I reach it");
+        ahead.setChecked(prefs().getBoolean(KEY_READ_AHEAD, true));
+        // Saved on the tap: it does not depend on the address and token passing their check.
+        ahead.setOnCheckedChangeListener((box, on) -> prefs().edit().putBoolean(KEY_READ_AHEAD, on).apply());
+        form.addView(ahead);
         new AlertDialog.Builder(this)
                 .setTitle("Settings")
                 .setMessage("Make the token at the PC in Baihe: Settings > Extension tokens per computer.")
@@ -1115,7 +1122,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     + (truncated ? ". Some pages were left out." : "") + timing;
             if (!carryOn) QuickReadSession.finish(message);
             if (!carryOn) QuickReadSession.onCancel(null);
+            // A refusal (a spent limit, a bad token) would refuse the next chapter too, so none is offered.
+            String ahead = carryOn || cancelRequested || refused[0] || thisPart == 0 || queueRunning
+                    || !prefs().getBoolean(KEY_READ_AHEAD, true) ? null : ServerAddress.nextChapterUrl(url, pageNext);
             finishGrab(message, carryOn);
+            // After finishGrab, so a reader already at the end finds this grab over when it asks.
+            if (ahead != null) QuickReadSession.offerNext(() -> runOnUiThread(() -> readAhead(ahead)));
         } catch (BaiheClient.BridgeException e) {
             QuickReadSession.onCancel(null);
             QuickReadSession.finish(e.getMessage());
@@ -1128,6 +1140,30 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             pool.shutdown();
         }
     }
+
+    /**
+     * Fetches the chapter after the one being read, into the open reader. It goes through the
+     * same hand-over as the parts of a split chapter, so the server's limits apply as they do
+     * to any Quick read.
+     */
+    private void readAhead(String next) {
+        if (grabbing || loadingNext || queueRunning || chaptersLeft > 0 || QuickReadSession.isAbandoned()) return;
+        chaptersLeft = 1;
+        followingParts = true;
+        partsContinuing = true;
+        QuickReadSession.onCancel(this::cancelGrab);
+        QuickReadSession.resume();
+        loadingNext = true;
+        int load = ++aheadLoads;
+        web.loadUrl(next);
+        web.postDelayed(() -> {
+            // A page that never finishes loading would leave the reader waiting for good.
+            if (loadingNext && !grabbing && load == aheadLoads) cancelGrab();
+        }, QUEUE_PAGE_LOAD_MS);
+    }
+
+    // Tells one read-ahead page load from a later one when its timeout fires. Main thread only.
+    private int aheadLoads;
 
     /**
      * One request of a Quick read. The PC is asked to download the pictures first; any it could
