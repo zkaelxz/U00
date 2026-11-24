@@ -921,7 +921,18 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             List<PageImage> asked = PcFetch.mark(batch);
             if (asked != null) {
                 try {
-                    JSONObject done = client.streamPages(pageUrl, asked, onPage);
+                    int[] delivered = {0};
+                    JSONObject done = client.streamPages(pageUrl, asked, page -> {
+                        delivered[0]++;
+                        onPage.onPage(page);
+                    });
+                    // An older Baihe ignores fetch_url and finds an empty picture: nothing comes back and no
+                    // "unfetched" list either. That is told apart from a stop by the user or the server.
+                    boolean stopped = cancelRequested || QuickReadSession.isAbandoned() || done.has("stopped");
+                    if (delivered[0] == 0 && !done.has("unfetched") && !stopped) {
+                        pcFetch[0] = false;
+                        return sendBytes(client, pageUrl, batch, onPage);
+                    }
                     List<PageImage> again = PcFetch.unfetched(batch, done.optJSONArray("unfetched"));
                     if (again.isEmpty()) return done;
                     List<PageImage> bytes = withBytes(again, pageUrl);
@@ -932,6 +943,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
             }
         }
+        return sendBytes(client, pageUrl, batch, onPage);
+    }
+
+    private JSONObject sendBytes(BaiheClient client, String pageUrl, List<PageImage> batch,
+                                 BaiheClient.PageListener onPage) throws BaiheClient.BridgeException {
         List<PageImage> bytes = withBytes(batch, pageUrl);
         if (bytes.isEmpty()) throw new BaiheClient.BridgeException(0, "The site would not let Baihe read those pictures.");
         return client.streamPages(pageUrl, ImageShrink.forUpload(bytes), onPage);
