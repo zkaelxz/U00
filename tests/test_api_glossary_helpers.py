@@ -66,7 +66,8 @@ def fake_engine(monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: SECRET)
     built = {}
     monkeypatch.setattr(engine_registry, "get_engine",
-                        lambda name, key, **kw: built.update(name=name, key=key) or _Engine())
+                        lambda name, key, **kw: built.update(name=name, key=key, model=kw.get("model"))
+                        or _Engine())
     return built
 
 
@@ -133,6 +134,24 @@ class TestLinesGlossaryService:
         status = gs.get_lines_glossary_status(did)
         assert status["status"] == "done" and len(status["result"]["proposals"]) == 3
         assert SECRET not in repr(status)
+
+    def test_the_scan_runs_on_the_model_the_title_translates_with(self, isolated_db, monkeypatch,
+                                                                    fake_engine):
+        did, _sid = _lines_drama(isolated_db, engine="ollama")
+        isolated_db.update_drama(did, translate_start_json='{"engine_model": "gemma4:31b-cloud"}')
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", lambda *a, **k: [])
+        assert gs.glossary_model(did) == "gemma4:31b-cloud"
+        out = gs.start_lines_glossary_run(did)
+        assert wait_for_job(out["job_id"], timeout=4.0)["status"] == "done"
+        assert fake_engine["model"] == "gemma4:31b-cloud"
+
+    def test_with_no_picked_model_the_scan_uses_the_engines_default(self, isolated_db, monkeypatch,
+                                                                    fake_engine):
+        did, _sid = _lines_drama(isolated_db)
+        monkeypatch.setattr(glossary_extract, "extract_terms_llm", lambda *a, **k: [])
+        out = gs.start_lines_glossary_run(did)
+        assert wait_for_job(out["job_id"], timeout=4.0)["status"] == "done"
+        assert gs.glossary_model(did) is None and fake_engine["model"] is None
 
     def test_slow_call_shows_elapsed_and_is_not_flagged_as_progress_stalled(self, isolated_db, monkeypatch, fake_engine):
         import threading
