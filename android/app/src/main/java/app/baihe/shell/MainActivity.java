@@ -18,6 +18,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 
 import java.io.File;
 import java.security.SecureRandom;
@@ -72,7 +73,7 @@ public class MainActivity extends Activity {
                 if (address != null && ServerAddress.sameOrigin(address, url)) return false;
                 String scheme = request.getUrl().getScheme();
                 if ("baihegrab".equals(scheme)) {
-                    startActivity(new Intent(MainActivity.this, GrabActivity.class));
+                    ShellTabs.show(MainActivity.this, GrabActivity.class);
                     return true;
                 }
                 if ("http".equals(scheme) || "https".equals(scheme)) {
@@ -112,8 +113,24 @@ public class MainActivity extends Activity {
                 exitCustomView();
             }
         });
-        setContentView(web);
+        setContentView(page());
         open(getIntent());
+    }
+
+    /** The Studio | Grab strip above Baihe; rebuilt after a full-screen video because setContentView drops it. */
+    private View page() {
+        GrabUi.Palette palette = GrabUi.Palette.of(this);
+        getWindow().setStatusBarColor(palette.surface);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setFitsSystemWindows(true);
+        root.setBackgroundColor(palette.surface);
+        root.addView(ShellTabs.strip(this, palette, false), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        ViewGroup parent = (ViewGroup) web.getParent();
+        if (parent != null) parent.removeView(web);
+        root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        return root;
     }
 
     @Override
@@ -148,7 +165,7 @@ public class MainActivity extends Activity {
         customViewCallback = null;
         ViewGroup parent = (ViewGroup) view.getParent();
         if (parent != null) parent.removeView(view);
-        setContentView(web);
+        setContentView(page());
         web.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
         callback.onCustomViewHidden();
     }
