@@ -28,9 +28,9 @@ log = logging.getLogger(__name__)
 
 # Only the medium pair has PyTorch weights here; balloons and pages use it.
 GPU_KEYS = frozenset({"medium"})
-# The two models, CUDA's own share and one page's working memory: generous, like
-# the balloon detector's, so the reader only goes on a card with clear room.
-GPU_NEED_MB = 1500
+# The helper held 2.25 GB on the V100 while reading Chinese pages (two models, CUDA's own
+# share, a page's working memory); a little over that so it only goes on a card with room.
+GPU_NEED_MB = 2500
 # A card without room is asked again at most this often: each nvidia-smi
 # reading can take seconds, and a Quick read makes several reads a page.
 GPU_RECHECK_SECONDS = 60
