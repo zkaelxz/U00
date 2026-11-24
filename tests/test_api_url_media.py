@@ -1698,3 +1698,30 @@ def test_download_again_refusals(client, env):
     # Without keep_lines an empty link is refused as before.
     assert _start(client, did, url="", confirm_replace_audio=True).status_code == 422
     assert FakeYDL.calls == []
+
+
+def test_a_caption_failure_does_not_fail_the_download(client, env):
+    did = _drama(source_language="zh")
+    real = FakeYDL.extract_info
+
+    def extract(self, url, download=True):
+        if self.opts.get("writesubtitles"):
+            raise RuntimeError("Unable to download video subtitles for 'zh': HTTP Error 429")
+        return real(self, url, download=download)
+    FakeYDL.extract_info = extract
+    try:
+        st = _run(client, did)
+    finally:
+        FakeYDL.extract_info = real
+    assert st["status"] == "done", st
+    assert "writesubtitles" not in FakeYDL.last_opts
+
+
+def test_new_media_without_captions_drops_the_old_ones(client, env):
+    FakeYDL.script = {"captions": {"zh": _VTT}}
+    did = _drama(source_language="zh")
+    assert _run(client, did)["status"] == "done"
+    assert site_captions_service.has_captions(did)
+    FakeYDL.script = {}
+    assert _run(client, did, confirm_replace_audio=True)["status"] == "done"
+    assert not site_captions_service.has_captions(did)

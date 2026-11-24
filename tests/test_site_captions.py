@@ -59,3 +59,22 @@ def test_the_hint_reaches_whisper_and_the_brief(isolated_db, tmp_path, monkeypat
                                      {"site_captions": "hello there friend"})
     assert "Reference only" in sent["p"] and "hello there friend" in sent["p"]
     assert os.path.basename(db.drama_dir(did))
+
+
+def test_short_replies_and_huge_cues_survive_cleaning(isolated_db, tmp_path):
+    did = db.create_drama(title_zh="D")
+    src = tmp_path / "downloaded_audio.zh.vtt"
+    src.write_text("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n对\n\n00:00:02.000 --> 00:00:03.000\n对不起\n\n"
+                   "00:00:03.000 --> 00:00:04.000\n嗯嗯我知道\n\n00:00:04.000 --> 00:00:05.000\n嗯\n\n"
+                   f"00:00:05.000 --> 00:00:06.000\n{'a' * 600}\n")
+    assert sc.save(did, str(src)) is True
+    assert sc.hint_text(did, 100) == "对 对不起 嗯嗯我知道 嗯"
+
+
+def test_new_media_forgets_the_old_captions(isolated_db, tmp_path):
+    did = db.create_drama(title_zh="D")
+    src = tmp_path / "downloaded_audio.en.vtt"
+    src.write_text(ROLLING)
+    sc.save(did, str(src))
+    sc.remove(did)
+    assert not sc.has_captions(did) and sc.hint_text(did, 50) == ""

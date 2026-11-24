@@ -1,4 +1,5 @@
 """The video site's own captions saved with a downloaded title: kept as hints, or used as the lines."""
+import contextlib
 import os
 
 import db
@@ -9,6 +10,9 @@ from lib.errors import InvalidInputError
 FILE_NAME = "site_captions.vtt"
 # A day of auto captions is a few hundred KB; anything bigger is not a caption track.
 MAX_BYTES = 2 * 1024 * 1024
+# A spoken line is never this long; a cue that is came from a hostile or broken file, and the
+# repeat check below costs time in proportion to its length.
+MAX_CUE_CHARS = 500
 # Whisper's prompt only reads its tail (about 224 tokens), and a longer one is paid for in every request.
 ASR_HINT_CHARS = 400
 BRIEF_REFERENCE_CHARS = 3000
@@ -58,9 +62,9 @@ def _stamp(seconds: float) -> str:
 
 def _repeated(before: str, text: str) -> int:
     """How many leading characters of `text` repeat the end of `before`. A short overlap is chance
-    (two characters of Chinese often do), so it counts only when it is 4+ characters or all of `before`."""
-    for k in range(min(len(before), len(text)), 0, -1):
-        if before.endswith(text[:k]) and (k >= 4 or k == len(before)):
+    (a reply of a few characters often repeats the last ones), so it counts only from 4 characters."""
+    for k in range(min(len(before), len(text), MAX_CUE_CHARS), 3, -1):
+        if before.endswith(text[:k]):
             return k
     return 0
 
@@ -72,7 +76,7 @@ def _cleaned(cues) -> list:
     for cue in cues:
         text = " ".join(cue.text.split())
         before, shown = shown, text
-        if not text or text in before:
+        if not text or len(text) > MAX_CUE_CHARS or text == before or (len(text) >= 4 and text in before):
             continue
         text = text[_repeated(before, text):].strip()
         out.append(subtitle_parse.Cue(cue.start, cue.end, text, len(out) + 1))
@@ -88,6 +92,12 @@ def _read(drama_id: int) -> list:
             return subtitle_parse.parse_subtitle(f.read(MAX_BYTES + 1), FILE_NAME).cues
     except (OSError, subtitle_parse.SubtitleParseError):
         return []
+
+
+def remove(drama_id: int) -> None:
+    """Forgets the saved captions: they belong to the media they came with."""
+    with contextlib.suppress(OSError):
+        os.remove(os.path.join(db.drama_dir(drama_id), FILE_NAME))
 
 
 def has_captions(drama_id: int) -> bool:
@@ -108,6 +118,6 @@ def use_as_lines(drama_id: int) -> int:
     if db.load_line_ids(drama_id):
         raise InvalidInputError("This title already has lines; the site's captions were not used.")
     db.save_lines(drama_id, [Line(idx=i, start=c.start, end=max(c.end, c.start + 0.1), zh=c.text)
-                             for i, c in enumerate(cues)])
+                             for i, c in enumerate(cues)], expect_unchanged=[])
     db.update_drama(drama_id, status="aligned")
     return len(cues)

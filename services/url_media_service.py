@@ -630,6 +630,15 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool, options: dict |
     with egress_proxy.GuardedProxy() as proxy:
         spec["proxy"] = proxy.url
         result, end, state = _run_child(job_id, tmp, spec, wall, watch)
+        if (spec.get("captions") and "path" not in result and "rejected" not in result
+                and "subtitle" in str(result.get("error") or "").lower()
+                and not (state["out_of_space"] or state["too_slow"] or end.get("timed_out")
+                         or end.get("cancelled") or background_jobs.is_cancel_requested(job_id))):
+            # yt-dlp can fail a whole download over one caption track (a rate limit on
+            # the captions address); the media matters more, so ask again without them.
+            spec.pop("captions")
+            applog.get_logger().info("URL download failed with captions requested; trying without them.")
+            result, end, state = _run_child(job_id, tmp, spec, wall, watch)
         if _retryable(result, end, state):
             applog.get_logger().info("URL download failed with a likely temporary error; retrying once.")
             if _cancel_aware_sleep(job_id, RETRY_BACKOFF_SECONDS):
@@ -795,7 +804,7 @@ def _keep_site_captions(drama_id: int, path: str | None, use: bool) -> dict:
         result["site_captions"] = site_captions_service.save(drama_id, path)
         if use and result["site_captions"]:
             result["site_captions_used"] = site_captions_service.use_as_lines(drama_id) > 0
-    except (OSError, sqlite3.Error, InvalidInputError):
+    except (OSError, sqlite3.Error, InvalidInputError, ConflictError):
         applog.get_logger().warning("The site's captions could not be kept for title %s.", drama_id)
     return result
 
