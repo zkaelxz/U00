@@ -9,6 +9,9 @@ from lib.errors import ForbiddenError, InvalidInputError
 from services import artifact_service, queue_service as q, translate_run_service
 
 
+pytestmark = pytest.mark.usefixtures("local_ollama_default")
+
+
 def _drama(lines=(("你好", ""),), **fields):
     fields.setdefault("transcript_mode", "whisper")
     did = db.create_drama(title_en="Signal", title_zh="信号", translation_engine="ollama", **fields)

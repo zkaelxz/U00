@@ -4,13 +4,13 @@ import type { TitleKind } from './titleKind'
 // From the project's own small tests, so each line says it is a recommendation and what it rests on.
 const NOTES: Record<TitleKind, string> = {
   comic:
-    'Recommended for comics: Claude Sonnet 5.5. In a blind comparison of comic pages it ranked first, ahead of translategemma:27b (free, runs on this PC) and GPT-6 Luna. Small test, so judge on your own pages.',
+    'Recommended for comics: Claude Sonnet 5.5. In a blind comparison of comic pages it ranked first, ahead of GPT-6 Luna. Small test, so judge on your own pages.',
   video:
-    "Recommended for streams and videos: gemma4:31b-cloud, Ollama's hosted cloud model. translategemma:27b is the local choice.",
+    "Recommended for streams and videos: gemma4:31b-cloud, Ollama's hosted cloud model.",
   audio:
-    "Recommended for streams and audio: gemma4:31b-cloud, Ollama's hosted cloud model. translategemma:27b is the local choice.",
+    "Recommended for streams and audio: gemma4:31b-cloud, Ollama's hosted cloud model.",
   subtitle:
-    "Recommended for streams and subtitles: gemma4:31b-cloud, Ollama's hosted cloud model. translategemma:27b is the local choice.",
+    "Recommended for streams and subtitles: gemma4:31b-cloud, Ollama's hosted cloud model.",
   novel:
     'Recommended for novels: GPT-6 Luna with "GPT-6 Luna reasoning" set to Less (Settings > Engines and keys), and the series glossary filled in. On a test chunk Less was faster and cheaper with about the same quality.',
 }

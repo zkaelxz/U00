@@ -14,6 +14,9 @@ from lib.errors import (InvalidInputError, NotFoundError,
 from tests.saved_settings import patch_setting
 
 
+pytestmark = pytest.mark.usefixtures("local_ollama_default")
+
+
 def _drama(**fields):
     return db.create_drama(title_zh="D", **fields)
 
