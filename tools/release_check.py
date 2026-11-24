@@ -19,6 +19,7 @@ Paid translation engines also need --allow-paid; a run stops adding paid lines o
 import argparse
 import datetime
 import json
+import math
 import multiprocessing
 import os
 import platform
@@ -59,6 +60,7 @@ REGRESSION_MARGIN = 0.02
 # One default-decoding run can land anywhere in its spread, so it can't pass the gate.
 GATE_MIN_REPEATS = 5
 DEFAULT_REPEATS = GATE_MIN_REPEATS
+BASELINE_METRICS = frozenset(("cer", "wer", "der", "chrf"))
 RESULT_PREFIX = quality_check_service.RESULT_PREFIX
 GATE_MAX_AGE_DAYS = quality_check_service.GATE_MAX_AGE_DAYS
 DIARIZATION_FRAME_S = 0.01
@@ -120,7 +122,8 @@ def load_manifest(path: str) -> dict:
                 not isinstance(clip["fixed_decoding"], bool) or not (clip["kind"] == "transcription" and settings is not None)):
             raise Refusal(f'Clip "{cid}": "fixed_decoding" is true or false, and only a transcription clip with "title_settings" takes it.')
         baseline = clip.get("baseline")
-        if baseline is not None and (isinstance(baseline, bool) or not isinstance(baseline, (int, float)) or baseline < 0):
+        if baseline is not None and (isinstance(baseline, bool) or not isinstance(baseline, (int, float))
+                                     or not math.isfinite(baseline) or baseline < 0):
             raise Refusal(f'Clip "{cid}": "baseline" must be a score of 0 or more.')
         if clip.get("backend") is not None and clip["backend"] not in diarize.SPEAKER_MODELS:
             raise Refusal(f'Clip "{cid}": "backend" must be one of {", ".join(diarize.SPEAKER_MODELS)}.')
@@ -423,6 +426,9 @@ def baseline_status(row: dict) -> str:
         return "fail"
     if row.get("baseline") is None:
         return "none"
+    # Translation falls back to a difflib ratio without sacrebleu; a chrF baseline means nothing against it.
+    if row.get("metric") not in BASELINE_METRICS:
+        return "fail"
     if row.get("score") is None or worse(row.get("metric"), row["score"], row["baseline"]):
         return "fail"
     return "pass"

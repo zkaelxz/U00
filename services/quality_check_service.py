@@ -2,6 +2,7 @@
 import datetime
 import glob
 import json
+import math
 import os
 
 import portable
@@ -22,7 +23,9 @@ def _text(value):
 
 
 def _number(value):
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    # NaN or Infinity would make the JSON answer unsendable.
+    ok = isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    return float(value) if ok else None
 
 
 def _newest_result(folder: str):
@@ -76,8 +79,9 @@ def latest(folder: str | None = None, now: datetime.datetime | None = None) -> d
     except (OSError, ValueError):
         return {**empty, "found": True, "unreadable": True}
     ran_at = _ran_at(run)
-    # The run writes local time with no zone; it runs on the PC this app reads it from.
-    age = max(0, ((now or datetime.datetime.now()) - ran_at).days) if ran_at else None
+    # The run writes local time with no zone; it runs on the PC this app reads it from. Calendar days,
+    # as promote-release.yml counts them, so the card never calls fresh a stamp Promote refuses.
+    age = max(0, ((now or datetime.datetime.now()).date() - ran_at.date()).days) if ran_at else None
     repeats = run.get("repeats")
     return {
         **empty,

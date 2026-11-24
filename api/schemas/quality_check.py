@@ -10,7 +10,7 @@ __all__ = ["QualityClip", "QualityCheck"]
 class QualityClip(BaseModel):
     id: str = Field(description="The clip's id from the private manifest, such as title59-transcription.")
     kind: str
-    metric: Optional[str] = Field(None, description="cer, wer, der (lower is better) or chrf.")
+    metric: Optional[str] = Field(None, description="cer or wer (scored as 1 - error), der (lower is better) or chrf.")
     score: Optional[float] = Field(None, description="None when the clip failed.")
     baseline: Optional[float] = None
     status: Literal["pass", "fail", "none"] = Field(

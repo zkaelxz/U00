@@ -285,7 +285,7 @@ def test_repeats_default_to_five(tmp_path, monkeypatch):
 
 def test_manifest_refuses_a_baseline_that_is_not_a_score(tmp_path):
     clip = {"id": "a", "kind": "transcription", "audio": "a.wav", "language": "zh", "reference_text": "x"}
-    for bad in ("0.6", True, -0.1):
+    for bad in ("0.6", True, -0.1, float("nan"), float("inf")):
         with pytest.raises(rc.Refusal):
             rc.load_manifest(_write(tmp_path, [{**clip, "baseline": bad}]))
     assert rc.load_manifest(_write(tmp_path, [{**clip, "baseline": 0.642}]))["clips"][0]["baseline"] == 0.642
@@ -300,6 +300,8 @@ def test_baseline_status_uses_the_margin_and_the_metric_direction():
     assert rc.baseline_status({**d, "score": 0.45}) == "fail"
     assert rc.baseline_status({**t, "score": None, "error": "x"}) == "fail"
     assert rc.baseline_status({"kind": "translation", "metric": "chrf", "score": 0.5}) == "none"
+    # Without sacrebleu translation scores a difflib ratio, which a chrF baseline can't judge.
+    assert rc.baseline_status({"kind": "translation", "metric": "similarity", "score": 0.9, "baseline": 0.5}) == "fail"
 
 
 def test_gate_needs_a_baseline_nothing_red_and_five_default_runs():

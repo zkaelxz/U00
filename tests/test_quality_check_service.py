@@ -49,6 +49,12 @@ def test_older_than_seven_days_is_not_fresh(tmp_path):
     assert out["age_days"] == 8 and out["fresh"] is False
 
 
+def test_age_counts_calendar_days_as_promote_does(tmp_path):
+    _write(tmp_path, "20261116-230000", _run("20261116-230000"))
+    out = qc.latest(str(tmp_path), datetime.datetime(2026, 11, 24, 10, 0))
+    assert out["age_days"] == 8 and out["fresh"] is False
+
+
 def test_a_result_from_before_baselines_shows_no_baseline_and_no_pass(tmp_path):
     _write(tmp_path, "20261119-225928", {"when": "2026-11-19 22:59", "machine": "PC", "repeats": 5,
                                          "results": [{"id": "t60", "kind": "transcription", "metric": "cer",

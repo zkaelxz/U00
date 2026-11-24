@@ -24912,7 +24912,7 @@ export interface components {
             kind: string;
             /**
              * Metric
-             * @description cer, wer, der (lower is better) or chrf.
+             * @description cer or wer (scored as 1 - error), der (lower is better) or chrf.
              */
             metric: string | null;
             /**
