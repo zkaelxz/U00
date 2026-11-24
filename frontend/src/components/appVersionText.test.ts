@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { appVersionText, phoneAppText, shortDate } from './appVersionText'
+import { appVersionText, canOpenGrab, phoneAppText, shortDate } from './appVersionText'
 
 describe('the version line', () => {
   it('shows an installed copy with its release date', () => {
@@ -27,5 +27,13 @@ describe('the version line', () => {
   it('refuses a date it cannot read', () => {
     expect(shortDate('2026-13-01')).toBeNull()
     expect(shortDate('22 Nov')).toBeNull()
+  })
+})
+
+describe('canOpenGrab', () => {
+  it('is true only for a phone app build that handles the link', () => {
+    expect(canOpenGrab('Chrome/130 Mobile Safari/537.36 BaiheAndroid/1092 (2026-11-24)')).toBe(true)
+    expect(canOpenGrab('Chrome/130 Mobile Safari/537.36 BaiheAndroid/1091 (2026-11-24)')).toBe(false)
+    expect(canOpenGrab('Mozilla/5.0 (Linux; Android 14) Chrome/130 Mobile Safari/537.36')).toBe(false)
   })
 })
