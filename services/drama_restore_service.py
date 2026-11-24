@@ -70,7 +70,7 @@ _SKIPPED_TABLES = {
 _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug_reports",
                     "edit_samples", "source_edits")
 _FIRST_SEEN_TABLES = ("vocab_lookups", "wiki_entries")
-_PROFILE_TABLES = ("progress", "personal_notes", "reading_history", "chapter_marks")
+_PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 _MAX_LINES_JSON = 64 * 1024 ** 2    # older line_history values are gzip (db.PLAIN_SNAPSHOTS)
 SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory", "word_replacements",
@@ -424,6 +424,27 @@ def refuse_newer_copy(src):
         raise InvalidInputError(lrs.BACKUP_FROM_NEWER_APP) from None
 
 
+def _account_marks(rows: list, owners: dict) -> list:
+    """A copy's chapter marks as rows of live accounts, one per account and chapter. 0 is
+    the PC itself in every library; a mark of an account with no live match is dropped. A
+    copy from before marks were kept per account names none: every profile's marks fold
+    into the PC's (read if any read it, as the upgrade does)."""
+    merged = {}
+    for row in rows:
+        account = row.get("user_id", 0)
+        if account != 0:
+            account = owners.get(account)
+        if account is None:
+            continue
+        kept = merged.setdefault((account, row.get("chapter_id")), {
+            "drama_id": row.get("drama_id"), "user_id": account, "chapter_id": row.get("chapter_id"),
+            "read_at": None, "bookmarked": 0})
+        times = [t for t in (kept["read_at"], row.get("read_at")) if isinstance(t, str) and t]
+        kept["read_at"] = min(times) if times else None
+        kept["bookmarked"] = int(bool(kept["bookmarked"] or row.get("bookmarked")))
+    return list(merged.values())
+
+
 def _set_accounts(row, drama, import_as, owners) -> None:
     """The copy's owner, creator and privacy (see copy_drama)."""
     if import_as is not None:
@@ -491,12 +512,15 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
             db.ensure_legacy_bug_reports(dst)
         if not has_table(dst, table):
             continue
-        if import_as is not None and table in _PROFILE_TABLES:
+        if import_as is not None and (table in _PROFILE_TABLES or table == "chapter_marks"):
             counts[table] = 0
             continue
         live_cols = columns(dst, table)
         n = 0
-        for child in table_rows(src, table, "drama_id = ?", (old_id,)):
+        rows = table_rows(src, table, "drama_id = ?", (old_id,))
+        if table == "chapter_marks":
+            rows = _account_marks(rows, owners)
+        for child in rows:
             old = child.pop("id", None)
             child["drama_id"] = live_id
             _sanitise_file_refs(table, child, import_as)

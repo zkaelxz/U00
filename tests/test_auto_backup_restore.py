@@ -36,7 +36,7 @@ LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bug
                    "edit_samples", "source_edits")
 
 
-PROFILE_TABLES = ("progress", "personal_notes", "reading_history", "chapter_marks")
+PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
 
 
 def _fk_child_tables():
@@ -784,3 +784,20 @@ class TestRestoreMedia:
         assert db.get_drama(a) is None and not os.path.lexists(_ddir(a))
         assert sorted(os.listdir(db.DRAMAS_DIR)) == [str(b)]
         assert _read(os.path.join(_ddir(b), "b.wav")) == b"B"
+
+
+def test_a_restored_titles_chapter_marks_go_to_the_live_accounts_they_belong_to():
+    owners = {5: 8}
+    rows = [{"drama_id": 1, "user_id": 0, "chapter_id": "c1", "read_at": "2026-01-02", "bookmarked": 0},
+            {"drama_id": 1, "user_id": 5, "chapter_id": "c1", "read_at": None, "bookmarked": 1},
+            {"drama_id": 1, "user_id": 6, "chapter_id": "c1", "read_at": "x", "bookmarked": 1}]
+    assert drs._account_marks(rows, owners) == [
+        {"drama_id": 1, "user_id": 0, "chapter_id": "c1", "read_at": "2026-01-02", "bookmarked": 0},
+        {"drama_id": 1, "user_id": 8, "chapter_id": "c1", "read_at": None, "bookmarked": 1}]
+    # A copy from before marks were per account: every profile's marks fold into the PC's.
+    old = [{"drama_id": 1, "profile_id": 1, "chapter_id": "c1", "read_at": "2026-01-05", "bookmarked": 0},
+           {"drama_id": 1, "profile_id": 2, "chapter_id": "c1", "read_at": "2026-01-03", "bookmarked": 1},
+           {"drama_id": 1, "profile_id": 2, "chapter_id": "c2", "read_at": None, "bookmarked": 1}]
+    assert drs._account_marks(old, owners) == [
+        {"drama_id": 1, "user_id": 0, "chapter_id": "c1", "read_at": "2026-01-03", "bookmarked": 1},
+        {"drama_id": 1, "user_id": 0, "chapter_id": "c2", "read_at": None, "bookmarked": 1}]

@@ -74,10 +74,10 @@ def start_chapter(drama_id: int, page_id: int, title: str = "") -> dict:
     return {"changed": group["page_count"] - at}
 
 
-def set_marks(drama_id: int, chapter_ids, read=None, bookmarked=None) -> dict:
-    """Marks chapters read or unread, and bookmarks them, for the household's default
-    profile (the one the resume page belongs to). Every id must be a chapter of this
-    title, so a stale page list can't leave marks nothing will ever show."""
+def set_marks(drama_id: int, chapter_ids, read=None, bookmarked=None, user_id: int = 0) -> dict:
+    """Marks chapters read or unread, and bookmarks them, for one account (0: the PC
+    itself). Every id must be a chapter of this title, so a stale page list can't leave
+    marks nothing will ever show."""
     if read is None and bookmarked is None:
         raise InvalidInputError("Send read or bookmarked.")
     _, groups = _groups(drama_id)
@@ -85,8 +85,8 @@ def set_marks(drama_id: int, chapter_ids, read=None, bookmarked=None) -> dict:
     wanted = list(dict.fromkeys(chapter_ids))
     if any(c not in known for c in wanted):
         raise NotFoundError("No such chapter in this title.")
-    db.set_chapter_marks(drama_id, wanted, read=read, bookmarked=bookmarked)
-    marks = db.get_chapter_marks(drama_id)
+    db.set_chapter_marks(drama_id, wanted, read=read, bookmarked=bookmarked, user_id=user_id)
+    marks = db.get_chapter_marks(drama_id, user_id)
     return {"chapters": [dict(id=g["id"], **marks.get(g["id"], {"read": False, "bookmarked": False}))
                          for g in groups]}
 

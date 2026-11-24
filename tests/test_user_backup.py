@@ -53,7 +53,7 @@ def test_every_table_is_classified(isolated_db):
             rule = lub.USER_BACKUP_TABLES[t][0]
             cols = set(_cols(conn, t))
             if "drama_id" in cols:
-                assert rule in ("drama", "drama_spend", "profile_drama", "series_character", "empty"), t
+                assert rule in ("drama", "drama_spend", "profile_drama", "user_drama", "series_character", "empty"), t
             if "profile_id" in cols:
                 assert rule in ("profile_drama", "empty"), t
             if "series_id" in cols and t != "dramas":
@@ -61,7 +61,7 @@ def test_every_table_is_classified(isolated_db):
             if "page_id" in cols:
                 assert rule in ("page", "empty"), t
             if cols & {"user_id", "owner_user_id"} and t not in ("dramas", "series"):
-                assert rule in ("user", "drama_spend", "empty"), t
+                assert rule in ("user", "user_drama", "drama_spend", "empty"), t
             if rule == "keep":
                 assert not cols & {"drama_id", "series_id", "user_id", "owner_user_id",
                                    "line_id", "page_id", "profile_id"}, t
@@ -188,9 +188,11 @@ def _build_library():
             _seed_row(conn, "style_profile", {"scope": scope}, marker)
         _seed_row(conn, "profiles", {}, OTHER)                    # a second household profile
         other_profile = conn.execute("SELECT MAX(id) FROM profiles").fetchone()[0]
+        conn.execute("UPDATE chapter_marks SET user_id = ?", (a,))
         for did in mine:                          # its reading data on A's dramas stays behind
-            for t in ("progress", "personal_notes", "reading_history", "chapter_marks"):
+            for t in ("progress", "personal_notes", "reading_history"):
                 _seed_row(conn, t, {"drama_id": did, "profile_id": other_profile}, OTHER)
+            _seed_row(conn, "chapter_marks", {"drama_id": did, "user_id": b}, OTHER)  # B's marks on A's dramas
         seeded = set(drama_tables) | {"series_characters", "glossary_terms", "bubbles",
                                       "translation_memory", "glossary_dismissals", "word_replacements", "translate_history",
                                       "style_profile", "profiles", "dramas", "series", "users",
@@ -411,8 +413,11 @@ def test_the_filter_keeps_and_drops_exactly_by_rule(isolated_db, tmp_path):
                 assert count == 0, t
             elif rule == "keep":
                 assert count == 1, t
-            elif rule in ("drama", "drama_spend", "profile_drama") and t in drama_tables:
+            elif rule in ("drama", "drama_spend", "profile_drama", "user_drama") and t in drama_tables:
                 assert {r[0] for r in conn.execute(f'SELECT drama_id FROM "{t}"')} == mine, t
+        # A's own marks travel as the target PC's; B's marks on A's titles stayed behind.
+        assert [tuple(r) for r in conn.execute("SELECT user_id, COUNT(*) FROM chapter_marks GROUP BY 1")] == \
+            [(0, len(mine))]
         # Who spent it is an id from this install, so it does not travel.
         assert {r[0] for r in conn.execute("SELECT user_id FROM usage_log")} == {None}
         assert sorted(r[0] for r in conn.execute("SELECT id FROM dramas")) == sorted(mine)
