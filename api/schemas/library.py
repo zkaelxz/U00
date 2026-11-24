@@ -351,6 +351,7 @@ class LibraryCostRow(BaseModel):
     cache_read_tokens: int
     estimated_cost_usd: float
     call_count: int
+    cloud_call_count: int = 0
 
 
 class LibraryCostResponse(BaseModel):

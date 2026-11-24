@@ -164,7 +164,8 @@ def list_cost_by_drama(principal=None) -> list:
     """Dramas with at least one logged call (free-engine runs included)."""
     return [{k: d.get(k) for k in (
         "id", "title_en", "title_zh", "translation_engine", "input_tokens",
-        "output_tokens", "cache_read_tokens", "estimated_cost_usd", "call_count")}
+        "output_tokens", "cache_read_tokens", "estimated_cost_usd", "call_count",
+        "cloud_call_count")}
         for d in db.get_usage_by_drama(visible_to=ownership_service.visible_to_filter(principal))
         if d["call_count"] > 0]
 
