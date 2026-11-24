@@ -10,6 +10,7 @@ import { startComicUrlImport } from '../../api/sourcesExtraction'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { humanize } from '../../components/labels'
+import { SameTitleNote } from '../../components/SameTitleNote'
 import { Sheet } from '../../components/Sheet'
 import { Tabs } from '../../components/Tabs'
 import { buttonClass } from '../../components/uiClasses'
@@ -122,6 +123,7 @@ export function AddComicDialog({ open, onClose, readTranslated = false }: { open
             />
           </Field>
         )}
+        <SameTitleNote titleEn={title} link={way === 'link' ? link : ''} off={made !== null || busy} />
         {!readTranslated && (
           <Field label="Reading mode">
             <select value={mode} onChange={(e) => setMode(e.target.value as ComicMode)}>

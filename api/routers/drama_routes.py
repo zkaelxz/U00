@@ -35,7 +35,7 @@ from api.auth import is_at_pc, local_only, require_permission
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaFolderOpened, DramaMetadataUpdate,
-                         DramaSeriesUpdate, OwnTitleDelete, TitleSettingSources,
+                         DramaSeriesUpdate, OwnTitleDelete, SameTitleList, SameTitleQuery, TitleSettingSources,
                          DramaSourceLink, TitleRestructureApplyRequest, TitleRestructureInfo,
                          TitleRestructurePreview, TitleRestructureRequest, TitleRestructureResult,
                          error_responses)
@@ -65,6 +65,15 @@ def post_drama(payload: DramaCreateRequest, request: Request):
                              preset_defaults=result.get("preset_defaults"),
                              profile_skipped=result.get("profile_skipped", []),
                              title_from_link=result.get("title_from_link"))
+
+
+# A POST so the typed link travels in the body, never in a URL or an access log.
+@router.post("/same", dependencies=[require_permission("library.create")], response_model=SameTitleList,
+             summary="Titles already in the library with this name or link (for the add forms' warning)",
+             responses=error_responses(422))
+def post_same_titles(payload: SameTitleQuery, request: Request):
+    return SameTitleList(items=drama_service.find_same_titles(
+        **payload.model_dump(), principal=request.state.principal))
 
 
 @router.post("/{drama_id}/metadata", dependencies=[require_permission("admin.library")], response_model=DramaDetail,

@@ -36,6 +36,7 @@ import os
 import re
 import shutil
 import time
+import unicodedata
 import uuid
 from typing import Any
 
@@ -72,6 +73,8 @@ _BOOL_FIELDS = ("default_female_pronouns", "include_genre_notes", "keep_original
 MAX_NAME_LEN = 300
 MAX_LONG_TEXT_LEN = 5000
 MAX_URL_LEN = 2000
+# The warning names a few titles; a library full of same-named rows needs no longer list.
+MAX_SAME_TITLES = 5
 _TEXT_CAPS = {"summary": MAX_LONG_TEXT_LEN, "episode_summary": MAX_LONG_TEXT_LEN,
               "episode_brief": MAX_LONG_TEXT_LEN,
               "project_instructions": MAX_LONG_TEXT_LEN, "source_url": MAX_URL_LEN,
@@ -379,6 +382,37 @@ def inherit_series_defaults_on_join(drama_id, series_id) -> None:
     (a site-named series from link details or the extension): the same
     fill-only-blanks inheritance a move gets."""
     _inherit_series_defaults("inherit_moved", drama_id, series_id)
+
+
+def _name_key(value) -> str:
+    return " ".join(unicodedata.normalize("NFKC", str(value or "")).casefold().split())
+
+
+def _link_key(url) -> str:
+    return source_link_service.split_source_url(url)[0].rstrip("/").casefold()
+
+
+def find_same_titles(*, title_en="", title_zh="", source_url="", principal=None) -> list:
+    """Titles the caller can see that carry one of these names or this link, for the
+    "already in your Library" warning on an add form: [{"id", "title", "same"}], where
+    "same" is "link" or "name". Names match ignoring case, width and spacing; links
+    match on their display-safe form, so the answer never depends on a stored query or token."""
+    names = {key for key in (_name_key(title_en), _name_key(title_zh)) if key}
+    link = _link_key(source_url)
+    if not names and not link:
+        return []
+    found = []
+    for row in db.list_dramas(visible_to=ownership_service.visible_to_filter(principal)):
+        if link and _link_key(row.get("source_url")) == link:
+            same = "link"
+        elif names & {_name_key(row.get("title_en")), _name_key(row.get("title_zh"))}:
+            same = "name"
+        else:
+            continue
+        found.append({"id": row["id"], "title": row.get("title_en") or row.get("title_zh") or "", "same": same})
+    # The same link is the surer sign, so it must survive the cut when many titles share a name.
+    found.sort(key=lambda t: t["same"] != "link")
+    return found[:MAX_SAME_TITLES]
 
 
 def set_source_url_once(drama_id, url) -> bool:

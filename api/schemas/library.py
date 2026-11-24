@@ -11,6 +11,9 @@ from api.schemas.common import AssStyleOverrides, ConfirmRequest, DramaDetail, D
 __all__ = [
     "CaptureNote",
     "CaptureNoteList",
+    "SameTitle",
+    "SameTitleList",
+    "SameTitleQuery",
     "DramaSeriesUpdate",
     "DramaListResponse",
     "ExportReadiness",
@@ -177,6 +180,24 @@ class DramaCreateRequest(BaseModel):
         if not (self.title_en.strip() or self.title_zh.strip() or self.source_url.strip()):
             raise ValueError("A title or a link is required.")
         return self
+
+
+class SameTitleQuery(BaseModel):
+    """What an add form has typed so far, to ask which titles already carry it."""
+    model_config = ConfigDict(extra="forbid")
+    title_en: str = Field(default="", max_length=300)
+    title_zh: str = Field(default="", max_length=300)
+    source_url: str = Field(default="", max_length=2000)
+
+
+class SameTitle(BaseModel):
+    id: int
+    title: str
+    same: Literal["link", "name"]
+
+
+class SameTitleList(BaseModel):
+    items: List[SameTitle]
 
 
 class DramaSeriesUpdate(BaseModel):

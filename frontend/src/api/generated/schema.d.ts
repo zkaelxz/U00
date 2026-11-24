@@ -3357,6 +3357,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/same": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Titles already in the library with this name or link (for the add forms' warning) */
+        post: operations["post_same_titles_api_dramas_same_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/{drama_id}": {
         parameters: {
             query?: never;
@@ -27523,6 +27540,44 @@ export interface components {
             /** Status */
             status: string | null;
         };
+        /** SameTitle */
+        SameTitle: {
+            /** Id */
+            id: number;
+            /**
+             * Same
+             * @enum {string}
+             */
+            same: "link" | "name";
+            /** Title */
+            title: string;
+        };
+        /** SameTitleList */
+        SameTitleList: {
+            /** Items */
+            items: components["schemas"]["SameTitle"][];
+        };
+        /**
+         * SameTitleQuery
+         * @description What an add form has typed so far, to ask which titles already carry it.
+         */
+        SameTitleQuery: {
+            /**
+             * Source Url
+             * @default
+             */
+            source_url?: string;
+            /**
+             * Title En
+             * @default
+             */
+            title_en?: string;
+            /**
+             * Title Zh
+             * @default
+             */
+            title_zh?: string;
+        };
         /** SavedChapter */
         SavedChapter: {
             /** Chapter */
@@ -42631,6 +42686,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_same_titles_api_dramas_same_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SameTitleQuery"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SameTitleList"];
                 };
             };
             /** @description Unprocessable Content */
