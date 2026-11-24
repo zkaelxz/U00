@@ -424,18 +424,25 @@ def refuse_newer_copy(src):
         raise InvalidInputError(lrs.BACKUP_FROM_NEWER_APP) from None
 
 
-def _remap_mark_account(child: dict, owners: dict, marked: set) -> bool:
-    """Points a chapter mark at the live account it belongs to; False when it has none.
-    0 is the PC itself in every library. A copy from before marks were kept per account
-    has no account at all: its marks become the PC's, one row per chapter."""
-    account = child.get("user_id", 0)
-    if account != 0:
-        account = owners.get(account)
-    if account is None or (account, child.get("chapter_id")) in marked:
-        return False
-    marked.add((account, child.get("chapter_id")))
-    child["user_id"] = account
-    return True
+def _account_marks(rows: list, owners: dict) -> list:
+    """A copy's chapter marks as rows of live accounts, one per account and chapter. 0 is
+    the PC itself in every library; a mark of an account with no live match is dropped. A
+    copy from before marks were kept per account names none: every profile's marks fold
+    into the PC's (read if any read it, as the upgrade does)."""
+    merged = {}
+    for row in rows:
+        account = row.get("user_id", 0)
+        if account != 0:
+            account = owners.get(account)
+        if account is None:
+            continue
+        kept = merged.setdefault((account, row.get("chapter_id")), {
+            "drama_id": row.get("drama_id"), "user_id": account, "chapter_id": row.get("chapter_id"),
+            "read_at": None, "bookmarked": 0})
+        times = [t for t in (kept["read_at"], row.get("read_at")) if isinstance(t, str) and t]
+        kept["read_at"] = min(times) if times else None
+        kept["bookmarked"] = int(bool(kept["bookmarked"] or row.get("bookmarked")))
+    return list(merged.values())
 
 
 def _set_accounts(row, drama, import_as, owners) -> None:
@@ -500,7 +507,6 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
     counts["dramas"] = 1
 
     line_map, page_map, line_by_idx = {}, {}, {}
-    marked = set()
     for table in CHILD_TABLES:
         if table == "bug_reports" and not has_table(dst, table) and has_table(src, table):
             db.ensure_legacy_bug_reports(dst)
@@ -511,7 +517,10 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
             continue
         live_cols = columns(dst, table)
         n = 0
-        for child in table_rows(src, table, "drama_id = ?", (old_id,)):
+        rows = table_rows(src, table, "drama_id = ?", (old_id,))
+        if table == "chapter_marks":
+            rows = _account_marks(rows, owners)
+        for child in rows:
             old = child.pop("id", None)
             child["drama_id"] = live_id
             _sanitise_file_refs(table, child, import_as)
@@ -520,8 +529,6 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
                 continue
             if table in _LINE_REF_TABLES and not _remap_line_ref(table, child, line_map,
                                                                  line_by_idx):
-                continue
-            if table == "chapter_marks" and not _remap_mark_account(child, owners, marked):
                 continue
             _remap_first_seen(table, child, line_map)
             if "series_character_id" in child and child["series_character_id"] is not None:

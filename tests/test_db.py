@@ -1428,6 +1428,10 @@ def test_household_chapter_marks_become_the_pcs_and_each_active_admins(isolated_
         conn.executemany("INSERT INTO chapter_marks VALUES (1, ?, ?, ?, ?)",
                          [(1, "c1", "2026-11-01", 0), (1, "c2", None, 1),
                           (7, "c1", "2026-11-02", 1), (7, "c3", "2026-11-03", 0)])
+        # A row whose title is gone must not stop the upgrade (the new table's foreign key).
+        conn.commit()     # the pragma does nothing inside a transaction
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("INSERT INTO chapter_marks VALUES (999, 1, 'c1', '2026-11-01', 0)")
         conn.commit()
 
     isolated_db.init_db()

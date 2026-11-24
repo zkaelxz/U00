@@ -206,7 +206,8 @@ def has_accounts(db_path: str) -> bool:
 _ACCOUNT_ID_COLUMNS = (("dramas", "owner_user_id"), ("dramas", "created_by_user_id"),
                        ("series", "owner_user_id"),
                        ("job_records", "owner_user_id"), ("translate_history", "user_id"),
-                       ("speaker_merge_undos", "user_id"), ("audit_log", "user_id"))
+                       ("speaker_merge_undos", "user_id"), ("audit_log", "user_id"),
+                       ("chapter_marks", "user_id"))
 
 
 def settle_accounts(conn, live_path: str) -> None:
@@ -240,7 +241,9 @@ def settle_accounts(conn, live_path: str) -> None:
 
 # The account-naming columns of rows that come from the backup when the live
 # accounts are kept (audit_log is the live library's own then).
-_RESTORED_ACCOUNT_ID_COLUMNS = tuple(c for c in _ACCOUNT_ID_COLUMNS if c[0] != "audit_log")
+# chapter_marks has no NULL for the PC owner (its 0 is the PC), so it is matched by match_mark_accounts.
+_RESTORED_ACCOUNT_ID_COLUMNS = tuple(c for c in _ACCOUNT_ID_COLUMNS
+                                     if c[0] not in ("audit_log", "chapter_marks"))
 _SOURCES_ACCOUNT_ID_COLUMNS = (("tracked_series", "linked_by_user_id"),
                                ("tracked_series", "save_cbz_by_user_id"),
                                ("saved_series_owners", "owner_user_id"),
@@ -332,7 +335,28 @@ def match_owners(conn, mapping: dict) -> int:
         "SELECT owner_user_id FROM main.dramas WHERE owner_user_id IS NOT NULL")
         if mapping.get(owner) != owner)
     remap_owners(conn, mapping, _RESTORED_ACCOUNT_ID_COLUMNS)
+    match_mark_accounts(conn, mapping)
     return reassigned
+
+
+def match_mark_accounts(conn, mapping: dict) -> None:
+    """On the staged library.db's restored chapter marks: an account's marks go to the live
+    account `mapping` names, and are dropped when it names none (handing them to the PC
+    would mix them into the PC's own). The PC's marks (user_id 0) stay the PC's."""
+    if "user_id" not in {r[1] for r in conn.execute('PRAGMA main.table_info("chapter_marks")')}:
+        return
+    conn.execute("CREATE TEMP TABLE mark_map (old INTEGER PRIMARY KEY, new INTEGER)")
+    try:
+        conn.executemany("INSERT INTO temp.mark_map (old, new) VALUES (?, ?)",
+                         [(old, new) for old, new in mapping.items() if old > 0 and new > 0])
+        conn.execute("DELETE FROM main.chapter_marks WHERE user_id IS NOT 0 "
+                     "AND user_id NOT IN (SELECT old FROM temp.mark_map)")
+        # Through negative ids, so a swap (1 -> 2, 2 -> 1) can't collide on the primary key.
+        conn.execute("UPDATE OR REPLACE main.chapter_marks SET user_id = -(SELECT new FROM "
+                     "temp.mark_map WHERE old = user_id) WHERE user_id > 0")
+        conn.execute("UPDATE main.chapter_marks SET user_id = -user_id WHERE user_id < 0")
+    finally:
+        conn.execute("DROP TABLE temp.mark_map")
 
 
 def match_source_owners(sources_path: str, mapping: dict) -> None:

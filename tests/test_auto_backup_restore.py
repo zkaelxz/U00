@@ -786,16 +786,18 @@ class TestRestoreMedia:
         assert _read(os.path.join(_ddir(b), "b.wav")) == b"B"
 
 
-def test_a_restored_chapter_mark_goes_to_the_live_account_it_belongs_to():
-    owners, marked = {5: 8}, set()
-    pc, moved, gone = ({"user_id": 0, "chapter_id": "c1"}, {"user_id": 5, "chapter_id": "c1"},
-                       {"user_id": 6, "chapter_id": "c1"})
-    assert drs._remap_mark_account(pc, owners, marked) and pc["user_id"] == 0
-    assert drs._remap_mark_account(moved, owners, marked) and moved["user_id"] == 8
-    assert not drs._remap_mark_account(gone, owners, marked)      # no such account here any more
-    # A copy from before marks were per account: every profile's marks become the PC's, once each.
-    marked = set()
-    old = [{"profile_id": 1, "chapter_id": "c1"}, {"profile_id": 2, "chapter_id": "c1"},
-           {"profile_id": 2, "chapter_id": "c2"}]
-    assert [drs._remap_mark_account(r, owners, marked) for r in old] == [True, False, True]
-    assert {r["user_id"] for r in (old[0], old[2])} == {0}
+def test_a_restored_titles_chapter_marks_go_to_the_live_accounts_they_belong_to():
+    owners = {5: 8}
+    rows = [{"drama_id": 1, "user_id": 0, "chapter_id": "c1", "read_at": "2026-01-02", "bookmarked": 0},
+            {"drama_id": 1, "user_id": 5, "chapter_id": "c1", "read_at": None, "bookmarked": 1},
+            {"drama_id": 1, "user_id": 6, "chapter_id": "c1", "read_at": "x", "bookmarked": 1}]
+    assert drs._account_marks(rows, owners) == [
+        {"drama_id": 1, "user_id": 0, "chapter_id": "c1", "read_at": "2026-01-02", "bookmarked": 0},
+        {"drama_id": 1, "user_id": 8, "chapter_id": "c1", "read_at": None, "bookmarked": 1}]
+    # A copy from before marks were per account: every profile's marks fold into the PC's.
+    old = [{"drama_id": 1, "profile_id": 1, "chapter_id": "c1", "read_at": "2026-01-05", "bookmarked": 0},
+           {"drama_id": 1, "profile_id": 2, "chapter_id": "c1", "read_at": "2026-01-03", "bookmarked": 1},
+           {"drama_id": 1, "profile_id": 2, "chapter_id": "c2", "read_at": None, "bookmarked": 1}]
+    assert drs._account_marks(old, owners) == [
+        {"drama_id": 1, "user_id": 0, "chapter_id": "c1", "read_at": "2026-01-03", "bookmarked": 1},
+        {"drama_id": 1, "user_id": 0, "chapter_id": "c2", "read_at": None, "bookmarked": 1}]

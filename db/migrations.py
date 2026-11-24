@@ -658,7 +658,11 @@ def _migrate_chapter_marks_per_account():
         conn.execute("""
             INSERT INTO chapter_marks_per_account (drama_id, user_id, chapter_id, read_at, bookmarked)
             SELECT drama_id, 0, chapter_id, MIN(read_at), MAX(bookmarked)
-            FROM chapter_marks GROUP BY drama_id, chapter_id""")
+            FROM chapter_marks
+            -- A row left behind by a title deleted with foreign keys off would fail the new
+            -- table's foreign key and stop the app from starting.
+            WHERE drama_id IN (SELECT id FROM dramas)
+            GROUP BY drama_id, chapter_id""")
         conn.execute("""
             INSERT INTO chapter_marks_per_account (drama_id, user_id, chapter_id, read_at, bookmarked)
             SELECT m.drama_id, u.id, m.chapter_id, m.read_at, m.bookmarked
