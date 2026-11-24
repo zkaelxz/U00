@@ -1,6 +1,8 @@
 """The source-match check flags translations far from their source and never breaks a run."""
 import json
 
+import pytest
+
 from core import Line
 from engine_backends import alignment_check
 from lib import http
@@ -136,14 +138,15 @@ def test_a_text_the_server_cannot_embed_is_left_unchecked_not_fatal():
     assert unchecked == [bad] and bad.flag is None
 
 
-def _nan_server(monkeypatch, limit=60):
-    """Ollama 0.24 with bge-m3: HTTP 500 for any request holding a text of `limit` characters or more."""
+def _nan_server(monkeypatch, limit=60, alone_ok=False):
+    """Ollama 0.24 with bge-m3: HTTP 500 for any request holding a text of `limit` characters
+    or more (with alone_ok, only when it is sent with other texts, as some are on a real stream)."""
     sent = []
 
     def post(url, **kw):
         texts = kw["json"]["input"]
         sent.append(list(texts))
-        if any(len(t) >= limit for t in texts):
+        if any(len(t) >= limit for t in texts) and not (alone_ok and len(texts) == 1):
             return http.Response(500, {}, b'{"error":"json: unsupported value: NaN"}', url)
         return http.Response(200, {}, json.dumps({"embeddings": [[float(len(t)), 1.0] for t in texts]}).encode(), url)
 
@@ -158,6 +161,21 @@ def test_a_long_text_is_embedded_in_pieces_and_averaged(monkeypatch):
     assert len(out) == 2 and out[0] == [2.0, 1.0]
     assert out[1] is not None and out[1][1] == 1.0
     assert all(len(t) < 60 for batch in sent[-1:] for t in batch)
+
+
+@pytest.mark.parametrize("alone_ok", [False, True])
+def test_a_refused_batch_takes_fewer_requests_and_gives_the_one_by_one_vectors(monkeypatch, alone_ok):
+    """A batch with long English used to be re-sent one text per request (about 4,000
+    requests on a 2,000-line stream). The vectors must stay the ones that path gave,
+    including a long text the server takes whole when it is sent alone."""
+    texts = ["短句%d" % i for i in range(24)] + ["这是一个很长的句子，" * (7 + i) for i in range(8)]
+    sent = _nan_server(monkeypatch, alone_ok=alone_ok)
+    out = alignment_check.embed("http://o:1", texts)
+    assert len(sent) <= 1 + 5 + 8 * 2 < 1 + len(texts) + 8
+    # What each text gets on its own: whole when the server takes it, else its pieces averaged.
+    sent.clear()
+    alone = [alignment_check._embed_one("http://o:1", alignment_check.EMBED_MODEL, t) for t in texts]
+    assert out == alone and all(v is not None for v in out)
 
 
 def test_a_text_that_fails_even_in_pieces_gives_none_in_its_place(monkeypatch):

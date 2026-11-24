@@ -106,7 +106,11 @@ function useLiveProgress(job: JobRecord | null, enabled: boolean, expectedSecond
     setSeenSampleKey(sampleKey)
     if (running && firstSeen !== null) {
       const stage = etaStage(message)
-      const list = samples.stage === stage ? samples.list : []
+      // Each stage (vocal separation, then transcription) restarts its percent
+      // at 0; a drop starts a fresh clock so the stages' readings never mix.
+      const prior = samples.list[samples.list.length - 1]
+      const restarted = prior !== undefined && progress !== null && progress < prior.p - 0.01
+      const list = samples.stage === stage && !restarted ? samples.list : []
       const last = list[list.length - 1]
       if (progress === null || progress <= 0 || isNoPercentStage(message)) setSamples({ stage, list })
       else if (last && last.p === progress && now - last.t < 5) setSamples({ stage, list })

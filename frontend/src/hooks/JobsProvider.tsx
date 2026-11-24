@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { listJobs } from '../api/jobs'
 import { JOBS_POLL_MS } from '../components/jobsMenuState'
-import { upsertJob } from '../pages/diagnosticsFormat'
+import { noteStageClocks, upsertJob } from '../pages/diagnosticsFormat'
 import type { JobRecord } from '../types/jobs'
 import { createJobsSync, JobsContext } from './useJobs'
 import { useEventStream } from './useEventStream'
@@ -19,7 +19,9 @@ export function JobsProvider({ children }: { children: ReactNode }) {
     sync.push(pushed.job_id, type === 'job' ? (pushed as JobRecord) : null)
     setJobs((cur) => {
       if (cur === null) return cur
-      return type === 'job' ? upsertJob(cur, pushed as JobRecord) : cur.filter((j) => j.job_id !== pushed.job_id)
+      const next = type === 'job' ? upsertJob(cur, pushed as JobRecord) : cur.filter((j) => j.job_id !== pushed.job_id)
+      noteStageClocks(cur, next, Date.now() / 1000)
+      return next
     })
   })
   const polling = stream.mode === 'poll'
@@ -30,7 +32,10 @@ export function JobsProvider({ children }: { children: ReactNode }) {
       (r) => {
         const next = sync.settle(token, Array.isArray(r?.items) ? r.items : [])
         if (next === null) return
-        setJobs(next)
+        setJobs((cur) => {
+          noteStageClocks(cur, next, Date.now() / 1000)
+          return next
+        })
         setError(null)
       },
       (e: unknown) => {

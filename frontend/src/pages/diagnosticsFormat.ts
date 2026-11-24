@@ -67,16 +67,43 @@ export function formatJobDuration(job: JobRecord, nowSec: number): string {
 const ETA_MIN_PROGRESS = 0.05
 const ETA_MIN_ELAPSED = 30
 
-// "about N min left" for a running job, from its elapsed time and progress;
-// null when there is nothing trustworthy to say. Queued jobs, stalled jobs and
-// stages that report no percent of their own (model load) get none.
+// A drop bigger than this is a new stage starting its own 0-100%, not jitter.
+const STAGE_RESET_DROP = 0.01
+
+// Where each running job's current stage began: {t: seconds, p: its progress then}.
+// A job's percent restarts at 0 for each stage (vocal separation, then
+// transcription), so timing a later stage from the job's start counts the
+// earlier stages' time as its own and roughly doubles the estimate.
+const stageClocks = new Map<string, { t: number; p: number }>()
+
+// Called with every new jobs list; a job whose progress went down gets a fresh
+// stage clock. Jobs no longer running drop theirs.
+export function noteStageClocks(prev: JobRecord[] | null, next: JobRecord[], nowSec: number): void {
+  const before = new Map((prev ?? []).map((j) => [j.job_id, j.progress]))
+  const running = new Set<string>()
+  for (const job of next) {
+    if (job.status !== 'running') continue
+    running.add(job.job_id)
+    const was = before.get(job.job_id)
+    if (job.progress != null && was != null && job.progress < was - STAGE_RESET_DROP) {
+      stageClocks.set(job.job_id, { t: nowSec, p: job.progress })
+    }
+  }
+  for (const id of [...stageClocks.keys()]) if (!running.has(id)) stageClocks.delete(id)
+}
+
+// "about N min left" for a running job's current stage, from the time and
+// progress since that stage began (the job's start until a stage change is
+// seen); null when there is nothing trustworthy to say. Queued jobs, stalled
+// jobs and stages that report no percent of their own (model load) get none.
 export function jobTimeLeftText(job: JobRecord, nowSec: number): string | null {
   const p = job.progress
   if (job.status !== 'running' || job.stalled || job.started_at == null || p == null) return null
   if (p < ETA_MIN_PROGRESS || p >= 1 || isNoPercentStage(job.message)) return null
-  const elapsed = nowSec - job.started_at
-  if (elapsed < ETA_MIN_ELAPSED) return null
-  return formatLeft((elapsed * (1 - p)) / p)
+  const since = stageClocks.get(job.job_id) ?? { t: job.started_at, p: 0 }
+  const elapsed = nowSec - since.t
+  if (elapsed < ETA_MIN_ELAPSED || p - since.p < ETA_MIN_PROGRESS) return null
+  return formatLeft((elapsed * (1 - p)) / (p - since.p))
 }
 
 // A length in seconds as "42s", "3m 05s", "1h 02m".
