@@ -21,7 +21,10 @@ type Props = {
   engines: TranslateEngine[] | null
   /** Why Whisper can't run on the GPU here, or null. */
   gpuReason: string | null
+  /** Any request on the card is running: nothing can be pressed. */
   busy: boolean
+  /** This panel's own save is running. */
+  saving: boolean
   onSave: (options: LiveFollowOptions) => void
   onCancel: () => void
 }
@@ -30,11 +33,13 @@ type Props = {
 const minutesLimit = (n: number | null | undefined, [lo, hi]: readonly number[]) =>
   n == null || !Number.isFinite(n) ? null : Math.min(hi, Math.max(lo, Math.round(n)))
 
-export function FollowSettings({ name, saved, fromForm, opts, engines, gpuReason, busy, onSave, onCancel }: Props) {
+export function FollowSettings({ name, saved, fromForm, opts, engines, gpuReason, busy, saving, onSave, onCancel }: Props) {
   const [draft, setDraft] = useState<LiveFollowOptions>(saved)
   const set = <K extends keyof LiveFollowOptions>(k: K, v: LiveFollowOptions[K]) => setDraft((d) => ({ ...d, [k]: v }))
   const language = draft.source_language ?? opts.defaults.source_language
-  const whisper = draft.whisper_size ?? languageWhisperDefault(opts, language)
+  // A saved or copied model this language can't use (Start would refuse it) gives way to the language's default.
+  const picked = draft.whisper_size ?? languageWhisperDefault(opts, language)
+  const whisper = whisperExclusionReason(opts.whisper_exclusions, picked, language) ? languageWhisperDefault(opts, language) : picked
   // A saved engine of null is the Live default (Ollama on this PC).
   const engine = draft.engine || opts.default_engine
   const usable = engines ?? []
@@ -95,7 +100,7 @@ export function FollowSettings({ name, saved, fromForm, opts, engines, gpuReason
       </label>
       {gpuReason && <p className="muted">{gpuReason}</p>}
       <div className="actions">
-        <button type="submit" className={buttonClass('primary', 'sm')} disabled={busy}>{busy ? 'Saving…' : 'Save settings'}</button>
+        <button type="submit" className={buttonClass('primary', 'sm')} disabled={busy}>{saving ? 'Saving…' : 'Save settings'}</button>
         <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={() => setDraft(fromForm)}
           title="Fill these in from the Live form above. Nothing is saved until Save settings.">
           Copy from the Live form

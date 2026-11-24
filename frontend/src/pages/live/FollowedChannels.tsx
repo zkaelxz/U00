@@ -126,7 +126,8 @@ export function FollowedChannels({ liveOptions, formOptions, engines, gpuReason 
 
   const blocker = checkChannelsInput(text)
   const waiting = busy ? 'Wait for the current request to finish.' : null
-  const addReason = waiting ?? blocker
+  // Until the engines load, the form's translator isn't known yet and Follow would save the wrong one.
+  const addReason = waiting ?? blocker ?? (engines === null ? 'Loading engines…' : null)
   const changeable = items.filter((f) => f.mine || list?.can_auto_start)
   const checkAllReason = waiting ?? (changeable.length === 0 ? 'Follow a channel first.' : anyChecking ? 'Checking… wait for the current checks to finish.' : null)
   const addReasonShown = !!text.trim() && !!addReason
@@ -147,20 +148,27 @@ export function FollowedChannels({ liveOptions, formOptions, engines, gpuReason 
     let followed = 0
     let withoutSettings = 0
     await run('add', async () => {
-      for (const channel of splitChannels(text)) {
+      const channels = splitChannels(text)
+      for (const [i, channel] of channels.entries()) {
         try {
           try {
             await addFollow({ channel, options: liveOptions })
           } catch (err) {
-            // The form's translator may be one this account can't use (a paid or cloud engine).
-            // The follow still alerts them; they save settings they can use later.
+            // The form's translator may be one this account can't use (a paid or cloud engine):
+            // keep the other settings with the free default translator (Ollama on this PC).
             if ((err as Partial<ApiError> | null)?.status !== 403) throw err
-            await addFollow({ channel })
+            await addFollow({ channel, options: { ...liveOptions, engine: null, model: null } })
             withoutSettings += 1
           }
           followed += 1
         } catch (err) {
           failed.push(channel)
+          if ((err as Partial<ApiError> | null)?.status === 429) {
+            // A member's hourly add limit: the rest would all be refused the same way.
+            failed.push(...channels.slice(i + 1))
+            problems.push('Too many channels added in the last hour; try the rest later')
+            break
+          }
           problems.push(`${channel}: ${describeFollowError(err)}`)
         }
       }
@@ -172,7 +180,7 @@ export function FollowedChannels({ liveOptions, formOptions, engines, gpuReason 
       parts.push(`Following ${followed === 1 ? 'it' : `${followed} channels`} with the Live form’s settings. Press Check now to see whether ${followed === 1 ? 'it is' : 'they are'} live.`)
     }
     if (withoutSettings) {
-      parts.push(`${withoutSettings === 1 ? 'One was' : `${withoutSettings} were`} saved without the form’s translator, which your account can’t use.`)
+      parts.push(`${withoutSettings === 1 ? 'One was' : `${withoutSettings} were`} saved with Ollama on this PC instead of the form’s translator, which your account can’t use.`)
     }
     if (parts.length) setNote(parts.join(' '))
     if (problems.length) setError(`Not followed (still in the box): ${problems.join(' · ')}`)
@@ -236,7 +244,7 @@ export function FollowedChannels({ liveOptions, formOptions, engines, gpuReason 
                 onEdit={() => setEditing(editing === f.id ? null : f.id)}
                 settings={editing === f.id && (
                   <FollowSettings name={f.channel_name || f.channel} saved={f.options} fromForm={liveOptions}
-                    opts={formOptions} engines={engines} gpuReason={gpuReason} busy={busy === `options:${f.id}`}
+                    opts={formOptions} engines={engines} gpuReason={gpuReason} busy={!!busy} saving={busy === `options:${f.id}`}
                     onCancel={() => setEditing(null)}
                     onSave={(options) => void run(`options:${f.id}`, async () => {
                       await updateFollow(f.id, { options })
