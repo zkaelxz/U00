@@ -9,6 +9,7 @@ import subprocess
 
 import storage
 import video_export
+from lib.no_window import NO_WINDOW
 
 
 # Pulling the audio out of a multi-hour video; only stops a hung ffmpeg.
@@ -32,7 +33,7 @@ class FfmpegTimeout(subprocess.TimeoutExpired):
 
 def _run_ffmpeg(cmd, timeout):
     try:
-        subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
+        subprocess.run(cmd, check=True, capture_output=True, timeout=timeout, creationflags=NO_WINDOW)
     except subprocess.CalledProcessError as exc:
         raise FfmpegError(exc.returncode, ["ffmpeg"]) from None
     except subprocess.TimeoutExpired as exc:

@@ -262,7 +262,8 @@ test('model picker: Ollama and translategemma:27b are the labelled default, and 
   const model = live.getByLabel('Model', { exact: true })
   await expect(model.locator('option')).toHaveText(['llama3.1:8b', 'translategemma:27b (default)'])
   await expect(model).toHaveValue('translategemma:27b')
-  await expect.poll(() => m.ollamaChecks).toEqual(['translategemma:27b'])
+  // Asked again once the GPU default is known; the model asked about is the same.
+  await expect.poll(() => [...new Set(m.ollamaChecks)]).toEqual(['translategemma:27b'])
   await expect(live.getByTestId('live-ollama-note')).toHaveCount(0)
   // Another engine without a model list: no picker, and the thinking switch is still offered for DeepSeek.
   await engine.selectOption('fake')

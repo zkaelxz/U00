@@ -4,6 +4,7 @@ import logging
 import os
 import subprocess
 import time
+from lib.no_window import NO_WINDOW
 
 # The app's logger by name (applog owns its file handler and secret filter,
 # but lib can't import it). Only the exception type is logged.
@@ -19,7 +20,7 @@ def kill_tree(proc, warn=None):
     try:
         if os.name == "nt":
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                           capture_output=True, timeout=10)
+                           capture_output=True, timeout=10, creationflags=NO_WINDOW)
         else:
             import signal
             os.killpg(proc.pid, signal.SIGKILL)
