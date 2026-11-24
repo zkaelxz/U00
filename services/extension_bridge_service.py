@@ -95,6 +95,9 @@ def health_payload(principal=None, app_port=None) -> dict:
         # The extension batches a whole chapter to this, so the
         # number is stated once, here, and cannot drift from its copy.
         "max_images_per_request": page_server.MAX_IMAGES_PER_REQUEST,
+        # A member's extension sends picture addresses only to an app that says it can read them;
+        # an older one would take the empty upload as a page and fail it.
+        "picture_addresses": True,
         # `title_en or title_zh` is the app's own display-title
         # convention, not a new one.
         "dramas": [{"id": d["id"],
