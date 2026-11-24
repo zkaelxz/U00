@@ -2,6 +2,8 @@ import type { DramaDetail } from './types'
 import type {
   DramaCreateRequest,
   DramaCreateResult,
+  SameTitle,
+  SameTitleQuery,
   DramaDeleteResult,
   DramaMetadataUpdate,
   LibraryContinueResponse,
@@ -73,6 +75,9 @@ export const searchLines =(q: string, f?: Fetch) =>
 
 export const createDrama = (body: DramaCreateRequest, f?: Fetch) =>
   postJson<DramaCreateResult>('/api/dramas', body, f)
+
+export const sameTitles = (body: SameTitleQuery, f?: Fetch) =>
+  postJson<{ items: SameTitle[] }>('/api/dramas/same', body, f)
 
 // Partial update: send only the fields the user changed.
 export const updateDramaMetadata = (id: number, body: DramaMetadataUpdate, f?: Fetch) =>

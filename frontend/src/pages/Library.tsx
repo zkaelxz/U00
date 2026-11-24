@@ -15,6 +15,7 @@ import { RetryBanner } from '../components/RetryBanner'
 import { serverReachable } from '../chunkReload'
 import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
+import { SameTitleNote } from '../components/SameTitleNote'
 import { Section } from '../components/Section'
 import { PageShell } from '../components/PageShell'
 import { Sheet } from '../components/Sheet'
@@ -307,6 +308,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
       <Field label="Original title">
         <input value={form.title_zh} onChange={set('title_zh')} />
       </Field>
+      <SameTitleNote titleEn={form.title_en} titleZh={form.title_zh} link={form.source_url} />
       <Field label="Stream / release date" help="Leave empty if unknown.">
         <input type="date" value={form.release_date ?? ''} onChange={set('release_date')} />
       </Field>

@@ -39,8 +39,9 @@ Discord cards: a message to Discord is an embed whose colour is its result
 A single job's card adds its title and series, the counts its result already
 holds (RESULT_COUNTS), one scrubbed sentence of the failure reason, how long it
 ran, a link to the title only when BAIHE_PUBLIC_URL is an https address, and
-who ran it only when more than one account exists (display name, never an
-email). Never line text. ntfy keeps plain text.
+who ran it only when more than one account exists (display name, or "A
+member (no name in People)", never an email). The footer "Sent from <PC>"
+names the sending PC, not the runner. Never line text. ntfy keeps plain text.
 
 Rate limit: events arriving within one wait are collapsed into one message, and at most
 MAX_PER_MINUTE messages (tests included) go out in any 60 s. Only clean
@@ -639,7 +640,7 @@ def _payload(channel, text, embed=None):
         # allowed_mentions: a drama title can never ping @everyone/@here.
         body: dict = {"allowed_mentions": {"parse": []}}
         if embed:
-            body["embeds"] = [{**embed, "footer": {"text": f"PC: {pc}"}} if pc else embed]
+            body["embeds"] = [{**embed, "footer": {"text": f"Sent from {pc}"}} if pc else embed]
         else:
             body["content"] = f"{APP_NAME}{f' ({pc})' if pc else ''}: {text}"
         return (json.dumps(body, ensure_ascii=False).encode("utf-8"),
@@ -911,8 +912,12 @@ def _run_by(owner_user_id):
         if len(users) < 2:
             return None
         mine = next((u for u in users if u.get("id") == owner_user_id), None)
-        name = _tidy((mine or {}).get("display_name") or "", 40)
-        return name or None
+        if mine is None:
+            return None
+        name = _tidy(mine.get("display_name") or "", 40)
+        # Google sign-in never fills the name, and the channel may be read by
+        # the whole household, so a nameless account says what it is, not its email.
+        return name or ("An admin" if mine.get("is_admin") else "A member") + " (no name in People)"
     except Exception:
         return None
 
