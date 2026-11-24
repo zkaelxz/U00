@@ -51,7 +51,14 @@ export function compactCount(n: number): string {
 }
 
 // Parity L04: a free engine (or free tier) shows "$0.00 (free)", not a blank.
-export const costLabel = (usd: number) => (usd === 0 ? '$0.00 (free)' : `$${usd.toFixed(2)}`)
+// A $0 title that used a hosted Ollama model was logged before those were billed,
+// so it must not read as "free"; a plain Ollama title ran on this PC.
+export function costLabel(usd: number, c?: { translation_engine?: string | null; cloud_call_count?: number }): string {
+  if (usd !== 0) return `$${usd.toFixed(2)}`
+  if (c?.cloud_call_count) return '$0.00 (cloud, logged as free)'
+  if (c?.translation_engine === 'ollama') return '$0.00 (on this PC)'
+  return '$0.00 (free)'
+}
 
 // Parity L04: "540k in · 201k out · 30% cache hits · 212 calls".
 export function costMeta(c: { input_tokens: number; output_tokens: number; cache_read_tokens: number; call_count: number }): string {
