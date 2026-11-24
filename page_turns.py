@@ -43,6 +43,9 @@ from collections import OrderedDict
 # and nothing else.
 _context_lock = threading.Lock()
 _contexts = OrderedDict()
+# Quick read's names per title ({source: English}), so pages translated side by side, which
+# cannot wait for each other's summary, still spell a character one way.
+_chapter_names = {}
 _chain_locks = OrderedDict()
 # Requests holding or waiting on a title's lock, so eviction never hands a
 # second lock to a title whose first is still in use.
@@ -81,6 +84,7 @@ def _evict_idle_chains():
             continue
         del _chain_locks[key]
         _contexts.pop(key, None)
+        _chapter_names.pop(key, None)
 
 
 def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb,
@@ -98,15 +102,27 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
     if key is not None and not wait_for_turn:
         with _context_lock:
             previous = _contexts.get(key, "")
-        new_context = scanlate_translate.translate_page_bubbles(
-            bubbles, engine, drama or {}, previous_context=previous,
-            glossary_terms=glossary, usage_cb=usage_cb, **extras)
+            names = dict(_chapter_names.get(key, {}))
+        try:
+            new_context = scanlate_translate.translate_page_bubbles(
+                bubbles, engine, drama or {}, previous_context=previous,
+                glossary_terms=glossary, usage_cb=usage_cb, chapter_names=names, **extras)
+        finally:
+            # Names from an answer that applied only in part are still the model's spelling.
+            with _context_lock:
+                if names:
+                    kept = _chapter_names.setdefault(key, {})
+                    for source, english in names.items():
+                        kept.setdefault(source, english)
+                    while len(_chapter_names) > MAX_CHAINS:
+                        _chapter_names.pop(next(iter(_chapter_names)))
         with _context_lock:
             _contexts[key] = new_context
             _contexts.move_to_end(key)
             # This path makes no lock, so the lock count that bounds the chains never sees it.
             while len(_contexts) > MAX_CHAINS:
-                _contexts.popitem(last=False)
+                evicted, _ = _contexts.popitem(last=False)
+                _chapter_names.pop(evicted, None)
         return
     if key is None:
         scanlate_translate.translate_page_bubbles(
