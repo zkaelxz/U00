@@ -31,7 +31,7 @@ import re
 
 import numpy as np
 from memory_headroom import HeadroomError
-from ocr import auto_ocr_backend
+from ocr import auto_ocr_backend, take_read_confidence
 
 from scanlate.scanlate_box_merge import merge_fragment_boxes
 from scanlate.scanlate_detect import BubbleModelUnavailable, detect_bubbles, detect_bubbles_cv, inset_box_for_ocr
@@ -48,9 +48,9 @@ from scanlate.scanlate_watermark import flag_site_marks
 
 
 def warm_models(detect_backend: str = "auto") -> list:
-    """Loads the balloon detector and the text eraser now, from weights already on disk, so the
-    first page after the app starts does not wait for them (about 6 s of a first page on a 3080 Ti
-    PC). Downloads nothing; a model that is not on disk, or is not the chosen detector, is left
+    """Loads the balloon detector, the text eraser and the Chinese text reader now, from weights
+    already on disk, so the first page after the app starts does not wait for them (about 6 s of
+    a first page on a 3080 Ti PC, before the reader was added). Downloads nothing; a model that is not on disk, or is not the chosen detector, is left
     alone. Returns the names of the models it loaded. The caller holds the pipeline lock."""
     from scanlate import scanlate_detect
     from scanlate import scanlate_lama
@@ -64,7 +64,20 @@ def warm_models(detect_backend: str = "auto") -> list:
         mask[24:40, 24:40] = 255
         scanlate_lama._run_ml_inpaint(blank, mask, allow_download=False)
         warmed.append("text eraser")
+    if _chinese_reader_on_disk():
+        import ocr
+        ocr._run_rapidocr("medium", blank)
+        warmed.append("Chinese text reader")
     return warmed
+
+
+def _chinese_reader_on_disk() -> bool:
+    """Whether the RapidOCR pair Chinese pages use is installed and already downloaded: building
+    is otherwise paid by the first Chinese page, and warming must never download."""
+    import ocr
+    return (ocr.backend_problem("rapidocr") is None
+            and all(os.path.isfile(ocr.rapidocr_model_path(spec))
+                    for spec in (ocr.RAPIDOCR_MEDIUM_DET_MODEL, ocr.RAPIDOCR_MEDIUM_REC_MODEL)))
 
 
 def slice_webtoon_to_files(image_path: str, out_dir: str, target_height: int = 1600,
@@ -218,11 +231,20 @@ def bulk_find_replace_preview(items: list, find: str, replace: str, text_field: 
     return matches
 
 
+def _ocr_scored(image_path: str, box: dict, source_language: str, **kwargs) -> str:
+    """ocr_box_region() that also records the read's confidence on the box, None when the
+    backend gives none, so a later step can tell which text deserves a second look."""
+    take_read_confidence()
+    text = ocr_box_region(image_path, box, source_language, **kwargs)
+    box["ocr_confidence"] = take_read_confidence()
+    return text
+
+
 def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: str = "auto",
                         hf_token: str | None = None, ocr_backend: str | None = None,
                         tesseract_cmd: str | None = None,
                         prefer_paddle_vl_manga: bool = False, page_id: int | None = None,
-                        art_captions: bool = False):
+                        art_captions: bool = False, art_captions_max_regions: int | None = None):
     """Detect -> structure (analyze_page_regions) -> OCR -> font-style
     sample for one page. Shared by the single-page Detect button and the
     run service's per-page loop, so both do exactly the same thing per page.
@@ -235,7 +257,8 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
 
     art_captions: also find lettering drawn straight onto the artwork (see
     scanlate_art_text), which the bubble detector never sees, and return it as
-    regions of kind "caption" after the bubbles.
+    regions of kind "caption" after the bubbles; a page with more bubbles than
+    `art_captions_max_regions` skips that extra pass (about 0.7 s of CPU a page).
 
     The page is decoded once (decode_page()) and that array shared by every
     step, instead of each step and each bubble reading the file again."""
@@ -272,7 +295,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         b = region.to_bubble()
         # ocr_box_region() insets the box (a border can blank OCR).
         try:
-            b["source_text"] = ocr_box_region(
+            b["source_text"] = _ocr_scored(
                 image_path, b, source_language, backend=ocr_backend,
                 tesseract_cmd=tesseract_cmd, prefer_paddle_vl_manga=prefer_paddle_vl_manga,
                 image=page)
@@ -306,7 +329,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     flag_english_text(bubbles, source_language)
     flag_bare_numbers(bubbles, source_language)
     _note_skipped_sfx(bubbles, notes)
-    if art_captions:
+    if art_captions and _within_caption_limit(len(bubbles), art_captions_max_regions):
         if captions is None:
             captions = _art_caption_regions(image_path, source_language, bubbles, page, notes,
                                             ocr_backend)
@@ -327,6 +350,10 @@ _THOUGHT_DOTS = re.compile(r"[oO0°○◦.·・\s]+")
 
 _SOURCE_SCRIPT = re.compile("[\u1100-\u11ff\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
 _ENGLISH_MIN_LETTERS = 4
+
+
+def _within_caption_limit(region_count: int, limit: int | None) -> bool:
+    return limit is None or region_count <= limit
 
 
 def flag_english_text(regions: list, source_language: str) -> int:
@@ -440,11 +467,23 @@ def drop_parts_of_captions(regions: list, captions: list) -> list:
     detector can cut a large glowing caption into sign or sfx fragments; each
     line then sits less than half inside any one fragment, so the caption is
     found as well, and the fragments' English was set on top of the caption's.
-    Balloons stay: their lettering is their own even where a caption overlaps."""
+    A balloon stays unless it is a box on the caption's own lettering (its text
+    is part of the caption's): a title logo's single glyph gets boxed as a
+    balloon, and lettering both would put English twice over the title."""
     from scanlate.scanlate_art_text import _overlap
+
+    def inside(region, caption):
+        return _overlap(region, caption) >= _CAPTION_PART_SHARE
+
+    def is_caption_lettering(region, caption):
+        # Letters only: OCR adds a stray digit or mark to a lone glyph ("的\n7").
+        letters = [c for c in (region.get("source_text") or "") if c.isalpha()]
+        return bool(letters) and all(c in (caption.get("source_text") or "") for c in letters)
+
     return [r for r in regions
-            if r.get("kind") in SHAPE_FITTED_KINDS
-            or not any(_overlap(r, c) >= _CAPTION_PART_SHARE for c in captions)]
+            if not any(inside(r, c) and (r.get("kind") not in SHAPE_FITTED_KINDS
+                                         or is_caption_lettering(r, c))
+                       for c in captions)]
 
 
 def with_captions(regions: list, captions: list) -> list:
@@ -481,7 +520,8 @@ def _art_caption_regions(image_path: str, source_language: str, bubbles: list, p
             "confidence": None,
             "orientation": "vertical" if c["h"] > 1.4 * c["w"] else "horizontal",
             "panel_id": None, "kind": "caption", "kind_confidence": 0.5,
-            "source_text": c["source_text"], "font_category": "bold",
+            "source_text": c["source_text"], "ocr_confidence": c.get("ocr_confidence"),
+            "font_category": "bold",
             "ink_ratio": None, "irregular": None,
             "translated_text": "", "font_size": 18, "skip": False, "include_sfx": False})
     return regions

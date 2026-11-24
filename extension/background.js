@@ -217,8 +217,36 @@ async function call(path, { method = "GET", body = null, onPage = null } = {}) {
 }
 
 async function health() {
-  return call("/health");
+  const result = await call("/health");
+  if (result?.ok) await reloadIfUpdatedOnDisk(result.data?.extension_version);
+  return result;
 }
+
+function isNewerVersion(a, b) {
+  const pa = String(a).split(".").map(Number);
+  const pb = String(b).split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+// A copy loaded from Baihe's own install folder has its files replaced by every app
+// update, but the browser keeps running the old ones until the extension reloads. One
+// try per version: a copy in any other folder still has the old files after reloading.
+async function reloadIfUpdatedOnDisk(shipped) {
+  const mine = chrome.runtime.getManifest?.()?.version;
+  if (!shipped || !mine || !isNewerVersion(shipped, mine)) return;
+  const { reloadedFor } = await chrome.storage.local.get("reloadedFor");
+  if (reloadedFor === shipped) return;
+  await chrome.storage.local.set({ reloadedFor: shipped });
+  chrome.runtime.reload();
+}
+
+// The browser starting is the usual first chance after an overnight app update.
+chrome.runtime.onStartup?.addListener(() => { health().catch(() => {}); });
 
 // Text mode sends the app raw text instead of an image -- see
 // content.js's collectPageText. Same token, same server, no new auth.
@@ -408,7 +436,7 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
   }
   const cap = await batchCap();
   const { typeset, typesetStyle } = await settings();
-  const merged = { pages: [], skipped: [], failed: [], sent: images.length, received: 0, stored: 0, alreadyStored: 0 };
+  const merged = { pages: [], skipped: [], failed: [], unfetched: [], sent: images.length, received: 0, stored: 0, alreadyStored: 0 };
   let firstError = null;
   const batches = planBatches(images, cap, filterPages !== false ? 2 : 1);
   for (const [index, batch] of batches.entries()) {
@@ -425,6 +453,10 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
         store: store !== false,
         filter_pages: filterPages !== false,
         run_id: runId,
+        // Only when a picture is named by address: the app downloads it with these, as the page's own
+        // reader would have (a CDN that checks the referer or the browser).
+        ...(batch.some((image) => image.fetch_url)
+          ? { fetch_referer: sourceUrl || "", fetch_user_agent: navigator.userAgent } : {}),
         // Only sent when on, so an older app never sees the key.
         ...(typeset ? { typeset: true } : {}),
         // Only when something differs from the plain render, so an older app never sees the key.
@@ -473,6 +505,7 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
     }
     merged.pages.push(...(data.pages || []));
     merged.skipped.push(...(data.skipped || []));
+    merged.unfetched.push(...(data.unfetched || []));
     merged.failed.push(...(data.failed || []));
     merged.received += Number.isFinite(data.received) ? data.received : batch.length;
     merged.stored += Number.isFinite(data.stored) ? data.stored : 0;

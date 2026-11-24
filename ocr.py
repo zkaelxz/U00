@@ -331,7 +331,12 @@ def _rapidocr_params(key: str) -> dict:
     # The text-orientation classifier flips some upright lines and they come back as
     # garbage (on Korean webtoon pages it lost 8 of 13 checked phrases); comic and
     # subtitle lines are upright, so it is left off.
-    params = {"Global.log_level": "warning", "Global.use_cls": False}
+    params = {"Global.log_level": "warning", "Global.use_cls": False,
+              # RapidOCR's default enlarges an image until its short side is 736 px before
+              # finding lines, so a 430x70 balloon was read at about 4500x740: 3 to 10 s a
+              # balloon on a CPU. Only shrinking a larger image keeps the text the same
+              # (34 Chinese balloons: 6.7 s -> 1.1 s each; full pages found the same lines).
+              "Det.limit_type": "max", "Det.limit_side_len": 2000}
     if key != "small":
         from rapidocr import LangRec, ModelType, OCRVersion
     if key == "ko":
@@ -384,6 +389,19 @@ def rapidocr_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
     return lines
 
 
+# RapidOCR scores each line it reads; the text-only return value of the readers has nowhere to
+# carry that, so the last read's mean is kept for the thread that made it.
+_read_state = threading.local()
+
+
+def take_read_confidence():
+    """The mean line score of this thread's last RapidOCR read, once: None when no read
+    happened since the last call or the backend gives no scores (the other backends)."""
+    value = getattr(_read_state, "confidence", None)
+    _read_state.confidence = None
+    return value
+
+
 def extract_text_rapidocr(image_path: str, source_language: str = "zh", medium: bool = False,
                          vertical: bool = False) -> str:
     """Chinese and Japanese text through RapidOCR's PP-OCRv6 models: the small pair inside its
@@ -396,6 +414,8 @@ def extract_text_rapidocr(image_path: str, source_language: str = "zh", medium: 
     key = "ko" if source_language == "ko" else ("medium" if medium else "small")
     result = _run_rapidocr(key, image_path)
     texts = result.txts or ()
+    scores = [float(s) for s in (getattr(result, "scores", None) or ())]
+    _read_state.confidence = sum(scores) / len(scores) if scores else None
     lines = ocr_layout.lines_from_boxes(texts, getattr(result, "boxes", None))
     if lines is None:
         return "\n".join(texts)

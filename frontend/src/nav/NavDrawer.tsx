@@ -5,6 +5,7 @@
  */
 import { useEffect } from 'react'
 
+import { canOpenGrab } from '../components/appVersionText'
 import { ThemeMenu } from '../components/ThemeMenu'
 import { openReportDialog } from '../report/reportDialogStore'
 import { trapTabWithin, useModalDialog } from '../hooks/useModalDialog'
@@ -78,6 +79,7 @@ export function NavDrawer({ route, context, open, onOpenChange, viewMode, onView
             <NavGroups route={route} context={context} onNavigate={() => setOpen(false)} />
             <div className="nav-drawer-foot">
               <ViewModeSwitch mode={viewMode} onChange={onViewMode} />
+                            {typeof navigator !== 'undefined' && canOpenGrab(navigator.userAgent) && <a href="baihegrab://open" onClick={() => setOpen(false)}>Open Baihe Grab</a>}
               <button type="button" onClick={() => { setOpen(false); openReportDialog() }}>Report a problem</button>
               <div className="nav-drawer-theme">
                 <span>Theme</span>

@@ -1,7 +1,7 @@
 import { useCallback, useState, type ReactNode } from 'react'
 
 import {
-  copyTerms, deleteSeries, getCopyTermsPreview, getSeriesDeletePreview, getSeriesPage, listAllSeries, renameSeries,
+  copyTerms, deleteSeries, getCopyTermsPreview, getSeriesDeletePreview, getSeriesPage, listAllSeries, renameSeries, setSeriesStreamer,
   type SeriesCopyTermsPreview, type SeriesDeletePreview, type SeriesPageData,
 } from '../../api/series'
 import { Badge } from '../../components/Badge'
@@ -23,7 +23,7 @@ import { usePersistedState } from '../../hooks/usePersistedState'
 import { mediaTypeLabel } from '../../labels'
 import { routeHref } from '../../router'
 import {
-  MAX_SERIES_NAME, SERIES_TABS, copyPreviewText, copyResultText, copySources, deleteBlocked, deleteLines, renameProblem,
+  MAX_SERIES_NAME, MAX_STREAMER_NAME, SERIES_TABS, copyPreviewText, copyResultText, copySources, deleteBlocked, deleteLines, renameProblem,
   type SeriesTab,
 } from './seriesModel'
 import { ConsistencyCard } from './ConsistencyCard'
@@ -236,6 +236,56 @@ function RenameCard({ data, onRenamed }: { data: SeriesPageData; onRenamed: () =
   )
 }
 
+// The streamer name files the series under that streamer's folder in the Library's Series list.
+function StreamerCard({ data, onSaved }: { data: SeriesPageData; onSaved: () => void }) {
+  const all = useLoad(listAllSeries, 0)
+  const [name, setName] = useState(data.streamer ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const known = [...new Set((all.data?.items ?? []).map((s) => s.streamer).filter((s): s is string => !!s))]
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+  const dirty = name.trim() !== (data.streamer ?? '')
+
+  return (
+    <Card title="Streamer">
+      <p className="muted">
+        Optional. Series with the same streamer are grouped in one folder in the Library's Series list. Leave it empty
+        for none.
+      </p>
+      {!data.can_edit ? (
+        <p data-testid="series-streamer-readonly">{data.streamer || 'No streamer'}</p>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            setBusy(true)
+            setSeriesStreamer(data.id, name).then(
+              () => { setBusy(false); setError(null); onSaved() },
+              (err: unknown) => { setBusy(false); setError(err) },
+            )
+          }}
+        >
+          <Field label="Streamer name">
+            <input
+              value={name} maxLength={MAX_STREAMER_NAME} disabled={busy} list="series-streamer-names"
+              data-testid="series-streamer" onChange={(e) => setName(e.target.value)}
+            />
+          </Field>
+          <datalist id="series-streamer-names">
+            {known.map((s) => <option key={s} value={s} />)}
+          </datalist>
+          <div className="actions">
+            <button type="submit" className={buttonClass('secondary')} disabled={busy || !dirty}>
+              {busy ? 'Working…' : 'Save streamer'}
+            </button>
+          </div>
+          <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        </form>
+      )}
+    </Card>
+  )
+}
+
 function DeleteCard({ data }: { data: SeriesPageData }) {
   const pc = usePcOnly()
   const [preview, setPreview] = useState<SeriesDeletePreview | null>(null)
@@ -335,7 +385,15 @@ export default function SeriesPage({ id, tab: initialTab }: { id: number; tab?: 
         <nav aria-label="Breadcrumb" className="reader-crumbs">
           <a href={routeHref({ name: 'library' })}>Library</a>
           <span aria-hidden="true"> / </span>
-          <a href={routeHref({ name: 'series-list' })}>Series</a>
+          {data?.streamer ? (
+            <>
+              <a href={routeHref({ name: 'series-list' })}>Streamers</a>
+              <span aria-hidden="true"> / </span>
+              <a href={routeHref({ name: 'series-list', streamer: data.streamer })}>{data.streamer}</a>
+            </>
+          ) : (
+            <a href={routeHref({ name: 'series-list' })}>Series</a>
+          )}
         </nav>
       )}
       meta={data && (
@@ -358,6 +416,7 @@ export default function SeriesPage({ id, tab: initialTab }: { id: number; tab?: 
           {panel('settings', (
             <>
               <RenameCard key={shown.name} data={shown} onRenamed={reload} />
+              <StreamerCard key={`streamer-${shown.streamer ?? ''}`} data={shown} onSaved={reload} />
               <DeleteCard data={shown} />
             </>
           ))}

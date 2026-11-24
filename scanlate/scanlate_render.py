@@ -24,7 +24,7 @@ from scanlate.scanlate_page_decode import decode_page, page_gray
 from scanlate.scanlate_fonts import _CJK_PUNCTUATION, _PLAIN, TypesetStyle, _find_font, _note_missing_cjk_font
 from scanlate.scanlate_ink import _fade_lettering, _sampled_inks, _text_fill, chosen_color
 from scanlate.scanlate_inpaint import (
-    erase_box, InpaintModelUnavailable, inpaint_region, is_art_mistaken_for_sign, sign_text_line,
+    erase_box, InpaintModelUnavailable, inpaint_region, widen_to_dark_strip, is_art_mistaken_for_sign, sign_text_line,
 )
 from scanlate.scanlate_lama import lama_ml_weights_cached
 from scanlate.scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
@@ -89,6 +89,18 @@ def sign_fitted_size(page, box: dict, text: str, custom_fonts: dict | None = Non
     # No layout in the band at any size: the typesetter then falls back to the whole box, so the
     # text is as good as unreadable there.
     return laid_out[0].size if laid_out else scanlate_tuning.TYPESET_SMALLEST_PX - 1
+
+
+def _caption_styles(page, captions: list) -> list:
+    """Each caption's sampled style, with its hand-set colour over the sampled fill."""
+    styles = [scanlate_art_text.caption_style(page, b) for b in captions]
+    return [dict(s, fill=chosen_color(b)) if chosen_color(b) else s for b, s in zip(captions, styles)]
+
+
+def _in_rooms(regions: list, rooms: list) -> list:
+    """`regions` with each one's box replaced by its room. The rooms are read before the erase:
+    a credit line sits between two red rules and its English belongs there, not across a rule."""
+    return [{**b, **room} for b, room in zip(regions, rooms)]
 
 
 def process_page(image_path: str, bubbles: list, out_path: str, font_path: str | None = None,
@@ -159,9 +171,9 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         captions = [b for b in to_render if b.get("kind") == "caption"]
         to_render = [b for b in to_render if b.get("kind") != "caption"]
         to_render, art_signs = _split_art_signs(page, to_render)
-        caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
-        caption_styles = [dict(s, fill=chosen_color(b)) if chosen_color(b) else s
-                          for b, s in zip(captions, caption_styles)]
+        caption_styles = _caption_styles(page, captions)
+        caption_rooms = [scanlate_art_text.clear_of_decoration(page, b) for b in captions]
+        letter_rooms = [scanlate_art_text.between_rules(page, b) for b in to_render]
         # The ink is read before the erase below removes it.
         inks, fades = _sampled_inks(page, to_render, match_color)
         angles, lines = _tilts_and_lines(page, to_render)
@@ -177,12 +189,12 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
                               "were painted out with plain OpenCV, which leaves faint ghosts."))
 
         pil_img = Image.fromarray(np.ascontiguousarray(page[:, :, ::-1]))
-        for b, style in zip(captions, caption_styles):
-            scanlate_art_text.draw_caption(pil_img, b, b["translated_text"], style,
+        for b, style, room in zip(captions, caption_styles, caption_rooms):
+            scanlate_art_text.draw_caption(pil_img, room, b["translated_text"], style,
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
-        _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks,
-                         rect_layout, look, angles, fades, lines)
+        _letter_balloons(pil_img, image_path, _in_rooms(to_render, letter_rooms), gray,
+                         font_path, custom_fonts, inks, rect_layout, look, angles, fades, lines)
         _draw_glosses(pil_img, page, bubbles, art_signs, font_path)
         pil_img.save(result_path, "PNG")
         replace_file(result_path, out_path)
@@ -404,5 +416,7 @@ def erase_lettering(image_path: str, b: dict, page, gray, grow: float = 1.0) -> 
     if gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS:
         inside = bubble_erase_mask(image_path, b, image=gray)
     shape_fitted = gray is not None and (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS
+    if b.get("kind") == "sign":
+        b = widen_to_dark_strip(page, b)
     inpaint_region(image_path, b, image=page, inside=inside, spare_art=shape_fitted,
                    on_art=b.get("kind") == "sign", grow=grow)

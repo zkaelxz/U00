@@ -78,6 +78,24 @@ def test_an_unsaved_page_gets_a_typeset_image_when_asked(token, fake_pipeline, d
     assert seen["texts"] == ["the translation"]
 
 
+def test_an_unsaved_page_is_redrawn_without_holding_up_the_next_pages_reading(
+        token, fake_pipeline, drama, monkeypatch):
+    from scanlate import scanlate_render
+    held = {}
+
+    def fake_process(image_path, bubbles, out_path, **kwargs):
+        from PIL import Image
+        held["pipeline"] = page_server.PIPELINE_LOCK.locked()
+        held["typeset"] = page_server.TYPESET_LOCK.locked()
+        Image.new("RGB", (4, 4), "white").save(out_path)
+        return out_path, []
+
+    monkeypatch.setattr(scanlate_render, "process_page", fake_process)
+    page = _overlay_only(token, drama, typeset=True)
+    assert held == {"pipeline": False, "typeset": True}
+    assert page["seconds"]["typeset"] >= 0
+
+
 def test_an_unsaved_page_is_not_typeset_unless_asked(token, fake_pipeline, drama, monkeypatch):
     from scanlate import scanlate_render
     monkeypatch.setattr(scanlate_render, "process_page", lambda *a, **k: 1 / 0)
@@ -236,3 +254,24 @@ def test_lines_the_engine_left_empty_are_asked_for_again_and_the_rest_are_counte
     assert page["untranslated_lines"] == 1
     assert any("still had no translation after a retry" in n[1] for n in page["notes"])
     assert [r["translated_text"] for r in page["regions"]].count("") == 1
+
+
+@pytest.mark.parametrize("sent, expected_width", [(400, 400), (2000, 1000), (True, 1000), ("400", 1000), (100, 1000)])
+def test_an_unsaved_page_comes_back_no_wider_than_the_phone_asked(token, fake_pipeline, drama, monkeypatch,
+                                                                  sent, expected_width):
+    """A width the phone sends shrinks the redrawn page to it; a missing, odd or larger one keeps
+    the full page."""
+    import base64
+    import io
+
+    from PIL import Image
+    from scanlate import scanlate_render
+
+    def fake_process(image_path, bubbles, out_path, **kwargs):
+        Image.new("RGB", (1000, 2000), "white").save(out_path)
+        return out_path, []
+
+    monkeypatch.setattr(scanlate_render, "process_page", fake_process)
+    page = _overlay_only(token, drama, typeset=True, typeset_max_width=sent)
+    data = base64.b64decode(page["typeset_image"].split(",", 1)[1])
+    assert Image.open(io.BytesIO(data)).size == (expected_width, expected_width * 2)

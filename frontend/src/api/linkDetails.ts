@@ -1,6 +1,8 @@
 /*
- * "Fill from link" (api/routers/link_details_routes.py). Every route is PC
- * only: each read fetches from the internet on the PC's connection.
+ * "Fill from link" (api/routers/link_details_routes.py). Each read fetches from
+ * the internet on the PC's connection. A pasted link's probe needs Import from a
+ * link, from any device, so its 403 is a missing right, not "not the PC"; the
+ * other routes are PC only.
  */
 import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -53,7 +55,7 @@ interface LinkScanResult {
 export const LINK_SCAN_JOB_ID = 'link_scan'
 
 export const probeLink = (url: string, f?: Fetch) =>
-  postJson<MediaLinkProbe>('/api/media-link/probe', { url }, pcOnlyFetch(f))
+  postJson<MediaLinkProbe>('/api/media-link/probe', { url }, f)
 
 // Reads the title's own stored link (the full one, which only the PC holds).
 export const probeTitleLink = (dramaId: number, f?: Fetch) =>

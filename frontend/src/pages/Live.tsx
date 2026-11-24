@@ -21,8 +21,8 @@ import { useEffect, useId, useState } from 'react'
 import { api, hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP,
-  advancedSummary, buildStartBody, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, languageWhisperDefault, glossaryChoices, glossaryIds, glossaryValue,
-  isActive, lagLine, pickEngine, resolveModel, startLive, statusLine, statusTone, type LiveForm, type LiveOptions,
+  advancedSummary, buildStartBody, checkLiveUrl, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
+  isActive, lagLine, pickEngine, resolveLiveModel, startLive, statusLine, statusTone, type LiveForm,
 } from '../api/live'
 import { getAllSeries } from '../api/library'
 import { engineShortName, translateApi, usableEngines } from '../api/translate'
@@ -33,7 +33,8 @@ import { PageShell } from '../components/PageShell'
 import { ModelSelect } from '../components/ModelSelect'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
-import { useHolds } from '../hooks/useHolds'
+import { useLivePrefs } from './live/useLivePrefs'
+import { useCloudModelsAllowed, useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { useReadiness } from '../hooks/useReadiness'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -108,10 +109,9 @@ function SpendLimitField({ range, value, disabled, onChange }: { range: readonly
 
 export default function LivePage() {
   const pc = usePcOnly()
-  // Only the options this browser changed, so the rest follow the server's defaults.
-  const [prefs, setPrefs] = usePersistedState<Partial<LiveOptions>>('live.options', {})
   // What Start accepts; the built-in copy until the server answers (Start checks again anyway).
   const [opts, setOpts] = useState(LIVE_FORM_FALLBACK)
+  const { prefs, setPrefs, setOpt, changeLanguage } = useLivePrefs(opts)
   useEffect(() => {
     let alive = true
     getLiveOptions().then((o) => { if (alive) setOpts(o) }, () => {})
@@ -128,12 +128,6 @@ export default function LivePage() {
   // remembered on this browser is set aside there (the PC keeps it).
   const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
-  const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
-  // A Japanese-only model must not stay selected for another language: Start would refuse it.
-  const changeLanguage = (language: string) => {
-    const excluded = whisperExclusionReason(opts.whisper_exclusions, form.whisper_size, language)
-    setPrefs({ ...prefs, source_language: language, ...(excluded ? { whisper_size: languageWhisperDefault(opts, language) } : {}) })
-  }
 
   // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.
   const [titles, setTitles] = useState<{ id: number; name: string; series_id: number | null }[] | null>(null)
@@ -169,16 +163,18 @@ export default function LivePage() {
   const engine = pickEngine(usable, form.engine, opts.default_engine)
 
   const canSwitchThinking = opts.thinking_switch_engines.includes(engine)
-  const engineEntry = usable.find((e) => e.name === engine)
-  const { model, fellBack } = resolveModel(engineEntry, form.model, opts)
+  const cloudAllowed = useCloudModelsAllowed()
+  const { entry: engineEntry, onlyCloud, defaultModel, model, fellBack } = resolveLiveModel(usable.find((e) => e.name === engine), cloudAllowed, form.model, opts)
   const modelNote = enginesFailed
     ? "Couldn't load the model list; the engine's default model will be used."
     : fellBack ? "That model isn't offered any more; the engine's default model will be used." : null
 
   const { readiness } = useReadiness()
   const gpuReason = liveGpuReason(readiness)
-  // With no NVIDIA GPU the box shows unticked, so a remembered tick is not sent either.
-  const useGpu = form.use_gpu && !gpuReason
+  // GPU is on unless this browser unticked it: a CPU Whisper can't keep up with a stream, so
+  // an untouched form must not start there. With no NVIDIA GPU the box shows unticked, so a
+  // remembered tick is not sent either.
+  const useGpu = (prefs.use_gpu ?? readiness?.gpu_found === true) && !gpuReason
   const startForm: LiveForm = { ...form, engine, model, ...glossary, use_gpu: useGpu }
   // Ollama is the default and runs on this PC: say plainly when it is not
   // there, instead of failing at Start. Nothing switches engine for the user.
@@ -291,9 +287,11 @@ export default function LivePage() {
               <SpendLimitField range={opts.spend_limit_range} value={form.spend_limit_usd} disabled={active || busy} onChange={(v) => setOpt('spend_limit_usd', v)} />
             )}
             <ModelSelect engine={engineEntry} value={model} disabled={active || busy} onChange={(m) => setOpt('model', m)}
-              defaultModel={engine === opts.default_engine ? opts.default_model ?? undefined : undefined}
+              defaultModel={engine === opts.default_engine ? defaultModel ?? undefined : undefined}
               help={engine === opts.default_engine
-                ? 'Runs on this PC through Ollama. Pick another engine above to send the text to a hosted service instead.'
+                ? (onlyCloud
+                  ? "Runs on Ollama's servers, so the text leaves this PC and the graphics card stays free for Whisper. Pick another engine above for a different service."
+                  : 'Runs on this PC through Ollama. Pick another engine above to send the text to a hosted service instead.')
                 : 'Engine default uses the model the engine runs on its own.'} />
           </div>
           {engines && !usable.length && (

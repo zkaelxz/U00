@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -17,7 +18,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -27,6 +28,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -47,19 +49,23 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     private WebView web;
     private EditText address;
-    private TextView status;
-    private Button grab;
+    private GrabUi.Chip chip;
+    private GrabUi.BarButton grab;
     private GrabBridge bridge;
     private final ExecutorService sender = Executors.newSingleThreadExecutor();
     private final SecureRandom random = new SecureRandom();
-    private Button chapters;
-    private Button quick;
+    private GrabUi.BarButton chapters;
+    private GrabUi.BarButton quick;
+    private GrabUi.Palette palette;
     // This grab is a Quick read: the pages come back typeset and nothing is saved.
     private volatile boolean quickRead;
     private volatile boolean grabbing;
     // Chapters still to follow after the current one; 0 when not following.
     private volatile int chaptersLeft;
     private volatile boolean loadingNext;
+    // A Quick read of a chapter split in parts ("(1/2)") follows each part into the same reader.
+    private volatile boolean followingParts;
+    private volatile boolean partsContinuing;
     private volatile boolean uploading;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -69,20 +75,57 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         bridge = new GrabBridge(this);
         // Pages left by a Quick read that was cut off (the app was killed) are not kept.
         QuickReadActivity.clear(this);
+        // Android 13 hides the "reading in the background" notice until this is allowed; the grab
+        // keeps running either way.
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);
+        }
 
+        palette = GrabUi.Palette.of(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(palette.bg);
+        getWindow().setStatusBarColor(palette.surface);
+        getWindow().setNavigationBarColor(palette.surface);
+        if (!palette.dark) {
+            getWindow().getDecorView().setSystemUiVisibility(android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                    | android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        }
 
         address = new EditText(this);
         address.setSingleLine(true);
-        address.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
+        address.setHint("Enter a comic site address");
+        address.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         address.setImeOptions(EditorInfo.IME_ACTION_GO);
+        address.setSelectAllOnFocus(true);
         address.setOnEditorActionListener((v, actionId, event) -> {
             go();
             return true;
         });
-        root.addView(address, new LinearLayout.LayoutParams(
+        address.setTextColor(palette.text);
+        address.setHintTextColor(palette.muted);
+        address.setTextSize(16);
+        address.setBackground(GrabUi.box(this, palette.field, palette.fieldEdge, 8, 1));
+        int inset = GrabUi.dp(this, 12);
+        address.setPadding(inset, 0, inset, 0);
+        ImageView go = new ImageView(this);
+        go.setImageResource(R.drawable.ic_go);
+        go.setImageTintList(android.content.res.ColorStateList.valueOf(palette.accent));
+        go.setScaleType(ImageView.ScaleType.CENTER);
+        go.setContentDescription("Go");
+        go.setOnClickListener(v -> go());
+        LinearLayout addressRow = new LinearLayout(this);
+        addressRow.setOrientation(LinearLayout.HORIZONTAL);
+        addressRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        addressRow.setBackgroundColor(palette.surface);
+        int gap = GrabUi.dp(this, 8);
+        addressRow.setPadding(gap, gap, gap, gap);
+        addressRow.addView(address, new LinearLayout.LayoutParams(0, GrabUi.dp(this, 48), 1f));
+        addressRow.addView(go, new LinearLayout.LayoutParams(GrabUi.dp(this, 48), GrabUi.dp(this, 48)));
+        root.addView(addressRow, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(divider(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, GrabUi.dp(this, 1)));
 
         web = new WebView(this);
         WebSettings settings = web.getSettings();
@@ -106,7 +149,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 if (!loadingNext) return;
                 loadingNext = false;
                 web.postDelayed(() -> {
-                    if (chaptersLeft > 0 && !grabbing) startGrab();
+                    if (chaptersLeft > 0 && !grabbing) startGrab(followingParts);
                 }, 2500);
             }
 
@@ -121,29 +164,50 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         root.addView(web, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        status = new TextView(this);
-        root.addView(status, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        chip = new GrabUi.Chip(this, palette);
+        LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        chipParams.setMargins(gap, gap, gap, gap);
+        root.addView(chip, chipParams);
 
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        grab = button("Grab", v -> startGrab());
-        buttons.addView(grab, weighted());
-        chapters = button("Chapters", v -> toggleChapters());
-        buttons.addView(chapters, weighted());
-        buttons.addView(button("Open Baihe", v -> openBaihe()), weighted());
-        buttons.addView(button("Settings", v -> showSettings()), weighted());
-        root.addView(buttons);
-        LinearLayout second = new LinearLayout(this);
-        second.setOrientation(LinearLayout.HORIZONTAL);
-        quick = button("Quick read", v -> startGrab(true));
-        second.addView(quick, weighted());
-        root.addView(second);
+        root.addView(divider(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, GrabUi.dp(this, 1)));
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        bar.setBackgroundColor(palette.surface);
+        bar.setPadding(gap, gap, gap, gap);
+        grab = new GrabUi.BarButton(this, palette, R.drawable.ic_grab, "Grab", false);
+        grab.setOnClickListener(v -> startGrab());
+        chapters = new GrabUi.BarButton(this, palette, R.drawable.ic_chapters, "Chapters", false);
+        chapters.setOnClickListener(v -> toggleChapters());
+        quick = new GrabUi.BarButton(this, palette, R.drawable.ic_quick, "Quick read", true);
+        quick.setOnClickListener(v -> {
+            if ((grabbing && runId != null) || (followingParts && chaptersLeft > 0)) cancelGrab();
+            else startGrab(true);
+        });
+        ImageView more = new ImageView(this);
+        more.setImageResource(R.drawable.ic_more);
+        more.setImageTintList(android.content.res.ColorStateList.valueOf(palette.muted));
+        more.setScaleType(ImageView.ScaleType.CENTER);
+        more.setContentDescription("More");
+        more.setOnClickListener(v -> showMore(v));
+        int tall = GrabUi.dp(this, 48);
+        bar.addView(grab, new LinearLayout.LayoutParams(0, GrabUi.dp(this, 56), 1f));
+        bar.addView(chapters, new LinearLayout.LayoutParams(0, GrabUi.dp(this, 56), 1f));
+        LinearLayout.LayoutParams quickParams = new LinearLayout.LayoutParams(0, tall, 1.6f);
+        quickParams.setMargins(gap, 0, gap, 0);
+        bar.addView(quick, quickParams);
+        bar.addView(more, new LinearLayout.LayoutParams(tall, tall));
+        root.addView(bar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         setContentView(root);
         root.setFitsSystemWindows(true);
         if (state != null) web.restoreState(state);
-        else handleShare(getIntent());
+        else {
+            say(OPEN_FIRST);
+            handleShare(getIntent());
+        }
     }
 
     @Override
@@ -232,7 +296,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void sendShared(List<Uri> uris, String title, boolean cut, String server, String token) {
         grabbing = true;
         uploading = true;
-        runOnUiThread(() -> grab.setEnabled(false));
+        runOnUiThread(() -> {
+            grab.setBusy(true);
+            quick.setBusy(true);
+        });
         say("Reading shared images");
         sender.execute(() -> {
             List<PageImage> images = new ArrayList<>();
@@ -282,15 +349,77 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
     }
 
-    private Button button(String label, android.view.View.OnClickListener click) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setOnClickListener(click);
-        return b;
+    private android.view.View divider() {
+        android.view.View line = new android.view.View(this);
+        line.setBackgroundColor(palette.border);
+        return line;
     }
 
-    private LinearLayout.LayoutParams weighted() {
-        return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+    /** Open Baihe and Settings are rarely needed mid-grab, so they sit behind one button. */
+    private void showMore(android.view.View anchor) {
+        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
+        menu.getMenu().add("Open Baihe");
+        menu.getMenu().add("Settings");
+        menu.setOnMenuItemClickListener(item -> {
+            if ("Settings".contentEquals(item.getTitle())) showSettings();
+            else openBaihe();
+            return true;
+        });
+        menu.show();
+    }
+
+    /** While a grab runs the main button is its Cancel; Quick read comes back when it ends. */
+    private void showCancel(boolean running) {
+        runOnUiThread(() -> {
+            quick.setDanger(running);
+            if (running) quick.setLabel("Cancel", palette.onAccent, R.drawable.ic_stop);
+            else {
+                quick.setLabel("Quick read", palette.onAccent, R.drawable.ic_quick);
+                quick.setBusy(false);
+            }
+        });
+    }
+
+    /** Stops this grab on the phone and tells the server to drop the pages it has not started. */
+    private void cancelGrab() {
+        boolean betweenParts = !grabbing && followingParts && chaptersLeft > 0;
+        if (!grabbing && !betweenParts) return;
+        cancelRequested = true;
+        chaptersLeft = 0;
+        loadingNext = false;
+        followingParts = false;
+        if (betweenParts) {
+            // The next part is only loading: nothing is running on the server to stop.
+            partsContinuing = false;
+            QuickReadSession.onCancel(null);
+            QuickReadSession.finish();
+            showCancel(false);
+            say("Cancelled.");
+            return;
+        }
+        String id = runId;
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (id != null && uploading) {
+            new Thread(() -> {
+                try {
+                    new BaiheClient(server, token).cancelRun(id);
+                } catch (BaiheClient.BridgeException ignored) {
+                    // The phone side has already stopped; the server only finishes its page in flight.
+                }
+            }, "grab-cancel").start();
+        }
+        QuickReadSession.finish();
+        if (uploading) say("Cancelling...", GrabUi.Kind.BUSY);
+        else finishGrab("Cancelled.");
+    }
+
+    private void showChapterState() {
+        if (chaptersLeft > 0 && !followingParts) chapters.setLabel("Stop (" + chaptersLeft + " left)", palette.bad, R.drawable.ic_stop);
+        else {
+            chapters.setLabel("Chapters", palette.muted, R.drawable.ic_chapters);
+            chapters.resetTint();
+        }
     }
 
     @Override
@@ -301,6 +430,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     @Override
     protected void onDestroy() {
+        GrabKeepAlive.stop(getApplicationContext());
         bridge.cancel();
         sender.shutdownNow();
         web.destroy();
@@ -326,7 +456,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void say(String text) {
-        runOnUiThread(() -> status.setText(text));
+        boolean busy = text.startsWith("Reading ") || text.startsWith("Redrawing ") || text.startsWith("Sending ");
+        say(text, busy ? GrabUi.Kind.BUSY : GrabUi.Kind.INFO);
+    }
+
+    private void say(String text, GrabUi.Kind kind) {
+        runOnUiThread(() -> chip.show(text, kind));
     }
 
     private void openBaihe() {
@@ -345,13 +480,14 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         server.setText(prefs().getString(KEY_SERVER, ""));
         EditText token = new EditText(this);
         // The saved token is never shown again; an empty field keeps the one already saved.
-        token.setHint("Token");
+        token.setHint("Token (starts with baihe_dt_)");
         token.setSingleLine(true);
         token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         form.addView(server);
         form.addView(token);
         new AlertDialog.Builder(this)
                 .setTitle("Settings")
+                .setMessage("Make the token at the PC in Baihe: Settings > Extension tokens per computer.")
                 .setView(form)
                 .setPositiveButton("Save", (d, w) -> {
                     String origin = ServerAddress.normalizeServer(server.getText().toString());
@@ -392,23 +528,40 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void startGrab(boolean readOnly) {
+        if (grabbing) {
+            say("Wait for the current grab to finish.");
+            return;
+        }
         // Following chapters saves each one, so a Quick read never starts inside that run.
-        if (readOnly && chaptersLeft > 0) return;
+        if (readOnly && chaptersLeft > 0 && !followingParts) {
+            say("Stop following chapters first.");
+            return;
+        }
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
+            say("Set up Grab first: enter your server address and a phone token.");
             showSettings();
             return;
         }
-        if (grabbing) return;
+        String current = web.getUrl();
+        if (current == null || current.isEmpty() || current.startsWith("about:")) {
+            say(OPEN_FIRST);
+            return;
+        }
         grabbing = true;
+        GrabKeepAlive.start(getApplicationContext());
         quickRead = readOnly;
-        grab.setEnabled(false);
-        quick.setEnabled(false);
+        grabStartedAt = System.currentTimeMillis();
+        runId = "grab-" + newNonce().substring(0, 16);
+        cancelRequested = false;
+        grab.setBusy(true);
+        showCancel(true);
         say("Reading pages");
         String nonce = newNonce();
         bridge.start(nonce);
         pageUrl = web.getUrl() == null ? "" : web.getUrl();
+        pageAgent = web.getSettings().getUserAgentString();
         runningGrab = nonce;
         web.postDelayed(() -> {
             if (grabbing && !uploading && nonce.equals(runningGrab)) finishGrab("The page did not finish.");
@@ -438,11 +591,14 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         if (chaptersLeft > 0) {
             chaptersLeft = 0;
             loadingNext = false;
-            runOnUiThread(() -> chapters.setText("Chapters"));
+            runOnUiThread(this::showChapterState);
             say("Stopped after this chapter.");
             return;
         }
-        if (grabbing) return;
+        if (grabbing) {
+            say("Wait for the current grab to finish.");
+            return;
+        }
         EditText count = new EditText(this);
         count.setInputType(InputType.TYPE_CLASS_NUMBER);
         count.setText("3");
@@ -462,7 +618,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         return;
                     }
                     chaptersLeft = n;
-                    chapters.setText("Stop");
+                    showChapterState();
                     startGrab();
                 })
                 .setNegativeButton("Cancel", null)
@@ -487,13 +643,23 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             }
             if (next == null) chaptersLeft = 0;
         }
+        if (chaptersLeft == 0) {
+            if (partsContinuing) {
+                // The chain ended with the reader still waiting for a next part that will not come.
+                QuickReadSession.onCancel(null);
+                QuickReadSession.finish();
+            }
+            followingParts = false;
+            partsContinuing = false;
+        }
+        if (next == null) GrabKeepAlive.stop(getApplicationContext());
         String shown = message;
         String go = next;
         runOnUiThread(() -> {
-            grab.setEnabled(true);
-            quick.setEnabled(true);
-            chapters.setText(chaptersLeft > 0 ? "Stop" : "Chapters");
-            status.setText(shown);
+            grab.setBusy(false);
+            if (!(go != null && followingParts)) showCancel(false);
+            showChapterState();
+            chip.show(shown, GrabUi.kindOf(shown, sent));
             if (go != null) {
                 loadingNext = true;
                 web.loadUrl(go);
@@ -502,14 +668,22 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private static final int MAX_CHAPTERS = 20;
-    private static final int QUICK_READ_BATCH = 4;
+    private static final String OPEN_FIRST = "Open a comic chapter first: enter its site address above and tap Go.";
+    private static final int QUICK_READ_BATCH = 2;
+    // Batches in flight at once: the PC reads two pages at a time, so one stream leaves it waiting on uploads.
+    private static final int QUICK_READ_STREAMS = 3;
     private volatile String pageNext = "";
     private JSONArray pageChapters = new JSONArray();
 
-    private static final long GRAB_TIMEOUT_MS = 5 * 60 * 1000;
+    private static final long GRAB_TIMEOUT_MS = 9 * 60 * 1000;
     private volatile String runningGrab = "";
+    // Names this grab's batches on the server so Cancel can stop the pages it has not started.
+    private volatile String runId;
+    private volatile long grabStartedAt;
+    private volatile boolean cancelRequested;
     // From the web view, not the page: a page can claim any address.
     private volatile String pageUrl = "";
+    private volatile String pageAgent = "";
     private List<String> pageTitles = new ArrayList<>();
 
     @Override
@@ -523,65 +697,285 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     @Override
     public void onDone(List<PageImage> images, int unreadable, boolean truncated) {
         if (images.isEmpty()) {
-            finishGrab("No page images were found on this page.");
+            finishGrab(unreadable > 0
+                    ? "Found " + unreadable + " pictures but the site would not let Baihe read them."
+                    : "No page images were found on this page.");
             return;
         }
         String url = pageUrl;
+        String agent = pageAgent;
         List<String> titles = pageTitles;
         JSONArray chapterLinks = pageChapters;
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
-        if (quickRead) {
-            sender.execute(() -> read(new BaiheClient(server, token), url, images, unreadable, truncated));
-            return;
+        boolean readOnly = quickRead;
+        if (readOnly && chaptersLeft == 0) {
+            int[] part = ServerAddress.partOf(titles);
+            if (part != null && part[0] < part[1] && ServerAddress.nextChapterUrl(url, pageNext) != null) {
+                chaptersLeft = part[1] - part[0] + 1;
+                followingParts = true;
+                partsContinuing = false;
+            }
         }
-        sender.execute(() -> upload(new BaiheClient(server, token), url, titles, chapterLinks, images, unreadable, truncated));
-    }
-
-    /** Quick read: send the pages without saving, write what comes back to the cache and open it. */
-    private void read(BaiheClient client, String url, List<PageImage> images, int unreadable, boolean truncated) {
-        try {
-            // A typeset answer is large, so the batch stays small however many the server allows.
-            int max = Math.min(QUICK_READ_BATCH, client.health().optInt("max_images_per_request", 12));
-            QuickReadActivity.clear(this);
-            List<String> names = new ArrayList<>();
-            String firstError = "";
-            List<List<PageImage>> batches = Batches.plan(images, max);
-            for (int i = 0; i < batches.size(); i++) {
-                say("Redrawing " + (i + 1) + " of " + batches.size());
-                try {
-                    JSONObject answer = client.readPages(url, batches.get(i));
-                    for (byte[] jpeg : QuickRead.typesetPages(answer)) {
-                        String name = String.format(java.util.Locale.ROOT, "page-%03d.jpg", names.size());
-                        try (java.io.FileOutputStream out = new java.io.FileOutputStream(
-                                new java.io.File(QuickReadActivity.quickReadDir(this), name))) {
-                            out.write(jpeg);
-                        }
-                        names.add(name);
-                    }
-                    JSONArray failed = answer.optJSONArray("failed");
-                    if (firstError.isEmpty() && failed != null && failed.length() > 0) {
-                        firstError = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
-                    }
-                } catch (BaiheClient.BridgeException e) {
-                    if (firstError.isEmpty()) firstError = e.getMessage();
-                    // A token the server refused, or a spent limit, would refuse every later batch too.
-                    if (e.status == 401 || e.status == 403 || e.status == 429) break;
+        sender.execute(() -> {
+            // Pictures the page would not hand over are downloaded here, in page order.
+            List<PageImage> ready = new ArrayList<>();
+            int bad = unreadable;
+            boolean cut = truncated;
+            long used = 0;
+            long downloadDeadline = System.currentTimeMillis() + 5 * 60_000L;
+            for (PageImage image : images) {
+                if (cancelRequested) {
+                    finishGrab("Cancelled.");
+                    return;
+                }
+                PageImage got = image;
+                // A Quick read asks the PC to download first; the phone downloads only what it could not.
+                if (image.needsDownload() && !(readOnly && PcFetch.mark(java.util.Collections.singletonList(image)) != null)) {
+                    got = System.currentTimeMillis() > downloadDeadline ? null
+                            : ImageFetch.download(image, url, android.webkit.CookieManager.getInstance()::getCookie, agent);
+                }
+                if (got == null) {
+                    bad++;
+                } else if (!SharedImages.fitsTotal(used, got.base64.length())) {
+                    cut = true;
+                    break;
+                } else {
+                    used += got.base64.length();
+                    ready.add(got);
                 }
             }
-            String message = QuickRead.summary(names.size(), images.size() + unreadable, firstError)
-                    + (truncated ? ". Some pages were left out." : "");
-            finishGrab(message, false);
-            if (!names.isEmpty()) {
-                Intent open = new Intent(this, QuickReadActivity.class)
-                        .putExtra(QuickReadActivity.EXTRA_FILES, names.toArray(new String[0]));
-                runOnUiThread(() -> startActivity(open));
+            if (ready.isEmpty()) {
+                finishGrab("Found " + bad + " pictures but the site would not let Baihe read them.");
+                return;
             }
+            BaiheClient client = new BaiheClient(server, token);
+            client.runId = runId;
+            client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+            client.stats = new UploadStats();
+            client.fetchUserAgent = agent;
+            if (readOnly) read(client, url, ready, bad, cut);
+            else upload(client, url, titles, chapterLinks, ready, bad, cut);
+        });
+    }
+
+    /**
+     * Quick read: send the pages without saving. Two batches are in flight at once so the PC is
+     * not idle while the next one uploads, but pages are shown in page order: a later batch's
+     * pages wait until the earlier ones are done. The reader opens on the first finished page and
+     * the rest are added as the server streams them.
+     */
+    private void read(BaiheClient client, String url, List<PageImage> images, int unreadable, boolean truncated) {
+        boolean continuing = partsContinuing;
+        boolean moreParts = followingParts && chaptersLeft > 1;
+        if (!continuing) QuickReadSession.begin();
+        QuickReadSession.onCancel(this::cancelGrab);
+        long readStarted = System.currentTimeMillis();
+        java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(QUICK_READ_STREAMS);
+        try {
+            // A typeset answer is large, so the batch stays small however many the server allows.
+            JSONObject health = client.health();
+            int max = Math.min(QUICK_READ_BATCH, health.optInt("max_images_per_request", 12));
+            if (!continuing) QuickReadActivity.clear(this);
+            // Clear non-pages stay home: on a slow link each one costs real time to upload.
+            List<PageImage> pages = PageFilter.pagesOnly(images);
+            List<List<PageImage>> batches = Batches.plan(pages, max, 1);
+            int n = batches.size();
+            Object lock = new Object();
+            List<List<byte[]>> held = new ArrayList<>();
+            boolean[] finished = new boolean[n];
+            for (int i = 0; i < n; i++) held.add(new ArrayList<>());
+            int[] frontier = {0};
+            int[] shown = {continuing ? QuickReadSession.snapshot().size() : 0};
+            int shownBefore = shown[0];
+            long[] firstPageAt = {0};
+            boolean[] opened = {continuing};
+            String[] firstError = {""};
+            boolean[] refused = {false};
+            // Cleared when the PC turns out not to download pictures (an older Baihe): bytes go up instead.
+            // Older Baihe versions omit the flag, so they never get addresses to fetch.
+            boolean[] pcFetch = {health.optBoolean("picture_addresses", false)};
+
+            // Called with `lock` held: writes a page and, the first time, opens the reader.
+            java.util.function.Consumer<byte[]> show = jpeg -> {
+                String name = String.format(java.util.Locale.ROOT, "page-%03d.jpg", shown[0]);
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(
+                        new java.io.File(QuickReadActivity.quickReadDir(this), name))) {
+                    out.write(jpeg);
+                } catch (IOException e) {
+                    return;
+                }
+                shown[0]++;
+                QuickReadSession.add(name);
+                say("Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
+                if (!opened[0]) {
+                    opened[0] = true;
+                    firstPageAt[0] = System.currentTimeMillis();
+                    Intent open = new Intent(this, QuickReadActivity.class);
+                    runOnUiThread(() -> startActivity(open));
+                }
+            };
+
+            List<java.util.concurrent.Future<?>> running = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                final int index = i;
+                running.add(pool.submit(() -> {
+                    if (refused[0] || cancelRequested || QuickReadSession.isAbandoned()) {
+                        synchronized (lock) {
+                            finished[index] = true;
+                            advance(frontier, finished, held, show);
+                        }
+                        return;
+                    }
+                    say("Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
+                    try {
+                        BaiheClient.PageListener onPage = page -> {
+                            JSONObject wrapped;
+                            try {
+                                wrapped = new JSONObject().put("pages", new JSONArray().put(page));
+                            } catch (org.json.JSONException e) {
+                                return;
+                            }
+                            List<byte[]> jpegs = QuickRead.typesetPages(wrapped);
+                            synchronized (lock) {
+                                if (jpegs.isEmpty()) {
+                                    if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
+                                    byte[] original = QuickRead.original(batches.get(index), page.optString("key", ""));
+                                    if (original == null) return;
+                                    jpegs = java.util.Collections.singletonList(original);
+                                }
+                                for (byte[] jpeg : jpegs) {
+                                    if (index == frontier[0]) show.accept(jpeg);
+                                    else held.get(index).add(jpeg);
+                                }
+                            }
+                        };
+                        JSONObject done = sendBatch(client, url, batches.get(index), onPage, pcFetch);
+                        synchronized (lock) {
+                            JSONArray failed = done.optJSONArray("failed");
+                            if (firstError[0].isEmpty() && failed != null && failed.length() > 0) {
+                                firstError[0] = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
+                            }
+                            JSONArray skipped = done.optJSONArray("skipped");
+                            if (firstError[0].isEmpty() && skipped != null && skipped.length() > 0) {
+                                firstError[0] = skipped.length() + " pictures were not pages ("
+                                        + (skipped.optJSONObject(0) == null ? "" : skipped.optJSONObject(0).optString("reason", "")) + ")";
+                            }
+                        }
+                    } catch (BaiheClient.BridgeException e) {
+                        synchronized (lock) {
+                            if (firstError[0].isEmpty()) firstError[0] = e.getMessage();
+                            // A token the server refused, or a spent limit, would refuse every later batch too.
+                            if (e.status == 401 || e.status == 403 || e.status == 429) refused[0] = true;
+                        }
+                    }
+                    synchronized (lock) {
+                        finished[index] = true;
+                        advance(frontier, finished, held, show);
+                    }
+                }));
+            }
+            for (java.util.concurrent.Future<?> f : running) {
+                try {
+                    f.get();
+                } catch (InterruptedException | java.util.concurrent.ExecutionException e) {
+                    // A batch that threw is counted as nothing shown; the others carry on.
+                }
+            }
+            int thisPart = shown[0] - shownBefore;
+            // A part of a split chapter hands over to the next one with the reader still open.
+            boolean carryOn = moreParts && !cancelRequested && !QuickReadSession.isAbandoned() && thisPart > 0;
+            partsContinuing = carryOn;
+            long ended = System.currentTimeMillis();
+            String timing = firstPageAt[0] == 0 ? "" : String.format(java.util.Locale.ROOT,
+                    " (found %d s, first page %d s, all %d s)", (readStarted - grabStartedAt) / 1000,
+                    (firstPageAt[0] - readStarted) / 1000, (ended - readStarted) / 1000);
+            String link = client.stats == null ? "" : client.stats.describe();
+            if (!link.isEmpty()) timing = timing.isEmpty() ? " (" + link + ")" : timing.substring(0, timing.length() - 1) + "; " + link + ")";
+            String message = cancelRequested && thisPart == 0 ? "Cancelled."
+                    : (cancelRequested ? "Cancelled. " : "")
+                    + QuickRead.summary(thisPart, pages.size() + unreadable, firstError[0])
+                    + (truncated ? ". Some pages were left out." : "") + timing;
+            if (!carryOn) QuickReadSession.finish(message);
+            if (!carryOn) QuickReadSession.onCancel(null);
+            finishGrab(message, carryOn);
         } catch (BaiheClient.BridgeException e) {
+            QuickReadSession.onCancel(null);
+            QuickReadSession.finish(e.getMessage());
             finishGrab(e.getMessage());
         } catch (Exception e) {
+            QuickReadSession.onCancel(null);
+            QuickReadSession.finish("Could not read the pages.");
             finishGrab("Could not read the pages.");
+        } finally {
+            pool.shutdown();
+        }
+    }
+
+    /**
+     * One request of a Quick read. The PC is asked to download the pictures first; any it could
+     * not get (and a whole batch, when the PC is too old to know the field) go up as bytes.
+     */
+    private JSONObject sendBatch(BaiheClient client, String pageUrl, List<PageImage> batch,
+                                 BaiheClient.PageListener onPage, boolean[] pcFetch) throws BaiheClient.BridgeException {
+        if (pcFetch[0]) {
+            List<PageImage> asked = PcFetch.mark(batch);
+            if (asked != null) {
+                try {
+                    int[] delivered = {0};
+                    JSONObject done = client.streamPages(pageUrl, asked, page -> {
+                        delivered[0]++;
+                        onPage.onPage(page);
+                    });
+                    // An older Baihe ignores fetch_url and finds an empty picture: nothing comes back and no
+                    // "unfetched" list either. That is told apart from a stop by the user.
+                    boolean stopped = cancelRequested || QuickReadSession.isAbandoned();
+                    if (delivered[0] == 0 && !done.has("unfetched") && !stopped) {
+                        pcFetch[0] = false;
+                        return sendBytes(client, pageUrl, batch, onPage);
+                    }
+                    List<PageImage> again = PcFetch.unfetched(batch, done.optJSONArray("unfetched"));
+                    if (again.isEmpty()) return done;
+                    List<PageImage> bytes = withBytes(again, pageUrl);
+                    return bytes.isEmpty() ? done : client.streamPages(pageUrl, ImageShrink.forUpload(bytes), onPage);
+                } catch (BaiheClient.BridgeException e) {
+                    if (e.status != 400 && e.status != 422) throw e;
+                    pcFetch[0] = false;
+                }
+            }
+        }
+        return sendBytes(client, pageUrl, batch, onPage);
+    }
+
+    private JSONObject sendBytes(BaiheClient client, String pageUrl, List<PageImage> batch,
+                                 BaiheClient.PageListener onPage) throws BaiheClient.BridgeException {
+        List<PageImage> bytes = withBytes(batch, pageUrl);
+        if (bytes.isEmpty()) throw new BaiheClient.BridgeException(0, "The site would not let Baihe read those pictures.");
+        return client.streamPages(pageUrl, ImageShrink.forUpload(bytes), onPage);
+    }
+
+    /** The pictures with their bytes, downloading on the phone those that have only an address; unreadable ones are left out. */
+    private List<PageImage> withBytes(List<PageImage> batch, String pageUrl) {
+        List<PageImage> out = new ArrayList<>(batch.size());
+        for (PageImage image : batch) {
+            PageImage got = image.base64.isEmpty()
+                    ? ImageFetch.download(image, pageUrl, android.webkit.CookieManager.getInstance()::getCookie, pageAgent)
+                    : image;
+            if (got != null) out.add(got);
+        }
+        return out;
+    }
+
+    /** With the read lock held: shows what earlier batches held back, moving on past each finished batch. */
+    private static void advance(int[] frontier, boolean[] finished, List<List<byte[]>> held,
+                                java.util.function.Consumer<byte[]> show) {
+        while (frontier[0] < finished.length) {
+            List<byte[]> waiting = held.get(frontier[0]);
+            for (byte[] jpeg : waiting) show.accept(jpeg);
+            waiting.clear();
+            if (!finished[frontier[0]]) break;
+            frontier[0]++;
         }
     }
 
@@ -595,7 +989,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             int stored = 0;
             int failed = 0;
             String firstError = "";
-            for (int i = 0; i < batches.size(); i++) {
+            for (int i = 0; i < batches.size() && !cancelRequested; i++) {
                 say("Sending " + (i + 1) + " of " + batches.size());
                 try {
                     JSONObject answer = client.sendPages(dramaId, url, batches.get(i));
@@ -609,7 +1003,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
             }
             failed += unreadable;
-            StringBuilder out = new StringBuilder("Sent " + stored + " pages to " + title.optString("title", "Baihe"));
+            StringBuilder out = new StringBuilder((cancelRequested ? "Cancelled. " : "") + "Sent " + stored + " pages to " + title.optString("title", "Baihe"));
             if (failed > 0 || truncated) out.append(". Not sent: ").append(failed + (truncated ? " or more" : ""));
             if (!firstError.isEmpty()) out.append(". ").append(firstError);
             // A chapter where every page was refused must not send the chain on to the next.

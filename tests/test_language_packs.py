@@ -385,7 +385,7 @@ class TestTitleChoice:
     def test_only_packs_for_the_titles_language_are_offered_and_accepted(self, isolated_db):
         did = _drama(isolated_db, "ja", ["先輩"])
         ids = {p["id"] for p in svc.get_title_packs(did)["packs"]}
-        assert ids == {"ja-address", "ja-common", "ja-vtuber-core", "ja-vtuber-names", "shared-drama"}
+        assert ids == {"ja-address", "ja-comic", "ja-common", "ja-vtuber-core", "ja-vtuber-names", "shared-drama"}
         with pytest.raises(InvalidInputError):
             svc.set_title_packs(did, {"packs": {"ko-address": None}})
         with pytest.raises(InvalidInputError):

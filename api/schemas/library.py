@@ -24,7 +24,7 @@ __all__ = [
     "DramaMetadataUpdate",
     "DramaPresetDefaults",
     "DramaCreateResult",
-    "DramaDeleteResult",
+    "DramaDeleteResult", "OwnTitleDelete",
     "MediaUploadResult",
     "MediaStatus",
     "MediaPeaks",
@@ -238,6 +238,11 @@ class DramaCreateResult(DramaDetail):
     # With a link and no name: "link" (the link's own title) or
     # "placeholder" (the link's host, for the owner to rename).
     title_from_link: Optional[Literal["link", "placeholder"]] = None
+
+
+class OwnTitleDelete(ConfirmRequest):
+    """Deleting a title you made, from any device: confirm=true and the word DELETE."""
+    confirm_text: StrictStr = Field("", max_length=32, description="The word DELETE, exactly.")
 
 
 class DramaDeleteResult(BaseModel):

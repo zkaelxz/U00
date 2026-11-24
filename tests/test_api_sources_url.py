@@ -335,6 +335,7 @@ def test_auth_on(env, monkeypatch):
                    base_url="https://baihe.example.com", raise_server_exceptions=False)
     assert c.post("/api/sources/url/preview", json={"url": PAGE}).status_code == 401
     u = auth_service.add_user("kid@example.com")
+    auth_service.revoke_permission(u["id"], "sources.import")   # new members hold it by default
     s = auth_service.create_session(u["id"])
     h = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
          api_auth.CSRF_HEADER: s["csrf_token"]}

@@ -27,6 +27,7 @@ It reaches pages the adapters can't (blob-protected chapters, tile-scrambled rea
    host permission is `http://127.0.0.1:8756/*`. It'll say *Connected* and
    how many dramas it can see. If the bridge switch is off the extension
    says it couldn't reach Baihe and names the switch to turn on.
+   Only one Baihe install can hold 8756 (whichever starts first). A test copy running beside the real app should set `BAIHE_FEATURES_OFF=extension` in its `.env`, so it never takes the port.
 
 ## Using it
 
@@ -316,7 +317,7 @@ Edge) reach Baihe through the household address, in three parts:
    its 8 MB cap for `/page` and `/pages` only). The caller sends only into
    a title they can edit (anything else is a 404), sees only titles they
    can see, a title made for them is theirs, text history is theirs, the
-   monthly spending cap applies, and no URL the extension sends is fetched.
+   monthly spending cap applies, and the only URLs the PC fetches are the picture addresses (`fetch_url`) of a no-save Quick read, public hosts only (`services/quick_read_fetch.py`); a saved send must carry its pictures. A member's extension (one with a server address saved) sends a plain `<img>`'s address instead of its bytes for a no-save read and uploads the picture itself only for what comes back in `unfetched`; the PC's own extension keeps uploading over loopback. The PC keeps those answers in a temporary results cache (`services/quick_read_cache.py`, 400 MB, 14 days, left out of backups) that every member shares, except pages fetched with a cookie.
    `/page`, `/pages`, `/text`, `/novel`, `/title` and `/capture-summary` (it keeps a
    note on the title) also need `lines.edit`, and the three that run the engine need
    `jobs.start`, so taking either away from a member

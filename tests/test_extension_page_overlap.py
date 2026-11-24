@@ -31,7 +31,9 @@ def pipeline(isolated_db, monkeypatch):
     from scanlate import scanlate_translate
     monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
     state = {"reads": 0, "log": [], "contexts": {}, "second_read": threading.Event(),
-             "overlapped": None, "fail_read": None}
+             "overlapped": None, "fail_read": None, "on_read": None, "in_translation": 0,
+             "most_translating": 0, "translating": {"p0": threading.Event(), "p1": threading.Event()},
+             "first_two_meet": False}
     lock = threading.Lock()
 
     def detect_and_ocr_page(image_path, source_language, **kwargs):
@@ -43,16 +45,28 @@ def pipeline(isolated_db, monkeypatch):
             state["second_read"].set()
         if state["fail_read"] == n:
             raise HeadroomError("no room")
+        if state["on_read"] is not None:
+            state["on_read"](n)
         return ([{"x": 1, "y": 2, "w": 30, "h": 40, "source_text": f"p{n}", "translated_text": "",
                   "kind": "bubble", "font_category": "regular", "reading_order": 0}], [])
 
     def translate_page_bubbles(bubbles, engine, drama_meta, previous_context="", **kwargs):
         text = bubbles[0]["source_text"]
+        with lock:
+            state["in_translation"] += 1
+            state["most_translating"] = max(state["most_translating"], state["in_translation"])
+        if text in ("p0", "p1") and state["first_two_meet"]:
+            # Each waits for the other, so both are in translation at once unless one waits
+            # for the other to finish.
+            mine, theirs = ("p0", "p1") if text == "p0" else ("p1", "p0")
+            state["translating"][mine].set()
+            state["translating"][theirs].wait(5)
         if text == "p0":
             state["overlapped"] = state["second_read"].wait(5)
         with lock:
             state["log"].append(("translate", text))
             state["contexts"][text] = previous_context
+            state["in_translation"] -= 1
         for b in bubbles:
             b["translated_text"] = "EN " + b["source_text"]
         return "after " + text
@@ -86,13 +100,29 @@ def test_the_next_page_is_read_while_one_translates(pipeline):
     assert [r["regions"][0]["translated_text"] for r in answer["pages"]] == ["EN p0", "EN p1", "EN p2"]
 
 
-def test_pages_still_read_and_translate_in_page_order_with_the_page_before_as_context(pipeline):
+def test_saved_pages_still_read_and_translate_in_page_order_with_the_page_before_as_context(pipeline):
     pipeline["hold_first"] = True   # the first page is late to start; the second must still wait
-    answer = _send(4)
+    drama = db.create_drama(title_en="Order", media_type="manga", source_language="ja")
+    payload = {"images": _images(4), "drama_id": drama, "store": True, "filter_pages": False}
+    answer = bridge.run_images(payload, payload["images"])
     assert [p["regions"][0]["translated_text"] for p in answer["pages"]] == ["EN p0", "EN p1", "EN p2", "EN p3"]
     translations = [t for step, t in pipeline["log"] if step == "translate"]
     assert translations == ["p0", "p1", "p2", "p3"]
     assert pipeline["contexts"] == {"p0": "", "p1": "after p0", "p2": "after p1", "p3": "after p2"}
+    assert pipeline["most_translating"] == 1
+
+
+def test_quick_read_pages_translate_side_by_side_but_still_read_in_order(pipeline):
+    pipeline["hold_first"] = True
+    pipeline["first_two_meet"] = True
+    answer = _send(4)
+    assert [p["key"] for p in answer["pages"]] == ["k0", "k1", "k2", "k3"]
+    assert [p["regions"][0]["translated_text"] for p in answer["pages"]] == ["EN p0", "EN p1", "EN p2", "EN p3"]
+    assert [n for step, n in pipeline["log"] if step == "read"] == [0, 1, 2, 3]
+    # The first two pages only translate at the same time if the second does not wait for the
+    # first, so the second cannot have the first page's summary.
+    assert pipeline["most_translating"] >= 2
+    assert pipeline["contexts"]["p1"] != "after p0"
 
 
 def test_a_captured_chapter_is_stored_in_the_order_it_was_sent(pipeline):
@@ -114,16 +144,16 @@ def test_a_failure_every_page_would_repeat_stops_before_the_next_page_is_read(pi
     assert "not enough free memory" in answer["stopped"]
 
 
-def test_a_cancel_during_the_run_leaves_the_later_pages_alone(pipeline):
+@pytest.mark.parametrize("store", [True, False])
+def test_a_cancel_during_the_run_leaves_the_later_pages_alone(pipeline, store):
     run_id = "0f8fad5b-d9cb-469f-a165-70867728950e"
-
-    def cancel_after_first(page):
-        if page["key"] == "k0":
-            bridge.cancel_run({"run_id": run_id})
-    payload = {"images": _images(4), "store": False, "filter_pages": False, "run_id": run_id}
-    answer = bridge.run_images(payload, payload["images"], on_page=cancel_after_first)
-    # The second page may already be reading when the cancel lands; nothing after it starts.
-    assert pipeline["reads"] <= 2
+    payload = {"images": _images(4), "store": store, "filter_pages": False, "run_id": run_id}
+    if store:
+        payload["drama_id"] = db.create_drama(title_en="Cancel", media_type="manga", source_language="ja")
+    pipeline["on_read"] = lambda n: n == 1 and bridge.cancel_run({"run_id": run_id})
+    answer = bridge.run_images(payload, payload["images"])
+    # The cancel lands while the second page reads; no later page is read.
+    assert pipeline["reads"] == 2
     assert answer["stopped"] == "cancelled by the extension"
     assert answer["failed"] == []
 
@@ -212,3 +242,23 @@ class TestDeviceTokenRoute:
             "drama_id": _drama(other["id"], "Theirs"), "stream": True,
             "images": [{"key": "k", "data": _png(), "content_type": "image/png"}]})
         assert (r.status_code, r.json()) == (404, {"error": "no such drama"})
+
+
+def test_quick_read_answers_a_page_it_already_read_without_reading_it_again(pipeline):
+    first = _send(2)
+    again = _send(2)
+    assert pipeline["reads"] == 2
+    assert [p["regions"][0]["translated_text"] for p in again["pages"]] == ["EN p0", "EN p1"]
+    assert all(p["cached"] is True for p in again["pages"]) and "cached" not in first["pages"][0]
+
+
+def test_a_saved_send_and_a_page_with_a_warning_are_never_answered_from_memory(pipeline, monkeypatch):
+    drama = db.create_drama(title_en="Saved", media_type="manga", source_language="ja")
+    for _ in range(2):
+        payload = {"images": _images(1), "drama_id": drama, "store": True, "filter_pages": False}
+        bridge.run_images(payload, payload["images"])
+    monkeypatch.setattr(page_server, "_build_engine", lambda config: None)   # "no engine" warning
+    _send(1)
+    _send(1)
+    # One read for the saved page (the second send reuses the library's copy), two for Quick read.
+    assert pipeline["reads"] == 3

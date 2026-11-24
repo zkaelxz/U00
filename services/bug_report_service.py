@@ -35,6 +35,7 @@ import db
 import diagnostics_report
 from lib.atomic_write import atomic_write
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
+from lib.no_window import NO_WINDOW
 
 DIR_NAME = "bug_reports"
 MAX_REPORTS = 100
@@ -196,7 +197,7 @@ def _git_commit():
     try:
         r = subprocess.run(["git", "rev-parse", "--short=10", "HEAD"], cwd=_project_root(),
                            capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           timeout=GIT_TIMEOUT_SECONDS)
+                           timeout=GIT_TIMEOUT_SECONDS, creationflags=NO_WINDOW)
     except (OSError, subprocess.SubprocessError):
         return None
     commit = (r.stdout or "").strip()

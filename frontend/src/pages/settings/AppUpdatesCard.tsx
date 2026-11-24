@@ -189,7 +189,7 @@ function AppUpdatesControls() {
               <Toggle checked={status.auto_check} disabled={busy}
                 onChange={(next) => run(() => setUpdateAutoCheck(next))} />
             </Field>
-            {status.app_update_by_service && (
+            {(status.app_update_by_service || status.app_update_here) && (
               <Field label="Install app updates automatically" help={SERVICE_AUTO_APPLY_HELP}>
                 <Toggle checked={status.app_auto_apply} disabled={busy}
                   onChange={(next) => run(() => setUpdateServiceAutoApply(next))} />

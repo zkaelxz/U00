@@ -392,6 +392,7 @@ export default function LibraryPage() {
   // POST /api/dramas needs library.create, which only an admin holds (at the PC or away). It only hides the
   // buttons: the open sheet must outlive a lost session so its draft survives signing back in.
   const canCreate = useHolds('library.create')
+  const canLinkRun = useHolds('media.import_url')
   const [startedDismissed, setStartedDismissed] = usePersistedState(GET_STARTED_PREF, false)
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)
@@ -513,9 +514,9 @@ export default function LibraryPage() {
           <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
         </details>
       )}
-      actions={canCreate && (
+      actions={(canCreate || canLinkRun) && (
         <>
-          {startedDismissed && stats.data?.total_dramas === 0 && (
+          {canCreate && startedDismissed && stats.data?.total_dramas === 0 && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
           )}
           {/* A phone opens the box on its own page, so the first title card stays on the first screen. */}
@@ -545,7 +546,7 @@ export default function LibraryPage() {
       )}
 
       {/* Not on a phone: the box would push the first title card off the first screen; the header's Add opens it there. */}
-      {canCreate && !phone && <AddBox place="library" onNewTitle={startNewTitle} />}
+      {(canCreate || canLinkRun) && !phone && <AddBox place="library" onNewTitle={startNewTitle} />}
 
       <ContinueShelf
         continuing={continuing} recent={recent} rows={shelfRows} rowsCurrent={seenRows?.reload === reloadKey || listFailure?.reload === reloadKey}
@@ -608,7 +609,8 @@ export default function LibraryPage() {
           <DramaDetailPanel
             key={selected.id}
             dramaId={selected.id}
-            onDeleted={pc === 'remote' ? undefined : (r) => {
+            away={pc === 'remote'}
+            onDeleted={pc === 'remote' && !items.find((d) => d.id === selected.id)?.made_by_me ? undefined : (r) => {
               setNotice(deleteNotice(r))
               setSelected(null)
               reload()

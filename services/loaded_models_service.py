@@ -21,6 +21,7 @@ import memory_headroom
 from lib import http
 from services import settings_service
 from lib.errors import ConflictError
+from lib.no_window import NO_WINDOW
 
 # llama.cpp's server default; one fixed probe rather than another setting.
 LLAMA_CPP_PORT = 8080
@@ -108,6 +109,9 @@ def _app_rows() -> dict:
         for key in list(getattr(aligner, "_aligner_model_cache", {})):
             models.append({"name": "Qwen3 forced aligner", "kind": "Alignment",
                            "device": _device_label(key)})
+        if getattr(sys.modules.get("scanlate.scanlate_detect"), "_bubble_ml_gpu", None):
+            models.append({"name": "Comic text and bubble detector", "kind": "Comic balloon finder",
+                           "device": _device_label("cuda")})
         if getattr(sys.modules.get("scanlate.scanlate_lama"), "_lama_gpu", None):
             models.append({"name": "LaMa-manga", "kind": "Comic text eraser",
                            "device": _device_label("cuda")})
@@ -141,7 +145,7 @@ def _gpu_from_nvidia_smi():
         [exe, "--query-gpu=name,memory.total,memory.used,memory.free",
          "--format=csv,noheader,nounits"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=NVIDIA_SMI_TIMEOUT_SECONDS, check=True)
+        timeout=NVIDIA_SMI_TIMEOUT_SECONDS, check=True, creationflags=NO_WINDOW)
     name, total, used, free = [part.strip() for part in out.stdout.splitlines()[0].split(",")]
     mib = 1024 * 1024
     return {"state": "ok", "name": name, "total_bytes": int(total) * mib,

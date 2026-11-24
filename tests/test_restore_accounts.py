@@ -162,7 +162,8 @@ def test_restored_accounts_are_not_reused_by_a_new_account(isolated_db):
     to whoever signs up next under the same id."""
     first = auth_service.add_user("a@example.com")["id"]
     gone = auth_service.add_user("b@example.com")["id"]
-    did = db.create_drama(title_zh="t", owner_user_id=gone, is_private=1)
+    did = db.create_drama(title_zh="t", owner_user_id=gone, created_by_user_id=gone,
+                          is_private=1)
     data = _backup_bytes()
     _fresh_pc()
     auth_service.add_user("only@example.com")
@@ -170,6 +171,7 @@ def test_restored_accounts_are_not_reused_by_a_new_account(isolated_db):
     newcomer = auth_service.add_user("next@example.com")["id"]
     assert newcomer not in (first, gone)
     assert db.get_drama(did)["owner_user_id"] is None
+    assert db.get_drama(did)["created_by_user_id"] is None
 
 
 def _owner_and_private(kind, item_id):

@@ -3409,6 +3409,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/{drama_id}/delete-mine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Permanently delete a title you made, from any device (confirm=true and confirm_text=DELETE)
+         * @description 403 for a title made at the PC or by someone else; those are deleted at the PC.
+         */
+        post: operations["delete_own_drama_api_dramas__drama_id__delete_mine_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/{drama_id}/duplicate": {
         parameters: {
             query?: never;
@@ -6270,8 +6290,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * What a link says about a title: title, channel, stream date (PC only)
-         * @description Nothing is downloaded or saved. A video or stream link is read with yt-dlp (metadata only), a supported Sources link with that source's own data; any other page returns kind "page" without being fetched. 422 a bad or private address, 503 the read failed or yt-dlp is missing.
+         * What a link says about a title: title, channel, stream date
+         * @description Nothing is downloaded or saved. A video or stream link is read with yt-dlp (metadata only), a supported Sources link with that source's own data; any other page returns kind "page" without being fetched. 422 a bad or private address, 503 the read failed or yt-dlp is missing, 429 away from the PC while the caller or the server already has one running.
          */
         post: operations["post_media_link_probe_api_media_link_probe_post"];
         delete?: never;
@@ -7707,7 +7727,7 @@ export interface paths {
         put?: never;
         /**
          * Create a title for a video link and queue download, transcribe, translate and export
-         * @description PC only. A refused request creates nothing. Follow the run with GET /api/quick-video/runs.
+         * @description A refused request creates nothing. Follow the run with GET /api/quick-video/runs.
          */
         post: operations["start_api_quick_video_start_post"];
         delete?: never;
@@ -9638,6 +9658,23 @@ export interface paths {
         put?: never;
         /** Set how speaker detection treats the series (auto or solo) */
         post: operations["set_speaker_mode_api_series__series_id__speaker_mode_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/series/{series_id}/streamer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** File a series under a streamer in the Library (empty name clears it) */
+        post: operations["set_streamer_api_series__series_id__streamer_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -18669,6 +18706,11 @@ export interface components {
              * @default 0
              */
             line_count: number;
+            /**
+             * Made By Me
+             * @description The signed-in viewer made it and still owns it, so they may delete it from any device. Only set in the Library list.
+             */
+            made_by_me: boolean | null;
             /** Media Type */
             media_type: string | null;
             /** Narration Language */
@@ -18821,6 +18863,11 @@ export interface components {
              * @default 0
              */
             line_count: number;
+            /**
+             * Made By Me
+             * @description The signed-in viewer made it and still owns it, so they may delete it from any device. Only set in the Library list.
+             */
+            made_by_me: boolean | null;
             /** Media Type */
             media_type: string | null;
             /** Narration Language */
@@ -19043,6 +19090,11 @@ export interface components {
              * @default 0
              */
             line_count: number;
+            /**
+             * Made By Me
+             * @description The signed-in viewer made it and still owns it, so they may delete it from any device. Only set in the Library list.
+             */
+            made_by_me: boolean | null;
             /** Media Type */
             media_type: string | null;
             /**
@@ -22332,10 +22384,6 @@ export interface components {
             can_auto_start: boolean;
             /** Items */
             items: components["schemas"]["LiveFollow"][];
-            /** Max Per Member */
-            max_per_member: number;
-            /** Max Total */
-            max_total: number;
         };
         /**
          * LiveFollowOptions
@@ -24326,6 +24374,23 @@ export interface components {
             /** Vram Bytes */
             vram_bytes: number;
         };
+        /**
+         * OwnTitleDelete
+         * @description Deleting a title you made, from any device: confirm=true and the word DELETE.
+         */
+        OwnTitleDelete: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm?: boolean;
+            /**
+             * Confirm Text
+             * @description The word DELETE, exactly.
+             * @default
+             */
+            confirm_text?: string;
+        };
         /** PcProfilePinRequest */
         PcProfilePinRequest: {
             /** Pin */
@@ -24926,8 +24991,6 @@ export interface components {
             monthly_cap_usd: number;
             /** Notice */
             notice: string | null;
-            /** Overlap Note */
-            overlap_note: string | null;
             /** Overlap Online Translate */
             overlap_online_translate: boolean;
             schedule: components["schemas"]["QueueSchedule"] | null;
@@ -28082,6 +28145,11 @@ export interface components {
              * @description The signed-in viewer created it.
              */
             owned_by_me: boolean;
+            /**
+             * Streamer
+             * @description The streamer the Library files it under; null: none.
+             */
+            streamer: string | null;
             /** Title Count */
             title_count: number;
         };
@@ -28117,6 +28185,8 @@ export interface components {
              * @enum {string}
              */
             speaker_mode: "auto" | "solo";
+            /** Streamer */
+            streamer: string | null;
             /** Titles */
             titles: components["schemas"]["SeriesTitle"][];
         };
@@ -28208,6 +28278,21 @@ export interface components {
              * @enum {string}
              */
             speaker_mode: "auto" | "solo";
+        };
+        /** SeriesStreamerRequest */
+        SeriesStreamerRequest: {
+            /**
+             * Streamer
+             * @description Empty clears it.
+             */
+            streamer: string;
+        };
+        /** SeriesStreamerResult */
+        SeriesStreamerResult: {
+            /** Series Id */
+            series_id: number;
+            /** Streamer */
+            streamer: string | null;
         };
         /** SeriesTitle */
         SeriesTitle: {
@@ -28424,6 +28509,11 @@ export interface components {
              * @default default
              */
             claude_reasoning: string;
+            /**
+             * Comic Glossary Custom
+             * @default
+             */
+            comic_glossary_custom: string;
             /** Cookies Browser */
             cookies_browser: string | null;
             /** Cookies File */
@@ -28848,6 +28938,8 @@ export interface components {
             bulk_auto_resume?: boolean | null;
             /** Claude Reasoning */
             claude_reasoning?: string | null;
+            /** Comic Glossary Custom */
+            comic_glossary_custom?: string | null;
             /** Cookies Browser */
             cookies_browser?: string | null;
             /** Cookies File */
@@ -42683,6 +42775,68 @@ export interface operations {
             };
         };
     };
+    delete_own_drama_api_dramas__drama_id__delete_mine_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnTitleDelete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DramaDeleteResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_drama_duplicate_api_dramas__drama_id__duplicate_post: {
         parameters: {
             query?: never;
@@ -51210,6 +51364,15 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -62358,6 +62521,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SeriesSpeakerModeResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_streamer_api_series__series_id__streamer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                series_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SeriesStreamerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesStreamerResult"];
                 };
             };
             /** @description Forbidden */

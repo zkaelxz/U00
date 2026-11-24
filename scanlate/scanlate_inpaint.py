@@ -117,6 +117,26 @@ def _drop_marks_running_off_edge(mask) -> None:
             mask[labels == i] = 0
 
 
+_RIM_BAND_PX = 6
+_RIM_RING_SHARE = 0.8
+
+
+def _drop_rim_rings(mask, keep) -> None:
+    """Clears, in place, the mask components that lie almost wholly in a thin band along the
+    balloon's rim. The rays or shading at a burst's edge read as one ring of "lettering";
+    repainting it ate the rim and left a staircase edge. Lettering sits inside the band
+    only where it touches the outline, so it is never mostly in it."""
+    import cv2
+    depth = cv2.distanceTransform(keep.astype(np.uint8), cv2.DIST_L2, 3)
+    band = depth <= _RIM_BAND_PX
+    count, labels, stats, _ = cv2.connectedComponentsWithStats((mask > 0).astype(np.uint8), connectivity=8)
+    for i in range(1, count):
+        part = labels == i
+        if int((band & part).sum()) >= _RIM_RING_SHARE * stats[i, cv2.CC_STAT_AREA]:
+            # A stroke joined to the ring stays: only the ring's own part is cleared.
+            mask[part & band] = 0
+
+
 # A mark this large in both directions yet this hollow is a frame or ornament
 # round the lettering, not the lettering itself.
 _FRAME_MIN_SPAN = 0.35
@@ -175,6 +195,73 @@ _ART_FILL_SATURATION = 120
 # would show as a smudge on that texture, and its median brightness can read as
 # light even though the lettering is pale outlined text, so LaMa gets the mask.
 _COLOURED_ART_MEDIAN_SATURATION = 100
+# A plain black or near-black ground (a notice banner, a title card) has no art for coloured
+# lettering to be mistaken for, so any bright pixel on it is lettering: yellow headlines on a
+# black disclaimer page were left under the English when only pale strokes were taken.
+_PLAIN_GROUND_MAX_GRAY = 40
+_PLAIN_GROUND_MAX_SPREAD = 40
+
+
+def _on_plain_dark_ground(gray, colour) -> bool:
+    """`colour` is a per-pixel measure of how coloured the crop is: HSV saturation for the
+    fill choice, channel spread (_channel_spread) for the lettering mask. HSV saturation
+    reads a near-black strip with olive stripes as strongly coloured, so for the mask a
+    black banner over art never counted as a plain ground and its yellow lettering was kept."""
+    return (float(np.median(gray)) <= _PLAIN_GROUND_MAX_GRAY
+            and float(np.median(colour)) <= _PLAIN_GROUND_MAX_SPREAD)
+
+
+_STRIP_MIN_ASPECT = 6
+_STRIP_DARK_GRAY = 70
+_STRIP_DARK_SHARE = 0.5
+_STRIP_GAP_COLUMNS = 6
+
+
+def widen_to_dark_strip(img, box: dict) -> dict:
+    """`box` stretched sideways to the ends of the dark banner strip it sits on, or `box`
+    itself when it is not a wide, short, dark strip. OCR often stops short of the last glyphs
+    of a banner line, and the lettering left past the box showed under the English."""
+    import cv2
+    h, w = img.shape[:2]
+    x0, y0 = max(0, box["x"]), max(0, box["y"])
+    x1, y1 = min(w, box["x"] + box["w"]), min(h, box["y"] + box["h"])
+    if x1 <= x0 or y1 <= y0 or (x1 - x0) < _STRIP_MIN_ASPECT * (y1 - y0):
+        return box
+    gray = cv2.cvtColor(img[y0:y1], cv2.COLOR_BGR2GRAY)
+    if float(np.median(gray[:, x0:x1])) > _PLAIN_GROUND_MAX_GRAY:
+        return box
+    dark = (gray < _STRIP_DARK_GRAY).mean(axis=0) >= _STRIP_DARK_SHARE
+
+    def reach(columns) -> int:
+        end = gaps = 0
+        for step, is_dark in enumerate(columns, 1):
+            gaps = 0 if is_dark else gaps + 1
+            if gaps >= _STRIP_GAP_COLUMNS:
+                break
+            end = step if is_dark else end
+        return end
+
+    right, left = reach(dark[x1:]), reach(dark[:x0][::-1])
+    return {**box, "x": x0 - left, "w": (x1 - x0) + left + right}
+
+
+_STRIP_LETTER_GRAY = 70
+
+
+def _dark_strip_inpaint(roi):
+    """`roi` (BGR) with the lettering of a dark banner strip painted out from the strip's own
+    dark ground, or None when the crop is not a wide, short, dark strip. LaMa painted the
+    surrounding art over a strip like this, so the English lost its dark ground."""
+    import cv2
+    h, w = roi.shape[:2]
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    if w < _STRIP_MIN_ASPECT * h or float(np.median(gray)) > _PLAIN_GROUND_MAX_GRAY:
+        return None
+    rows = (gray < _STRIP_DARK_GRAY).mean(axis=1) >= _STRIP_DARK_SHARE
+    mask = ((gray >= _STRIP_LETTER_GRAY) & rows[:, None]).astype(np.uint8) * 255
+    mask = cv2.dilate(mask, np.ones((5, 5), np.uint8))
+    mask[~rows] = 0
+    return cv2.inpaint(roi, mask, 3, cv2.INPAINT_TELEA)
 
 
 def _fill_enclosed_holes(mask):
@@ -195,12 +282,17 @@ def _pale_pixels(crop):
     import cv2
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     saturation = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1]
+    if _on_plain_dark_ground(gray, _channel_spread(crop)):
+        return gray > 150
     return (gray > 150) & (saturation <= _ART_FILL_SATURATION)
 
 
 def is_coloured_art(crop) -> bool:
     import cv2
     return float(np.median(cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1])) > _COLOURED_ART_MEDIAN_SATURATION
+
+
+_GLOW_REACH_OF_SHORT_SIDE = 0.4
 
 
 def _dark_art_lettering_mask(crop):
@@ -214,7 +306,10 @@ def _dark_art_lettering_mask(crop):
     core = _fill_enclosed_holes(core)
     core = cv2.morphologyEx(core, cv2.MORPH_CLOSE,
                             cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)))
-    return cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (33, 33)))
+    # The glow reach shrinks with the box so a thin strip keeps some of its own dark ground:
+    # the full reach covered a banner strip entirely and LaMa painted the art over it.
+    reach = min(33, max(9, int(_GLOW_REACH_OF_SHORT_SIDE * min(crop.shape[:2]))) | 1)
+    return cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (reach, reach)))
 
 
 def _tone_from_clear_pixels(area, clear):
@@ -311,7 +406,11 @@ def _dark_art_inpaint(img, x: int, y: int, bw: int, bh: int, backend: str, hf_to
     model is usable; the tone fill is the fallback and the answer without it."""
     import cv2
     crop = img[y:y + bh, x:x + bw]
-    if _resolve_inpaint_backend(backend) != "ml" or not _pale_pixels(crop).any():
+    # A plain ground has no edges or texture for LaMa to keep, and LaMa left faint grey blocks
+    # where the lettering was on a black notice page; the tone fill gives the ground itself.
+    if (_resolve_inpaint_backend(backend) != "ml" or not _pale_pixels(crop).any()
+            or _on_plain_dark_ground(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY),
+                                     cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[..., 1])):
         return _dark_art_fill(img, x, y, bw, bh)
     mask = _dark_art_stroke_mask(crop)
     if not mask.any():
@@ -330,6 +429,51 @@ def _resolve_inpaint_backend(backend: str) -> str:
     if backend == "auto":
         return "ml" if lama_ml_weights_cached() else "cv"
     return backend
+
+
+# Lettering on the art is erased from a crop of its own box; a mask that fills most of a
+# narrow crop leaves the model no clear pixels to copy, and it painted a smear. A margin of
+# untouched art round the box gives it the picture to continue.
+_ML_CONTEXT_PX = 32
+
+
+def _try_ml_inpaint_with_context(img, window, mask, hf_token, backend, context: int):
+    """_try_ml_inpaint over the window (x, y, w, h) of `img` widened by `context` px each
+    side, returning only the window's part. The glow of lettering that spreads past the
+    window is repainted too, in `img` itself: left outside, the model copied its colour
+    back into the window as a smudge."""
+    x, y, bw, bh = window
+    if context <= 0:
+        return _try_ml_inpaint(img[y:y + bh, x:x + bw], mask, hf_token, backend)
+    h, w = img.shape[:2]
+    x0, y0 = max(0, x - context), max(0, y - context)
+    x1, y1 = min(w, x + bw + context), min(h, y + bh + context)
+    wide_mask = np.zeros((y1 - y0, x1 - x0), np.uint8)
+    wide_mask[y - y0:y - y0 + bh, x - x0:x - x0 + bw] = mask
+    wide_roi = img[y0:y1, x0:x1]
+    spill = _glow_beyond(wide_roi, wide_mask)
+    wide_mask |= spill
+    wide, error = _try_ml_inpaint(wide_roi, wide_mask, hf_token, backend)
+    if wide is None:
+        return None, error
+    margin = (spill > 0)
+    margin[y - y0:y - y0 + bh, x - x0:x - x0 + bw] = False
+    wide_roi[margin] = wide[margin]
+    return wide[y - y0:y - y0 + bh, x - x0:x - x0 + bw], error
+
+
+def _glow_beyond(roi, mask):
+    """uint8 mask of the coloured glow round the masked lettering of `roi`, within reach of
+    it, or zeros when the art is coloured throughout or there is no mask."""
+    import cv2
+    if not mask.any():
+        return np.zeros_like(mask)
+    coloured = _channel_spread(roi) > _GLOW_SPREAD
+    if coloured.mean() > _GLOW_MAX_SHARE:
+        return np.zeros_like(mask)
+    reach = cv2.dilate(mask, cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (_GLOW_REACH_PX, _GLOW_REACH_PX))) > 0
+    return (coloured & reach).astype(np.uint8) * 255
 
 
 def _try_ml_inpaint(roi, mask, hf_token, backend):
@@ -376,11 +520,26 @@ def _flatten_plain_paper(roi, inpainted, mask, inside):
     if _shaded_away_from_lettering(gray, mask, paper, median):
         return inpainted
     out = inpainted.copy()
-    out[core] = np.median(roi[paper], axis=0).astype(inpainted.dtype)
+    colour = np.median(roi[paper], axis=0)
+    # Art the interior mask spilled over (a pink wall between a burst's lobes, the
+    # soft rays of its edge) differs from the paper and is far from the lettering:
+    # flattening it cut a white block out of the picture with a staircase edge.
+    near = cv2.dilate((mask > 0).astype(np.uint8), cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (_HALO_REACH_PX, _HALO_REACH_PX))).astype(bool)
+    like_paper = np.abs(roi.astype(np.float32) - colour).max(axis=2) <= _PAPER_LIKE_DISTANCE
+    # Eroded, so the soft rays or shading at the balloon's edge keep their own gradient
+    # instead of ending in a staircase where the flat paper begins.
+    inner_paper = cv2.erode(like_paper.astype(np.uint8), np.ones((_EDGE_KEEP_PX, _EDGE_KEEP_PX), np.uint8)).astype(bool)
+    take = core & (inner_paper | near)
+    out[take] = colour.astype(inpainted.dtype)
     return out
 
 
 _HALO_REACH_PX = 13
+# A pixel this close to the balloon's paper colour (largest channel difference) is paper
+# or its JPEG halo; anything further that is not beside the lettering is the art.
+_PAPER_LIKE_DISTANCE = 22
+_EDGE_KEEP_PX = 9
 
 
 def _shaded_away_from_lettering(gray, mask, paper, median: float) -> bool:
@@ -589,6 +748,51 @@ def _strokes_on_a_line(gray_roi):
     return grown, math.degrees(math.atan2(vy, vx)) * (1 if vx >= 0 else -1), typical
 
 
+# Lettering that is brighter than its surroundings by this much, measured over a window
+# wider than a stroke, is a stroke; a flat pale area of the art is not.
+_BRIGHT_STROKE_WINDOW_PX = 21
+_BRIGHT_STROKE_LIFT = 70
+_BRIGHT_STROKE_GROW_PX = 5
+_BRIGHT_STROKE_MIN_SHARE = 0.04
+_BRIGHT_STROKE_MAX_MEDIAN = 200
+# A glow is a coloured halo within this reach of the strokes; left behind it showed as a
+# dark-red smudge under the English.
+_GLOW_SPREAD = 35
+_GLOW_REACH_PX = 45
+_GLOW_MAX_SHARE = 0.6
+# A sign whose paper-relative mask covers more of its box than this is taking the art for
+# lettering, and repainting that much erased a blurry rectangle over the picture.
+BRIGHT_STROKE_MASK_SHARE = 0.5
+
+
+def _bright_strokes(gray_roi, roi=None):
+    """uint8 mask (255 = erase) of the pale strokes of lettering set on mid-tone art with a
+    glow round it, found as pixels much brighter than the window round them, or None when
+    there are none. With the colour crop `roi`, a coloured glow round the strokes is taken
+    too, unless the art is coloured everywhere (then the glow can't be told from it)."""
+    import cv2
+    lift = cv2.morphologyEx(gray_roi, cv2.MORPH_TOPHAT, cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (_BRIGHT_STROKE_WINDOW_PX, _BRIGHT_STROKE_WINDOW_PX)))
+    # Pale paper with dark lettering on it is the ordinary case, not this one: the paper
+    # between two lines of lettering would count as a pale stroke.
+    if float(np.median(gray_roi)) >= _BRIGHT_STROKE_MAX_MEDIAN:
+        return None
+    mask = (lift > _BRIGHT_STROKE_LIFT).astype(np.uint8) * 255
+    # The corners of a dark mark on paper also lift a little; real lettering is far more.
+    if (mask > 0).mean() < _BRIGHT_STROKE_MIN_SHARE:
+        return None
+    strokes = cv2.dilate(mask, cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (_BRIGHT_STROKE_GROW_PX, _BRIGHT_STROKE_GROW_PX)))
+    if roi is None:
+        return strokes
+    saturated = _channel_spread(roi) > _GLOW_SPREAD
+    if saturated.mean() > _GLOW_MAX_SHARE:
+        return strokes
+    reach = cv2.dilate(strokes, cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (_GLOW_REACH_PX, _GLOW_REACH_PX))) > 0
+    return strokes | ((saturated & reach).astype(np.uint8) * 255)
+
+
 def sign_text_line(page_bgr, box: dict):
     """(corridor, angle, size) of the single line of lettering on a pale band over busy art, or
     None. `corridor` is a bool array the size of `box`, True along the line's own strip, `angle`
@@ -611,6 +815,60 @@ def sign_text_line(page_bgr, box: dict):
     margin = max(3, round(scanlate_tuning.LINE_CORRIDOR_MARGIN * typical)) | 1
     corridor = cv2.dilate(corridor, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (margin, margin)))
     return corridor > 0, angle, round(scanlate_tuning.LINE_TEXT_SIZE_OF_GLYPH * typical)
+
+
+_RULE_MAX_THICKNESS_PX = 6
+_RULE_MIN_LENGTH_PX = 40
+_RULE_SPREAD = 100
+
+
+def _channel_spread(bgr):
+    """Per pixel largest minus smallest colour channel: how coloured it is. HSV saturation
+    is high for near-black ink, which is neutral."""
+    bgr = bgr.astype(np.int16)
+    return bgr.max(axis=2) - bgr.min(axis=2)
+
+
+def drop_colour_rules(mask, roi) -> None:
+    """Clears, in place, the part of the mask that lies on a thin coloured line, such as the
+    red rules a credit line sits between. They are decoration, not lettering, and erasing
+    one left the layout missing half its frame. The line is found in the colour crop, not
+    the mask: the mask's halo joins it to the lettering beside it. Lettering is not this
+    thin, long and coloured (a dash is dark ink), so it is never taken for one."""
+    import cv2
+    coloured = (_channel_spread(roi) > _RULE_SPREAD).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(coloured, connectivity=8)
+    rules = np.zeros(mask.shape, np.uint8)
+    for i in range(1, count):
+        w, h = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
+        if min(w, h) <= _RULE_MAX_THICKNESS_PX and max(w, h) >= _RULE_MIN_LENGTH_PX:
+            rules[labels == i] = 1
+    if rules.any():
+        mask[cv2.dilate(rules, np.ones((5, 5), np.uint8)) > 0] = 0
+
+
+def _erase_mask(gray_roi, keep, spare_art: bool, on_art: bool, roi=None):
+    """(uint8 mask of the lettering to erase in a crop, whether it is a single line's strokes).
+    `keep` is the balloon's inside, or None for a box with no outline."""
+    if keep is not None:
+        mask = _lettering_mask(_without_hatching(gray_roi, keep))
+        mask[~keep] = 0
+        _drop_rim_rings(mask, keep)
+        return mask, False
+    mask = _lettering_mask(gray_roi)
+    share = (mask > 0).mean()
+    line = _strokes_on_a_line(gray_roi) if on_art and share > scanlate_tuning.LINE_ONLY_MASK_SHARE else None
+    if line is not None:
+        return line[0], True
+    strokes = (_bright_strokes(gray_roi, roi)
+               if on_art and not background_is_dark(gray_roi) and share > BRIGHT_STROKE_MASK_SHARE else None)
+    if strokes is not None:
+        return strokes, False
+    if spare_art:
+        _drop_marks_running_off_edge(mask)
+    elif on_art:
+        _drop_hollow_frames(mask, gray_roi)
+    return mask, False
 
 
 def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padding: int = 4,
@@ -664,26 +922,15 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
 
     roi = img[y:y + bh, x:x + bw]
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-    if inside is not None:
-        keep = _inside_in_crop(inside, box, x, y, bw, bh)
-        mask = _lettering_mask(_without_hatching(gray_roi, keep))
-        mask[~keep] = 0
-    else:
-        mask = _lettering_mask(gray_roi)
-    line = None
-    if inside is None and on_art and (mask > 0).mean() > scanlate_tuning.LINE_ONLY_MASK_SHARE:
-        line = _strokes_on_a_line(gray_roi)
-    line_only = line is not None
-    if line_only:
-        mask = line[0]
-    elif inside is None and spare_art:
-        _drop_marks_running_off_edge(mask)
-    elif inside is None and on_art:
-        _drop_hollow_frames(mask, gray_roi)
+    keep = _inside_in_crop(inside, box, x, y, bw, bh) if inside is not None else None
+    mask, line_only = _erase_mask(gray_roi, keep, spare_art, on_art, roi)
+    drop_colour_rules(mask, roi)
     mask = _grown_erase_mask(mask, grow, keep if inside is not None else None)
 
-    inpainted_roi = None
-    if inside is None and on_art and is_coloured_art(roi) and _pale_pixels(roi).any():
+    inpainted_roi = _dark_strip_inpaint(roi) if inside is None and on_art else None
+    if inpainted_roi is not None:
+        pass
+    elif inside is None and on_art and is_coloured_art(roi) and _pale_pixels(roi).any():
         # An outline-only mask left the letters' fill and glow behind as ghosts.
         mask = _dark_art_lettering_mask(roi)
     elif inside is None and (spare_art or on_art) and background_is_dark(gray_roi):
@@ -691,7 +938,9 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     fallback_error = None
     resolved = "cv" if inpainted_roi is not None else _resolve_inpaint_backend(backend)
     if resolved == "ml" and inpainted_roi is None:
-        inpainted_roi, fallback_error = _try_ml_inpaint(roi, mask, hf_token, backend)
+        context = _ML_CONTEXT_PX if inside is None and on_art else 0
+        inpainted_roi, fallback_error = _try_ml_inpaint_with_context(
+            img, (x, y, bw, bh), mask, hf_token, backend, context)
 
     if inpainted_roi is None:
         inpainted_roi = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)

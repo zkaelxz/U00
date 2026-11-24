@@ -11,6 +11,7 @@ cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core
 
 from scanlate import scanlate
 from scanlate import scanlate_detect
+from scanlate import scanlate_inpaint
 from scanlate import scanlate_balloons
 from scanlate import scanlate_box_merge
 from scanlate import scanlate_page_decode
@@ -418,3 +419,130 @@ def test_a_balloon_without_hatching_is_erased_as_before(tmp_path, monkeypatch):
     gray = cv2.cvtColor(plain, cv2.COLOR_BGR2GRAY)
     keep = np.ones(gray.shape, bool)
     assert (scanlate_inpaint._without_hatching(gray, keep) == gray).all()
+
+
+class TestRimAndCaptionCleanup:
+    def test_a_ring_of_rim_shading_is_not_erased_but_a_joined_stroke_is(self):
+        keep = np.zeros((120, 120), bool)
+        cv2.circle(keep.view(np.uint8), (60, 60), 50, 1, -1)
+        mask = np.zeros((120, 120), np.uint8)
+        cv2.circle(mask, (60, 60), 50, 255, 3)           # the rim's shading as one ring
+        cv2.line(mask, (60, 12), (60, 50), 255, 4)        # a stroke joined to it
+        scanlate_inpaint._drop_rim_rings(mask, keep)
+        assert not mask[60, 8:14].any()                   # ring gone
+        assert mask[30:48, 58:62].any()                   # stroke kept
+
+    def test_white_lettering_on_mid_tone_art_is_masked_without_the_flat_art_round_it(self):
+        gray = np.full((120, 80), 150, np.uint8)
+        cv2.putText(gray, "H", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 2, 255, 5)
+        mask = scanlate_inpaint._bright_strokes(gray)
+        assert mask is not None and mask[50, 5] == 0 and mask.any() and (mask > 0).mean() < 0.5
+
+    def test_dark_lettering_on_paper_is_not_a_bright_stroke_case(self):
+        gray = np.full((120, 80), 245, np.uint8)
+        gray[30:44, 10:70] = 0
+        gray[60:74, 10:70] = 0
+        assert scanlate_inpaint._bright_strokes(gray) is None
+
+    def test_pale_art_spilled_over_by_the_balloon_mask_keeps_its_colour(self):
+        roi = np.full((60, 60, 3), 255, np.uint8)
+        roi[:, 30:] = (225, 215, 240)                      # pale pink art inside the mask
+        inside = np.ones((60, 60), bool)
+        mask = np.zeros((60, 60), np.uint8)
+        mask[5:10, 5:10] = 255                              # lettering far from the art
+        out = scanlate_inpaint._flatten_plain_paper(roi, roi.copy(), mask, inside)
+        assert (out[10:50, 40:55] == (225, 215, 240)).all()
+
+
+class TestDecorationAndBanners:
+    def test_a_thin_coloured_rule_is_taken_out_of_the_mask_but_a_coloured_glyph_is_not(self):
+        roi = np.full((60, 200, 3), 240, np.uint8)
+        cv2.line(roi, (20, 30), (110, 30), (40, 40, 200), 3)             # red rule
+        cv2.rectangle(roi, (140, 10), (160, 40), (40, 40, 200), -1)       # red glyph-sized block
+        mask = np.full((60, 200), 255, np.uint8)                           # a mask joined across both
+        scanlate_inpaint.drop_colour_rules(mask, roi)
+        assert not mask[30, 40:100].any()
+        assert mask[20:30, 145:155].all()
+
+    def test_a_black_strip_with_olive_stripes_over_art_counts_as_a_plain_dark_ground(self):
+        strip = np.zeros((40, 400, 3), np.uint8)
+        strip[::4] = (10, 30, 25)                                          # olive stripe rows
+        gray = cv2.cvtColor(strip, cv2.COLOR_BGR2GRAY)
+        assert scanlate_inpaint._on_plain_dark_ground(gray, scanlate_inpaint._channel_spread(strip))
+        yellow = strip.copy()
+        cv2.putText(yellow, "AB", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 230, 255), 3)
+        assert scanlate_inpaint._pale_pixels(yellow).any()                 # yellow lettering is masked
+
+    def test_the_glow_reach_shrinks_for_a_thin_strip(self):
+        strip = np.zeros((36, 400, 3), np.uint8)
+        cv2.putText(strip, "AB", (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 3)
+        mask = scanlate_inpaint._dark_art_lettering_mask(strip)
+        assert not mask[:, 300:].any() and not mask.all()
+
+
+class TestGlowSpillAndRules:
+    def test_glow_beyond_takes_the_coloured_halo_near_the_mask_only(self):
+        roi = np.full((120, 200, 3), 20, np.uint8)
+        roi[:, 60:75] = (20, 20, 160)                                      # red halo just outside the mask
+        roi[:, 180:195] = (20, 20, 160)                                    # red far away
+        mask = np.zeros((120, 200), np.uint8)
+        mask[40:80, 76:120] = 255
+        spill = scanlate_inpaint._glow_beyond(roi, mask)
+        assert spill[60, 65] and not spill[60, 185]
+
+    def test_glow_beyond_skips_art_that_is_coloured_throughout(self):
+        roi = np.full((60, 60, 3), (20, 20, 160), np.uint8)
+        mask = np.zeros((60, 60), np.uint8)
+        mask[20:40, 20:40] = 255
+        assert not scanlate_inpaint._glow_beyond(roi, mask).any()
+
+    def test_between_rules_keeps_the_tall_stretch_under_the_upper_rule(self):
+        from scanlate import scanlate_art_text as art
+        page = np.full((300, 300, 3), 20, np.uint8)
+        cv2.line(page, (20, 40), (280, 40), (30, 30, 220), 3)
+        cv2.line(page, (20, 220), (280, 220), (30, 30, 220), 3)
+        box = {"x": 0, "y": 0, "w": 300, "h": 300}
+        room = art.between_rules(page, box)
+        assert room["y"] > 40 and room["y"] + room["h"] < 220
+        assert art.between_rules(np.full((300, 300, 3), 20, np.uint8), box) == box
+
+
+class TestStripWideningAndRulesOnSky:
+    def test_a_box_that_stops_short_of_a_banner_strip_is_stretched_to_its_ends(self):
+        page = np.full((120, 400, 3), (180, 190, 230), np.uint8)
+        page[30:60, 20:300] = (10, 0, 0)                                   # the black strip
+        page[40:50, 200:280] = (255, 255, 255)                             # lettering the box missed
+        box = {"x": 20, "y": 35, "w": 150, "h": 20}
+        wide = scanlate_inpaint.widen_to_dark_strip(page, box)
+        assert wide["x"] == 20 and wide["x"] + wide["w"] >= 298
+
+    def test_a_box_on_light_paper_or_a_tall_box_is_left_alone(self):
+        page = np.full((200, 400, 3), 240, np.uint8)
+        page[:, 100:300] = (10, 0, 0)
+        assert scanlate_inpaint.widen_to_dark_strip(page, {"x": 120, "y": 20, "w": 60, "h": 60}) == \
+            {"x": 120, "y": 20, "w": 60, "h": 60}
+        assert scanlate_inpaint.widen_to_dark_strip(np.full((80, 400, 3), 240, np.uint8),
+                                                    {"x": 10, "y": 10, "w": 300, "h": 30}) == \
+            {"x": 10, "y": 10, "w": 300, "h": 30}
+
+    def test_a_rule_over_a_blue_tinted_sky_still_bounds_the_credit(self):
+        from scanlate import scanlate_art_text as art
+        page = np.full((120, 300, 3), (230, 200, 190), np.uint8)           # lavender sky (BGR)
+        cv2.line(page, (100, 20), (180, 20), (30, 30, 220), 3)
+        box = {"x": 0, "y": 0, "w": 300, "h": 120}
+        room = art.between_rules(page, box)
+        assert room["y"] > 22
+
+
+class TestDarkStripErase:
+    def test_lettering_on_a_dark_strip_is_painted_out_with_the_strip_kept_dark(self):
+        roi = np.full((40, 400, 3), (200, 190, 230), np.uint8)             # pink art round the strip
+        roi[4:36] = (12, 0, 0)
+        cv2.putText(roi, "ABCDEFG", (20, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+        out = scanlate_inpaint._dark_strip_inpaint(roi)
+        assert (cv2.cvtColor(out[4:36], cv2.COLOR_BGR2GRAY) < 60).all()
+        assert (out[:3] == roi[:3]).all()                                   # art above the strip untouched
+
+    def test_a_crop_that_is_not_a_dark_strip_is_left_to_the_other_erasers(self):
+        assert scanlate_inpaint._dark_strip_inpaint(np.full((40, 400, 3), 220, np.uint8)) is None
+        assert scanlate_inpaint._dark_strip_inpaint(np.zeros((200, 200, 3), np.uint8)) is None

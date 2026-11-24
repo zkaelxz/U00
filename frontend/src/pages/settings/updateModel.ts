@@ -13,9 +13,9 @@ export const INSTALL_NOTE =
   'Opens Setup. Nothing changes until you click Install there; that stops Baihe (running jobs are cancelled), updates it and can restart it.'
 export const PRERELEASES_HELP = 'Also offers beta versions. Only a version newer than this one is ever offered.'
 export const SERVICE_AUTO_APPLY_HELP =
-  'After a check finds an app update, downloads it, checks its signature and switches the background service to it when no job is running. ' +
-  'If the new version doesn’t start, the service goes back to this one. Needs the daily check to be on.'
-export const AUTO_CHECK_HELP = 'Looks for a newer version once a day. It never downloads or installs on its own.'
+  'After a check finds an app update, downloads it and checks its signature, then restarts Baihe Studio on it between 3 and 6 AM (or after a day, if the PC is off then) when no job is running, without opening a window. ' +
+  'Changed Python packages come with it. If the new version doesn’t start, Baihe Studio goes back to this one. Needs the daily check to be on.'
+export const AUTO_CHECK_HELP = 'Looks for a newer version once a day.'
 export const NO_INSTALLER_RELEASE_LINE = 'No installer release has been published yet.'
 export const NO_RELEASE_LINE =
   "No release found. If releases were made private, download the installer by hand and check it against its .sha256 file."

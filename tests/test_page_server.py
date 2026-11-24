@@ -746,6 +746,26 @@ class TestStartingTheServer:
         page_server.serve(18757)
         assert bound["address"][0] == "127.0.0.1"
 
+    def test_a_second_bind_on_a_taken_port_fails_on_windows_too(self, monkeypatch):
+        """Two installs must not share the bridge port: the server must not ask for
+        address reuse on Windows, where that would allow the second bind."""
+        captured = {}
+
+        class FakeServer:
+            allow_reuse_address = True
+
+            def __init__(self, address, handler):
+                captured["reuse"] = type(self).allow_reuse_address
+
+            def serve_forever(self):
+                pass
+
+        monkeypatch.setattr(page_server, "ThreadingHTTPServer", FakeServer)
+        monkeypatch.setattr(page_server, "_server", None)
+        monkeypatch.setattr(page_server.sys, "platform", "win32")
+        page_server.serve(18759)
+        assert captured["reuse"] is False
+
     def test_a_port_conflict_is_reported_not_claimed_as_running(self, monkeypatch):
         monkeypatch.setattr(page_server, "_server_started", False)
 
@@ -1600,7 +1620,25 @@ def test_the_overlay_typeset_follows_the_colour_matching_setting(isolated_db, mo
         return out_path, []
 
     monkeypatch.setattr(scanlate_render, "process_page", fake_process_page)
-    monkeypatch.setattr(page_capture_checks, "jpeg_data_url", lambda path: "data:image/jpeg;base64,")
+    monkeypatch.setattr(page_capture_checks, "jpeg_data_url", lambda path, max_width=None: "data:image/jpeg;base64,")
     bubbles = [{"translated_text": "Hi", "skip": 0}]
     assert page_server._overlay_typeset("page.png", bubbles, [], False)
     assert seen["match_color"] is setting
+
+
+def test_quick_read_pages_of_a_title_share_their_names_and_saved_sends_do_not(monkeypatch):
+    from scanlate import scanlate_translate
+    seen = []
+
+    def translate(bubbles, engine, drama, chapter_names=None, **kw):
+        seen.append(None if chapter_names is None else dict(chapter_names))
+        if chapter_names is not None:
+            chapter_names.setdefault("阿洛", "RLuo" if len(seen) == 1 else "Aluo")
+        return "context"
+    monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
+    url = "https://site.invalid/chapter/1"
+    for _ in range(2):
+        page_turns.translate_in_chain(None, url, [], object(), None, None, None, wait_for_turn=False)
+    page_turns.translate_in_chain(None, url, [], object(), None, None, None)
+    assert seen == [{}, {"阿洛": "RLuo"}, None]
+    assert page_turns._chapter_names[page_turns._chain_key(None, url)] == {"阿洛": "RLuo"}

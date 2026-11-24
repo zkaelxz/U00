@@ -33,6 +33,24 @@ final class QuickRead {
         return out;
     }
 
+    /**
+     * The picture the phone itself sent under `key`, shown for a page the PC returned without a
+     * redraw (no text to translate, or the redraw failed), so the chapter has no holes.
+     */
+    static byte[] original(List<PageImage> batch, String key) {
+        if (key == null || key.isEmpty()) return null;
+        for (PageImage image : batch) {
+            if (!key.equals(image.key) || image.base64.isEmpty()) continue;
+            try {
+                byte[] bytes = Base64.getMimeDecoder().decode(image.base64);
+                return bytes.length == 0 ? null : bytes;
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     /** Only the server's own jpeg data: URL is accepted; anything else is ignored, never written. */
     static byte[] decode(String dataUrl) {
         if (dataUrl == null || !dataUrl.startsWith(JPEG_PREFIX)) return null;
@@ -42,6 +60,25 @@ final class QuickRead {
         } catch (IllegalArgumentException e) {
             return null;
         }
+    }
+
+    /**
+     * The first warning the PC attached to any page (no translation engine set, a failed
+     * translation, a failed redraw), so a page that comes back with nothing to show says why.
+     */
+    static String firstWarning(JSONObject answer) {
+        JSONArray pages = answer.optJSONArray("pages");
+        for (int i = 0; pages != null && i < pages.length(); i++) {
+            JSONObject page = pages.optJSONObject(i);
+            JSONArray notes = page == null ? null : page.optJSONArray("notes");
+            for (int j = 0; notes != null && j < notes.length(); j++) {
+                JSONArray note = notes.optJSONArray(j);
+                if (note == null || note.length() < 2 || !"warning".equals(note.optString(0))) continue;
+                String text = note.optString(note.length() - 1, "");
+                if (!text.isEmpty()) return text.length() > 200 ? text.substring(0, 200) : text;
+            }
+        }
+        return "";
     }
 
     static String summary(int shown, int received, String firstError) {

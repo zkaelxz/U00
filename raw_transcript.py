@@ -43,6 +43,7 @@ import uuid
 import db
 import sensitivity_preset as presets
 from lib import gzip_text
+from lib.no_window import NO_WINDOW
 
 log = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ def _git_commit() -> str:
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--short=12", "HEAD"], cwd=os.path.dirname(os.path.abspath(__file__)),
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3, check=False)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3, check=False, creationflags=NO_WINDOW)
         return out.stdout.strip() if out.returncode == 0 else ""
     except Exception:
         return ""

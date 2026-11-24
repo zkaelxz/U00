@@ -12,7 +12,7 @@ import db
 
 
 _COLUMN_NAME = re.compile(r"[a-z_][a-z0-9_]*")
-_UPDATE_REFUSED = ("id", "created_at")
+_UPDATE_REFUSED = ("id", "created_at", "created_by_user_id")
 
 
 def _check_columns(conn, keys, refused=()):
@@ -165,6 +165,11 @@ def get_drama(drama_id: int):
     with contextlib.closing(db.get_conn()) as conn:
         row = conn.execute(f"{_DRAMA_SELECT} WHERE id = ?", (drama_id,)).fetchone()
     return dict(row) if row else None
+
+
+def count_dramas_owned_by(user_id: int) -> int:
+    with contextlib.closing(db.get_conn()) as conn:
+        return conn.execute("SELECT COUNT(*) FROM dramas WHERE owner_user_id = ?", (user_id,)).fetchone()[0]
 
 
 def earlier_episode_summaries(drama_id: int) -> list:

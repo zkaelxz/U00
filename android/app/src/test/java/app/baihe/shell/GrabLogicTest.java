@@ -95,7 +95,11 @@ public class GrabLogicTest {
     @Test
     public void refusalShowsTheServersTextNotTheRawBody() {
         assertEquals("no such drama", BaiheClient.refusalText(404, "{\"error\":\"no such drama\"}"));
-        assertEquals("Baihe did not accept the token.", BaiheClient.refusalText(401, "<html>secret</html>"));
+        assertEquals(BaiheClient.TOKEN_HELP, BaiheClient.refusalText(401, "<html>secret</html>"));
+        assertEquals(BaiheClient.TOKEN_HELP, BaiheClient.refusalText(401,
+                "{\"error\":{\"code\":\"unauthenticated\",\"message\":\"Authentication required.\"}}"));
+        assertEquals("Not allowed.", BaiheClient.refusalText(403,
+                "{\"error\":{\"code\":\"forbidden\",\"message\":\"Not allowed.\"}}"));
         assertEquals("Baihe refused the request (500).", BaiheClient.refusalText(500, ""));
     }
 
@@ -231,5 +235,167 @@ public class GrabLogicTest {
         assertEquals("Opened 3 of 4 pages", QuickRead.summary(3, 4, ""));
         assertEquals("Nothing could be translated and redrawn on this page. The monthly cap is spent.",
                 QuickRead.summary(0, 2, "The monthly cap is spent."));
+    }
+
+    @Test
+    public void aPictureWithOnlyAnAddressNeedsDownloading() {
+        assertTrue(new PageImage("p0", "https://cdn.example/1.jpg", "image/jpeg", "").needsDownload());
+        assertFalse(new PageImage("p1", "https://cdn.example/2.jpg", "image/jpeg", "AAAA").needsDownload());
+        assertFalse(new PageImage("p2", "", "image/png", "").needsDownload());
+    }
+
+    @Test
+    public void quickReadNamesTheFirstWarningOfAPageWithNothingToShow() throws Exception {
+        org.json.JSONObject answer = new org.json.JSONObject().put("pages", new org.json.JSONArray()
+                .put(new org.json.JSONObject().put("notes", new org.json.JSONArray()
+                        .put(new org.json.JSONArray().put("info").put("fine"))
+                        .put(new org.json.JSONArray().put("warning").put("no translation engine is set")))));
+        assertEquals("no translation engine is set", QuickRead.firstWarning(answer));
+        assertEquals("", QuickRead.firstWarning(new org.json.JSONObject()));
+    }
+
+    @Test
+    public void imageFetchRefusesPrivateAddressesAndScopesCookiesAndReferer() throws Exception {
+        for (String ip : new String[] {"127.0.0.1", "192.168.1.5", "10.0.0.2", "169.254.169.254", "100.64.0.1", "0.0.0.0", "fd00::1"}) {
+            assertFalse(ip, ImageFetch.isPublic(java.net.InetAddress.getByName(ip)));
+        }
+        assertTrue(ImageFetch.isPublic(java.net.InetAddress.getByName("93.184.216.34")));
+        assertTrue(ImageFetch.sameSite("www.site.com", "cdn.site.com"));
+        assertFalse(ImageFetch.sameSite("www.site.com", "evil.example"));
+        java.net.URL page = new java.net.URL("https://www.site.com/ch/1?x=2#top");
+        assertEquals("https://www.site.com/ch/1?x=2", ImageFetch.refererFor(page, new java.net.URL("https://www.site.com/a.jpg")));
+        assertEquals("https://www.site.com/", ImageFetch.refererFor(page, new java.net.URL("https://cdn.other.net/a.jpg")));
+        assertNull(ImageFetch.refererFor(page, new java.net.URL("http://cdn.other.net/a.jpg")));
+    }
+
+    @Test
+    public void onlyACleanSuccessFadesAndFailuresStayOnScreen() {
+        assertEquals(GrabUi.Kind.OK, GrabUi.kindOf("Sent 12 pages", true));
+        assertEquals(GrabUi.Kind.OK, GrabUi.kindOf("Opened 5 of 5 pages", false));
+        assertEquals(GrabUi.Kind.INFO, GrabUi.kindOf("Sent 9 pages. Not sent: 3", true));
+        assertEquals(GrabUi.Kind.BAD, GrabUi.kindOf("Could not read the pages.", false));
+    }
+
+
+    @Test
+    public void quickReadSessionGrowsAndStopsWhenTheReaderCloses() {
+        QuickReadSession.begin();
+        assertFalse(QuickReadSession.isComplete());
+        QuickReadSession.add("page-000.jpg");
+        QuickReadSession.add("page-001.jpg");
+        assertEquals(2, QuickReadSession.snapshot().size());
+        QuickReadSession.finish();
+        assertTrue(QuickReadSession.isComplete());
+        QuickReadSession.abandon();
+        assertTrue(QuickReadSession.isAbandoned());
+        assertEquals(0, QuickReadSession.snapshot().size());
+    }
+
+    @Test
+    public void cancellingKeepsReadPagesAndTellsTheGrabToStop() {
+        QuickReadSession.begin();
+        QuickReadSession.add("page-000.jpg");
+        boolean[] stopped = {false};
+        QuickReadSession.onCancel(() -> stopped[0] = true);
+        QuickReadSession.cancel();
+        assertTrue(stopped[0]);
+        assertTrue(QuickReadSession.isAbandoned());
+        assertTrue(QuickReadSession.isComplete());
+        assertEquals(1, QuickReadSession.snapshot().size());
+        QuickReadSession.onCancel(null);
+    }
+
+    @Test
+    public void aChapterSplitInPartsIsRecognisedFromItsTitle() {
+        int[] part = ServerAddress.partOf(java.util.Arrays.asList("A", "第112話(1/2)"));
+        assertEquals(1, part[0]);
+        assertEquals(2, part[1]);
+        assertEquals(2, ServerAddress.partOf(java.util.Arrays.asList("第5話（2／3）"))[0]);
+        assertNull(ServerAddress.partOf(java.util.Arrays.asList("Chapter 5", "Title 2024/05")));
+    }
+
+    @Test
+    public void aPageWithNoRedrawFallsBackToThePictureThePhoneSent() {
+        String data = java.util.Base64.getEncoder().encodeToString(new byte[] {1, 2, 3});
+        List<PageImage> batch = new ArrayList<>();
+        batch.add(new PageImage("a", "u1", "image/png", data));
+        batch.add(new PageImage("b", "u2", "image/png", ""));
+        assertEquals(3, QuickRead.original(batch, "a").length);
+        assertNull(QuickRead.original(batch, "b"));
+        assertNull(QuickRead.original(batch, "missing"));
+        assertNull(QuickRead.original(batch, ""));
+    }
+
+    @Test
+    public void theClosingLineSaysWhatTheLinkCost() {
+        UploadStats stats = new UploadStats();
+        assertEquals("", stats.describe());
+        stats.add(2L * 1048576, 10_000, 4_000);
+        stats.add(2L * 1048576, 10_000, 8_000);
+        assertEquals("sent 4.0 MB in 2 requests at 205 KB/s each, PC first answer 6 s after", stats.describe());
+    }
+
+    @Test
+    public void onlyWidePicturesAreScaledDownBeforeAnUpload() {
+        assertEquals(ImageShrink.MAX_WIDTH, ImageShrink.targetWidth(3000));
+        assertEquals(0, ImageShrink.targetWidth(ImageShrink.MAX_WIDTH));
+        assertEquals(0, ImageShrink.targetWidth(900));
+    }
+
+    @Test
+    public void smallPicturesAreSentAsTheyAre() {
+        PageImage small = new PageImage("k", "u", "image/png", "AAAA");
+        assertFalse(ImageShrink.worthShrinking(small));
+        assertTrue(ImageShrink.forUpload(small) == small);
+    }
+
+    @Test
+    public void onlyClearNonPagesAreLeftOutOfAnUpload() {
+        int[] w = {844, 844, 844, 844, 844, 300, 1600, 0};
+        int[] h = {1200, 1200, 1200, 1200, 1200, 420, 1200, 0};
+        boolean[] keep = PageFilter.keep(w, h);
+        assertTrue(keep[0] && keep[4]);
+        assertFalse(keep[5]);
+        assertTrue(keep[6]);
+        assertTrue(keep[7]);
+        boolean[] few = PageFilter.keep(new int[] {844, 300}, new int[] {1200, 420});
+        assertTrue(few[0] && few[1]);
+    }
+
+    @Test
+    public void theFirstRequestCarriesOnePicture() {
+        List<PageImage> images = new ArrayList<>();
+        for (int i = 0; i < 5; i++) images.add(new PageImage("k" + i, "u", "image/png", "AAAA"));
+        List<List<PageImage>> plan = Batches.plan(images, 2, 1);
+        assertEquals(1, plan.get(0).size());
+        assertEquals(2, plan.get(1).size());
+        assertEquals(5, plan.get(0).size() + plan.get(1).size() + plan.get(2).size());
+    }
+
+    @Test
+    public void onlyPicturesWithAWebAddressAreLeftToThePcToDownload() {
+        List<PageImage> batch = new ArrayList<>();
+        batch.add(new PageImage("a", "https://cdn.example/1.jpg", "image/jpeg", ""));
+        batch.add(new PageImage("b", "", "image/png", "AAAA"));
+        List<PageImage> marked = PcFetch.mark(batch);
+        assertTrue(marked.get(0).fetchFirst);
+        assertFalse(marked.get(1).fetchFirst);
+        List<PageImage> none = new ArrayList<>();
+        none.add(new PageImage("c", "data:image/png;base64,AAAA", "image/png", "AAAA"));
+        assertNull(PcFetch.mark(none));
+    }
+
+    @Test
+    public void picturesThePcCouldNotFetchAreTheOnesSentFromThePhone() throws Exception {
+        List<PageImage> batch = new ArrayList<>();
+        batch.add(new PageImage("a", "https://cdn.example/1.jpg", "image/jpeg", ""));
+        batch.add(new PageImage("b", "https://cdn.example/2.jpg", "image/jpeg", ""));
+        batch.add(new PageImage("c", "https://cdn.example/3.jpg", "image/jpeg", ""));
+        JSONArray unfetched = new JSONArray("[{\"key\":\"c\",\"reason\":\"blocked\"},{\"key\":\"a\",\"reason\":\"missing\"}]");
+        List<PageImage> again = PcFetch.unfetched(batch, unfetched);
+        assertEquals(2, again.size());
+        assertEquals("a", again.get(0).key);
+        assertEquals("c", again.get(1).key);
+        assertTrue(PcFetch.unfetched(batch, null).isEmpty());
     }
 }

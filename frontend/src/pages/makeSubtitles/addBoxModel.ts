@@ -84,7 +84,7 @@ export function foundForFile(file: { name: string; size: number }): string {
 }
 
 export type LinkProbeState =
-  | { state: 'off' } // away from the PC: the probe is PC only
+  | { state: 'off' } // not read: the account lacks Import from a link
   | { state: 'reading' }
   | { state: 'failed' }
   | { state: 'read'; probe: MediaLinkProbe }
@@ -109,10 +109,10 @@ export function foundForLink(link: string, p: LinkProbeState): string {
   return `${parts.join(', ')}.`
 }
 
-/** Subtitles come from video, so a Sources page (a novel or a comic) only adds a title. Away from the PC
- *  the link download can't run. */
-export const linkCanRun = (pc: PcMode, p: LinkProbeState): boolean =>
-  pc !== 'remote' && !(p.state === 'read' && p.probe.kind === 'source')
+/** Subtitles come from video, so a Sources page (a novel or a comic) only adds a title. Without the
+ *  rights to start it (`allowed`) the link download can't run. */
+export const linkCanRun = (allowed: boolean, p: LinkProbeState): boolean =>
+  allowed && !(p.state === 'read' && p.probe.kind === 'source')
 
 /** The line saying what "Make English subtitles" will do with a file, from the choices on screen. */
 export function planForFile(o: { pc: PcMode; language: string; engine: string }): string {
@@ -126,15 +126,18 @@ export const NO_PROFILE_PLAN = 'Choose a One-click translate profile in Settings
 // The queue runs paid translation only under a monthly cap, so without one the run would stop at Translate.
 export const NO_CAP_PLAN = 'Set a monthly spending cap in Settings > Spending first: this profile translates with a paid engine.'
 
+export const NOT_ALLOWED_PLAN = 'Making subtitles from a link needs the Import from a link right, which an admin can give you in People and access.'
+
 /** The same for a link, from the One-click translate profile chosen in Settings. */
-export function planForLink(o: { pc: PcMode; source: boolean; loaded: boolean; profile: string | null; engine: string | null; capNeeded?: boolean }): string {
-  if (o.pc === 'remote') return 'Making subtitles from a link runs only on the main PC. You can still add it as a title.'
+export function planForLink(o: { pc: PcMode; allowed: boolean; source: boolean; loaded: boolean; profile: string | null; engine: string | null; capNeeded?: boolean }): string {
+  if (!o.allowed) return NOT_ALLOWED_PLAN
   if (o.source) return 'This is a Sources page, not a video: add it as a title.'
   if (o.loaded && !o.profile) return NO_PROFILE_PLAN
   if (o.capNeeded) return NO_CAP_PLAN
   const engine = o.engine ? ` with ${engineLabel(o.engine)}` : ''
   const profile = o.profile ? ` (profile “${o.profile}”)` : ''
-  return `Download it on this PC, transcribe it, then translate it${engine}${profile}, through the Queue.`
+  const where = o.pc === 'remote' ? 'on the main PC' : 'on this PC'
+  return `Download it ${where}, transcribe it, then translate it${engine}${profile}, through the Queue.`
 }
 
 type Handoff = { kind: 'run-file'; request: FileRunRequest } | { kind: 'new-title'; start: NewTitleStart }

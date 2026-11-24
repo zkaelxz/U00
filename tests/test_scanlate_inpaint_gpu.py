@@ -137,3 +137,24 @@ def test_the_gpu_copy_is_freed_and_listed_with_the_apps_other_gpu_models(gpu):
     whisper_models.release_gpu_models()
     assert scanlate_lama._lama_gpu == {}
     assert "LaMa-manga" not in [m["name"] for m in loaded_models_service._app_rows()["models"]]
+
+
+def test_loading_and_running_the_eraser_hold_its_own_lock(monkeypatch):
+    """The extension's overlay redraw runs it outside the pipeline lock, beside Scanlate's render."""
+    pytest.importorskip("torch")
+    pytest.importorskip("cv2")
+    import numpy as np
+    held = []
+
+    def load(**kwargs):
+        held.append(("load", scanlate_lama._LAMA_LOCK.locked()))
+        return object()
+
+    def generate(generator, tensor, torch):
+        held.append(("run", scanlate_lama._LAMA_LOCK.locked()))
+        return torch.zeros(3, tensor.shape[-2], tensor.shape[-1])
+    monkeypatch.setattr(scanlate_lama, "_load_lama_generator", load)
+    monkeypatch.setattr(scanlate_lama, "_generate", generate)
+    roi = np.full((16, 16, 3), 255, dtype=np.uint8)
+    scanlate_lama._run_ml_inpaint(roi, np.zeros((16, 16), dtype=np.uint8))
+    assert held == [("load", True), ("run", True)]

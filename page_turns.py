@@ -17,6 +17,8 @@ before it is translated. Three rules keep that safe:
   that waits longer than `CHAIN_WAIT_SECONDS` translates with no context
   rather than hold its handler thread behind one slow model call, and a
   capture with neither a drama nor a page URL has no title to chain.
+  Quick read (nothing saved) skips the lock and reads whatever summary the
+  title has when its page starts, trading some continuity for speed.
 - A newly added page is discarded only while the pipeline lock is still
   held (`discard_on_failure`); after release another request may already
   have answered with it, so a later failure keeps it for a re-capture.
@@ -41,6 +43,9 @@ from collections import OrderedDict
 # and nothing else.
 _context_lock = threading.Lock()
 _contexts = OrderedDict()
+# Quick read's names per title ({source: English}), so pages translated side by side, which
+# cannot wait for each other's summary, still spell a character one way.
+_chapter_names = {}
 _chain_locks = OrderedDict()
 # Requests holding or waiting on a title's lock, so eviction never hands a
 # second lock to a title whose first is still in use.
@@ -79,14 +84,46 @@ def _evict_idle_chains():
             continue
         del _chain_locks[key]
         _contexts.pop(key, None)
+        _chapter_names.pop(key, None)
 
 
-def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb, **extras):
+def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb,
+                       wait_for_turn: bool = True, **extras):
     """Translates one page as the next link of its title's context chain.
     Other titles never wait on this title's lock. `extras` (character_notes,
-    page_image) go to `translate_page_bubbles` as given."""
+    page_image) go to `translate_page_bubbles` as given.
+
+    `wait_for_turn=False` (Quick read, which keeps nothing) skips the title's
+    lock: the page reads the summary of whichever page finished last and
+    leaves its own, so pages translate side by side at the cost of a looser
+    story link between pages in flight together."""
     from scanlate import scanlate_translate
     key = _chain_key(drama_id, source_url)
+    if key is not None and not wait_for_turn:
+        with _context_lock:
+            previous = _contexts.get(key, "")
+            names = dict(_chapter_names.get(key, {}))
+        try:
+            new_context = scanlate_translate.translate_page_bubbles(
+                bubbles, engine, drama or {}, previous_context=previous,
+                glossary_terms=glossary, usage_cb=usage_cb, chapter_names=names, **extras)
+        finally:
+            # Names from an answer that applied only in part are still the model's spelling.
+            with _context_lock:
+                if names:
+                    kept = _chapter_names.setdefault(key, {})
+                    for source, english in names.items():
+                        kept.setdefault(source, english)
+                    while len(_chapter_names) > MAX_CHAINS:
+                        _chapter_names.pop(next(iter(_chapter_names)))
+        with _context_lock:
+            _contexts[key] = new_context
+            _contexts.move_to_end(key)
+            # This path makes no lock, so the lock count that bounds the chains never sees it.
+            while len(_contexts) > MAX_CHAINS:
+                evicted, _ = _contexts.popitem(last=False)
+                _chapter_names.pop(evicted, None)
+        return
     if key is None:
         scanlate_translate.translate_page_bubbles(
             bubbles, engine, drama or {}, previous_context="",
@@ -177,6 +214,12 @@ def discard_on_failure(drama_id):
         raise
 
 
+# One page's worth of the page before it is context, not a second page to read.
+PREVIOUS_LINES_MAX = 12
+PREVIOUS_LINE_CHARS = 160
+PREVIOUS_LINES_WAIT_SECONDS = 5.0
+
+
 class Stopped(Exception):
     """The request stopped (cancelled, or a page failed in a way every later one would)
     before this page's turn to read came."""
@@ -184,6 +227,12 @@ class Stopped(Exception):
 
 class _Unordered:
     """The turn of a page that waits for no other page."""
+
+    def keep(self, bubbles):
+        pass
+
+    def previous_lines(self):
+        return []
 
     def reading(self):
         return contextlib.nullcontext()
@@ -198,12 +247,17 @@ UNORDERED = _Unordered()
 class PageOrder:
     """Turns for the pages of one request, by their index in it. `should_stop` is asked when
     a page's turn to read comes; True raises `Stopped` there, before anything is stored.
-    `finish(index)` must run for every page, however it ended, or the next page waits for ever."""
+    `finish(index)` must run for every page, however it ended, or the next page waits for ever.
+    `ordered_translation=False` lets a page translate without waiting for the one before it
+    (Quick read); reading stays in page order either way."""
 
-    def __init__(self, count: int, should_stop=lambda: False):
+    def __init__(self, count: int, should_stop=lambda: False, ordered_translation: bool = True):
         self._read = [threading.Event() for _ in range(count)]
         self._translated = [threading.Event() for _ in range(count)]
+        self._known = [threading.Event() for _ in range(count)]
+        self._bubbles = [None] * count
         self._should_stop = should_stop
+        self.ordered_translation = ordered_translation
 
     def turn(self, index: int) -> "_PageTurn":
         return _PageTurn(self, index)
@@ -211,12 +265,37 @@ class PageOrder:
     def finish(self, index: int) -> None:
         self._read[index].set()
         self._translated[index].set()
+        self._known[index].set()
 
 
 class _PageTurn:
     def __init__(self, order: PageOrder, index: int):
         self._order = order
         self._index = index
+
+    def keep(self, bubbles) -> None:
+        """Makes this page's bubbles, read but maybe not yet translated, visible to the next
+        page. The list is shared, so the English that arrives later shows too."""
+        self._order._bubbles[self._index] = bubbles
+        self._order._known[self._index].set()
+
+    def previous_lines(self) -> list:
+        """[{"source", "english"}] for the page before this one in the request: what it said
+        and, if its translation already came back, the English. Pages translate side by side,
+        so the English is often not there yet and the source alone has to carry the story."""
+        if not self._index:
+            return []
+        before = self._index - 1
+        # A page that never reads or never translates still ends with finish(), which sets this.
+        self._order._known[before].wait(PREVIOUS_LINES_WAIT_SECONDS)
+        lines = []
+        for b in list(self._order._bubbles[before] or ()):
+            source = (b.get("source_text") or "").strip()
+            if b.get("skip") or b.get("kind") == "sfx" or not source:
+                continue
+            lines.append({"source": source[:PREVIOUS_LINE_CHARS],
+                          "english": (b.get("translated_text") or "").strip()[:PREVIOUS_LINE_CHARS]})
+        return lines[:PREVIOUS_LINES_MAX]
 
     @contextlib.contextmanager
     def reading(self):
@@ -231,7 +310,7 @@ class _PageTurn:
 
     @contextlib.contextmanager
     def translating(self):
-        if self._index:
+        if self._index and self._order.ordered_translation:
             self._order._translated[self._index - 1].wait()
         try:
             yield

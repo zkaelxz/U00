@@ -224,6 +224,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/dramas/{drama_id}/cover` | library.read |
 | `POST /api/dramas/{drama_id}/cover` | media.upload |
 | `POST /api/dramas/{drama_id}/cover/from-video` | admin.library |
+| `POST /api/dramas/{drama_id}/delete-mine` | lines.edit |
 | `POST /api/dramas/{drama_id}/duplicate` | library.create |
 | `POST /api/dramas/{drama_id}/folder/open` | local_only() |
 | `POST /api/dramas/{drama_id}/link-details/apply` | local_only() |
@@ -414,7 +415,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/live/sessions/{session_id}` | library.read |
 | `GET /api/live/sessions/{session_id}/chat` | library.read |
 | `POST /api/live/sessions/{session_id}/stop` | jobs.cancel |
-| `POST /api/media-link/probe` | local_only() |
+| `POST /api/media-link/probe` | media.import_url |
 | `GET /api/media/dramas/{drama_id}/audio` | media.stream |
 | `HEAD /api/media/dramas/{drama_id}/audio` | media.stream |
 | `POST /api/media/dramas/{drama_id}/download-url` | local_only() |
@@ -506,7 +507,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/quick-video/runs` | jobs.start |
 | `GET /api/quick-video/settings` | library.read |
 | `POST /api/quick-video/settings` | admin.library |
-| `POST /api/quick-video/start` | local_only() |
+| `POST /api/quick-video/start` | media.import_url + jobs.start |
 | `POST /api/quick-video/{drama_id}/delete` | local_only() |
 | `POST /api/reader/dramas/{drama_id}/ask` | jobs.start |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
@@ -631,6 +632,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/series/{series_id}/shared-glossary` | library.read |
 | `POST /api/series/{series_id}/shared-glossary` | lines.edit |
 | `POST /api/series/{series_id}/speaker-mode` | lines.edit |
+| `POST /api/series/{series_id}/streamer` | lines.edit |
 | `GET /api/series/{series_id}/translation-memory.tmx` | library.read |
 | `POST /api/series/{series_id}/translation-memory/import` | lines.edit |
 | `GET /api/settings` | admin.settings |

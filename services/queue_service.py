@@ -321,7 +321,6 @@ def get_queue(principal) -> dict:
         "state": doc["state"],
         "stop_on_failure": doc["stop_on_failure"],
         "overlap_online_translate": doc["overlap_online_translate"],
-        "overlap_note": _overlap_note(doc),
         "schedule": dict(doc["schedule"]) if doc["schedule"] else None,
         "notice": doc["notice"],
         "max_items": MAX_ITEMS,
@@ -762,8 +761,8 @@ def _start_item(item: dict) -> Optional[str]:
     principal = _run_principal(item)
     if not _owns_title(principal, item["drama_id"]):
         raise ForbiddenError("The account that added this item no longer owns the title.")
-    needed = "lines.read" if item["step"] == "export" else "jobs.start"
-    if not _holds(principal, needed):
+    needed = {"export": ("lines.read",), DOWNLOAD: ("jobs.start", "media.import_url")}.get(item["step"], ("jobs.start",))
+    if not all(_holds(principal, p) for p in needed):
         raise ForbiddenError("The account that added this item can no longer do this step.")
     if item.get("auto_series") is not None:
         series_auto_service.require_on(item["auto_series"])
@@ -775,7 +774,7 @@ def _start_item(item: dict) -> Optional[str]:
         # Records the job as the adder's, as if they had pressed the button.
         acting.note_acting_principal(principal)
         if item["step"] == DOWNLOAD:
-            return quick_video_service.start_download(drama, (item.get("settings") or {}).get("url"))
+            return quick_video_service.start_download(drama, (item.get("settings") or {}).get("url"), item["at_pc"])
         if item["step"] == "transcribe":
             # Again at start: the title's model choice may have changed since it was added.
             model_readiness_service.require_ready(
@@ -911,26 +910,7 @@ def _may_overlap(running: list, candidate: dict) -> bool:
     model = (other.get("settings") or {}).get("model") or _queued_model_and_batch(drama, engine)[0]
     if engine_local.ollama_touches_local_gpu(engine, model):
         return False
-    return not _local_ollama_after_batches()
-
-
-def _local_ollama_after_batches() -> bool:
-    """The run's own source-match check uses the local Ollama after the batches, and a run on
-    an online engine does not take a GPU slot, so only this keeps it apart from a transcription.
-    It counts only while its model is there: without it the check does nothing."""
-    return bool(settings_service.get("translate_alignment_check") and settings_service.source_match_model_present())
-
-
-def _overlap_note(doc: dict) -> Optional[str]:
-    """Why a transcription will wait for a translation although "beside an online translation"
-    is on, or None. Said on the Jobs page because the switch alone looks like it should work."""
-    if not doc["overlap_online_translate"]:
-        return None
-    if settings_service.get("translate_alignment_check") and settings_service.source_match_model_present():
-        return ("A transcription still waits for an online translation to finish while the Source match "
-                "check is on: the check uses this PC's Ollama after the translation. Turn it off in "
-                "Settings to run them side by side.")
-    return None
+    return True
 
 
 def _start_next(now: float, deferred=frozenset()) -> None:

@@ -215,7 +215,7 @@ def _migrate_drama_columns(conn):
                           # detection, speaker counts, extra names, prompt override).
                           ("transcribe_start_json", "TEXT"),
                           # JSON: an imported ASS file's styles and canvas, for ASS export.
-                          ("ass_styles", "TEXT"), ("episode_brief", "TEXT")]:
+                          ("ass_styles", "TEXT"), ("episode_brief", "TEXT"), ("created_by_user_id", "INTEGER")]:
         if col not in drama_cols:
             db._safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     # Here, not with the other indexes: an old library gets these columns
@@ -224,7 +224,7 @@ def _migrate_drama_columns(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_dramas_series ON dramas(series_id, episode_number)")
 
 
-def _migrate_series_and_character_columns(conn):
+def _migrate_series_columns(conn):
     series_cols = {r[1] for r in conn.execute("PRAGMA table_info(series)").fetchall()}
     # default_settings: series_defaults_service. speaker_mode: NULL means auto.
     for col in ("instructions", "default_settings", "speaker_mode"):
@@ -239,6 +239,13 @@ def _migrate_series_and_character_columns(conn):
     if "auto_pipeline" not in series_cols:
         # JSON state of the series auto-pipeline (services/series_auto_service.py); NULL: never switched on.
         db._safe_alter(conn, "ALTER TABLE series ADD COLUMN auto_pipeline TEXT")
+    if "streamer" not in series_cols:
+        # The Library's Streamer level groups series by it; NULL: "No streamer".
+        db._safe_alter(conn, "ALTER TABLE series ADD COLUMN streamer TEXT")
+
+
+def _migrate_series_and_character_columns(conn):
+    _migrate_series_columns(conn)
     preset_cols = {r[1] for r in conn.execute("PRAGMA table_info(presets)").fetchall()}
     for col, coltype in (("options_json", "TEXT"), ("is_default", "INTEGER DEFAULT 0")):
         if col not in preset_cols:

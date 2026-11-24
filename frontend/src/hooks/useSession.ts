@@ -81,6 +81,12 @@ export function canReadSettings(s: SessionState): boolean {
   return s.me.permissions.includes('admin.settings')
 }
 
+/** Does this session hold `sources.import`? Optimistic like canReadSettings; the server still decides. */
+export function canImportSources(s: SessionState): boolean {
+  if (s.status !== 'ready' || !s.me.auth_enabled || !s.me.signed_in) return true
+  return s.me.permissions.includes('sources.import')
+}
+
 /** Does this session hold `system.update`? Optimistic like useHolds: with /me unavailable or auth off the
  * server still decides. */
 export function canUpdateApp(s: SessionState): boolean {

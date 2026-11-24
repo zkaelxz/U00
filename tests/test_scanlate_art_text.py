@@ -495,6 +495,22 @@ def test_a_dark_art_sign_goes_through_lama_when_the_model_is_usable(monkeypatch)
     assert int(erased.max()) < 90
 
 
+@pytest.mark.parametrize("backend", ["cv", "ml"])
+def test_coloured_lettering_on_a_plain_black_notice_is_erased_to_black(monkeypatch, backend):
+    # A yellow headline over white lines on a black disclaimer page: the yellow is too
+    # saturated to pass as pale lettering, so it stayed under the English, and LaMa left
+    # grey blocks where the white lines were.
+    monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint",
+                        lambda roi, mask, hf_token=None, allow_download=True: np.full_like(roi, 60))
+    page = np.zeros((500, 600, 3), np.uint8)
+    cv2.putText(page, "NOTICE", (120, 150), cv2.FONT_HERSHEY_SIMPLEX, 2.4, (40, 220, 250), 10)
+    for y in (240, 300, 360):
+        cv2.putText(page, "lorem ipsum", (130, y), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (255, 255, 255), 3)
+    box = {"x": 80, "y": 60, "w": 440, "h": 340}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend=backend, on_art=True)
+    assert int(page.max()) < 25
+
+
 def test_a_dark_art_sign_falls_back_to_the_tone_fill_when_lama_fails(monkeypatch):
     def broken(*a, **k):
         raise RuntimeError("no weights")
@@ -513,3 +529,64 @@ def test_dark_art_lama_mask_covers_the_letters_but_not_pale_art_beside_them():
     mask = scanlate_inpaint._dark_art_stroke_mask(page)
     assert mask[:, 230:270].max() == 0 or mask[:, 230:270].mean() < 5
     assert mask[120:170, 20:190].mean() > 40
+
+
+def _region(kind, text, x=0, y=0, w=100, h=100):
+    return {"kind": kind, "source_text": text, "x": x, "y": y, "w": w, "h": h}
+
+
+def test_a_balloon_box_on_the_titles_own_glyph_is_dropped_when_the_caption_covers_it():
+    # The detector boxed one glyph of a logo title as a balloon; the caption holds the whole title.
+    glyph = _region("bubble", "的", 10, 10, 30, 30)
+    caption = _region("caption", "重生佣兵王的复仇", 0, 0, 200, 200)
+    assert scanlate.drop_parts_of_captions([glyph], [caption]) == []
+
+
+def test_a_real_balloon_inside_a_caption_keeps_its_own_lettering():
+    balloon = _region("bubble", "快跑！", 10, 10, 30, 30)
+    caption = _region("caption", "重生佣兵王的复仇", 0, 0, 200, 200)
+    assert scanlate.drop_parts_of_captions([balloon], [caption]) == [balloon]
+
+
+def test_a_blank_balloon_inside_a_caption_is_kept():
+    blank = _region("bubble", "", 10, 10, 30, 30)
+    caption = _region("caption", "重生佣兵王的复仇", 0, 0, 200, 200)
+    assert scanlate.drop_parts_of_captions([blank], [caption]) == [blank]
+
+
+def _page_with_black_title_and_red_tag():
+    page = np.full((300, 600, 3), (240, 200, 180), np.uint8)             # pale blue sky (BGR)
+    cv2.putText(page, "TITLE", (20, 150), cv2.FONT_HERSHEY_SIMPLEX, 3, (10, 10, 10), 14)
+    cv2.rectangle(page, (500, 40), (560, 160), (40, 40, 200), -1)         # solid red tag
+    return page
+
+
+def test_a_solid_coloured_tag_in_the_title_box_is_found_and_the_english_stays_clear_of_it():
+    page = _page_with_black_title_and_red_tag()
+    box = {"x": 10, "y": 30, "w": 570, "h": 200}
+    assert art.decoration_blocks(page, box) == [(500, 40, 561, 161)]
+    room = art.clear_of_decoration(page, box)
+    assert room["x"] == 10 and room["x"] + room["w"] <= 500 - 8
+
+
+def test_the_tag_is_not_painted_out_with_the_title():
+    page = _page_with_black_title_and_red_tag()
+    mask = art.caption_mask(page, {"x": 10, "y": 30, "w": 570, "h": 200})
+    assert not mask[40:160, 500:560].any()
+    assert mask[110:150, 40:120].any()                                    # the title still is
+
+
+def test_a_balloon_box_on_a_glyph_with_a_stray_ocr_digit_is_dropped():
+    glyph = {"kind": "bubble", "source_text": "的\n7", "x": 10, "y": 10, "w": 30, "h": 30}
+    caption = {"kind": "caption", "source_text": "重生佣兵王的复仇", "x": 0, "y": 0, "w": 200, "h": 200}
+    assert scanlate.drop_parts_of_captions([glyph], [caption]) == []
+
+
+def test_dark_caption_lettering_gets_a_light_thin_outline_not_a_fat_dark_one():
+    base = Image.new("RGB", (300, 120), (200, 200, 200))
+    dark, light = base.copy(), base.copy()
+    box = {"x": 10, "y": 10, "w": 280, "h": 100}
+    art.draw_caption(dark, box, "TITLE", {"fill": (20, 20, 20), "glow": None})
+    art.draw_caption(light, box, "TITLE", {"fill": (240, 240, 240), "glow": None})
+    inked = lambda im: int((np.asarray(im.convert("L")) < 100).sum())
+    assert inked(dark) < inked(light)                                       # no dark outline fattening the dark fill

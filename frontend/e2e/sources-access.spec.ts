@@ -111,6 +111,12 @@ test('proxy card: closed the first time like every card after All sites, opening
 test('another device: no Check now, no title link, no Manage sources tab', async ({ page }) => {
   const s = await mockSources(page, { tracked: TRACKED, local: false })
   await mockAccess(page, s)
+  // A member without the Sources import right: Check now and auto-import need it away from the PC.
+  await page.route('**/api/auth/me', (r) => r.fulfill({ json: {
+    auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet',
+    user: { id: 5, email: 'kim@example.com', display_name: 'Kim', is_admin: false, is_local_owner: false },
+    permissions: ['library.read', 'lines.read'],
+  } }))
   await page.goto('/#/sources?tab=new')
   const news = page.getByRole('region', { name: 'New chapters' })
   await expect(news.getByText('Heaven Book 1 · Beta Novels')).toBeVisible()

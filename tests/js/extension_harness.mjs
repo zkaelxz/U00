@@ -50,7 +50,7 @@ function container(children) {
   return parent;
 }
 
-function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null }) {
+function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null, frames = true, readable = false, serverUrl = "", sendReply = null, pictureAddresses = true }) {
   const sent = [];
   const shots = [];
   const marks = [];
@@ -63,6 +63,11 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
   const cropCanvas = () => {
     const c = fakeCanvas();
     if (screenshot) c.toBlob = (cb) => cb(new Blob([PNG], { type: "image/png" }));
+    if (readable) {
+      // A same-origin picture: its pixels can be sampled and exported.
+      c.getContext = () => ({ drawImage() {}, getImageData: () => ({ data: [10, 20, 30, 255, 200, 100, 50, 255, 90, 90, 90, 255] }) });
+      c.toBlob = (cb) => cb(new Blob([PNG], { type: "image/png" }));
+    }
     return c;
   };
   const document = {
@@ -77,8 +82,9 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
   };
   const sandbox = {
     document, console, URL, setTimeout, clearTimeout, setInterval, clearInterval, performance, crypto: globalThis.crypto,
-    atob, btoa, Blob, Uint8Array, Promise, Map, Set, WeakMap, WeakSet, Math, Number, String, Array, Error, Date,
-    requestAnimationFrame: (cb) => setTimeout(cb, 0),
+    atob, btoa, Blob, Uint8Array, TextEncoder, Promise, Map, Set, WeakMap, WeakSet, Math, Number, String, Array, Error, Date,
+    // A background tab never runs animation frames.
+    requestAnimationFrame: (cb) => { if (frames) setTimeout(cb, 0); },
     getComputedStyle: () => ({ visibility: "visible", display: "block", opacity: "1", backgroundImage: "none", overflowY: "visible" }),
     MutationObserver: class { observe() {} disconnect() {} },
     ResizeObserver: class { observe() {} disconnect() {} },
@@ -95,7 +101,7 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
             fetched.push(message.url);
             return fetchImage(message);
           }
-          if (message.type === "getSettings") return { ok: true, data: { screenshot: !!(screenshot && screenshot.on) } };
+          if (message.type === "getSettings") return { ok: true, data: { screenshot: !!(screenshot && screenshot.on), serverUrl } };
           if (message.type === "captureTab") {
             shots.push(marks.slice());
             return screenshot.reply || { ok: true, data: { data: Buffer.from(PNG).toString("base64") } };
@@ -103,8 +109,9 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
           if (message.type === "send") {
             sent.push(message);
             if (onSend) await onSend(message, (m) => new Promise((resolve) => listener(m, {}, resolve)));
-            return { ok: true, data: { pages: [] } };
+            return { ok: true, data: sendReply ? sendReply(message, sent.length) : { pages: [] } };
           }
+          if (message.type === "health") return { ok: true, data: { picture_addresses: pictureAddresses } };
           if (message.type === "progress") progress.push(message);
           if (message.type === "captureSummary") summaries.push(message);
           return { ok: true };
@@ -163,6 +170,32 @@ async function content(scenario) {
   switch (scenario) {
     case "img_tainted_fetches_in_worker":
       return run(visible, { images: [img()], fetchImage: okImage() });
+    case "hidden_tab_capture_finishes":
+      return run(visible, { images: [img()], fetchImage: okImage(), frames: false, readable: true });
+    case "member_sends_the_address_not_the_picture":
+    case "member_uploads_what_the_app_could_not_fetch": {
+      const unfetch = scenario === "member_uploads_what_the_app_could_not_fetch";
+      const h = loadContent({ images: [img()], fetchImage: okImage(), serverUrl: "https://home.example",
+        sendReply: (message, n) => (unfetch && n === 1
+          ? { pages: [], unfetched: [{ key: message.images[0].key, url: IMG_URL, reason: "blocked" }], received: 1 }
+          : { pages: [], received: message.images.length }) });
+      const result = await h.ask(visible);
+      return { ok: result.ok, received: result.data && result.data.received,
+               sends: h.sent.map((m) => m.images.map((i) => ({ fetch_url: i.fetch_url || null, hasData: !!i.data, key: i.key }))) };
+    }
+    case "older_app_without_address_support_gets_uploads": {
+      const h = loadContent({ images: [img()], fetchImage: okImage(), serverUrl: "https://home.example", pictureAddresses: false });
+      const result = await h.ask(visible);
+      return { ok: result.ok, sends: h.sent.map((m) => m.images.map((i) => ({ fetch_url: i.fetch_url || null, hasData: !!i.data }))) };
+    }
+    case "own_pc_and_saved_sends_still_upload": {
+      const own = loadContent({ images: [img()], fetchImage: okImage() });
+      await own.ask(visible);
+      const saved = loadContent({ images: [img()], fetchImage: okImage(), serverUrl: "https://home.example" });
+      await saved.ask({ ...visible, store: true });
+      const shape = (h) => h.sent.map((m) => m.images.map((i) => ({ fetch_url: i.fetch_url || null, hasData: !!i.data })));
+      return { own: shape(own), saved: shape(saved) };
+    }
     case "img_tainted_needs_permission":
       return run(visible, { images: [img()], fetchImage: needsPermission });
     case "img_tainted_worker_rejects":
@@ -914,6 +947,22 @@ function streamedReply(lines, { tail = "", fail = false } = {}) {
   };
 }
 
+// The app ships `shipped`; this copy is `mine`; `reloadedFor` is what an earlier try stored.
+async function reloadAfterUpdate(scenarioJson) {
+  const { shipped, mine, reloadedFor } = JSON.parse(scenarioJson);
+  const stored = { token: "t", reloadedFor };
+  let reloads = 0;
+  let startup = null;
+  const { ask } = loadBackground({
+    granted: () => true, stored,
+    response: () => ({ ok: true, status: 200, json: async () => ({ ok: true, extension_version: shipped }) }),
+    chromeExtra: { runtime: { getManifest: () => ({ version: mine }), reload: () => { reloads += 1; },
+                              onStartup: { addListener: (fn) => { startup = fn; } } } },
+  });
+  const reply = await ask({ type: "health" });
+  return { ok: reply.ok, reloads, startupListener: typeof startup === "function" };
+}
+
 async function batching(scenarioJson) {
   const scenario = JSON.parse(scenarioJson);
   const requests = [];
@@ -965,6 +1014,7 @@ const handlers = {
   popup_expression: async (e) => popupExpression(e),
   content_expression: async (e) => JSON.parse(await contentExpression(e)),
   batching,
+  reload_after_update: reloadAfterUpdate,
 };
 const result = await handlers[kind](scenario);
 process.stdout.write(JSON.stringify(result));

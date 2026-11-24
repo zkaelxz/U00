@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { api, ApiError, hasStatus } from '../api/client'
-import { deleteDrama, duplicateDrama, openDramaFolder } from '../api/library'
+import { deleteDrama, deleteOwnDrama, duplicateDrama, openDramaFolder } from '../api/library'
 import type { DramaDetail } from '../api/types'
 import { engineLabel } from '../labels'
 import type { DramaDeleteResult } from '../types/library'
@@ -26,10 +26,12 @@ interface Props {
   dramaId: number
   // When given, the panel offers a typed-confirmation delete.
   onDeleted?: (result: DramaDeleteResult) => void
+  // Away from the PC only the person's own titles can be deleted, through their own route.
+  away?: boolean
 }
 
 // The body of the Library's drama details Sheet (the Sheet gives the title).
-export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
+export function DramaDetailPanel({ dramaId, onDeleted, away = false }: Props) {
   const [drama, setDrama] = useState<DramaDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -60,7 +62,8 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
     if (deleting) return
     setDeleting(true)
     setDeleteError(null)
-    deleteDrama(dramaId).then(
+    const del = away ? deleteOwnDrama : deleteDrama
+    del(dramaId).then(
       (r) => onDeleted?.(r),
       (e: unknown) => {
         setDeleteError(e)

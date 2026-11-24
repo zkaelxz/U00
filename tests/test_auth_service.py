@@ -21,6 +21,7 @@ def test_add_user_gets_household_defaults_only(adb):
     assert set(u["permissions"]) == set(auth.HOUSEHOLD_DEFAULT_PERMISSIONS)
     assert "engines.paid" not in u["permissions"] and "admin.users" not in u["permissions"]
     assert "media.stream" in u["permissions"]   # a new member's player works (2026-11-17)
+    assert "sources.import" in u["permissions"]   # a phone can import what Find finds (2026-11-24)
     with pytest.raises(ConflictError):
         auth.add_user("kid@example.com")
     with pytest.raises(InvalidInputError):

@@ -327,6 +327,7 @@ def test_import_state_auth_on_permission_and_ownership(fakes):
     fakes["alpha"] = _make("alpha")
     a = auth_service.add_user("a@example.com")
     b = auth_service.add_user("b@example.com")
+    auth_service.revoke_permission(b["id"], "sources.import")   # new members hold it by default
     private = db.create_drama(title_en="A private", media_type="novel",
                               content_mode="novel_narration", owner_user_id=a["id"],
                               is_private=1)

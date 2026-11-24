@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
-  LIVE_FORM_FALLBACK, SPEND_LIMIT_RANGE, chatReadFrom, mergeChat, formDefaults, languageWhisperDefault, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, statusTone, stopLive, WHISPER_SIZES,
+  LIVE_CLOUD_MODEL, LIVE_FORM_FALLBACK, SPEND_LIMIT_RANGE, liveEngineView, chatReadFrom, mergeChat, formDefaults, languageWhisperDefault, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, statusTone, stopLive, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
 
@@ -382,9 +382,24 @@ describe('chat messages', () => {
 
 describe('languageWhisperDefault', () => {
   it('uses the language\'s downloaded model and otherwise the form default', () => {
-    const opts = { ...LIVE_FORM_FALLBACK, language_whisper_defaults: { zh: 'breeze-asr-25' } }
+    const opts = { ...LIVE_FORM_FALLBACK, language_whisper_defaults: { zh: 'breeze-asr-25', ko: 'large-v3' } }
     expect(languageWhisperDefault(opts, 'zh')).toBe('breeze-asr-25')
-    expect(languageWhisperDefault(opts, 'ko')).toBe('small')
+    expect(languageWhisperDefault(opts, 'ko')).toBe('large-v3')
+    expect(languageWhisperDefault(opts, 'en')).toBe('small')
     expect(languageWhisperDefault(LIVE_FORM_FALLBACK, 'zh')).toBe('small')
+  })
+})
+
+describe('liveEngineView', () => {
+  const ollama = { name: 'ollama', models: ['translategemma:27b', LIVE_CLOUD_MODEL], cloud_models: [LIVE_CLOUD_MODEL] }
+  it('offers only the hosted 31B on Ollama when the viewer may use it', () => {
+    expect(liveEngineView(ollama, true)?.models).toEqual([LIVE_CLOUD_MODEL])
+  })
+  it('leaves the list alone without permission, without the hosted model, and for other engines', () => {
+    expect(liveEngineView(ollama, false)).toBe(ollama)
+    const local = { name: 'ollama', models: ['translategemma:27b'], cloud_models: [] as string[] }
+    expect(liveEngineView(local, true)).toBe(local)
+    const claude = { name: 'claude', models: ['a', 'b'], cloud_models: [] as string[] }
+    expect(liveEngineView(claude, true)).toBe(claude)
   })
 })

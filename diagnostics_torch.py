@@ -21,6 +21,7 @@ from jobs import job_launch
 import dependency_updates
 import diagnostics
 from lib.proc import run_captured
+from lib.no_window import NO_WINDOW
 
 
 def get_gpu_status() -> dict:
@@ -378,7 +379,7 @@ def nvidia_driver_info():
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=True)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=True, creationflags=NO_WINDOW)
         name, driver = (x.strip() for x in result.stdout.strip().splitlines()[0].rsplit(",", 1))
         return {"gpu_name": name[:120], "driver_version": driver[:40]}
     except Exception:
@@ -394,7 +395,7 @@ def compute_capabilities() -> list:
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=True)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=True, creationflags=NO_WINDOW)
         return [float(x) for x in result.stdout.split() if re.fullmatch(r"\d+\.\d+", x)]
     except Exception:
         return []
