@@ -271,6 +271,31 @@ class TestSeparateVocalsChunked:
         assert float(np.sqrt(np.mean(chunked_data ** 2))) == pytest.approx(
             float(np.sqrt(np.mean(single_data ** 2))), rel=0.15)
 
+    def test_chunks_written_as_they_finish_match_one_crossfaded_array(self, tmp_path):
+        """Writing each finished chunk out (instead of growing one array) must
+        give the very same samples as crossfading the whole thing in memory."""
+        pytest.importorskip("soundfile")
+        import numpy as np
+        import soundfile as sf
+        in_path, out_path = str(tmp_path / "in.wav"), str(tmp_path / "out.wav")
+        _write_wav(in_path, seconds=1.0, samplerate=8000)
+        audio_preprocess._separate_vocals_chunked(
+            in_path, out_path, self._identity_process_chunk,
+            chunk_seconds=0.25, overlap_seconds=0.05)
+
+        data, sr = sf.read(in_path, dtype="float32", always_2d=True)
+        window, overlap = int(0.25 * sr), int(0.05 * sr)
+        expected = None
+        for start in range(0, len(data), window - overlap):
+            chunk = data[start:start + window]
+            expected = chunk if expected is None else audio_preprocess._crossfade_append(
+                expected, chunk, overlap)
+        sf.write(str(tmp_path / "expected.wav"), expected, sr)
+        want, _ = sf.read(str(tmp_path / "expected.wav"), dtype="float32", always_2d=True)
+        got, _ = sf.read(out_path, dtype="float32", always_2d=True)
+        assert np.array_equal(got, want)
+        assert sorted(os.listdir(tmp_path)) == ["expected.wav", "in.wav", "out.wav"]
+
     def test_cancel_check_stops_before_the_next_chunk_starts(self, tmp_path):
         pytest.importorskip("soundfile")
         in_path, out_path = str(tmp_path / "in.wav"), str(tmp_path / "out.wav")
@@ -293,6 +318,7 @@ class TestSeparateVocalsChunked:
                 chunk_seconds=0.2, overlap_seconds=0.02, cancel_check_cb=_cancel_check)
         assert len(calls) == 2  # never started a 3rd chunk
         assert not os.path.exists(out_path)  # nothing partial written to the real out_path
+        assert sorted(os.listdir(tmp_path)) == ["in.wav"]  # nor beside it
 
     def test_a_real_separation_failure_still_propagates_as_is(self, tmp_path):
         pytest.importorskip("soundfile")

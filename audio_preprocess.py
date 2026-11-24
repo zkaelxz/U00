@@ -520,9 +520,17 @@ def _separate_readable(audio_path, out_path, process_chunk_fn, chunk_seconds, ov
     starts = [s for s in range(0, max(total_samples, 1), step) if s < total_samples] or [0]
 
     work_dir = tempfile.mkdtemp(prefix="baihe_vocalsep_chunks_")
+    # Written beside out_path and renamed at the end, so a cancel or failure
+    # never leaves a partial vocals file where a later read would take it as done.
+    part_path = os.path.join(os.path.dirname(out_path) or ".", ".part-" + os.path.basename(out_path))
+    out = None
     try:
         waveform, _ = sf.read(audio_path, dtype="float32", always_2d=True)
-        combined, out_sr = None, None
+        # Only the last chunk is held back for the next crossfade; everything
+        # before it is written out as it finishes. Growing one array chunk by
+        # chunk recopied all of it each time: hundreds of copies of a 2 GB
+        # array on a two-hour stream.
+        tail, out_sr = None, None
         n_chunks = len(starts)
         for i, start in enumerate(starts):
             if cancel_check_cb and cancel_check_cb():
@@ -533,14 +541,27 @@ def _separate_readable(audio_path, out_path, process_chunk_fn, chunk_seconds, ov
             sf.write(chunk_in, waveform[start:end], in_sr)
             process_chunk_fn(chunk_in, chunk_out)
             chunk_vocals, chunk_sr = sf.read(chunk_out, dtype="float32", always_2d=True)
-            if combined is None or out_sr is None:
-                combined, out_sr = chunk_vocals, chunk_sr
+            if out is None or tail is None or out_sr is None:
+                tail, out_sr = chunk_vocals, chunk_sr
+                out = sf.SoundFile(part_path, "w", samplerate=out_sr, channels=tail.shape[1])
             else:
-                combined = _crossfade_append(combined, chunk_vocals, int(overlap_seconds * out_sr))
+                joined = _crossfade_append(tail, chunk_vocals, int(overlap_seconds * out_sr))
+                done = len(joined) - len(chunk_vocals)
+                out.write(joined[:done])
+                tail = joined[done:]
             if progress_cb:
                 progress_cb((i + 1) / n_chunks)
-        sf.write(out_path, combined, out_sr)
+        if out is None or tail is None:
+            raise VocalSeparationError("Vocal separation produced no audio.")
+        out.write(tail)
+        out.close()
+        out = None
+        os.replace(part_path, out_path)
     finally:
+        if out is not None:
+            out.close()
+        if os.path.exists(part_path):
+            os.remove(part_path)
         shutil.rmtree(work_dir, ignore_errors=True)
 
 

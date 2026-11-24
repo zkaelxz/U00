@@ -1162,6 +1162,49 @@ class TestRunTranscribeAndApplyJob:
         assert seen[3] is False
         _clear(job_id)
 
+    @pytest.mark.parametrize("vocals_seconds,vocals_age,separates", [
+        (600.0, 10, False),     # a finished separation of this audio: reused
+        (600.4, 10, False),     # within the length slack
+        (312.0, 10, True),      # cut short (killed while writing): separated again
+        (600.0, -10, True),     # older than the audio (media since replaced)
+    ])
+    def test_a_rerun_reuses_the_vocals_an_earlier_run_separated(
+            self, isolated_db, monkeypatch, vocals_seconds, vocals_age, separates):
+        import audio_preprocess
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        audio = os.path.join(ddir, "audio.wav")
+        vocals = os.path.join(ddir, "vocals.wav")
+        with open(vocals, "wb") as fh:
+            fh.write(b"earlier vocals")
+        later = max(os.stat(audio).st_mtime, os.stat(audio).st_ctime) + vocals_age
+        os.utime(vocals, (later, later))
+        monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds",
+                            lambda path: vocals_seconds if path == vocals else 600.0)
+        separated = []
+
+        def fake_separate(in_path, out_path, **k):
+            separated.append(in_path)
+            with open(out_path, "wb") as fh:
+                fh.write(b"new vocals")
+            return out_path
+        monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
+        heard = []
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
+                            lambda path, *a, **k: heard.append(path) or [
+                                {"start": 0.0, "end": 1.0, "text": "hi"}])
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, audio, "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, True, "auto", False, False, False, None, None, None)
+
+        assert separated == ([audio] if separates else [])
+        assert heard == [vocals]
+        with open(vocals, "rb") as fh:
+            assert fh.read() == (b"new vocals" if separates else b"earlier vocals")
+        _clear(job_id)
+
     def test_model_load_stage_says_no_progress_is_available(self, isolated_db, monkeypatch):
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
         job_id = f"transcribe_{did}"

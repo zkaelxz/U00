@@ -143,6 +143,28 @@ def _transcribe_worker(audio_path, transcript_mode, transcript_text, source_lang
 
 _move_into_place = storage.move_into_place
 
+# Separated vocals this much shorter or longer than the audio are not a finished
+# separation of it (a run killed while writing them directly), so they are redone.
+_VOCALS_LENGTH_SLACK_SECONDS = 1.0
+
+
+def _reusable_vocals(vocals_path, audio_path) -> bool:
+    """True when an earlier run's vocals.wav beside the audio is a complete
+    separation of this audio, so a re-run need not separate again (minutes on
+    a long stream). Newer than the audio by its modified and creation/change
+    time, as rehear_audio_path requires, since a copied-in replacement can
+    keep its old modified time."""
+    try:
+        audio = os.stat(audio_path)
+        if os.path.getmtime(vocals_path) < max(audio.st_mtime, audio.st_ctime):
+            return False
+    except OSError:
+        return False
+    vocals_seconds = _audio_duration_seconds(vocals_path)
+    audio_seconds = _audio_duration_seconds(audio_path)
+    return (vocals_seconds is not None and audio_seconds is not None
+            and abs(vocals_seconds - audio_seconds) <= _VOCALS_LENGTH_SLACK_SECONDS)
+
 
 def _tuning_for_preset(tuning, backend, preset):
     """The speech-detection backends use their own threshold, not the title's VAD
@@ -316,6 +338,10 @@ class _PipelineRun:
         o, rep = self.o, self.rep
         import audio_preprocess
         vocals_path = os.path.join(os.path.dirname(self.audio_path), "vocals.wav")
+        if _reusable_vocals(vocals_path, self.audio_path):
+            rep.progress(0.0, "Using the vocals separated on an earlier run")
+            self.audio_path = vocals_path
+            return None
         rep.progress(0.0, "Separating vocals from background music...")
         separate_started = time.monotonic()
         try:
