@@ -88,6 +88,8 @@ export const NAV_ITEMS: NavItem[] = [
   }),
   // Discover and Sources are two tabs of one entry; Discover carries the switch (pages/FindSwitch.tsx) and Sources links back from Paste a link.
   item('Find', { name: 'discover' }, { requires: 'library.read', rail: { group: 'find', active: ['discover', 'sources', 'sources-manage'] } }),
+  // Read-only digest of New chapters and followed channels; both of its reads are library.read.
+  item('Updates', { name: 'updates' }, { requires: 'library.read', rail: { group: 'find', active: ['updates'] } }),
   item('Live', { name: 'live' }, { requires: 'library.read', rail: { group: 'tools', active: ['live'] } }),
   // The header's Jobs button is the glance; this is the page.
   item('Jobs', { name: 'jobs' }, {

@@ -39,7 +39,7 @@ const personas: Record<string, NavContext> = {
 
 const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-const ALL = ['Library', 'Library tools', 'Text', 'Find', 'Live', 'Jobs', 'Settings']
+const ALL = ['Library', 'Library tools', 'Text', 'Find', 'Updates', 'Live', 'Jobs', 'Settings']
 
 // Add creates a title, so it follows the permission the Library's Add box needs.
 const withMake = (l: string[]) => [...l.slice(0, 2), 'Add', ...l.slice(2)]
@@ -73,7 +73,7 @@ describe('nav registry per persona', () => {
 
   it('Simple leaves the admin and system pages out of the menu, Advanced lists them', () => {
     const owner = personas['owner at the PC']
-    expect(labels({ ...owner, simple: true })).toEqual(['Library', 'Add', 'Text', 'Find', 'Live', 'Jobs', 'Settings'])
+    expect(labels({ ...owner, simple: true })).toEqual(['Library', 'Add', 'Text', 'Find', 'Updates', 'Live', 'Jobs', 'Settings'])
     expect(labels({ ...owner, simple: false })).toEqual(labels(owner))
     const dev: NavContext = { ...owner, developerMode: true }
     expect(labels({ ...dev, simple: true })).not.toEqual(expect.arrayContaining(['Benchmark Lab']))
@@ -138,7 +138,7 @@ describe('left rail', () => {
   it('owner sees every page, grouped, with Benchmark Lab under Diagnostics once Developer Mode is on', () => {
     expect(visibleRailGroups({ ...owner, developerMode: true }).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
       [null, ['Library', 'Library tools']],
-      ['Find and add', ['Add', 'Find']],
+      ['Find and add', ['Add', 'Find', 'Updates']],
       ['Tools', ['Text', 'Live']],
       ['System', ['Jobs', 'Settings', 'People and access', 'Diagnostics', 'Benchmark Lab', 'Assistant']],
     ])
@@ -150,7 +150,7 @@ describe('left rail', () => {
 
   it('household member: no People and access, Diagnostics or Benchmark Lab', () => {
     const labelsOf = railLabels(personas['household member'])
-    expect(labelsOf).toEqual(['Library', 'Library tools', 'Find', 'Text', 'Live', 'Jobs', 'Settings'])
+    expect(labelsOf).toEqual(['Library', 'Library tools', 'Find', 'Updates', 'Text', 'Live', 'Jobs', 'Settings'])
   })
 
   it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab (Developer Mode on) but not People and access', () => {
@@ -207,7 +207,7 @@ describe('Add menu item', () => {
   it('sits first in the Find and add group and can be hidden like the others', () => {
     const owner = personas['owner at the PC']
     const find = visibleRailGroups(owner).find((g) => g.id === 'find')
-    expect(find?.items.map((r) => r.item.label)).toEqual(['Add', 'Find'])
+    expect(find?.items.map((r) => r.item.label)).toEqual(['Add', 'Find', 'Updates'])
     expect(labels({ ...owner, hidden: ['make-subtitles'] })).not.toContain('Add')
     expect(customizableNavItems(owner).map((i) => i.label)).toContain('Add')
     expect(isNavLocked(NAV_ITEMS.find((i) => i.label === 'Add')!)).toBe(false)
