@@ -91,6 +91,18 @@ def sign_fitted_size(page, box: dict, text: str, custom_fonts: dict | None = Non
     return laid_out[0].size if laid_out else scanlate_tuning.TYPESET_SMALLEST_PX - 1
 
 
+def _caption_styles(page, captions: list) -> list:
+    """Each caption's sampled style, with its hand-set colour over the sampled fill."""
+    styles = [scanlate_art_text.caption_style(page, b) for b in captions]
+    return [dict(s, fill=chosen_color(b)) if chosen_color(b) else s for b, s in zip(captions, styles)]
+
+
+def _in_rooms(regions: list, rooms: list) -> list:
+    """`regions` with each one's box replaced by its room. The rooms are read before the erase:
+    a credit line sits between two red rules and its English belongs there, not across a rule."""
+    return [{**b, **room} for b, room in zip(regions, rooms)]
+
+
 def process_page(image_path: str, bubbles: list, out_path: str, font_path: str | None = None,
                   custom_fonts: dict | None = None, notes: list | None = None,
                   match_color: bool = False, rect_layout: bool = False,
@@ -159,10 +171,9 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         captions = [b for b in to_render if b.get("kind") == "caption"]
         to_render = [b for b in to_render if b.get("kind") != "caption"]
         to_render, art_signs = _split_art_signs(page, to_render)
-        caption_styles = [scanlate_art_text.caption_style(page, b) for b in captions]
+        caption_styles = _caption_styles(page, captions)
         caption_rooms = [scanlate_art_text.clear_of_decoration(page, b) for b in captions]
-        caption_styles = [dict(s, fill=chosen_color(b)) if chosen_color(b) else s
-                          for b, s in zip(captions, caption_styles)]
+        letter_rooms = [scanlate_art_text.between_rules(page, b) for b in to_render]
         # The ink is read before the erase below removes it.
         inks, fades = _sampled_inks(page, to_render, match_color)
         angles, lines = _tilts_and_lines(page, to_render)
@@ -182,8 +193,8 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
             scanlate_art_text.draw_caption(pil_img, room, b["translated_text"], style,
                                            font_path=font_path)
         _note_missing_cjk_font(notes, to_render)
-        _letter_balloons(pil_img, image_path, to_render, gray, font_path, custom_fonts, inks,
-                         rect_layout, look, angles, fades, lines)
+        _letter_balloons(pil_img, image_path, _in_rooms(to_render, letter_rooms), gray,
+                         font_path, custom_fonts, inks, rect_layout, look, angles, fades, lines)
         _draw_glosses(pil_img, page, bubbles, art_signs, font_path)
         pil_img.save(result_path, "PNG")
         replace_file(result_path, out_path)

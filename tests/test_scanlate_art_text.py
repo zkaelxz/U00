@@ -580,3 +580,13 @@ def test_a_balloon_box_on_a_glyph_with_a_stray_ocr_digit_is_dropped():
     glyph = {"kind": "bubble", "source_text": "的\n7", "x": 10, "y": 10, "w": 30, "h": 30}
     caption = {"kind": "caption", "source_text": "重生佣兵王的复仇", "x": 0, "y": 0, "w": 200, "h": 200}
     assert scanlate.drop_parts_of_captions([glyph], [caption]) == []
+
+
+def test_dark_caption_lettering_gets_a_light_thin_outline_not_a_fat_dark_one():
+    base = Image.new("RGB", (300, 120), (200, 200, 200))
+    dark, light = base.copy(), base.copy()
+    box = {"x": 10, "y": 10, "w": 280, "h": 100}
+    art.draw_caption(dark, box, "TITLE", {"fill": (20, 20, 20), "glow": None})
+    art.draw_caption(light, box, "TITLE", {"fill": (240, 240, 240), "glow": None})
+    inked = lambda im: int((np.asarray(im.convert("L")) < 100).sum())
+    assert inked(dark) < inked(light)                                       # no dark outline fattening the dark fill

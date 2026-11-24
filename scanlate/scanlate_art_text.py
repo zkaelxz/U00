@@ -307,9 +307,12 @@ def caption_style(page, box: dict) -> dict:
 # The title's box also takes in the blank margin and its neighbours' padding, so English that
 # filled the whole height ran into the credit line under it.
 _CAPTION_MAX_HEIGHT_SHARE = 0.88
+_DARK_FILL_LUMA = 110
 _DECOR_MIN_AREA = 800
 _DECOR_MIN_FILL = 0.5
 _DECOR_GAP_PX = 8
+_RULE_MAX_THICKNESS = 6
+_RULE_MIN_LENGTH = 40
 
 
 def decoration_blocks(page, box: dict) -> list:
@@ -324,6 +327,7 @@ def decoration_blocks(page, box: dict) -> list:
         return []
     crop = page[y0:y1, x0:x1].astype(np.int16)
     coloured = ((crop.max(axis=2) - crop.min(axis=2)) > _TAG_SATURATION).astype(np.uint8)
+    tinted = (crop.max(axis=2) - crop.min(axis=2)) > _TAG_SATURATION // 2
     count, _, stats, _ = cv2.connectedComponentsWithStats(coloured, connectivity=8)
     blocks = []
     for i in range(1, count):
@@ -331,6 +335,43 @@ def decoration_blocks(page, box: dict) -> list:
         if area >= _DECOR_MIN_AREA and area >= _DECOR_MIN_FILL * w * h and w <= 0.5 * (x1 - x0):
             blocks.append((x0 + x, y0 + y, x0 + x + w, y0 + y + h))
     return blocks
+
+
+def _stands_alone(coloured, x: int, y: int, w: int, h: int) -> bool:
+    """True when little colour sits just above and below the strip: a rule has clear paper
+    either side, while a band of a colour fade only borders the rest of its fade."""
+    above, below = coloured[max(0, y - 2):y, x:x + w], coloured[y + h:y + h + 2, x:x + w]
+    return all(side.size == 0 or side.mean() < 0.2 for side in (above, below))
+
+
+def between_rules(page, box: dict) -> dict:
+    """`box` cut to its tallest stretch clear of the thin coloured rules inside it (the red lines
+    a credit line sits between), or `box` itself with none. The English was set across a rule."""
+    import cv2
+    ph, pw = page.shape[:2]
+    x0, y0 = max(0, box["x"]), max(0, box["y"])
+    x1, y1 = min(pw, box["x"] + box["w"]), min(ph, box["y"] + box["h"])
+    if x1 <= x0 or y1 <= y0:
+        return box
+    crop = page[y0:y1, x0:x1].astype(np.int16)
+    coloured = ((crop.max(axis=2) - crop.min(axis=2)) > _TAG_SATURATION).astype(np.uint8)
+    tinted = (crop.max(axis=2) - crop.min(axis=2)) > _TAG_SATURATION // 2
+    count, _, stats, _ = cv2.connectedComponentsWithStats(coloured, connectivity=8)
+    edges = [(0, 0)]
+    for i in range(1, count):
+        x, y, w, h, _area = stats[i]
+        if h <= _RULE_MAX_THICKNESS and w >= _RULE_MIN_LENGTH and w >= 4 * h \
+                and _stands_alone(tinted, x, y, w, h):
+            edges.append((y, y + h))
+    if len(edges) == 1:
+        return box
+    edges.sort()
+    edges.append((y1 - y0, y1 - y0))
+    gaps = [(edges[i][1], edges[i + 1][0]) for i in range(len(edges) - 1)]
+    top, bottom = max(gaps, key=lambda g: g[1] - g[0])
+    if bottom - top < 0.3 * (y1 - y0):
+        return box
+    return {**box, "y": y0 + top + _DECOR_GAP_PX // 2, "h": bottom - top - _DECOR_GAP_PX}
 
 
 def clear_of_decoration(page, box: dict) -> dict:
@@ -401,7 +442,12 @@ def draw_caption(pil_img, box: dict, text: str, style: dict | None = None, font_
         pil_img.paste(Image.new("RGB", pil_img.size, tuple(style["glow"])), (0, 0), halo)
         stroke, stroke_fill = 0, None
     else:
-        stroke, stroke_fill = max(2, size // 10), (20, 20, 30)
+        fill_luma = sum(style["fill"][:3]) / 3
+        if fill_luma < _DARK_FILL_LUMA:
+            # A dark outline round dark lettering only fattened it into a blob.
+            stroke, stroke_fill = max(1, size // 24), (245, 245, 250)
+        else:
+            stroke, stroke_fill = max(2, size // 10), (20, 20, 30)
     for x, y, line in placed:
         draw.text((x, y), line, font=font, fill=tuple(style["fill"]),
                   stroke_width=stroke, stroke_fill=stroke_fill)

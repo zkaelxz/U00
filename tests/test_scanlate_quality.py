@@ -478,3 +478,30 @@ class TestDecorationAndBanners:
         cv2.putText(strip, "AB", (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 3)
         mask = scanlate_inpaint._dark_art_lettering_mask(strip)
         assert not mask[:, 300:].any() and not mask.all()
+
+
+class TestGlowSpillAndRules:
+    def test_glow_beyond_takes_the_coloured_halo_near_the_mask_only(self):
+        roi = np.full((120, 200, 3), 20, np.uint8)
+        roi[:, 60:75] = (20, 20, 160)                                      # red halo just outside the mask
+        roi[:, 180:195] = (20, 20, 160)                                    # red far away
+        mask = np.zeros((120, 200), np.uint8)
+        mask[40:80, 76:120] = 255
+        spill = scanlate_inpaint._glow_beyond(roi, mask)
+        assert spill[60, 65] and not spill[60, 185]
+
+    def test_glow_beyond_skips_art_that_is_coloured_throughout(self):
+        roi = np.full((60, 60, 3), (20, 20, 160), np.uint8)
+        mask = np.zeros((60, 60), np.uint8)
+        mask[20:40, 20:40] = 255
+        assert not scanlate_inpaint._glow_beyond(roi, mask).any()
+
+    def test_between_rules_keeps_the_tall_stretch_under_the_upper_rule(self):
+        from scanlate import scanlate_art_text as art
+        page = np.full((300, 300, 3), 20, np.uint8)
+        cv2.line(page, (20, 40), (280, 40), (30, 30, 220), 3)
+        cv2.line(page, (20, 220), (280, 220), (30, 30, 220), 3)
+        box = {"x": 0, "y": 0, "w": 300, "h": 300}
+        room = art.between_rules(page, box)
+        assert room["y"] > 40 and room["y"] + room["h"] < 220
+        assert art.between_rules(np.full((300, 300, 3), 20, np.uint8), box) == box

@@ -386,7 +386,9 @@ _ML_CONTEXT_PX = 32
 
 def _try_ml_inpaint_with_context(img, window, mask, hf_token, backend, context: int):
     """_try_ml_inpaint over the window (x, y, w, h) of `img` widened by `context` px each
-    side, returning only the window's part."""
+    side, returning only the window's part. The glow of lettering that spreads past the
+    window is repainted too, in `img` itself: left outside, the model copied its colour
+    back into the window as a smudge."""
     x, y, bw, bh = window
     if context <= 0:
         return _try_ml_inpaint(img[y:y + bh, x:x + bw], mask, hf_token, backend)
@@ -395,10 +397,30 @@ def _try_ml_inpaint_with_context(img, window, mask, hf_token, backend, context: 
     x1, y1 = min(w, x + bw + context), min(h, y + bh + context)
     wide_mask = np.zeros((y1 - y0, x1 - x0), np.uint8)
     wide_mask[y - y0:y - y0 + bh, x - x0:x - x0 + bw] = mask
-    wide, error = _try_ml_inpaint(img[y0:y1, x0:x1], wide_mask, hf_token, backend)
+    wide_roi = img[y0:y1, x0:x1]
+    spill = _glow_beyond(wide_roi, wide_mask)
+    wide_mask |= spill
+    wide, error = _try_ml_inpaint(wide_roi, wide_mask, hf_token, backend)
     if wide is None:
         return None, error
+    margin = (spill > 0)
+    margin[y - y0:y - y0 + bh, x - x0:x - x0 + bw] = False
+    wide_roi[margin] = wide[margin]
     return wide[y - y0:y - y0 + bh, x - x0:x - x0 + bw], error
+
+
+def _glow_beyond(roi, mask):
+    """uint8 mask of the coloured glow round the masked lettering of `roi`, within reach of
+    it, or zeros when the art is coloured throughout or there is no mask."""
+    import cv2
+    if not mask.any():
+        return np.zeros_like(mask)
+    coloured = _channel_spread(roi) > _GLOW_SPREAD
+    if coloured.mean() > _GLOW_MAX_SHARE:
+        return np.zeros_like(mask)
+    reach = cv2.dilate(mask, cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (_GLOW_REACH_PX, _GLOW_REACH_PX))) > 0
+    return (coloured & reach).astype(np.uint8) * 255
 
 
 def _try_ml_inpaint(roi, mask, hf_token, backend):
@@ -682,8 +704,8 @@ _BRIGHT_STROKE_MIN_SHARE = 0.04
 _BRIGHT_STROKE_MAX_MEDIAN = 200
 # A glow is a coloured halo within this reach of the strokes; left behind it showed as a
 # dark-red smudge under the English.
-_GLOW_SPREAD = 60
-_GLOW_REACH_PX = 31
+_GLOW_SPREAD = 35
+_GLOW_REACH_PX = 45
 _GLOW_MAX_SHARE = 0.6
 # A sign whose paper-relative mask covers more of its box than this is taking the art for
 # lettering, and repainting that much erased a blurry rectangle over the picture.
