@@ -131,7 +131,7 @@ class TestTermConventions:
         monkeypatch.setattr(ges, "_start_extraction_job",
                             lambda job_id, target, *a, **kw: seen.update(kw) or True)
         monkeypatch.setattr(ges, "_read_drama_file", lambda *a, **kw: "原文")
-        monkeypatch.setattr(ges, "_glossary_engine", lambda drama, name: ("claude", object()))
+        monkeypatch.setattr(ges, "_glossary_engine", lambda drama, name, model=None: ("claude", object()))
         monkeypatch.setattr("services.translate_run_service.refuse_when_cap_spent", lambda *a: None)
         sid = isolated_db.create_series("S")
         did = isolated_db.create_drama(title_zh="书", series_id=sid, media_type="novel",

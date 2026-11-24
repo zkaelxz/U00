@@ -45,6 +45,7 @@ import {
 } from '../translateTabs'
 import { useSimple, useStage } from '../StageContext'
 import { isMember, useSession } from '../../../hooks/useSession'
+import { useHolds } from '../../../hooks/useHolds'
 import { foldsTranslateOptions, titleKind } from '../titleKind'
 import { stageLabel } from '../stages'
 import { useTranslateRunForm } from './useTranslateRunForm'
@@ -75,6 +76,8 @@ import {
   contextRange,
   withPresetEngine,
   withSavedEngine,
+  memberEngine,
+  memberRunForm,
   type RunForm,
 } from '../translateForm'
 import { StyleField } from './StartFromPicker'
@@ -288,6 +291,7 @@ function RunPanel({
   // Simple keeps the engine, model, style and variant out of sight behind one summary line.
   const [changing, setChanging] = useState(false)
   const member = isMember(useSession())
+  const holdsPaid = useHolds('engines.paid')
   const [reviewing, setReviewing] = useState(0)
   const [reviewNote, setReviewNote] = useState<string | null>(null)
   const canReview = !!drama.series_id
@@ -323,7 +327,7 @@ function RunPanel({
     const e = config.engines.find((x) => x.name === name)
     return e ? engineOptionLabel(e) : name
   }
-  const effEngine = f.engine || config.translation_engine
+  const effEngine = member ? memberEngine(config.translation_engine, config.engines, holdsPaid) : f.engine || config.translation_engine
   const canBulk = bulkAvailable(effEngine, config.bulk_supported_engines) && !(f.reflect && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const scanFirst = reviewFirst && canReview
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
@@ -345,7 +349,7 @@ function RunPanel({
     && fallbackOptions(engineNames, effEngine, f.fallbacks, -1).length > f.fallbacks.filter((e) => !e).length
 
   const runEstimate = () => {
-    const params = buildEstimateParams(f)
+    const params = buildEstimateParams(member ? memberRunForm(f) : f)
     setEstimate(null)
     if (!params) return setProblem('Cost cap must be a number of dollars, 0 or more.')
     setProblem(null)
@@ -360,7 +364,7 @@ function RunPanel({
   }
 
   const start = (afterReview = false) => {
-    const bad = validateRun(f, config.translation_engine, config.bulk_supported_engines)
+    const bad = validateRun(member ? memberRunForm(f) : f, config.translation_engine, config.bulk_supported_engines)
     setProblem(bad)
     if (bad) return
     // The Last run card's Retry reaches here without the disabled main button, so the gate is checked again.
@@ -374,7 +378,7 @@ function RunPanel({
     }
     if (starting) return
     setStarting(true)
-    startTranslateRun(dramaId, buildRunBody(f)).then((r) => {
+    startTranslateRun(dramaId, buildRunBody(member ? memberRunForm(f) : f)).then((r) => {
       setError(null)
       onStarted(r.job_id)
     }, setError).finally(() => setStarting(false))
@@ -439,7 +443,9 @@ function RunPanel({
   return (
     <section className="panel" aria-label="Translate run">
       <h2>Translate</h2>
-      {simple && !folded ? (
+      {member ? (
+        <p className="muted" data-testid="translate-summary">The engine and settings are chosen for you.</p>
+      ) : simple && !folded ? (
         <div className="translate-summary">
           <p data-testid="translate-summary">{runSummaryLine(effEngineLabel, f.model, styleLabel, humanize('locale', f.locale))}</p>
           <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={changing} onClick={() => setChanging((v) => !v)}>
@@ -453,7 +459,7 @@ function RunPanel({
           <div className="translate-go">{estimateControls}</div>
         </>
       )}
-      {!folded && !simple && basics}
+      {!folded && !simple && !member && basics}
       {ollamaWarning(effEngine, config.ollama_reachable) && <OllamaNotice onRecheck={onRecheckOllama} />}
       {gate && gate.id !== 'engine_ollama' && <div id="translate-gate"><EngineGateNote gate={gate} /></div>}
       <div className="translate-go">
@@ -501,7 +507,7 @@ function RunPanel({
             {blocker.kind === 'confirm-force' && <span>Still needed: confirm replacing the existing English below.</span>}
           </p>
         )}
-        {!folded && !simple && estimateControls}
+        {!folded && !simple && !member && estimateControls}
       </div>
       {f.force && (
         <label className="inline stage-ack">
@@ -548,7 +554,7 @@ function RunPanel({
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {/* Folded titles keep their basic fields in this section, so only an unfolded one can leave it out. */}
-      {!(simple && !folded) && <Section storageKey="translate.advanced" title="More options" summary={advancedSummary(f, base, reviewFirst)}>
+      {!(simple && !folded) && !member && <Section storageKey="translate.advanced" title="More options" summary={advancedSummary(f, base, reviewFirst)}>
         <div className="advanced-grid">
           {folded && (
             <div className="advanced-wide">

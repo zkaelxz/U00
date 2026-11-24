@@ -249,10 +249,11 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
     drama_id = drama["id"]
     if step == q.NAMES:
         engine = glossary_extract_service.novel_glossary_engine(drama_id)
-        _require_free_or_paid(principal, engine, None, "finds names")
+        model = glossary_extract_service.glossary_model(drama_id)
+        _require_free_or_paid(principal, engine, model, "finds names")
         start = (glossary_extract_service.start_novel_glossary_run if settings.get("source") == _NOVEL
                  else glossary_extract_service.start_lines_glossary_run)
-        return start(drama_id, engine_name=engine)["job_id"]
+        return start(drama_id, engine_name=engine, model=model)["job_id"]
     if step == q.IMPORT:
         from services import sources_import_service
         if not q._holds(principal, "sources.import"):
