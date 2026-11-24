@@ -86,23 +86,25 @@ _READ_IMAGE_BODY = {"requestBody": {"required": True, "content": {"multipart/for
 async def post_read_image(request: Request):
     if not request.headers.get("content-type", "").lower().startswith("multipart/form-data"):
         raise InvalidInputError("Send the picture as multipart/form-data.")
-    form = await read_capped_form(
-        request, _IMAGE_BODY_MAX, "the picture", _IMAGE_TOO_LARGE,
-        "The picture form could not be read.", max_files=1, max_fields=4)
-    try:
-        upload = form.get("image")
-        engine = form.get("engine")
-        if not isinstance(upload, UploadFile) or not isinstance(engine, str) or not engine:
-            raise InvalidInputError("Send an image and an engine.")
-        content = await upload.read(page_import_limits.MAX_IMAGE_BYTES + 1)
-        if len(content) > page_import_limits.MAX_IMAGE_BYTES:
-            raise InvalidInputError(_IMAGE_TOO_LARGE)
-        fields = {k: v for k, v in form.items() if isinstance(v, str)}
-    finally:
-        await form.close()
-    free_tier = {"true": True, "false": False}.get(fields.get("free_tier", ""))
     # Synchronous provider call: capped by the shared slot pool (api/llm_slots.py).
+    # Taken before the body is read so a member's parallel 30 MB uploads are
+    # refused at once instead of each filling temp disk and memory first.
     with llm_slot(request):
+        form = await read_capped_form(
+            request, _IMAGE_BODY_MAX, "the picture", _IMAGE_TOO_LARGE,
+            "The picture form could not be read.", max_files=1, max_fields=4)
+        try:
+            upload = form.get("image")
+            engine = form.get("engine")
+            if not isinstance(upload, UploadFile) or not isinstance(engine, str) or not engine:
+                raise InvalidInputError("Send an image and an engine.")
+            content = await upload.read(page_import_limits.MAX_IMAGE_BYTES + 1)
+            if len(content) > page_import_limits.MAX_IMAGE_BYTES:
+                raise InvalidInputError(_IMAGE_TOO_LARGE)
+            fields = {k: v for k, v in form.items() if isinstance(v, str)}
+        finally:
+            await form.close()
+        free_tier = {"true": True, "false": False}.get(fields.get("free_tier", ""))
         try:
             return await run_in_threadpool(
                 image_text_service.read_image, content, engine, fields.get("model") or None,
