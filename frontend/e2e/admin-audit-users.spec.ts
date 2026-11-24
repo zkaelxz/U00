@@ -279,7 +279,7 @@ test('People and access: first card open the first time, the rest closed and rem
   // Same page layout as the other pages: no page-specific width.
   await expect(page.locator('section[aria-label="People and access"]')).toHaveAttribute('data-page-shell', 'narrow')
   // Empty text names no command.
-  await expect(page.getByText('No one added yet. Add a person below by their Google email; then they can sign in with that Google account.')).toBeVisible()
+  await expect(page.getByText('No one added yet. Add a person above by their Google email; then they can sign in with that Google account.')).toBeVisible()
   // The household rights a new person starts with include playing media (a default since the owner decision of 2026-11-17).
   await expect(page.getByRole('form', { name: 'Add a person' })).toContainText('use Review, play audio and video)')
   await expect(page.locator('section[aria-label="People and access"]')).not.toContainText('grant-admin')
